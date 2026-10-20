@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { orchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 import { nativeBridge } from "../../lib/nativeBridge";
 import type { AutomationIdentity } from "./types";
@@ -24,7 +25,11 @@ export function useNodeFiles(adapter: NodeFilesAdapter, identity: AutomationIden
     const [target, route, action]: [AutomationIdentity, string | null, string | null] = JSON.parse(key);
     void adapter.read(target, route, action).then(
       (files) => { if (current) setResult({ key, files, failed: false }); },
-      () => { if (current) setResult({ key, files: [], failed: true }); },
+      (error: unknown) => {
+        if (!current) return;
+        if (DEV_BUILD) console.debug("Background Blueprint file references refresh failed", error);
+        setResult({ key, files: [], failed: true });
+      },
     );
     return () => { current = false; };
   }, [adapter, key]);

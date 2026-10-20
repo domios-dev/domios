@@ -50,6 +50,13 @@ checkout, even if that attempt has no worktree path; any dirt refuses the report
 even with `--acknowledge-dirty`.
 Other attempts with an unresolved lane still receive the lane worktree refusal.
 Without the flag every rule above is unchanged.
+For this canonical dispatch, add `--kind qa` or `--kind release_manager` to
+select the built-in prompt profile without changing `task.executor_role`; the
+kind does not grant canonical placement.
+Direct `agent spawn --plan-task` cannot reserve a task attempt and remains refused
+for task-bound canonical mutation. Task-less kinds with Plan context retain their
+existing parent-directed placement behavior; they do not reserve task attempts or
+participate in canonical writer occupancy, so the parent coordinates those writes.
 
 For a plan-bound mesh Worker, the peer owns its lane and the origin owns review
 and integration. After accepting the attempt, run
@@ -120,3 +127,19 @@ Mechanism ownership:
 | Board/card lane visibility | `task_03bf8da6` / `task_73ea1b9d` |
 | Auto cleanup | `task_540e7afa` |
 | Polling-smell nudges | `task_25dbe180` |
+
+## Transfer an acknowledged Worker between Teams
+
+For an acknowledged task-bound Worker in another Team's approved plan,
+the current source parent Orchestrator may use
+`codeterm agent link --parent-tab <destination> --tab <worker>` to transfer it
+to that plan's live Orchestrator in the same local workspace. Preserve plan,
+task, attempt, lane, session and nonce. The destination cannot pull it.
+Mismatched plan owner, binding, session or isolated lane refuses without state
+changes; recover or replace stale/ambiguous work through the existing task route.
+`team adopt-agent` is only for unbound roleless tabs.
+Only hierarchy and report placement move. Shell parent/Team environment values
+remain launch provenance, never current membership proof; resolve reports from
+live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
+
+<!-- revision: 3 -->

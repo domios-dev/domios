@@ -172,3 +172,11 @@ assert.equal(isLongPaste(Array.from({ length: 40 }, (_, i) => `line ${i}`).join(
 }
 
 console.log("composerCapsules tests passed");
+
+// videos number independently of images
+{
+  const first = addCapsule(EMPTY_CAPSULES, { kind: "image", path: SHOT_1 });
+  const video1 = addCapsule(first.registry, { kind: "video", path: "/u/a.mp4" });
+  const video2 = addCapsule(video1.registry, { kind: "video", path: "/u/b.mov" });
+  assert.deepEqual([first.capsule.label, video1.capsule.label, video2.capsule.label], ["image1", "video1", "video2"]);
+}

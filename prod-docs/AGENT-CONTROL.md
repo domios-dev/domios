@@ -40,7 +40,7 @@ Domios has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2).
 
 **Roles:**
 - **Orchestrator** (was Conductor) -- top-level, spawns Workers.
-- **Worker** -- executes one task, reports back. Cannot spawn. Cannot call `set-orchestrator`, `unlink`, or `agent spawn`.
+- **Worker** -- executes one task or an explicit task-less kind, reports back. Cannot spawn. Cannot call `set-orchestrator`, `unlink`, or `agent spawn`.
 
 Backward-compat alias: `Conductor` -> `Orchestrator`.
 
@@ -48,7 +48,9 @@ Backward-compat alias: `Conductor` -> `Orchestrator`.
 
 **Briefs.** Pass a brief with `--task-file PATH` or `--task-file -` fed by a single-quoted heredoc. The CLI refuses a multiline or over-240-character inline `--task`, because the shell has already expanded its backticks, `$`, quotes and newlines; a short scalar such as `--task "run tests"` stays fine. Every Worker brief names its report command, or the Worker finishes without reporting.
 
-**Worker discipline.** A Worker executes its one task, reports with `codeterm agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `partial` with the needed decomposition, so the Orchestrator splits it. A Worker `--status blocked` report proposes an owner decision for an external dependency, persists its reason and evidence, and leaves the task unchanged; only the Plan owner or Planner explicitly blocks the task.
+**Worker discipline.** A task-bound Worker executes its one task, reports with `codeterm agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `partial` with the needed decomposition, so the Orchestrator splits it. A Worker `--status blocked` report proposes an owner decision for an external dependency, persists its reason and evidence, and leaves the task unchanged; only the Plan owner or Planner explicitly blocks the task.
+
+**Task-less Worker kinds.** `qa`, `release_manager` and `reviewer` are still Workers and always sit under their parent in the Team hierarchy, but they own no Plan task. Spawn with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. They cannot spawn children or gain filesystem write access from gate grants. They report to their parent without `--status`. A QA may accept or bounce only an exact in-review task its parent delegates with `codeterm plan review delegate`; its verdict requires an evidence note, and it cannot hold or dispatch tasks. A `reviewer` launches read-only unless the parent passes `--execution-intent mutating` for that exact assignment, and it never accepts work, closes a review, edits a Plan, publishes or releases.
 
 **Push-based reports:** Reports go to the spawning Orchestrator, auto-injected into its PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
 
@@ -164,6 +166,7 @@ Domios tracks and restores terminal state across sessions:
 - **Pre-generated session ids**: For providers that accept an injected session id (Claude today), Domios pre-generates a UUID and passes it via `--session-id` at launch. Each tab gets a unique id even when several tabs share the same cwd.
 - **SessionStart hook**: Claude's `SessionStart` matcher POSTs back to `/api/tabs/{id}/hook/session_start`, so `/new` and `/clear` inside the TUI rotate the persisted `agent_session_id` immediately.
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
+- **Already-bound sessions**: `sessions resume` reuses a tab only while its bound agent is ready. A degraded, failed or unverified tab returns a conflict with `codeterm agent restart --tab ID` as its recovery command. For an `agentRuntime` Chat tab rebound to another session, that restart stops the old runtime and resumes the recorded session and its own history.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 23 -->
+<!-- revision: 28 -->

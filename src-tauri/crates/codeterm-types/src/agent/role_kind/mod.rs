@@ -11,9 +11,10 @@ mod tests;
 pub use builtins::all as builtin_kinds;
 pub use builtins::capability_for as capability_for_kind;
 pub use builtins::lookup as builtin_kind;
+pub use query::can_close_review;
 pub use query::{anchors_team, can_spawn, has_team_authority, manages, plan_approval, plan_edit};
-pub use query::{kind_capability, kind_descriptor, kind_id, kind_label};
-pub use query::{release, requires_parent};
+pub use query::{kind_capability, kind_descriptor, kind_id, kind_label, taskless_worker};
+pub use query::{read_only_by_default, release, requires_parent};
 
 /// Structural authority of a role kind. Fields are private and `LEAF` is the
 /// only public value, so capability cannot be named or forged off-crate.
@@ -148,6 +149,8 @@ pub struct RoleKindDescriptor {
     label: Cow<'static, str>,
     capability: RoleKindCapability,
     origin: RoleKindOrigin,
+    taskless_worker: bool,
+    read_only_by_default: bool,
 }
 
 impl RoleKindDescriptor {
@@ -157,6 +160,8 @@ impl RoleKindDescriptor {
             label: Cow::Borrowed(label),
             capability,
             origin: RoleKindOrigin::Builtin,
+            taskless_worker: false,
+            read_only_by_default: false,
         }
     }
 
@@ -180,6 +185,30 @@ impl RoleKindDescriptor {
         Self::new(id, label, RoleKindCapability::LEAF)
     }
 
+    const fn taskless_worker(id: &'static str, label: &'static str) -> Self {
+        Self {
+            id: Cow::Borrowed(id),
+            label: Cow::Borrowed(label),
+            capability: RoleKindCapability::LEAF,
+            origin: RoleKindOrigin::Builtin,
+            taskless_worker: true,
+            read_only_by_default: false,
+        }
+    }
+
+    /// A task-less leaf whose launch without an explicit execution intent is
+    /// read-only: only a separate parent grant makes it mutate.
+    const fn read_only_taskless_worker(id: &'static str, label: &'static str) -> Self {
+        Self {
+            id: Cow::Borrowed(id),
+            label: Cow::Borrowed(label),
+            capability: RoleKindCapability::LEAF,
+            origin: RoleKindOrigin::Builtin,
+            taskless_worker: true,
+            read_only_by_default: true,
+        }
+    }
+
     /// The only public constructor. Capability is hard-coded leaf and is not a
     /// parameter, so a runtime-defined kind can never anchor a Team or spawn.
     pub fn overlay(id: impl Into<String>, label: impl Into<String>) -> Self {
@@ -188,6 +217,8 @@ impl RoleKindDescriptor {
             label: Cow::Owned(label.into()),
             capability: RoleKindCapability::LEAF,
             origin: RoleKindOrigin::Overlay,
+            taskless_worker: false,
+            read_only_by_default: false,
         }
     }
 
@@ -209,6 +240,14 @@ impl RoleKindDescriptor {
 
     pub fn is_builtin(&self) -> bool {
         matches!(self.origin, RoleKindOrigin::Builtin)
+    }
+
+    pub fn is_taskless_worker(&self) -> bool {
+        self.taskless_worker
+    }
+
+    pub fn is_read_only_by_default(&self) -> bool {
+        self.read_only_by_default
     }
 
     pub fn anchors_team(&self) -> bool {

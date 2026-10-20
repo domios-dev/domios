@@ -1,3 +1,4 @@
+// Caller: CI plugin-release.yml, tests.yml; scripts ci-scope.mjs; skill github-release
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

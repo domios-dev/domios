@@ -1,16 +1,22 @@
 #!/usr/bin/env node
+// Caller: build.sh release-preflight/verify; CI file-sizes.yml; scripts qa-gates.lib.sh, tests/check-provider-boundary.test.mjs; skill gates
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const allowlistPath = 'scripts/provider-boundary-allowlist.json';
+const migratedBaseline = '86b30145e90e9d2f31294ead517b82716fd44da8';
 const scopes = ['src-tauri/src', 'src-tauri/crates', 'crates'];
 const sourceExtension = /\.(rs|ts|tsx|js|mjs|cjs|py|swift|json|toml)$/;
 const providerName = /codex|claude|opencode|aider|goose/i;
 
 export function isCoreSource(file) {
   return scopes.some(scope => file.startsWith(`${scope}/`)) && sourceExtension.test(file);
+}
+
+function isExactCorePath(file) {
+  return typeof file === 'string' && isCoreSource(file) && !/[\\*?\[\]{}]/.test(file) && !file.split('/').some(part => !part || part === '.' || part === '..');
 }
 
 export function detectOccurrences(file, source) {
@@ -31,15 +37,31 @@ function key(entry) {
 }
 
 export function validateAllowlist(document) {
-  if (!document || Object.keys(document).sort().join(',') !== 'entries,version' || document.version !== 1 || !Array.isArray(document.entries)) {
-    throw new Error('allowlist must contain only version: 1 and entries');
+  const fields = document ? Object.keys(document).sort().join(',') : '';
+  if (!document || !['entries,version', 'entries,splits,version'].includes(fields) || document.version !== 1 || !Array.isArray(document.entries)) {
+    throw new Error('allowlist must contain only version: 1, optional splits and entries');
+  }
+  if (document.splits !== undefined && !Array.isArray(document.splits)) throw new Error('splits must be an array');
+  const splitSources = new Set();
+  for (const split of document.splits ?? []) {
+    if (!split || Object.keys(split).sort().join(',') !== 'from,to' || !isExactCorePath(split.from) || !Array.isArray(split.to) || !split.to.length) {
+      throw new Error('split requires an exact source and one or more exact destinations');
+    }
+    if (splitSources.has(split.from)) throw new Error(`duplicate split source: ${split.from}`);
+    splitSources.add(split.from);
+    const destinations = new Set();
+    for (const file of split.to) {
+      if (!isExactCorePath(file) || file === split.from) throw new Error(`non-exact split destination: ${file}`);
+      if (destinations.has(file)) throw new Error(`duplicate split destination: ${file}`);
+      destinations.add(file);
+    }
   }
   const seen = new Set();
   for (const entry of document.entries) {
     if (!entry || Object.keys(entry).sort().join(',') !== 'count,file,justification,removalSlice,token') {
       throw new Error('entry requires exact file, token, count, justification and removalSlice');
     }
-    if (typeof entry.file !== 'string' || !isCoreSource(entry.file) || /[\\*?\[\]{}]/.test(entry.file) || entry.file.split('/').some(part => !part || part === '.' || part === '..')) {
+    if (!isExactCorePath(entry.file)) {
       throw new Error(`non-exact core source path: ${entry.file}`);
     }
     if (typeof entry.token !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$-]*$/.test(entry.token) || !providerName.test(entry.token.replaceAll(/[_$-]/g, ''))) {
@@ -117,6 +139,15 @@ export function scanRevision(root, revision) {
   return files.flatMap(file => detectOccurrences(file, git(root, ['show', `${revision}:${file}`])));
 }
 
+// The baseline is where this branch left `base`; later moves on `base` must not read as increases here.
+export function forkPointOf(root, base) {
+  try {
+    return git(root, ['merge-base', 'HEAD', base]).trim();
+  } catch {
+    throw new Error(`no fork point between HEAD and ${base}; fetch full history of both`);
+  }
+}
+
 export function readBaseline(root, revision) {
   const resolved = git(root, ['rev-parse', '--verify', `${revision}^{commit}`]).trim();
   const files = git(root, ['ls-tree', '--name-only', resolved, '--', allowlistPath]).trim();
@@ -124,9 +155,53 @@ export function readBaseline(root, revision) {
   return validateAllowlist(JSON.parse(git(root, ['show', `${resolved}:${allowlistPath}`])));
 }
 
+export function baselineRevision(root, forkPoint, anchor = migratedBaseline) {
+  try {
+    git(root, ['merge-base', '--is-ancestor', anchor, 'HEAD']);
+    git(root, ['merge-base', '--is-ancestor', forkPoint, anchor]);
+    return anchor;
+  } catch {
+    return forkPoint;
+  }
+}
+
+export function followRenames(root, revision, baseline, occurrences, splits = []) {
+  const fields = git(root, ['diff', '--name-status', '-z', '--break-rewrites', '--find-renames', '--find-copies-harder', revision, '--', ...scopes]).split('\0');
+  const renamed = new Map();
+  for (let index = 0; index < fields.length;) {
+    const status = fields[index++];
+    if (!status) continue;
+    const from = fields[index++];
+    if (status.startsWith('R') || status.startsWith('C')) {
+      if (!renamed.has(from)) renamed.set(from, []);
+      renamed.get(from).push(fields[index++]);
+    }
+  }
+  for (const split of splits) {
+    if (!renamed.has(split.from)) renamed.set(split.from, []);
+    const destinations = renamed.get(split.from);
+    for (const file of split.to) if (!destinations.includes(file)) destinations.push(file);
+  }
+  const actual = new Map(countOccurrences(occurrences).map(entry => [key(entry), entry.count]));
+  return baseline.flatMap(entry => {
+    const destinations = renamed.get(entry.file);
+    if (!destinations) return [entry];
+    const retained = Math.min(entry.count, actual.get(key(entry)) ?? 0);
+    let remaining = entry.count - retained;
+    const allowances = retained ? [{ ...entry, count: retained }] : [];
+    for (const file of destinations) {
+      const count = Math.min(remaining, actual.get(key({ ...entry, file })) ?? 0);
+      if (count) allowances.push({ ...entry, file, count });
+      remaining -= count;
+    }
+    return allowances;
+  });
+}
+
 export function seedAllowlist(occurrences) {
   return {
     version: 1,
+    splits: [],
     entries: countOccurrences(occurrences).map(entry => ({
       ...entry,
       justification: 'Existing develop provider coupling; temporary exact file/token count pending plugin extraction.',
@@ -145,9 +220,13 @@ function main() {
   const root = git(process.cwd(), ['rev-parse', '--show-toplevel']).trim();
   const document = JSON.parse(readFileSync(resolve(root, allowlistPath), 'utf8'));
   const occurrences = scanWorkingTree(root);
-  const errors = checkBoundary(occurrences, document, readBaseline(root, base));
+  const forkPoint = forkPointOf(root, base);
+  const revision = baselineRevision(root, forkPoint);
+  validateAllowlist(document);
+  const baseline = followRenames(root, revision, readBaseline(root, revision), occurrences, document.splits ?? []);
+  const errors = checkBoundary(occurrences, document, baseline);
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log(`Provider boundary PASS: ${occurrences.length} occurrences in ${document.entries.length} exact file/token pairs; baseline ${base}.`);
+  console.log(`Provider boundary PASS: ${occurrences.length} occurrences in ${document.entries.length} exact file/token pairs; baseline ${base} at ${revision}; fork point ${forkPoint}.`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

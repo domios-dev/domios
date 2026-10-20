@@ -123,7 +123,8 @@ async function render(tabId: string, rows = ROWS) {
 
 const row = (id: string) => host!.querySelector<HTMLElement>(`[data-message-id="${id}"]`)!;
 const dot = (id: string) => row(id).querySelector<HTMLButtonElement>('button[aria-label="Message actions"]');
-const menu = (id: string) => row(id).querySelector<HTMLElement>('[role="menu"]');
+// The menu portals to the document; it belongs to the row whose dot is expanded.
+const menu = (id: string) => dot(id)?.getAttribute("aria-expanded") === "true" ? document.querySelector<HTMLElement>('[role="menu"][aria-label="Message actions"]') : null;
 const item = (id: string, label: string) => menu(id)?.querySelector<HTMLButtonElement>(`[role="menuitem"][aria-label="${label}"]`) ?? null;
 const barButton = (text: string) => Array.from(host!.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Selected messages"] button')).find((button) => button.textContent === text)!;
 const bar = () => host!.querySelector('[role="toolbar"][aria-label="Selected messages"]');

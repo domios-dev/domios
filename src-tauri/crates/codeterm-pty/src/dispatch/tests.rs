@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_health_returns_ok() {
-    let result = cmd_health().unwrap();
+    let result = health_result().unwrap();
     let json = result.into_json();
     assert_eq!(json["status"], "ok");
     assert_eq!(json["name"], "CodeTerm");
@@ -725,6 +725,27 @@ fn tab_list_explicit_workspace_scope() {
     assert_eq!(summaries[0]["scope"], "workspace");
     assert_eq!(summaries[0]["scope_workspace_id"], first_workspace);
     assert_eq!(summaries[0]["other_workspace_tab_count"], 1);
+}
+
+#[test]
+fn workspace_selector_resolves_unique_prefix_and_refuses_ambiguous_prefix() {
+    use crate::dispatch::resolve_workspace_selector;
+    use crate::multiplexer::state::MultiplexerState;
+
+    let (mut state, _) = MultiplexerState::new();
+    state.create_workspace("second".into(), None);
+    let mut snapshot = state.snapshot();
+    snapshot.workspaces[0].id = "994f16ae".into();
+    snapshot.workspaces[1].id = "994f16af".into();
+
+    assert_eq!(
+        resolve_workspace_selector(&snapshot, "994f16ae").unwrap(),
+        "994f16ae"
+    );
+    assert_eq!(
+        resolve_workspace_selector(&snapshot, "994f16a").unwrap_err(),
+        "Ambiguous workspace id prefix: 994f16a"
+    );
 }
 
 #[test]

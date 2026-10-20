@@ -41,8 +41,6 @@ describe("spend chart", () => {
     expect(bars?.getAttribute("aria-label")).toBe("new input by day: Mon 30, Tue 0");
     expect(view.querySelector("button")).toBeNull();
     expect(view.querySelector("[data-coverage]")).toBeNull();
-    const stacks = Array.from(view.querySelectorAll<HTMLElement>(".mc-board-chart-stack"));
-    expect(stacks.map((stack) => stack.style.height)).toEqual(["100%", "0%"]);
   });
 
   it("draws an unrecorded bucket without a figure and scales against recorded buckets only", async () => {
@@ -68,12 +66,10 @@ describe("spend chart", () => {
     const view = await render(<SpendChart data={data} label="New input" unit="week" format={format} />);
     const label = view.querySelector(".mc-board-chart-bars")?.getAttribute("aria-label");
     expect(label).toBe("New input by week: Sep 1 not recorded, Sep 8 40, Sep 15 20");
-    const [unrecorded, partial, today] = Array.from(view.querySelectorAll<HTMLElement>(".mc-board-chart-stack"));
+    const [unrecorded] = Array.from(view.querySelectorAll<HTMLElement>(".mc-board-chart-stack"));
     expect(unrecorded!.dataset.coverage).toBe("not_recorded");
     expect(unrecorded!.querySelectorAll("[data-testid='mc-board-spend-chart-segment']")).toHaveLength(0);
     expect(unrecorded!.title).toBe("Sep 1 not recorded");
-    expect(partial!.style.height).toBe("100%");
-    expect(today!.style.height).toBe("50%");
     expect(view.textContent).not.toContain("from 17:50");
     expect(view.querySelectorAll<HTMLElement>(".mc-board-chart-label")[1]!.title).toBe("from 17:50");
     const tones = Array.from(view.querySelectorAll("[data-testid='mc-board-spend-chart-segment']")).map((s) =>

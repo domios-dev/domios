@@ -1,3 +1,4 @@
+// Caller: package.json script
 /**
  * Adopt-only multi-spec runner.
  *

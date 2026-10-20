@@ -50,6 +50,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 },
         } => team_pair_to_api(orchestrator, planner, workspace, title, *acknowledge_leaf),
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
+        Commands::Todo { .. } => {
+            unsupported("agent todo checklists are local to the owning tab")
+        }
         Commands::SendText {
             text,
             tab,
@@ -261,6 +264,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
         },
         Commands::Tab { action } => match action {
+            crate::TabAction::Todo { .. } => {
+                return unsupported("tab todo checklists must run on the owning daemon")
+            }
             crate::TabAction::List {
                 workspace,
                 all_workspaces,
@@ -292,7 +298,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 ),
                 None,
             ),
-            crate::TabAction::Timeout { .. } => unsupported("utility shell timeouts require a local owning agent"),
+            crate::TabAction::Timeout { .. } => unsupported("utility shell timeouts require a local owning agent; ask an agent running on the target peer to create or manage the shell with --timeout"),
             crate::TabAction::Current { .. } => ("GET".into(), "/api/tabs".into(), None),
             crate::TabAction::New {
                 timeout,
@@ -311,7 +317,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 chat_backend,
                 config,
             } => {
-                if timeout.is_some() { return unsupported("utility shell timeouts require a local owning agent"); }
+                if timeout.is_some() { return unsupported("utility shell timeouts require a local owning agent; ask an agent running on the target peer to create or manage the shell with --timeout"); }
                 if *list_shells { return ("GET".into(), "/api/shells".into(), None); }
                 let mut body = serde_json::json!({ "purpose": purpose, "description": description, "icon": icon, "shell": shell });
                 if let Some(w) = workspace {
@@ -361,7 +367,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 let query = if *force { "?force=true" } else { "" };
                 ("POST".into(), format!("/api/tabs/{}/close{query}", id), None)
             }
-            crate::TabAction::Restart { tab, cwd, cmd } => {
+            crate::TabAction::Restart { tab, cwd, cmd, timeout } => {
+                if timeout.is_some() {
+                    return unsupported("remote tab restart does not support --timeout; ask an agent running on the target peer to restart the shell with --timeout");
+                }
                 if cmd.is_some() {
                     return unsupported("remote tab restart does not support --cmd; restart then use codeterm tab exec");
                 }
@@ -858,6 +867,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     format!("/api/session/backups/{}/restore", urlencoding::encode(name)),
                     None,
                 ),
+                crate::args::sessions::BackupsAction::Export { .. }
+                | crate::args::sessions::BackupsAction::Import { .. } => {
+                    unsupported("`sessions backups export|import` read or write a local file; run it on the target machine")
+                }
             },
         },
         Commands::Keepawake { action } => match action {
@@ -935,7 +948,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Service { action } => service_to_api(action),
         // Declared non-REST by the transport table, which answered before this
         // match was reached. Listed explicitly so a new variant must choose.
-        Commands::Web { .. }
+        Commands::App { .. }
+        | Commands::Web { .. }
         | Commands::Account { .. }
         | Commands::Analytics { .. }
         | Commands::Plugin { .. }

@@ -129,7 +129,7 @@ describe("browser attachment upload transport", () => {
     let started!: () => void;
     const requestStarted = new Promise<void>((resolve) => { started = resolve; });
     vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://phone/api/upload");
+      expect(url).toBe("https://phone/api/attachments/upload");
       expect(new Headers(init.headers).has("Content-Type")).toBe(false);
       const field = (init.body as FormData).get("file") as File;
       expect(field.name).toBe("voice-note.webm");

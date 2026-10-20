@@ -1,4 +1,11 @@
+use super::agent_runtime::{AgentUsageAction, ChildHistoryArgs};
 use clap::{Args, Subcommand};
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpawnLocation {
+    Local,
+    Cloud,
+}
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum SpawnRole {
@@ -117,6 +124,13 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Read usage or consume a confirmed reset credit for an exact tab.
+    Usage {
+        #[command(subcommand)]
+        action: AgentUsageAction,
+    },
+    /// Read one recorded child's transcript under the exact parent binding.
+    ChildHistory(ChildHistoryArgs),
     /// Sign in to the tab's runtime provider without a terminal
     Login {
         #[arg(long, value_name = "TAB")]
@@ -238,9 +252,41 @@ pub enum AgentAction {
         #[arg(long)]
         force: bool,
         /// Model id. Run `agent models PROVIDER` to list.
-        name: String,
+        /// Model id. Omit when changing only the service tier.
+        name: Option<String>,
+        /// Service tier id or `default` to clear the selection.
+        #[arg(long, value_name = "TIER", conflicts_with = "list_speeds")]
+        speed: Option<String>,
+        /// Reasoning effort declared for the selected model.
+        #[arg(long, value_name = "LEVEL", conflicts_with = "list_speeds")]
+        reasoning_effort: Option<String>,
+        /// Structured runtime mode declared by the selected provider.
+        #[arg(long, value_name = "MODE", conflicts_with = "list_speeds")]
+        runtime_mode: Option<String>,
+        /// List this tab's currently available service tiers.
+        #[arg(long, conflicts_with_all = ["speed", "reasoning_effort", "runtime_mode", "name", "force"])]
+        list_speeds: bool,
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+    },
+    /// Continue this tab on another provider through a bounded handoff produced by the target.
+    SwitchProvider {
+        provider: String,
+        #[arg(long)]
+        tab: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        reasoning_effort: Option<String>,
+        /// Stop the current turn before switching. Otherwise a busy tab refuses.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Read a daemon-owned provider switch operation, including self-switch results.
+    SwitchProviderStatus {
+        operation: String,
+        #[arg(long)]
         tab: Option<String>,
     },
     /// List available agent providers (claude, codex, ...) with their
@@ -295,6 +341,9 @@ pub enum AgentAction {
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
+        /// Worker prompt kind/profile, with or without a task: qa, release_manager or reviewer (read-only by default).
+        #[arg(long, alias = "role-profile")]
+        kind: Option<String>,
         /// Parent tab ID. Required for Workers; for a Planner, resolved
         /// from --plan (its Orchestrator) when omitted.
         #[arg(long = "parent-tab")]
@@ -345,6 +394,17 @@ pub enum AgentAction {
         /// Select a provider-owned preset supported by the target provider.
         #[arg(long)]
         preset: Option<String>,
+        /// Execution location declared by the provider. Remote tasks are one-shot tabs.
+        #[arg(long, value_enum)]
+        location: Option<SpawnLocation>,
+        /// Remote environment ID or unambiguous label; never inferred.
+        #[arg(
+            long,
+            requires = "location",
+            required_if_eq("location", "cloud"),
+            conflicts_with = "preset"
+        )]
+        environment: Option<String>,
         /// Watcher charter text.
         #[arg(long, allow_hyphen_values = true, conflicts_with = "charter_file")]
         charter: Option<String>,
@@ -380,10 +440,13 @@ pub enum AgentAction {
         /// Team whose Orchestrator is gone and carries no other spawn flag.
         #[arg(long, value_name = "TEAM_ID", conflicts_with = "plan_task")]
         team: Option<String>,
-        /// Declared execution intent. `mutating` requires a task binding;
-        /// `read_only` is also the task-less verification-Worker shape.
+        /// Declared execution intent. Plain mutating Workers require a task binding;
+        /// Worker kinds may mutate task-less and default to `mutating`.
         #[arg(long = "execution-intent", value_parser = ["read_only", "mutating"])]
         execution_intent: Option<String>,
+        /// Explicit OS confinement for this launch; Workers default to full access.
+        #[arg(long, value_parser = ["read-only", "workspace-write"])]
+        sandbox: Option<String>,
         /// Gate token this Worker may claim as executed; repeatable. Carried
         /// into its brief. For a task-bound Worker declare gates on the
         /// dispatch instead (`plan task dispatch --authorized-gate`).
@@ -403,595 +466,8 @@ pub enum AgentAction {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn agent_fork_and_model_force_parse() {
-        let fork = Cli::try_parse_from(["codeterm", "agent", "fork", "--tab", "fixture"]).unwrap();
-        assert!(
-            matches!(fork.command,crate::Commands::Agent{action:AgentAction::Fork{tab:Some(tab)}} if tab=="fixture")
-        );
-        let switch = Cli::try_parse_from([
-            "codeterm", "agent", "model", "--tab", "fixture", "opus", "--force",
-        ])
-        .unwrap();
-        assert!(matches!(
-            switch.command,
-            crate::Commands::Agent {
-                action: AgentAction::Model { force: true, .. }
-            }
-        ));
-    }
-
-    #[test]
-    fn agent_turns_parses_bounded_window_and_rejects_invalid_limits() {
-        let cli = Cli::try_parse_from([
-            "codeterm", "agent", "turns", "--tab", "worker", "--last", "2", "--after", "101",
-        ])
-        .unwrap();
-        assert!(matches!(
-            cli.command,
-            crate::Commands::Agent {
-                action: AgentAction::Turns {
-                    last: 2,
-                    after: 101,
-                    ..
-                }
-            }
-        ));
-        assert!(Cli::try_parse_from([
-            "codeterm", "agent", "turns", "--tab", "worker", "--last", "0"
-        ])
-        .is_err());
-        assert!(Cli::try_parse_from([
-            "codeterm", "agent", "turns", "--tab", "worker", "--last", "51"
-        ])
-        .is_err());
-    }
-
-    use super::*;
-    use crate::Cli;
-    use clap::{CommandFactory, Parser};
-
-    fn parse_report(args: &[&str]) -> Result<AgentAction, clap::Error> {
-        let mut full = vec!["codeterm", "agent", "report"];
-        full.extend_from_slice(args);
-        let cli = Cli::try_parse_from(full)?;
-        match cli.command {
-            crate::Commands::Agent { action } => Ok(action),
-            _ => panic!("expected agent subcommand"),
-        }
-    }
-
-    fn parse_spawn(args: &[&str]) -> Result<AgentAction, clap::Error> {
-        let mut full = vec!["codeterm", "agent", "spawn"];
-        full.extend_from_slice(args);
-        let cli = Cli::try_parse_from(full)?;
-        match cli.command {
-            crate::Commands::Agent { action } => Ok(action),
-            _ => panic!("expected agent subcommand"),
-        }
-    }
-
-    #[test]
-    fn report_status_accepts_known_values() {
-        for (input, expected) in [
-            ("done", "done"),
-            ("in_review", "in_review"),
-            ("blocked", "blocked"),
-            ("partial", "partial"),
-        ] {
-            let action = parse_report(&["msg", "--status", input]).expect("status should parse");
-            match action {
-                AgentAction::Report(args) => {
-                    assert_eq!(args.status.expect("status set").as_str(), expected);
-                }
-                _ => panic!("expected report action"),
-            }
-        }
-    }
-
-    #[test]
-    fn report_status_rejects_garbage() {
-        match parse_report(&["msg", "--status", "frobnicate"]) {
-            Err(e) => assert_eq!(e.kind(), clap::error::ErrorKind::InvalidValue),
-            Ok(_) => panic!("garbage --status must be rejected"),
-        }
-    }
-
-    #[test]
-    fn report_changed_files_splits_on_comma() {
-        let action = parse_report(&["msg", "--changed-files", "a.rs,b.rs,c.rs"]).unwrap();
-        match action {
-            AgentAction::Report(args) => {
-                assert_eq!(
-                    args.changed_files,
-                    Some(vec!["a.rs".into(), "b.rs".into(), "c.rs".into()])
-                );
-            }
-            _ => panic!("expected report action"),
-        }
-    }
-
-    #[test]
-    fn explicit_report_plan_and_task_take_precedence() {
-        let action =
-            parse_report(&["msg", "--plan", "pl_explicit", "--task", "task_explicit"]).unwrap();
-        match action {
-            AgentAction::Report(args) => {
-                assert_eq!(args.plan.as_deref(), Some("pl_explicit"));
-                assert_eq!(args.task.as_deref(), Some("task_explicit"));
-            }
-            _ => panic!("expected agent report"),
-        }
-    }
-
-    #[test]
-    fn report_without_flags_leaves_structured_fields_unset() {
-        let action = parse_report(&["just a message"]).unwrap();
-        match action {
-            AgentAction::Report(args) => {
-                assert!(args.status.is_none());
-                assert!(args.branch.is_none());
-                assert!(args.sha.is_none());
-                assert!(args.base.is_none());
-                assert!(args.changed_files.is_none());
-                assert!(args.test_cmd.is_none());
-                assert!(args.test_result.is_none());
-                assert!(args.skipped.is_none());
-            }
-            _ => panic!("expected report action"),
-        }
-    }
-
-    #[test]
-    fn agent_report_parses_full_structured_form() {
-        let action = parse_report(&[
-            "--status",
-            "in_review",
-            "--branch",
-            "lane/report-cli-planning",
-            "--base",
-            "abc123",
-            "ready",
-        ])
-        .expect("agent report parses");
-
-        match action {
-            AgentAction::Report(args) => {
-                assert_eq!(args.message.as_deref(), Some("ready"));
-                assert_eq!(args.status.expect("status set").as_str(), "in_review");
-                assert_eq!(args.branch.as_deref(), Some("lane/report-cli-planning"));
-                assert_eq!(args.base.as_deref(), Some("abc123"));
-            }
-            _ => panic!("expected agent report"),
-        }
-    }
-
-    #[test]
-    fn ledger_parses_tab_and_global_json() {
-        let cli = Cli::try_parse_from(["codeterm", "--json", "agent", "ledger", "--tab", "orch-1"])
-            .expect("ledger should parse");
-        assert!(cli.json, "global --json applies to ledger output");
-        match cli.command {
-            crate::Commands::Agent {
-                action: AgentAction::Ledger { tab },
-            } => assert_eq!(tab.as_deref(), Some("orch-1")),
-            _ => panic!("expected agent ledger action"),
-        }
-    }
-
-    #[test]
-    fn ack_parses_without_verbose_payload() {
-        let _guard = crate::test_env_lock().lock().unwrap();
-        let cli = Cli::try_parse_from(["codeterm", "agent", "ack"]).expect("ack should parse");
-        match cli.command {
-            crate::Commands::Agent {
-                action: AgentAction::Ack { tab, plan, task },
-            } => {
-                assert!(tab.is_none());
-                assert!(plan.is_none());
-                assert!(task.is_none());
-            }
-            _ => panic!("expected agent ack action"),
-        }
-    }
-
-    #[test]
-    fn startup_hold_parses_attempt_fence() {
-        let hold = Cli::try_parse_from([
-            "codeterm",
-            "agent",
-            "startup-hold",
-            "--tab",
-            "child",
-            "--attempt",
-            "launch-a",
-        ])
-        .expect("startup hold parses");
-        assert!(matches!(
-            hold.command,
-            crate::Commands::Agent {
-                action: AgentAction::StartupHold { ref tab, ref attempt }
-            } if tab == "child" && attempt == "launch-a"
-        ));
-    }
-
-    #[test]
-    fn startup_ack_has_no_spoofable_identity_flags() {
-        let ack =
-            Cli::try_parse_from(["codeterm", "agent", "startup-ack"]).expect("startup ack parses");
-        assert!(matches!(
-            ack.command,
-            crate::Commands::Agent {
-                action: AgentAction::StartupAck
-            }
-        ));
-    }
-
-    #[test]
-    fn ledger_tab_is_optional() {
-        let cli = Cli::try_parse_from(["codeterm", "agent", "ledger"]).expect("ledger w/o tab");
-        match cli.command {
-            crate::Commands::Agent {
-                action: AgentAction::Ledger { tab },
-            } => assert!(tab.is_none()),
-            _ => panic!("expected agent ledger action"),
-        }
-    }
-
-    #[test]
-    fn spawn_without_provider_keeps_model_routing_available() {
-        let cli = Cli::try_parse_from(["codeterm", "agent", "spawn", "--model", "sonnet"])
-            .expect("provider is optional when a model can identify it");
-        match cli.command {
-            crate::Commands::Agent {
-                action: AgentAction::Spawn { agent, model, .. },
-            } => {
-                assert_eq!(agent, None);
-                assert_eq!(model.as_deref(), Some("sonnet"));
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    #[test]
-    fn spawn_planner_role_maps_to_worker_profile() {
-        let cli =
-            Cli::try_parse_from(["codeterm", "agent", "spawn", "claude", "--role", "Planner"])
-                .expect("planner role parses");
-        match cli.command {
-            crate::Commands::Agent {
-                action: AgentAction::Spawn { role, .. },
-            } => {
-                let role = role.expect("role set");
-                assert_eq!(role.as_str(), "Manager");
-                assert_eq!(role.role_profile(), Some("planner"));
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    #[test]
-    fn spawn_watcher_role_maps_to_manager_profile() {
-        let cli = Cli::try_parse_from([
-            "codeterm",
-            "agent",
-            "spawn",
-            "fixture-backend",
-            "--role",
-            "Watcher",
-        ])
-        .expect("watcher role parses");
-        match cli.command {
-            crate::Commands::Agent {
-                action: AgentAction::Spawn { role, .. },
-            } => {
-                let role = role.expect("role set");
-                assert_eq!(role.as_str(), "Manager");
-                assert_eq!(role.role_profile(), Some("watcher"));
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    #[test]
-    fn spawn_worker_plan_task_parses() {
-        let cli = Cli::try_parse_from([
-            "codeterm",
-            "agent",
-            "spawn",
-            "claude",
-            "--role",
-            "Worker",
-            "--plan",
-            "pl_test",
-            "--plan-task",
-            "my-task",
-        ])
-        .expect("spawn with plan-task parses");
-        match cli.command {
-            crate::Commands::Agent {
-                action:
-                    AgentAction::Spawn {
-                        role,
-                        plan,
-                        plan_task,
-                        ..
-                    },
-            } => {
-                assert!(matches!(role, Some(SpawnRole::Worker)));
-                assert_eq!(plan.as_deref(), Some("pl_test"));
-                assert_eq!(plan_task.as_deref(), Some("my-task"));
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    #[test]
-    fn agent_spawn_unplanned_parses_reason() {
-        let action = parse_spawn(&[
-            "codex",
-            "--role",
-            "Worker",
-            "--unplanned",
-            "--reason",
-            "urgent probe",
-        ])
-        .expect("unplanned Worker spawn parses");
-        match action {
-            AgentAction::Spawn {
-                role,
-                unplanned,
-                reason,
-                ..
-            } => {
-                assert!(matches!(role, Some(SpawnRole::Worker)));
-                assert!(unplanned);
-                assert_eq!(reason.as_deref(), Some("urgent probe"));
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    /// The verification-Worker spawn: read-only, no `--plan-task`, and its
-    /// declared gate tokens travel as repeats of the same flag the dispatch
-    /// path already uses.
-    #[test]
-    fn spawn_read_only_worker_parses_without_a_plan_task() {
-        let action = parse_spawn(&[
-            "codex",
-            "--role",
-            "Worker",
-            "--plan",
-            "pl_test",
-            "--execution-intent",
-            "read_only",
-            "--authorized-gate",
-            "./build.sh test-one app verifier",
-            "--authorized-gate",
-            "./build.sh verify",
-        ])
-        .expect("a read-only Worker needs no plan task");
-        match action {
-            AgentAction::Spawn {
-                role,
-                plan,
-                plan_task,
-                execution_intent,
-                authorized_gates,
-                ..
-            } => {
-                assert!(matches!(role, Some(SpawnRole::Worker)));
-                assert_eq!(plan.as_deref(), Some("pl_test"));
-                assert!(plan_task.is_none());
-                assert_eq!(execution_intent.as_deref(), Some("read_only"));
-                assert_eq!(
-                    authorized_gates,
-                    vec![
-                        "./build.sh test-one app verifier".to_string(),
-                        "./build.sh verify".to_string()
-                    ]
-                );
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    /// The reported defect: clap demanded `--plan-task` for any
-    /// `--execution-intent`, so the documented verifier could not be spawned.
-    #[test]
-    fn execution_intent_no_longer_requires_a_plan_task_at_parse_time() {
-        let _guard = crate::test_env_lock().lock().unwrap();
-        let action = parse_spawn(&[
-            "codex",
-            "--role",
-            "Worker",
-            "--execution-intent",
-            "read_only",
-        ])
-        .expect("--execution-intent must parse on its own");
-        match action {
-            AgentAction::Spawn {
-                execution_intent,
-                plan,
-                plan_task,
-                ..
-            } => {
-                assert_eq!(execution_intent.as_deref(), Some("read_only"));
-                assert!(plan.is_none());
-                assert!(plan_task.is_none());
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    #[test]
-    fn spawn_provider_args_preserve_hyphen_values_after_codeterm_bindings() {
-        let action = parse_spawn(&[
-            "claude",
-            "--role",
-            "Worker",
-            "--plan",
-            "pl_x",
-            "--task",
-            "do x",
-            "--args",
-            "--resume",
-            "1234-uuid",
-            "--model",
-            "gpt-5",
-        ])
-        .expect("provider args should parse");
-
-        match action {
-            AgentAction::Spawn {
-                role,
-                plan,
-                task,
-                args,
-                model,
-                ..
-            } => {
-                assert!(matches!(role, Some(SpawnRole::Worker)));
-                assert_eq!(plan.as_deref(), Some("pl_x"));
-                assert_eq!(task.as_deref(), Some("do x"));
-                assert_eq!(
-                    args,
-                    Some(vec![
-                        "--resume".into(),
-                        "1234-uuid".into(),
-                        "--model".into(),
-                        "gpt-5".into(),
-                    ])
-                );
-                assert!(model.is_none());
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    #[test]
-    fn spawn_without_provider_args_is_unaffected() {
-        let action = parse_spawn(&["claude"]).expect("spawn without options should parse");
-        match action {
-            AgentAction::Spawn { role, args, .. } => {
-                assert!(role.is_none());
-                assert!(args.is_none());
-            }
-            _ => panic!("expected agent spawn"),
-        }
-
-        let action = parse_spawn(&["claude", "--role", "Worker"]).expect("role should still parse");
-        match action {
-            AgentAction::Spawn { role, args, .. } => {
-                assert!(matches!(role, Some(SpawnRole::Worker)));
-                assert!(args.is_none());
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    #[test]
-    fn spawn_title_does_not_consume_following_flags() {
-        let cli = Cli::try_parse_from([
-            "codeterm",
-            "agent",
-            "spawn",
-            "claude",
-            "--title",
-            "Team routing smoke",
-            "--reasoning-effort",
-            "low",
-            "--description",
-            "Team containment probe",
-            "--non-user-facing",
-        ])
-        .expect("spawn flags after title should parse independently");
-        match cli.command {
-            crate::Commands::Agent {
-                action:
-                    AgentAction::Spawn {
-                        title,
-                        description,
-                        reasoning_effort,
-                        non_user_facing,
-                        ..
-                    },
-            } => {
-                assert_eq!(
-                    title.map(|words| words.join(" ")).as_deref(),
-                    Some("Team routing smoke")
-                );
-                assert_eq!(reasoning_effort.as_deref(), Some("low"));
-                assert_eq!(
-                    description.map(|words| words.join(" ")).as_deref(),
-                    Some("Team containment probe")
-                );
-                assert!(non_user_facing);
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    #[test]
-    fn spawn_team_attaches_a_roleless_agent() {
-        let action = parse_spawn(&["claude", "--team", "team_alpha"]).expect("--team parses");
-        match action {
-            AgentAction::Spawn {
-                team,
-                role,
-                plan_task,
-                ..
-            } => {
-                assert_eq!(team.as_deref(), Some("team_alpha"));
-                assert!(role.is_none());
-                assert!(plan_task.is_none());
-            }
-            _ => panic!("expected agent spawn"),
-        }
-    }
-
-    #[test]
-    fn spawn_team_conflicts_with_plan_task() {
-        let error = parse_spawn(&["claude", "--team", "team_alpha", "--plan-task", "task_one"])
-            .expect_err("--team must not combine with a plan binding");
-        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
-    }
-
-    /// codeterm#418: the role that anchors a Team is the one `--role` `--team`
-    /// accepts, so a stranded Team can be handed a new Orchestrator. Every other
-    /// role is refused later, by code, not by clap.
-    #[test]
-    fn spawn_team_parses_with_an_anchoring_role() {
-        let parsed = parse_spawn(&["claude", "--team", "team_alpha", "--role", "Orchestrator"])
-            .expect("--team --role Orchestrator parses");
-        match parsed {
-            AgentAction::Spawn { team, role, .. } => {
-                assert_eq!(team.as_deref(), Some("team_alpha"));
-                assert!(matches!(role, Some(SpawnRole::Orchestrator)));
-            }
-            _ => panic!("expected agent spawn"),
-        }
-        assert!(
-            parse_spawn(&["claude", "--team", "team_alpha", "--role", "Worker"]).is_ok(),
-            "a non-anchoring role parses and is refused by the spawn verb, not by clap"
-        );
-    }
-
-    #[test]
-    fn set_orchestrator_help_mentions_workers_not_leads() {
-        let help = Cli::command()
-            .find_subcommand_mut("agent")
-            .unwrap()
-            .find_subcommand_mut("set-orchestrator")
-            .unwrap()
-            .render_long_help()
-            .to_string();
-        assert!(help.contains("workers"), "{help}");
-        assert!(!help.to_ascii_lowercase().contains("lead"), "{help}");
-    }
-}
-
+#[path = "agent/tests.rs"]
+mod tests;
 #[derive(clap::Subcommand, Debug)]
 pub enum ProviderCliAction {
     /// Show installed state, resolved binary, and commands for this OS.
@@ -1001,3 +477,7 @@ pub enum ProviderCliAction {
     /// Run the manifest updater in a visible utility tab and report its result.
     Update { provider: String },
 }
+
+#[cfg(test)]
+#[path = "agent/sandbox_tests.rs"]
+mod sandbox_tests;

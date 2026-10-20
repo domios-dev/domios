@@ -60,7 +60,7 @@ test("ORCHESTRATOR · OPUS renders whole (role + model) at default and largest s
     const badge = host.querySelector<HTMLElement>('[data-testid="leadership-badge"]')!;
     assert(host.querySelector('[data-testid="role-badge-orchestrator"]'), `role chip present @${scale}`);
     assert(host.querySelector('[data-testid="leadership-model"]'), `model chip present @${scale}`);
-    assert(badge.textContent?.includes("ORCHESTRATOR"), `role text present @${scale}`);
+    assert(badge.textContent?.includes("Orchestrator"), `role text present @${scale}`);
     assert(badge.textContent?.includes("OPUS"), `model text present @${scale}`);
     assert(badge.scrollWidth <= badge.clientWidth, `no clipping @${scale}`);
     await act(async () => root.unmount());
@@ -73,7 +73,7 @@ test("smallest scale keeps ORCHESTRATOR whole but drops OPUS (no truncation)", a
   );
   const badge = host.querySelector<HTMLElement>('[data-testid="leadership-badge"]')!;
   assert(host.querySelector('[data-testid="role-badge-orchestrator"]'), "role chip still present");
-  assert(badge.textContent?.includes("ORCHESTRATOR"), "role text whole, not truncated");
+  assert(badge.textContent?.includes("Orchestrator"), "role text whole, not truncated");
   assert(!host.querySelector('[data-testid="leadership-model"]'), "model chip dropped at smallest scale");
   assert(!badge.textContent?.includes("OPUS"), "model text gone (dropped, not clipped)");
   assert(badge.scrollWidth <= badge.clientWidth, "role fits with the model dropped");
@@ -87,7 +87,7 @@ test("PLANNER · FABLE follows the same rule across all three scales", async () 
     );
     const badge = host.querySelector<HTMLElement>('[data-testid="leadership-badge"]')!;
     assert(host.querySelector('[data-testid="role-badge-planner"]'), `PLANNER chip present @${scale}`);
-    assert(badge.textContent?.includes("PLANNER"), `PLANNER text whole @${scale}`);
+    assert(badge.textContent?.includes("Planner"), `PLANNER text whole @${scale}`);
     const hasModel = Boolean(host.querySelector('[data-testid="leadership-model"]'));
     assert(hasModel === (scale !== SMALLEST), `model present iff not smallest @${scale}`);
     assert(badge.scrollWidth <= badge.clientWidth, `no clipping @${scale}`);

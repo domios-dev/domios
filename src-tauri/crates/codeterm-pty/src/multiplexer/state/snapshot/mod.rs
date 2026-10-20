@@ -174,8 +174,9 @@ impl MultiplexerState {
                 title_level: tab.map(|p| format!("{:?}", p.title_level)),
                 agent_type: tab.and_then(|p| p.agent_type.clone()),
                 agent_type_locked: tab.map(|p| p.agent_type_locked).unwrap_or(false),
-                claude_session_id: tab.and_then(|p| p.agent_session_id.clone()),
+                agent_session_id: tab.and_then(|p| p.agent_session_id.clone()),
                 agent_identity: tab.map(|p| AgentIdentitySnapshot {
+                    description_origin: p.description_origin,
                     agent_runtime_state: p.agent_runtime_state.clone(),
                     agent_runtime_config: p.agent_runtime_config.clone(),
                     agent_runtime_questions: p.agent_runtime_questions.clone(),
@@ -237,6 +238,14 @@ impl MultiplexerState {
                             .unwrap_or(false)
                     })
                     .map(|tab_id| TabSnapshot {
+                        last_opened_at_ms: self
+                            .tabs
+                            .get(tab_id)
+                            .and_then(|tab| tab.last_opened_at_ms),
+                        last_active_at_ms: self
+                            .tabs
+                            .get(tab_id)
+                            .and_then(|tab| tab.last_active_at_ms),
                         id: tab_id.clone(),
                         title: self.display_label_for_tab(tab_id),
                         description: self
@@ -273,7 +282,7 @@ impl MultiplexerState {
             .as_millis() as u64;
 
         SessionSnapshot {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: codeterm_build_info::version().to_string(),
             timestamp,
             workspaces,
             active_workspace_id: self.active_workspace_id.clone(),
@@ -305,6 +314,8 @@ impl MultiplexerState {
                 tabs: ws.tabs.iter().filter_map(|tab| {
                     let leaf = first_leaf(&tab.split_tree)?;
                     let tab_id = install_leaf(leaf, &tab.title, &mut tabs)?;
+                    tabs.get_mut(&tab_id)?.last_active_at_ms = tab.last_active_at_ms;
+                    tabs.get_mut(&tab_id)?.last_opened_at_ms = tab.last_opened_at_ms;
                     if matches!(&tab.split_tree, SplitNodeSnapshot::Split { .. }) {
                         log::warn!(
                             "[restore] tab {} had a multi-tab split — kept the first leaf, dropped the rest",
@@ -339,6 +350,8 @@ impl MultiplexerState {
             generation: std::sync::atomic::AtomicU64::new(0),
             // startup), not the session snapshot.
             closed_store: super::ClosedTabsStore::in_memory(),
+            defer_closed_history: false,
+            pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
         }
@@ -372,6 +385,10 @@ impl MultiplexerState {
                 let Some(new_id) = install_leaf(leaf, &tab_snap.title, &mut self.tabs) else {
                     continue;
                 };
+                if let Some(tab) = self.tabs.get_mut(&new_id) {
+                    tab.last_active_at_ms = tab_snap.last_active_at_ms;
+                    tab.last_opened_at_ms = tab_snap.last_opened_at_ms;
+                }
                 if let Some(tab) = self.tabs.get_mut(&new_id) {
                     tab.sort_order = tab_snap.sort_order;
                     if tab.description.is_none() {
@@ -509,7 +526,7 @@ fn install_leaf(
         title_level,
         agent_type,
         agent_type_locked,
-        claude_session_id,
+        agent_session_id,
         agent_identity,
         role,
         role_profile,
@@ -578,7 +595,7 @@ fn install_leaf(
             }
         }
     };
-    let restored_session_id = claude_session_id.as_ref().and_then(|sid| {
+    let restored_session_id = agent_session_id.as_ref().and_then(|sid| {
         if tabs
             .values()
             .any(|p| p.agent_session_id.as_deref() == Some(sid.as_str()))
@@ -593,17 +610,11 @@ fn install_leaf(
         .as_ref()
         .map(|identity| identity.restorable_launch.clone())
         .unwrap_or_default();
-    let mut reasoning_effort_identity = restored_identity
-        .map(|identity| identity.reasoning_effort.clone())
-        .unwrap_or_default();
-    if !restorable_launch.is_empty() {
-        reasoning_effort_identity.requested = restorable_launch.requested_reasoning_effort.clone();
-        reasoning_effort_identity.resolved = restorable_launch.resolved_reasoning_effort.clone();
-        reasoning_effort_identity.actual = None;
-        reasoning_effort_identity.actual_source = (reasoning_effort_identity.requested.is_some()
-            || reasoning_effort_identity.resolved.is_some())
-        .then(|| "provider-default-unverified".to_string());
-    }
+    let reasoning_effort_identity = restorable_launch.restored_reasoning_effort_identity(
+        restored_identity
+            .map(|identity| identity.reasoning_effort.clone())
+            .unwrap_or_default(),
+    );
     // Provider identity is committed state, never read off a title.
     let restored_agent_type = agent_type.clone();
     let scrollback_seed_pending = restored_agent_type.is_none()
@@ -631,6 +642,10 @@ fn install_leaf(
             pending_delivery: pending_delivery.clone(),
             title: restored_title,
             description: description.clone(),
+            description_origin: agent_identity
+                .as_ref()
+                .map(|identity| identity.description_origin)
+                .unwrap_or_default(),
             cwd: normalized_snapshot_cwd(cwd.as_deref()),
             provisioned_cwd: agent_identity
                 .as_ref()
@@ -682,6 +697,8 @@ fn install_leaf(
             lifecycle_operation_id: restored_identity
                 .and_then(|identity| identity.lifecycle_operation_id.clone()),
             task_binding: restored_identity.and_then(|identity| identity.task_binding.clone()),
+            taskless_authorized_gates: Vec::new(),
+            taskless_authorized_review_tasks: Vec::new(),
             managed: agent_identity
                 .as_ref()
                 .and_then(|identity| identity.managed.clone()),
@@ -714,7 +731,7 @@ fn install_leaf(
             chat_view: chat_view.unwrap_or(false),
             pending_prompt: None,
             pending_prompt_kind: None,
-            agent_state: restored_identity.and_then(|identity| identity.agent_state.clone()),
+            agent_state: None,
             turn_resume: agent_identity
                 .as_ref()
                 .and_then(|identity| identity.turn_resume.clone()),
@@ -731,6 +748,11 @@ fn install_leaf(
             skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,
+            frozen: false,
+            slept_at_ms: None,
+            sleep_reason: None,
+            last_active_at_ms: None,
+            last_opened_at_ms: None,
             restored_from_snapshot: true,
             scrollback_seed_pending,
             pending_scrollback_tail: None,

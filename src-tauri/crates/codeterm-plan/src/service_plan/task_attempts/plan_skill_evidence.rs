@@ -169,18 +169,41 @@ impl PlanStore {
             if attempt.id != attempt_id
                 || attempt.session_id.as_deref() != Some(session_id)
                 || attempt.session_binding_nonce.as_deref() != Some(nonce)
-                || attempt.acknowledged_at.is_none()
+                || attempt.interruption.owner_epoch != task.interruption.owner_epoch
             {
                 return Err(PlanError::Io(
                     "plan skill announcement binding is not current".into(),
                 ));
             }
-            announced = attempt.plan_skill_manifest.clone();
-            if !announced.is_empty() {
-                return Ok(None);
+            let attempt_index = task
+                .execution_attempts
+                .iter()
+                .position(|candidate| candidate.id == attempt_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let superseded = task.execution_attempts[..attempt_index]
+                .iter()
+                .any(|prior| {
+                    prior.executor_tab_id == tab_id
+                        || prior.interruption.owner_epoch < attempt.interruption.owner_epoch
+                });
+            if attempt.acknowledged_at.is_none() && superseded {
+                return Err(PlanError::Io(
+                    "plan skill announcement requires acknowledgement for a reassigned attempt"
+                        .into(),
+                ));
             }
             let manifest = super::super::plan_skills::plan_skill_manifest(self, plan_id)?;
-            if manifest.is_empty() {
+            // Only content identity matters; a reworded purpose must not rewrite the attempt.
+            let same_content = attempt.plan_skill_manifest.len() == manifest.len()
+                && attempt
+                    .plan_skill_manifest
+                    .iter()
+                    .zip(&manifest)
+                    .all(|(held, current)| {
+                        held.slug == current.slug && held.content_digest == current.content_digest
+                    });
+            if same_content {
+                announced = attempt.plan_skill_manifest.clone();
                 return Ok(None);
             }
             let attempt = task
@@ -189,7 +212,7 @@ impl PlanStore {
                 .find(|attempt| attempt.id == attempt_id)
                 .ok_or(PlanError::TaskNotFound)?;
             attempt.plan_skill_manifest = manifest.clone();
-            announced = manifest.clone();
+            announced = manifest;
             task.updated_at = now_ms;
             Ok(Some(()))
         })?;

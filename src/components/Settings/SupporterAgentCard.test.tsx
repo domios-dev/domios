@@ -298,7 +298,8 @@ describe("Supporter saved connections", () => {
   it("initial_unknown_status_is_unavailable_without_token_claims", async () => {
     stale = true;
     await mount();
-    expect(host.textContent).toContain("Status unavailable");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('section[role="status"][aria-label]')).toBeNull();
     expect(host.textContent).not.toContain("No token");
     expect(host.querySelectorAll("[data-adapter]")).toHaveLength(0);
     expect(button("+ Connect another adapter").disabled).toBe(true);
@@ -309,20 +310,28 @@ describe("Supporter saved connections", () => {
     invalidStatus = true;
     await click("Refresh Spinal Cord status and models");
     expect(section("required")).toBeDefined();
-    expect(host.textContent).toContain("Status stale");
+    expect(host.querySelectorAll('section[role="status"][aria-label]')).toHaveLength(1);
     expect((await menuItem("optional", "Make active")).disabled).toBe(true);
     invalidStatus = false;
     await click("Refresh Spinal Cord status and models");
     expect((await menuItem("optional", "Make active")).disabled).toBe(false);
   });
-  it("malformed_catalogue_keeps_rows_and_disables_model_selection", async () => {
+  it("malformed_catalogue_keeps_cached_model_choices_available", async () => {
     await mount();
     invalidCatalog = true;
     await click("Refresh Spinal Cord status and models");
     expect(section("required")).toBeDefined();
-    expect(host.textContent).toContain("catalogue is unavailable");
+    expect(host.querySelectorAll('section[role="status"][aria-label]')).toHaveLength(1);
+    expect(host.querySelector<HTMLSelectElement>("#supporter-model-required")?.disabled).toBe(false);
+    expect(button("+ Connect another adapter").disabled).toBe(false);
+  });
+  it("keeps an automatic catalogue failure quiet while marking the unavailable control", async () => {
+    invalidCatalog = true;
+    await mount();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('section[role="status"][aria-label]')).toBeNull();
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
     expect(host.querySelector<HTMLSelectElement>("#supporter-model-required")?.disabled).toBe(true);
-    expect(button("+ Connect another adapter").disabled).toBe(true);
   });
   it("connections_render_as_one_compact_list_without_duplicate_current_header", async () => {
     await mount();
@@ -365,7 +374,7 @@ describe("Supporter saved connections", () => {
     });
     await act(async () => menu.dispatchEvent(escape));
     expect(escape.defaultPrevented).toBe(true);
-    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]:not([hidden])')).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
   it("selected_disconnected_connection_keeps_its_name_without_claiming_readiness", async () => {
@@ -395,7 +404,7 @@ describe("Supporter saved connections", () => {
     state.connections.find((entry) => entry.adapter === "optional")!.active = true;
     await click("Refresh Spinal Cord status and models");
     expect(host.textContent).toContain("Status stale");
-    expect(section("required").textContent).toContain("Last-known status; refresh to verify.");
+    expect(section("required").querySelector('[role="status"][aria-label]')).not.toBeNull();
     expect((await menuItem("optional", "Make active")).disabled).toBe(true);
     expect(writes()).toHaveLength(0);
   });
@@ -692,7 +701,7 @@ describe("Supporter saved connections", () => {
     const dialog = section("optional").querySelector("[role='alertdialog']")!;
     expect(button("Remove connection", dialog).disabled).toBe(true);
     expect((await menuItem("optional", "Make active")).disabled).toBe(true);
-    expect(host.textContent).toContain("Last-known status; refresh to verify.");
+    expect(section("required").querySelector('[role="status"][aria-label]')).not.toBeNull();
   });
   it("saved_not_active_shows_retry_activation", async () => {
     await mount();

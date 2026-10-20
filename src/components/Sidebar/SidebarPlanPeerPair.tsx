@@ -1,11 +1,11 @@
 import { invoke } from "../../lib/bridge";
 import type { Tab, TabStatus } from "../../lib/types";
 import type { Plan } from "../Canvas/types";
-import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX, type SortableGroupData } from "./sortable";
 import { TabItem, type AttachmentToggle, type TabStartedBy } from "./TabItem";
+import type { ChecklistToggle } from "./WorkerChecklist";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import type { TabAttention } from "./tabAttention";
 
@@ -35,7 +35,6 @@ export interface SidebarTabItemRowProps {
   tab: Tab;
   index: number;
   activity: TabTabActivity | null;
-  activeWork?: ActiveWorkSnapshot | null;
   reportCount?: number;
   isClosing: boolean;
   isAppearing: boolean;
@@ -57,6 +56,7 @@ export interface SidebarTabItemRowProps {
   insetPx?: number;
   ownerBadgeTab?: Tab | null;
   attachmentToggle?: AttachmentToggle | null;
+  checklistToggle?: ChecklistToggle | null;
   startedBy?: TabStartedBy | null;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
@@ -67,7 +67,6 @@ function SidebarTabItemRow({
   tab,
   index,
   activity,
-  activeWork = null,
   reportCount = 0,
   isClosing,
   isAppearing,
@@ -89,6 +88,7 @@ function SidebarTabItemRow({
   insetPx,
   ownerBadgeTab,
   attachmentToggle,
+  checklistToggle,
   startedBy,
   onActivateTab,
   onCloseTab,
@@ -118,7 +118,6 @@ function SidebarTabItemRow({
       touchMode={touchMode}
       uiFontScale={uiFontScale}
       activity={activity}
-      activeWork={activeWork}
       reportCount={reportCount}
       groupCollapsible={groupCollapsible}
       collapsed={collapsed}
@@ -129,12 +128,14 @@ function SidebarTabItemRow({
       insetPx={insetPx}
       ownerBadgeTab={ownerBadgeTab}
       attachmentToggle={attachmentToggle}
+      checklistToggle={checklistToggle}
       startedBy={startedBy}
     />
   );
 }
 
 export interface SidebarSingleTabRowProps extends SidebarTabItemRowProps {
+  sortable?: boolean;
   group: "tab" | "team" | "child";
   groupKey: string;
   pinnedIds: string[];
@@ -146,12 +147,14 @@ export function isTabDragDisabled(tab: Pick<Tab, "protected">): boolean {
 }
 
 export function SidebarSingleTabRow({
+  sortable = true,
   group,
   groupKey,
   pinnedIds,
   toWorkspaceOrder,
   ...rowProps
 }: SidebarSingleTabRowProps) {
+  if (!sortable) return <SidebarTabItemRow {...rowProps} />;
   return (
     <SortableRow
       id={`${TAB_PREFIX}${rowProps.tab.id}`}

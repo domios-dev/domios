@@ -12,6 +12,7 @@ mod adopt_search;
 mod attempt_rebind;
 pub(crate) mod caller_context;
 mod gate_cmd;
+mod lane_clean_cmd;
 mod mesh_dispatch;
 mod params;
 mod qa_cmd;
@@ -383,8 +384,17 @@ fn run_plan(
 
         PlanAction::State { plan_id } => return read_cmd::state(client, json, plan_id),
 
-        PlanAction::Lanes { plan_id, stale } => {
-            return read_cmd::lanes(client, json, plan_id, stale)
+        PlanAction::Lanes {
+            plan_id,
+            stale,
+            clean,
+            confirm,
+            fetch,
+        } => {
+            if clean {
+                return lane_clean_cmd::clean_lanes(client, json, plan_id, confirm, fetch);
+            }
+            return read_cmd::lanes(client, json, plan_id, stale);
         }
 
         PlanAction::LaneRemove {

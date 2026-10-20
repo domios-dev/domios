@@ -159,3 +159,8 @@ export function jobsForTab(jobs: readonly MergedJob[], tabId: string): TabJob[] 
 export function tabJobAccessibleName(job: TabJob): string {
   return `Job ${job.title}, ${jobStateLabel(job.state)}`;
 }
+
+export function jobWorkspace(job: MergedJob): string {
+  if (job.kind === "blueprint") return job.blueprint.identity.workspace_id;
+  return job.kind === "cron" ? job.cron.workspace_id : job.sentinel.scenario.root.workspace_id;
+}

@@ -3,7 +3,7 @@ import test from "node:test";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import { SyntaxHighlighter } from "./syntaxHighlighter";
+import { SyntaxHighlighter, loadAllGrammars } from "./syntaxHighlighter";
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -35,9 +35,7 @@ test("eager grammars and their aliases highlight on the first render", async () 
 test("a grammar outside the eager set highlights once the full set loads", async () => {
   setupDom();
   const view = await render(<SyntaxHighlighter language="haskell" useInlineStyles={false}>{"main :: IO ()\nmain = putStrLn \"hi\""}</SyntaxHighlighter>);
-  for (let i = 0; i < 50 && !view.host.querySelector(".token"); i++) {
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-  }
+  await act(async () => { assert.equal(await loadAllGrammars(), "loaded"); });
   assert.ok(view.host.querySelector(".token"), "haskell tokenized after the lazy grammar load");
   assert.match(view.host.textContent ?? "", /putStrLn/);
   await view.unmount();

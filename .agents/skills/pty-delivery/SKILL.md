@@ -30,7 +30,13 @@ well-meaning "one more heuristic" changes. Read this before touching
    originals: 32 unsettled records and 4 MiB prepared/body bytes per tab, with
    original storage separately bounded. Sends are held only until the current
    launch's exact PTY generation reaches `AgentReady`, then queued sends flush in
-   admission order. Every later send enters the same ordered PTY write owner,
+   admission order. For a provider capability that starts its session on the
+   first user turn, same-attempt structural composer evidence from this tab's
+   own PTY may admit exactly one first user send while nonce binding is pending.
+   The durable send id owns that one-shot permit; after its payload is queued,
+   further sends stay held until the launch binds and reaches `AgentReady`.
+   Composer evidence permits this initial write only; it never confirms delivery.
+   Every later send enters the same ordered PTY write owner,
    waiting only for earlier preparation or payload enqueue, never agent work or
    submit recovery. A newer payload cancels the previous cycle's remaining keys. If exact
    session binding is missing before that readiness,
@@ -72,9 +78,11 @@ preparation, or persistence before acceptance; clear the composer immediately an
 bubble, including rejected or ambiguous RPC completion, without automatic resubmit.
 Acceptance requires payload and index durability off the UI/runtime and outside
 mux/ledger locks. This user backlog is separate from launch/bootstrap replacement.
-The prewrite owner holds only sends accepted before the current launch's readiness
+The prewrite owner holds sends accepted before the current launch's readiness
 latch or owner-approved restored-session adapter fallback, then writes those held
-sends in admission order. A post-latch Chat UI send proceeds directly to its PTY
+sends in admission order. For a lazy-session capability, matching own-PTY composer
+evidence admits only the first user send while binding is pending; the exact send
+id owns that one-shot permit and later sends remain held until binding. A post-latch Chat UI send proceeds directly to its PTY
 write even when the provider is busy or another submit cycle is unsettled. Proven
 zero-write refusal retains that send as held; possible handoff becomes
 `submit_unconfirmed` and never replays. Before first readiness, submitted socket text without a source tab uses the same durable user owner.
@@ -94,9 +102,10 @@ Claimed or uncertain records remain held and are never replayed.
 
 - The serialized states are `held`, `written`, `submit_unconfirmed`, `delivered`,
   and `failed`. Transport uncertainty is `submit_unconfirmed` with no user-facing
-  error. A user send resolves to `failed` only when its queued, never-written
-  launch has ended. Programmatic sends may also fail on a proven pre-write
-  refusal.
+  error. A queued, never-written user send resolves to `failed` when its launch
+  ends or reports degradation before first readiness. Persist queue removal before
+  publishing Retry; late readiness cannot replay that settled original.
+  Programmatic sends may also fail on a proven pre-write refusal.
 - `written/submit_unconfirmed → delivered` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload
@@ -143,15 +152,36 @@ Claimed or uncertain records remain held and are never replayed.
   unconfirmed input, queued while held, normal when delivered, and a quiet
   not-delivered mark with Retry for proven refusal or failed never-written input.
   Retry reuses the bubble with a fresh correlation token and transaction; it never
-  replays uncertain or written input. Provider echoes reconcile into that bubble.
+  replays uncertain or written input. Delete cancels queued input under the same durable
+  lock as claim; a claimed send can only be dismissed. Durable dismissal receipts
+  hide the bubble across restart and later evidence without replay. Delivered
+  bubbles have no Delete. Provider echoes reconcile into that bubble.
+
+## Written to the PTY means Enter, always
+
+After a launch's first readiness (event-based: `AgentReady`, nonce-verified binding)
+the payload is written once and Enter is pressed. The one lazy-session first-turn
+permit is the only earlier write path and requires structural composer evidence from
+the same launch's own PTY. No screen text, classifier, prompt, dialog or composer
+check may acknowledge delivery or gate any other payload write or Enter, busy or not,
+even with a numbered permission prompt on screen. Guards that remain are ownership
+and authority only (PTY owner, launch latch, model-command ownership, session
+authority). Delivery evidence stays exact own-session turn evidence.
+
+The `pasted by Domios` marker paste follows the provider capability
+`paste.pasteMarkerWhen`: `multiline` adds it only when the body contains a line
+break (single-line bodies arrive plain); the default `always` keeps old behaviour.
+Expected turn evidence and the Chat reader follow the same rule.
 
 ## Hard don'ts
 
 - No sleeps, polling intervals, or timer-driven "success" anywhere in the
   path — deadlines are failure bounds around event waits only.
 - No provider-id branches; capability descriptors only.
-- Do not add screen/composer acknowledgement, guessed readiness, payload
-  retries, or provider-id branches. Exact claimed-session transcript evidence
+- Do not use screen/composer content to acknowledge delivery, infer readiness, or
+  admit more than the one capability-authorized lazy first turn. Exact
+  same-attempt structural composer evidence may authorize that first write only.
+  Never add payload retries or provider-id branches. Exact claimed-session transcript evidence
   classifies a send and may stop its current key schedule; it never gates the
   next post-ready send.
 - Do not "fix" a delivery bug by adding a retry that re-writes the payload.
@@ -169,4 +199,4 @@ Claimed or uncertain records remain held and are never replayed.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 3 -->
+<!-- revision: 7 -->

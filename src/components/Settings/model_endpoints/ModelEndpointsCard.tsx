@@ -1,4 +1,6 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { DEV_BUILD } from "../../../lib/devBuild";
 import { Waypoints } from "lucide-react";
 import type { DaemonApiConfig } from "../../../lib/webApi";
 import { Button } from "../../shared/Button";
@@ -24,7 +26,6 @@ export function ModelEndpointsCard({
 }) {
   const api = useMemo(() => injected ?? modelEndpointsApi(providerId, daemonApi), [injected, providerId, daemonApi]);
   const [endpoints, setEndpoints] = useState<ModelEndpoint[] | null>(null);
-  const [loadError, setLoadError] = useState("");
   const [editing, setEditing] = useState<Editing>({ kind: "none" });
   const [busyRow, setBusyRow] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -33,9 +34,8 @@ export function ModelEndpointsCard({
   const reload = useCallback(async () => {
     try {
       setEndpoints(await api.list());
-      setLoadError("");
     } catch (error) {
-      setLoadError(errorLine(error));
+      if (DEV_BUILD) console.debug("Background model endpoint list refresh failed", error);
       setEndpoints((current) => current ?? []);
     }
   }, [api]);
@@ -96,8 +96,6 @@ export function ModelEndpointsCard({
       ) : undefined}
     >
       <section aria-label="Custom model endpoints" aria-busy={endpoints === null} data-testid="model-endpoints" data-provider-id={providerId} className="flex flex-col gap-2.5">
-        {loadError && <p role="alert" className="m-0 text-[11px] text-[var(--ct-red)]">{loadError}</p>}
-
         {endpoints !== null && list.length === 0 && editing.kind === "none" && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-[var(--ct-border)] px-3.5 py-3">
             <p className="m-0 min-w-0 flex-1 text-xs text-[var(--ct-muted-fg)]">
@@ -151,9 +149,8 @@ export function ModelEndpointsCard({
                     </p>
                   )}
                   {rowNote && (
-                    <p role={rowNote.tone === "error" ? "alert" : "status"} className={`m-0 text-[11px] ${rowNote.tone === "error" ? "text-[var(--ct-red)]" : "text-[var(--ct-green)]"}`}>
-                      {rowNote.text}
-                    </p>
+                    rowNote.tone === "error" ? <InlineErrorNotice error={rowNote.text} operation="testing this model endpoint" blocking />
+                      : <p role="status" className="m-0 text-[11px] text-[var(--ct-green)]">{rowNote.text}</p>
                   )}
                 </li>
               );

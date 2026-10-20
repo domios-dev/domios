@@ -1,4 +1,6 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useRef, useState } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { createPortal } from "react-dom";
 import { MessageBubble } from "@codeterm/chat-ui";
 import { reduceToolEvents, type NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
@@ -36,12 +38,17 @@ export function RunChatPopup({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const hasLoaded = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const stickyBottomRef = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
+    hasLoaded.current = false;
+    setMessages([]);
+    setError(null);
+    setLoaded(false);
     const load = () => {
       invoke<{ messages?: ChatMessage[] }>("session_transcript", {
         provider,
@@ -53,11 +60,15 @@ export function RunChatPopup({
           setMessages(Array.isArray(res.messages) ? res.messages : []);
           setError(null);
           setLoaded(true);
+          hasLoaded.current = true;
         })
         .catch((e) => {
           if (!cancelled) {
-            setError(String(e));
-            setLoaded(true);
+            if (DEV_BUILD) console.debug("Background run transcript refresh failed", e);
+            if (!hasLoaded.current && !live) {
+              setError(String(e));
+              setLoaded(true);
+            }
           }
         });
     };
@@ -124,7 +135,7 @@ export function RunChatPopup({
         </div>
 
         <div ref={scrollRef} className="relative flex-1 overflow-auto px-4 py-3">
-          {error && <div className="text-[var(--ct-red)] mb-2 text-[11px]">{error}</div>}
+          {error && <InlineErrorNotice error={error} operation="reading the agent conversation" />}
           {loaded && !error && messages.length === 0 && (
             <div className="text-[var(--ct-muted-fg)] text-[11px]">No transcript for this run.</div>
           )}

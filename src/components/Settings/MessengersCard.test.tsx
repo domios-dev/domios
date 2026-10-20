@@ -22,6 +22,7 @@ testWindow.matchMedia = (() => ({
 })) as unknown as typeof testWindow.matchMedia;
 
 const TOKEN = "123456789:AAEhBOweik6ad9r_QXMENQjcrGbqCr4K-ab";
+let failConnect = false;
 
 function raw(overrides: Partial<TelegramBridgeRaw> = {}): TelegramBridgeRaw {
   return { active: false, config_enabled: false, token_present: false, has_secret_in_vault: false, secret_name: "telegram_bot_token", ...overrides };
@@ -41,6 +42,7 @@ function fakeStore(initial: TelegramBridgeRaw) {
     refresh: async () => {},
     async connect(token) {
       calls.connect.push(token);
+      if (failConnect) throw new Error("opaque connect failure");
       publish(raw({ active: true, started_at: "a", last_poll_ok: "b", bot_id: 42, has_secret_in_vault: true }));
     },
     async disconnect() {
@@ -72,6 +74,7 @@ const CONFIG = { integrations: { telegram_enabled: false, telegram_allowed_users
     } finally {
       await act(async () => root.unmount());
       host.remove();
+      failConnect = false;
     }
   };
   const byTestId = (host: HTMLElement, id: string) => host.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
@@ -92,6 +95,19 @@ const CONFIG = { integrations: { telegram_enabled: false, telegram_allowed_users
     assert(!byTestId(host, "settings-telegram-token"), "saved token still asks for entry");
     await act(async () => (byTestId(host, "settings-telegram-connect") as HTMLButtonElement).click());
     assert(calls.connect.length === 1 && calls.connect[0] === undefined, "saved-token connect sent a token");
+  });
+
+  await run("a background bridge failure stays a quiet accessible status", raw({ active: true, started_at: "a", last_poll_error: "opaque background failure" }), async (host) => {
+    assert(host.querySelector('[role="status"]') !== null, "the current bridge state should be announced as a status");
+    assert(host.querySelector('[role="alert"]') === null, "background status does not create an alert");
+  });
+
+  failConnect = true;
+  await run("a failed connect action keeps one accessible alert", raw(), async (host) => {
+    const token = byTestId(host, "settings-telegram-token") as HTMLInputElement;
+    token.value = TOKEN;
+    await act(async () => (byTestId(host, "settings-telegram-connect") as HTMLButtonElement).click());
+    assert(host.querySelectorAll('[role="alert"]').length === 1, "failed connect should create one alert");
   });
 
   await run("disconnect_asks_first", raw({ active: true, started_at: "a", last_poll_ok: "b", bot_id: 42, has_secret_in_vault: true }), async (host, calls) => {

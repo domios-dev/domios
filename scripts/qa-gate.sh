@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts qa-gates.lib.sh
 # Internal QA gate runner — serial named gates on a warm checkout.
 #
 # Repo-local tooling for orchestrators/build machines. No daemon/socket required.

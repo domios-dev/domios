@@ -2,8 +2,8 @@
 //! set, the same fail-closed default. A notification that names no level
 //! reaches the inbox but never the toast, so it cannot interrupt the user.
 
+use crate::contract::{NotifyDestination, NotifyLevel};
 use codeterm_types::config::schema::NotificationConfig;
-use codeterm_types::notification::{NotifyDestination, NotifyLevel};
 
 #[cfg(test)]
 mod tests;

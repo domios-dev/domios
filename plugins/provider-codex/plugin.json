@@ -1,18 +1,38 @@
 {
   "id": "codex",
-  "version": "1.14.6",
-  "minCodeterm": "1.14.7",
+  "version": "1.14.48",
+  "minCodeterm": "1.14.9",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
   "cliBinary": "codex",
   "capabilities": {
     "agentProvider": true,
+    "subagentVisibility": true,
     "structuredControl": {
       "protocol": "codex-app-server",
-      "minVersion": "0.159.0"
+      "minVersion": "0.159.0",
+      "runtimeModes": [
+        {
+          "id": "approval-required",
+          "displayName": "Approval required"
+        },
+        {
+          "id": "auto-accept-edits",
+          "displayName": "Auto accept edits"
+        },
+        {
+          "id": "auto",
+          "displayName": "Auto"
+        },
+        {
+          "id": "full-access",
+          "displayName": "Full access"
+        }
+      ]
     },
     "agentRuntime": {
+      "storedHistory": true,
       "runtime": "stdio-jsonrpc",
       "command": {
         "binary": "codex",
@@ -28,7 +48,8 @@
         "initialize": [
           "initialize",
           "initialized",
-          "account/read"
+          "account/read",
+          "account/rateLimits/read"
         ],
         "openThread": [
           "thread/start",
@@ -38,6 +59,10 @@
           "thread/resume",
           "thread/read",
           "thread/unarchive"
+        ],
+        "forkThread": [
+          "thread/turns/list",
+          "thread/fork"
         ],
         "readHistory": [
           "thread/turns/list",
@@ -58,7 +83,22 @@
           "thread/inject_items",
           "account/read",
           "account/login/start",
-          "account/login/cancel"
+          "account/login/cancel",
+          "account/rateLimits/read",
+          "account/rateLimitResetCredit/consume",
+          "thread/goal/get",
+          "thread/goal/set",
+          "thread/goal/clear",
+          "thread/turns/list",
+          "thread/fork",
+          "thread/revert",
+          "model/list",
+          "configRequirements/read"
+        ],
+        "backgroundProcesses": [
+          "thread/backgroundTerminals/list",
+          "thread/backgroundTerminals/terminate",
+          "thread/backgroundTerminals/clean"
         ]
       },
       "notificationMethods": [
@@ -71,6 +111,7 @@
         "thread/compacted",
         "thread/goal/updated",
         "thread/goal/cleared",
+        "thread/reverted",
         "model/rerouted",
         "turn/diff/updated",
         "account/rateLimits/updated",
@@ -83,8 +124,10 @@
         "item/plan/delta",
         "item/reasoning/textDelta",
         "item/reasoning/summaryTextDelta",
+        "item/reasoning/summaryPartAdded",
         "item/commandExecution/outputDelta",
         "item/fileChange/outputDelta",
+        "item/fileChange/patchUpdated",
         "item/mcpToolCall/progress",
         "serverRequest/resolved",
         "error"
@@ -96,13 +139,135 @@
           "apiKey"
         ],
         "terminalCommand": "codex login"
-      }
+      },
+      "usage": true,
+      "resetCreditsMinVersion": "0.163.0",
+      "backgroundProcesses": true,
+      "goals": {
+        "actions": [
+          "read",
+          "cancel",
+          "pause",
+          "resume",
+          "complete"
+        ]
+      },
+      "threadHistory": {
+        "actions": [
+          "fork",
+          "revert"
+        ]
+      },
+      "serviceTiers": [
+        {
+          "id": "priority",
+          "name": "Fast",
+          "description": "",
+          "unavailableReason": "Availability not confirmed"
+        },
+        {
+          "id": "ultrafast",
+          "name": "Ultrafast",
+          "description": "",
+          "unavailableReason": "Not available on your plan"
+        }
+      ]
     },
     "chatBackend": {
       "spawnable": true,
       "sessionConfig": true,
       "agentTasks": true
-    }
+    },
+    "recordSources": {
+      "sessionTranscript": {
+        "format": "jsonl",
+        "filter": {}
+      },
+      "storedHistory": {
+        "format": "jsonl",
+        "filter": {
+          "type": {
+            "path": [
+              "type"
+            ],
+            "in": [
+              "session_meta",
+              "event_msg"
+            ]
+          }
+        },
+        "oversized": {
+          "keep": [
+            [
+              "type"
+            ],
+            [
+              "payload",
+              "type"
+            ],
+            [
+              "payload",
+              "id"
+            ],
+            [
+              "payload",
+              "thread_id"
+            ],
+            [
+              "payload",
+              "turn_id"
+            ],
+            [
+              "payload",
+              "started_at_ms"
+            ],
+            [
+              "payload",
+              "completed_at_ms"
+            ],
+            [
+              "payload",
+              "item",
+              "id"
+            ],
+            [
+              "payload",
+              "item",
+              "type"
+            ],
+            [
+              "payload",
+              "item",
+              "status"
+            ],
+            [
+              "payload",
+              "item",
+              "startedAt"
+            ],
+            [
+              "payload",
+              "item",
+              "started_at"
+            ]
+          ]
+        }
+      }
+    },
+    "remoteTask": {
+      "mode": "cloud",
+      "displayName": "Cloud",
+      "backend": "chatgpt-cloud-tasks",
+      "availability": {
+        "status": "unavailable",
+        "reason": "Sign in to Codex to discover Cloud environments."
+      },
+      "environments": [],
+      "followUp": false,
+      "cancel": false,
+      "applyDiff": false
+    },
+    "view": true
   },
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
@@ -209,7 +374,69 @@
         "verdict": "waiting"
       }
     ],
-    "usageProbeCommand": "/status"
+    "usageProbeCommand": "/status",
+    "executionSandbox": {
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "readOnly": {
+        "launchArgs": [
+          "--sandbox",
+          "read-only",
+          "-a",
+          "never",
+          "--cd",
+          "{cwd}",
+          "-c",
+          "sandbox_workspace_write.writable_roots=[]",
+          "-c",
+          "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+          "-c",
+          "sandbox_workspace_write.exclude_slash_tmp=true",
+          "-c",
+          "sandbox_workspace_write.network_access=false"
+        ],
+        "runtimeMode": "read-only"
+      },
+      "forbiddenArgumentPrefixes": [
+        "-c",
+        "--config",
+        "--sandbox",
+        "-s",
+        "-a",
+        "--ask-for-approval",
+        "--danger",
+        "--yolo",
+        "--full-auto",
+        "--add-dir",
+        "--cd",
+        "-C",
+        "--profile",
+        "-p",
+        "--"
+      ],
+      "mutating": {
+        "launchArgs": [
+          "--sandbox",
+          "workspace-write",
+          "-a",
+          "never",
+          "--cd",
+          "{cwd}",
+          "-c",
+          "sandbox_workspace_write.writable_roots=[]",
+          "-c",
+          "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+          "-c",
+          "sandbox_workspace_write.exclude_slash_tmp=true",
+          "-c",
+          "sandbox_workspace_write.network_access=false"
+        ],
+        "runtimeMode": "workspace-write"
+      }
+    }
   },
   "models": [
     {
@@ -314,7 +541,7 @@
       "-m",
       "{model}"
     ],
-    "modelSwitch": "next_turn",
+    "modelSwitch": "live",
     "reasoningEffortLaunchArgsFormat": [
       "-c",
       "model_reasoning_effort=\"{effort}\""
@@ -341,5 +568,8 @@
       "=0.160.0"
     ],
     "breaking": []
-  }
+  },
+  "dataPaths": [
+    "~/.codeterm/codex/tasks"
+  ]
 }

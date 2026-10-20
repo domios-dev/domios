@@ -5,6 +5,8 @@ import { ComposerInputShell } from "./ComposerInputShell";
 import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { useComposerVoice } from "./voice/useComposerVoice";
+import { ComposerIssuesProvider, useHasComposerIssuesProvider } from "./ComposerIssuesContext";
+import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
 
@@ -24,7 +26,15 @@ interface Props {
   uploadFiles?: (files: File[]) => Promise<void>;
 }
 
-export function ComposerActions({
+export function ComposerActions(props: Props) {
+  const provided = useHasComposerIssuesProvider();
+  return provided ? <ComposerActionsBody {...props} /> : <ComposerIssuesProvider>
+    <AgentRuntimeBanner state={null} onRetry={() => {}} />
+    <ComposerActionsBody {...props} />
+  </ComposerIssuesProvider>;
+}
+
+function ComposerActionsBody({
   tabId,
   onAttach,
   onSend,
@@ -52,6 +62,9 @@ export function ComposerActions({
     persistBlob: voiceUploads.store,
   });
 
+  const attachButton = canAttach && !voiceUi.isPreview
+    && <ComposerAttachButton uploading={uploads.busy} onClick={() => fileRef.current?.click()} />;
+
   return (
     <>
       {canAttach && <input
@@ -71,9 +84,7 @@ export function ComposerActions({
       {uploads.status}
       {voiceUploads.status}
       <div className="relative flex w-full items-end gap-1.5">
-        {canAttach && !voiceUi.isPreview && (
-          <ComposerAttachButton uploading={uploads.busy} onClick={() => fileRef.current?.click()} />
-        )}
+        {attachButton}
         <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}
           actions={voiceUi.mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>
           {children}

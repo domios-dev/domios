@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check/release-preflight/test-one/verify/test:all; CI qualification.yml; scripts check-build-gateway-policy.sh, check-sccache-basedir-isolation.sh, check-slow-unit-tests.test.mjs; skill build-machine, build-reference, build
 # Run tests under a process-group timeout.
 #
 # The cap kills the WHOLE process group — cargo AND every
@@ -124,26 +125,6 @@ configure_windows_test_target() {
     return 0
 }
 
-ensure_embed_sidecar() {
-    local extension=""
-    local sidecar
-
-    [[ "$HOST_TRIPLE" == *-windows-* ]] && extension=".exe"
-    sidecar="$ROOT/src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${extension}"
-
-    [ -e "$sidecar" ] && return
-
-    printf '[test-capped] missing bundled embed sidecar; creating test-only stub.\n'
-    (
-        cd "$ROOT"
-        node scripts/prepare-embed-stub.js >/dev/null
-    )
-    [ -e "$sidecar" ] || {
-        printf 'error: bundled embed stub was not created: %s\n' "$sidecar" >&2
-        exit 2
-    }
-}
-
 ARGS_JOINED=" $* "
 if [[ "$ARGS_JOINED" == *" --manifest-path cli/Cargo.toml "* && "$ARGS_JOINED" == *" --lib "* ]]; then
     printf 'error: cli/Cargo.toml is a binary crate and has no --lib test target.\n' >&2
@@ -159,7 +140,6 @@ if [ "$EXEC_MODE" -eq 0 ]; then
     fi
     configure_embed_cache
     isolate_conpty_test_dir
-    ensure_embed_sidecar
 fi
 
 if [ "$TEST_CAP_SECS" -eq 0 ]; then
@@ -183,7 +163,7 @@ detect_requested_filter() {
             --manifest-path) FILTER_MANIFEST="${2:-}"; shift 2 || return 0 ;;
             -p=*|--package=*) FILTER_PACKAGE="${1#*=}"; shift ;;
             --manifest-path=*) FILTER_MANIFEST="${1#*=}"; shift ;;
-            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|-Z|--color)
+            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|-Z|--color|--archive-file|--workspace-remap|--binaries-metadata|--cargo-metadata)
                 shift 2 || return 0 ;;
             -*) shift ;;
             *) REQUESTED_FILTER="$1"; return 0 ;;
@@ -281,9 +261,24 @@ if [ "$EXEC_MODE" -eq 0 ]; then
     fi
 fi
 
-TEST_LOG=$(mktemp)
-trap 'rm -f "$TEST_LOG"' EXIT
-if run_test "$@" 2>&1 | tee "$TEST_LOG"; then
+TEST_RAW_OUTPUT="${TEST_RAW_OUTPUT:-0}"
+if [ "$EXEC_MODE" = 0 ] && [ "$TEST_RAW_OUTPUT" != 1 ] && [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then
+    TEST_LOG=$(mktemp "$CT_BUILD_ARTIFACT_DIR/test.XXXXXX.log")
+else
+    TEST_LOG=$(mktemp)
+    trap 'rm -f "$TEST_LOG"' EXIT
+fi
+capture_test() {
+    if [ "$EXEC_MODE" = 1 ] || [ "$TEST_RAW_OUTPUT" = 1 ] || [ -z "${CT_BUILD_ARTIFACT_DIR:-}" ]; then
+        run_test "$@" 2>&1 | tee "$TEST_LOG"
+    else
+        local status=0
+        run_test "$@" > "$TEST_LOG" 2>&1 || status=$?
+        node "$(dirname "${BASH_SOURCE[0]}")/build-gateway-output.mjs" test-summary "$TEST_LOG" "$status" || true
+        return "$status"
+    fi
+}
+if capture_test "$@"; then
     if [ "$EXEC_MODE" -eq 0 ] && [ -n "$REQUESTED_FILTER" ]; then
         if filtered_run_matched_nothing "$TEST_LOG"; then
             report_zero_match

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it, vi } from "vitest";
 import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
+import { act, useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import { MultiplexerProvider, useMuxState } from "../../store/multiplexer";
+import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
+import { NewSessionPicker } from "../Terminal/NewSessionPicker";
+import { SidebarDnd } from "./sortable";
 
 const fixture = vi.hoisted(() => ({ providers: [
   { id: "configured-provider", display_name: "Configured", available_models: [{ id: "default", display_name: "Default" }], default_model: "default" },
@@ -16,13 +23,6 @@ import type { AppConfig, AtomicSpawn, MultiplexerState, Tab } from "../../lib/ty
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 async function run() {
-  const { act, useEffect, useState } = await import("react");
-  const { createRoot } = await import("react-dom/client");
-  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  const { MultiplexerProvider, useMuxState } = await import("../../store/multiplexer");
-  const { GeneralWorkspaceTabs } = await import("./GeneralWorkspaceTabs");
-  const { NewSessionPicker } = await import("../Terminal/NewSessionPicker");
-  const { SidebarDnd } = await import("./sortable");
   const main: Tab = {
     id: "main-tab", title: "Main", protected: true, role: "Manager", role_profile: "general_agent",
     cwd: "/instance/general", pty_id: "main-pty", tab_type: "Terminal",
@@ -70,7 +70,7 @@ async function run() {
         workspace={workspace} providerId="configured-provider" generalCwd={workspace.cwd}
         activeTabId={workspace.active_tab_id} sortedTabs={workspace.tabs.map((id) => state.tabs[id])}
         tabs={state.tabs} tabStatuses={state.tabStatuses} teams={[]} planIndex={[]} plans={[]}
-        activeWork={null} providers={[]} closingTabIds={new Set()} appearingTabIds={new Set()}
+        providers={[]} closingTabIds={new Set()} appearingTabIds={new Set()}
         isActiveVisual={true} workspaceCanvasActive={false} touchMode={true} compact={false}
         sidebarActionText="" orchestrators={[]} onBeforeOpenPlan={() => {}}
         onActivateTab={() => {}} onCloseTab={() => {}} onRenameTab={() => {}}
@@ -93,19 +93,22 @@ async function run() {
     assert(!dialog.querySelector('button[aria-label="Team"]'));
     assert(!dialog.querySelector('button[aria-label="Orchestrator provider"]'));
     async function choose(label: string, value: string) {
-      const control = dialog!.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+      const control = Array.from(dialog!.querySelectorAll<HTMLButtonElement>("button[aria-label]"))
+        .find((button) => button.getAttribute("aria-label") === label || button.getAttribute("aria-label")?.startsWith(`${label}:`));
       assert(control);
       await act(async () => { control.dispatchEvent(new Event("pointerdown", { bubbles: true, cancelable: true })); });
-      const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((node) => node.textContent?.trim() === value);
+      const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')).find((node) => node.textContent?.trim() === value);
       assert(item);
       await act(async () => item.click());
     }
     await choose("Agent provider", "Chosen provider");
     await choose("Agent model", "Chosen model");
-    assert(dialog.querySelector('button[aria-label="Agent effort"]'));
+    assert(Array.from(dialog.querySelectorAll<HTMLButtonElement>("button[aria-label]"))
+      .some((button) => button.getAttribute("aria-label")?.startsWith("Agent effort:")));
     const submit = Array.from(dialog.querySelectorAll("button")).find((node) => node.textContent?.trim() === "Start session");
     assert(submit);
     await act(async () => submit.click());
+    await act(async () => document.querySelector('[data-testid="new-session-picker"]')?.dispatchEvent(new Event("animationend", { bubbles: true })));
     const spawns = requests.filter((request) => request.command === "spawn_general_agent_session");
     assert.deepEqual(spawns, [{ command: "spawn_general_agent_session", args: { params: {
       workspaceId: "general", providerId: "chosen-provider", cwd: "/instance/general",

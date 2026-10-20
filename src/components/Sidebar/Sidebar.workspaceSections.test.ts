@@ -15,7 +15,7 @@ async function run() {
     persistWorkspacesSectionExpanded,
     toggleWorkspacesSectionExpanded,
     workspaceSectionBodyVisible,
-  } = await import("./Sidebar");
+  } = await import("./workspacesSectionModel");
 
   const ordinaryWorkspaceId = "ordinary";
   const ordinaryInitial = initialSidebarExpanded([

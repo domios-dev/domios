@@ -92,7 +92,7 @@ function linesSuffix(lines: number): string {
   return ` · ${lines} ${lines === 1 ? "line" : "lines"}`;
 }
 
-const NUMBERED_KINDS: ReadonlySet<AttachmentKind> = new Set(["image", "text", "quote"]);
+const NUMBERED_KINDS: ReadonlySet<AttachmentKind> = new Set(["image", "video", "text", "quote"]);
 
 function quoteDetail(request: CapsuleRequest): string {
   const detail = request.detail ?? request.label?.split(" · ").slice(1).join(" · ") ?? "";
@@ -101,6 +101,7 @@ function quoteDetail(request: CapsuleRequest): string {
 
 function generatedLabel(registry: CapsuleRegistry, request: CapsuleRequest): string {
   if (request.kind === "image") return numberedLabel(registry, "image");
+  if (request.kind === "video") return numberedLabel(registry, "video");
   if (request.kind === "text") return numberedLabel(registry, "text", request.lines ? linesSuffix(request.lines) : "");
   if (request.kind === "quote") return numberedLabel(registry, "quote", quoteDetail(request));
   return cleanLabel(baseName(request.path)) || request.kind;

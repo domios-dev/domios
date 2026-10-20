@@ -152,7 +152,7 @@ it("glance action replaces a declarative grant error with consent and retries on
     if (++attempts === 1) return { nodes: [{ kind: "note", body: "local_recording_grant_required", level: "error" }] };
     return { nodes: [{ kind: "badge", label: "Enabled", tone: "ok" }] };
   });
-  await mount(<><PluginConsentDialog /><GlancePopover pluginId="fixture" displayName="Fixture" anchor={{ right: 0, top: 0 }} onClose={() => {}} onOpenSettings={() => {}} /></>);
+  await mount(<><PluginConsentDialog /><GlancePopover pluginId="fixture" displayName="Fixture" anchor={{ current: document.body }} onClose={() => {}} onOpenSettings={() => {}} /></>);
   await act(async () => button("Enable fixture").click());
   expect(getPluginConsent()?.permission).toBe("local_recording");
   expect(document.body.textContent).not.toContain("local_recording_grant_required");

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../../../lib/bridge";
 import { offeredRecordingSelection, type RecordingInput } from "./localRecordingSelection";
@@ -73,7 +74,7 @@ export function LocalRecordingSetup({ pluginId, onClose }: { pluginId: string; o
           </option>)}
         </select>
       </label>
-      {error && <p role="alert">{error}</p>}
+      {error && <InlineErrorNotice error={error} operation="setting up voice recording" blocking />}
       <button type="button" disabled={saving || !inputId || !microphoneId} onClick={() => void save()}>Connect</button>
       <button type="button" disabled={saving} onClick={onClose}>Cancel</button>
     </section>

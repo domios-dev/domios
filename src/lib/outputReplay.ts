@@ -26,6 +26,9 @@ export function planOutputReplay(cursor: OutputCursor | undefined, frame: Output
 }
 export class TerminalOutputReplay {
     private cursors = new WeakMap<object, Map<string, OutputCursor>>();
+    cursor(terminal: object, tabId: string): OutputCursor | undefined {
+        return this.cursors.get(terminal)?.get(tabId);
+    }
     resync(terminal: object, tabId: string, boot: string, ptyId: string, from: number, reportGap: () => void): void {
         let tabs = this.cursors.get(terminal);
         if (!tabs) {
@@ -48,7 +51,7 @@ export class TerminalOutputReplay {
         const cursor = this.cursors.get(terminal)?.get(tabId);
         return cursor?.boot === boot && cursor.ptyId === ptyId ? cursor.offset : 0;
     }
-    deliver(terminal: object, tabId: string, frame: OutputBytesFrame, write: (bytes: Uint8Array) => void): void {
+    deliver(terminal: object, tabId: string, frame: OutputBytesFrame, write: (bytes: Uint8Array) => unknown): void | Promise<void> {
         let tabs = this.cursors.get(terminal);
         if (!tabs) {
             tabs = new Map();
@@ -57,7 +60,9 @@ export class TerminalOutputReplay {
         const result = planOutputReplay(tabs.get(tabId), frame);
         if (result.bytes.length === 0)
             return;
-        write(result.bytes);
+        const completion = write(result.bytes);
         tabs.set(tabId, result.cursor);
+        if (completion && (typeof completion === "object" || typeof completion === "function") && "then" in completion)
+            return Promise.resolve(completion).then(() => undefined);
     }
 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts qa-gates.lib.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

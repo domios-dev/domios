@@ -33,6 +33,7 @@ impl MultiplexerState {
             pending_delivery,
             title: "Terminal".to_string(),
             description: None,
+            description_origin: Default::default(),
             cwd: None,
             provisioned_cwd: None,
             url: None,
@@ -67,6 +68,8 @@ impl MultiplexerState {
             lifecycle_epoch: None,
             lifecycle_operation_id: None,
             task_binding: None,
+            taskless_authorized_gates: Vec::new(),
+            taskless_authorized_review_tasks: Vec::new(),
             roleless_tracked: false,
             managed: None,
             role: None,
@@ -100,6 +103,11 @@ impl MultiplexerState {
             skip_snapshot: false,
             show_in_tabbar: true,
             worker_id: None,
+            frozen: false,
+            slept_at_ms: None,
+            sleep_reason: None,
+            last_active_at_ms: None,
+            last_opened_at_ms: None,
             restored_from_snapshot: false,
             scrollback_seed_pending: false,
             pending_scrollback_tail: None,
@@ -247,7 +255,58 @@ impl MultiplexerState {
             .get_mut(tab_id)
             .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
         tab.description = description;
+        tab.description_origin = super::super::types::TabDescriptionOrigin::User;
         Ok(())
+    }
+
+    pub fn set_task_tab_description(
+        &mut self,
+        tab_id: &str,
+        description: Option<String>,
+    ) -> Result<(), String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        tab.description = description;
+        tab.description_origin = super::super::types::TabDescriptionOrigin::Task;
+        Ok(())
+    }
+
+    pub fn update_task_tab_description(
+        &mut self,
+        tab_id: &str,
+        description: Option<String>,
+    ) -> Result<bool, String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        if tab.description_origin != super::super::types::TabDescriptionOrigin::Task {
+            return Ok(false);
+        }
+        tab.description = description;
+        Ok(true)
+    }
+
+    pub fn assign_task_tab_description(
+        &mut self,
+        tab_id: &str,
+        description: Option<String>,
+    ) -> Result<bool, String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        if tab.description_origin == super::super::types::TabDescriptionOrigin::User
+            || (tab.description_origin == super::super::types::TabDescriptionOrigin::Default
+                && tab.description.is_some())
+        {
+            return Ok(false);
+        }
+        tab.description = description;
+        tab.description_origin = super::super::types::TabDescriptionOrigin::Task;
+        Ok(true)
     }
 
     /// Find an agent tab whose CWD starts with `project_root`. Used by the
@@ -314,8 +373,15 @@ impl MultiplexerState {
         reason: TabCloseReason,
     ) -> Result<Vec<String>, String> {
         self.ensure_tab_membership_mutable(tab_id)?;
+        let utility_shells = self.owned_utility_shells(tab_id);
         self.record_single_close(tab_id, reason);
-        self.close_tab_inner(tab_id)
+        let mut pty_ids = Vec::new();
+        for shell_id in utility_shells {
+            self.record_single_close(&shell_id, reason);
+            pty_ids.extend(self.close_tab_inner(&shell_id)?);
+        }
+        pty_ids.extend(self.close_tab_inner(tab_id)?);
+        Ok(pty_ids)
     }
 
     /// Commit a tab close while holding its workspace membership reservation.
@@ -393,7 +459,12 @@ impl MultiplexerState {
     }
 
     fn close_tab_cascade_inner(&mut self, tab_id: &str) -> Result<Vec<String>, String> {
-        let child_ids = self.get_children_ids(tab_id);
+        let team_id = self.tabs.get(tab_id).and_then(|tab| tab.team_id.clone());
+        let child_ids: Vec<_> = self
+            .get_children_ids(tab_id)
+            .into_iter()
+            .filter(|id| self.tabs.get(id).is_some_and(|tab| tab.team_id == team_id))
+            .collect();
         let mut pty_ids = self.close_tab_inner(tab_id)?;
         for child_id in child_ids {
             if self.tabs.contains_key(&child_id) {
@@ -401,6 +472,26 @@ impl MultiplexerState {
             }
         }
         Ok(pty_ids)
+    }
+
+    fn owned_utility_shells(&self, owner_tab_id: &str) -> Vec<String> {
+        let Some(owner_team_id) = self
+            .tabs
+            .get(owner_tab_id)
+            .and_then(|owner| owner.team_id.as_deref())
+        else {
+            return Vec::new();
+        };
+        self.get_children_ids(owner_tab_id)
+            .into_iter()
+            .filter(|child_id| {
+                self.tabs.get(child_id).is_some_and(|child| {
+                    child.is_utility_shell()
+                        && child.team_id.as_deref() == Some(owner_team_id)
+                        && child.spawned_by_tab_id.as_deref() == Some(owner_tab_id)
+                })
+            })
+            .collect()
     }
 
     /// Remove the tab that owns a given tab. Single-tab-per-tab makes this

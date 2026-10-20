@@ -7,7 +7,7 @@ import { variantLaunch } from "./modelVariants";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
-import type { FileDiff, LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
+import type { FileDiff, HostOwnedCapabilities, LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import {
   lastPromptShape,
   parsePermissionPrompt,
@@ -18,7 +18,7 @@ import {
   isVerticalPrompt,
   verticalPromptHighlightIndex,
   discoverOpencodeModels,
-  discoverOpencodeGroupUsage,
+  withOpencodeGroupUsage,
   normalizeSessionDirectory,
   parseStructuredCursor,
   opencodeDbPath,
@@ -74,11 +74,18 @@ function starterPrompt(params: LaunchParams): string | undefined {
   return ASSIGNED_TASK_START_PROMPT;
 }
 
-function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string, launchConfig: Record<string, unknown> = {}, resumeSession?: string): string {
+function hostOwnedPermissions(hostOwned?: HostOwnedCapabilities): Record<string, string> {
+  return {
+    ...(hostOwned?.questions ? { question: "deny" } : {}),
+    ...(hostOwned?.todos ? { todoread: "deny", todowrite: "deny" } : {}),
+  };
+}
+
+function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string, launchConfig: Record<string, unknown> = {}, resumeSession?: string, hostOwned?: HostOwnedCapabilities): string {
   const platform = host.platform();
   const config = {
     ...launchConfig,
-    permission: { external_directory: { "*": "ask" } },
+    permission: { ...hostOwnedPermissions(hostOwned), external_directory: { "*": "ask" } },
     ...(instructions ? { instructions } : {}),
   };
   if (platform === "windows") {
@@ -97,6 +104,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin: PluginModule = {
+  sessionResume: () => ({ exact: true }),
   checkForUpdate: checkOpencodeUpdate,
   ...modelSwitch,
   ...decisionModel,
@@ -183,14 +191,14 @@ const plugin: PluginModule = {
     return events;
   },
 
-  discoverModels(): ModelInfo[] | null {
-    return discoverOpencodeModels();
+  discoverModels(binaryFingerprint?: string | null): ModelInfo[] | null {
+    return discoverOpencodeModels(binaryFingerprint);
   },
 
   // Cumulative usage per upstream company comes from OpenCode's session store.
   // Model-id prefixes match picker groups, keeping vendor knowledge out of core.
   modelGroupUsage(): ModelGroupUsage[] {
-    return discoverOpencodeGroupUsage();
+    return withOpencodeGroupUsage((usage) => usage);
   },
 
   // because response bytes depend on horizontal vs vertical navigation.
@@ -252,7 +260,7 @@ const plugin: PluginModule = {
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined, undefined, launch.config, p.sessionId);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined, undefined, launch.config, p.sessionId, p.hostOwned);
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
@@ -278,16 +286,16 @@ const plugin: PluginModule = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId);
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId, p.hostOwned);
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId);
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config, p.sessionId, p.hostOwned);
     const project = launch.directory
       ? host.shell.quoteFor(launch.directory, platform)
       : null;
     const prologue = project
       ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&`
       : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], undefined, variant.config, p.sessionId);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], undefined, variant.config, p.sessionId, p.hostOwned);
   },
 
   // absent from opencode's env, or event field structure changed in a new release).
@@ -526,7 +534,7 @@ const plugin: PluginModule = {
     const [sinceMs, seenAtSinceMs] = parsedCursor;
     // Track `time_updated`, not `time_created`: a streamed part keeps its creation
     // instant while its text/output grows, so a creation window skips every update.
-    const rows = host.fs.sqliteQuery<{ id: string | number; ts_created?: number; ts_updated?: number; part?: string; role?: string | null; message?: string }>(
+    return host.fs.sqliteQueryAsync<StructuredChatRow>(
       db,
       "SELECT p.id AS id, p.time_created AS ts_created, p.time_updated AS ts_updated, p.data AS part, " +
         "CASE WHEN octet_length(m.data) <= ?3 AND json_valid(m.data) THEN json_extract(m.data,'$.role') END AS role " +
@@ -536,40 +544,46 @@ const plugin: PluginModule = {
         "FROM message WHERE session_id = ?1 AND time_updated >= ?2 AND octet_length(data) <= ?3 " +
         "AND json_valid(data) AND json_extract(data, '$.role') = 'assistant' AND (json_extract(data, '$.error.name') = 'APIError' OR json_extract(data, '$.time.completed') IS NOT NULL) " +
         "ORDER BY ts_updated ASC, id ASC",
-      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES]
+      [sessionId, sinceMs, MESSAGE_ROLE_MAX_BYTES],
+      (rows) => structuredChatFromRows(rows, sessionId, sinceMs, seenAtSinceMs),
     );
-    const messages: unknown[] = [];
-    const observations: unknown[] = [];
-    let lastTs = sinceMs;
-    let seenAtLastTs = seenAtSinceMs.slice();
-    for (let i = 0; i < rows.length; i++) {
-      const updated = rows[i].ts_updated || 0;
-      const created = rows[i].ts_created || updated;
-      const id = String(rows[i].id);
-      if (updated > lastTs) {
-        lastTs = updated;
-        seenAtLastTs = [];
-      }
-      if (seenAtLastTs.indexOf(id) !== -1) continue;
-      seenAtLastTs.push(id);
-      const message = safeJson(rows[i].message);
-      const observation = sessionObservations(message);
-      if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
-      const error = turnError(message);
-      if (error) {
-        messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
-        continue;
-      }
-      const part = safeJson(rows[i].part);
-      if (!part) continue;
-      const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role as string : "assistant";
-      const cm = partToChatMsg(part as OpencodePart, role, id, created);
-      if (cm) messages.push(cm);
-    }
-    seenAtLastTs.sort();
-    return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
   },
 };
+
+type StructuredChatRow = { id: string | number; ts_created?: number; ts_updated?: number; part?: string; role?: string | null; message?: string };
+
+function structuredChatFromRows(rows: StructuredChatRow[], sessionId: string, sinceMs: number, seenAtSinceMs: string[]): unknown {
+  const messages: unknown[] = [];
+  const observations: unknown[] = [];
+  let lastTs = sinceMs;
+  let seenAtLastTs = seenAtSinceMs.slice();
+  for (let i = 0; i < rows.length; i++) {
+    const updated = rows[i].ts_updated || 0;
+    const created = rows[i].ts_created || updated;
+    const id = String(rows[i].id);
+    if (updated > lastTs) {
+      lastTs = updated;
+      seenAtLastTs = [];
+    }
+    if (seenAtLastTs.indexOf(id) !== -1) continue;
+    seenAtLastTs.push(id);
+    const message = safeJson(rows[i].message);
+    const observation = sessionObservations(message);
+    if (observation) observations.push({ role: "assistant", provider_session_id: sessionId, provider_observations: observation });
+    const error = turnError(message);
+    if (error) {
+      messages.push({ id, type: "system", systemSubtype: "api_error", content: error.data?.message || "Provider API error", timestamp: new Date(created).toISOString() });
+      continue;
+    }
+    const part = safeJson(rows[i].part);
+    if (!part) continue;
+    const role = typeof rows[i].role === "string" && rows[i].role ? rows[i].role as string : "assistant";
+    const cm = partToChatMsg(part as OpencodePart, role, id, created);
+    if (cm) messages.push(cm);
+  }
+  seenAtLastTs.sort();
+  return { messages, observations, cursor: JSON.stringify([lastTs, seenAtLastTs]) };
+}
 
 function resumeLaunchArgs(args: string[], sessionId: string): string[] {
   const db = opencodeDbPath();

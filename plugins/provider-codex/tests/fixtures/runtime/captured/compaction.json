@@ -1,0 +1,2204 @@
+{
+  "schemaVersion": 1,
+  "captured": {
+    "cliVersion": "0.162.1",
+    "model": "gpt-6-luna",
+    "scenario": "compaction"
+  },
+  "context": {
+    "epoch": 1,
+    "cwd": "/work/capture",
+    "hostVersion": "1.14.7",
+    "tabId": "capture-tab",
+    "bindingNonce": "capture-nonce",
+    "settings": {
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "mode": "approval-required"
+    },
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [],
+    "threadParents": []
+  },
+  "operations": [
+    {
+      "operation": {
+        "kind": "initialize"
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "openThread",
+        "instructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise.",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": []
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "action": "restoreContext",
+        "value": {
+          "instructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise.",
+          "additionalContext": [
+            {
+              "key": "capture-codeword",
+              "kind": "application",
+              "value": "Public capture exercise data: the exercise token is SABLE. Repeat this public token when the user asks for the exercise token."
+            }
+          ]
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "sendId": "capture-compact-1",
+        "input": {
+          "text": "Reply with only ONE.",
+          "attachments": []
+        },
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-1",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "input": {
+              "text": "Reply with only ONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "action": "compact",
+        "value": null
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "action": "restoreContext",
+        "value": {
+          "instructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise.",
+          "additionalContext": [
+            {
+              "key": "capture-codeword",
+              "kind": "application",
+              "value": "Public capture exercise data: the exercise token is SABLE. Repeat this public token when the user asks for the exercise token."
+            }
+          ]
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "operation": {
+        "kind": "submitTurn",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "sendId": "capture-compact-2",
+        "input": {
+          "text": "What is the public exercise token? Reply only with that token.",
+          "attachments": []
+        },
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-2",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "input": {
+              "text": "What is the public exercise token? Reply only with that token.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    }
+  ],
+  "rpc": [
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "initialize",
+          "params": {
+            "clientInfo": {
+              "name": "domios",
+              "version": "1.14.7"
+            },
+            "capabilities": {
+              "experimentalApi": true,
+              "optOutNotificationMethods": []
+            }
+          }
+        }
+      },
+      "receiptMs": 18.413
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "userAgent": "domios/0.162.1 (Windows 10.0.26300; x86_64) dumb (domios; 1.14.7)",
+          "codexHome": "/home/capture\\.codex",
+          "platformFamily": "windows",
+          "platformOs": "windows"
+        }
+      },
+      "receiptMs": 250.812
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "notification",
+        "notification": {
+          "method": "initialized",
+          "params": {}
+        }
+      },
+      "receiptMs": 251.011
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": null
+      },
+      "receiptMs": 251.106
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "account/read",
+          "params": {
+            "refreshToken": false
+          }
+        }
+      },
+      "receiptMs": 251.123
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "account": {
+            "type": "chatgpt",
+            "planType": "prolite"
+          },
+          "requiresOpenaiAuth": true
+        }
+      },
+      "receiptMs": 968.065
+    },
+    {
+      "direction": "outbound",
+      "operation": 0,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "account/rateLimits/read",
+          "params": {}
+        }
+      },
+      "receiptMs": 968.148
+    },
+    {
+      "direction": "inbound",
+      "operation": 0,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "rateLimits": {
+            "limitId": "codex",
+            "limitName": null,
+            "normalModelSlug": null,
+            "primary": {
+              "usedPercent": 14,
+              "windowDurationMins": 10080,
+              "resetsAt": 1792735628
+            },
+            "secondary": null,
+            "credits": {
+              "hasCredits": true,
+              "unlimited": false,
+              "balance": "58419.2088515000"
+            },
+            "individualLimit": null,
+            "spendControlReached": false,
+            "planType": "prolite",
+            "rateLimitReachedType": null
+          }
+        }
+      },
+      "receiptMs": 2676.496
+    },
+    {
+      "direction": "outbound",
+      "operation": 1,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/start",
+          "params": {
+            "cwd": "/work/capture",
+            "model": "gpt-6-luna",
+            "threadSource": "user",
+            "config": {
+              "check_for_update_on_startup": false,
+              "project_doc_max_bytes": 65536,
+              "model_reasoning_effort": "low"
+            },
+            "approvalPolicy": "untrusted",
+            "approvalsReviewer": "user",
+            "sandbox": "read-only",
+            "developerInstructions": "Keep responses minimal. Do only the explicitly requested trivial capture exercise."
+          }
+        }
+      },
+      "receiptMs": 2676.777
+    },
+    {
+      "direction": "inbound",
+      "operation": 1,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "thread": {
+            "id": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "environments": [
+              {
+                "environmentId": "local",
+                "cwd": "/work/capture",
+                "runtimeWorkspaceRoots": [
+                  "/work/capture"
+                ]
+              }
+            ],
+            "extra": null,
+            "sessionId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "forkedFromId": null,
+            "parentThreadId": null,
+            "preview": "",
+            "ephemeral": false,
+            "section": null,
+            "sectionEnteredAt": null,
+            "projectId": null,
+            "historyMode": "paginated",
+            "modelProvider": "openai",
+            "model": "gpt-6-luna",
+            "reasoningEffort": "low",
+            "createdAt": 1792142390,
+            "updatedAt": 1792142390,
+            "recencyAt": 1792142390,
+            "status": {
+              "type": "idle"
+            },
+            "path": "/home/capture\\.codex\\sessions\\2026\\10\\16\\rollout-2026-10-16T12-19-49-01a14402-b22b-7543-9fbf-1286e18f47bc.jsonl",
+            "cwd": "/work/capture",
+            "cliVersion": "0.162.1",
+            "originator": "domios",
+            "source": "vscode",
+            "canAcceptDirectInput": true,
+            "threadSource": "user",
+            "agentNickname": null,
+            "agentRole": null,
+            "gitInfo": null,
+            "name": null,
+            "daybreakEnabled": null,
+            "turns": []
+          },
+          "model": "gpt-6-luna",
+          "modelProvider": "openai",
+          "serviceTier": "priority",
+          "disabledPluginIds": [],
+          "cwd": "/work/capture",
+          "runtimeWorkspaceRoots": [
+            "/work/capture"
+          ],
+          "instructionSources": [],
+          "approvalPolicy": "untrusted",
+          "approvalsReviewer": "user",
+          "sandbox": {
+            "type": "readOnly",
+            "networkAccess": false
+          },
+          "activePermissionProfile": null,
+          "reasoningEffort": "low",
+          "multiAgentMode": "explicitRequestOnly"
+        }
+      },
+      "receiptMs": 2920.197
+    },
+    {
+      "direction": "outbound",
+      "operation": 2,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/inject_items",
+          "params": {
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "items": [
+              {
+                "type": "message",
+                "role": "developer",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Keep responses minimal. Do only the explicitly requested trivial capture exercise."
+                  }
+                ]
+              },
+              {
+                "type": "message",
+                "role": "developer",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Public capture exercise data: the exercise token is SABLE. Repeat this public token when the user asks for the exercise token."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "receiptMs": 2920.675
+    },
+    {
+      "direction": "inbound",
+      "operation": 2,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      },
+      "receiptMs": 4168.703
+    },
+    {
+      "direction": "outbound",
+      "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/start",
+          "params": {
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "clientUserMessageId": "capture-compact-1",
+            "input": [
+              {
+                "type": "text",
+                "text": "Reply with only ONE."
+              }
+            ],
+            "cwd": "/work/capture",
+            "approvalPolicy": "untrusted",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "readOnly"
+            },
+            "model": "gpt-6-luna",
+            "effort": "low"
+          }
+        }
+      },
+      "receiptMs": 4169.039
+    },
+    {
+      "direction": "inbound",
+      "operation": 3,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+            "rootTurnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 4192.111
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      },
+      "receiptMs": 4257.699,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-1",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "input": {
+              "text": "Reply with only ONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turn": {
+            "id": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+            "rootTurnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1792142391,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 4257.899,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-1",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "input": {
+              "text": "Reply with only ONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a14402-ba1c-73e2-bb70-316b7a001afb",
+            "clientId": "capture-compact-1",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with only ONE.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+          "startedAtMs": 1792142391847
+        }
+      },
+      "receiptMs": 4728.605,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-1",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "input": {
+              "text": "Reply with only ONE.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a14402-ba1c-73e2-bb70-316b7a001afb",
+            "clientId": "capture-compact-1",
+            "content": [
+              {
+                "type": "text",
+                "text": "Reply with only ONE.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+          "completedAtMs": 1792142391847
+        }
+      },
+      "receiptMs": 4742.246,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_0cd4136875b64cf3016ad1ec3a215c8191a7cdc084e0044836",
+            "text": "",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          },
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+          "startedAtMs": 1792142394185
+        }
+      },
+      "receiptMs": 7066.497,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+          "itemId": "msg_0cd4136875b64cf3016ad1ec3a215c8191a7cdc084e0044836",
+          "delta": "ONE"
+        }
+      },
+      "receiptMs": 7096.734,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_0cd4136875b64cf3016ad1ec3a215c8191a7cdc084e0044836",
+            "text": "ONE",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          },
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+          "completedAtMs": 1792142394303
+        }
+      },
+      "receiptMs": 7197.61,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+          "tokenUsage": {
+            "total": {
+              "totalTokens": 16694,
+              "inputTokens": 16689,
+              "cachedInputTokens": 11776,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 5,
+              "reasoningOutputTokens": 0
+            },
+            "last": {
+              "totalTokens": 16694,
+              "inputTokens": 16689,
+              "cachedInputTokens": 11776,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 5,
+              "reasoningOutputTokens": 0
+            },
+            "modelContextWindow": 258400
+          }
+        }
+      },
+      "receiptMs": 7238.767,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "status": {
+            "type": "idle"
+          }
+        }
+      },
+      "receiptMs": 7631.899,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turn": {
+            "id": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+            "rootTurnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+            "items": [
+              {
+                "type": "agentMessage",
+                "id": "msg_0cd4136875b64cf3016ad1ec3a215c8191a7cdc084e0044836",
+                "text": "ONE",
+                "phase": "final_answer",
+                "memoryCitation": null,
+                "delivery": null,
+                "questions": null
+              }
+            ],
+            "itemsView": "summary",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1792142391,
+            "completedAt": 1792142394,
+            "durationMs": 3430
+          }
+        }
+      },
+      "receiptMs": 7632.035,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 4,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/compact/start",
+          "params": {
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+          }
+        }
+      },
+      "receiptMs": 7632.194
+    },
+    {
+      "direction": "inbound",
+      "operation": 4,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      },
+      "receiptMs": 7633.085
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      },
+      "receiptMs": 7663.372,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turn": {
+            "id": "01a14402-c57f-7f61-8cd8-624ebc242e04",
+            "rootTurnId": "01a14402-c57f-7f61-8cd8-624ebc242e04",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1792142394,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 7663.459,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "contextCompaction",
+            "id": "01a14402-c5a0-7492-b5ee-b514b86efb0f"
+          },
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-c57f-7f61-8cd8-624ebc242e04",
+          "startedAtMs": 1792142394784
+        }
+      },
+      "receiptMs": 7665.874,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-c57f-7f61-8cd8-624ebc242e04",
+          "tokenUsage": {
+            "total": {
+              "totalTokens": 16694,
+              "inputTokens": 16689,
+              "cachedInputTokens": 11776,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 5,
+              "reasoningOutputTokens": 0
+            },
+            "last": {
+              "totalTokens": 9661,
+              "inputTokens": 0,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 0,
+              "reasoningOutputTokens": 0
+            },
+            "modelContextWindow": 258400
+          }
+        }
+      },
+      "receiptMs": 13436.373,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "contextCompaction",
+            "id": "01a14402-c5a0-7492-b5ee-b514b86efb0f"
+          },
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-c57f-7f61-8cd8-624ebc242e04",
+          "completedAtMs": 1792142400555
+        }
+      },
+      "receiptMs": 13464.196,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "status": {
+            "type": "idle"
+          }
+        }
+      },
+      "receiptMs": 13484.225,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turn": {
+            "id": "01a14402-c57f-7f61-8cd8-624ebc242e04",
+            "rootTurnId": "01a14402-c57f-7f61-8cd8-624ebc242e04",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1792142394,
+            "completedAt": 1792142400,
+            "durationMs": 5825
+          }
+        }
+      },
+      "receiptMs": 13484.289,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "outbound",
+      "operation": 5,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/inject_items",
+          "params": {
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "items": [
+              {
+                "type": "message",
+                "role": "developer",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Keep responses minimal. Do only the explicitly requested trivial capture exercise."
+                  }
+                ]
+              },
+              {
+                "type": "message",
+                "role": "developer",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Public capture exercise data: the exercise token is SABLE. Repeat this public token when the user asks for the exercise token."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "receiptMs": 13484.397
+    },
+    {
+      "direction": "inbound",
+      "operation": 5,
+      "reply": {
+        "kind": "success",
+        "value": {}
+      },
+      "receiptMs": 13508.676
+    },
+    {
+      "direction": "outbound",
+      "operation": 6,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "turn/start",
+          "params": {
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "clientUserMessageId": "capture-compact-2",
+            "input": [
+              {
+                "type": "text",
+                "text": "What is the public exercise token? Reply only with that token."
+              }
+            ],
+            "cwd": "/work/capture",
+            "approvalPolicy": "untrusted",
+            "approvalsReviewer": "user",
+            "sandboxPolicy": {
+              "type": "readOnly"
+            },
+            "model": "gpt-6-luna",
+            "effort": "low"
+          }
+        }
+      },
+      "receiptMs": 13508.809
+    },
+    {
+      "direction": "inbound",
+      "operation": 6,
+      "reply": {
+        "kind": "success",
+        "value": {
+          "turn": {
+            "id": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+            "rootTurnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": null,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 13534.436
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "status": {
+            "type": "active",
+            "activeFlags": []
+          }
+        }
+      },
+      "receiptMs": 13556.232,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-2",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "input": {
+              "text": "What is the public exercise token? Reply only with that token.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/started",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turn": {
+            "id": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+            "rootTurnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+            "items": [],
+            "itemsView": "notLoaded",
+            "status": "inProgress",
+            "error": null,
+            "startedAt": 1792142400,
+            "completedAt": null,
+            "durationMs": null
+          }
+        }
+      },
+      "receiptMs": 13556.43,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-2",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "input": {
+              "text": "What is the public exercise token? Reply only with that token.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a14402-de6d-7892-8496-af3374f57abd",
+            "clientId": "capture-compact-2",
+            "content": [
+              {
+                "type": "text",
+                "text": "What is the public exercise token? Reply only with that token.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+          "startedAtMs": 1792142401143
+        }
+      },
+      "receiptMs": 14025.105,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [
+          {
+            "sendId": "capture-compact-2",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "input": {
+              "text": "What is the public exercise token? Reply only with that token.",
+              "attachments": []
+            }
+          }
+        ],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "userMessage",
+            "id": "01a14402-de6d-7892-8496-af3374f57abd",
+            "clientId": "capture-compact-2",
+            "content": [
+              {
+                "type": "text",
+                "text": "What is the public exercise token? Reply only with that token.",
+                "text_elements": []
+              }
+            ]
+          },
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+          "completedAtMs": 1792142401143
+        }
+      },
+      "receiptMs": 14037.97,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/started",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_0cd4136875b64cf3016ad1ec46506c819194bbcb659e8413d7",
+            "text": "",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          },
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+          "startedAtMs": 1792142406357
+        }
+      },
+      "receiptMs": 19238.422,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+          "itemId": "msg_0cd4136875b64cf3016ad1ec46506c819194bbcb659e8413d7",
+          "delta": "S"
+        }
+      },
+      "receiptMs": 19238.458,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+          "itemId": "msg_0cd4136875b64cf3016ad1ec46506c819194bbcb659e8413d7",
+          "delta": "ABLE"
+        }
+      },
+      "receiptMs": 19238.514,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "item/completed",
+        "params": {
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_0cd4136875b64cf3016ad1ec46506c819194bbcb659e8413d7",
+            "text": "SABLE",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          },
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+          "completedAtMs": 1792142406411
+        }
+      },
+      "receiptMs": 19304.213,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+          "tokenUsage": {
+            "total": {
+              "totalTokens": 33456,
+              "inputTokens": 33445,
+              "cachedInputTokens": 28288,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 11,
+              "reasoningOutputTokens": 0
+            },
+            "last": {
+              "totalTokens": 16762,
+              "inputTokens": 16756,
+              "cachedInputTokens": 16512,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 6,
+              "reasoningOutputTokens": 0
+            },
+            "modelContextWindow": 258400
+          }
+        }
+      },
+      "receiptMs": 19344.244,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "status": {
+            "type": "idle"
+          }
+        }
+      },
+      "receiptMs": 19734.62,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    },
+    {
+      "direction": "inbound",
+      "frame": {
+        "kind": "notification",
+        "method": "turn/completed",
+        "params": {
+          "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+          "turn": {
+            "id": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+            "rootTurnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+            "items": [
+              {
+                "type": "agentMessage",
+                "id": "msg_0cd4136875b64cf3016ad1ec46506c819194bbcb659e8413d7",
+                "text": "SABLE",
+                "phase": "final_answer",
+                "memoryCitation": null,
+                "delivery": null,
+                "questions": null
+              }
+            ],
+            "itemsView": "summary",
+            "status": "completed",
+            "error": null,
+            "startedAt": 1792142400,
+            "completedAt": 1792142406,
+            "durationMs": 6189
+          }
+        }
+      },
+      "receiptMs": 19734.747,
+      "context": {
+        "epoch": 1,
+        "cwd": "/work/capture",
+        "hostVersion": "1.14.7",
+        "tabId": "capture-tab",
+        "bindingNonce": "capture-nonce",
+        "settings": {
+          "model": "gpt-6-luna",
+          "effort": "low",
+          "mode": "approval-required"
+        },
+        "providerSettings": {},
+        "claimedSends": [],
+        "activeTurns": [],
+        "threadParents": [],
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc"
+      }
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "operation": 0,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "initialized",
+            "binaryVersion": "0.162.1"
+          },
+          "events": [
+            {
+              "kind": "auth",
+              "state": "signedIn",
+              "billingMode": "subscription"
+            },
+            {
+              "kind": "rateLimits",
+              "accountCredits": {
+                "kind": "balance",
+                "balance": "58419.2088515000"
+              },
+              "rateLimits": [
+                {
+                  "window": "primary",
+                  "usedPercent": 14,
+                  "resetsAt": 1792735628000,
+                  "windowMinutes": 10080
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "operation": 1,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "settings": {
+              "model": "gpt-6-luna",
+              "effort": "low",
+              "mode": "approval-required",
+              "serviceTier": {
+                "id": "priority"
+              }
+            }
+          }
+        }
+      },
+      {
+        "operation": 2,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          }
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "sendId": "capture-compact-1",
+            "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765"
+          }
+        }
+      },
+      {
+        "operation": 4,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          }
+        }
+      },
+      {
+        "operation": 5,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "done"
+          }
+        }
+      },
+      {
+        "operation": 6,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "turnAccepted",
+            "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+            "sendId": "capture-compact-2",
+            "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "kind": "auth",
+        "state": "signedIn",
+        "billingMode": "subscription"
+      },
+      {
+        "kind": "rateLimits",
+        "accountCredits": {
+          "kind": "balance",
+          "balance": "58419.2088515000"
+        },
+        "rateLimits": [
+          {
+            "window": "primary",
+            "usedPercent": 14,
+            "resetsAt": 1792735628000,
+            "windowMinutes": 10080
+          }
+        ]
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+        "state": "working",
+        "startedAt": 1792142391000
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "01a14402-ba1c-73e2-bb70-316b7a001afb",
+          "seq": 1,
+          "type": "user",
+          "content": "Reply with only ONE.",
+          "timestamp": "2026-10-16T09:19:51.847Z",
+          "toolFlowId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "sendId": "capture-compact-1",
+        "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+        "itemId": "01a14402-ba1c-73e2-bb70-316b7a001afb"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "01a14402-ba1c-73e2-bb70-316b7a001afb",
+          "seq": 1,
+          "type": "user",
+          "content": "Reply with only ONE.",
+          "timestamp": "2026-10-16T09:19:51.847Z",
+          "toolFlowId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "msg_0cd4136875b64cf3016ad1ec3a215c8191a7cdc084e0044836",
+          "seq": 2,
+          "type": "assistant",
+          "content": "",
+          "timestamp": "2026-10-16T09:19:54.185Z",
+          "toolFlowId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "msg_0cd4136875b64cf3016ad1ec3a215c8191a7cdc084e0044836",
+          "seq": 2,
+          "type": "assistant",
+          "content": "ONE",
+          "timestamp": "2026-10-16T09:19:54.185Z",
+          "toolFlowId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "msg_0cd4136875b64cf3016ad1ec3a215c8191a7cdc084e0044836",
+          "seq": 2,
+          "type": "assistant",
+          "content": "ONE",
+          "timestamp": "2026-10-16T09:19:54.185Z",
+          "toolFlowId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765"
+        }
+      },
+      {
+        "kind": "usage",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "usage": {
+          "input_tokens": 16689,
+          "output_tokens": 5,
+          "cache_write_tokens": 0,
+          "cache_read_tokens": 11776,
+          "used_tokens": 16694,
+          "window_tokens": 258400
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "turnId": "01a14402-b7f9-7fa3-83b6-ec35a9b59765",
+        "state": "idle",
+        "startedAt": 1792142391000,
+        "completedAt": 1792142394000
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "turnId": "01a14402-c57f-7f61-8cd8-624ebc242e04",
+        "state": "working",
+        "startedAt": 1792142394000
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "state": "working",
+        "detail": "compacting",
+        "turnId": "01a14402-c57f-7f61-8cd8-624ebc242e04"
+      },
+      {
+        "kind": "usage",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "usage": {
+          "input_tokens": 16689,
+          "output_tokens": 5,
+          "cache_write_tokens": 0,
+          "cache_read_tokens": 11776,
+          "used_tokens": 9661,
+          "window_tokens": 258400
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "turnId": "01a14402-c57f-7f61-8cd8-624ebc242e04",
+        "state": "working"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "01a14402-c5a0-7492-b5ee-b514b86efb0f",
+          "seq": 3,
+          "type": "system",
+          "content": "context compacted",
+          "systemSubtype": "contextCompaction",
+          "timelineMarker": {
+            "kind": "context_compaction"
+          },
+          "timestamp": "2026-10-16T09:20:00.555Z",
+          "toolFlowId": "01a14402-c57f-7f61-8cd8-624ebc242e04"
+        }
+      },
+      {
+        "kind": "contextCompacted",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "itemId": "01a14402-c5a0-7492-b5ee-b514b86efb0f"
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "turnId": "01a14402-c57f-7f61-8cd8-624ebc242e04",
+        "state": "idle",
+        "startedAt": 1792142394000,
+        "completedAt": 1792142400000
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+        "state": "working",
+        "startedAt": 1792142400000
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "01a14402-de6d-7892-8496-af3374f57abd",
+          "seq": 4,
+          "type": "user",
+          "content": "What is the public exercise token? Reply only with that token.",
+          "timestamp": "2026-10-16T09:20:01.143Z",
+          "toolFlowId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702"
+        }
+      },
+      {
+        "kind": "sendEvidence",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "sendId": "capture-compact-2",
+        "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+        "itemId": "01a14402-de6d-7892-8496-af3374f57abd"
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "01a14402-de6d-7892-8496-af3374f57abd",
+          "seq": 4,
+          "type": "user",
+          "content": "What is the public exercise token? Reply only with that token.",
+          "timestamp": "2026-10-16T09:20:01.143Z",
+          "toolFlowId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "msg_0cd4136875b64cf3016ad1ec46506c819194bbcb659e8413d7",
+          "seq": 5,
+          "type": "assistant",
+          "content": "",
+          "timestamp": "2026-10-16T09:20:06.357Z",
+          "toolFlowId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "msg_0cd4136875b64cf3016ad1ec46506c819194bbcb659e8413d7",
+          "seq": 5,
+          "type": "assistant",
+          "content": "S",
+          "timestamp": "2026-10-16T09:20:06.357Z",
+          "toolFlowId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "msg_0cd4136875b64cf3016ad1ec46506c819194bbcb659e8413d7",
+          "seq": 5,
+          "type": "assistant",
+          "content": "SABLE",
+          "timestamp": "2026-10-16T09:20:06.357Z",
+          "toolFlowId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702"
+        }
+      },
+      {
+        "kind": "chatItem",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "item": {
+          "id": "msg_0cd4136875b64cf3016ad1ec46506c819194bbcb659e8413d7",
+          "seq": 5,
+          "type": "assistant",
+          "content": "SABLE",
+          "timestamp": "2026-10-16T09:20:06.357Z",
+          "toolFlowId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702"
+        }
+      },
+      {
+        "kind": "usage",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "usage": {
+          "input_tokens": 33445,
+          "output_tokens": 11,
+          "cache_write_tokens": 0,
+          "cache_read_tokens": 28288,
+          "used_tokens": 16762,
+          "window_tokens": 258400
+        }
+      },
+      {
+        "kind": "turnState",
+        "threadId": "01a14402-b22b-7543-9fbf-1286e18f47bc",
+        "turnId": "01a14402-dc75-7901-a3ba-4c0dbbbd3702",
+        "state": "idle",
+        "startedAt": 1792142400000,
+        "completedAt": 1792142406000
+      }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: CI release-linux.yml, release-manifest-validate.yml, release-windows.yml; scripts release-publish-platform.mjs, release-verify-windows.mjs, tests/release_signing_material_test.py; skill github-release
 // Verify that each platform signature in an updater manifest actually validates
 // against the bytes served at that platform's URL. HTTP 200 proves nothing: a
 // rebuilt artifact under a kept signature 200s and then fails in every client.

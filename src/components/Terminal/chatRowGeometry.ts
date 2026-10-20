@@ -23,7 +23,7 @@ export class IndexedChatRowGeometry implements ChatRowGeometry {
   }
 
   append(height: number): void {
-    const value = Number.isFinite(height) && height > 0 ? height : CHAT_ROW_ESTIMATE;
+    const value = Number.isFinite(height) && height >= 0 ? height : CHAT_ROW_ESTIMATE;
     const index = this.count + 1;
     const start = index - (index & -index);
     this.sums.push(this.offset(index - 1) - this.offset(start) + value);
@@ -31,7 +31,7 @@ export class IndexedChatRowGeometry implements ChatRowGeometry {
   }
 
   update(index: number, height: number): boolean {
-    if (index < 0 || index >= this.count || !Number.isFinite(height) || height <= 0 || height === this.heights[index]) return false;
+    if (index < 0 || index >= this.count || !Number.isFinite(height) || height < 0 || height === this.heights[index]) return false;
     const delta = height - this.heights[index];
     this.heights[index] = height;
     for (let cursor = index + 1; cursor <= this.count; cursor += cursor & -cursor) this.sums[cursor] += delta;

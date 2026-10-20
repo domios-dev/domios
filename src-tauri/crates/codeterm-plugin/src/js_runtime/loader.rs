@@ -17,6 +17,9 @@ use std::sync::Arc;
 
 use super::{JsProvider, PluginManifest, PluginVm};
 
+mod version_selection;
+use version_selection::system_version_order;
+
 /// One result of scanning a root directory.
 #[derive(Debug)]
 pub enum LoadOutcome {
@@ -32,9 +35,8 @@ pub enum LoadOutcome {
 
 /// Discover and load every plugin reachable from the supplied roots.
 ///
-/// `roots` are scanned in order; if two roots contain the same plugin
-/// `id`, the LATER occurrence wins (intentional — user plugins override
-/// workspace defaults of the same name).
+/// Roots are scanned in order. System ids keep the newest semantic version;
+/// equal versions and non-system ids prefer the later root.
 pub fn scan_roots(roots: &[PathBuf]) -> (Vec<JsProvider>, Vec<LoadOutcome>) {
     let mut providers: Vec<JsProvider> = Vec::new();
     let mut report: Vec<LoadOutcome> = Vec::new();
@@ -70,8 +72,22 @@ fn scan_one(root: &Path, providers: &mut Vec<JsProvider>, report: &mut Vec<LoadO
         }
         match load_one(&manifest_path) {
             Ok(p) => {
-                // Overwrite earlier registration of the same id.
                 let id = p.manifest().id.clone();
+                if providers.iter().any(|existing| {
+                    existing.manifest().id == id
+                        && system_version_order(
+                            crate::system_plugins::is_system_id(&id),
+                            &p.manifest().version,
+                            &existing.manifest().version,
+                        )
+                        .is_lt()
+                }) {
+                    report.push(LoadOutcome::Skipped {
+                        path: manifest_path,
+                        reason: "newer system plugin already loaded".into(),
+                    });
+                    continue;
+                }
                 providers.retain(|existing| existing.manifest().id != id);
                 providers.push(p);
                 report.push(LoadOutcome::Loaded {
@@ -89,8 +105,37 @@ fn scan_one(root: &Path, providers: &mut Vec<JsProvider>, report: &mut Vec<LoadO
     }
 }
 
+pub(super) fn order_system_candidates(id: &str, paths: &mut [PathBuf]) {
+    if !crate::system_plugins::is_system_id(id) {
+        return;
+    }
+    let versions: std::collections::HashMap<_, _> = paths
+        .iter()
+        .filter_map(|path| {
+            PluginManifest::load(path)
+                .ok()
+                .map(|manifest| (path.clone(), manifest.version))
+        })
+        .collect();
+    paths.sort_by(|left, right| {
+        system_version_order(
+            true,
+            versions.get(left).map(String::as_str).unwrap_or_default(),
+            versions.get(right).map(String::as_str).unwrap_or_default(),
+        )
+    });
+}
+
 /// Parse a `plugin.json`, load the bundled JS, return a ready provider.
 pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
+    load_one_with_installation(manifest_path, crate::bundled::installed())
+}
+
+pub(crate) fn load_one_with_installation(
+    manifest_path: &Path,
+    installation: Result<&crate::bundled::BundledPlugins, String>,
+) -> Result<JsProvider, String> {
+    installation?;
     let manifest = PluginManifest::load(manifest_path)?;
     let entry = manifest
         .entry_path()
@@ -362,11 +407,27 @@ fn core_eligibility(
 }
 
 pub fn default_roots(workspace_root: Option<&Path>) -> Vec<PathBuf> {
-    ordered_roots(
+    let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
+    let workspace = selected_workspace_root(
         workspace_root,
+        std::env::var_os("CODETERM_DEV_WORKSPACE_ROOT").map(PathBuf::from),
+        dev,
+    );
+    ordered_roots(
+        workspace.as_deref(),
         codeterm_paths::data_dir().join("plugins"),
-        std::env::var("CODETERM_DEV").as_deref() == Ok("1"),
+        dev,
     )
+}
+
+fn selected_workspace_root(
+    compiled: Option<&Path>,
+    explicit: Option<PathBuf>,
+    dev: bool,
+) -> Option<PathBuf> {
+    explicit
+        .filter(|_| dev)
+        .or_else(|| compiled.map(Path::to_path_buf))
 }
 
 fn ordered_roots(

@@ -50,6 +50,17 @@ pub fn kind_label(role: Option<AgentRole>, role_profile: Option<&str>) -> Option
     }
 }
 
+pub fn taskless_worker(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
+    role == Some(AgentRole::Worker)
+        && kind_descriptor(role, role_profile).is_some_and(RoleKindDescriptor::is_taskless_worker)
+}
+
+pub fn read_only_by_default(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
+    taskless_worker(role, role_profile)
+        && kind_descriptor(role, role_profile)
+            .is_some_and(RoleKindDescriptor::is_read_only_by_default)
+}
+
 fn capability_or_leaf(role: Option<AgentRole>, role_profile: Option<&str>) -> RoleKindCapability {
     kind_capability(role, role_profile).unwrap_or(RoleKindCapability::LEAF)
 }
@@ -86,4 +97,8 @@ pub fn plan_edit(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
 
 pub fn release(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
     capability_or_leaf(role, role_profile).release()
+}
+
+pub fn can_close_review(role: Option<AgentRole>, role_profile: Option<&str>) -> bool {
+    role == Some(AgentRole::Worker) && kind_id(role, role_profile) == Some(builtins::QA)
 }

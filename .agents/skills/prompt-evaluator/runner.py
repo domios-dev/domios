@@ -245,7 +245,7 @@ def run_agent(
         system prompt with the prompt-under-test. The general_agent.md prompt
         is a complete system prompt; appending it on top of Claude defaults
         creates incoherent instruction sets.
-      - `--allowedTools ""` — the agent cannot run anything, only describe.
+      - `--tools ""` — the agent cannot run anything, only describe.
         This is dry-run / planning mode; the matcher's judge prompt explains
         this framing so it doesn't punish "agent described X" as "agent did
         not actually do X".
@@ -257,7 +257,7 @@ def run_agent(
     # ...) created by bash hook scripts redirecting to `> NUL`. Even
     # ignore_cleanup_errors doesn't catch that path.
     trusted_system_prompt = system_prompt + (wrapper or EVAL_WRAPPER_SUFFIX)
-    salt = _cache.sample_salt(run_idx)
+    salt = "isolated-tools-disabled:" + _cache.sample_salt(run_idx)
     sample_key = _cache.key(
         model,
         trusted_system_prompt,
@@ -292,8 +292,11 @@ def run_agent(
                     eval_prompt,
                     "--system-prompt-file",
                     str(system_prompt_path),
-                    "--allowedTools",
+                    "--tools",
                     "",
+                    "--setting-sources",
+                    "",
+                    "--strict-mcp-config",
                     "--output-format",
                     "json",
                     "--model",
@@ -326,6 +329,9 @@ def run_agent(
         return result(False, f"<non-JSON output: {proc.stdout[:300]}>")
 
     response_text = envelope.get("result") or ""
+    if envelope.get("is_error") or not isinstance(response_text, str) or not response_text.strip():
+        details = {key: envelope.get(key) for key in ("subtype", "is_error", "stop_reason", "num_turns", "errors") if key in envelope}
+        return result(False, f"<invalid actor response: {json.dumps(details)[:500]}>")
     if _CACHE_ENABLED and response_text:
         _cache.put(
             model,

@@ -6,6 +6,7 @@ export interface CardStatus {
   ok: boolean;
   label: string;
   pending?: boolean;
+  detail?: string;
 }
 export interface PlanLink {
   planId: string;
@@ -205,7 +206,7 @@ function commandObject(command: string | undefined): string | undefined {
 }
 
 function reportFields(inv: CodetermInvocation, result?: string): Array<{ label: string; value: string }> {
-  const rawBody = resolvedText(result) ?? flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n|\\n)(?:STATUS|CHANGES|TESTS RUN|TESTS COVERING CHANGES|GATES REQUESTED|FOLLOWUP):/i.test(value));
+  const rawBody = resolvedReportText(result) ?? flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n|\\n)(?:STATUS|CHANGES|TESTS RUN|TESTS COVERING CHANGES|GATES REQUESTED|FOLLOWUP):/i.test(value));
   const body = rawBody ? decodeCliMessageText(rawBody) : undefined;
   const fields = new Map<string, string>();
   for (const line of body?.split(/\r?\n/) ?? []) {
@@ -393,11 +394,24 @@ function sentTitle(inv: CodetermInvocation, resolve?: TabNameResolver): string {
 
 function deliveredStatus(result?: string): CardStatus | undefined {
   if (!result) return undefined;
+  try {
+    const parsed = JSON.parse(result);
+    if (parsed?.delivery === "pending" || parsed?.pending?.length) return { ok: false, label: "pending", pending: true };
+    if (parsed?.delivery === "sent" || parsed?.delivered?.length) return { ok: true, label: "sent" };
+    if (parsed?.ok === true) return { ok: false, label: "pending", pending: true };
+    if (parsed?.ok === false || parsed?.failed?.length || parsed?.error) {
+      const error = parsed?.error;
+      return { ok: false, label: "failed", detail: typeof error === "string" ? error : typeof error?.message === "string" ? error.message : undefined };
+    }
+  } catch {}
   if (/\bOK\s*\(pending\)/i.test(result)) {
     return { ok: false, label: "pending", pending: true };
   }
   if (/\bOK\s*\(sent\)|delivered/i.test(result)) return { ok: true, label: "delivered" };
-  if (/error|fail|not found/i.test(result)) return { ok: false, label: "failed" };
+  if (/error|fail|not found/i.test(result)) {
+    const detail = result.match(/^\s*(?:error|failed?)\s*:\s*([^\r\n]{1,500})/im)?.[1];
+    return { ok: false, label: "failed", detail };
+  }
   return undefined;
 }
 
@@ -407,6 +421,7 @@ export interface SentMessage {
   mesh?: string;
   body: string;
   bodySource: "resolved" | "typed" | "pad";
+  truncated?: boolean;
   formattedAvailable: boolean;
   status?: CardStatus;
 }
@@ -424,7 +439,7 @@ export function parseSend(
   else recipient = resolve?.(p) ?? `tab ${p}`;
   const meshRef = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
   const mesh = meshRef ? friendlyPeerName(meshRef, resolvePeer) : undefined;
-  const resolved = resolvedText(result);
+  const resolved = resolvedSendText(result);
   const typed = decodeCliMessageText(inv.positionals[0] ?? "");
   const fromPad = inv.flags["from-pad"];
   const fromFile = inv.flags["from-file"] ?? inv.flags.file;
@@ -435,8 +450,9 @@ export function parseSend(
   return {
     recipient,
     mesh,
-    body: resolved || (staged ? sendBodyDescriptor(inv) : typed) || sendBodyDescriptor(inv),
+    body: resolved?.text || (staged ? sendBodyDescriptor(inv) : typed) || sendBodyDescriptor(inv),
     bodySource: resolved != null ? "resolved" : typeof fromPad === "string" ? "pad" : "typed",
+    truncated: resolved?.truncated,
     formattedAvailable: resolved != null || !staged,
     status: deliveredStatus(result),
   };
@@ -452,7 +468,7 @@ function sendBodyDescriptor(inv: CodetermInvocation): string {
 }
 
 /** The body the CLI actually delivered, echoed by every staged delivery path. */
-function resolvedText(result?: string): string | undefined {
+function resolvedReportText(result?: string): string | undefined {
   const encoded = result?.match(/^CODETERM_RESOLVED_TEXT=(.+)$/m)?.[1];
   if (!encoded) return undefined;
   try {
@@ -461,6 +477,21 @@ function resolvedText(result?: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function resolvedSendText(result?: string): { text: string; truncated: boolean } | undefined {
+  const encoded = result?.match(/^CODETERM_RESOLVED_TEXT=(.+)$/m)?.[1];
+  if (encoded) {
+    try {
+      const text = JSON.parse(encoded);
+      if (typeof text === "string") return { text: text.slice(0, 16_384), truncated: text.length > 16_384 || /CODETERM_RESOLVED_TEXT_TRUNCATED=true/.test(result ?? "") };
+    } catch {}
+  }
+  try {
+    const evidence = JSON.parse(result ?? "")?.sent_message;
+    if (typeof evidence?.text === "string") return { text: evidence.text.slice(0, 16_384), truncated: evidence.truncated === true || evidence.text.length > 16_384 };
+  } catch {}
+  return undefined;
 }
 
 /** True when this invocation is an outgoing `codeterm send`. */

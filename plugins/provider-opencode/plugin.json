@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.4",
-  "minCodeterm": "1.14.2",
+  "version": "1.14.9",
+  "minCodeterm": "1.14.9",
   "hostApi": 2,
   "capabilities": {
     "agentProvider": true,
@@ -65,6 +65,10 @@
       "file": "~/.local/share/opencode/auth.json",
       "secret": {
         "deepseekKey": "deepseek.key"
+      },
+      "fileEnvironment": {
+        "variable": "XDG_DATA_HOME",
+        "subdir": "opencode/auth.json"
       }
     }
   ],
@@ -129,9 +133,32 @@
     "authority": "authoritative",
     "configFiles": [
       "~/.config/opencode/opencode.json",
-      "~/.config/opencode/opencode.jsonc"
+      "~/.config/opencode/opencode.jsonc",
+      "opencode.json",
+      "opencode.jsonc"
     ],
-    "liveDiscoveryRequired": true
+    "liveDiscoveryRequired": true,
+    "configFileEnvironments": [
+      {
+        "variable": "OPENCODE_CONFIG"
+      },
+      {
+        "variable": "OPENCODE_CONFIG_DIR",
+        "subdir": "opencode.json"
+      },
+      {
+        "variable": "OPENCODE_CONFIG_DIR",
+        "subdir": "opencode.jsonc"
+      },
+      {
+        "variable": "XDG_CONFIG_HOME",
+        "subdir": "opencode/opencode.json"
+      },
+      {
+        "variable": "XDG_CONFIG_HOME",
+        "subdir": "opencode/opencode.jsonc"
+      }
+    ]
   },
   "installer": {
     "macos": "curl -fsSL https://opencode.ai/install | bash",

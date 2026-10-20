@@ -38,3 +38,23 @@ test("notification and inline capsule bodies load images with their owning tab",
     configureLocalArtifactLoader(null);
   }
 });
+
+test("failure notifications keep opaque bodies inside a collapsed copyable disclosure", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const raw = "<opaque-error> backend diagnostics";
+  try {
+    await act(async () => root.render(<NotificationBody text={raw} tabId={null} failure />));
+    const details = host.querySelector("details")!;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("pre")?.textContent).toBe(raw);
+    expect(details.querySelector("button")).not.toBeNull();
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    await act(async () => root.render(<NotificationBody text={raw} tabId={null} failure preview />));
+    expect(host.textContent).not.toContain(raw);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

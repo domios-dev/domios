@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import { fetchItemFull, patchItem, deleteItem } from "./memoryApi";
@@ -151,9 +152,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
         </div>
 
         {error && (
-          <div className="mx-4 mt-2 p-2 rounded bg-[var(--ct-red)]/20 text-[var(--ct-red)] text-[11px]" data-testid="memory-item-error" role="alert">
-            {error}
-          </div>
+          <div data-testid="memory-item-error"><InlineErrorNotice error={error} operation="saving this memory" blocking /></div>
         )}
 
         {!item && !error && (

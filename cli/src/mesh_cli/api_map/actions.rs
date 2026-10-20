@@ -744,6 +744,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             task,
             task_file,
             role,
+            kind,
             parent,
             plan,
             report_to,
@@ -755,6 +756,8 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             reasoning_effort,
             system_prompt,
             preset,
+            location,
+            environment,
             charter,
             charter_file,
             interval,
@@ -764,12 +767,16 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             plan_task,
             team,
             execution_intent,
+            sandbox,
             authorized_gates,
             provider_reserve_pct,
             non_user_facing,
             unplanned,
             reason: _,
         } => {
+            if matches!(location, Some(crate::args::agent::SpawnLocation::Cloud)) || environment.is_some() {
+                return unsupported("Remote task spawning is local-only; run the command on the peer that owns the provider");
+            }
             if *unplanned {
                 return unsupported(
                     "agent spawn --unplanned is local-only: plan dispatch runs on the peer that owns the Plan",
@@ -822,6 +829,9 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 if let Some(profile) = r.role_profile() {
                     body["role_profile"] = serde_json::json!(profile);
                 }
+            }
+            if let Some(kind) = kind {
+                body["role_profile"] = serde_json::json!(kind);
             }
             if let Some(p) = parent {
                 body["parent_tab_id"] = serde_json::json!(p);
@@ -892,6 +902,10 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             if let Some(pt) = plan_task {
                 body["plan_task"] = serde_json::json!(pt);
             }
+            if let Some(sandbox) = sandbox { body["sandbox"] = serde_json::json!(sandbox); }
+            let execution_intent = execution_intent.as_deref().or_else(|| {
+                kind.as_ref().map(|_| "read_only")
+            });
             if let Some(intent) = execution_intent {
                 body["execution_intent"] = serde_json::json!(intent);
                 body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
@@ -940,7 +954,18 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         crate::AgentAction::Restart { .. } => unsupported(
             "agent restart --mesh requires a non-empty explicit --tab <ID> from the target peer",
         ),
+        crate::AgentAction::Usage { .. } => unsupported_agent_action("usage"),
+        crate::AgentAction::ChildHistory(_) => unsupported_agent_action("child-history"),
         crate::AgentAction::SetOrchestrator { .. } => unsupported_agent_action("set-orchestrator"),
+        crate::AgentAction::SwitchProviderStatus { tab: Some(tab), operation } if !tab.trim().is_empty() => ("GET".into(), format!("/api/tabs/{}/agent/switch-provider/{}", urlencoding::encode(tab), urlencoding::encode(operation)), None),
+        crate::AgentAction::SwitchProviderStatus { .. } => unsupported("agent switch-provider-status --mesh requires explicit --tab"),
+        crate::AgentAction::SwitchProvider { tab: Some(tab), provider, model, reasoning_effort, force } if !tab.trim().is_empty() => (
+            "POST".into(), format!("/api/tabs/{}/agent/switch-provider", urlencoding::encode(tab)),
+            Some(serde_json::json!(crate::cmd::agent_provider_switch::SwitchProviderRequest {
+                provider: provider.clone(), model: model.clone(), reasoning_effort: reasoning_effort.clone(), force: *force,
+            }).to_string()),
+        ),
+        crate::AgentAction::SwitchProvider { .. } => unsupported("agent switch-provider --mesh requires a non-empty explicit --tab <ID> from the target peer"),
         crate::AgentAction::Link { .. } => unsupported_agent_action("link"),
         crate::AgentAction::Unlink { .. } => unsupported_agent_action("unlink"),
         crate::AgentAction::AllowSpawn { .. } => unsupported_agent_action("allow-spawn"),

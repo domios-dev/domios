@@ -124,10 +124,10 @@ fn build_launch_command_shape() {
     if require_plugins().is_none() {
         return;
     }
-    let j = codex();
+    let j = assert_launch_spec_parity(codex);
     // Plain launch: codex binary only, no bypass flags.
     let plain = j.build_launch_command(&AgentLaunchParams::default());
-    assert!(plain.starts_with("codex"), "must invoke codex: {plain}");
+    assert!(plain.contains("codex"), "must invoke codex: {plain}");
     assert_eq!(
         plain
             .matches("-c check_for_update_on_startup=false")
@@ -310,6 +310,7 @@ fn resume_with_context_restores_profile_and_launch_parameters() {
         tool_less_instructions_path: None,
         session_id: CODEX_UUID.into(),
         skip_permissions: true,
+        host_owned: Default::default(),
         agent_name: Some("restored-agent".into()),
         system_prompt: Some("## Composed identity\nparity-sentinel-91c3".into()),
         instance_id: Some("instance-parity".into()),
@@ -1084,4 +1085,99 @@ fn codex_declares_no_permission_auto_confirm() {
     }
     assert!(!codex().supports_permission_auto_confirm());
     assert!(!codex().describe().supports_permission_auto_confirm);
+}
+
+fn assert_launch_spec_parity(load: impl Fn() -> JsProvider) -> JsProvider {
+    use crate::provider::{AgentResumeParams, LaunchSpecParams};
+
+    super::super::provider_observation::with_fixture_version(Some("0.159.0"), || {
+        let provider = load();
+        let exclusions = provider
+            .agent_runtime()
+            .unwrap()
+            .inherited_environment_exclusions;
+        assert!(provider.declares_launch_spec());
+        for skip_permissions in [false, true] {
+            for task in [None, Some("opaque 'quoted' $value 😀\n")] {
+                let params = AgentLaunchParams {
+                    task: task.map(str::to_owned),
+                    skip_permissions,
+                    args: Some(vec!["-m".into(), "fixture model".into()]),
+                    instance_id: Some("fixture".into()),
+                    ..Default::default()
+                };
+                let spec = provider.launch_spec(&LaunchSpecParams::Fresh(&params));
+                if cfg!(windows) {
+                    assert!(spec.is_none());
+                } else {
+                    assert_spec_command(
+                        spec.unwrap(),
+                        provider.build_launch_command(&params),
+                        &exclusions,
+                    );
+                }
+            }
+            let params = AgentResumeParams {
+                session_id: "fixture-session".into(),
+                skip_permissions,
+                args: vec!["-m".into(), "fixture model".into()],
+                instance_id: Some("fixture".into()),
+                ..Default::default()
+            };
+            let spec = provider.launch_spec(&LaunchSpecParams::Resume(&params));
+            if cfg!(windows) {
+                assert!(spec.is_none());
+            } else {
+                assert_spec_command(
+                    spec.unwrap(),
+                    provider.build_resume_command_with_context(&params).unwrap(),
+                    &exclusions,
+                );
+            }
+        }
+    });
+    for version in [None, Some("0.158.9")] {
+        super::super::provider_observation::with_fixture_version(version, || {
+            let params = AgentResumeParams {
+                session_id: "fixture-session".into(),
+                ..Default::default()
+            };
+            assert!(load()
+                .launch_spec(&LaunchSpecParams::Resume(&params))
+                .is_none());
+        });
+    }
+    load()
+}
+
+fn assert_spec_command(
+    spec: codeterm_types::agent::LaunchSpec,
+    command: String,
+    exclusions: &[String],
+) {
+    assert!(spec.env_set.is_empty());
+    assert_eq!(spec.env_unset, exclusions);
+    let quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
+    let mut expected = format!(
+        "unset {} && {}",
+        spec.env_unset
+            .iter()
+            .map(|value| quote(value))
+            .collect::<Vec<_>>()
+            .join(" "),
+        spec.program
+    );
+    for argument in spec.args {
+        expected.push(' ');
+        if !argument.is_empty()
+            && argument
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "_-.,:=@/+%".contains(c))
+        {
+            expected.push_str(&argument);
+        } else {
+            expected.push_str(&quote(&argument));
+        }
+    }
+    assert_eq!(command, expected);
 }

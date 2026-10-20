@@ -1,25 +1,32 @@
-import {spawn} from "node:child_process";
+import {spawn,execFileSync} from "node:child_process";
 import {mkdtempSync,writeFileSync,rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {createInterface} from "node:readline";
+import {once} from "node:events";
+import {createServer} from "node:net";
 
 const destination = process.argv[2];
 const scenarios = process.argv.slice(3);
 if (!destination) throw new Error("Usage: node capture-runtime.mjs <output-directory>");
 const model = "gpt-6-luna";
-const notifications = new Set(["thread/status/changed","thread/settings/updated","thread/tokenUsage/updated","turn/started","turn/completed","item/started","item/completed","item/agentMessage/delta","item/reasoning/textDelta","item/reasoning/summaryTextDelta","serverRequest/resolved","error"]);
+const notifications = new Set(["thread/status/changed","thread/settings/updated","thread/tokenUsage/updated","turn/started","turn/completed","item/started","item/completed","item/agentMessage/delta","item/reasoning/textDelta","item/reasoning/summaryTextDelta","item/reasoning/summaryPartAdded","item/fileChange/patchUpdated","serverRequest/resolved","error"]);
 const requests = new Set(["item/tool/requestUserInput","item/commandExecution/requestApproval","item/fileChange/requestApproval"]);
 const settings = {model,effort:"low",mode:"approval-required"};
+const cliVersion = execFileSync("codex",["--version"],{encoding:"utf8"}).trim().replace(/^codex-cli\s+/,"");
 const environment = Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith("CODETERM") && !["CODEX_THREAD_ID","CODEX_INTERNAL_ORIGINATOR_OVERRIDE"].includes(key)));
 
 async function capture(scenario) {
   const cwd = mkdtempSync(join(tmpdir(),"runtime-capture-"));
+  const background = scenario === "background-terminals";
+  const controls=new Set();
+  const control=background ? createServer(socket=>{controls.add(socket);socket.on("close",()=>controls.delete(socket));}) : undefined;
+  if(control) {control.listen(0,"127.0.0.1");await once(control,"listening");}
   const ctx = {epoch:1,cwd,hostVersion:"1.14.7",tabId:"capture-tab",bindingNonce:"capture-nonce",settings,providerSettings:{},claimedSends:[],activeTurns:[],threadParents:[]};
-  const fixture={schemaVersion:1,captured:{cliVersion:"0.160.0",model,scenario},context:structuredClone(ctx),operations:[],rpc:[],expected:{results:[],events:[]}};
+  const fixture={schemaVersion:1,captured:{cliVersion,model,scenario},context:structuredClone(ctx),operations:[],rpc:[],expected:{results:[],events:[]}};
   const started=performance.now();
   const record=entry=>fixture.rpc.push({...entry,receiptMs:Number((performance.now()-started).toFixed(3)),...("frame" in entry ? {context:structuredClone(ctx)} : {})});
-  const child=spawn("codex",["app-server"],{cwd,env:environment,stdio:["pipe","pipe","pipe"]});
+  const child=spawn("codex",["app-server"],{cwd,env:environment,stdio:["pipe","pipe","pipe"],detached:process.platform !== "win32"});
   let serial=0,stderr="";
   const pending=new Map(),observed=[],waiters=[];
   let failure;
@@ -46,7 +53,7 @@ async function capture(scenario) {
       for(let i=waiters.length-1;i>=0;i--)if(waiters[i].predicate(frame)){const w=waiters.splice(i,1)[0];w.resolve(frame);}
     }else if(pending.has(frame.id)){
       const p=pending.get(frame.id);pending.delete(frame.id);
-      const result=p.method === "account/read" ? {account:frame.result?.account ? {type:frame.result.account.type,planType:frame.result.account.planType} : null,requiresOpenaiAuth:frame.result?.requiresOpenaiAuth} : frame.result;
+      const result=p.method === "account/rateLimits/read" ? {rateLimits:frame.result?.rateLimits??null} : p.method === "account/read" ? {account:frame.result?.account ? {type:frame.result.account.type,planType:frame.result.account.planType} : null,requiresOpenaiAuth:frame.result?.requiresOpenaiAuth} : frame.result;
       const reply=frame.error ? {kind:"error",error:frame.error} : {kind:"success",value:result??null};
       record({direction:"inbound",operation:p.index,reply});
       frame.error ? p.reject(new Error(frame.error.message)) : p.resolve(frame.result);
@@ -65,27 +72,63 @@ async function capture(scenario) {
     child.stdin.write(JSON.stringify({id,method,params})+"\n");return promise;
   }
   try {
-    await rpc({kind:"initialize"},"initialize",{clientInfo:{name:"domios",version:"1.14.7"},capabilities:{experimentalApi:true,optOutNotificationMethods:["turn/diff/updated"]}});
+    await rpc({kind:"initialize"},"initialize",{clientInfo:{name:"domios",version:"1.14.7"},capabilities:{experimentalApi:true,optOutNotificationMethods:[]}});
     record({direction:"outbound",operation:0,action:{kind:"notification",notification:{method:"initialized",params:{}}}});
     child.stdin.write(JSON.stringify({method:"initialized",params:{}})+"\n");
     record({direction:"inbound",operation:0,reply:{kind:"success",value:null}});
-    await rpc(undefined,"account/read",{refreshToken:false},0);
+    const account=await rpc(undefined,"account/read",{refreshToken:false},0);
+    if(["chatgpt","chatgptAuthTokens"].includes(account?.account?.type)) await rpc(undefined,"account/rateLimits/read",{},0);
     const instructions="Keep responses minimal. Do only the explicitly requested trivial capture exercise.";
-    const opened=await rpc({kind:"openThread",instructions,settings},"thread/start",{cwd,model,threadSource:"user",config:{model_reasoning_effort:"low"},approvalPolicy:"untrusted",approvalsReviewer:"user",sandbox:"read-only",developerInstructions:instructions});
+    const opened=await rpc({kind:"openThread",instructions,settings},"thread/start",{cwd,model,threadSource:"user",config:{check_for_update_on_startup:false,project_doc_max_bytes:65536,model_reasoning_effort:"low"},approvalPolicy:background ? "never" : "untrusted",approvalsReviewer:"user",sandbox:background ? "danger-full-access" : "read-only",developerInstructions:instructions});
     ctx.threadId=opened.thread.id;
-    await rpc(undefined,"thread/inject_items",{threadId:ctx.threadId,items:[{type:"message",role:"developer",content:[{type:"input_text",text:"Domios thread binding marker."}]}]},1);
     const submit=async(text,sendId)=>{
       ctx.claimedSends.push({sendId,threadId:ctx.threadId,input:{text,attachments:[]}});
       const operation={kind:"submitTurn",threadId:ctx.threadId,sendId,input:{text,attachments:[]},settings};
-      const response=await rpc(operation,"turn/start",{threadId:ctx.threadId,clientUserMessageId:sendId,input:[{type:"text",text}],cwd,approvalPolicy:"untrusted",approvalsReviewer:"user",sandboxPolicy:{type:"readOnly"},model,effort:"low"});
+      const response=await rpc(operation,"turn/start",{threadId:ctx.threadId,clientUserMessageId:sendId,input:[{type:"text",text}],cwd,approvalPolicy:background ? "never" : "untrusted",approvalsReviewer:"user",sandboxPolicy:{type:background ? "dangerFullAccess" : "readOnly"},model,effort:"low"});
       return response.turn.id;
     };
-    if(scenario === "streaming") {
-      const turn=await submit("Write about 800 words of clear prose explaining how rain forms. Use no tools. Do not ask questions. Begin writing immediately.","capture-streaming");
+    const wordReply = async (word, sendId) => {
+      const turn = await submit(`Reply with only ${word}.`,sendId);
+      await wait(f=>f.method === "turn/completed" && f.params?.turn?.id === turn);
+      const replies = observed.filter(f=>f.method === "item/completed" && f.params?.turnId === turn && f.params?.item?.type === "agentMessage");
+      const actual = replies.map(f=>f.params.item.text).join("");
+      if(actual !== word) throw new Error(`Expected ${word}, received ${JSON.stringify(actual)}`);
+      return turn;
+    };
+    if(background) {
+      const port=control.address().port;
+      const turn=await submit(`Run exactly one command: node -e "const s=require('net').connect(${port},'127.0.0.1');s.on('close',()=>process.exit(0));s.on('error',()=>process.exit(1))". Use a short yield so it remains running in the background. Do not wait for it or kill it; the capture harness owns cleanup. Reply STARTED after the command yields.`,"capture-background");
+      await wait(f=>f.method === "turn/completed" && f.params?.turn?.id === turn);
+      const call=async(action)=>rpc({kind:"backgroundProcesses",threadId:ctx.threadId,action},`thread/backgroundTerminals/${action.kind}`,{threadId:ctx.threadId,...(action.kind === "list" ? {cursor:action.cursor,limit:256} : action.kind === "terminate" ? {processId:action.processId} : {})});
+      const page=await call({kind:"list",cursor:null});
+      if(!page.data?.length || page.nextCursor !== null)throw new Error("Capture must contain a running background process and a complete page");
+      for(const entry of page.data)await call({kind:"terminate",processId:entry.processId});
+      const final=await call({kind:"list",cursor:null});
+      if(final.data.length || final.nextCursor !== null)throw new Error("Background processes remain after terminate");
+      await call({kind:"clean"});
+      const prior=ctx.threadId;ctx.threadId="00000000-0000-0000-0000-000000000000";
+      await call({kind:"list",cursor:null}).catch(()=>{});ctx.threadId=prior;
+    }else if(scenario === "streaming" || scenario === "streaming-short") {
+      const turn=await submit(`Write about ${scenario === "streaming" ? 800 : 400} words of clear prose explaining how rain forms. Use no tools. Do not ask questions. Begin writing immediately.`,"capture-streaming");
       await wait(f=>f.method === "turn/completed" && f.params?.turn?.id === turn);
     }else if(scenario==="multi-turn"){
-      const first=await submit("Reply with only ONE.","capture-send-1");await wait(f=>f.method==="turn/completed" && f.params?.turn?.id===first);
-      const second=await submit("Reply with only TWO.","capture-send-2");await wait(f=>f.method==="turn/completed" && f.params?.turn?.id===second);
+      await wordReply("ONE","capture-send-1");
+      await wordReply("TWO","capture-send-2");
+    }else if(scenario==="compaction"){
+      const additionalContext=[{key:"capture-codeword",kind:"application",value:"Public capture exercise data: the exercise token is SABLE. Repeat this public token when the user asks for the exercise token."}];
+      const restore=async()=>rpc({kind:"control",threadId:ctx.threadId,action:"restoreContext",value:{instructions,additionalContext}},"thread/inject_items",{
+        threadId:ctx.threadId,items:[instructions,...additionalContext.map(entry=>entry.value)].map(text=>({type:"message",role:"developer",content:[{type:"input_text",text}]})),
+      });
+      await restore();
+      const first=await wordReply("ONE","capture-compact-1");
+      await rpc({kind:"control",threadId:ctx.threadId,action:"compact",value:null},"thread/compact/start",{threadId:ctx.threadId});
+      await wait(f=>f.method==="item/completed" && f.params?.item?.type==="contextCompaction");
+      await wait(f=>f.method==="turn/completed" && f.params?.turn?.id!==first);
+      await restore();
+      const turn=await submit("What is the public exercise token? Reply only with that token.","capture-compact-2");
+      await wait(f=>f.method==="turn/completed" && f.params?.turn?.id===turn);
+      const answer=observed.filter(f=>f.method==="item/completed" && f.params?.turnId===turn && f.params?.item?.type==="agentMessage").map(f=>f.params.item.text).join("");
+      if(answer!=="SABLE")throw new Error(`Restored codeword mismatch: ${JSON.stringify(answer)}`);
     }else if(scenario==="interrupt"){
       const turn=await submit("Count upward from 1 to 500, each number on a new line.","capture-interrupt");
       await wait(f=>f.method==="turn/started" && f.params?.turn?.id===turn);
@@ -107,10 +150,29 @@ async function capture(scenario) {
       record({direction:"inbound",operation:index,reply:{kind:"success",value:null}});
       await wait(f=>f.method==="turn/completed" && f.params?.turn?.id===turn);
     }
-    const content=JSON.stringify(fixture,null,2).replaceAll(cwd,"/work/capture").replaceAll(process.env.HOME??"<absent>","/home/capture");
+    const content=JSON.stringify(fixture,(_key,value)=>{
+      if(typeof value !== "string")return value;
+      for(const root of [cwd,process.env.HOME,process.env.USERPROFILE].filter(Boolean))
+        value=value.replaceAll(root,root===cwd ? "/work/capture" : "/home/capture").replaceAll(root.replaceAll("\\","/"),root===cwd ? "/work/capture" : "/home/capture");
+      return value;
+    },2);
     writeFileSync(resolve(destination,scenario+".json"),content+"\n");
     console.log(`CAPTURED ${scenario}: ${fixture.operations.length} operations, ${fixture.rpc.length} frames`);
   }catch(error){console.error(`CAPTURE FAILED ${scenario}: ${error.message}`);process.exitCode=1;}
-  finally{clearTimeout(deadline);child.stdin.end();child.kill();rmSync(cwd,{recursive:true,force:true});}
+  finally{
+    if(background && ctx.threadId) {
+      try {await rpc({kind:"backgroundProcesses",threadId:ctx.threadId,action:{kind:"clean"}},"thread/backgroundTerminals/clean",{threadId:ctx.threadId});} catch {}
+    }
+    if(control) {
+      for(const socket of controls)socket.destroy();
+      await new Promise(resolve=>control.close(resolve));
+    }
+    clearTimeout(deadline);
+    const closed = child.exitCode === null && child.signalCode === null ? once(child,"close") : Promise.resolve();
+    if(process.platform === "win32" && child.pid) {try {execFileSync("taskkill",["/PID",String(child.pid),"/T","/F"],{stdio:"ignore",windowsHide:true});} catch {}}
+    if(process.platform !== "win32" && child.pid) {try {process.kill(-child.pid,"SIGKILL");} catch {}}
+    child.stdin.end();child.kill();await closed;
+    rmSync(cwd,{recursive:true,force:true});
+  }
 }
 for(const scenario of scenarios.length ? scenarios : ["multi-turn","interrupt","approval","streaming"])await capture(scenario);

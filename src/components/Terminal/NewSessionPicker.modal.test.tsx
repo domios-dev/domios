@@ -9,7 +9,8 @@ const fixture = vi.hoisted(() => {
   };
   return {
     workspace,
-    state: { workspaces: [workspace], active_workspace_id: workspace.id },
+    state: { workspaces: [workspace], active_workspace_id: workspace.id, focused_tab_id: "manager",
+      tabs: { manager: { id: "manager", role: "Manager", agent_type: "opencode", session_binding_nonce: "manager-nonce" } } },
     actions: {
       spawnAgentTab: vi.fn(async () => null),
       createOrchestrationPair: vi.fn(async () => ({ orchestrator_tab_id: "lead-tab" })),
@@ -29,6 +30,7 @@ const fixture = vi.hoisted(() => {
         },
       ] as never[],
       loading: false,
+      refetch: vi.fn(),
     },
     presets: { presets: [{ provider: "opencode", name: "demo", model: "live-model" }], loading: false, error: null },
   };
@@ -57,6 +59,7 @@ vi.mock("../../lib/nativeBridge", () => ({
 }));
 
 import { TransportError } from "../../lib/transportClient";
+import { invoke } from "../../lib/bridge";
 import { NewSessionPicker } from "./NewSessionPicker";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -65,6 +68,7 @@ let root: Root | null = null;
 let host: HTMLDivElement;
 
 beforeEach(() => {
+  vi.mocked(invoke).mockClear();
   localStorage.clear();
   localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "opencode" }));
   fixture.workspace.cwd_missing = false;
@@ -78,6 +82,7 @@ beforeEach(() => {
   fixture.actions.selectTabByTab.mockClear();
   fixture.state.workspaces = [fixture.workspace];
   fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [], reasoning_efforts: [] }] as never[];
+  fixture.providers.refetch.mockClear();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -111,7 +116,10 @@ function dialog(): HTMLElement {
 
 function buttonNamed(name: string): HTMLButtonElement | null {
   return Array.from(dialog().querySelectorAll<HTMLButtonElement>("button[aria-label]"))
-    .find((button) => button.getAttribute("aria-label") === name) ?? null;
+    .find((button) => {
+      const label = button.getAttribute("aria-label") ?? "";
+      return label === name || label.startsWith(`${name}:`);
+    }) ?? null;
 }
 
 async function choose(control: string, option: string) {
@@ -120,7 +128,7 @@ async function choose(control: string, option: string) {
   await act(async () => {
     button!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true }));
   });
-  const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+  const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]'))
     .find((element) => element.textContent?.trim() === option);
   expect(item).toBeDefined();
   await act(async () => item!.click());
@@ -271,7 +279,7 @@ describe("NewSessionPicker modal", () => {
   });
 });
 
-it("keeps a team request open and busy, then renders its backend failure inline", async () => {
+it("dismisses a team request before it resolves and preserves its eventual error", async () => {
   const onClose = vi.fn();
   let reject!: (error: unknown) => void;
   fixture.actions.createOrchestrationPair.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
@@ -281,27 +289,27 @@ it("keeps a team request open and busy, then renders its backend failure inline"
   await act(async () => start.click());
   expect(fixture.actions.createOrchestrationPair).toHaveBeenCalledTimes(1);
   expect(start.disabled).toBe(true);
-  expect(onClose).not.toHaveBeenCalled();
+  await act(async () => document.querySelector('[data-testid="new-session-picker"]')!.dispatchEvent(new Event("animationend", { bubbles: true })));
+  expect(onClose).toHaveBeenCalledTimes(1);
   expect(buttonNamed("Close new session dialog")!.disabled).toBe(true);
   const message = "opaque backend workspace/path/recovery sentence";
   await act(async () => reject(new TransportError(422, "/api/orchestration/new",
     JSON.stringify({ error: { code: "workspace_cwd_missing", message } }))));
-  expect(dialog().querySelector('[role="alert"]')?.textContent).toBe(message);
+  expect(fixture.actions.addNotification).toHaveBeenCalledTimes(1);
+  expect(fixture.actions.addNotification.mock.calls[0][0].body).toContain(message);
   expect(start.disabled).toBe(false);
-  expect(onClose).not.toHaveBeenCalled();
-  expect(fixture.actions.addNotification).not.toHaveBeenCalled();
+  expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-it("renders a single-agent failure inline without a bell notification", async () => {
+it("preserves a single-agent failure after dismissal", async () => {
   const message = "opaque session refusal";
   fixture.actions.spawnAgentTab.mockRejectedValueOnce(new TransportError(422, "/api/agents/spawn",
     JSON.stringify({ error: { message } })));
   const onClose = vi.fn();
   await renderPicker({ fullAccess: false, onClose });
   await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
-  expect(dialog().querySelector('[role="alert"]')?.textContent).toBe(message);
-  expect(onClose).not.toHaveBeenCalled();
-  expect(fixture.actions.addNotification).not.toHaveBeenCalled();
+  expect(fixture.actions.addNotification).toHaveBeenCalledTimes(1);
+  expect(fixture.actions.addNotification.mock.calls[0][0].body).toContain(message);
 });
 
 it("offers folder relocation instead of session or team start for a missing workspace", async () => {
@@ -321,4 +329,58 @@ it("offers folder relocation instead of session or team start for a missing work
   expect(dialog().querySelector('[data-testid="picker-confirm"]')).not.toBeNull();
   expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
   expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
+});
+
+it("offers Remote only through declared capability and spawns the selected environment without local model controls", async () => {
+  Object.assign(fixture.providers.providers.find((provider: {id: string}) => provider.id === "opencode")!, {remote_task: {
+    backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"},
+    environments: [{id: "env-fixture", label: "Fixture environment", accountRef: "account-fixture"}], followUp: false, cancel: false, applyDiff: false,
+  }} as never);
+  await renderPicker({fullAccess: false});
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith("refresh_provider_models", {providerId: "opencode"});
+  expect(fixture.providers.refetch).toHaveBeenCalledExactlyOnceWith();
+  await act(async () => dialog().querySelector<HTMLInputElement>('input[value="cloud"]')!.click());
+  const picker = dialog().querySelector<HTMLSelectElement>('select[aria-label="Cloud environment"]');
+  expect(picker).not.toBeNull();
+  await act(async () => {picker!.value = "env-fixture"; picker!.dispatchEvent(new window.Event("change", {bubbles: true}));});
+  expect(buttonNamed("Agent model")).toBeNull();
+  await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
+  expect(fixture.actions.spawnAgentTab).toHaveBeenCalledExactlyOnceWith("workspace", "opencode", "/workspace", undefined, undefined, "env-fixture", undefined, "cloud");
+});
+
+it("keeps an empty remote environment list actionable and refuses spawn", async () => {
+  Object.assign(fixture.providers.providers.find((provider: {id: string}) => provider.id === "opencode")!, {remote_task: {
+    backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"}, environments: [], followUp: false, cancel: false, applyDiff: false,
+  }} as never);
+  await renderPicker({fullAccess: false});
+  await act(async () => dialog().querySelector<HTMLInputElement>('input[value="cloud"]')!.click());
+  expect(Array.from(dialog().querySelectorAll("button")).find(button => button.textContent === "Refresh providers")).toBeDefined();
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
+  expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+});
+
+it("shows Cloud only under Codex and explains its unavailable environment state", async () => {
+  const reason = "Sign in to Codex to discover Cloud environments.";
+  fixture.providers.providers = [{ id: "codex", display_name: "Codex", available_models: [], reasoning_efforts: [],
+    remote_task: { backend: "chatgpt-cloud-tasks", mode: "cloud", displayName: "Cloud",
+      availability: { status: "unavailable", reason }, environments: [], followUp: false, cancel: false, applyDiff: false } }] as never[];
+  localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "codex" }));
+
+  await renderPicker({fullAccess: false});
+
+  const providerButton = buttonNamed("Agent provider");
+  expect(providerButton?.textContent).toContain("Codex");
+  await act(async () => providerButton!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true })));
+  const providerOptions = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]'))
+    .map((item) => item.textContent?.trim());
+  expect(providerOptions).toEqual(["Codex"]);
+  await act(async () => document.body.querySelector<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')!.click());
+  expect(dialog().querySelectorAll('input[name="execution-location"][value="cloud"]')).toHaveLength(1);
+  expect(dialog().textContent).not.toContain("Codex Cloud");
+  await act(async () => dialog().querySelector<HTMLInputElement>('input[name="execution-location"][value="cloud"]')!.click());
+  expect(dialog().textContent).toContain(reason);
+  expect(dialog().textContent).toContain("No remote environments are available");
+  expect(dialog().querySelector('select[aria-label="Cloud environment"]')).toBeNull();
+  expect(dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')?.disabled).toBe(true);
+  expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
 });

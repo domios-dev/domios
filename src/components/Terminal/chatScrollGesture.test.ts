@@ -47,20 +47,22 @@ test("touchend before the queued native scroll event still retains momentum owne
 
 const withoutScrollEnd = { supportsScrollEnd: false, atBottom: false, positionChanged: true };
 
-test("without scrollend touchend releases ownership until another native movement", () => {
+test("without scrollend touchend retains ownership through the next native movement", () => {
   let gesture = chatScrollGestureAfterEvent(idleChatScrollGesture(), "touchstart", withoutScrollEnd);
   gesture = chatScrollGestureAfterEvent(gesture, "scroll", withoutScrollEnd);
   gesture = chatScrollGestureAfterEvent(gesture, "touchend", withoutScrollEnd);
-  assert.equal(isChatUserScrolling(gesture), false);
+  assert.equal(isChatUserScrolling(gesture), true);
   gesture = chatScrollGestureAfterEvent(gesture, "scroll", withoutScrollEnd);
   assert.equal(isChatUserScrolling(gesture), true);
   gesture = chatScrollGestureAfterEvent(gesture, "scroll", { ...withoutScrollEnd, atBottom: true });
-  assert.equal(isChatUserScrolling(gesture), false);
+  assert.equal(isChatUserScrolling(gesture), true);
 });
 
-test("without scrollend a wheel returning to the bottom resumes follow", () => {
+test("without scrollend returning to the bottom waits for motion to stop", () => {
   const wheel = chatScrollGestureAfterEvent(idleChatScrollGesture(), "wheel", withoutScrollEnd);
-  const bottom = chatScrollGestureAfterEvent(wheel, "scroll", { ...withoutScrollEnd, atBottom: true });
+  let bottom = chatScrollGestureAfterEvent(wheel, "scroll", { ...withoutScrollEnd, atBottom: true });
+  assert.equal(isChatUserScrolling(bottom), true);
+  for (let index = 0; index < 3; index++) bottom = chatScrollGestureAfterEvent(bottom, "frame", { ...withoutScrollEnd, positionChanged: false });
   assert.equal(isChatUserScrolling(bottom), false);
 });
 
@@ -72,8 +74,17 @@ test("without scrollend layout-only events cannot acquire gesture ownership", ()
 
 test("a wheel toward the bottom edge cannot block pinned arrivals while waiting for a nonexistent scrollend", () => {
   for (const supportsScrollEnd of [true, false]) {
-    const input = { supportsScrollEnd, atBottom: true, positionChanged: false, towardBottom: true };
+    const input = { supportsScrollEnd, atBottom: true, positionChanged: false, towardBottom: true, canMove: false };
     assert.equal(isChatUserScrolling(chatScrollGestureAfterEvent(idleChatScrollGesture(), "wheel", input)), false);
-    assert.equal(isChatUserScrolling(chatScrollGestureAfterEvent(idleChatScrollGesture(), "wheel", { ...input, towardBottom: false })), true);
+    assert.equal(isChatUserScrolling(chatScrollGestureAfterEvent(idleChatScrollGesture(), "wheel", { ...input, towardBottom: false, canMove: true })), true);
+  }
+});
+
+test("a wheel with no room in its direction never opens a gesture that only scrollend could close", () => {
+  for (const supportsScrollEnd of [true, false]) {
+    const input = { supportsScrollEnd, atBottom: true, positionChanged: false, towardBottom: false, canMove: false };
+    assert.equal(isChatUserScrolling(chatScrollGestureAfterEvent(idleChatScrollGesture(), "wheel", input)), false);
+    const moving = chatScrollGestureAfterEvent(idleChatScrollGesture(), "wheel", { ...input, canMove: true });
+    assert.equal(isChatUserScrolling(chatScrollGestureAfterEvent(moving, "wheel", input)), true);
   }
 });

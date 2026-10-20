@@ -39,9 +39,9 @@ export interface NativeBridge {
     request(enabling?: boolean): Promise<NotificationPermission>;
   } | undefined;
   updater: {
-    check(force?: boolean): Promise<unknown>;
+    check(force?: boolean, channel?: string): Promise<unknown>;
     status(): Promise<unknown>;
-    install(): Promise<{ status: string }>;
+    install(channel?: string): Promise<{ status: string }>;
   } | undefined;
   deepLinks: { subscribe(handler: (urls: string[]) => void): Promise<NativeUnsubscribe> } | undefined;
   clipboardFilePaths(): Promise<string[]>;
@@ -128,9 +128,9 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
       request: async (enabling = true) => permission(await invoke("establish_notify_permission", { enabling })),
     } : undefined,
     updater: native ? {
-      check: (force = false) => invoke("check_for_update", { force }),
+      check: (force = false, channel?: string) => invoke("check_for_update", { force, channel }),
       status: () => invoke("get_update_status"),
-      install: () => invoke("install_app_update"),
+      install: (channel?: string) => invoke("install_app_update", { channel }),
     } : undefined,
     deepLinks: undefined,
     async clipboardFilePaths() { if (!native) return unavailable("clipboard file paths"); return invoke("read_clipboard_files"); },

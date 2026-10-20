@@ -1,6 +1,9 @@
 use crate::agent::AgentRole;
 
-use super::builtins::{self, CARTOGRAPHER, GENERAL_AGENT, ORCHESTRATOR, PLANNER, WATCHER, WORKER};
+use super::builtins::{
+    self, CARTOGRAPHER, GENERAL_AGENT, ORCHESTRATOR, PLANNER, QA, RELEASE_MANAGER, REVIEWER,
+    WATCHER, WORKER,
+};
 use super::query;
 use super::{RoleKindCapability, RoleKindDescriptor, RoleKindOrigin};
 
@@ -14,6 +17,7 @@ struct Row {
     plan_approval: bool,
     plan_edit: bool,
     release: bool,
+    taskless_worker: bool,
 }
 
 type Caps = (bool, bool, bool, bool, bool, bool, bool, bool);
@@ -44,6 +48,7 @@ const ROWS: &[Row] = &[
         plan_approval: true,
         plan_edit: true,
         release: true,
+        taskless_worker: false,
     },
     Row {
         id: GENERAL_AGENT,
@@ -55,6 +60,7 @@ const ROWS: &[Row] = &[
         plan_approval: true,
         plan_edit: true,
         release: true,
+        taskless_worker: false,
     },
     Row {
         id: PLANNER,
@@ -66,6 +72,7 @@ const ROWS: &[Row] = &[
         plan_approval: false,
         plan_edit: true,
         release: false,
+        taskless_worker: false,
     },
     Row {
         id: WATCHER,
@@ -77,6 +84,7 @@ const ROWS: &[Row] = &[
         plan_approval: false,
         plan_edit: false,
         release: false,
+        taskless_worker: false,
     },
     Row {
         id: WORKER,
@@ -88,6 +96,43 @@ const ROWS: &[Row] = &[
         plan_approval: false,
         plan_edit: false,
         release: false,
+        taskless_worker: false,
+    },
+    Row {
+        id: QA,
+        anchors_team: false,
+        requires_parent: true,
+        manages: false,
+        can_spawn: false,
+        team_authority: false,
+        plan_approval: false,
+        plan_edit: false,
+        release: false,
+        taskless_worker: true,
+    },
+    Row {
+        id: RELEASE_MANAGER,
+        anchors_team: false,
+        requires_parent: true,
+        manages: false,
+        can_spawn: false,
+        team_authority: false,
+        plan_approval: false,
+        plan_edit: false,
+        release: false,
+        taskless_worker: true,
+    },
+    Row {
+        id: REVIEWER,
+        anchors_team: false,
+        requires_parent: true,
+        manages: false,
+        can_spawn: false,
+        team_authority: false,
+        plan_approval: false,
+        plan_edit: false,
+        release: false,
+        taskless_worker: true,
     },
     Row {
         id: CARTOGRAPHER,
@@ -99,6 +144,7 @@ const ROWS: &[Row] = &[
         plan_approval: false,
         plan_edit: false,
         release: false,
+        taskless_worker: false,
     },
 ];
 
@@ -114,7 +160,8 @@ const ANY_PROFILES: &[Option<&str>] = &[
 ];
 
 const UNKNOWN_KIND_IDS: &[&str] = &[
-    "reviewer",
+    "code-reviewer",
+    "Reviewer",
     "Orchestrator",
     "general-agent",
     "orchestrator ",
@@ -123,7 +170,7 @@ const UNKNOWN_KIND_IDS: &[&str] = &[
 ];
 
 const UNKNOWN_PROFILES: &[&str] = &[
-    "reviewer",
+    "code-reviewer",
     "Orchestrator",
     "general-agent",
     "worker:gpu",
@@ -134,7 +181,7 @@ const OVERLAY_IDS: &[&str] = &[
     ORCHESTRATOR,
     GENERAL_AGENT,
     PLANNER,
-    "reviewer",
+    REVIEWER,
     "worker_gpu",
     "../../escape",
     "",
@@ -159,10 +206,70 @@ fn every_builtin_matches_its_declared_capability_row() {
         let id = row.id;
         let descriptor = builtins::lookup(id).expect("builtin kind");
         assert_eq!(caps(descriptor.capability()), row.caps(), "{id}");
+        assert_eq!(descriptor.is_taskless_worker(), row.taskless_worker, "{id}");
         assert_eq!(descriptor.origin(), RoleKindOrigin::Builtin, "{id}");
         assert!(descriptor.is_builtin(), "{id}");
         assert!(!descriptor.label().is_empty(), "{id}");
     }
+}
+
+#[test]
+fn taskless_worker_kinds_resolve_as_leaf_workers_without_task_authority() {
+    for kind in [QA, RELEASE_MANAGER, REVIEWER] {
+        let role = Some(AgentRole::Worker);
+        assert_eq!(query::kind_id(role, Some(kind)), Some(kind));
+        assert!(query::taskless_worker(role, Some(kind)), "{kind}");
+        assert!(query::requires_parent(role, Some(kind)), "{kind}");
+        assert!(!query::manages(role, Some(kind)), "{kind}");
+        assert!(!query::can_spawn(role, Some(kind)), "{kind}");
+        assert!(!query::has_team_authority(role, Some(kind)), "{kind}");
+        assert!(!query::plan_approval(role, Some(kind)), "{kind}");
+        assert!(!query::plan_edit(role, Some(kind)), "{kind}");
+        assert!(!query::release(role, Some(kind)), "{kind}");
+    }
+    assert!(!query::taskless_worker(Some(AgentRole::Manager), Some(QA)));
+}
+
+#[test]
+fn only_the_qa_worker_kind_can_close_parent_handed_reviews() {
+    assert!(query::can_close_review(Some(AgentRole::Worker), Some(QA)));
+    assert!(!query::can_close_review(
+        Some(AgentRole::Worker),
+        Some(RELEASE_MANAGER)
+    ));
+    assert!(!query::can_close_review(
+        Some(AgentRole::Worker),
+        Some(WORKER)
+    ));
+    assert!(!query::can_close_review(
+        Some(AgentRole::Worker),
+        Some(REVIEWER)
+    ));
+    assert!(!query::can_close_review(Some(AgentRole::Manager), Some(QA)));
+}
+
+/// The reviewer kind itself grants no mutation: without an explicit execution
+/// intent it launches read-only, and no other kind does.
+#[test]
+fn only_the_reviewer_kind_launches_read_only_by_default() {
+    let role = Some(AgentRole::Worker);
+    assert!(query::read_only_by_default(role, Some(REVIEWER)));
+    assert!(!query::read_only_by_default(
+        Some(AgentRole::Manager),
+        Some(REVIEWER)
+    ));
+    for descriptor in builtins::all() {
+        assert_eq!(
+            descriptor.is_read_only_by_default(),
+            descriptor.id() == REVIEWER,
+            "{}",
+            descriptor.id()
+        );
+    }
+    for profile in [None, Some(QA), Some(RELEASE_MANAGER), Some("code-reviewer")] {
+        assert!(!query::read_only_by_default(role, profile), "{profile:?}");
+    }
+    assert!(!RoleKindDescriptor::overlay(REVIEWER, "Forged").is_read_only_by_default());
 }
 
 #[test]
@@ -370,7 +477,7 @@ fn kind_label_prefers_the_builtin_label_and_falls_back_to_the_role() {
         Some("Worker")
     );
     assert_eq!(
-        query::kind_label(Some(AgentRole::Manager), Some("reviewer")),
+        query::kind_label(Some(AgentRole::Manager), Some("auditor")),
         Some("Manager"),
         "an overlay kind falls back to the structural role name"
     );

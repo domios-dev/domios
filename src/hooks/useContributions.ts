@@ -12,6 +12,7 @@
  * unchanged.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEV_BUILD } from "../lib/devBuild";
 import { listen, type UnlistenFn } from "../lib/bridge";
 
 export interface ContributionsChangedPayload {
@@ -38,6 +39,7 @@ export function useContributions<T>(
       })
       .catch((e) => {
         if (current !== generation.current) return;
+        if (DEV_BUILD) console.debug(`Background ${kind} contribution refresh failed`, e);
         setError(String(e));
       })
       .finally(() => { if (current === generation.current) setLoading(false); });
@@ -70,7 +72,8 @@ export function useContributions<T>(
           fn();
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (DEV_BUILD) console.debug(`Background ${kind} contribution listener setup failed`, error);
         // Listener registration failed — items still load via initial fetch.
       });
 

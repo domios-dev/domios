@@ -134,9 +134,9 @@ pub fn resolved_text(carried: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::{adopt_caller_actions, answer_actions};
     use crate::push::PushBounds;
     use crate::store::{NotificationSeverity, NotificationStore};
-    use codeterm_types::notification::{adopt_caller_actions, answer_actions};
 
     const BOUNDS: PushBounds = PushBounds::for_ceiling(4096);
 

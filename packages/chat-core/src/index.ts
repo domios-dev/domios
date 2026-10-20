@@ -26,7 +26,11 @@ export { SYSTEM_ORIGIN_LABEL, systemOriginLabel } from "./originLabels";
 export { automationOrigin, type AutomationSource } from "./automationOrigin";
 export {
   DOMIOS_CLOSE_TAG,
-  DOMIOS_TYPED_INSTRUCTION,
+  DOMIOS_LEGACY_TYPED_INSTRUCTION,
+  DOMIOS_PASTED_MARKER,
+  PASTED_MARKER_TAIL,
+  LEGACY_CHAT_FOLLOW_UPS,
+  stripPlainTypedTail,
   buildDomiosOpeningTag,
   buildDomiosMessage,
   parseDomiosMessage,
@@ -64,6 +68,8 @@ export {
   formatAttachmentMarker,
   imageMimeType,
   isImagePath,
+  isVideoPath,
+  videoMimeType,
   parseAttachmentMarkers,
   splitReplyAttachment,
   type AttachmentKind,
@@ -72,6 +78,15 @@ export {
   type ParsedAttachmentMarkers,
   type ReplyAttributes,
 } from "./attachmentMarker";
+export {
+  MAX_VIDEO_BYTES,
+  VIDEO_SNIFF_BYTES,
+  attachmentKindForUpload,
+  sniffVideoContainer,
+  validateAttachment,
+  type AttachmentVerdict,
+  type VideoContainer,
+} from "./attachmentValidation";
 export { fileDiffText, hunkHeader } from "./fileDiffs";
 export {
   attachmentTagsAsLabels,
@@ -97,7 +112,15 @@ export {
 export { ECHO_SKEW_MS, matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
 export { mergeById } from "./merge";
 export { timestampMs } from "./time";
-export { type ChatSend, type SendEcho } from "./sendOrder";
+export {
+  captureSendEchoBoundary,
+  matchesMatchedRow,
+  type ChatSend,
+  type MatchedRow,
+  type MatchedRowRecord,
+  type SendEcho,
+  type SendEchoBoundary,
+} from "./sendOrder";
 export {
   TRANSCRIPT_RETENTION_LIMIT,
   createTranscriptState,
@@ -105,6 +128,7 @@ export {
   reduceTranscript,
   transcriptBackfillCursor,
   transcriptCommittedEnd,
+  transcriptOffsetKind,
   transcriptRowCount,
   transcriptRows,
   type TranscriptAuthority,
@@ -191,6 +215,9 @@ export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactD
 
 export { inlineArtifactParts, type InlineArtifactPart } from "./inlineArtifactParts";
 
-export { messageRowParts, parseMessageParts, splitExactSendTexts, projectMessageParts, projectTranscriptParts, type MessagePart, type ExactSendText } from "./messageParts";
+export { splitExactSendTexts, projectMessageParts, projectTranscriptParts, type ExactSendText } from "./messageParts";
 
 export { emptyQuestionSelection, questionOptionValue, selectQuestionOption, selectQuestionFreeText, questionAnswerSelection, questionAnswerText } from "./questionSelection";
+
+export { placedAttachmentSegments, type PlacedAttachmentSegment } from "./userAttachments";
+export { envelopeRows, envelopeText, type MessageSegment, type EnvelopeRow } from "./envelope";

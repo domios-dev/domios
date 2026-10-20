@@ -1,3 +1,4 @@
+// Caller: build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts tests/reap-dev-sidecars.test.mjs; skill dev-run
 import { execFileSync } from 'node:child_process';
 import { ownedGroups, ownedSidecar } from './dev-sidecar-ownership.mjs';
 

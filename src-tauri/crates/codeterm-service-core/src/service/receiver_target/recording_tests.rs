@@ -1,0 +1,80 @@
+use super::tests::scene;
+use codeterm_local_recording::LocalRecordingTrigger;
+
+#[test]
+fn lark_recording_contract_local_recipient_without_webhook_and_closed_choice_tombstone() {
+    let scene = scene();
+    let service = &scene.fixture.service;
+    service
+        .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
+        .register(
+            "local",
+            LocalRecordingTrigger {
+                vendor_id: 1,
+                product_id: 2,
+                usage_page: 3,
+                usage: 4,
+                button: None,
+            },
+            true,
+        );
+    assert!(!service
+        .ext::<codeterm_plugin::WebhookRegistryHandle>()
+        .contains("local"));
+    service.set_receiver_target("local", &scene.tab).unwrap();
+    service.set_receiver_target("receiver", &scene.tab).unwrap();
+    service.close_tab(&scene.tab).unwrap();
+    assert_eq!(
+        service
+            .ext::<crate::service::receiver_target::ReceiverTargets>()
+            .0
+            .get("receiver"),
+        None
+    );
+    assert_eq!(
+        service
+            .ext::<crate::service::receiver_target::LocalRecordingTargets>()
+            .0
+            .get("local"),
+        Some(scene.tab.clone())
+    );
+    service
+        .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
+        .unregister("local");
+    service.forget_receiver_targets_for_tab(&scene.tab);
+    assert_eq!(
+        service
+            .ext::<crate::service::receiver_target::LocalRecordingTargets>()
+            .0
+            .get("local"),
+        Some(scene.tab.clone())
+    );
+    service
+        .ext::<codeterm_plugin::local_recording::LocalRecordingRegistryHandle>()
+        .register(
+            "local",
+            LocalRecordingTrigger {
+                vendor_id: 1,
+                product_id: 2,
+                usage_page: 3,
+                usage: 4,
+                button: None,
+            },
+            true,
+        );
+    assert!(!service.receiver_target("local").unwrap().live);
+    let selected = codeterm_plugin::local_recording::SelectedDevices {
+        input_id: "selected".into(),
+        collection_id: "selected-collection".into(),
+        microphone_id: "selected-mic".into(),
+    };
+    assert!(service
+        .local_recording_start("local", &selected, 0)
+        .is_err());
+    assert_eq!(
+        service.receiver_target("local").unwrap().tab_id,
+        Some(scene.tab.clone())
+    );
+    service.clear_receiver_target("local").unwrap();
+    assert_eq!(service.receiver_target("local").unwrap().tab_id, None);
+}

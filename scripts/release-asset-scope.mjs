@@ -1,3 +1,6 @@
+// Caller: scripts release-clear-wedged-assets.mjs, tests/release-asset-scope.test.mjs
+const HEADLESS_ASSET = /^domios-headless-v\d+\.\d+\.\d+-(darwin-aarch64|darwin-x86_64|linux-aarch64|linux-x86_64|windows-aarch64|windows-x86_64)\.tar\.gz(?:\.sha256|\.manifest\.json)?$/;
+
 export function ownsReleaseAsset(name, platform) {
   const suffixes = {
     'frontend': /^(?:frontend-v[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz|frontend-manifest\.json(?:\.minisig)?)$/,
@@ -9,6 +12,8 @@ export function ownsReleaseAsset(name, platform) {
     'windows-aarch64': /(?:arm64-setup\.exe|updater-aarch64-pc-windows-msvc\.json)$/,
   };
   if (!suffixes[platform]) throw new Error(`Unknown upload scope ${platform}`);
+  const headless = name.match(HEADLESS_ASSET);
+  if (headless) return headless[1] === platform;
   return suffixes[platform].test(name);
 }
 

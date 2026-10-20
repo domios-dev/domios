@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 #[serde(rename_all = "kebab-case")]
 pub enum AgentRuntimeProtocol {
     StdioJsonrpc,
+    #[serde(rename = "http-sse")]
+    HttpSse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,6 +19,20 @@ pub struct AgentRuntimeCommand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
+    #[serde(default)]
+    pub service_tiers: Vec<super::RuntimeServiceTier>,
+    #[serde(default)]
+    pub background_processes: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goals: Option<RuntimeGoalCapability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_history: Option<RuntimeThreadHistoryCapability>,
+    #[serde(default)]
+    pub stored_history: bool,
+    #[serde(default)]
+    pub usage: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_credits_min_version: Option<String>,
     pub runtime: AgentRuntimeProtocol,
     pub command: AgentRuntimeCommand,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -40,4 +56,33 @@ pub enum RuntimeLoginMethod {
     Browser,
     Device,
     ApiKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeGoalCapability {
+    pub actions: Vec<RuntimeGoalAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeGoalAction {
+    Read,
+    Cancel,
+    Pause,
+    Resume,
+    Complete,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeThreadHistoryCapability {
+    pub actions: Vec<RuntimeThreadHistoryAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeThreadHistoryAction {
+    Fork,
+    Revert,
 }

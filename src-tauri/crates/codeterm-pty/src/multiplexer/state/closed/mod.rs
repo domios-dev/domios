@@ -44,7 +44,7 @@ fn new_group_id() -> String {
 /// A closed tab enriched for the sidebar: per-workspace reopen `index`, `orphaned` flag, and owning group.
 #[derive(Debug, Clone, Serialize)]
 pub struct ClosedTabView {
-    #[serde(flatten)]
+    #[serde(flatten, serialize_with = "super::wire_snapshot::closed_tab")]
     pub tab: ClosedTab,
     pub index: usize,
     pub orphaned: bool,
@@ -66,6 +66,82 @@ pub struct TabCloseReservation {
     pub(super) tab_id: String,
     workspace_id: String,
     reservation_id: String,
+}
+
+#[derive(Debug)]
+pub(super) struct ClosedHistoryWrite {
+    sequence: u64,
+    group: ClosedGroup,
+    tabs: Vec<ClosedTab>,
+    failure_context: String,
+}
+
+pub struct ClosedHistoryBatch {
+    store: ClosedTabsStore,
+    writes: Vec<ClosedHistoryWrite>,
+}
+
+impl ClosedHistoryBatch {
+    pub fn persist(self) {
+        self.persist_with(|store, write| store.insert_group(&write.group, &write.tabs));
+    }
+
+    pub fn persist_on_blocking_thread(self) {
+        self.persist_on_blocking_thread_with(|store, write| {
+            store.insert_group(&write.group, &write.tabs)
+        });
+    }
+
+    /// Persist close history and return tabs made permanently unavailable by retention caps.
+    pub fn persist_on_blocking_thread_collect_evicted(self) -> Vec<String> {
+        std::thread::spawn(move || {
+            let mut evicted = Vec::new();
+            for write in self.writes {
+                let _permit = self.store.wait_for_write(write.sequence);
+                match self
+                    .store
+                    .insert_group_collect_evicted(&write.group, &write.tabs)
+                {
+                    Ok(ids) => evicted.extend(ids),
+                    Err(error) => {
+                        log::error!("[closed-history] {}: {error}", write.failure_context)
+                    }
+                }
+            }
+            evicted
+        })
+        .join()
+        .unwrap_or_else(|_| {
+            log::error!("[closed-history] persistence worker panicked");
+            Vec::new()
+        })
+    }
+
+    fn persist_on_blocking_thread_with(
+        self,
+        write_group: impl FnMut(&ClosedTabsStore, &ClosedHistoryWrite) -> Result<(), String>
+            + Send
+            + 'static,
+    ) {
+        if std::thread::spawn(move || self.persist_with(write_group))
+            .join()
+            .is_err()
+        {
+            log::error!("[closed-history] persistence worker panicked");
+        }
+    }
+
+    fn persist_with(
+        self,
+        mut write_group: impl FnMut(&ClosedTabsStore, &ClosedHistoryWrite) -> Result<(), String>,
+    ) {
+        for write in self.writes {
+            let _permit = self.store.wait_for_write(write.sequence);
+            if let Err(error) = write_group(&self.store, &write) {
+                log::error!("[closed-history] {}: {error}", write.failure_context);
+            }
+        }
+    }
 }
 
 impl PreparedWorkspaceClose {
@@ -120,23 +196,35 @@ impl MultiplexerState {
             workspace_cwd: None,
             closed_at: now_millis(),
         };
-        if let Err(error) = self.closed_store.insert_group(&group, &[record]) {
-            log::error!("[closed-history] single close for Tab {tab_id} not recorded: {error}");
-        }
+        self.queue_closed_history(
+            group,
+            vec![record],
+            format!("single close for Tab {tab_id} not recorded"),
+        );
     }
 
     /// Record an orchestrator + its subtree as one group (parent links preserved).
     /// Falls back to `Single` with no children. Built before the tabs are removed.
     pub(super) fn record_cascade_close(&mut self, root_tab_id: &str) {
+        let team_id = self
+            .tabs
+            .get(root_tab_id)
+            .and_then(|tab| tab.team_id.clone());
         let subtree = self.collect_subtree(root_tab_id);
         let records: Vec<ClosedTab> = subtree
             .iter()
+            .filter(|pid| {
+                self.tabs
+                    .get(*pid)
+                    .is_some_and(|tab| tab.team_id == team_id)
+            })
             .filter_map(|pid| self.build_closed_tab(pid, TabCloseReason::User))
             .collect();
         if records.is_empty() {
             return;
         }
-        let kind = if records.len() > 1 {
+        let count = records.len();
+        let kind = if count > 1 {
             GroupKind::Cascade
         } else {
             GroupKind::Single
@@ -151,12 +239,14 @@ impl MultiplexerState {
             workspace_cwd: None,
             closed_at: now_millis(),
         };
-        if let Err(error) = self.closed_store.insert_group(&group, &records) {
-            log::error!(
-                "[closed-history] cascade close rooted at Tab {root_tab_id} ({} tab(s)) not recorded: {error}",
-                records.len()
-            );
-        }
+        self.queue_closed_history(
+            group,
+            records,
+            format!(
+                "cascade close rooted at Tab {root_tab_id} ({} tab(s)) not recorded",
+                count
+            ),
+        );
     }
 
     /// Capture one restore group and reserve its membership until close or abort.
@@ -289,13 +379,44 @@ impl MultiplexerState {
         let Some(group) = prepared.group.as_ref() else {
             return;
         };
-        if let Err(error) = self.closed_store.insert_group(group, &prepared.records) {
-            log::error!(
-                "[closed-history] workspace close {} ({} tab(s)) not recorded: {error}",
+        self.queue_closed_history(
+            group.clone(),
+            prepared.records.clone(),
+            format!(
+                "workspace close {} ({} tab(s)) not recorded",
                 prepared.workspace_id,
                 prepared.records.len()
-            );
+            ),
+        );
+    }
+
+    fn queue_closed_history(
+        &mut self,
+        group: ClosedGroup,
+        tabs: Vec<ClosedTab>,
+        failure_context: String,
+    ) {
+        if !self.defer_closed_history {
+            if let Err(error) = self.closed_store.insert_group(&group, &tabs) {
+                log::error!("[closed-history] {failure_context}: {error}");
+            }
+            return;
         }
+        let sequence = self.closed_store.reserve_write_sequence();
+        self.pending_closed_history.push(ClosedHistoryWrite {
+            sequence,
+            group,
+            tabs,
+            failure_context,
+        });
+    }
+
+    pub fn take_closed_history_batch(&mut self) -> Option<ClosedHistoryBatch> {
+        let writes = std::mem::take(&mut self.pending_closed_history);
+        (!writes.is_empty()).then(|| ClosedHistoryBatch {
+            store: self.closed_store.clone(),
+            writes,
+        })
     }
 
     /// Pre-order list of a tab id and its descendants; a `visited` set guards against a corrupted parent/child cycle.
@@ -328,7 +449,9 @@ impl MultiplexerState {
 
     /// Bounded newest-first view across all workspaces for the sidebar snapshot.
     pub(super) fn recent_closed_view(&self) -> Vec<ClosedTabView> {
-        let rows = self.closed_store.list_recent(RECENTLY_CLOSED_VIEW_LIMIT);
+        let rows = self
+            .closed_store
+            .snapshot_recent(RECENTLY_CLOSED_VIEW_LIMIT);
         let live: HashSet<&str> = self.workspaces.iter().map(|w| w.id.as_str()).collect();
         let mut per_ws: HashMap<String, usize> = HashMap::new();
         rows.into_iter()
@@ -378,7 +501,12 @@ impl MultiplexerState {
             tab.role_profile = record.role_profile.clone();
             tab.worker_id = record.worker_id.clone();
             tab.agent_session_model = record.model.clone();
+            tab.agent_runtime_config = record.agent_runtime_config.clone();
             tab.restorable_launch = record.restorable_launch.clone();
+            tab.structured_runtime_mode = record.restorable_launch.structured_runtime_mode.clone();
+            tab.reasoning_effort_identity = record
+                .restorable_launch
+                .restored_reasoning_effort_identity(Default::default());
             tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
                 exact_session: record.agent_type.is_some(),
                 session_cwd: record.cwd.clone(),

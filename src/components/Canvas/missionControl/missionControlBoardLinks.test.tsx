@@ -162,12 +162,10 @@ describe("mission control previous plans", () => {
 
     await act(async () => (host.querySelector('[data-testid="mc-board-previous-plans-toggle"]') as HTMLButtonElement).click());
     const menu = document.querySelector('[data-testid="mc-board-previous-plans-menu"]') as HTMLElement;
-    expect(menu.parentElement).toBe(document.body);
+    expect(menu.closest("[data-anchored-popover]")?.parentElement).toBe(document.body);
     expect(host.contains(menu)).toBe(false);
-    expect(menu.classList.contains("mc-board-layer")).toBe(true);
-    expect(menu.style.left).not.toBe("");
 
-    await act(async () => document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    await act(async () => document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
     expect(document.querySelector('[data-testid="mc-board-previous-plans-menu"]')).toBeNull();
     await unmount();
   });

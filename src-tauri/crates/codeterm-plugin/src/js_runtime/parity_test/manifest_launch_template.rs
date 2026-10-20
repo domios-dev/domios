@@ -120,6 +120,7 @@ fn manifest_launch_template_fixture_matrix_round_trips() {
         tool_less_instructions_path: None,
         session_id: "sid-fixture-2".into(),
         skip_permissions: true,
+        host_owned: Default::default(),
         agent_name: None,
         system_prompt: None,
         instance_id: None,

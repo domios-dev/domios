@@ -86,20 +86,20 @@ test("a pull request keeps fast checks but leaves the heavy Rust and CLI matrix 
 const workflow = readFileSync(new URL("../../.github/workflows/tests.yml", import.meta.url), "utf8");
 const jobConditions = new Map([...workflow.matchAll(/^  ([\w-]+):\n(?:(?!^  [\w-]+:)[\s\S])*?^    if: \$\{\{ (.+) \}\}/gm)].map((match) => [match[1], match[2]]));
 
-function jobRuns(job, scope, { phase = "", cancelled = false, archives = "success", fmt = "success" } = {}) {
+function jobRuns(job, scope, { phase = "", cancelled = false, guards = "success" } = {}) {
   const expression = jobConditions.get(job);
   assert.ok(expression, `Missing condition for ${job}`);
   const outputs = Object.fromEntries(["frontend", "rust", "heavy"].map(key => [key, String(key === "heavy" ? scope.heavy ?? scope.rust : scope[key])]));
   return condition(expression, {
     inputs: { phase },
-    needs: { changed: { outputs }, fmt: { result: fmt }, "rust-archives": { result: archives } },
+    needs: { changed: { outputs }, guards: { result: guards } },
     cancelled,
   });
 }
 
 test("workflow wiring skips Rust jobs for frontend diffs and preserves generated types for Rust", () => {
   const frontendJobs = ["ts-static", "ts-unit", "ts-vitest"];
-  const rustJobs = ["fmt", "rust-archives", "rust-shards", "rust-platform", "clippy-linux", "ts-plugins", "release-contracts"];
+  const rustJobs = ["rust-tests", "rust-platform", "clippy-linux", "ts-plugins"];
   for (const [scope, frontend, rust] of [[frontendOnly, true, false], [rustOnly, false, true], [both, true, true]]) {
     for (const job of frontendJobs) assert.equal(jobRuns(job, scope), frontend, job);
     for (const job of rustJobs) assert.equal(jobRuns(job, scope), rust, job);
@@ -109,10 +109,10 @@ test("workflow wiring skips Rust jobs for frontend diffs and preserves generated
 
 test("workflow wiring runs only fast checks on pull requests", () => {
   const pullRequest = scopeForRun(["src-tauri/src/lib.rs", "src/App.tsx"], plugins, false, true);
-  for (const job of ["rust-archives", "rust-shards", "rust-platform", "clippy-linux"]) {
+  for (const job of ["rust-tests", "rust-platform", "clippy-linux"]) {
     assert.equal(jobRuns(job, pullRequest), false, job);
   }
-  for (const job of ["fmt", "ts-plugins", "release-contracts", "ts-static", "ts-unit", "ts-vitest", "ts-types"]) {
+  for (const job of ["guards", "ts-plugins", "ts-static", "ts-unit", "ts-vitest", "ts-types"]) {
     assert.equal(jobRuns(job, pullRequest), true, job);
   }
   assert.match(workflow, /^          CI_FAST_ONLY: \$\{\{ github\.event_name == 'pull_request' \}\}$/m);
@@ -132,24 +132,23 @@ test("a frontend release call runs the frontend checks and no Rust gate", () => 
   assert.deepEqual(scopeForRun(["src-tauri/src/lib.rs"], plugins, false, false, true), { frontend: true, rust: false, plugins: [], heavy: false });
   const scope = scopeForRun([], plugins, false, false, true);
   for (const job of ["ts-static", "ts-unit", "ts-vitest", "ts-types"]) assert.equal(jobRuns(job, scope), true, job);
-  for (const job of ["fmt", "rust-archives", "rust-shards", "rust-platform", "clippy-linux", "release-contracts"]) assert.equal(jobRuns(job, scope), false, job);
+  for (const job of ["rust-tests", "rust-platform", "clippy-linux"]) assert.equal(jobRuns(job, scope), false, job);
 });
 
 
-test("workflow scope conditions retain phase, cancellation and archive dependencies", () => {
+test("workflow scope conditions retain phase, cancellation and the guards gate", () => {
   for (const phase of ["", "all", "fast", "long"]) {
-    assert.equal(jobRuns("fmt", rustOnly, { phase }), phase !== "long", `fmt/${phase}`);
-    for (const job of ["rust-archives", "rust-shards", "rust-platform"]) {
+    assert.equal(jobRuns("guards", rustOnly, { phase }), phase !== "long", `guards/${phase}`);
+    for (const job of ["rust-tests", "rust-platform"]) {
       assert.equal(jobRuns(job, rustOnly, { phase }), phase !== "fast", `${job}/${phase}`);
       assert.equal(jobRuns(job, rustOnly, { phase, cancelled: true }), false, `${job} cancelled`);
       assert.equal(jobRuns(job, frontendOnly, { phase }), false, `${job} frontend`);
     }
   }
   for (const result of ["failure", "skipped", "cancelled"]) {
-    for (const job of ["rust-shards", "rust-platform"]) {
-      assert.equal(jobRuns(job, rustOnly, { archives: result }), false, `${job}/${result}`);
+    for (const job of ["rust-tests", "rust-platform"]) {
+      assert.equal(jobRuns(job, rustOnly, { guards: result }), false, `${job} guards/${result}`);
+      assert.equal(jobRuns(job, rustOnly, { phase: "long", guards: result }), true, `${job} long skips guards/${result}`);
     }
-    assert.equal(jobRuns("rust-archives", rustOnly, { fmt: result }), false, `fmt/${result}`);
-    assert.equal(jobRuns("rust-archives", rustOnly, { phase: "long", fmt: result }), true, `long skips fmt/${result}`);
   }
 });

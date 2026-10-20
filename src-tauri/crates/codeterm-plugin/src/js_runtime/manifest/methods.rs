@@ -59,6 +59,9 @@ impl PluginManifest {
             .map_err(|e| e.to_string())?;
         manifest.capabilities.validate_tab_menu()?;
         manifest.capabilities.validate_surfaces()?;
+        for source in manifest.capabilities.record_sources.values() {
+            source.validate()?;
+        }
         manifest
             .capabilities
             .drop_invalid_surface_icons(&manifest.id);
@@ -66,6 +69,9 @@ impl PluginManifest {
             if let Some(environment) = &credential.file_environment {
                 environment.validate()?;
             }
+        }
+        for environment in &manifest.model_catalogue.config_file_environments {
+            environment.validate()?;
         }
         if let Some(environment) = manifest
             .sessions

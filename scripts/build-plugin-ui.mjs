@@ -1,3 +1,4 @@
+// Caller: package.json script; scripts ci-scope.mjs
 // Builds a plugin's iframe UI: bundles `plugins/<id>/ui/src/main.tsx` (React/TS)
 // into ONE self-contained `plugins/<id>/ui/index.html` with inlined JS+CSS, each
 // in a `nonce="__CT_NONCE__"` tag the host's view route swaps for a per-load

@@ -1,7 +1,10 @@
 import type { DelayedMessage } from "./delayedSend";
+import { isSystemDelayedMessage } from "./systemHeartbeatProjection";
 
 export function canSendDelayedMessage(message: DelayedMessage | undefined): boolean {
-  return message !== undefined && (message.state === "stashed" || message.state === "queued" || message.state === "failed");
+  return message !== undefined
+    && !isSystemDelayedMessage(message)
+    && (message.state === "stashed" || message.state === "queued" || message.state === "failed");
 }
 
 export async function sendCurrentDelayedMessage(id: string, dependencies: {

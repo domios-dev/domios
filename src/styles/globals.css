@@ -13,7 +13,9 @@
 @import "../components/Terminal/tabTopBar.css";
 @import "../components/Terminal/scrollToLatest.css";
 @import "../components/Terminal/composerContext.css";
+@import "../components/Terminal/childTranscript.css";
 @import "../components/Terminal/chatLayout.css";
+@import "../components/Terminal/RestoreStatePanel.css";
 @import "../components/shared/dropdownMenu.css";
 @import "../components/Sidebar/sidebarPanel.css";
 @import "../components/shared/rowKebab.css";
@@ -35,6 +37,7 @@
 @import "../components/Sidebar/teamRoster.css";
 @import "../components/Automation/blueprint.css";
 @import "../components/Terminal/tabPanel/tabPanel.css";
+@import "../components/brand/BrandState.css";
 
 /* The app shell's one responsive boundary, px so the terminal font size cannot move it.
    Mirrors SHELL_NARROW_QUERY / SHELL_WIDE_QUERY in src/lib/shellBreakpoint.ts. */
@@ -53,8 +56,10 @@
   --sidebar-disclosure-transition: 160ms ease;
 }
 
-/* Overscroll is not inherited; include nested scrollports and inline containment rules. */
-* {
+/* Stop shell bounce without trapping wheel gestures in clipped cards and labels. */
+html,
+body,
+#root {
   overscroll-behavior: none !important;
 }
 
@@ -649,8 +654,7 @@ button,
   box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px var(--ct-accent);
 }
 
-.sidebar-tab-activation,
-.sidebar-team-card-activation {
+.sidebar-tab-activation {
   --ct-liquid-base-transform: translateZ(0);
   transform: var(--ct-liquid-base-transform) scale(1);
   transform-origin: center;
@@ -661,13 +665,8 @@ button,
     border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
-.sidebar-tab-activation:hover,
-.sidebar-team-card-activation:hover {
-  transform: var(--ct-liquid-base-transform) scale(1.0075);
-}
 
-.sidebar-tab-activation:active,
-.sidebar-team-card-activation:active {
+.sidebar-tab-activation:active {
   transform: var(--ct-liquid-base-transform) scale(0.975);
   transition-duration: var(--ct-duration-liquid-press);
   transition-timing-function: var(--ct-ease-liquid-settle);
@@ -678,8 +677,7 @@ button,
 }
 
 .ct-liquid-interactive[data-touch-mode="true"]:not(:disabled):active,
-[data-touch-mode="true"] .sidebar-tab-activation:active,
-[data-touch-mode="true"] .sidebar-team-card-activation:active {
+[data-touch-mode="true"] .sidebar-tab-activation:active {
   transform: var(--ct-liquid-base-transform) scale(0.965);
 }
 
@@ -690,10 +688,7 @@ button,
   .ct-segmented-thumb,
   .sidebar-tab-activation,
   .sidebar-tab-activation:hover,
-  .sidebar-tab-activation:active,
-  .sidebar-team-card-activation,
-  .sidebar-team-card-activation:hover,
-  .sidebar-team-card-activation:active {
+  .sidebar-tab-activation:active {
     transform: var(--ct-liquid-base-transform);
     transition: none;
     animation: none;
@@ -1114,6 +1109,11 @@ button,
    narrow tabs without JS. */
 .sidebar-tab {
   container-type: inline-size;
+  border-radius: var(--ct-radius-md);
+}
+
+.sidebar-tab > .active-tab-pill {
+  border-radius: inherit;
 }
 
 /* Model badge — visible by default, fades out on tab hover so the
@@ -2022,16 +2022,50 @@ button,
   }
 }
 
+.ct-sidebar-content {
+  scrollbar-gutter: stable both-edges;
+  padding-bottom: 4px;
+}
+
+/* The dragged block is opaque and slightly lifted, so rows it passes never show through it. */
+[data-dnd-dragging="true"] {
+  border-radius: var(--ct-radius-md);
+  background: color-mix(in srgb, var(--ct-accent) 7%, var(--ct-bg));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 28%, transparent),
+    0 4px 14px rgb(0 0 0 / 22%);
+}
+
 .sidebar-team-unit {
+  --team-surface: color-mix(in srgb, var(--ct-bg) 80%, var(--ct-surface));
+  --team-hover: rgb(from var(--team-surface) calc(r * 1.05) calc(g * 1.05) calc(b * 1.05));
+  --ct-bg-selected: color-mix(in srgb, var(--team-surface) 96%, var(--ct-fg));
   position: relative;
   min-width: 0;
   margin: 4px 0;
   padding: 3px 0 0;
   overflow: visible;
+  isolation: isolate;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--ct-fg) 3%, transparent);
+  background: var(--team-surface);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 4%, transparent);
   container-type: inline-size;
+}
+
+.sidebar-team-unit::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--team-hover);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-team-unit::before { transition: none; }
 }
 
 .sidebar-team-disclosure-bar {
@@ -2051,33 +2085,22 @@ button,
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 32px;
-  height: 6px;
+  width: 25.6px;
+  height: 8px;
   transform: translate(-50%, -50%);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: color-mix(in srgb, var(--ct-muted-fg) 38%, transparent);
+  transition: color 160ms ease;
 }
 
-.sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-glyph::after {
-  position: absolute;
-  top: 2px;
-  width: 17px;
-  height: 1px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-muted-fg) 38%, transparent);
-  content: "";
-  transition: transform 160ms ease, background 160ms ease;
+.sidebar-team-disclosure-glyph path {
+  d: path("M1 4 L13 4 L25 4");
+  transition: d 160ms ease;
 }
-
-.sidebar-team-disclosure-glyph::before {
-  right: calc(50% - 0.5px);
-  transform-origin: right center;
-}
-
-.sidebar-team-disclosure-glyph::after {
-  left: calc(50% - 0.5px);
-  transform-origin: left center;
-}
-
 .sidebar-team-disclosure-label,
 .sidebar-team-disclosure-count {
   position: absolute;
@@ -2106,46 +2129,45 @@ button,
 .sidebar-team-disclosure-bar:hover .sidebar-team-disclosure-count,
 .sidebar-team-disclosure-bar:focus-visible .sidebar-team-disclosure-count { opacity: 0; }
 
-.sidebar-team-disclosure-bar:hover .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar:hover .sidebar-team-disclosure-glyph::after,
-.sidebar-team-disclosure-bar:focus-visible .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar:focus-visible .sidebar-team-disclosure-glyph::after {
-  background: color-mix(in srgb, var(--ct-accent) 72%, var(--ct-muted-fg));
+.sidebar-team-disclosure-bar:hover .sidebar-team-disclosure-glyph,
+.sidebar-team-disclosure-bar:focus-visible .sidebar-team-disclosure-glyph {
+  color: var(--ct-muted-fg);
 }
 
-.sidebar-team-disclosure-bar[aria-expanded="true"]:hover .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(-8deg); }
+.sidebar-team-disclosure-bar[aria-expanded="true"]:is(:hover, :focus-visible) .sidebar-team-disclosure-glyph path {
+  d: path("M1 5 L13 2 L25 5");
+}
 
-.sidebar-team-disclosure-bar[aria-expanded="true"]:hover .sidebar-team-disclosure-glyph::after,
-.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(8deg); }
+.sidebar-team-disclosure-bar[aria-expanded="false"]:is(:hover, :focus-visible) .sidebar-team-disclosure-glyph path {
+  d: path("M1 2 L13 5 L25 2");
+}
 
-.sidebar-team-disclosure-bar[aria-expanded="false"]:hover .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(8deg); }
-
-.sidebar-team-disclosure-bar[aria-expanded="false"]:hover .sidebar-team-disclosure-glyph::after,
-.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(-8deg); }
-
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-team-disclosure-glyph,
+  .sidebar-team-disclosure-glyph path { transition: none; }
+}
 .sidebar-team-disclosure-bar:focus-visible {
   outline: 1px solid var(--ct-accent);
   outline-offset: -2px;
 }
 
 .sidebar-team-header {
+  --team-controls-width: 38px;
+  --team-controls-gap: 6px;
   display: grid;
   position: relative;
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 6px 7px 4px 10px;
+  align-items: start;
+  gap: var(--team-controls-gap);
+  margin: 0 0 9px;
+  padding: 7px 3px 0 14px;
   border-radius: 7px;
   color: var(--ct-fg);
 }
 
-.sidebar-team-header-active:hover,
-.sidebar-team-header-active:focus-within {
-  background: var(--ct-hover);
+.sidebar-team-unit:is(:hover, :focus-within)::before {
+  opacity: 1;
 }
 
 .sidebar-disclosure {
@@ -2180,10 +2202,48 @@ button,
 .sidebar-team-card-visual,
 .sidebar-team-card-static {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   align-items: center;
-  gap: 4px;
+}
+
+.sidebar-team-card-visual {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+}
+
+.sidebar-team-status-donut {
+  animation: none;
+}
+
+.sidebar-team-status-trigger {
+  display: grid;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.sidebar-team-status-trigger:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 3px;
+}
+
+.sidebar-team-card-visual:is(:hover, :has(:focus-visible)) .sidebar-team-status-donut {
+  animation: sidebar-team-status-spring 0.5s var(--ct-ease-spring) both;
+}
+
+@keyframes sidebar-team-status-spring {
+  0%, 100% { transform: scale(1); }
+  24% { transform: scale(0.95, 1.025); }
+  52% { transform: scale(1.025, 0.98); }
+  76% { transform: scale(0.992, 1.005); }
+}
+
+.sidebar-team-status-donut > .ct-segmented-donut-hole {
+  background: var(--team-surface);
 }
 
 .sidebar-team-card-activation {
@@ -2199,6 +2259,8 @@ button,
   color: inherit;
   cursor: pointer;
   text-align: left;
+  transform: none;
+  transition: none;
 }
 
 .sidebar-team-unit-activatable .sidebar-team-header,
@@ -2228,11 +2290,6 @@ button,
 
 .sidebar-team-unit-activatable .sidebar-team-disclosure-bar {
   z-index: 2;
-}
-
-.sidebar-team-unit-activatable .sidebar-team-card-activation:hover,
-.sidebar-team-unit-activatable .sidebar-team-card-activation:focus-visible {
-  background: var(--ct-hover);
 }
 
 .sidebar-disclosure:focus-visible {
@@ -2391,7 +2448,7 @@ button,
   position: relative;
   width: 42px;
   height: 40px;
-  overflow: hidden;
+  overflow: clip;
   border: 0;
   border-radius: 7px;
   background: var(--ct-surface);
@@ -2575,8 +2632,9 @@ button,
   font-size: 12.5px;
 }
 
+/* The scroll area meets the divider; its own bottom padding keeps the last row off the line. */
 .sidebar-recently-closed {
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .sidebar-team-icon {
@@ -2593,8 +2651,10 @@ button,
   display: flex;
   min-width: 0;
   flex-direction: column;
-  line-height: 1.2;
+  gap: 4px;
+  line-height: 1;
   container-type: inline-size;
+  pointer-events: auto;
 }
 
 .sidebar-team-title-row {
@@ -2681,15 +2741,16 @@ button,
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
-  width: 46px;
-  height: 20px;
+  width: var(--team-controls-width);
+  height: 22px;
+  margin-top: -4px;
 }
 
 .sidebar-team-menu-root {
   position: relative;
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 22px;
 }
 
 .sidebar-team-board-action {
@@ -2720,7 +2781,7 @@ button,
   height: 100%;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 160ms ease;
+  transition: opacity 0.2s linear;
 }
 
 .sidebar-team-unit-activatable .sidebar-team-progress-slot,
@@ -2736,8 +2797,8 @@ button,
   pointer-events: auto;
 }
 
-.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:hover) .sidebar-team-menu-root .sidebar-team-kebab,
-.sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:hover) .sidebar-team-board-action,
+.sidebar-team-unit-activatable:hover .sidebar-team-menu-root .sidebar-team-kebab,
+.sidebar-team-unit-activatable:hover .sidebar-team-board-action,
 .sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:focus-visible) .sidebar-team-menu-root .sidebar-team-kebab,
 .sidebar-team-unit-activatable:has(> .sidebar-team-card-activation:focus-visible) .sidebar-team-board-action {
   opacity: 1;
@@ -2761,14 +2822,7 @@ button,
 
 [data-touch-mode="true"] .sidebar-team-count { opacity: 0; }
 
-.sidebar-team-kebab:hover {
-  background: var(--ct-border);
-  color: var(--ct-fg);
-}
-
 .sidebar-team-menu {
-  --ct-menu-origin: top right;
-  position: fixed;
   display: flex;
   min-width: 174px;
   flex-direction: column;
@@ -2821,8 +2875,37 @@ button,
 }
 
 .sidebar-team-readout {
-  margin: 6px 12px 9px 14px;
+  display: flex;
+  width: max-content;
+  margin: 0;
+  line-height: 1;
   justify-content: flex-start;
+}
+
+.sidebar-team-readout .ct-plan-status-breakdown-item {
+  transition: color 0.18s linear;
+}
+
+.sidebar-team-card-visual:is(:hover, :has(:focus-visible)) .sidebar-team-readout .ct-plan-status-breakdown-item {
+  --ct-plan-status-foreground: var(--ct-plan-status-color);
+  transition-duration: 0.5s;
+}
+
+.sidebar-team-status-fit {
+  min-width: 0;
+  width: calc(100% + var(--team-controls-width) + var(--team-controls-gap));
+}
+
+.sidebar-team-status-fit[data-compact] .ct-plan-status-breakdown-label {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-team-card-visual:is(:hover, :has(:focus-visible)) .sidebar-team-status-donut { animation: none; }
+  .sidebar-team-readout .ct-plan-status-breakdown-item,
+  .sidebar-team-card-visual:is(:hover, :has(:focus-visible)) .sidebar-team-readout .ct-plan-status-breakdown-item {
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2890,6 +2973,7 @@ button,
 
 .sidebar-team-member-list {
   min-width: 0;
+  padding-inline: 6px;
 }
 
 .sidebar-team-member .sidebar-tab,
@@ -2980,6 +3064,17 @@ button,
   background: transparent;
   color: var(--ct-muted);
   cursor: pointer;
+}
+
+@media (hover: hover) {
+  .sidebar-team-cron-row .sidebar-team-cron-menu {
+    opacity: 0;
+  }
+
+  .sidebar-team-cron-row:hover .sidebar-team-cron-menu,
+  .sidebar-team-cron-row:focus-within .sidebar-team-cron-menu {
+    opacity: 1;
+  }
 }
 
 .chat-launch-ring {
@@ -3978,18 +4073,10 @@ button,
 
 /* ── Kebab dropdown menu ─────────────────────────────────────────────────── */
 .plan-switcher-menu {
-  --ct-menu-origin: top right;
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 200;
   min-width: 13rem;
 }
 
 /* ── Overflow mode: combo trigger + popover listbox ─────────────────────── */
-.plan-switcher-combo {
-  position: relative;
-}
 .plan-switcher-combo-trigger {
   max-width: 22rem;
   padding: 0.25rem 0.5rem;
@@ -4014,10 +4101,6 @@ button,
   opacity: 0.7;
 }
 .plan-switcher-popover {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 200;
   min-width: 18rem;
   max-height: 20rem;
   overflow-y: auto;
@@ -5111,10 +5194,6 @@ button.plan-peer-chip:focus-visible {
   cursor: pointer;
 }
 .working-on-overflow-popover {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 0.2rem);
-  right: 0;
   display: flex;
   flex-direction: column;
   gap: 0.22rem;
@@ -5599,8 +5678,11 @@ button.plan-recent-activity-item:hover .plan-recent-activity-task {
 .ct-toast-countdown { opacity: .28; animation: ct-toast-countdown linear forwards; }
 @media (prefers-reduced-motion: reduce) { .ct-toast-countdown { animation: none; } }
 
-@media (max-width: 768px), (pointer: coarse) {
-  .ct-markdown-ordered-list {
-    padding-inline-start: max(1.25rem, var(--ct-list-marker-gutter));
-  }
+.ct-markdown-ordered-list {
+  padding-inline-start: max(1.25rem, var(--ct-list-marker-gutter));
 }
+
+.ct-skeleton-block { background: color-mix(in srgb, var(--ct-fg) 8%, transparent); }
+.ct-skeleton { animation: ct-skeleton-breathe 1.6s ease-in-out infinite; }
+@keyframes ct-skeleton-breathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ct-skeleton { animation: none; } }

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { List, Network, Square } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
@@ -139,9 +140,9 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
       <button type="button" className={AUTOMATION_TOOL} aria-expanded={runsOpen} aria-controls="blueprint-run-log" onClick={() => setRunsOpen(!runsOpen)}><List size={14} aria-hidden="true" />Runs</button>
     </div>
     {children}
-    {state.stopFailed && <p role="alert" className="ct-job-note px-4 py-2">Blueprint stop failed.</p>}
+    {state.stopFailed && <InlineErrorNotice error={{ code: "blueprint_stop_failed", raw: "" }} />}
     {graph && model && layout && <div ref={body.ref} className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : "h-[min(44rem,78vh)] min-h-[28rem]"}`}>
-      {model.stages.length === 0 && <p role="alert" className="px-4 py-3">The Blueprint root is unavailable.</p>}
+      {model.stages.length === 0 && <InlineErrorNotice error={{ code: "blueprint_root_unavailable", raw: "" }} />}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={{ marginRight: panelWidth }}>
         <BlueprintCanvas layout={layout} selected={selected} camera={camera} onSelect={select} replay={canvasReplay} panelOpen={selected !== null} toolbar={replayBar} />
         {runsOpen && <>

@@ -103,11 +103,18 @@ pub(super) fn update_system_cached(id: Option<String>) -> Result<serde_json::Val
         .ok_or_else(|| format!("channel '{SYSTEM_CHANNEL_NAME}' not registered"))?;
     let channel_path = PathBuf::from(&channel.path);
     let manifest = read_channel_manifest(&channel_path)?;
+    if manifest.name != SYSTEM_CHANNEL_NAME {
+        return Err(format!(
+            "expected {SYSTEM_CHANNEL_NAME} channel manifest, got '{}'",
+            manifest.name
+        ));
+    }
     let current_ids: Vec<String> = manifest
         .plugins
         .iter()
         .map(|plugin| plugin.id.clone())
         .collect();
+    let retired = retirement::retire_missing_official_plugins(&current_ids, &manifest.retired)?;
     let requested = match id {
         Some(id) => {
             let plugin = manifest
@@ -190,38 +197,15 @@ pub(super) fn update_system_cached(id: Option<String>) -> Result<serde_json::Val
     if updated.is_empty() && !blocked.is_empty() {
         return Err(blocked.join("; "));
     }
-    let mut warnings = removed_system_channel_warnings(&current_ids)?;
-    warnings.extend(blocked);
     Ok(serde_json::json!({
         "ok": true,
         "message": format!("Updated {} system plugin(s)", updated.len()),
         "updated": updated,
-        "warnings": warnings,
+        "retired": retired,
+        "warnings": blocked,
     }))
 }
 
-pub(super) fn removed_system_channel_warnings(
-    current_ids: &[String],
-) -> Result<Vec<String>, String> {
-    let current: std::collections::BTreeSet<_> = current_ids.iter().cloned().collect();
-    let mut warnings = Vec::new();
-    for id in installed_ids()? {
-        let record = read_install_record(&id).ok();
-        let Some(InstallRecord {
-            source: InstallSource::SystemChannel { channel, .. },
-            ..
-        }) = record
-        else {
-            continue;
-        };
-        if channel == SYSTEM_CHANNEL_NAME && !current.contains(&id) {
-            warnings.push(format!(
-                "system plugin '{id}' is installed but no longer listed in {SYSTEM_CHANNEL_NAME}; it was left installed"
-            ));
-        }
-    }
-    Ok(warnings)
-}
 pub(super) fn ensure_system_channel() -> Result<(), String> {
     let url = system_channel_url();
     let mut reg = read_channel_registry().unwrap_or_default();

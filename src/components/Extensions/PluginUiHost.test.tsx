@@ -18,7 +18,7 @@ describe("shared plugin UI host wiring", () => {
       await act(async () => root.render(<PluginUiHost pluginId="fixture" state={{ status: "error", reason: "mount failure" }} onRetry={retry} />));
       expect(host.querySelector('[role="alert"]')?.textContent).toContain("mount failure");
       expect(log).toHaveBeenCalledWith(expect.stringContaining("mount failure"));
-      await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+      await act(async () => [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Retry plugin UI")!.click());
       expect(retry).toHaveBeenCalledTimes(1);
       await act(async () => root.render(<PluginUiHost pluginId="fixture" state={{ status: "ready" }} onRetry={retry}><button>Plugin content</button></PluginUiHost>));
       expect(host.querySelector('[role="alert"]')).toBeNull();

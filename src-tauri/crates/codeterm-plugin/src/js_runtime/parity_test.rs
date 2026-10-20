@@ -10,8 +10,25 @@
 //! are intentionally not covered here — the native provider remains
 //! authoritative for them.
 
+#[path = "parity_test/execution_sandbox.rs"]
+mod execution_sandbox;
+#[path = "parity_test/host_exec.rs"]
+mod host_exec;
+#[path = "parity_test/inline_fixture.rs"]
+mod inline_fixture;
+#[path = "parity_test/parsed_record_fixtures.rs"]
+mod parsed_record_fixtures;
+#[path = "parity_test/parsed_records.rs"]
+mod parsed_records;
+#[path = "parity_test/raw_arguments.rs"]
+mod raw_arguments;
+#[path = "parity_test/remote_tasks.rs"]
+mod remote_tasks;
 #[path = "parity_test/runtime.rs"]
 mod runtime;
+#[path = "parity_test/session_resume.rs"]
+mod session_resume;
+use inline_fixture::{load_inline_js, load_inline_js_with_manifest};
 
 use std::path::PathBuf;
 
@@ -28,10 +45,10 @@ mod agent_commands;
 mod control_keys;
 #[path = "parity_test/decision_model.rs"]
 mod decision_model;
-#[path = "parity_test/delivery_modal.rs"]
-mod delivery_modal;
 #[path = "parity_test/folder_trust_record.rs"]
 mod folder_trust_record;
+#[path = "parity_test/launch_spec.rs"]
+mod launch_spec;
 #[path = "parity_test/model_catalogue.rs"]
 mod model_catalogue;
 #[path = "parity_test/model_providers.rs"]
@@ -64,6 +81,8 @@ mod access_errors;
 mod agent_tasks;
 #[path = "parity_test/project_files.rs"]
 mod project_files;
+#[path = "parity_test/session_name.rs"]
+mod session_name;
 
 type PluginsDir = PathBuf;
 
@@ -99,27 +118,30 @@ fn load_js(id: &str) -> JsProvider {
     load_one(&manifest).unwrap_or_else(|e| panic!("load {id} plugin: {e}"))
 }
 
-fn load_inline_js(id: &str, plugin_js: &str) -> JsProvider {
-    use std::sync::Arc;
-
-    let manifest_json = format!(
-        r#"{{"id":"{id}","version":"0.1.0","displayName":"Fixture",
-                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
-                         "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}}}}"#
-    );
-    let manifest: super::PluginManifest = serde_json::from_str(&manifest_json).unwrap();
-    let vm = super::PluginVm::from_source_with(id, plugin_js.to_string(), Some(manifest_json))
-        .expect("fixture vm");
-    JsProvider::new(manifest, Arc::new(vm))
+fn provider_fixture(id: &str, relative: &str) -> String {
+    let path = workspace_plugins_root()
+        .join(format!("provider-{id}"))
+        .join("tests/fixtures")
+        .join(relative);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
 #[test]
-fn claude_update_command_native_js_parity() {
+fn host_owned_capabilities_native_js_parity() {
     let Some(_) = require_plugins() else {
         return;
     };
     let native = crate::agent_claude::provider::ClaudeProvider::new();
     let js = load_js("claude");
+    // A private task-file root keeps parallel tests that sweep the shared one away from these files.
+    let root = tempfile::tempdir().unwrap();
+    codeterm_util::task_files::capture_in(root.path(), "launch-parity", || {
+        launch_spec::assert_native_js_parity(&native, &js)
+    });
+    assert_eq!(
+        native.execution_sandbox_capability(),
+        js.execution_sandbox_capability()
+    );
     for platform in ["macos", "linux", "windows", "unknown"] {
         assert_eq!(js.update_command(platform), native.update_command(platform));
     }
@@ -385,6 +407,7 @@ impl ChatBackendProvider for ModelCapabilityNativeStub {
             authority: crate::provider::ModelCatalogueAuthority::Authoritative,
             live_discovery_required: true,
             config_files: vec!["/tmp/chatbackend-model-parity-config.json".into()],
+            config_file_environments: Vec::new(),
         }
     }
 
@@ -643,10 +666,13 @@ fn provider_readiness_native_js_parity() {
     }
 }
 
-struct NativeCodexReadiness;
+struct NativeSandbox;
 
 #[async_trait::async_trait]
-impl AgentProvider for NativeCodexReadiness {
+impl AgentProvider for NativeSandbox {
+    fn execution_sandbox_capability(&self) -> Option<crate::provider::ExecutionSandboxCapability> {
+        Some(execution_sandbox::fixture_capability())
+    }
     fn sandboxed_linux_launch_capability(
         &self,
     ) -> Option<crate::provider::SandboxedLinuxLaunchCapability> {
@@ -727,7 +753,7 @@ fn codex_composer_fingerprint_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }
-    let native = NativeCodexReadiness;
+    let native = NativeSandbox;
     let js = load_js("codex");
     assert_eq!(
         js.provider_readiness_strategy(),
@@ -751,7 +777,7 @@ fn codex_linux_sandbox_codeterm_reach_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }
-    let native = NativeCodexReadiness;
+    let native = NativeSandbox;
     let js = load_js("codex");
     assert_eq!(
         js.sandboxed_linux_launch_capability(),
@@ -1003,89 +1029,11 @@ fn routed_paste_instruction_capability_native_js_parity() {
     assert_eq!(load_js("opencode").paste_capability(), None);
 }
 
+mod launch_adapter_matrix;
+
 #[test]
 fn launch_adapter_matrix_uses_each_installed_descriptor() {
-    let Some(root) = require_plugins() else {
-        return;
-    };
-    let task = "adapter-task-fixture";
-    let mut plugin_dirs = std::fs::read_dir(root)
-        .expect("read bundled plugin directory")
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with("provider-"))
-        .filter(|entry| entry.path().join("plugin.json").is_file())
-        .collect::<Vec<_>>();
-    plugin_dirs.sort_by_key(|entry| entry.file_name());
-
-    assert!(
-        !plugin_dirs.is_empty(),
-        "installed descriptor matrix is empty"
-    );
-    for entry in plugin_dirs {
-        let manifest = entry.path().join("plugin.json");
-        let provider = load_one(&manifest)
-            .unwrap_or_else(|error| panic!("load {}: {error}", manifest.display()));
-        let descriptor = provider.describe();
-        let command = provider.build_launch_command(&AgentLaunchParams {
-            task: Some(task.into()),
-            instance_id: Some("instance-parity".into()),
-            ..Default::default()
-        });
-
-        assert!(
-            !command.trim().is_empty(),
-            "{} launch command",
-            descriptor.id
-        );
-        let task_delivered_by_pty = matches!(
-            provider.task_delivery(),
-            crate::provider::TaskDelivery::PtyInput
-        );
-        match provider.task_delivery() {
-            crate::provider::TaskDelivery::InlineFlag => {}
-            crate::provider::TaskDelivery::PtyInput => {
-                assert!(
-                    !command.contains(task),
-                    "{} PTY delivery must preserve first-message fallback",
-                    descriptor.id
-                );
-            }
-        }
-        match provider.system_prompt_delivery() {
-            crate::provider::SystemPromptDelivery::External if task_delivered_by_pty => {
-                assert!(
-                    !command.contains(task),
-                    "{} external delivery must reserve confirmed fallback",
-                    descriptor.id
-                );
-            }
-            crate::provider::SystemPromptDelivery::External => {}
-            crate::provider::SystemPromptDelivery::CliFlag(mechanism) => {
-                let marker = mechanism
-                    .split_whitespace()
-                    .last()
-                    .expect("CLI system prompt mechanism must not be empty");
-                assert!(
-                    command.contains(marker),
-                    "{} system delivery must use declared mechanism {marker}",
-                    descriptor.id
-                );
-                assert!(
-                    !command.contains(task),
-                    "{} system delivery must not use fallback text",
-                    descriptor.id
-                );
-            }
-            crate::provider::SystemPromptDelivery::SessionConfig => {
-                assert!(
-                    !command.contains(task),
-                    "{} session config must not use fallback text",
-                    descriptor.id
-                );
-            }
-        }
-    }
+    launch_adapter_matrix::assert_installed_descriptors();
 }
 
 /// Structured-prompt-server capability contract across the bundled providers.
@@ -1141,6 +1089,35 @@ fn agent_state_status_reconciliation_capability_contract() {
     assert_eq!(
         native_default.supports_agent_state_status_reconciliation(),
         js_default.supports_agent_state_status_reconciliation()
+    );
+}
+
+#[test]
+fn subagent_visibility_capability_contract() {
+    for enabled in [true, false] {
+        let manifest = format!(
+            r#"{{"id":"subagent-visibility-fixture","version":"0.1.0","displayName":"Fixture",
+                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
+                         "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}},
+                "capabilities":{{"subagentVisibility":{enabled}}}}}"#
+        );
+        let js = load_inline_js_with_manifest(
+            "subagent-visibility-fixture",
+            &manifest,
+            "module.exports.default = {};",
+        );
+        assert_eq!(js.supports_subagent_visibility(), enabled);
+    }
+
+    let native_default = DiscoverModelsNativeStub;
+    let js_default = load_inline_js(
+        "subagent-visibility-default",
+        "module.exports.default = {};",
+    );
+    assert!(!native_default.supports_subagent_visibility());
+    assert_eq!(
+        native_default.supports_subagent_visibility(),
+        js_default.supports_subagent_visibility()
     );
 }
 

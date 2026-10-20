@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "ci-test-classifier"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "quote",
  "serde_json",

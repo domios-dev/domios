@@ -1,0 +1,68 @@
+use std::sync::Arc;
+
+use codeterm_plugin::{provider::AgentProvider, tab_state::TabStateSnapshot};
+
+use super::ServiceContext;
+pub use codeterm_provider_ops::provider_update::*;
+
+mod idle;
+
+pub fn check_available(service: Arc<ServiceContext>, api_port: u16, allow_non_prod: bool) {
+    let weak = Arc::downgrade(&service);
+    service
+        .agent_registry
+        .observe_provider_changes(Arc::new(move |provider| {
+            if let Some(service) = weak.upgrade() {
+                refresh_available(service.as_ref(), provider);
+            }
+        }));
+    codeterm_provider_ops::provider_update::check_available(service, api_port, allow_non_prod);
+}
+
+impl ProviderUpdateHost for ServiceContext {
+    fn providers(&self) -> Vec<Arc<dyn AgentProvider>> {
+        self.agent_registry.all_provider_arcs()
+    }
+
+    fn provider(&self, id: &str) -> Option<Arc<dyn AgentProvider>> {
+        self.agent_registry.provider_arc(id)
+    }
+
+    fn auto_update_enabled(&self) -> bool {
+        self.try_ext::<crate::config::ConfigState>()
+            .is_some_and(|config| config.lock().updater.auto_update_provider_clis)
+    }
+
+    fn matches_own_session(&self, snapshot: &TabStateSnapshot) -> bool {
+        self.mux
+            .read()
+            .get_tab(&snapshot.tab_id)
+            .is_some_and(|tab| {
+                tab.agent_type.as_deref() == Some(snapshot.agent_type.as_str())
+                    && tab.agent_session_id == snapshot.session_id
+            })
+    }
+
+    fn provider_busy(&self, provider: &str) -> bool {
+        idle::provider_busy(self, provider)
+    }
+
+    fn completed(&self, provider: &str, summary: &str) {
+        self.ui.emit(
+            "provider-cli-completed",
+            serde_json::json!({
+                "provider": provider, "operation": "update", "summary": summary,
+            }),
+        );
+    }
+
+    fn availability_changed(&self, provider: &str) {
+        self.ui.emit(
+            "provider-cli-update-available",
+            serde_json::json!({ "provider": provider }),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests;

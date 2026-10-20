@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use codeterm_types::sentinel_input::MediaKind;
+use codeterm_blueprint_types::sentinel_input::MediaKind;
 
 use super::*;
 use crate::converter::{Conversion, ConvertOutput, ConvertRequest};

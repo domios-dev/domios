@@ -72,8 +72,8 @@ describe("nativeBridge", () => {
   });
   it("keeps the native updater response discriminant", async () => {
     mocks.invoke.mockResolvedValue({ status: "already_running" });
-    expect(await createNativeBridge(true).updater?.install()).toEqual({ status: "already_running" });
-    expect(mocks.invoke).toHaveBeenCalledWith("install_app_update");
+    expect(await createNativeBridge(true).updater?.install("rc")).toEqual({ status: "already_running" });
+    expect(mocks.invoke).toHaveBeenCalledWith("install_app_update", { channel: "rc" });
   });
   it("routes application restart over the bound daemon transport", async () => {
     const localJson = vi.fn().mockResolvedValue({ ok: true });

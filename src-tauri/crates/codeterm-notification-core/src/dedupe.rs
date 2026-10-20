@@ -170,13 +170,15 @@ pub enum TabCondition {
     /// The tab's agent is blocked on an interactive prompt.
     PendingPrompt,
     ProviderAccessLost,
+    ProviderTurnError,
 }
 
 impl TabCondition {
-    pub const ALL: [TabCondition; 3] = [
+    pub const ALL: [TabCondition; 4] = [
         TabCondition::AgentExited,
         TabCondition::PendingPrompt,
         TabCondition::ProviderAccessLost,
+        TabCondition::ProviderTurnError,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -184,6 +186,7 @@ impl TabCondition {
             Self::AgentExited => "agent-exited",
             Self::PendingPrompt => "pending-prompt",
             Self::ProviderAccessLost => "provider-access-lost",
+            Self::ProviderTurnError => "provider-turn-error",
         }
     }
 

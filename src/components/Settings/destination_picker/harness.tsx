@@ -76,17 +76,31 @@ export async function mount(element: ReactElement) {
 
 /** Every control carrying a checked state, whichever role expresses it. */
 export function controls(scope: Element): HTMLButtonElement[] {
-  return Array.from(
-    scope.querySelectorAll('button[role="switch"], button[role="checkbox"]'),
-  ) as HTMLButtonElement[];
+  return optionRoots(scope).flatMap(
+    (root) =>
+      Array.from(
+        root.querySelectorAll('button[role="switch"], button[role="checkbox"]'),
+      ) as HTMLButtonElement[],
+  );
 }
 
 export function switches(scope: Element): HTMLButtonElement[] {
   return Array.from(scope.querySelectorAll('button[role="switch"]')) as HTMLButtonElement[];
 }
 
+/** An open picker draws its options in a portaled popover, reachable only through
+ *  the aria-controls of the open trigger inside the row. */
+export function optionRoots(scope: Element): Element[] {
+  const opened = Array.from(scope.querySelectorAll('[aria-expanded="true"][aria-controls]'))
+    .map((trigger) => document.getElementById(trigger.getAttribute("aria-controls") ?? ""))
+    .filter((root): root is HTMLElement => Boolean(root));
+  return [scope, ...opened];
+}
+
 export function options(scope: Element): HTMLButtonElement[] {
-  return Array.from(scope.querySelectorAll('button[role="checkbox"]')) as HTMLButtonElement[];
+  return optionRoots(scope).flatMap(
+    (root) => Array.from(root.querySelectorAll('button[role="checkbox"]')) as HTMLButtonElement[],
+  );
 }
 
 export function levelRow(host: Element, level: string): Element {

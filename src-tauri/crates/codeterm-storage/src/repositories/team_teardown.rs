@@ -35,6 +35,7 @@ fn apply_team_teardown(
     teardown: TeamTeardown,
 ) -> Result<TeamTeardownApplied, StorageError> {
     remove_team(cx, &teardown.team_id, teardown.expected_desk_team_revision)?;
+    crate::repositories::tab_todo::forget_team_in_transaction(cx, &teardown.team_id)?;
     let cron = apply_mutations(
         cx,
         vec![CronWrite::RemoveScope(CronScope::Team(

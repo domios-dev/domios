@@ -19,6 +19,7 @@ import {
   levelRow,
   mount,
   openPush,
+  optionRoots,
   options,
   pass,
   pushTriggers,
@@ -85,7 +86,10 @@ async function theOpenedControlEnumeratesEveryChannelUnderOneName() {
   assert(trigger.getAttribute("aria-expanded") === "true", "the control reports itself open");
 
   const scope = levelRow(view.host, level);
-  const group = scope.querySelector('[data-testid="settings-destination-picker-options"]');
+  const optionsSelector = '[data-testid="settings-destination-picker-options"]';
+  const group = optionRoots(scope)
+    .map((root) => (root.matches(optionsSelector) ? root : root.querySelector(optionsSelector)))
+    .find(Boolean);
   assert(group, "the opened control draws its options");
   assert(
     group.getAttribute("role") === "group" &&

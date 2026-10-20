@@ -1,9 +1,15 @@
 import { invoke } from "../../lib/bridge";
-import { failChatSendRequest, observeDeliveryStatus, reconcileDeliveryStatuses, reconcileChatSendAdmission, recordChatSendAdmissionFailure, readChatSends } from "./chatSendStore";
+import type { MatchedRow } from "@codeterm/chat-core";
+import { beginChatSendDeletion, chatSendTabHydrationState, endChatSendDeletion, ensureChatSendTabHydrated,
+  failChatSendRequest, observeChatSendDismissal, observeDeliveryStatus,
+  reconcileChatSendAdmission, reconcileDeliveryStatuses, readChatSends, recordChatSendAdmissionFailure,
+  type ChatSendDismissal } from "./chatSendStore";
 import type { AdmissionEvidence } from "./chatDeliveryModel";
 
 const activeAdmissions = new Set<string>();
 const admissionKey = (tabId: string, token: string) => JSON.stringify([tabId, token]);
+type ReconciliationRun = { phase: "hydrating" | "reading"; dirty: boolean; promise: Promise<ChatSendStatus[]> };
+const reconciliationRuns = new Map<string, ReconciliationRun>();
 
 export type ChatSendStatus = {
   send_id: string;
@@ -14,16 +20,47 @@ export type ChatSendStatus = {
   sequence: number;
   retained_from: number;
   correlationId?: string;
+  matched_row?: MatchedRow;
   pending_reason?: string;
   pad_file?: string;
   system_send?: { content: string; sent_at_ms: number };
 };
 
-export async function reconcileTrackedChatMessages(tabId: string): Promise<ChatSendStatus[]> {
+export function reconcileTrackedChatMessages(tabId: string): Promise<ChatSendStatus[]> {
+  const existing = reconciliationRuns.get(tabId);
+  if (existing) {
+    if (existing.phase === "reading") existing.dirty = true;
+    return existing.promise;
+  }
+  const run: ReconciliationRun = { phase: "hydrating", dirty: false, promise: Promise.resolve([]) };
+  const task = (async () => {
+    let statuses: ChatSendStatus[] = [];
+    do {
+      run.phase = "hydrating";
+      run.dirty = false;
+      await ensureChatSendTabHydrated(tabId);
+      if (chatSendTabHydrationState(tabId) !== "ready") return [];
+      run.phase = "reading";
+      statuses = await reconcileReadyChatMessages(tabId);
+    } while (run.dirty);
+    return statuses;
+  })().finally(() => {
+    if (reconciliationRuns.get(tabId) === run) reconciliationRuns.delete(tabId);
+  });
+  run.promise = task;
+  reconciliationRuns.set(tabId, run);
+  return task;
+}
+
+async function reconcileReadyChatMessages(tabId: string): Promise<ChatSendStatus[]> {
   const requested = readChatSends(tabId);
-  const statuses = await invoke<ChatSendStatus[]>("chat_send_status", { tabId });
+  const [statuses, dismissals] = await Promise.all([
+    invoke<ChatSendStatus[]>("chat_send_status", { tabId }),
+    invoke<ChatSendDismissal[]>("chat_send_dismissals", { tabId }).catch(() => []),
+  ]);
+  if (Array.isArray(dismissals)) for (const receipt of dismissals) if (receipt.send?.id) observeChatSendDismissal(tabId, receipt);
   reconcileDeliveryStatuses(tabId, statuses, requested);
-  const unresolved = readChatSends(tabId).filter((send) => !send.status && send.correlationId
+  const unresolved = readChatSends(tabId).filter((send) => !send.dismissed && !send.status && send.correlationId
     && !activeAdmissions.has(admissionKey(tabId, send.correlationId)));
   if (unresolved.length > 0) {
     for (const send of unresolved) reconcileChatSendAdmission(tabId, send.correlationId!, "unknown");
@@ -85,4 +122,20 @@ export function isProvenAdmissionRefusal(error: unknown): boolean {
     "user token retention capacity reached",
     "user original exceeds 4 MiB storage bound",
   ].some((refusal) => message.includes(refusal));
+}
+
+export async function deleteTrackedChatMessage(tabId: string, id: string): Promise<void> {
+  const send = beginChatSendDeletion(tabId, id);
+  if (!send) return;
+  try {
+    const receipt = await invoke<ChatSendDismissal>("chat_send_delete", {
+      tabId, dismissal: { send_id: send.status?.send_id ?? send.id, send: {
+        id: send.id, correlationId: send.correlationId, content: send.content,
+        sentAtMs: send.sentAtMs, echo: send.echo ?? null,
+      } },
+    });
+    observeChatSendDismissal(tabId, receipt);
+  } finally {
+    endChatSendDeletion(tabId, id);
+  }
 }

@@ -37,6 +37,8 @@ export interface AgentActivity {
   callId?: string;
   description?: string;
   model?: string;
+  reasoningEffort?: string;
+  ordinal?: number;
   durationMs?: number;
   toolUses?: number;
   tokens?: number;
@@ -139,18 +141,19 @@ export type ChatTimelineMarker =
 export interface ChatSessionIntent {
   title?: string;
   goal?: string;
+  goalStatus?: string;
 }
 
 /** Discriminated union, open for future interactive session-event kinds. */
 export type InteractiveElement = InteractiveQuestion;
 
-export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIconSvg"> {
+export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIconSvg" | "segments"> {
   id: string;
   /** An explicit source identity supplied by a projection adapter. */
   sourceMessageId?: string;
   type: ChatMessageKind;
   content: string;
-  messageParts?: import("./messageParts").MessagePart[];
+  segments?: import("./envelope").MessageSegment[] | null;
   attachments?: ChatAttachment[];
   timestamp?: string;
   /** Monotonic source-order ordinal supplied by the server (JSONL line/rich-message
@@ -160,6 +163,7 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
   /** Frontend join context for a parser sequence; sequence values repeat when a
    * tab rotates to a new agent session. */
   sourceSessionId?: string;
+  inheritedFromSessionId?: string | null;
   /** Stable client send-correlation token. Set on the optimistic row and echoed
    *  by the server onto the committed user turn, so an optimistic bubble
    *  reconciles with its echo by identity — never content, which diverges once
@@ -206,6 +210,9 @@ export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIco
   /** Source-provided command outcome facts. Missing facts stay absent. */
   toolExitCode?: number;
   toolDurationMs?: number;
+  toolStatus?: "running" | "completed" | "failed" | "interrupted" | "abandoned";
+  toolStartedAtMs?: number;
+  toolCompletedAtMs?: number;
   toolInterrupted?: boolean;
   toolBackgroundTaskId?: string;
   /** Per-file diffs from the provider's own edit record; absent when none was supplied or it was malformed. */

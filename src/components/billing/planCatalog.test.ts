@@ -1,0 +1,41 @@
+import assert from "node:assert/strict";
+import {
+  BUILTIN_PLAN_CATALOG,
+  bestYearlySavings,
+  offerIdForPlan,
+  offerPrice,
+  parsePlanCatalog,
+  remoteCatalogSource,
+  type PlanOffer,
+} from "./planCatalog";
+
+const offer = (prices: PlanOffer["prices"]): PlanOffer => ({ id: "pro", name: "Pro", tagline: "", features: [], prices });
+const usd = (planKey: string, amount: number) => ({ planKey, amount, currency: "USD" });
+const pro = offer({ month: usd("pro_monthly", 10), year: usd("pro_yearly", 60) });
+
+assert.deepEqual(offerPrice(pro, "year"), { headline: "$5", per: "/ month", note: "Billed $60 yearly, save 50%", planKey: "pro_yearly" });
+assert.deepEqual(offerPrice(pro, "month"), { headline: "$10", per: "/ month", note: "Billed monthly", planKey: "pro_monthly" });
+
+const yearlyOnly = offer({ year: usd("y", 120) });
+assert.equal(offerPrice(yearlyOnly, "month").note, "Billed $120 yearly, yearly only");
+assert.equal(offerPrice(yearlyOnly, "month").planKey, "y");
+
+assert.equal(offerPrice(offer({}), "year").planKey, null);
+assert.equal(offerPrice(offer({ month: usd("m", 5), year: usd("y", 33.6) }), "year").headline, "$2.80");
+
+assert.equal(bestYearlySavings({ offers: [pro, yearlyOnly] }), 50);
+assert.equal(bestYearlySavings({ offers: [offer({ month: usd("m", 5), year: { planKey: "y", amount: 30, currency: "EUR" } })] }), null);
+
+assert.equal(offerIdForPlan(BUILTIN_PLAN_CATALOG, null), "free");
+assert.equal(offerIdForPlan(BUILTIN_PLAN_CATALOG, "pro_yearly"), "pro");
+assert.equal(offerIdForPlan(BUILTIN_PLAN_CATALOG, "sponsor"), "sponsor");
+
+assert.deepEqual(parsePlanCatalog(JSON.parse(JSON.stringify(BUILTIN_PLAN_CATALOG))), BUILTIN_PLAN_CATALOG);
+assert.equal(parsePlanCatalog({ offers: [] }), null);
+assert.equal(parsePlanCatalog({ offers: [{ id: "pro", name: "Pro", prices: { year: { planKey: "y", amount: -1, currency: "USD" } } }] }), null);
+
+void (async () => {
+  const loaded = await remoteCatalogSource(async () => ({ offers: [pro] })).load();
+  assert.equal(loaded.offers[0].prices.year?.amount, 60);
+  await assert.rejects(remoteCatalogSource(async () => ({ nope: true })).load());
+})().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

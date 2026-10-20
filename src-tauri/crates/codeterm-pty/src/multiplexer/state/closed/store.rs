@@ -2,19 +2,33 @@
 //! snapshot, which is rewritten whole on every state change. One `closed_group`
 //! row per close action, one `closed_tab` row per tab, keyed by `workspace_id`.
 
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex, RwLock};
 use rusqlite::{params, Connection};
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use crate::multiplexer::types::{ClosedTab, TabBacking};
 mod structures;
 
-const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 5;
+const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 6;
 
 /// Per-workspace cap on retained closed tabs; oldest fall off once exceeded.
 pub const RECENTLY_CLOSED_CAP: usize = 1000;
 
 /// Global cap on retained groups across all workspaces.
 pub const CLOSED_GROUP_CAP: usize = 1000;
+
+fn closed_tab_ids(conn: &Connection) -> Result<HashSet<String>, String> {
+    let mut statement = conn
+        .prepare("SELECT tab_id FROM closed_tab")
+        .map_err(|error| format!("prepare closed tab ids: {error}"))?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| format!("read closed tab ids: {error}"))?;
+    rows.map(|row| row.map_err(|error| format!("decode closed tab id: {error}")))
+        .collect()
+}
 
 /// How a set of tabs was closed: a single tab, an orchestrator subtree, or a whole workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,11 +78,28 @@ pub struct ClosedRow {
     pub tab: ClosedTab,
 }
 
-/// sqlite-backed closed-history store. Leaf lock, only taken under the mux lock, never across an await.
+/// Sqlite-backed history with plain-data views for mux snapshots.
+#[derive(Clone)]
 pub struct ClosedTabsStore {
-    pub(super) conn: Mutex<Connection>,
+    pub(super) conn: Arc<Mutex<Connection>>,
+    snapshot_recent: Arc<RwLock<Vec<ClosedRow>>>,
+    snapshot_structures: Arc<RwLock<Vec<super::ClosedStructureView>>>,
+    next_write_sequence: Arc<AtomicU64>,
+    write_order: Arc<(Mutex<u64>, Condvar)>,
     per_workspace_cap: usize,
     group_cap: usize,
+}
+
+pub(super) struct ClosedHistoryWritePermit {
+    order: Arc<(Mutex<u64>, Condvar)>,
+}
+
+impl Drop for ClosedHistoryWritePermit {
+    fn drop(&mut self) {
+        let (next, changed) = &*self.order;
+        *next.lock() += 1;
+        changed.notify_all();
+    }
 }
 
 impl ClosedTabsStore {
@@ -88,11 +119,17 @@ impl ClosedTabsStore {
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| format!("set busy_timeout: {}", e))?;
         Self::init_schema(&conn).map_err(|e| format!("init closed schema: {}", e))?;
-        Ok(Self {
-            conn: Mutex::new(conn),
+        let store = Self {
+            conn: Arc::new(Mutex::new(conn)),
+            snapshot_recent: Arc::new(RwLock::new(Vec::new())),
+            snapshot_structures: Arc::new(RwLock::new(Vec::new())),
+            next_write_sequence: Arc::new(AtomicU64::new(0)),
+            write_order: Arc::new((Mutex::new(0), Condvar::new())),
             per_workspace_cap: RECENTLY_CLOSED_CAP,
             group_cap: CLOSED_GROUP_CAP,
-        })
+        };
+        store.refresh_snapshot_views();
+        Ok(store)
     }
 
     /// In-memory store — the default for constructors and tests; prod swaps in a file-backed store at startup.
@@ -103,10 +140,62 @@ impl ClosedTabsStore {
     pub(super) fn in_memory_with_caps(per_workspace_cap: usize, group_cap: usize) -> Self {
         let conn = Connection::open_in_memory().expect("open in-memory closed_history db");
         Self::init_schema(&conn).expect("init in-memory closed schema");
-        Self {
-            conn: Mutex::new(conn),
+        let store = Self {
+            conn: Arc::new(Mutex::new(conn)),
+            snapshot_recent: Arc::new(RwLock::new(Vec::new())),
+            snapshot_structures: Arc::new(RwLock::new(Vec::new())),
+            next_write_sequence: Arc::new(AtomicU64::new(0)),
+            write_order: Arc::new((Mutex::new(0), Condvar::new())),
             per_workspace_cap,
             group_cap,
+        };
+        store.refresh_snapshot_views();
+        store
+    }
+
+    fn refresh_snapshot_views(&self) {
+        let conn = self.conn.lock();
+        self.refresh_snapshot_views_from(&conn);
+    }
+
+    pub(super) fn refresh_snapshot_views_from(&self, conn: &Connection) {
+        *self.snapshot_recent.write() =
+            Self::list_recent_from(&conn, super::RECENTLY_CLOSED_VIEW_LIMIT);
+        match Self::structure_views_from(&conn) {
+            Ok(views) => *self.snapshot_structures.write() = views,
+            Err(error) => {
+                *self.snapshot_structures.write() = Vec::new();
+                log::error!("[closed-history] inventory read failed: {error}");
+            }
+        }
+    }
+
+    pub fn snapshot_recent(&self, limit: usize) -> Vec<ClosedRow> {
+        self.snapshot_recent
+            .read()
+            .iter()
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    pub fn snapshot_structures(&self) -> Vec<super::ClosedStructureView> {
+        self.snapshot_structures.read().clone()
+    }
+
+    pub(super) fn reserve_write_sequence(&self) -> u64 {
+        self.next_write_sequence.fetch_add(1, Ordering::Relaxed)
+    }
+
+    pub(super) fn wait_for_write(&self, sequence: u64) -> ClosedHistoryWritePermit {
+        let (next, changed) = &*self.write_order;
+        let mut next = next.lock();
+        while *next != sequence {
+            changed.wait(&mut next);
+        }
+        drop(next);
+        ClosedHistoryWritePermit {
+            order: Arc::clone(&self.write_order),
         }
     }
 
@@ -181,6 +270,10 @@ impl ClosedTabsStore {
                     conn.execute_batch("ALTER TABLE closed_tab ADD COLUMN launch_json TEXT NOT NULL DEFAULT '{}'; PRAGMA user_version = 5;")?;
                     version = 5;
                 }
+                5 => {
+                    conn.execute_batch("ALTER TABLE closed_tab ADD COLUMN runtime_config_json TEXT; PRAGMA user_version = 6;")?;
+                    version = 6;
+                }
                 CURRENT_CLOSED_SCHEMA_VERSION => return Ok(()),
                 _ => return Err(rusqlite::Error::InvalidQuery),
             }
@@ -218,7 +311,8 @@ impl ClosedTabsStore {
                 workspace_name   TEXT NOT NULL DEFAULT '',
                 closed_at        INTEGER NOT NULL DEFAULT 0,
                 worker_id        TEXT,
-                launch_json      TEXT NOT NULL DEFAULT '{}'
+                launch_json      TEXT NOT NULL DEFAULT '{}',
+                runtime_config_json TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_closed_tab_workspace
@@ -228,7 +322,7 @@ impl ClosedTabsStore {
             CREATE INDEX IF NOT EXISTS idx_closed_tab_recent
                 ON closed_tab(closed_at DESC);
 
-            PRAGMA user_version = 5;
+            PRAGMA user_version = 6;
             "#,
         )
     }
@@ -270,13 +364,23 @@ impl ClosedTabsStore {
 
     /// Insert one close action (group + tabs) in a single transaction, then enforce the caps.
     pub fn insert_group(&self, group: &ClosedGroup, tabs: &[ClosedTab]) -> Result<(), String> {
+        self.insert_group_collect_evicted(group, tabs).map(|_| ())
+    }
+
+    /// Insert and trim a close action, returning tab ids permanently evicted by either cap.
+    pub fn insert_group_collect_evicted(
+        &self,
+        group: &ClosedGroup,
+        tabs: &[ClosedTab],
+    ) -> Result<Vec<String>, String> {
         if tabs.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let mut conn = self.conn.lock();
         let tx = conn
             .transaction()
             .map_err(|e| format!("closed insert tx: {}", e))?;
+        let before = closed_tab_ids(&tx)?;
         tx.execute(
             r#"
             INSERT INTO closed_group
@@ -298,12 +402,18 @@ impl ClosedTabsStore {
         for tab in tabs {
             let backing_json = serde_json::to_string(&tab.backing)
                 .unwrap_or_else(|_| r#"{"kind":"pty"}"#.to_string());
+            let runtime_config_json = tab
+                .agent_runtime_config
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(|e| e.to_string())?;
             tx.execute(
                 r#"
                 INSERT INTO closed_tab
                     (group_id, tab_id, parent_tab_id, title, description, backing_json,
-                     cwd, agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                     cwd, agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json, runtime_config_json)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
                 "#,
                 params![
                     group.group_id,
@@ -323,6 +433,7 @@ impl ClosedTabsStore {
                     tab.closed_at as i64,
                     tab.worker_id,
                     serde_json::to_string(&tab.restorable_launch).map_err(|e| e.to_string())?,
+                    runtime_config_json,
                 ],
             )
             .map_err(|e| format!("insert tab: {}", e))?;
@@ -331,9 +442,12 @@ impl ClosedTabsStore {
         Self::trim_workspace(&tx, &group.workspace_id, self.per_workspace_cap)?;
         Self::trim_global_groups(&tx, self.group_cap)?;
         Self::prune_empty_groups(&tx)?;
+        let after = closed_tab_ids(&tx)?;
+        let evicted = before.difference(&after).cloned().collect();
 
         tx.commit().map_err(|e| format!("closed commit: {}", e))?;
-        Ok(())
+        self.refresh_snapshot_views_from(&conn);
+        Ok(evicted)
     }
 
     /// Delete oldest tabs in a workspace beyond `cap`.
@@ -408,7 +522,7 @@ impl ClosedTabsStore {
         let mut stmt = match conn.prepare(
             r#"
             SELECT tab_id, parent_tab_id, title, description, backing_json, cwd,
-                   agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json
+                   agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json, runtime_config_json
             FROM closed_tab
             WHERE workspace_id = ?1
             ORDER BY closed_at DESC, id DESC
@@ -428,11 +542,15 @@ impl ClosedTabsStore {
     /// Newest-first rows across all workspaces (with group id + kind), capped at `limit`.
     pub fn list_recent(&self, limit: usize) -> Vec<ClosedRow> {
         let conn = self.conn.lock();
+        Self::list_recent_from(&conn, limit)
+    }
+
+    fn list_recent_from(conn: &Connection, limit: usize) -> Vec<ClosedRow> {
         let mut stmt = match conn.prepare(
             r#"
             SELECT p.group_id, g.kind, p.tab_id, p.parent_tab_id, p.title, p.description,
                    p.backing_json, p.cwd, p.agent_type, p.agent_session_id, p.role_profile, p.model, p.chat_view,
-                   p.workspace_id, p.workspace_name, p.closed_at, p.worker_id, p.launch_json
+                   p.workspace_id, p.workspace_name, p.closed_at, p.worker_id, p.launch_json, p.runtime_config_json
             FROM closed_tab p
             JOIN closed_group g ON g.group_id = p.group_id
             ORDER BY p.closed_at DESC, p.id DESC
@@ -470,7 +588,7 @@ impl ClosedTabsStore {
         conn.query_row(
             r#"
                 SELECT id, tab_id, parent_tab_id, title, description, backing_json, cwd,
-                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json
+                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json, runtime_config_json
                 FROM closed_tab
                 WHERE workspace_id = ?1
                 ORDER BY closed_at DESC, id DESC
@@ -489,6 +607,7 @@ impl ClosedTabsStore {
         let affected =
             Self::delete_tab(&conn, row_id).map_err(|e| format!("delete closed Tab row: {e}"))?;
         Self::prune_empty_groups(&conn).ok();
+        self.refresh_snapshot_views_from(&conn);
         if affected == 0 {
             return Err(format!(
                 "closed Tab row {row_id} was already gone (no row deleted)"
@@ -523,7 +642,7 @@ impl ClosedTabsStore {
         conn.query_row(
             r#"
                 SELECT id, tab_id, parent_tab_id, title, description, backing_json, cwd,
-                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json
+                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json, runtime_config_json
                 FROM closed_tab
                 WHERE tab_id = ?1
                 ORDER BY closed_at DESC, id DESC
@@ -572,7 +691,7 @@ impl ClosedTabsStore {
                 .prepare(
                     r#"
                     SELECT tab_id, parent_tab_id, title, description, backing_json, cwd,
-                           agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json
+                           agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id, launch_json, runtime_config_json
                     FROM closed_tab WHERE group_id = ?1
                     ORDER BY id ASC
                     "#,
@@ -604,6 +723,7 @@ impl ClosedTabsStore {
         .map_err(|e| format!("delete group meta: {e}"))?;
         tx.commit()
             .map_err(|e| format!("delete group commit: {e}"))?;
+        self.refresh_snapshot_views_from(&conn);
         Ok(())
     }
 
@@ -652,6 +772,11 @@ impl ClosedTabsStore {
                 .ok()
                 .and_then(|json| serde_json::from_str(&json).ok())
                 .unwrap_or_default(),
+            agent_runtime_config: r
+                .get::<_, Option<String>>(base + 16)
+                .ok()
+                .flatten()
+                .and_then(|json| serde_json::from_str(&json).ok()),
         }
     }
 }

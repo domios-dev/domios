@@ -4,6 +4,7 @@ pub mod activity;
 pub mod auto_extract;
 #[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
 mod chunking;
+pub mod curation;
 pub mod decision;
 pub mod docs_source;
 pub mod dream_status;
@@ -11,6 +12,10 @@ pub mod dreaming;
 pub mod embed_queue;
 #[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
 mod embed_schedule;
+#[cfg(feature = "embeddings")]
+mod embedding_model;
+#[cfg(feature = "embeddings")]
+mod embedding_worker;
 pub mod embeddings;
 pub mod extraction_authority;
 pub mod extraction_retry;
@@ -21,6 +26,8 @@ pub mod graph_repair;
 pub mod ids;
 pub mod layers;
 pub mod learnings;
+#[cfg(feature = "embeddings")]
+mod model_files;
 pub mod ports;
 pub mod precompact_purge;
 pub mod prompt_text;
@@ -121,7 +128,7 @@ impl MemManager {
     }
 
     /// `open` with a caller-supplied embedder and no entity backfill.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "embeddings"))]
     pub(crate) fn open_with_embedder(
         data_dir: &std::path::Path,
         embedder: embed_queue::Embedder,

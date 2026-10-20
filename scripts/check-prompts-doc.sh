@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: CI docs-source-of-truth.yml; skill build, prompts
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,9 +11,10 @@ import re
 import sys
 
 root = Path(sys.argv[1])
-docs = root / ".agents/skills/prompts/inventory.md"
+docs = root / "src-tauri/prompts/00-README.md"
 prompts_dir = root / "src-tauri/prompts"
-prompts_rs = root / "src-tauri/src/prompts.rs"
+prompts_rs = root / "src-tauri/crates/codeterm-prompts/src/prompts.rs"
+service_prompts_rs = root / "src-tauri/crates/codeterm-service-core/src/prompts.rs"
 plan_prompts_rs = root / "src-tauri/crates/codeterm-plan/src/service_plan/prompts_plan.rs"
 mem_prompts_rs = root / "src-tauri/crates/codeterm-mem/src/prompt_text.rs"
 seed_rs = root / "src-tauri/crates/codeterm-mem/src/seed.rs"
@@ -24,9 +26,12 @@ for line in docs.read_text(encoding="utf-8").splitlines():
     if m:
         doc_pairs[m.group(1)] = m.group(2)
 
-files = {p.relative_to(prompts_dir).as_posix() for p in prompts_dir.rglob("*.md")}
+documentation_files = {docs}
+prompt_files = [p for p in prompts_dir.rglob("*.md") if p not in documentation_files]
+files = {p.relative_to(prompts_dir).as_posix() for p in prompt_files}
 loader_sources = [
     prompts_rs,
+    service_prompts_rs,
     plan_prompts_rs,
     mem_prompts_rs,
     seed_rs,
@@ -49,7 +54,7 @@ errors = []
 
 bold_prompt_files = sorted(
     p.relative_to(prompts_dir).as_posix()
-    for p in prompts_dir.rglob("*.md")
+    for p in prompt_files
     if "**" in p.read_text(encoding="utf-8")
 )
 if bold_prompt_files:
@@ -58,12 +63,12 @@ if bold_prompt_files:
 
 missing_doc = sorted(files - doc_pairs.keys())
 if missing_doc:
-    errors.append("Prompt files missing from .agents/skills/prompts/inventory.md:")
+    errors.append("Prompt files missing from src-tauri/prompts/00-README.md:")
     errors.extend(f"  {name}" for name in missing_doc)
 
 stale_doc = sorted(doc_pairs.keys() - files)
 if stale_doc:
-    errors.append(".agents/skills/prompts/inventory.md rows without prompt files:")
+    errors.append("src-tauri/prompts/00-README.md rows without prompt files:")
     errors.extend(f"  {name}" for name in stale_doc)
 
 missing_const = sorted(files - loaders.keys())
@@ -85,7 +90,7 @@ for name in sorted(files & doc_pairs.keys() & loaders.keys()):
 
 codeterm_rule_owners = {source for source, _, _ in loaders.get("codeterm_rule.md", [])}
 expected_rule_owners = {
-    "src-tauri/src/prompts.rs",
+    "src-tauri/crates/codeterm-prompts/src/prompts.rs",
     "src-tauri/crates/codeterm-plugin/src/prompts.rs",
 }
 if codeterm_rule_owners != expected_rule_owners:

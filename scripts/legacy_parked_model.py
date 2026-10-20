@@ -1,3 +1,4 @@
+# Caller: scripts convert-legacy-parked-tasks.py
 """Task-sidecar model conversion that preserves legacy YAML presentation."""
 
 import json

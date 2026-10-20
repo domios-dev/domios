@@ -16,6 +16,9 @@ use crate::repositories::{from_sql_u64, to_sql_u64};
 use rusqlite::{params, Connection, OptionalExtension};
 
 mod activation;
+mod eviction;
+
+pub(super) use eviction::create_evicting;
 
 pub(super) fn activate_target(
     cx: &mut WriteCx<'_>,
@@ -561,6 +564,13 @@ pub(super) fn create(
     cx: &mut WriteCx<'_>,
     create: SentinelCreate,
 ) -> Result<SentinelCommit, StorageError> {
+    create_inner(cx, create)
+}
+
+fn create_inner(
+    cx: &mut WriteCx<'_>,
+    create: SentinelCreate,
+) -> Result<SentinelCommit, StorageError> {
     let id = create.identity.id.as_str().to_string();
     if exists(cx.conn, &id)? {
         return Ok(SentinelCommit::fenced(Fence::Duplicate, None));
@@ -699,7 +709,7 @@ pub(super) fn update_definition(
         .is_some_and(|pipeline| {
             matches!(
                 &pipeline.trigger,
-                codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
             )
         })
         .then_some(update.authored_at);

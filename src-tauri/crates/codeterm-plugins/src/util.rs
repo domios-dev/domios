@@ -170,31 +170,71 @@ pub(super) fn absolutize(path: &Path) -> Result<PathBuf, String> {
 
 pub(super) fn run_git(args: Vec<String>) -> Result<(), String> {
     let mut command = git_command();
-    let out = command
-        .args(&args)
-        .output()
-        .map_err(|e| git_non_interactive_error(&format!("failed to start git: {e}")))?;
-    if !out.status.success() {
-        return Err(git_non_interactive_error(&String::from_utf8_lossy(
-            &out.stderr,
-        )));
-    }
-    Ok(())
+    command.args(&args);
+    run_registered_git(command)
 }
 
 pub(super) fn run_git_in(cwd: &Path, args: Vec<String>) -> Result<(), String> {
     let mut command = git_command();
-    let out = command
-        .current_dir(cwd)
-        .args(&args)
-        .output()
+    command.current_dir(cwd).args(&args);
+    run_registered_git(command)
+}
+
+type LiveGitChild = std::sync::Arc<std::sync::Mutex<std::process::Child>>;
+
+static LIVE_GIT_CHILDREN: std::sync::Mutex<Vec<LiveGitChild>> = std::sync::Mutex::new(Vec::new());
+
+// A git child is tracked while it runs so process shutdown can stop it: a clone that
+// outlives the daemon keeps writing into a data directory nobody owns any more.
+fn run_registered_git(mut command: Command) -> Result<(), String> {
+    command
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command
+        .spawn()
         .map_err(|e| git_non_interactive_error(&format!("failed to start git: {e}")))?;
-    if !out.status.success() {
-        return Err(git_non_interactive_error(&String::from_utf8_lossy(
-            &out.stderr,
-        )));
+    let mut stderr = child.stderr.take().expect("git stderr is piped");
+    let child: LiveGitChild = std::sync::Arc::new(std::sync::Mutex::new(child));
+    if let Ok(mut live) = LIVE_GIT_CHILDREN.lock() {
+        live.push(child.clone());
     }
-    Ok(())
+    let mut captured = Vec::new();
+    let _ = std::io::Read::read_to_end(&mut stderr, &mut captured);
+    let status = child
+        .lock()
+        .map_err(|_| git_non_interactive_error("git child lock poisoned"))?
+        .wait();
+    if let Ok(mut live) = LIVE_GIT_CHILDREN.lock() {
+        live.retain(|tracked| !std::sync::Arc::ptr_eq(tracked, &child));
+    }
+    match status {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => Err(git_non_interactive_error(&String::from_utf8_lossy(
+            &captured,
+        ))),
+        Err(e) => Err(git_non_interactive_error(&format!(
+            "failed to wait for git: {e}"
+        ))),
+    }
+}
+
+/// Stops every plugin git child still running and returns how many were stopped.
+pub fn stop_live_git_children() -> usize {
+    let children = LIVE_GIT_CHILDREN
+        .lock()
+        .map(|mut live| std::mem::take(&mut *live))
+        .unwrap_or_default();
+    let mut stopped = 0;
+    for child in children {
+        let Ok(mut child) = child.lock() else {
+            continue;
+        };
+        if child.kill().is_ok() {
+            let _ = child.wait();
+            stopped += 1;
+        }
+    }
+    stopped
 }
 
 pub(super) fn git_command() -> Command {
@@ -215,11 +255,9 @@ pub(super) fn git_command() -> Command {
     command
 }
 
-fn git_non_interactive_error(stderr: &str) -> String {
-    format!(
-        "git_non_interactive: git ran non-interactively with credential prompts disabled: {}",
-        stderr.trim()
-    )
+pub(super) fn git_non_interactive_error(stderr: &str) -> String {
+    log::warn!("plugin channel git operation failed: {}", stderr.trim());
+    "Plugin updates are unavailable right now. Domios will retry.".to_string()
 }
 
 #[cfg(windows)]

@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
+# Caller: skill build
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/cache-policy.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+export CT_BUILD_GATEWAY_SCOPE=fixture CT_BUILD_GATEWAY_FIXTURE_DIR="$WORK/gateway"
 
 codeterm() {
   [ "$1 $2 $3" = 'mem secret get' ] || return 2
@@ -39,7 +41,9 @@ sccache() {
       ;;
   esac
 }
+ct_sccache_server_live() { [ "${FIXTURE_SERVER_LIVE:-1}" = 1 ]; }
 pgrep() { [ "${FIXTURE_BUSY:-0}" = 1 ]; }
+powershell.exe() { [ "${FIXTURE_BUSY:-0}" = 1 ]; }
 ct_repo_root() { printf '%s\n' "$WORK"; }
 
 (
@@ -50,7 +54,7 @@ ct_repo_root() { printf '%s\n' "$WORK"; }
   FIXTURE_BUSY=1 ct_configure_sccache
   [ "$(wc -l < "$WORK/events" | tr -d ' ')" = 2 ]
 ) > "$WORK/shared.log"
-! rg -q 'fixture-access|fixture-secret|fixture-old-session' "$WORK/shared.log"
+! grep -Eq 'fixture-access|fixture-secret|fixture-old-session' "$WORK/shared.log"
 printf 'PASS shared configuration and nested reuse\n'
 
 for missing in ACCESS SECRET; do
@@ -63,8 +67,8 @@ for missing in ACCESS SECRET; do
     [ "$SCCACHE_CACHE_SIZE" = 3G ]
     [ "$CT_SCCACHE_STORAGE" = local ]
   ) > "$WORK/local.log"
-  [ "$(rg -c '^sccache: local disk cache at .*shared credentials unavailable' "$WORK/local.log")" = 1 ]
-  ! rg -q 'fixture-access|fixture-secret' "$WORK/local.log"
+  [ "$(grep -Ec '^sccache: local disk cache at .*shared credentials unavailable' "$WORK/local.log")" = 1 ]
+  ! grep -Eq 'fixture-access|fixture-secret' "$WORK/local.log"
 done
 printf 'PASS missing either credential uses bounded local fallback\n'
 
@@ -73,7 +77,7 @@ printf 'PASS missing either credential uses bounded local fallback\n'
   ct_sccache_storage
   case "$-" in *x*) ;; *) exit 1 ;; esac
 ) > "$WORK/trace.log" 2>&1
-! rg -q 'fixture-access|fixture-secret' "$WORK/trace.log"
+! grep -Eq 'fixture-access|fixture-secret' "$WORK/trace.log"
 printf 'PASS credential resolution suppresses tracing\n'
 
 (
@@ -99,10 +103,10 @@ printf 'PASS CI target paths and developer target isolation\n'
   ct_sccache_status
   [ ! -e "$WORK/events" ]
 ) > "$WORK/status.log"
-rg -q '^sccache: shared S3 cache at http://100.64.10.5:9000/sccache$' "$WORK/status.log"
-rg -q '^running server: Cache location Local disk:' "$WORK/status.log"
-rg -q '^shared endpoint health: 200$' "$WORK/status.log"
-! rg -q 'fixture-access|fixture-secret' "$WORK/status.log"
+grep -Eq '^sccache: shared S3 cache at http://100.64.10.5:9000/sccache$' "$WORK/status.log"
+grep -Eq '^running server: Cache location Local disk:' "$WORK/status.log"
+grep -Eq '^shared endpoint health: 200$' "$WORK/status.log"
+! grep -Eq 'fixture-access|fixture-secret' "$WORK/status.log"
 printf 'PASS read-only cache status and endpoint health\n'
 
 (
@@ -142,8 +146,8 @@ printf 'PASS busy matching servers are reused; wrong buckets refuse without stop
   [ "$(wc -l < "$WORK/events" | tr -d ' ')" = 2 ]
   [ "$(cat "$WORK/location")" = 's3, name: sccache, prefix: /' ]
 ) > "$WORK/no-downgrade.log" 2>&1
-[ "$(rg -c 'using running server credentials' "$WORK/no-downgrade.log")" = 2 ]
-! rg -q '^sccache: local disk cache at' "$WORK/no-downgrade.log"
+[ "$(grep -Ec 'using running server credentials' "$WORK/no-downgrade.log")" = 2 ]
+! grep -Eq '^sccache: local disk cache at' "$WORK/no-downgrade.log"
 printf 'PASS unresolved keys never downgrade S3; local-to-S3 needs keys and idle\n'
 
 (
@@ -168,8 +172,24 @@ printf 'PASS unresolved keys never downgrade S3; local-to-S3 needs keys and idle
   command() { if [ "$1 $2" = '-v sccache' ]; then return 1; fi; builtin command "$@"; }
   if ct_configure_sccache; then exit 1; else [ "$?" = 2 ]; fi
 ) > "$WORK/verify.log" 2>&1
-! rg -q 'fixture-access|fixture-secret|idle machine; Cargo' "$WORK/verify.log"
+! grep -Eq 'fixture-access|fixture-secret|idle machine; Cargo' "$WORK/verify.log"
 printf 'PASS CI verification never configures or refuses busy matching S3\n'
+
+(
+  export FIXTURE_BUSY=1 CODETERM_SCCACHE_VERIFY_ONLY=1
+  curl() { printf 200; }
+  ct_sccache_server_live() { [ -e "$WORK/location" ]; }
+  rm -f "$WORK/events" "$WORK/location"
+  if FIXTURE_SECRET=0 ct_sccache_verify; then exit 1; else [ "$?" = 2 ]; fi
+  [ ! -e "$WORK/events" ]
+  ct_configure_sccache
+  [ "$(cat "$WORK/events")" = start ]
+  [ "$(cat "$WORK/location")" = 's3, name: sccache, prefix: /' ]
+  ct_sccache_verify
+  [ "$(cat "$WORK/events")" = start ]
+) > "$WORK/absent.log" 2>&1
+! rg -q 'fixture-access|fixture-secret' "$WORK/absent.log"
+printf 'PASS CI verification starts shared S3 only when no server is live\n'
 
 (
   codeterm() { printf 'vault-call\n' >> "$WORK/events"; return 1; }
@@ -186,5 +206,77 @@ printf 'PASS CI verification never configures or refuses busy matching S3\n'
   [ "$CT_SCCACHE_STORAGE" = local ]
   [ ! -e "$WORK/events" ]
 ) > "$WORK/runner.log" 2>&1
-! rg -q 'fixture-access|fixture-secret' "$WORK/runner.log"
+! grep -Eq 'fixture-access|fixture-secret' "$WORK/runner.log"
 printf 'PASS runner process credentials require both keys and never query vault\n'
+
+(
+  codeterm() { printf 'vault-call\n' >> "$WORK/events"; return 1; }
+  rm -f "$WORK/events"
+  export CODETERM_SCCACHE_STORAGE=local CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner
+  export AWS_ACCESS_KEY_ID=fixture-access AWS_SECRET_ACCESS_KEY=fixture-secret SCCACHE_ENDPOINT=http://stale
+  ct_sccache_storage
+  [ "$CT_SCCACHE_STORAGE" = local ]
+  [ -z "${SCCACHE_ENDPOINT:-}" ]
+  [ ! -e "$WORK/events" ]
+  ! ct_sccache_storage_matches 's3, name: sccache, prefix: /'
+  ct_sccache_storage_matches 'Local disk: "C:/Developer/RustCaches/sccache"'
+) > "$WORK/pinned.log" 2>&1
+printf 'PASS a machine pinned to local storage ignores S3 credentials and restarts an S3 server\n'
+
+(
+  repo="$(ct_abs_path "$WORK/repo")"
+  alias_target="$(ct_abs_path "$WORK/drive-alias/target-check")"
+  outside="$(ct_abs_path "$WORK/outside")"
+  ct_repo_root() { printf '%s\n' "$repo"; }
+  git() {
+    [ "$1 $3 $4" = "-C rev-parse --show-toplevel" ] || return 128
+    case "$2" in "$alias_target") printf '%s\n' "$repo" ;; *) return 128 ;; esac
+  }
+  cygpath() { printf '%s\n' "$2"; }
+  CARGO_TARGET_DIR="$alias_target" ct_verify_target_dir
+  ! CARGO_TARGET_DIR="$outside" ct_verify_target_dir
+) > "$WORK/alias-target.log" 2>&1
+printf 'PASS a target reached through the stable drive alias belongs to the worktree; outside targets stay rejected\n'
+
+(
+  printf 's3, name: sccache, prefix: /' > "$WORK/location"
+  curl() { printf 200; }
+  FIXTURE_SERVER_LIVE=0
+  if ct_sccache_verify; then exit 1; else [ "$?" = 2 ]; fi
+) > "$WORK/offline.log" 2>&1
+grep -Eq 'running server: cache location unavailable' "$WORK/offline.log"
+printf 'PASS synthetic offline S3 stats cannot pass verification\n'
+(
+  FIXTURE_SERVER_LIVE=0
+  if ct_sccache_stats; then exit 1; else [ "$?" = 2 ]; fi
+  FIXTURE_SERVER_LIVE=1
+  ct_repo_root() { printf '%s\n' "$ROOT"; }
+  ct_sccache_stats
+) > "$WORK/stats.log" 2>&1
+grep -Eq '^sccache endpoint:' "$WORK/stats.log"
+printf 'PASS stats refuses offline synthetic counters and names the endpoint\n'
+
+(
+  rm -f "$WORK/events" "$WORK/idle-scans"
+  unset CT_SCCACHE_CONFIGURED
+  export FIXTURE_BUSY=1 SCCACHE_CACHE_SIZE=10G
+  mkdir -p "$WORK/gateway/lock"
+  CT_GATEWAY_ACTIVE=1 CT_BUILD_JOB_ID=owned-cache CT_GATEWAY_PROCESS_START=fixture-start
+  printf '%s\n' owned-cache > "$WORK/gateway/lock/job_id"
+  printf '%s\n' "$$" > "$WORK/gateway/lock/pid"
+  printf '%s\n' fixture-start > "$WORK/gateway/lock/start_token"
+  pgrep() { echo scan >> "$WORK/idle-scans"; return 0; }
+  powershell.exe() { echo scan >> "$WORK/idle-scans"; return 0; }
+  source "$ROOT/scripts/build-gateway.sh"
+  ct_gateway_state_tool() { [ "$1" = evidence-restart ] && [ "$7" = storage_mismatch ]; }
+  printf 's3, name: other-bucket, prefix: /' > "$WORK/location"
+  ct_configure_sccache
+  [ ! -e "$WORK/idle-scans" ]
+  [ "$(wc -l < "$WORK/events" | tr -d ' ')" = 2 ]
+  printf foreign-job > "$WORK/gateway/lock/job_id"
+  printf 's3, name: other-bucket, prefix: /' > "$WORK/location"
+  if ct_configure_sccache; then exit 1; else [ "$?" = 75 ]; fi
+  [ "$(wc -l < "$WORK/events" | tr -d ' ')" = 2 ]
+  [ -e "$WORK/idle-scans" ]
+) > "$WORK/owned-busy.log" 2>&1
+printf 'PASS exact gateway owner skips global idle scans; foreign marker refuses\n'

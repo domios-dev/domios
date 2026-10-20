@@ -362,7 +362,7 @@ mod notification_deep_link {
 
 #[test]
 fn notify_send_validates_title_and_target() {
-    let limit = codeterm_types::notification::MAX_CALLER_TITLE_CHARS;
+    let limit = codeterm_notification_core::contract::MAX_CALLER_TITLE_CHARS;
     let params = |title: &str| {
         params_from_body(title, "info", None, None, None, &[], Offer::default(), None)
     };

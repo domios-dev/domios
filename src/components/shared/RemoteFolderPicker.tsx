@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "./ErrorNotice";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, Folder, FolderPlus, Home, RefreshCw, X } from "lucide-react";
@@ -250,9 +251,7 @@ export function RemoteFolderPicker({
             </div>
           )}
           {!loading && error && (
-            <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-              {error}
-            </div>
+            <InlineErrorNotice error={error} operation="reading this folder" />
           )}
           {!loading && !error && listing?.entries.length === 0 && (
             <div className="py-8 text-center text-sm text-[var(--ct-muted-fg)]">No folders here.</div>

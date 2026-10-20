@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn frontend_shell_contract_reopen_wakes_the_existing_supervisor_without_listener_restart() {
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    initialize(app.handle()).unwrap();
+    let supervisor = app.state::<ShellSupervisor>();
+    let mut windows = supervisor.windows.subscribe();
+    assert!(!windows.borrow_and_update().available);
+    window_created(app.handle());
+    assert!(windows.has_changed().unwrap());
+    let first = *windows.borrow_and_update();
+    assert!(first.available);
+    window_destroying(app.handle());
+    assert!(windows.has_changed().unwrap());
+    assert!(!windows.borrow_and_update().available);
+    assert!(supervisor.navigation.load(Ordering::Acquire) > 0);
+    window_created(app.handle());
+    assert!(windows.has_changed().unwrap());
+    let reopened = *windows.borrow_and_update();
+    assert!(reopened.available);
+    assert!(reopened.generation > first.generation);
+}
+
+#[test]
 fn frontend_shell_contract_requires_health_proven_bind_acknowledgement() {
     let mut status = RestApiStatus {
         generation: 1,
@@ -35,7 +59,8 @@ fn frontend_shell_contract_uses_only_loopback_http_origins() {
 
 #[test]
 fn frontend_shell_contract_refuses_missing_credentials_or_disabled_listener() {
-    let mut config = crate::config::schema::ApiConfig::default();
+    let mut config = codeterm_service_core::config::schema::ApiConfig::default();
+    config.port = 18886;
     config.enabled = true;
     config.token = None;
     assert!(bootstrap(&config).is_err());
@@ -96,6 +121,32 @@ fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
 }
 
 #[test]
+fn frontend_shell_contract_binds_root_acknowledgement_to_document_generation() {
+    let url = Url::parse("http://127.0.0.1:7686/index.html?keep=1&__codeterm_client_view=old#tab")
+        .unwrap();
+    let generation = ClientViewGeneration {
+        view: 7,
+        navigation: 11,
+    };
+    let prepared = with_root_generation(&url, generation);
+
+    assert_eq!(root_generation_from_url(&prepared), Some(generation));
+    assert_eq!(
+        prepared
+            .query_pairs()
+            .filter(|(name, _)| name == CLIENT_VIEW_QUERY)
+            .count(),
+        1
+    );
+    assert!(navigation_allowed(
+        &prepared,
+        Some("http://127.0.0.1:7686"),
+        &unavailable_url().unwrap(),
+        &fallback_url().unwrap()
+    ));
+}
+
+#[test]
 fn frontend_shell_contract_navigation_diagnostics_omit_query_secrets_and_recovery_html() {
     let secret = "opaque-fixture";
     let url = Url::parse(&format!(
@@ -133,7 +184,7 @@ fn frontend_shell_contract_limits_native_permissions_to_the_exact_frontend_origi
 
 #[test]
 fn frontend_shell_contract_cors_origins_match_declared_navigation_origins() {
-    let mut config = crate::config::schema::ApiConfig::default();
+    let mut config = codeterm_service_core::config::schema::ApiConfig::default();
     config.port = 7690;
     let dev = Url::parse("http://127.0.0.1:1463/").unwrap();
     let origins = declared_frontend_origins(&config, Some(&dev));
@@ -145,4 +196,11 @@ fn frontend_shell_contract_cors_origins_match_declared_navigation_origins() {
     );
     assert!(!origins.contains(&"http://localhost:1463".into()));
     assert!(!origins.contains(&"https://tauri.localhost".into()));
+}
+
+#[test]
+fn reconnect_surface_data_url_keeps_spaces_and_styles() {
+    let url = super::unavailable_url().unwrap();
+    assert!(!url.as_str().contains('+'));
+    assert!(url.as_str().contains("body%20%7B%20margin%3A%200%3B"));
 }

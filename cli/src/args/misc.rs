@@ -1,6 +1,8 @@
 use clap::builder::TypedValueParser;
 use clap::Subcommand;
-use codeterm_types::notification::NotifyLevel;
+
+use super::tab_todo::TabTodoAction;
+use codeterm_notification_core::contract::NotifyLevel;
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AutoConfirmMode {
@@ -78,6 +80,11 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum TabAction {
+    /// Manage a tab-owned bounded checklist through the daemon service.
+    Todo {
+        #[command(subcommand)]
+        action: TabTodoAction,
+    },
     /// List compact tab summaries across every workspace. Use
     /// `--workspace` for one workspace and `tab inspect` for full tab details.
     ///
@@ -197,6 +204,9 @@ pub enum TabAction {
         /// Command to execute after the replacement shell is ready.
         #[arg(long, allow_hyphen_values = true)]
         cmd: Option<String>,
+        /// Fresh shell lifetime (30s, 10m, 2h, none); defaults to the previous duration.
+        #[arg(long)]
+        timeout: Option<String>,
     },
     /// Close a tab by ID
     Close {

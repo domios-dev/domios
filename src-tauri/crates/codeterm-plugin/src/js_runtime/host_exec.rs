@@ -179,8 +179,8 @@ pub(super) fn run_with_host_env(
         }
     }
     // would block the child on write() while we wait, deadlocking until timeout.
-    let (out_tx, out_rx) = std::sync::mpsc::channel::<String>();
-    let (err_tx, err_rx) = std::sync::mpsc::channel::<String>();
+    let (out_tx, out_rx) = std::sync::mpsc::channel();
+    let (err_tx, err_rx) = std::sync::mpsc::channel();
     let _out_thread = child.stdout.take().map(|mut s| {
         std::thread::spawn(move || {
             let buf = bounded_output(&mut s);
@@ -218,12 +218,12 @@ pub(super) fn run_with_host_env(
         Duration::from_secs(60)
     };
     let deadline = std::time::Instant::now() + drain;
-    let recv_until = |rx: &std::sync::mpsc::Receiver<String>| {
+    let recv_until = |rx: &std::sync::mpsc::Receiver<(String, bool)>| {
         let budget = deadline.saturating_duration_since(std::time::Instant::now());
         rx.recv_timeout(budget).unwrap_or_default()
     };
-    let out = recv_until(&out_rx);
-    let errout = recv_until(&err_rx);
+    let (out, stdout_truncated) = recv_until(&out_rx);
+    let (errout, stderr_truncated) = recv_until(&err_rx);
     drop(registration);
     let mut value = serde_json::json!({
         "code": status_code,
@@ -232,6 +232,9 @@ pub(super) fn run_with_host_env(
     });
     if let Some(e) = timeout_error {
         value["error"] = serde_json::json!(e);
+    }
+    if stdout_truncated || stderr_truncated {
+        value["truncated"] = serde_json::json!(true);
     }
     value.to_string()
 }
@@ -416,19 +419,22 @@ fn json_rpc_response_id(line: &str) -> Option<u64> {
         .as_u64()
 }
 
-fn bounded_output(reader: &mut impl Read) -> String {
+fn bounded_output(reader: &mut impl Read) -> (String, bool) {
     const LIMIT: usize = 128 * 1024;
     let mut kept = Vec::new();
+    let mut truncated = false;
     let mut chunk = [0u8; 8192];
     loop {
         match reader.read(&mut chunk) {
             Ok(0) | Err(_) => break,
             Ok(count) => {
-                kept.extend_from_slice(&chunk[..count.min(LIMIT.saturating_sub(kept.len()))])
+                let retain = count.min(LIMIT.saturating_sub(kept.len()));
+                truncated |= retain < count;
+                kept.extend_from_slice(&chunk[..retain]);
             }
         }
     }
-    String::from_utf8_lossy(&kept).into_owned()
+    (String::from_utf8_lossy(&kept).into_owned(), truncated)
 }
 
 #[cfg(windows)]
@@ -500,9 +506,14 @@ struct ExecJob {
     stdout: Option<String>,
     stderr: Option<String>,
     error: Option<String>,
+    truncated: bool,
     result: Option<serde_json::Value>,
     process: Arc<control::Process>,
     waiters: Vec<crate::converter::ConversionCancellation>,
+    /// A retained job survives its waiters' timeouts and is removed by the poll
+    /// that leaves no awaiting consumer, so a slow result is computed once.
+    retained: bool,
+    consumers: usize,
 }
 
 static EXEC_JOBS: LazyLock<Mutex<HashMap<String, ExecJob>>> =
@@ -604,6 +615,12 @@ pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
         return serde_json::json!({ "done": false }).to_string();
     }
     if let Some(result) = job.result.clone() {
+        if job.retained {
+            job.consumers = job.consumers.saturating_sub(1);
+            if job.consumers > 0 {
+                return result.to_string();
+            }
+        }
         jobs.remove(job_id);
         return result.to_string();
     }
@@ -621,6 +638,9 @@ pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
     }
     if let Some(error) = &job.error {
         out.insert("error".to_string(), serde_json::json!(error));
+    }
+    if job.truncated {
+        out.insert("truncated".to_string(), serde_json::json!(true));
     }
     jobs.remove(job_id);
     serde_json::Value::Object(out).to_string()
@@ -680,7 +700,7 @@ pub(super) fn wait_json_interruptible(
     loop {
         let generation = cancellation.generation();
         if cancellation.is_cancelled() || Instant::now() >= deadline {
-            close(&plugin_id, job_id);
+            abandon(&plugin_id, job_id);
             return WaitResult::TimedOut;
         }
         let done = EXEC_JOBS
@@ -717,11 +737,108 @@ pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
             }
         }
     };
-    if !event.wait_for(ASYNC_JOB_WAIT_BOUND) {
-        close(&plugin_id, job_id);
+    if !event.wait_for(wait_bound(&plugin_id)) {
+        abandon(&plugin_id, job_id);
         return WaitResult::TimedOut;
     }
     WaitResult::Completed(poll(&plugin_id, job_id))
+}
+
+/// A waiter that gives up leaves a retained job running for the next consumer.
+fn abandon(plugin_id: &str, job_id: &str) {
+    {
+        let mut jobs = EXEC_JOBS.lock();
+        if let Some(job) = jobs
+            .get_mut(job_id)
+            .filter(|job| job.plugin_id == plugin_id && job.retained)
+        {
+            job.consumers = job.consumers.saturating_sub(1);
+            return;
+        }
+    }
+    close(plugin_id, job_id);
+}
+
+#[cfg(not(test))]
+fn wait_bound(_plugin_id: &str) -> Duration {
+    ASYNC_JOB_WAIT_BOUND
+}
+
+#[cfg(test)]
+static TEST_WAIT_BOUNDS: LazyLock<Mutex<HashMap<String, Duration>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[cfg(test)]
+fn wait_bound(plugin_id: &str) -> Duration {
+    TEST_WAIT_BOUNDS
+        .lock()
+        .get(plugin_id)
+        .copied()
+        .unwrap_or(ASYNC_JOB_WAIT_BOUND)
+}
+
+#[cfg(test)]
+pub(super) fn set_test_wait_bound(plugin_id: &str, bound: Duration) {
+    TEST_WAIT_BOUNDS.lock().insert(plugin_id.to_string(), bound);
+}
+
+#[cfg(test)]
+pub(super) fn plugin_job_count(plugin_id: &str) -> usize {
+    let plugin_id = normalize_plugin_id(plugin_id);
+    EXEC_JOBS
+        .lock()
+        .values()
+        .filter(|job| job.plugin_id == plugin_id)
+        .count()
+}
+
+/// A job that outlives a timed-out waiter; `attach_retained` joins it.
+pub(super) fn start_retained_json_job<F>(plugin_id: &str, work: F) -> Result<String, String>
+where
+    F: FnOnce() -> String + Send + 'static,
+{
+    let job_id = start_exec_job(plugin_id)?;
+    if let Some(job) = EXEC_JOBS.lock().get_mut(&job_id) {
+        job.retained = true;
+        job.consumers = 1;
+    }
+    spawn_json_worker(job_id.clone(), work);
+    Ok(job_id)
+}
+
+/// Adds one consumer to a live retained job; `false` once it is gone.
+pub(super) fn attach_retained(plugin_id: &str, job_id: &str) -> bool {
+    let plugin_id = normalize_plugin_id(plugin_id);
+    let mut jobs = EXEC_JOBS.lock();
+    match jobs
+        .get_mut(job_id)
+        .filter(|job| job.plugin_id == plugin_id && job.retained)
+    {
+        Some(job) => {
+            job.consumers += 1;
+            true
+        }
+        None => false,
+    }
+}
+
+pub(super) fn retained_job_live(plugin_id: &str, job_id: &str) -> bool {
+    let plugin_id = normalize_plugin_id(plugin_id);
+    EXEC_JOBS
+        .lock()
+        .get(job_id)
+        .is_some_and(|job| job.plugin_id == plugin_id && job.retained)
+}
+
+fn spawn_json_worker<F>(job_id: String, work: F)
+where
+    F: FnOnce() -> String + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+            .unwrap_or_else(|_| serde_json::json!({ "error": "host job panicked" }).to_string());
+        finish_json_job(&job_id, &result);
+    });
 }
 
 pub(super) fn start_json_job<F>(plugin_id: &str, work: F) -> Result<String, String>
@@ -729,12 +846,7 @@ where
     F: FnOnce() -> String + Send + 'static,
 {
     let job_id = start_exec_job(plugin_id)?;
-    let worker_job_id = job_id.clone();
-    std::thread::spawn(move || {
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
-            .unwrap_or_else(|_| serde_json::json!({ "error": "host job panicked" }).to_string());
-        finish_json_job(&worker_job_id, &result);
-    });
+    spawn_json_worker(job_id.clone(), work);
     Ok(job_id)
 }
 
@@ -810,6 +922,7 @@ fn finish_exec_job(job_id: &str, value: &serde_json::Value) {
     if let Some(job) = jobs.get_mut(job_id) {
         job.done = true;
         job.finished_at = Some(Instant::now());
+        job.truncated = value.get("truncated").and_then(|v| v.as_bool()) == Some(true);
         job.code = value.get("code").and_then(|v| v.as_i64()).map(|c| c as i32);
         job.stdout = value
             .get("stdout")

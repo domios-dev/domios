@@ -84,7 +84,7 @@ chmod +x \
   "$FIXTURE/hostile/curl"
 
 canonical_output="$(
-  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
+  HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" CODETERM_CLI_PATH="$FIXTURE/hostile/codeterm" \
     bash -c 'source "$1"; dc identify' _ "$LIB"
 )"
 if ! grep -Fqx "DEV_CLI_WON token=canonical-token port=7686 api_url=http://127.0.0.1:7686 data_dir=$FIXTURE/home/.codeterm-dev vite=1420 cdp=9223 socket=codeterm-dev.sock instance=" <<<"$canonical_output"; then

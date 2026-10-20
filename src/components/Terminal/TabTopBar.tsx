@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { tabActivity } from "../../lib/tabActivity";
 import { ComposerContextMeter } from "./ComposerContextMeter";
 import { DocumentsButton } from "./DocumentsPanel";
@@ -19,6 +20,7 @@ import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { reconnectTabSession, restartTabSession, tabSessionActionView } from "./tabSessionActions";
 import { buildTabMenu, type TabMenuAction, type TabMenuContext } from "./tabMenuModel";
 import { performTabMenuAction } from "./tabMenuActions";
+import { useProviderSwitchDialog } from "../Sidebar/ProviderSwitchDialog";
 import { useTelegramThreadMenu } from "./useTelegramThreadMenu";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { BlueprintOwnerCloseDialog } from "../Sidebar/BlueprintOwnerCloseDialog";
@@ -110,6 +112,7 @@ export function TabTopBar({
   const [reconnectError, setReconnectError] = useState<string | null>(null);
   const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
   const menuTab = tabMenu?.tab ?? null;
+  const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
   const onRename = tabMenu?.onRename;
   const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect : false;
   const pluginTabMenu = usePluginTabMenu();
@@ -194,7 +197,7 @@ export function TabTopBar({
       return;
     }
     setReconnectError(null);
-    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, rename: () => setRenaming(true), close: tabMenu?.onClose })
+    performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, switchProvider: openProviderSwitch, rename: () => setRenaming(true), close: tabMenu?.onClose })
       .catch((error) => setReconnectError(errorMessage(error)));
   };
 
@@ -227,13 +230,9 @@ export function TabTopBar({
       </div>
       <div className="ml-auto flex min-w-0 shrink items-center gap-1 sm:gap-1.5">
         {reconnectError && (
-          <span
-            data-testid="chat-reconnect-error"
-            className="max-w-48 truncate text-[10px]"
-            style={{ color: "var(--ct-red)" }}
-          >
-            {reconnectError}
-          </span>
+          <div data-testid="chat-reconnect-error" className="max-w-72">
+            <InlineErrorNotice error={reconnectError} operation="reconnecting this tab" />
+          </div>
         )}
         {shellTab && isUtilityShell(shellTab) && <>
           <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
@@ -245,6 +244,8 @@ export function TabTopBar({
         {usageProvider && (
           <UsageBubble
             provider={usageProvider}
+            tabId={tabId}
+            threadId={shellTab?.agent_session_id}
             trackingEnabled={!!usageVisible}
             modelId={usageModelId}
             modelGroups={usageModelGroups}
@@ -264,6 +265,7 @@ export function TabTopBar({
           />
         )}
       </div>
+      {providerSwitchDialog}
       {closeBlueprints && tabMenu && <BlueprintOwnerCloseDialog
         owner={`Tab ${menuTab?.title ?? "Tab"}`}
         blueprints={closeBlueprints}

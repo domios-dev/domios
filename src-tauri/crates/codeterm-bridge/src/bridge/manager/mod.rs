@@ -185,7 +185,7 @@ impl BridgeManager {
                         let merged_msg = threaded::merge(group);
                         log::info!("[bridge] inbound from {} ({}, {} msg, {} attachments): {}",
                             merged_msg.user_name, merged_msg.service, count, merged_msg.attachments.len(),
-                            &merged_msg.text.chars().take(100).collect::<String>());
+                            merged_msg.text.chars().take(100).collect::<String>());
 
                         let ReplyContext::Telegram { chat_id, thread_id, .. } = merged_msg.reply_ctx;
                         *fallback_clone.lock() = Some(chat_id);
@@ -753,7 +753,7 @@ async fn apply_hook(
         text_hooks::HookDecision::Forward => HookOutcome::Forward,
         text_hooks::HookDecision::ForwardWithMetadata { metadata } => {
             let json = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".into());
-            let marker = codeterm_types::message_markers::hook(&json);
+            let marker = codeterm_wire::message_markers::hook(&json);
             HookOutcome::Annotated(format!("{}\n\n{}", body, marker))
         }
         text_hooks::HookDecision::Replace { respond } => {
@@ -797,7 +797,7 @@ async fn apply_hook(
     }
 }
 
-async fn inject_message(
+pub async fn inject_message(
     tab: &Arc<dyn BridgeTabPort>,
     msg: &InboundMessage,
     voice_cfg: &VoiceTranscribeConfig,
@@ -831,7 +831,7 @@ async fn inject_message(
     let prefixed = match msg.service.as_str() {
         "telegram" => {
             let thread = thread_id.map(|id| id.to_string());
-            codeterm_types::message_markers::telegram_routed(
+            codeterm_wire::message_markers::telegram_routed(
                 &msg.user_id.to_string(),
                 msg_id.as_deref(),
                 thread.as_deref(),
@@ -839,17 +839,30 @@ async fn inject_message(
                 &body,
             )
         }
-        service => codeterm_types::message_markers::Marker::new(service)
+        service => codeterm_wire::message_markers::Marker::new(service)
             .attr("user", &msg.user_id.to_string())
             .attr_opt("msg", msg_id.as_deref())
             .payload(&body)
             .build(),
     };
 
-    tab.deliver_inbound(&tab_id, &prefixed, agent_type.as_deref())
+    let tab = tab.clone();
+    deliver_off_runtime(move || tab.deliver_inbound(&tab_id, &prefixed, agent_type.as_deref()))
+        .await
+}
+
+async fn deliver_off_runtime(
+    work: impl FnOnce() -> Result<(), String> + Send + 'static,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("Bridge inbound delivery task failed: {error}"))?
 }
 
 pub mod threaded;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod off_runtime_tests;

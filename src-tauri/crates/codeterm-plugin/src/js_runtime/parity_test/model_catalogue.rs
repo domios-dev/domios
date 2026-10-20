@@ -1,16 +1,20 @@
 use super::super::{PluginManifest, PluginVm};
 use super::*;
 
-struct RequiredLiveNativeStub;
+struct RequiredLiveNativeStub {
+    id: String,
+    display_name: String,
+    model_catalogue: crate::provider::ModelCatalogueCapability,
+}
 
 #[async_trait::async_trait]
 impl AgentProvider for RequiredLiveNativeStub {
     fn id(&self) -> &str {
-        "opencode"
+        &self.id
     }
 
     fn display_name(&self) -> &str {
-        "OpenCode"
+        &self.display_name
     }
 
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
@@ -53,30 +57,36 @@ impl AgentProvider for RequiredLiveNativeStub {
     }
 
     fn model_catalogue_capability(&self) -> crate::provider::ModelCatalogueCapability {
-        // Mirrors plugins/provider-opencode/plugin.json modelCatalogue, so the
-        // parity assert pins the manifest's camelCase configFiles mapping too.
-        crate::provider::ModelCatalogueCapability {
-            config_files: vec![
-                "~/.config/opencode/opencode.json".into(),
-                "~/.config/opencode/opencode.jsonc".into(),
-            ],
-            ..crate::provider::ModelCatalogueCapability::authoritative_live()
-        }
+        self.model_catalogue.clone()
     }
+}
+
+fn provider_with_config_environments() -> (PluginManifest, JsProvider) {
+    let root = super::workspace_plugins_root();
+    let manifest_path = std::fs::read_dir(root)
+        .expect("bundled plugins directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("plugin.json"))
+        .find(|path| {
+            PluginManifest::load(path)
+                .is_ok_and(|manifest| !manifest.model_catalogue.config_file_environments.is_empty())
+        })
+        .expect("a bundled provider declares config environment roots");
+    let manifest = PluginManifest::load(&manifest_path).unwrap();
+    let provider = load_one(&manifest_path).unwrap();
+    (manifest, provider)
 }
 
 #[test]
 fn model_catalogue_authority_native_js_parity() {
     use std::sync::Arc;
 
-    let native_claude = crate::agent_claude::provider::ClaudeProvider::new();
-    let js_claude = load_js("claude");
-    assert_eq!(
-        native_claude.model_catalogue_capability(),
-        js_claude.model_catalogue_capability()
-    );
-    let native_required_live = RequiredLiveNativeStub;
-    let js_required_live = load_js("opencode");
+    let (manifest, js_required_live) = provider_with_config_environments();
+    let native_required_live = RequiredLiveNativeStub {
+        id: manifest.id.clone(),
+        display_name: manifest.display_name.clone(),
+        model_catalogue: manifest.model_catalogue,
+    };
     assert_eq!(
         native_required_live.model_catalogue_capability(),
         js_required_live.model_catalogue_capability()

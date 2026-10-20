@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEV_BUILD } from "../../../lib/devBuild";
 import { listen } from "../../../lib/bridge";
 import { KPI_RECORDED_EVENT } from "../../../lib/kpiChanges";
 import type { ApiConfig } from "../../../lib/types";
@@ -58,6 +59,7 @@ export function usePlanBoardState(
   const [state, setState] = useState<PlanBoardState | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoaded = useRef(false);
 
   const activeRef = useRef(false);
   const selectionRef = useRef<string | null>(null);
@@ -78,11 +80,13 @@ export function usePlanBoardState(
       .then((next) => {
         if (!activeRef.current || controller.signal.aborted) return;
         setState(next);
+        hasLoaded.current = true;
         setError(null);
       })
       .catch((e: unknown) => {
         if (!activeRef.current || controller.signal.aborted) return;
-        setError(`Mission Control state unavailable: ${String(e)}`);
+        if (DEV_BUILD) console.debug("Background Mission Control refresh failed", e);
+        if (!hasLoaded.current) setError(`Mission Control state unavailable: ${String(e)}`);
       })
       .finally(() => {
         if (readRef.current !== controller) return;
@@ -109,6 +113,7 @@ export function usePlanBoardState(
   useEffect(() => {
     if (!api || !planId) {
       selectionRef.current = null;
+      hasLoaded.current = false;
       setState(null);
       setError(null);
       setLoading(false);
@@ -116,6 +121,7 @@ export function usePlanBoardState(
     }
     if (selectionRef.current !== planId) {
       selectionRef.current = planId;
+      hasLoaded.current = false;
       setState(null);
       setError(null);
     }

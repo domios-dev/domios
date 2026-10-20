@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: CI docs-source-of-truth.yml; skill build
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,7 +10,7 @@ import re
 import sys
 
 root = Path(sys.argv[1])
-routes_rs = root / "src-tauri/src/api/routes.rs"
+routes_rs = root / "src-tauri/crates/codeterm-api/src/routes.rs"
 api_md = root / "prod-docs/API.md"
 
 internal_prefixes = (

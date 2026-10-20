@@ -1,0 +1,32 @@
+use std::sync::Arc;
+
+use codeterm_plugin::host_traits::PluginProviderRegistrar;
+
+use super::registry::AgentRegistry;
+
+impl PluginProviderRegistrar for AgentRegistry {
+    fn register_provider(&self, provider: Box<dyn codeterm_plugin::AgentProvider>) {
+        // After shimming src/agent/provider.rs, crate::agent::provider::AgentProvider
+        // and codeterm_plugin::provider::AgentProvider are the same trait — direct pass.
+        AgentRegistry::register_provider(self, provider);
+    }
+
+    fn unregister_provider(&self, id: &str) -> bool {
+        AgentRegistry::unregister_provider(self, id)
+    }
+
+    fn native_fallback(&self, id: &str) -> Option<Arc<dyn codeterm_plugin::AgentProvider>> {
+        AgentRegistry::native_fallback(self, id)
+    }
+
+    // The same consented reconciliation the daemon-start pass runs, so it
+    // refuses identically without a recorded consent.
+    fn provider_reloaded(&self, id: &str) {
+        crate::service::provider_hooks::ensure_integration_for_provider(self, id);
+    }
+
+    // Unlike provider_reloaded, never touches provider hook files.
+    fn provider_settings_changed(&self, id: &str) {
+        crate::agent::model_binary_watch::refresh_agent_after_settings_change(self, id);
+    }
+}

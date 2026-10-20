@@ -1,3 +1,4 @@
+// Caller: build.sh release-preflight/build/install-local; CI release.yml; package.json script; skill github-release
 import { readFileSync } from "node:fs";
 
 const rootVersion = JSON.parse(readFileSync("package.json", "utf8")).version;

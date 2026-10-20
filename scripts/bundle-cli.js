@@ -1,7 +1,9 @@
+// Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/install-local/bootstrap/cli; CI release-windows.yml; scripts dev-prep.mjs, prepare-cli-stub.js, qa-prep.sh
 // Copy CLI binary to src-tauri/bundled-cli/ for Tauri resource bundling.
 // On macOS, codesign with hardened runtime for notarization.
 const fs = require("fs");
 const path = require("path");
+const { copyFileIfChanged } = require("./build-artifacts.cjs");
 const { execSync } = require("child_process");
 
 const isWindows = process.platform === "win32";
@@ -70,16 +72,15 @@ function resolveCliSource(env = process.env, root = repoRoot, binary = binName) 
   return path.join(resolveCliReleaseDir(env, root), binary);
 }
 
-function clearStaleBundledCli(destDir) {
+function clearStaleBundledCli(destDir, keepName) {
   for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
-    if (entry.isFile() && /^codeterm(?:-[^.]+)?(?:\.exe)?$/.test(entry.name)) {
+    if (entry.name !== keepName && entry.isFile() && /^codeterm(?:-[^.]+)?(?:\.exe)?$/.test(entry.name)) {
       fs.rmSync(path.join(destDir, entry.name));
     }
   }
 }
 
-function bundleCli() {
-  const src = resolveCliSource();
+function bundleCli(src = resolveCliSource()) {
   const destDir = path.join(repoRoot, "src-tauri", "bundled-cli");
   const dest = path.join(destDir, bundledCliName());
 
@@ -90,12 +91,11 @@ function bundleCli() {
     process.exit(1);
   }
 
-  clearStaleBundledCli(destDir);
-
   assertTargetArchitecture(src);
-  fs.copyFileSync(src, dest);
+  clearStaleBundledCli(destDir, isMacOS ? undefined : path.basename(dest));
+  const changed = isMacOS ? (fs.copyFileSync(src, dest), true) : copyFileIfChanged(src, dest);
   assertTargetArchitecture(dest);
-  console.log(`CLI bundled: ${src} -> ${dest}`);
+  console.log(`CLI ${changed ? "bundled" : "unchanged"}: ${src} -> ${dest}`);
 
   if (isMacOS) {
     // Dev uses ad-hoc signing; release builds require the Developer ID identity.
@@ -124,7 +124,7 @@ function bundleCli() {
 }
 
 if (require.main === module) {
-  bundleCli();
+  bundleCli(process.argv[2]);
 } else {
   module.exports = {
     resolveCliReleaseDir,

@@ -135,14 +135,9 @@ button.ct-status-identity:focus-visible {
 }
 
 .ct-menu.ct-model-picker {
-  --ct-menu-origin: bottom left;
-  --ct-menu-shift: 6px;
-  position: fixed;
-  z-index: 1100;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: min(440px, calc(100vh - 96px));
   padding: 8px;
   color: var(--ct-fg);
   font-family: var(--ct-font-ui);
@@ -210,6 +205,9 @@ button.ct-status-identity:focus-visible {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding-block: 8px;
+  scroll-padding-block: 12px;
+  mask-image: linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent);
 }
 
 .ct-menu-row.ct-model-picker__option {
@@ -228,7 +226,7 @@ button.ct-status-identity:focus-visible {
 }
 
 .ct-model-picker__name {
-  overflow: hidden;
+  overflow: clip;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-family: var(--ct-font-mono);
@@ -275,6 +273,15 @@ button.ct-status-identity:focus-visible {
 
 .ct-model-picker__effort .ct-liquid-segmented {
   width: 100%;
+}
+
+.ct-model-picker__effort .ct-liquid-segmented__option {
+  padding-inline: 2px;
+  font-size: 10px;
+}
+
+.ct-model-picker__footer > .ct-model-picker__actions {
+  margin-left: auto;
 }
 
 .ct-model-picker__label {

@@ -1,5 +1,5 @@
 use codeterm_types::config::schema::UsageConfig;
-use codeterm_types::usage::UsageSnapshotRow;
+use codeterm_usage::contract::UsageSnapshotRow;
 
 pub const FRESHNESS_MS: i64 = 180_000;
 pub const HIGH_PCT_THRESHOLD: f32 = 90.0;

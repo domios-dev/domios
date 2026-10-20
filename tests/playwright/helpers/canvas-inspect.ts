@@ -716,7 +716,7 @@ export async function findContentBoundsIssues(page: Page, tolerancePx = 2): Prom
     '[data-testid="canvas-spec-section"], [data-testid="canvas-task-card"]',
     (nodes, tolerance) => {
       const hits: ContentBoundsHit[] = [];
-      const within = (a: DOMRect, b: DOMRect) =>
+      const within = (a: Pick<DOMRect, "left" | "top" | "right" | "bottom">, b: Pick<DOMRect, "left" | "top" | "right" | "bottom">) =>
         a.left + tolerance >= b.left &&
         a.top + tolerance >= b.top &&
         a.right - tolerance <= b.right &&

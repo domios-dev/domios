@@ -1,56 +1,21 @@
 import { invoke } from "./bridge";
+import { createSessionModelResource } from "./shellSessionModelResource";
 
-// live model lives in the plugin VM and is read via `chatbackend_session_info`.
 interface ChatSessionInfo {
   model?: string | null;
 }
 
-const cache = new Map<string, string | null>();
-const inflight = new Map<string, Promise<string | null>>();
-const fetchedAt = new Map<string, number>();
-const subscribers = new Set<() => void>();
-const REFRESH_TTL_MS = 30_000;
-
-function keyOf(pluginId: string, sessionId: string): string {
-  return `${pluginId}::${sessionId}`;
-}
+const resource = createSessionModelResource(async (pluginId, sessionId) => {
+  const info = await invoke<ChatSessionInfo>("chatbackend_session_info", { pluginId, sessionId });
+  return info?.model ?? null;
+});
 
 export function getCachedShellModel(
   pluginId: string | null | undefined,
   sessionId: string | null | undefined,
 ): string | null {
-  if (!pluginId || !sessionId) return null;
-  return cache.get(keyOf(pluginId, sessionId)) ?? null;
+  return pluginId && sessionId ? resource.get(pluginId, sessionId) : null;
 }
 
-export function subscribeShellModel(fn: () => void): () => void {
-  subscribers.add(fn);
-  return () => {
-    subscribers.delete(fn);
-  };
-}
-
-export function fetchShellSessionModel(pluginId: string, sessionId: string): Promise<string | null> {
-  const k = keyOf(pluginId, sessionId);
-  const last = fetchedAt.get(k) ?? 0;
-  if (cache.has(k) && Date.now() - last < REFRESH_TTL_MS) {
-    return Promise.resolve(cache.get(k) ?? null);
-  }
-  const existing = inflight.get(k);
-  if (existing) return existing;
-  const p = invoke<ChatSessionInfo>("chatbackend_session_info", { pluginId, sessionId })
-    .then((info) => {
-      const model = info?.model ?? null;
-      const prev = cache.has(k) ? cache.get(k) : undefined;
-      cache.set(k, model);
-      fetchedAt.set(k, Date.now());
-      if (prev !== model) for (const fn of subscribers) fn();
-      return model;
-    })
-    .catch(() => cache.get(k) ?? null)
-    .finally(() => {
-      inflight.delete(k);
-    });
-  inflight.set(k, p);
-  return p;
-}
+export const subscribeShellModel = resource.subscribe;
+export const fetchShellSessionModel = resource.load;

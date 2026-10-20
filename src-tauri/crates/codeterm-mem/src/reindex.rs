@@ -4,6 +4,7 @@
 #[cfg(feature = "embeddings")]
 use std::sync::Arc;
 
+#[cfg(feature = "embeddings")]
 use super::embeddings;
 use super::MemManager;
 

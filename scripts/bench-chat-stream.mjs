@@ -1,3 +1,4 @@
+// Caller: scripts bench-chat-stream.md
 import { build } from "esbuild";
 import { chromium } from "@playwright/test";
 import { createServer } from "node:http";

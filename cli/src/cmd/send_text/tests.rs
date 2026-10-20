@@ -473,3 +473,37 @@ fn send_failure_renderer_keeps_reason_on_stderr_in_both_modes_and_receipt_in_jso
         }
     }
 }
+
+#[test]
+fn runtime_accepted_and_delivered_receipts_are_successful_writes() {
+    for state in ["written", "delivered"] {
+        let receipt = serde_json::json!({"ok":true,"delivery":"sent","bytes_written":true,"send_id":"own-send","status":state});
+        assert_eq!(
+            analyze_send_text_response(&receipt),
+            SendTextOutcome::Success("OK (sent)".into())
+        );
+    }
+}
+
+#[test]
+fn unconfirmed_pending_json_keeps_receipt_and_resolved_body_without_failure() {
+    let receipt = serde_json::json!({
+        "ok": true, "delivery": "pending", "bytes_written": true, "send_id": "send-1"
+    });
+    let outcome = analyze_send_text_response(&receipt);
+    assert_eq!(
+        outcome,
+        SendTextOutcome::Pending {
+            message: "OK (pending)".into(),
+            bytes_written: true
+        }
+    );
+    let rendered = super::send_text_json_response(receipt, &outcome, Some("opaque staged body"));
+    assert_eq!(
+        rendered,
+        serde_json::json!({
+            "ok": true, "delivery": "pending", "bytes_written": true, "send_id": "send-1",
+            "sent_message": { "text": "opaque staged body", "truncated": false }
+        })
+    );
+}

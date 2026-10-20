@@ -46,6 +46,11 @@ use super::usage_tui::ClaudeTuiUsageParser;
 
 static CLAUDE_TUI_USAGE_PARSER: ClaudeTuiUsageParser = ClaudeTuiUsageParser;
 
+const MANIFEST_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../../plugins/provider-claude/plugin.json"
+));
+
 /// Claude Code agent provider.
 pub struct ClaudeProvider;
 
@@ -110,12 +115,21 @@ impl AgentProvider for ClaudeProvider {
         struct Manifest {
             cli_compatibility: crate::provider_compat::CompatibilityManifest,
         }
-        serde_json::from_str::<Manifest>(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../../plugins/provider-claude/plugin.json"
-        )))
-        .ok()
-        .map(|manifest| manifest.cli_compatibility)
+        serde_json::from_str::<Manifest>(MANIFEST_JSON)
+            .ok()
+            .map(|manifest| manifest.cli_compatibility)
+    }
+
+    fn worker_lane_settings(&self) -> Vec<crate::provider::WorkerLaneSetting> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Manifest {
+            #[serde(default)]
+            worker_lane_settings: Vec<crate::provider::WorkerLaneSetting>,
+        }
+        serde_json::from_str::<Manifest>(MANIFEST_JSON)
+            .map(|manifest| manifest.worker_lane_settings)
+            .unwrap_or_default()
     }
 
     fn id(&self) -> &str {
@@ -162,14 +176,26 @@ impl AgentProvider for ClaudeProvider {
         Some(PasteCapability {
             supports_bracketed_paste: true,
             multiline: None,
-            untrusted_above_lines: 4,
-            typed_follow_up: " Handle the paste as my request.".into(),
+            untrusted_above_lines: 0,
+            typed_follow_up: codeterm_wire::domios::pasted_marker_tail(),
+            paste_marker_when: crate::provider::PasteMarkerWhen::Multiline,
             requires_typed_instruction_for_routed_messages: true,
         })
     }
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         launch::build_launch_command(params)
+    }
+
+    fn declares_launch_spec(&self) -> bool {
+        true
+    }
+
+    fn launch_spec(
+        &self,
+        params: &crate::provider::LaunchSpecParams<'_>,
+    ) -> Option<codeterm_types::agent::LaunchSpec> {
+        launch::provider_launch_spec(params)
     }
 
     fn starter_prompt_text(&self, prompt: StarterPrompt) -> Option<String> {
@@ -351,6 +377,10 @@ impl AgentProvider for ClaudeProvider {
         launch::build_resume_command(session_id, skip_permissions)
     }
 
+    fn supports_exact_session_resume(&self) -> bool {
+        true
+    }
+
     fn build_resume_command_with_context(
         &self,
         params: &crate::provider::AgentResumeParams,
@@ -397,11 +427,6 @@ impl AgentProvider for ClaudeProvider {
             })
     }
 
-    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
-        self.parse_prompt(&snapshot.screen_text).is_some()
-            || crate::provider::provider_classified_delivery_modal_visible(self, snapshot)
-    }
-
     fn has_hooks(&self) -> bool {
         true
     }
@@ -421,6 +446,14 @@ impl AgentProvider for ClaudeProvider {
         }
         steps.push(b"\r".to_vec());
         steps
+    }
+
+    fn parse_switch_confirmation_prompt(
+        &self,
+        screen: &str,
+        selection: &str,
+    ) -> Option<codeterm_types::pty::PendingPrompt> {
+        model_switch::confirmation_prompt(screen, selection)
     }
 
     fn live_prompt_response(&self, option_index: usize, screen: &str) -> Option<Vec<Vec<u8>>> {
@@ -497,6 +530,13 @@ impl AgentProvider for ClaudeProvider {
 
     fn launch_permission_capability(&self) -> Option<crate::provider::LaunchPermissionCapability> {
         schemas::launch_permissions()
+    }
+
+    fn execution_sandbox_capability(&self) -> Option<crate::provider::ExecutionSandboxCapability> {
+        Some(crate::provider::ExecutionSandboxCapability {
+            unsupported_reason: Some("Permission modes and tool rules do not enforce read-only filesystem access for shell commands; use an enforcing provider or an explicit owner-run canonical gate.".into()),
+            ..Default::default()
+        })
     }
 
     fn compact_command(&self) -> Option<&str> {

@@ -20,6 +20,77 @@ fn staged_model_selection_is_visible_but_never_restores_execution() {
     assert!(restored.pending_model_selection.is_none());
 }
 
+#[test]
+fn provider_handoff_reference_survives_tab_persistence() {
+    let mut tab = tab_with("handoff-tab", TabBacking::Pty);
+    tab.archive_provider_handoff(
+        "previous-provider",
+        "C:/previous-workspace",
+        "previous-session",
+        ContextEpochTransport::ChatBackend,
+    );
+
+    let serialized = serde_json::to_value(&tab).unwrap();
+    let archive = &serialized["context_epoch_archives"][0];
+    assert_eq!(archive["provider"], "previous-provider");
+    assert_eq!(archive["cwd"], "C:/previous-workspace");
+    assert_eq!(archive["session_id"], "previous-session");
+    assert_eq!(archive["transport"], "chat_backend");
+    assert_eq!(archive["boundary"], "provider_handoff");
+
+    let restored: Tab = serde_json::from_value(serialized).unwrap();
+    assert_eq!(restored.context_epoch_archives, tab.context_epoch_archives);
+}
+
+#[test]
+fn old_context_epoch_references_default_to_agent_context_reset() {
+    let archive: ContextEpochArchive = serde_json::from_value(serde_json::json!({
+        "provider": "previous-provider",
+        "cwd": "C:/previous-workspace",
+        "session_id": "previous-session"
+    }))
+    .unwrap();
+
+    assert_eq!(archive.transport, ContextEpochTransport::AgentProvider);
+    assert_eq!(archive.boundary, ContextEpochBoundary::ContextReset);
+}
+
+#[test]
+fn taskless_gate_grants_are_visible_to_authorization_but_not_wire_deserializable() {
+    let mut tab = tab_with("taskless-worker", TabBacking::Pty);
+    tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+    tab.role_profile = Some("tester".into());
+    tab.parent_tab_id = Some("parent-tab".into());
+    tab.taskless_authorized_gates = vec!["./build.sh verify".into()];
+
+    let record = serde_json::to_value(&tab).unwrap();
+    assert_eq!(record["role"], "Worker");
+    assert_eq!(record["role_profile"], "tester");
+    assert_eq!(record["parent_tab_id"], "parent-tab");
+    assert_eq!(record["taskless_authorized_gates"][0], "./build.sh verify");
+
+    let restored: Tab = serde_json::from_value(record).unwrap();
+    assert!(restored.taskless_authorized_gates.is_empty());
+}
+
+#[test]
+fn taskless_review_grants_are_daemon_records_and_expire_on_restore() {
+    let mut tab = tab_with("taskless-reviewer", TabBacking::Pty);
+    tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+    tab.role_profile = Some("tester".into());
+    tab.parent_tab_id = Some("parent-tab".into());
+    tab.taskless_authorized_review_tasks = vec!["plan-a/task-a".into()];
+
+    let record = serde_json::to_value(&tab).unwrap();
+    assert_eq!(
+        record["taskless_authorized_review_tasks"][0],
+        "plan-a/task-a"
+    );
+
+    let restored: Tab = serde_json::from_value(record).unwrap();
+    assert!(restored.taskless_authorized_review_tasks.is_empty());
+}
+
 fn tab_with(id: &str, backing: TabBacking) -> Tab {
     Tab {
         id: id.to_string(),
@@ -37,6 +108,7 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         pending_delivery: None,
         title: "Terminal".to_string(),
         description: None,
+        description_origin: Default::default(),
         cwd: None,
         provisioned_cwd: None,
         url: None,
@@ -71,6 +143,8 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         lifecycle_epoch: None,
         lifecycle_operation_id: None,
         task_binding: None,
+        taskless_authorized_gates: Vec::new(),
+        taskless_authorized_review_tasks: Vec::new(),
         roleless_tracked: false,
         managed: None,
         role: None,
@@ -103,6 +177,11 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         audience: Default::default(),
         show_in_tabbar: true,
         worker_id: None,
+        frozen: false,
+        slept_at_ms: None,
+        sleep_reason: None,
+        last_active_at_ms: None,
+        last_opened_at_ms: None,
         restored_from_snapshot: false,
         scrollback_seed_pending: false,
         pending_scrollback_tail: None,

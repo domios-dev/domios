@@ -380,6 +380,20 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
                 "✗ the bounce was not delivered: attempt '{attempt}' on task '{task}' is no longer awaiting continuation.{drift}\nfix: re-read the task and bounce the attempt it actually holds:\n  codeterm plan task show {plan_id} {task}"
             ))
         }
+        "attempt_binding_restore_refused" => {
+            let kind = data
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let reason = data
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("no reason recorded");
+            let task = task_id.unwrap_or("<task_id>");
+            Some(format!(
+                "✗ restoring the Worker's binding to its current attempt was refused ({kind}): {reason}\nfix: inspect the task's attempts and dispatch a fresh one if this attempt is gone:\n  codeterm plan task show {plan_id} {task}"
+            ))
+        }
         "write_pending" => render_write_pending(data, plan_id, task_id),
         "readback_mismatch" => render_readback_mismatch(data, plan_id, task_id),
         "io" => Some(render_io(data, plan_id, params)),

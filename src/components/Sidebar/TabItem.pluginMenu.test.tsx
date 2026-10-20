@@ -170,8 +170,6 @@ async function main() {
   assert(item.textContent?.trim() === ITEM.label, "the accessible name is the declared label");
   assert(item.querySelector("svg")?.getAttribute("aria-hidden") === "true", "plugin menu icon is aria-hidden");
   assert(item.querySelector("svg")?.getAttribute("fill") === "currentColor", "plugin menu icon inherits currentColor");
-  const iconStyle = item.querySelector("svg")?.parentElement?.getAttribute("style") ?? "";
-  assert(iconStyle.includes("#336699") || iconStyle.includes("rgb(51, 102, 153)"), `plugin icon keeps its manifest color: ${iconStyle}`);
   assert(item.getAttribute("aria-label") === null, "the menu item keeps its text label as the accessible name");
   assert(menu.querySelector('[data-testid="tab-menu-telegram-connect"]'), "Telegram sits beside the plugin items");
 

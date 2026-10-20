@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use codeterm_types::decision::{
+use codeterm_decision::{
     decide_questions_sequentially, DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo,
     DecisionPricing, DecisionPrimitives, DecisionQuestionsRequest, DecisionRequest,
     DecisionResponse, TokenMode,
@@ -10,10 +10,14 @@ use serde_json::json;
 
 use super::vm::{call_json, PluginVm, VmError};
 
+#[cfg(test)]
+mod catalogue_tests;
+
 pub struct JsDecisionModel {
     vm: Arc<PluginVm>,
     id: String,
     token_mode: TokenMode,
+    catalogue_fingerprint: std::sync::OnceLock<Option<String>>,
 }
 
 impl JsDecisionModel {
@@ -22,6 +26,7 @@ impl JsDecisionModel {
             vm,
             id: id.into(),
             token_mode,
+            catalogue_fingerprint: std::sync::OnceLock::new(),
         }
     }
 }
@@ -59,7 +64,7 @@ impl DecisionModel for JsDecisionModel {
         call_json_or_default(&self.vm, &self.id, "pricing")
     }
 
-    fn metadata(&self) -> codeterm_types::decision::DecisionMetadata {
+    fn metadata(&self) -> codeterm_decision::DecisionMetadata {
         call_json(&self.vm, "metadata", &[]).unwrap_or_default()
     }
 
@@ -89,7 +94,11 @@ impl DecisionModel for JsDecisionModel {
         let Ok(_env) = self.exec_env_scope() else {
             return Vec::new();
         };
-        call_json_or_default(&self.vm, &self.id, "models")
+        let _catalogue = self.vm.catalogue_gate.lock();
+        let fingerprint = self
+            .catalogue_fingerprint
+            .get_or_init(|| self.vm.binary_fingerprint());
+        call_json(&self.vm, "models", &[json!(fingerprint)]).unwrap_or_default()
     }
 
     fn decide_questions(
@@ -187,7 +196,7 @@ fn map_vm_error(error: VmError) -> DecisionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codeterm_types::decision::DecisionQuestion;
+    use codeterm_decision::DecisionQuestion;
     use std::collections::BTreeMap;
     use std::time::Duration;
 
@@ -346,7 +355,7 @@ mod tests {
 #[cfg(test)]
 mod questions_tests {
     use super::*;
-    use codeterm_types::decision::{DecisionQuestion, DecisionUsage, NamedDecisionQuestion};
+    use codeterm_decision::{DecisionQuestion, DecisionUsage, NamedDecisionQuestion};
     use std::collections::BTreeMap;
     use std::time::Duration;
 

@@ -1,9 +1,14 @@
 {
   "identifier": "com.codeterm.dev",
   "productName": "CodeTerm Dev",
+  "mainBinaryName": "codeterm",
   "build": {
     "devUrl": "http://127.0.0.1:1420",
     "beforeDevCommand": "node scripts/dev-prep.mjs --no-server"
+  },
+  "bundle": {
+    "resources": [],
+    "externalBin": []
   },
   "app": {
     "withGlobalTauri": true,
@@ -23,6 +28,13 @@
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": []
+      }
     }
   }
 }

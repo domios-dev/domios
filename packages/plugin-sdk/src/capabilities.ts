@@ -1,4 +1,5 @@
 import type { AgentRuntime } from "./agentRuntime";
+import type { ParsedSessionRecord, SessionRecordsMeta } from "./jsonlRecords";
 export type PreTrustOutcome =
   | { status: "already_trusted" | "granted" }
   | { status: "skipped" | "failed"; reason: string };
@@ -23,6 +24,10 @@ export interface TurnEvidenceNormalization {
 /** Manifest spawn contract; absent means the provider does not restore chat on resume. */
 export interface ResumeHistoryCapability {
   restoresConversationHistoryOnResume?: boolean;
+}
+
+export interface SessionResumeCapability {
+  exact: boolean;
 }
 
 export interface TabContext {
@@ -55,7 +60,7 @@ export interface StatusBubble {
   action?: string;
 }
 
-// ── glanceView (mirrors src-tauri/src/view/mod.rs ViewNode) ──
+// ── glanceView (mirrors src-tauri/crates/codeterm-service-core/src/view/mod.rs ViewNode) ──
 
 export type Tone = "default" | "muted" | "ok" | "warn" | "danger" | "accent";
 export type Spacing = "none" | "sm" | "md" | "lg";
@@ -95,6 +100,7 @@ export type ViewCall = (method: string, args: unknown) => unknown;
 export interface StructuredControl {
   protocol: "codex-app-server";
   minVersion: string;
+  runtimeModes?: { id: string; displayName: string }[];
 }
 
 // ── agentProvider ──
@@ -102,12 +108,14 @@ export interface StructuredControl {
 
 export interface ContextAttach { editable: boolean; readOnly: boolean; }
 export interface ContextFiles { edit: string[]; read: string[]; }
+export interface HostOwnedCapabilities { questions: boolean; todos: boolean; }
 
 export interface LaunchParams {
   contextFiles?: ContextFiles;
   /** Absolute host-owned shared instructions file; an unreadable supplied path must refuse launch. */
   toolLessInstructionsPath?: string;
   skipPermissions?: boolean;
+  hostOwned?: HostOwnedCapabilities;
   args?: string[];
   agentName?: string;
   sessionId?: string;
@@ -194,6 +202,7 @@ export interface ResumeParams {
   toolLessInstructionsPath?: string | null;
   sessionId: string;
   skipPermissions?: boolean;
+  hostOwned?: HostOwnedCapabilities;
   agentName?: string | null;
   instanceId?: string | null;
   /** Composed system prompt to re-apply; absent when the host has none. */
@@ -266,6 +275,7 @@ export interface SettingField {
 }
 
 export interface AgentProvider {
+  sessionResume?(): SessionResumeCapability;
   authStatusProbe?(): {args: string[]; timeoutMs: number} | null;
   tracksBackgroundWork?(): boolean;
   parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"}[];
@@ -289,6 +299,12 @@ export interface AgentProvider {
   detectEvents?(text: string): string[];
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
+  buildLaunchSpec?(params: LaunchParams | { resume: ResumeParams }): {
+    program: string;
+    args: string[];
+    envSet?: Record<string, string>;
+    envUnset?: string[];
+  } | null;
   releaseTabLaunchArtifacts?(tabId: string, instanceId: string): boolean;
   /** Persist provider-owned folder trust after this tab's trust dialog closes. */
   folderTrustAnswered?(tabId: string, instanceId: string): boolean;
@@ -322,6 +338,7 @@ export interface AgentProvider {
   updatePromptSafeChoice?(prompt: ParsedPrompt): string | null;
   updatePromptAvailability?(screen: string): { currentVersion: string; latestVersion: string } | null;
   parsePrompt?(text: string): ParsedPrompt | null;
+  parseSwitchConfirmationPrompt?(screen: string, selection: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
   /** Further usage logs owned by this exact session file (e.g. sub-agent transcripts beside it). */
@@ -332,6 +349,9 @@ export interface AgentProvider {
   sessionCreatedMs?(cwd: string, sessionId: string): number | null;
   /** Each returned row carries `recordIndex`, the chunk line it was parsed from. */
   parseSessionDelta?(chunk: string, context?: SessionDeltaContext): unknown;
+  /** Rows retain each source record's original recordIndex for host byte anchoring. */
+  parseSessionRecords?(records: readonly ParsedSessionRecord[], meta: SessionRecordsMeta): unknown;
+  parseSessionMessageRecords?(records: readonly ParsedSessionRecord[], meta: SessionRecordsMeta): unknown[];
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   /** Session named by this launch's own provider record; null when none names it. */
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;
@@ -360,7 +380,8 @@ export interface AgentProvider {
   } | null;
   parseUsage?(rawText: string, nowMs: number): unknown;
   fetchUsage?(nowMs: number): unknown;
-  discoverModels?(): ModelInfo[] | null;
+  /** Host-observed CLI identity, computed before entering the plugin VM. */
+  discoverModels?(binaryFingerprint?: string | null): ModelInfo[] | null;
   /** Cumulative usage per model group (matching manifest `modelGroups` ids, or a
    *  bare model-id prefix). The picker shows it for the selected model's group. */
   modelGroupUsage?(): ModelGroupUsage[];
@@ -621,7 +642,7 @@ export interface DecisionModelCapability {
   decide(request: DecisionRequest, remainingMs?: number): DecisionAnswer | DecisionFailure;
   /** Named questions over shared state; omitted methods use sequential decide calls. */
   decideQuestions?(request: DecisionQuestionsRequest, remainingMs?: number): DecisionResponse | DecisionFailure;
-  models(): DecisionModelInfo[];
+  models(binaryFingerprint?: string | null): DecisionModelInfo[];
   primitives(): DecisionPrimitives;
 }
 
@@ -662,6 +683,7 @@ export type ChatTimelineMarker =
 export interface ChatSessionIntent {
   title?: string;
   goal?: string;
+  goalStatus?: string;
 }
 
 /** One hunk as the provider supplied it; every line keeps its ` `, `+`, `-` or `\` marker. */
@@ -1028,6 +1050,8 @@ export interface PluginModule
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;
+  /** Refresh account-backed remote execution availability and environments. */
+  discoverRemoteTask?(): import("./remoteTasks").RemoteTaskDiscovery;
   glanceAction?(action: string, ctx: TabContext): unknown;
   // Test-only exports and other plugin-private members are allowed.
   [key: string]: unknown;

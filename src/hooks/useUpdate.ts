@@ -9,6 +9,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { DEV_BUILD } from "../lib/devBuild";
+import { classifyUpdateFailure } from "../lib/updateStatusModel";
 import { listen } from "../lib/bridge";
 import { useConfig } from "./useConfig";
 import { checkForUpdate, getUpdateStatus, installAppUpdate, requestUpdateChannel } from "./updateTransport";
@@ -240,6 +242,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<UpdatePhase>("idle");
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [channel, setChannelState] = useState<UpdateChannel | null>(null);
+  const channelRef = useRef<UpdateChannel | null>(null);
+  channelRef.current = channel;
   const [channelSupported, setChannelSupported] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -269,11 +273,14 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       if (!silent) setStatus("checking");
       setError(null);
       try {
-        const data: unknown = await checkForUpdate(force);
+        const data: unknown = await checkForUpdate(force, channelRef.current ?? undefined);
         if (!isUpdateInfo(data)) throw new Error("Malformed update info");
         handleInfo(data);
       } catch (e) {
-        if (silent) return;
+        if (!classifyUpdateFailure(silent ? "background" : "check", e)) {
+          if (DEV_BUILD) console.debug("Background update check failed", e);
+          return;
+        }
         setError(e instanceof Error ? e.message : String(e));
         setStatus("error");
       }
@@ -339,7 +346,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       }
 
       setPhase(next.phase);
-      setChannelState(next.channel);
       setDownloadedBytes(next.downloaded_bytes);
       setDownloadTotalBytes(next.download_total_bytes);
 
@@ -361,6 +367,10 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (next.phase === "error") {
         const message = next.last_error || "Update failed";
+        if (!classifyUpdateFailure(installingRef.current ? "update" : "background", message)) {
+          if (DEV_BUILD) console.debug("Background update status failed", message);
+          return;
+        }
         installingRef.current = false;
         activeInstallPhaseRef.current = false;
         installCallReturnedRef.current = true;
@@ -418,7 +428,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     setProgress((prev) => Math.max(prev, 8));
     setError(null);
     try {
-      const response = normalizeInstallResponse(await installAppUpdate());
+      const response = normalizeInstallResponse(await installAppUpdate(channelRef.current ?? undefined));
       if (response.status === "already_in_flight") userInstallRef.current = false;
       if (response.status !== "already_in_flight") installCallReturnedRef.current = true;
       if (response.status !== "already_in_flight") await fetchRuntimeStatus();
@@ -480,7 +490,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     };
   }, [handleInfo]);
 
-  const blocking = status === "applying" || status === "restarting";
+  // A user-started install owns the window from download through restart.
+  const blocking = status === "applying" || status === "restarting"
+    || (installing && (status === "checking" || status === "downloading"));
 
   const value = useMemo<UpdateContextValue>(
     () => ({

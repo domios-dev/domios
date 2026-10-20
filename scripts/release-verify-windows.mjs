@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: CI release-windows.yml
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

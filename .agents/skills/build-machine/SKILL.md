@@ -68,14 +68,13 @@ via Keychain Access → export `.p12`.)
 its unchanged notarize/staple/spctl verification in the background, and compiles the x86_64 Mac
 build while Apple processes the first DMG. Both architectures use `src-tauri/target`,
 `CARGO_INCREMENTAL=0`, and the `embeddings` feature set; `release-inputs` prepares both the app
-and embed bins in one Cargo invocation before Tauri bundles the already-built graph. Each
+bin before Tauri bundles the already-built graph. Each
 architecture still verifies Developer-ID + hardened-runtime + arch, notarizes + staples the DMG,
 packs the `.app.tar.gz` updater bundle, and minisign-signs it.
-x86_64 goes through `scripts/release-macos-x86_64.sh` (ONNX Runtime 1.23.2 Intel dylib + `CARGO_BUILD_TARGET`
-plumbing — see the `macos-x86_64-release` skill).
-The x86_64 embedder also bundles LLVM `libc++.1.dylib` from
-`CODETERM_MONTEREY_LIBCXX_DIR` so ONNX Runtime does not depend on the newer
-system libc++ float `std::to_chars` symbols missing on macOS 12 Monterey.
+x86_64 goes through `scripts/release-macos-x86_64.sh` with `CARGO_BUILD_TARGET`
+set for the target-correct CLI and application. Release staging signs the Mac CLI and server
+before the one client build is bundled, then reads the paired package bytes back. CPU embeddings use candle on both
+architectures and require no bundled inference runtime dylibs.
 
 ---
 
@@ -263,7 +262,7 @@ successful install, removal is a separate reviewed uninstall action, not part of
 Two baked images in [`.codeterm/build-machine/docker/`](../../.codeterm/build-machine/docker):
 
 - **`Dockerfile.linux-arm64`** — `rust:1-trixie` + webkit2gtk-4.1 / gtk3 / etc. dev libs + Node 22
-  + pnpm + Rust 1.95. Native aarch64 build → `.deb` (+ AppImage).
+  + pnpm + Rust 1.99.1. Native aarch64 build → `.deb` (+ AppImage).
 - **`Dockerfile.linux-x64`** — retained for ad-hoc cross-builds. Release x86_64 Linux builds
   natively on the ROG's WSL2 Ubuntu runner because the x86_64 AppImage tool cannot run on arm64.
 
@@ -274,7 +273,9 @@ docker build -t codeterm-build-linux-x64   -f Dockerfile.linux-x64   .
 ```
 
 Run: `build-linux.sh <tag> [bundles]` inside the image for arm64 release builds or ad-hoc
-cross-builds (clone tag → `pnpm install` → `tauri build` → collect). **Docker Desktop memory must
+cross-builds (clone tag → install → shared CLI/server/frontend stage → client build without bundling
+→ pair resource stage → bundle without recompilation → full/headless readback into `/work/out`).
+Release jobs pass `RELEASE_TAG` for tag/version receipt identity; the source SHA comes from the checkout. **Docker Desktop memory must
 be ≳20 GiB** — the `codeterm` lib crate needs ~8 GiB to compile and the OOM killer otherwise
 SIGKILLs `rustc`.
 
@@ -288,8 +289,7 @@ SIGKILLs `rustc`.
   endless "cannot find … inside /sysroot" / "gdk-3.0 not found" whack-a-mole. Installing the amd64
   `-dev` libs into the real system (with `--force-overwrite` past multiarch arch-indep file
   conflicts) gives genuine system paths and resolves cleanly.
-- **Cross builds need embed/cli stubs pre-created** (`touch bundled-embed/codeterm-embed-<triple>`,
-  `bundled-cli/codeterm`) before `tauri build`, or its build-script glob validation aborts.
+- **Cross builds need CLI resource stubs pre-created** (`touch bundled-cli/codeterm`) before `tauri build`, or its build-script glob validation aborts.
 - **x86_64 AppImage cannot be built on an arm64 host** — `linuxdeploy-x86_64` is an x86_64 binary
   that can't run here. x86_64 → `.deb` only; AppImage only natively (arm64) or on a real x86_64 box.
   Hence `latest.json`'s `linux-x86_64` (an AppImage URL) needs a real x86_64 Linux runner.
@@ -435,7 +435,7 @@ User-writable tools:
 - Official GitHub Actions runner `win-x64`, under `%USERPROFILE%\actions-runner`.
 - Official PowerShell `win-x64` zip, under `%USERPROFILE%\tools\PowerShell\<version>`.
 - Official Node.js active LTS `win-x64` zip, under `%USERPROFILE%\tools\Node\<version>`.
-- Rust via official `https://win.rustup.rs/x86_64`, with stable MSVC and the repository-pinned `1.95.0-x86_64-pc-windows-msvc` toolchain.
+- Rust via official `https://win.rustup.rs/x86_64`, with stable MSVC and the repository-pinned `1.99.1-x86_64-pc-windows-msvc` toolchain.
 - `pnpm` at the repository-pinned version, plus command shims under `%USERPROFILE%\tools\runner-shims`.
 - Visual Studio Build Tools C++ workload and Windows SDK when `-InstallVisualStudioBuildTools` is provided from an elevated shell.
 
@@ -455,7 +455,7 @@ Direct-server maintenance at `ba3f4ffb1` authenticated the startup notification 
 | Runner registration and `.env` are intact, but GitHub reports it offline after a Domios restart. | A per-user Startup launcher owned `run.cmd`; no official runner service or `Runner.Listener` survived the restart. | Preserve `.runner`, remove the Startup fallback, and install/start the bundled official `svc.cmd` service. Verify the service account resolves every `.env` tool and GitHub returns online/idle after a service-only restart. | Service installation requires elevation. Stop and request it rather than adding another scheduler or silently relying on an interactive listener. |
 | Orphaned OpenConsole installer lock appeared during recovery. | Unrelated installer state from Windows/app setup, not a GitHub runner issue. | Bootstrap does not touch OpenConsole; it reports only runner prerequisites. | Clear the installer lock separately if it blocks OS/package maintenance. Do not couple it to runner registration. |
 | `pwsh: command not found` in `Ensure Rust toolchain` and cleanup. | Clean runner PATH had no PowerShell 7. | Install official PowerShell zip and prepend its directory in `actions-runner/.env`. | If PowerShell download is blocked, install PowerShell 7 manually and add its directory to `.env`. |
-| `rustup.exe not found`; no `cargo` or `rustc`. | Clean runner account had no Rust toolchain. | Install rustup stable MSVC, preinstall pinned `1.95.0`, clippy/rustfmt, and Windows MSVC targets; prepend `%USERPROFILE%\.cargo\bin`. | If network blocks rustup, mirror the official rustup installer and toolchain artifacts internally. |
+| `rustup.exe not found`; no `cargo` or `rustc`. | Clean runner account had no Rust toolchain. | Install rustup stable MSVC, preinstall pinned `1.99.1`, clippy/rustfmt, and Windows MSVC targets; prepend `%USERPROFILE%\.cargo\bin`. | If network blocks rustup, mirror the official rustup installer and toolchain artifacts internally. |
 | ARM64 matrix job loses `rustup.exe` after x64 passes. | `Swatinem/rust-cache` post-job cleanup can remove `%USERPROFILE%\.cargo\bin` between sequential matrix jobs. | Bootstrap copies Rust proxies to `%USERPROFILE%\tools\rustup-proxies` and prepends that path before Cargo in the runner `.env`. | Restore proxies with `rustup-init` only if both the Cargo and durable proxy directories are absent. |
 | Focused Windows task gate stops before tests because `sccache` is not on PATH. | Rust proxy resolution does not establish the separate Cargo-bin cache-tool location. | Default dispatch remains no-install: it preserves an existing PATH application or resolves one file only from current `CARGO_HOME/bin` and `USERPROFILE/.cargo/bin`, records its hash and unchanged other-tool paths, and requires the existing prestarted cache server. A separately reviewed opt-in uses the pinned receipt and owns the cache server through the same fixed task loop. | Missing or ambiguous files, an invalid receipt, changed tool resolution, or a foreign endpoint are refusals. Additive installation is admitted only through the exact manual maintenance operation; do not start an ad hoc server, broaden discovery, or count preflight as a test. |
 | `node` missing in `Prepare compile stubs`. | Clean runner PATH had no Node.js. | Install official Node LTS zip, prepend it in `.env`, install `pnpm`, and add shims so PowerShell does not pick blocked `.ps1` launchers. | If Node download is blocked, install supported Node LTS manually and add it to `.env`. |
@@ -464,30 +464,23 @@ Direct-server maintenance at `ba3f4ffb1` authenticated the startup notification 
 ## CI job-local Bash path repair
 
 If Rust setup reports Bash is missing although checkout resolves Git, the service
-PATH may expose Git's cmd directory without its bin directory. The Rust shard
-and native workflows run scripts/ci-runner-paths.mjs before composite actions:
+PATH may expose Git's cmd directory without its bin directory. The Rust test
+and platform workflows run scripts/ci-runner-paths.mjs before composite actions:
 it verifies Bash from standard Git installs or the inherited Git path, appends
 that directory and existing account-local Rust proxies to GITHUB_PATH, and
 fails clearly if Bash is absent. This changes only the current job environment.
 Restore Git for Windows on the runner if preflight refuses; do not remove the
 runner from the shared pool or replace its service/global PATH to hide failure.
 
-## CI archive extraction
+## CI test classification
 
 CI sets `CODETERM_SCCACHE_VERIFY_ONLY=1`, so build wrappers verify the running
-shared cache without starting or stopping it. The archive builder runs
-`./build.sh cache-verify` before compilation; provisioning belongs to idle setup.
+shared cache before `./build.sh ci-tests` compiles; provisioning belongs to idle setup.
 
-If archive classification rejects a generated `include!`, the classifier needs
-the package's exact Cargo `build-script-executed` OUT_DIR. The archive builder
-captures Cargo JSON and passes that directory to the classifier, which traverses
+If platform classification rejects a generated `include!`, the classifier needs
+the package's exact Cargo `build-script-executed` OUT_DIR. `ci-rust-tests.mjs`
+compiles with Cargo JSON and passes that directory to the classifier, which traverses
 the generated Rust source and refuses missing or unsupported include expressions.
-
-If nextest archive creation succeeds but extraction fails canonicalizing the
-destination with OS error 2, the extract directory has not been created.
-The builder classification and consumer helpers create their job-local extract
-directories before invoking nextest. Reuse the existing archive for the focused
-extraction check; an extraction failure does not justify recompiling the suite.
 
 ## Verification Checklist
 
@@ -510,9 +503,9 @@ The output must prove command resolution from the exact runner `.env` PATH:
 - the official runner service is installed and running under the intended runner account; no Startup `run.cmd` fallback remains
 - GitHub reports the registered runner online and idle after restarting only that service
 
-Registration labels include `windows-ci,rust-shard` in addition to packaging labels. Every machine needs one qualified `rust-shard` runner; preserve OS labels for native cfg tests. See `.codeterm/build-machine/README.md` for the shared pool and coverage contract.
+Registration labels include `windows-ci` (Windows platform subset) and, for full-suite pool members, `rust-tests`, in addition to packaging labels; preserve OS labels for native cfg tests. See `.codeterm/build-machine/README.md` for the shared pool and coverage contract.
 
-Then dispatch `tests.yml` on a reviewed `ci/` branch. A restored builder must pass its native Windows job and any shared shard it accepts; inspect the final coverage summary for runner identities and durations before release workflows are trusted.
+Then dispatch `tests.yml` on a reviewed `ci/` branch. A restored builder must pass its Windows platform job and, if it carries `rust-tests`, the full suite; inspect the `rust test receipts` summary for runner identities, executed counts and durations before release workflows are trusted.
 
 ## Secret Handling
 
@@ -520,7 +513,7 @@ Registration tokens, signing keys, package tokens, and Tauri signing passwords s
 
 Reuse can falsely report `installed_executable_differs_from_pinned_archive` when comparing a ZIP entry stream's unsupported `Length` property. Compare the entry descriptor length, then drain and compare both streams. Three in-memory compressed ZIP controls cover equality across buffer boundaries, changed bytes and changed length; never replace installed bytes to bypass refusal.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
 
 Detached server startup passed the single-member maintenance oracle but exposed compiler windows during
 Lookout compilation: pinned sccache creates ordinary compiler children, which lack a console to inherit.

@@ -1,10 +1,11 @@
 [package]
+license = "AGPL-3.0-only"
 name = "codeterm-agent-detect"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-pty = { path = "../codeterm-pty" }
 codeterm-plugin = { path = "../codeterm-plugin" }
@@ -16,3 +17,6 @@ log = "0.4"
 
 [dev-dependencies]
 parking_lot = "0.12"
+
+[lints]
+workspace = true

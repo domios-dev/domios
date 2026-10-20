@@ -184,7 +184,7 @@ impl TaskProjection {
             TaskPresentation::WaitingOnDependencies => {
                 self.dependency_waits.iter().any(|wait| wait.missing)
             }
-            TaskPresentation::ParkedForLaterGroup => false,
+            TaskPresentation::ParkedForLaterGroup | TaskPresentation::BlockedOnSubtasks => false,
             TaskPresentation::Paused | TaskPresentation::Terminal => false,
             _ => true,
         }

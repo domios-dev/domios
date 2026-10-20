@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: scripts qa-gate.sh, tests/check-provider-boundary.test.mjs
 # Internal QA gate registry + reporting. Sourced by scripts/qa-gate.sh.
 set -u
 
@@ -88,7 +89,6 @@ qa_dev_healthy() {
 
 qa_prep_stubs() {
   mkdir -p "$QA_ROOT/dist"
-  node "$QA_ROOT/scripts/prepare-embed-stub.js" >/dev/null 2>&1 || true
   mkdir -p "$QA_ROOT/src-tauri/bundled-cli"
   [ -e "$QA_ROOT/src-tauri/bundled-cli/codeterm" ] \
     || touch "$QA_ROOT/src-tauri/bundled-cli/codeterm"
@@ -173,7 +173,7 @@ qa_gate_needs_dev() {
 qa_gate_desc() {
   case "$1" in
     shell-guards) echo "Mux-write + blocking-in-async + build-kill safety shell guards" ;;
-    fmt) echo "cargo fmt --check (src-tauri + cli)" ;;
+    fmt) echo "rustfmt --check over tracked src-tauri + cli files" ;;
     check) echo "cargo check (src-tauri + cli)" ;;
     clippy) echo "cargo clippy -D warnings (src-tauri + cli)" ;;
     rust-unit) echo "src-tauri lib unit tests through the repository wrapper" ;;
@@ -212,8 +212,7 @@ qa_run_gate_body() {
       bash scripts/check-msvc-cross-env.sh
       ;;
     fmt)
-      cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
-      cargo fmt --manifest-path cli/Cargo.toml --all --check
+      bash scripts/check-rustfmt.sh
       ;;
     check)
       qa_prep_stubs
@@ -246,7 +245,8 @@ qa_run_gate_body() {
       ;;
     file-sizes)
       bash scripts/check-file-sizes.sh --fail || return $?
-      node scripts/check-provider-boundary.mjs
+      node scripts/check-provider-boundary.mjs || return $?
+      bash scripts/check-tauri-reach.sh
       ;;
     comment-length)
       bash scripts/check-comment-length.sh --fail

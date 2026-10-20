@@ -87,21 +87,14 @@ async function main() {
   );
 
   assert(crashHost.querySelector('[role="alert"]'), "render errors show an in-app crash surface");
-  const messageDetail = crashHost.querySelector<HTMLElement>("#frontend-crash-message");
-  const stackDetail = crashHost.querySelector<HTMLElement>("#frontend-crash-stack");
-  assert(messageDetail, "crash surface has a stable error-message detail");
-  assert(stackDetail, "crash surface has a stable stack-trace detail");
-  assert(messageDetail.dataset.testid === "frontend-crash-message", "error message has a test anchor");
-  assert(stackDetail.dataset.testid === "frontend-crash-stack", "stack trace has a test anchor");
-  assert(messageDetail.classList.contains("frontend-crash__message"), "error message has a readable presentation anchor");
-  assert(stackDetail.classList.contains("frontend-crash__stack"), "stack trace has a contained presentation anchor");
-  assert(messageDetail.textContent?.trim() === CRASH_MESSAGE, "crash surface presents the thrown message as primary detail");
-  assert(stackDetail.textContent?.includes(LONG_MINIFIED_FRAME), "long minified frames remain available in the stack detail");
-  assert(!stackDetail.textContent?.includes(CRASH_MESSAGE), "the stack detail does not duplicate its message header");
-  assert(
-    Boolean(messageDetail.compareDocumentPosition(stackDetail) & Node.DOCUMENT_POSITION_FOLLOWING),
-    "the error message appears before the stack detail",
-  );
+  const disclosure = crashHost.querySelector("details");
+  assert(disclosure && !disclosure.open, "crash diagnostics are initially collapsed");
+  await act(async () => disclosure.querySelector("summary")!.click());
+  assert(disclosure.open, "crash diagnostics can be expanded");
+  const raw = disclosure.querySelector("pre")?.textContent ?? "";
+  assert(raw.includes(CRASH_MESSAGE), "the thrown message is retained in Details");
+  assert(raw.includes(LONG_MINIFIED_FRAME), "the full stack remains available in Details");
+  assert(disclosure.querySelector("button"), "crash diagnostics offer Copy");
   assert(crashHost.querySelector("[data-tauri-drag-region]"), "crash surface keeps a draggable titlebar");
   assert(crashHost.textContent?.includes("Reload interface"), "crash surface keeps the reload action");
 

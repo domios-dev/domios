@@ -62,7 +62,7 @@ function constantFromSource(relative: string, pattern: RegExp): string {
 
 function backendFirstRunMarker(): string {
   return constantFromSource(
-    "src-tauri/src/service/general_agent/first_run.rs",
+    "src-tauri/crates/codeterm-service-core/src/service/general_agent/first_run.rs",
     /FIRST_RUN_TAB_MARKER\s*:\s*&str\s*=\s*"([^"]+)"/,
   );
 }
@@ -76,7 +76,7 @@ function frontendFirstRunMarker(): string {
 
 function generalTabTitle(): string {
   return constantFromSource(
-    "src-tauri/src/service/general_agent/mod.rs",
+    "src-tauri/crates/codeterm-service-core/src/service/general_agent/mod.rs",
     /GENERAL_TAB_TITLE\s*:\s*&str\s*=\s*"([^"]+)"/,
   );
 }

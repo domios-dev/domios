@@ -9,6 +9,7 @@ use std::time::Duration;
 mod blueprint;
 mod desk;
 mod sentinel;
+mod tab_todo;
 
 /// `PRAGMA application_id` of every Storage database ("CTST").
 pub(crate) const APPLICATION_ID: i32 = 0x4354_5354;
@@ -36,6 +37,8 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE blueprint_runtime ADD COLUMN last_probe_at INTEGER CHECK (last_probe_at IS NULL OR last_probe_at >= 0);
      ALTER TABLE blueprint_runtime ADD COLUMN probe_state TEXT;",
     "ALTER TABLE blueprint_definitions ADD COLUMN model_classification INTEGER NOT NULL DEFAULT 0 CHECK (model_classification IN (0, 1));",
+    tab_todo::SCHEMA,
+    tab_todo::LIFECYCLE_SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

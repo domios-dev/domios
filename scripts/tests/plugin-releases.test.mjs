@@ -16,6 +16,7 @@ function fixture(t) {
   write("package.json", { version: "4.0.0" });
   write("src-tauri/tauri.conf.json", { version: "4.0.0" });
   for (const directory of ["src-tauri", "cli"]) write(`${directory}/Cargo.toml`, '[package]\nversion = "4.0.0"\n');
+  write("src-tauri/crates/codeterm-service-core/Cargo.toml", '[package]\nversion = "0.0.0"\n');
   for (const directory of ["chat-core", "chat-ui", "chat-engine", "plugin-sdk"]) write(`packages/${directory}/package.json`, { version: "4.0.0" });
   const plugins = ["claude", "codex", "opencode"].map((id) => ({ id, path: `provider-${id}`, version: "7.1.0", minCodeterm: "3.2.0" }));
   write("plugins/channel.json", { plugins });
@@ -37,6 +38,8 @@ test("an app bump preserves independent provider versions and host requirements"
   execFileSync(process.execPath, [path.join(root, "scripts/sync-plugin-versions.mjs"), "--check"]);
   assert.equal(read("package.json").version, "4.1.0");
   assert.equal(read("packages/chat-ui/package.json").version, "4.1.0");
+  assert.match(fs.readFileSync(path.join(root, "src-tauri/Cargo.toml"), "utf8"), /^version = "4\.1\.0"$/m);
+  assert.match(fs.readFileSync(path.join(root, "src-tauri/crates/codeterm-service-core/Cargo.toml"), "utf8"), /^version = "0\.0\.0"$/m, "internal crates never take the app version");
   assert.deepEqual(channelPlugins(root), before);
 });
 

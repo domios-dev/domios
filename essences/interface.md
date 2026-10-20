@@ -77,6 +77,8 @@ Use kind tone in icons, icon tiles and restrained hover accents. Composer strips
 
 ### Scrolling
 
+Bounded Chat message bodies and reports initially clip at their preview height without an inner vertical scrollbar. Show all raises the limit by 30% and allows internal scrolling when needed. Wheel, trackpad and touch continue into the transcript at an expanded body’s edge. The transcript retains its outer overscroll boundary and explicit jump to latest on desktop and mobile web.
+
 Every ordinary scrolling view inherits the shared scrollbar. It is transparent at rest and appears during scrolling, with a narrow rounded thumb derived from the current background. Hover alone must not reveal a separate per-view scrollbar. `--ct-scrollbar-thumb` owns its colour; `data-scrolling` represents scroll activity.
 
 Do not set `scrollbar-width` or `scrollbar-color` in a view: on Chromium they override the shared WebKit styling. The shared fallback for browsers without that styling owns those properties. Intentional hiding in horizontal tab strips and the xterm viewport is allowed; xterm's own slider keeps the same thumb colour and visible width. Sources: `src/styles/primitives.css`, `src/lib/scrollActivity.ts`, `src/main.tsx`, and the xterm and `ct-hscroll` rules in `src/styles/globals.css`.

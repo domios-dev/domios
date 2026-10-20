@@ -23,7 +23,9 @@
 //! `<data_dir>/models/README.md` on first run.
 
 mod capability_overlay;
+mod endpoints;
 pub use capability_overlay::{clear as clear_capability_overlay, put as put_capability_overlay};
+pub use endpoints::resolve as resolve_endpoint_model;
 use std::collections::HashMap;
 #[cfg(test)]
 use std::path::PathBuf;
@@ -32,12 +34,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 
 use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
 
 mod grouping;
+mod inputs;
 mod live_policy;
+pub use inputs::{discovery_stamp, invalidate_inputs};
 pub use live_policy::register_catalogue_capability;
 
 pub(super) const CACHE_SCHEMA_VERSION: u32 = 1;
@@ -152,6 +157,22 @@ pub fn fingerprint_path(path: &std::path::Path) -> Option<BinaryFingerprint> {
     })
 }
 
+pub fn binary_fingerprint_path(path: &std::path::Path) -> Option<String> {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0; 8192];
+    loop {
+        let count = file.read(&mut buffer).ok()?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    Some(format!("{:x}", digest.finalize()))
+}
+
 fn fingerprint_bin(bin: &str) -> Option<BinaryFingerprint> {
     fingerprint_path(&crate::js_runtime::resolved_bin_path(bin)?)
 }
@@ -263,8 +284,14 @@ fn effort_registry() -> &'static RwLock<HashMap<String, RegisteredEfforts>> {
     REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-fn versions() -> &'static RwLock<HashMap<String, u64>> {
-    static VERSIONS: OnceLock<RwLock<HashMap<String, u64>>> = OnceLock::new();
+#[derive(Default)]
+struct PublishedCatalogue {
+    version: u64,
+    digest: Option<[u8; 32]>,
+}
+
+fn versions() -> &'static RwLock<HashMap<String, PublishedCatalogue>> {
+    static VERSIONS: OnceLock<RwLock<HashMap<String, PublishedCatalogue>>> = OnceLock::new();
     VERSIONS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
@@ -281,7 +308,7 @@ pub fn current_version(provider_id: &str) -> u64 {
     versions()
         .read()
         .get(provider_id)
-        .copied()
+        .map(|published| published.version)
         .unwrap_or_default()
 }
 
@@ -289,9 +316,9 @@ pub fn version_snapshot() -> Vec<ModelCatalogueChanged> {
     let mut changes = versions()
         .read()
         .iter()
-        .map(|(provider, version)| ModelCatalogueChanged {
+        .map(|(provider, published)| ModelCatalogueChanged {
             provider: provider.clone(),
-            version: *version,
+            version: published.version,
         })
         .collect::<Vec<_>>();
     changes.sort_by(|left, right| left.provider.cmp(&right.provider));
@@ -304,17 +331,53 @@ fn advance_version(versions: &mut HashMap<String, u64>, provider_id: &str) -> u6
     *version
 }
 
-pub fn invalidate(provider_id: &str) -> ModelCatalogueChanged {
-    let version = {
-        let mut versions = versions().write();
-        advance_version(&mut versions, provider_id)
-    };
-    let change = ModelCatalogueChanged {
+fn publish_digest(
+    versions: &mut HashMap<String, PublishedCatalogue>,
+    provider_id: &str,
+    digest: [u8; 32],
+) -> Option<ModelCatalogueChanged> {
+    let published = versions.entry(provider_id.to_string()).or_default();
+    if published.digest == Some(digest) {
+        return None;
+    }
+    published.version = published.version.saturating_add(1);
+    published.digest = Some(digest);
+    Some(ModelCatalogueChanged {
         provider: provider_id.to_string(),
-        version,
+        version: published.version,
+    })
+}
+
+fn catalogue_digest(provider_id: &str) -> [u8; 32] {
+    let catalogue = serde_json::json!({
+        "available_models": resolve_models(provider_id),
+        "default_model": resolve_default(provider_id),
+        "reasoning_efforts": resolve_reasoning_efforts(provider_id),
+        "default_reasoning_effort": resolve_default_reasoning_effort(provider_id),
+    });
+    Sha256::digest(serde_json::to_vec(&catalogue).expect("model catalogue serializes")).into()
+}
+
+pub fn invalidate(provider_id: &str) -> ModelCatalogueChanged {
+    let digest = catalogue_digest(provider_id);
+    let change = {
+        let mut versions = versions().write();
+        publish_digest(&mut versions, provider_id, digest)
     };
-    let _ = change_sender().send(change.clone());
-    change
+    if let Some(change) = change {
+        log::debug!(
+            "[model_catalog] published changed catalogue provider={} version={}",
+            change.provider,
+            change.version
+        );
+        let _ = change_sender().send(change.clone());
+        change
+    } else {
+        ModelCatalogueChanged {
+            provider: provider_id.to_string(),
+            version: current_version(provider_id),
+        }
+    }
 }
 
 pub fn reject_model(provider: &str, model: &str) {
@@ -366,6 +429,7 @@ pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
 /// Capability lifecycles use this when the provider implementation itself was
 /// replaced, so models from the prior implementation cannot survive a refresh.
 pub fn replace(provider_id: &str, defaults: RegisteredDefaults) {
+    endpoints::clear(provider_id);
     capability_overlay::clear(provider_id);
     seed_registry()
         .write()
@@ -393,13 +457,14 @@ pub fn replace_resolved(provider_id: &str, defaults: RegisteredDefaults) -> Regi
 
 /// Remove only `provider_id` from every in-memory catalog registry.
 pub fn unregister(provider_id: &str) {
+    let removed_endpoints = endpoints::clear(provider_id);
     capability_overlay::clear(provider_id);
     live_policy::clear(provider_id);
     let removed_models = registry().write().remove(provider_id).is_some();
     let removed_seed = seed_registry().write().remove(provider_id).is_some();
     let removed_efforts = effort_registry().write().remove(provider_id).is_some();
     override_cache().write().remove(provider_id);
-    if removed_models || removed_seed || removed_efforts {
+    if removed_models || removed_seed || removed_efforts || removed_endpoints {
         invalidate(provider_id);
     }
 }
@@ -612,6 +677,11 @@ pub async fn refresh_models(
     let provider_id = provider.id().to_string();
     register_catalogue_capability(&provider_id, &provider.model_catalogue_capability());
     if !force && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
+        let _ = tokio::task::spawn_blocking(move || {
+            let stamp = discovery_stamp(provider.as_ref());
+            endpoints::refresh(provider.as_ref(), &stamp);
+        })
+        .await;
         log::debug!("[model_catalog] {provider_id} live cache fresh — skipping refresh");
         return None;
     }
@@ -624,8 +694,8 @@ pub async fn refresh_models(
 pub async fn refresh_after_catalogue_input_change(
     provider: Arc<dyn AgentProvider>,
 ) -> Option<Vec<ModelInfo>> {
-    log::info!(
-        "[model_catalog] {} catalogue input changed - re-probing",
+    log::debug!(
+        "[model_catalog] refresh trigger source=input-change provider={}",
         provider.id()
     );
     refresh_models(provider, true).await
@@ -675,6 +745,8 @@ pub async fn refresh_live(
     let task = tokio::task::spawn_blocking(move || {
         // A refresh must observe current filesystem and PATH state before live discovery.
         crate::js_runtime::forget_resolved_bins();
+        let inputs = discovery_stamp(provider.as_ref());
+        endpoints::refresh(provider.as_ref(), &inputs);
         let models = futures_executor::block_on(provider.discover_models())?;
         let was_empty = models.is_empty();
         let models = sanitize_live(models);
@@ -684,8 +756,10 @@ pub async fn refresh_live(
         let default = resolve_live_default(&models, default);
         let binary = provider.cli_binary().and_then(fingerprint_bin);
         let credentials = credential_fingerprints(provider.as_ref());
-        put_live_with_credentials(&provider_id, models.clone(), default, binary, credentials);
-        Some(models)
+        inputs::publish_current(provider.as_ref(), &inputs, || {
+            put_live_with_credentials(&provider_id, models.clone(), default, binary, credentials);
+            models
+        })
     });
     match tokio::time::timeout(timeout_duration, task).await {
         Ok(Ok(result)) => result,
@@ -753,7 +827,7 @@ pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
             .get(provider_id)
             .is_some_and(|snapshot| snapshot.source == Source::Live);
     if live_policy::required(provider_id) && !live {
-        return Vec::new();
+        return endpoints::merge(provider_id, Vec::new());
     }
     let mut models = match load_override(provider_id) {
         None => registered,
@@ -767,6 +841,7 @@ pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
     };
     // Featured models lead, but the catalog's own order survives within each
     // group — `sort_by_key` is stable, so nothing else is reordered.
+    models = endpoints::merge(provider_id, models);
     models.sort_by_key(|model| !model.is_featured());
     models
 }
@@ -785,12 +860,15 @@ pub fn resolve_live_models(provider_id: &str) -> Option<Vec<ModelInfo>> {
         .get(provider_id)
         .and_then(|snapshot| (snapshot.source == Source::Live).then(|| snapshot.models.clone()));
     if capability_overlay::present(provider_id) {
-        Some(capability_overlay::merge(
+        Some(endpoints::merge(
             provider_id,
-            live.unwrap_or_else(|| registered_models(provider_id)),
+            capability_overlay::merge(
+                provider_id,
+                live.unwrap_or_else(|| registered_models(provider_id)),
+            ),
         ))
     } else {
-        live
+        live.map(|models| endpoints::merge(provider_id, models))
     }
 }
 

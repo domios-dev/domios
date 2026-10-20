@@ -89,6 +89,19 @@ fn runtime_manifest_schema_and_consent_fail_closed() {
 }
 
 #[test]
+fn runtime_transport_is_a_typed_capability() {
+    let mut raw = manifest();
+    raw["capabilities"]["agentRuntime"]["runtime"] = json!("http-sse");
+    let parsed = PluginManifest::from_json_str(&raw.to_string()).unwrap();
+    assert_eq!(
+        parsed.capabilities.agent_runtime.unwrap().runtime,
+        crate::agent_runtime::AgentRuntimeProtocol::HttpSse
+    );
+    raw["capabilities"]["agentRuntime"]["runtime"] = json!("websocket");
+    assert!(PluginManifest::from_json_str(&raw.to_string()).is_err());
+}
+
+#[test]
 fn runtime_login_declaration_confines_terminal_to_its_binary() {
     let mut value = manifest();
     value["capabilities"]["agentRuntime"]["login"] =

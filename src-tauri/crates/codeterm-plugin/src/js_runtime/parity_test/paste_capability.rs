@@ -48,6 +48,7 @@ impl AgentProvider for NativePasteFixture {
             multiline: self.1,
             untrusted_above_lines: 0,
             typed_follow_up: String::new(),
+            paste_marker_when: Default::default(),
             requires_typed_instruction_for_routed_messages: false,
         })
     }

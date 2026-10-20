@@ -11,10 +11,6 @@ on:
       artifacts:
         required: true
         type: string
-      cancel_release_on_failure:
-        required: false
-        default: false
-        type: boolean
       comment:
         required: false
         default: false
@@ -40,32 +36,29 @@ jobs:
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Fetch warning collections
         continue-on-error: true
-        with:
-          pattern: rust-warnings-*
-          merge-multiple: true
-          path: ci-rust-warnings
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+        run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/rust-warnings/" ci-rust-warnings
       - name: Merge warnings and enforce ratchet
         env:
           WARNING_ARTIFACTS: ${{ inputs.artifacts }}
           WARNING_SEED: ${{ inputs.comment }}
         run: node scripts/rust-warnings-report.mjs ci-rust-warnings
-      - name: Cancel release builds on warning gate failure
-        if: ${{ failure() && inputs.cancel_release_on_failure }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          GH_RUN_ID: ${{ github.run_id }}
-        run: gh api --method POST "repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - name: Store warning report
         if: always()
         continue-on-error: true
-        with:
-          overwrite: true
-          name: ${{ inputs.report_name }}
-          path: rust-warnings-report/*
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+          WARNING_REPORT_NAME: ${{ inputs.report_name }}
+        run: |
+          for file in rust-warnings-report/*; do
+            [ -f "$file" ] || continue
+            bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/$WARNING_REPORT_NAME/${file##*/}" "$file"
+          done
       - name: Comment on associated release PR
         if: ${{ always() && inputs.comment }}
         continue-on-error: true

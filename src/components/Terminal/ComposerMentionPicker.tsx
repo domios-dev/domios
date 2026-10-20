@@ -1,33 +1,29 @@
-import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type RefObject } from "react";
 import {
   activeMentionQuery,
   applyComposerMention,
   filterComposerMentions,
   type ComposerMention,
 } from "../../lib/composerMentions";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export function ComposerMentionPicker({
   mentions,
   highlighted,
   onHighlight,
   onPick,
+  triggerRef,
 }: {
   mentions: ComposerMention[];
   highlighted: number;
   onHighlight: (index: number) => void;
   onPick: (mention: ComposerMention) => void;
+  triggerRef: RefObject<HTMLElement | null>;
 }) {
   if (mentions.length === 0) return null;
   return (
-    <div
-      role="listbox"
-      aria-label="Mention suggestions"
-      className="ct-menu absolute bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto"
-      style={{
-        zIndex: 10,
-        ...({ "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties),
-      }}
-    >
+    <AnchoredPopover open anchor={triggerRef} placement="top-start" width="anchor">
+    <div role="listbox" aria-label="Mention suggestions" className="ct-menu max-h-48 overflow-y-auto">
       {mentions.map((mention, i) => {
         const selected = i === highlighted;
         return (
@@ -49,6 +45,7 @@ export function ComposerMentionPicker({
         );
       })}
     </div>
+    </AnchoredPopover>
   );
 }
 

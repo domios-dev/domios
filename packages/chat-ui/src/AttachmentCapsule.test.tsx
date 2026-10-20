@@ -88,10 +88,9 @@ describe("inline attachment capsules in the user bubble", () => {
     expect(opener).toHaveBeenCalledWith("/srv/repo");
   });
 
-  it("keeps chip-button attachments in the strip beside inline capsules", async () => {
+  it("renders unlabeled file markers as inline capsules", async () => {
     const host = await render(`${formatAttachmentMarker(NOTES, "text", "text1")} ok ${formatAttachmentMarker("/tmp/report.pdf")}`);
-    expect(capsules(host)).toHaveLength(1);
-    expect(host.querySelector('[data-testid="chat-attachment-strip"] [data-testid="chat-file-attachment"]')).toBeTruthy();
+    expect(capsules(host)).toHaveLength(2);
   });
 
   it("leaves a message without capsules exactly as before", async () => {
@@ -147,8 +146,8 @@ describe("context capsules", () => {
     expect(capsule.dataset.attachmentKind).toBe("quote");
     await act(async () => capsule.focus());
     await act(async () => { await Promise.resolve(); });
-    expect(host.querySelector('[data-testid="capsule-preview-text"]')?.textContent).toBe("From `/d/notes.md:3`:\n> First paragraph here.");
-    expect(host.textContent).toContain("Quote");
+    expect(document.querySelector('[data-testid="capsule-preview-text"]')?.textContent).toBe("From `/d/notes.md:3`:\n> First paragraph here.");
+    expect(document.querySelector('[role="region"]')).toBeTruthy();
     expect(host.textContent).not.toContain("q1-quote-notes.md");
   });
 });

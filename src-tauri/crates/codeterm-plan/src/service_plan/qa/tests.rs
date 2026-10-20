@@ -115,9 +115,9 @@ fn enqueue_claim_and_pass_write_qa_milestones() {
     let claimed = store
         .claim_next_qa(
             &plan_id,
-            "tester scope",
-            AgentRef::from_tab("tester"),
-            Some("tester"),
+            "qa scope",
+            AgentRef::from_tab("qa"),
+            Some("qa"),
             11,
         )
         .unwrap()
@@ -130,20 +130,14 @@ fn enqueue_claim_and_pass_write_qa_milestones() {
     let task = store.show_task(&first).unwrap().task;
     assert_eq!(task.review_stage, ReviewStage::Qa);
     assert_eq!(task.qa_state, Some(QaState::Running));
-    assert_eq!(task.assigned_tab_id.as_deref(), Some("tester"));
+    assert_eq!(task.assigned_tab_id.as_deref(), Some("qa"));
     assert!(task
         .milestones
         .iter()
-        .any(|m| m.kind == QA_MILESTONE_KIND && m.text.contains("claim: tester scope")));
+        .any(|m| m.kind == QA_MILESTONE_KIND && m.text.contains("claim: qa scope")));
 
     store
-        .pass_qa(
-            &plan_id,
-            &first,
-            "verified",
-            AgentRef::from_tab("tester"),
-            12,
-        )
+        .pass_qa(&plan_id, &first, "verified", AgentRef::from_tab("qa"), 12)
         .unwrap();
     let task = store.show_task(&first).unwrap().task;
     assert_eq!(task.status, TaskStatus::Done);
@@ -185,8 +179,8 @@ fn only_one_running_qa_task_is_claimed_by_default() {
         .claim_next_qa(
             &plan_id,
             "claim first",
-            AgentRef::from_tab("tester"),
-            Some("tester"),
+            AgentRef::from_tab("qa"),
+            Some("qa"),
             12,
         )
         .unwrap();
@@ -194,8 +188,8 @@ fn only_one_running_qa_task_is_claimed_by_default() {
         .claim_next_qa(
             &plan_id,
             "claim second",
-            AgentRef::from_tab("tester2"),
-            Some("tester2"),
+            AgentRef::from_tab("qa2"),
+            Some("qa2"),
             13,
         )
         .unwrap();
@@ -220,13 +214,7 @@ fn verdict_requires_running_qa() {
         .unwrap();
 
     let pass_err = store
-        .pass_qa(
-            &plan_id,
-            &first,
-            "verified",
-            AgentRef::from_tab("tester"),
-            11,
-        )
+        .pass_qa(&plan_id, &first, "verified", AgentRef::from_tab("qa"), 11)
         .unwrap_err();
     let fail_err = store
         .fail_qa(
@@ -235,7 +223,7 @@ fn verdict_requires_running_qa() {
             "failed",
             false,
             false,
-            AgentRef::from_tab("tester"),
+            AgentRef::from_tab("qa"),
             12,
         )
         .unwrap_err();
@@ -269,13 +257,7 @@ fn fail_bounces_to_in_progress_and_restores_implementer() {
         .enqueue_qa(&plan_id, &first, "ready", AgentRef::from_tab("orch"), 10)
         .unwrap();
     store
-        .claim_next_qa(
-            &plan_id,
-            "claim",
-            AgentRef::from_tab("tester"),
-            Some("tester"),
-            11,
-        )
+        .claim_next_qa(&plan_id, "claim", AgentRef::from_tab("qa"), Some("qa"), 11)
         .unwrap();
 
     let result = store
@@ -285,7 +267,7 @@ fn fail_bounces_to_in_progress_and_restores_implementer() {
             "missing regression coverage",
             true,
             true,
-            AgentRef::from_tab("tester"),
+            AgentRef::from_tab("qa"),
             12,
         )
         .unwrap();
@@ -334,13 +316,7 @@ fn fail_warns_after_three_stagnant_bounces_and_threads_reset_flags() {
         .enqueue_qa(&plan_id, &first, "ready", AgentRef::from_tab("orch"), 10)
         .unwrap();
     store
-        .claim_next_qa(
-            &plan_id,
-            "claim",
-            AgentRef::from_tab("tester"),
-            Some("tester"),
-            11,
-        )
+        .claim_next_qa(&plan_id, "claim", AgentRef::from_tab("qa"), Some("qa"), 11)
         .unwrap();
 
     let result = store
@@ -350,7 +326,7 @@ fn fail_warns_after_three_stagnant_bounces_and_threads_reset_flags() {
             "same strategy failed again",
             false,
             false,
-            AgentRef::from_tab("tester"),
+            AgentRef::from_tab("qa"),
             12,
         )
         .unwrap();

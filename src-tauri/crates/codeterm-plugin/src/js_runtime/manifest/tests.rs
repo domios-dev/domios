@@ -77,7 +77,7 @@ fn manifest_unknown_capability_is_ignored_and_known_ones_load() {
     assert!(manifest.capabilities.decision_model.enabled);
     assert_eq!(
         manifest.capabilities.decision_model.token_mode,
-        codeterm_types::decision::TokenMode::Optional
+        codeterm_decision::TokenMode::Optional
     );
     assert_eq!(
         manifest
@@ -630,6 +630,10 @@ fn context_owner_absent_manifest_parses_byte_equivalent_to_today() {
         let raw = std::fs::read_to_string(&manifest_path).expect("read shipped manifest");
         let manifest: PluginManifest = serde_json::from_str(&raw)
             .unwrap_or_else(|e| panic!("parse {}: {e}", manifest_path.display()));
+        // The legacy serializer predates `remoteTask`, so it cannot describe those manifests.
+        if manifest.capabilities.remote_task.is_some() {
+            continue;
+        }
         assert_context_owner_absent_is_byte_equivalent(
             &manifest_path.display().to_string(),
             &manifest.capabilities.chat_backend,

@@ -2,12 +2,27 @@ import { describe, expect, it } from "vitest";
 import { chatLayoutScrollTarget, shouldCaptureChatAnchor } from "./chatScrollDecisions";
 import { chatViewportModeAfterScroll } from "./chatViewport";
 import { captureChatAnchor, chatAnchorIdentities, chatRevealIndex, resolveChatAnchorIndex, resolveChatAnchorTop } from "./chatAnchorModel";
+import { captureChatContentAnchor } from "./chatScrollAnchor";
 
 describe("chat anchor identity and pixels", () => {
+  it("uses the mounted row frame when a day separator precedes the message body", () => {
+    const scroll = document.createElement("div");
+    scroll.scrollTop = 500;
+    const frame = document.createElement("div");
+    frame.dataset.chatWindowRow = "opaque-row";
+    const message = document.createElement("article");
+    message.dataset.messageId = "opaque-row";
+    frame.append(message);
+    scroll.append(frame);
+    scroll.getBoundingClientRect = () => ({ top: 100 } as DOMRect);
+    frame.getBoundingClientRect = () => ({ top: 50, height: 1000 } as DOMRect);
+    message.getBoundingClientRect = () => ({ top: 80, height: 970 } as DOMRect);
+    expect(captureChatContentAnchor(scroll)).toEqual({ id: "opaque-row", key: "opaque-row", ordinal: 0, offset: -50 });
+  });
   const identities = chatAnchorIdentities([{ id: "range-a", sourceMessageId: "duplicate" }, { id: "range-b", sourceMessageId: "duplicate" }, { id: "range-c" }]);
-  it("captures the first intact row with its viewport offset", () => {
+  it("captures the first intersecting row with its viewport offset", () => {
     expect(captureChatAnchor(identities.map((row, index) => ({ ...row, top: index * 100 })), 80))
-      .toEqual({ id: "range-b", key: "duplicate", ordinal: 1, offset: 20 });
+      .toEqual({ id: "range-a", key: "duplicate", ordinal: 0, offset: -80 });
   });
   it("resolves stable render identity before a reused source id", () => {
     const anchor = { id: "range-b", key: "duplicate", ordinal: 1, offset: 20 };

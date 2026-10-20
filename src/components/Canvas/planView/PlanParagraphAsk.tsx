@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import {
   useCallback,
   useEffect,
@@ -374,9 +375,7 @@ function PlanAskPopover({ anchor, owner, motion, onClose, onOpenTab }: PlanAskPo
             }}
           />
           {phase === "error" && (
-            <p role="alert" data-testid="plan-ask-error" className="plan-ask-note">
-              Couldn't reach {ready.name}.
-            </p>
+            <div data-testid="plan-ask-error"><InlineErrorNotice error="" operation={`reaching ${ready.name}`} blocking /></div>
           )}
           <div className="plan-ask-actions">
             <button type="button" data-testid="plan-ask-cancel" className="plan-ask-button" onClick={onClose}>

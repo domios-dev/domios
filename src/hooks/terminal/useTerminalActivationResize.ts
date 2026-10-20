@@ -7,6 +7,7 @@ import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvent
 
 export interface UseTerminalActivationResizeOptions {
   active: boolean;
+  viewerLocalGeometry?: boolean;
   isFocused: boolean;
   termReady: boolean;
   tabId: string;
@@ -34,6 +35,7 @@ function documentVisible(): boolean {
 
 export function useTerminalActivationResize({
   active,
+  viewerLocalGeometry = false,
   isFocused,
   termReady,
   tabId,
@@ -93,6 +95,10 @@ export function useTerminalActivationResize({
       waitingForMeasureRef.current = false;
       try { fitAddonRef.current?.fit(); } catch { return; }
       if (term.cols <= 0 || term.rows <= 0) return;
+      if (viewerLocalGeometry) {
+        if (isFocused) term.focus();
+        return;
+      }
 
       const request = ++requestRef.current;
       pendingRequestRef.current = request;
@@ -129,11 +135,13 @@ export function useTerminalActivationResize({
     fitAddonRef,
     loseResizeOwnership,
     ptyId,
+    isFocused,
     refitAndCommitResize,
     resizeClientId,
     setResizeOwner,
     tabId,
     termRef,
+    viewerLocalGeometry,
   ]);
 
   const refitIfOwned = useCallback(() => {

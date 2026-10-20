@@ -1,12 +1,16 @@
 import { runtimeActivityLabel } from "../../lib/agentRuntimeTiming";
+import { activityCommand, activityLabel, type ActivityTool } from "../../../packages/plugin-sdk/src/activityLabel";
 import type { AgentRuntimeState } from "../../lib/agentRuntimeState";
-import { tabStartingLabel } from "../Sidebar/tabAttention";
 import type { ReactNode } from "react";
 import { Square, Terminal, X } from "lucide-react";
-import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { ActivityDots } from "../shared/ActivityDots";
+import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
+import { tabStartingLabel } from "../Sidebar/tabAttention";
+import { useStableStatusLabel } from "./useStableStatusLabel";
 import { ChatChannelLoadingStatus } from "./ChatChannelLoadingStatus";
 import type { Tab } from "../../lib/types";
+import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
+import { backgroundOwnsTool } from "./composerBackgroundWorkModel";
 
 import type { TabActivity } from "../../lib/tabActivity";
 export type { AgentState } from "../../lib/tabActivity";
@@ -21,8 +25,8 @@ function compactStatusMessage(text: string): string {
 
 export function AgentStateIndicator({
   activity,
-  runtimeState,
   tab,
+  runtimeState,
   providerName,
   model,
   reasoningEffort,
@@ -34,6 +38,7 @@ export function AgentStateIndicator({
   renderIdentity,
   showActivity = true,
   channelLoadingLabel,
+  activeTool,
 }: {
   activity: TabActivity;
   runtimeState?: AgentRuntimeState | null;
@@ -49,26 +54,45 @@ export function AgentStateIndicator({
   renderIdentity?: (label: string) => ReactNode;
   showActivity?: boolean;
   channelLoadingLabel?: string;
+  activeTool?: ActivityTool & { id?: string; sourceSessionId?: string };
 }) {
   const isWorking = activity.canStop;
   const isQuiet = activity.quiet;
   const isQuestion = activity.kind === "waiting-on-user";
   const phase = activity.phase;
-  const status = runtimeActivityLabel(activity.label, activity.kind, runtimeState, Date.now());
+  const work = useComposerBackgroundWorkStatus();
+  const background = backgroundOwnsTool(activeTool, work.items);
+  const runningTool = activity.kind === "working" && !background ? activeTool : undefined;
+  const statusMessage = background && activity.kind === "working"
+    ? activity.status
+    : runningTool ? activityLabel(runningTool) : activity.label;
+  const stableMessage = useStableStatusLabel(statusMessage, activity.kind, !runningTool && !background && activity.genericWork === true);
+  const status = runtimeActivityLabel(stableMessage, activity.kind, runtimeState, Date.now(), activity.lastTurnMs);
+  const detail = runningTool ? activityCommand(runningTool) : undefined;
   const actualEffort = reasoningEffort?.actual_source === "session-owned"
     ? reasoningEffort.actual?.trim()
     : null;
   const identity = [providerName?.trim(), model?.trim(), actualEffort].filter(Boolean).join(" · ");
   const text = [identity, status].filter(Boolean).join(" · ");
-  const dots = channelLoadingLabel ? <ChatChannelLoadingStatus label={channelLoadingLabel} /> : !showActivity ? null : activity.kind === "starting" ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact /> : activity.active ? (
-    <ActivityDots
-      data-testid="agent-activity-dots"
-      size="small"
-      tone={isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
-      rhythm={phase}
-      active={activity.active}
-    />
-  ) : null;
+  const animated = activity.active && !background;
+  // One fixed-width slot: still dots beside a resting label, moving dots while working, the clock while starting.
+  // With nothing to say there is no label to keep in place, so the slot goes too.
+  const restingWithoutLabel = !animated && activity.kind !== "starting" && !status;
+  const dots = channelLoadingLabel
+    ? <ChatChannelLoadingStatus label={channelLoadingLabel} />
+    : !showActivity || restingWithoutLabel ? null : (
+      <span data-testid="agent-activity-slot" className="inline-flex w-6 shrink-0 items-center justify-center">
+        {activity.kind === "starting"
+          ? <TabLoadingIndicator label={tab ? tabStartingLabel(tab) : "Agent starting"} compact />
+          : <ActivityDots
+            data-testid="agent-activity-dots"
+            size="small"
+            tone={animated && isWorking ? (phase === "thinking" ? "thinking" : "accent") : "muted"}
+            rhythm={phase}
+            active={animated}
+          />}
+      </span>
+    );
 
   return (
     <div
@@ -94,21 +118,21 @@ export function AgentStateIndicator({
           <span
             className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
             style={{ fontFamily: "var(--ct-font-mono)" }}
-            title={status || undefined}
+            title={detail || status || undefined}
           >
             {status ? compactStatusMessage(status) : ""}
           </span>
         </>
       ) : (
         <>
-          {dots}
           <span
             className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
             style={{ fontFamily: "var(--ct-font-mono)" }}
-            title={text || undefined}
+            title={detail || text || undefined}
           >
             {compactStatusMessage(text)}
           </span>
+          {dots}
         </>
       )}
       {onStop && (!isQuiet && !isQuestion) && (

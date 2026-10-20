@@ -1,4 +1,4 @@
-import { test, beforeAll } from "vitest";
+import { test, beforeAll, beforeEach } from "vitest";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -9,6 +9,9 @@ import {
 } from "./chatModelBubbleApi";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import type { ModelInfo, ProviderDescriptor } from "../../lib/types";
+import { invalidateAgentProviders } from "../../hooks/useAgentProviders";
+
+beforeEach(() => invalidateAgentProviders());
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -98,13 +101,13 @@ function buttonNamed(host: HTMLElement, name: string): HTMLButtonElement | null 
     .find((button) => button.getAttribute("aria-label") === name || button.textContent?.trim() === name) ?? null;
 }
 
-function modelOptionNames(host: HTMLElement): string[] {
-  return Array.from(host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"][aria-label]'))
+function modelOptionNames(_host: HTMLElement): string[] {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"][aria-label]'))
     .map((button) => button.getAttribute("aria-label")!);
 }
 
-function options(host: HTMLElement): HTMLButtonElement[] {
-  return Array.from(host.querySelectorAll('[data-testid="chat-model-option"]'));
+function options(_host: HTMLElement): HTMLButtonElement[] {
+  return Array.from(document.querySelectorAll('[data-testid="chat-model-option"]'));
 }
 
 // it lives inside the bubble's wrapper subtree — query the whole document.

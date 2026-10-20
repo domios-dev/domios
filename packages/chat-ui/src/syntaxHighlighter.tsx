@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { PrismLight } from "react-syntax-highlighter";
+import PrismLightModule from "react-syntax-highlighter/dist/esm/prism-light";
 import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
 import c from "react-syntax-highlighter/dist/esm/languages/prism/c";
 import cpp from "react-syntax-highlighter/dist/esm/languages/prism/cpp";
@@ -24,18 +24,27 @@ import tsx from "react-syntax-highlighter/dist/esm/languages/prism/tsx";
 import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
 import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
 
-import { createElement } from "react-syntax-highlighter";
+import createElementModule from "react-syntax-highlighter/dist/esm/create-element";
 import { BudgetedHighlightRows, useHighlightVisibility } from "./ChatHighlightBudget";
 import { highlightSourceEligible } from "./highlightBudget";
-export { createElement } from "react-syntax-highlighter";
+import { DEV_BUILD } from "../../../src/lib/devBuild";
+import { createGrammarLoader, type GrammarLoader, type GrammarLoadResult } from "./syntaxGrammarLoader";
+export { createElement };
 
 type Grammar = { displayName: string; aliases?: readonly string[] };
+
+// Node loads these ESM-in-CJS files with a nested default; the bundler does not.
+function esmDefault<T>(value: T): T {
+  return (value as { default?: T }).default ?? value;
+}
+const PrismLight = esmDefault(PrismLightModule);
+const createElement = esmDefault(createElementModule);
 
 // Registering all ~300 Prism grammars costs ~180 ms at startup; the rest load on first use of a language outside this set.
 const EAGER_GRAMMARS: Grammar[] = [
   bash, c, cpp, csharp, css, diff, go, java, javascript, json, jsx, markdown, markup,
   powershell, python, rust, scss, sql, swift, toml, tsx, typescript, yaml,
-];
+].map(esmDefault);
 const eagerNames = new Set<string>();
 for (const grammarModule of EAGER_GRAMMARS) {
   // Node's CommonJS interop hands over the module namespace instead of its default export.
@@ -46,19 +55,12 @@ for (const grammarModule of EAGER_GRAMMARS) {
 }
 
 let allGrammarsLoaded = false;
-let allGrammars: Promise<boolean> | null = null;
-
-// The full Prism build registers every grammar into the refractor instance PrismLight shares.
-function loadAllGrammars(): Promise<boolean> {
-  allGrammars ??= import("react-syntax-highlighter/dist/esm/prism").then(() => {
-    allGrammarsLoaded = true;
-    return true;
-  }, () => {
-    allGrammars = null;
-    return false;
-  });
-  return allGrammars;
-}
+export const loadAllGrammars = createGrammarLoader(async () => {
+  await import("react-syntax-highlighter/dist/esm/prism");
+  allGrammarsLoaded = true;
+}, (error) => {
+  if (DEV_BUILD) console.debug("[chat-highlight] Grammar load failed; showing plain text", error);
+});
 
 function needsGrammar(language: string | undefined): language is string {
   return !!language && language !== "text" && !allGrammarsLoaded && !eagerNames.has(language);
@@ -66,22 +68,24 @@ function needsGrammar(language: string | undefined): language is string {
 
 type PrismLightProps = React.ComponentProps<typeof PrismLight>;
 
-export function SyntaxHighlighter({ explicitHighlight = false, ...props }: PrismLightProps & { explicitHighlight?: boolean }) {
+export function SyntaxHighlighter({ explicitHighlight = false, loadGrammars = loadAllGrammars, ...props }: PrismLightProps & { explicitHighlight?: boolean; loadGrammars?: GrammarLoader }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const visible = useHighlightVisibility(hostRef, explicitHighlight);
   const source = Array.isArray(props.children) ? props.children.join("") : props.children;
   const enabled = visible && highlightSourceEligible(source, explicitHighlight);
-  const language = enabled ? props.language : "text";
-  const [, setLoaded] = useState(0);
+  const [loadResult, setLoadResult] = useState<{ language: string; result: GrammarLoadResult } | null>(null);
+  const requestedLanguage = enabled ? props.language : "text";
+  const failed = loadResult?.language === requestedLanguage && loadResult?.result === "failed";
+  const language = failed ? "text" : requestedLanguage;
   useEffect(() => {
-    if (!needsGrammar(language)) return;
+    if (!needsGrammar(requestedLanguage)) return;
     let live = true;
-    void loadAllGrammars().then((ok) => {
-      if (live && ok) setLoaded((n) => n + 1);
+    void loadGrammars().then((result) => {
+      if (live) setLoadResult({ language: requestedLanguage, result });
     });
     return () => { live = false; };
-  }, [language]);
-  return <div ref={hostRef} style={{ display: "contents" }}><PrismLight {...props} language={language}
+  }, [requestedLanguage, loadGrammars]);
+  return <><div ref={hostRef} style={{ display: "contents" }}><PrismLight {...props} language={language}
     wrapLines={props.renderer ? props.wrapLines : props.wrapLines ?? false}
     renderer={(arguments_) => <BudgetedHighlightRows rows={arguments_.rows} enabled={enabled}
       plain={() => props.renderer
@@ -89,7 +93,7 @@ export function SyntaxHighlighter({ explicitHighlight = false, ...props }: Prism
         : source}
       render={() => props.renderer ? props.renderer(arguments_) : arguments_.rows.map((node, index) => createElement({
         node, stylesheet: arguments_.stylesheet, useInlineStyles: arguments_.useInlineStyles, key: index,
-      }))} />} /></div>;
+      }))} />} /></div>{failed && <span role="status">Syntax highlighting unavailable; showing plain text.</span>}</>;
 }
 
 interface PlainHighlightNode { value?: string | number; children?: readonly PlainHighlightNode[] }

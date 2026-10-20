@@ -39,6 +39,7 @@ pub struct AgentLiveState {
     pub status_line: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phase: Option<String>,
+    /// The live turn's elapsed time while working; the finished turn's duration while idle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

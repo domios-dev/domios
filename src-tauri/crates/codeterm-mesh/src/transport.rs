@@ -1,7 +1,7 @@
 //! HTTP transport for peer-to-peer communication.
 //! All authenticated requests use Ed25519 signed JWTs.
 
-use std::error::Error;
+use std::{error::Error, sync::LazyLock};
 
 use super::types::{address_tier, PeerAddress};
 
@@ -146,20 +146,20 @@ impl TransportError {
         self.kind
     }
 
-    /// Stable code a caller can branch on, matching `codeterm_types::mesh::delivery`.
+    /// Stable code a caller can branch on, matching `crate::contract::delivery`.
     pub fn code(&self) -> &'static str {
         match self.kind {
             TransportErrorKind::NothingSent => {
-                codeterm_types::mesh::delivery::MESH_TRANSPORT_NOTHING_SENT
+                crate::contract::delivery::MESH_TRANSPORT_NOTHING_SENT
             }
             TransportErrorKind::SubmitUnconfirmed => {
-                codeterm_types::mesh::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
+                crate::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
             }
             TransportErrorKind::PeerRejected => {
-                codeterm_types::mesh::delivery::MESH_TRANSPORT_PEER_REJECTED
+                crate::contract::delivery::MESH_TRANSPORT_PEER_REJECTED
             }
             TransportErrorKind::BadResponse => {
-                codeterm_types::mesh::delivery::MESH_TRANSPORT_BAD_RESPONSE
+                crate::contract::delivery::MESH_TRANSPORT_BAD_RESPONSE
             }
         }
     }
@@ -238,13 +238,29 @@ pub struct PeerClient {
     signed_token: Option<String>,
 }
 
+static PEER_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(CLIENT_DEFAULT_TIMEOUT)
+        .build()
+        .unwrap_or_default()
+});
+
+static PEER_STREAM_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_default()
+});
+
+pub(super) fn shared_http_client() -> reqwest::Client {
+    PEER_HTTP_CLIENT.clone()
+}
+
 impl PeerClient {
     pub fn new_signed_url(base_url: String, signed_token: &str) -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(CLIENT_DEFAULT_TIMEOUT)
-                .build()
-                .unwrap_or_default(),
+            client: shared_http_client(),
             base_url,
             signed_token: Some(signed_token.to_string()),
         }
@@ -258,10 +274,7 @@ impl PeerClient {
     /// Create a client without auth (for pairing requests only).
     pub fn new_unauthenticated(address: &str, port: u16) -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(CLIENT_DEFAULT_TIMEOUT)
-                .build()
-                .unwrap_or_default(),
+            client: shared_http_client(),
             base_url: format!("http://{}:{}", address, port),
             signed_token: None,
         }
@@ -406,20 +419,12 @@ impl PeerClient {
     }
 
     /// Open a signed GET against the peer's real endpoint for byte-pipe relaying
-    /// (D2 §3). A dedicated client with NO total timeout — the 5s unary client
-    /// would kill a long-lived SSE stream; only a connect timeout guards a dead
-    /// peer. Returns the raw response verbatim (status NOT checked): the caller
-    /// is a dumb pipe and forwards whatever the peer sent. `path` MUST be
-    /// caller-validated (whitelist + SSRF guard) before calling.
+    /// (D2 §3). The shared stream client has no total timeout; only connection
+    /// setup is bounded so a long-lived SSE stream stays open. Returns the raw
+    /// response verbatim (status NOT checked). `path` MUST be caller-validated.
     pub async fn open_relay_stream(&self, path: &str) -> Result<reqwest::Response, String> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(10))
-            // off the whitelisted path — forward the redirect verbatim instead.
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap_or_default();
         let url = format!("{}{}", self.base_url, path);
-        let mut req = client.get(&url);
+        let mut req = PEER_STREAM_HTTP_CLIENT.get(&url);
         if let Some((k, v)) = self.auth_header() {
             req = req.header(&k, &v);
         }
@@ -526,7 +531,7 @@ mod tests {
         let transport_error = TransportError::from_send_error(&error);
         assert_eq!(
             transport_error.code(),
-            codeterm_types::mesh::delivery::MESH_TRANSPORT_NOTHING_SENT
+            crate::contract::delivery::MESH_TRANSPORT_NOTHING_SENT
         );
         assert_eq!(
             transport_error.bytes_written(),
@@ -535,7 +540,7 @@ mod tests {
         );
         assert_ne!(
             transport_error.code(),
-            codeterm_types::mesh::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
+            crate::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
             "nothing-landed must never be confused with landed-unknown"
         );
     }
@@ -585,7 +590,7 @@ mod tests {
         let transport_error = TransportError::from_send_error(&error);
         assert_eq!(
             transport_error.code(),
-            codeterm_types::mesh::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
+            crate::contract::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED
         );
         assert_eq!(
             transport_error.bytes_written(),
@@ -594,7 +599,7 @@ mod tests {
         );
         assert_ne!(
             transport_error.code(),
-            codeterm_types::mesh::delivery::MESH_TRANSPORT_NOTHING_SENT,
+            crate::contract::delivery::MESH_TRANSPORT_NOTHING_SENT,
             "landed-unknown must never be confused with nothing-landed"
         );
     }

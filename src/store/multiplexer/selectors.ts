@@ -11,6 +11,22 @@ export function selectTab(state: ExtendedState, tabId: string): Tab | undefined 
   return state.tabs[tabId];
 }
 
+export function selectActiveWorkspaceId(state: ExtendedState): string | null {
+  return state.active_workspace_id ?? null;
+}
+
+const APP_SHELL_FIELDS = [
+  "workspaces", "tabs", "teams", "activeTabIds", "active_workspace_id", "focused_tab_id",
+  "notifications", "notificationsLoaded", "toasts", "storageUnavailable",
+] as const satisfies ReadonlyArray<keyof ExtendedState>;
+
+/** The app shell reads the generation only as route readiness, so a snapshot that changed nothing else keeps it still. */
+export function appShellStateEqual(a: ExtendedState, b: ExtendedState): boolean {
+  if (a === b) return true;
+  if (Math.min(a.generation, 1) !== Math.min(b.generation, 1)) return false;
+  return APP_SHELL_FIELDS.every((field) => a[field] === b[field]);
+}
+
 export function selectTeams(state: ExtendedState): Team[] {
   return state.teams;
 }
@@ -85,6 +101,21 @@ export function selectTabTitleMap(state: ExtendedState): Map<string, string> {
       const tab = state.tabs[tabId];
       const name = stripTabTitleSpinner(tab?.title);
       if (name) byShort.set(tabId.slice(0, 8), name);
+    }
+  }
+  return byShort;
+}
+
+export function selectTabCommunicationNameMap(state: ExtendedState): Map<string, string> {
+  const teams = new Map(state.teams.map((team) => [team.id, team.name?.trim() || "Team"]));
+  const byShort = new Map<string, string>();
+  for (const ws of state.workspaces) {
+    for (const tabId of ws.tabs) {
+      const tab = state.tabs[tabId];
+      const name = stripTabTitleSpinner(tab?.title);
+      if (!name) continue;
+      const teamName = tab?.team_id ? teams.get(tab.team_id) : undefined;
+      byShort.set(tabId.slice(0, 8), teamName ? `${name} · ${teamName}` : name);
     }
   }
   return byShort;
@@ -179,7 +210,11 @@ export function tabAsksEqual(a: Notification[], b: Notification[]): boolean {
       && ask.severity === other.severity
       && ask.level === other.level
       && ask.actions === other.actions
+      && ask.resolved === other.resolved
+      && ask.answer_pending === other.answer_pending
+      && ask.answer_error === other.answer_error
       && ask.answer?.answered === other.answer?.answered
+      && ask.answer?.delivered === other.answer?.delivered
       && ask.answer?.asked_from_tab === other.answer?.asked_from_tab;
   });
 }

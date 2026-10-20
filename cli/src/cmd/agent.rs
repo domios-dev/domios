@@ -16,6 +16,8 @@ mod agent_login;
 mod agent_model_switch;
 #[path = "agent_models.rs"]
 mod agent_models;
+#[path = "agent_remote.rs"]
+pub(super) mod agent_remote;
 use agent_models::select_provider;
 #[cfg(test)]
 use agent_models::{format_agent_models, format_agent_models_json};
@@ -66,9 +68,7 @@ pub(crate) fn caller_resolved_spawn_cwd(cwd: &str, caller_cwd: Option<&std::path
     }
 }
 
-/// Resolve the spawn task body from `--task` / `--task-file`. `--task-file`
-/// reads the file verbatim (or stdin when the value is `-`), so the body never
-/// passes through the caller's shell — backticks and $(...) survive byte-exact.
+/// `--task-file` (or stdin for `-`) is read verbatim, bypassing the caller's shell.
 pub fn resolve_spawn_task<R: Read>(
     task: Option<String>,
     task_file: Option<String>,
@@ -316,6 +316,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
+        AgentAction::Usage { action } => {
+            super::agent_runtime::handle_usage(&local_http, &base, json, action)
+        }
+        AgentAction::ChildHistory(args) => {
+            super::agent_runtime::handle_child_history(&local_http, &base, json, args)
+        }
         AgentAction::Login {
             tab,
             device,
@@ -390,7 +396,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         .and_then(serde_json::Value::as_u64)
                         .unwrap_or(observed_version);
                     if live_discovery_warning_needed(discovery_required, refreshed) {
-                        eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
+                        eprintln!(
+                            "WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot."
+                        );
                     }
                     if discovery_required || refreshed || current_version != observed_version {
                         let response = match local_http
@@ -561,17 +569,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     .unwrap_or_else(|| tab_id.clone());
                 crate::cmd::print::fail(1, missing_report_binding_incident(&tab));
             }
-            let mut body = serde_json::json!({
-                "tab_id": tab_id,
-                "caller_tab_id": tab_id,
-                "message": message,
-            });
-            if let Ok(session_id) = std::env::var("CODETERM_SESSION_ID") {
-                body["caller_session_id"] = serde_json::json!(session_id);
-            }
-            if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
-                body["session_binding_nonce"] = serde_json::json!(nonce);
-            }
+            let mut body = CallerContext::from_env().report_body(&tab_id, message);
             if let Ok(attempt_id) = std::env::var("CODETERM_ATTEMPT_ID") {
                 body["attempt_id"] = serde_json::json!(attempt_id);
             }
@@ -727,9 +725,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(task_id) = task_id {
                 body["task_id"] = serde_json::json!(task_id);
             }
-            if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
-                body["session_binding_nonce"] = serde_json::json!(nonce);
-            }
             let result = client.call("agent.ack", Some(body));
             match result {
                 Ok(value) if json => {
@@ -794,7 +789,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        action @ AgentAction::Spawn { .. } => super::agent_spawn::handle(client, json, action),
+        action @ AgentAction::Spawn { .. } => {
+            super::agent_spawn::handle(client, &local_http, &base, json, action)
+        }
         AgentAction::Ledger { tab } => {
             let tab_id = resolve_tab(client, tab);
             match client.call(
@@ -899,6 +896,37 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
+        AgentAction::SwitchProviderStatus { tab, operation } => {
+            let tab_id = resolve_tab(client, tab);
+            crate::cmd::agent_provider_switch::status(
+                &local_http,
+                &base,
+                &tab_id,
+                &operation,
+                json,
+            );
+        }
+        AgentAction::SwitchProvider {
+            tab,
+            provider,
+            model,
+            reasoning_effort,
+            force,
+        } => {
+            let tab_id = resolve_tab(client, tab);
+            crate::cmd::agent_provider_switch::run(
+                &local_http,
+                &base,
+                &tab_id,
+                crate::cmd::agent_provider_switch::SwitchProviderRequest {
+                    provider,
+                    model,
+                    reasoning_effort,
+                    force,
+                },
+                json,
+            );
+        }
         AgentAction::Fork { tab } => {
             let tab_id = resolve_tab(client, tab);
             let response = local_http
@@ -922,24 +950,26 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 );
             }
         }
-        AgentAction::Model { name, tab, force } => {
-            let tab_id = resolve_tab(client, tab);
-            let result = local_http
-                .post(format!("{}/api/tabs/{}/agent/model", base, tab_id))
-                .json(&serde_json::json!({ "model": name, "force":force }))
-                .send()
-                .map_err(|error| crate::cmd::print::CliError::new(error.to_string()))
-                .and_then(|resp| {
-                    let status = resp.status();
-                    let text = resp.text().unwrap_or_default();
-                    agent_model_switch::model_switch_result(status, &text)
-                });
-            match result {
-                Ok(value) if json => crate::cmd::print::print_json(&value),
-                Ok(value) => println!("{}", agent_model_switch::render_model_switch(&value)),
-                Err(error) => crate::cmd::print::exit_with_cli_error(json, &error),
-            }
-        }
+        AgentAction::Model {
+            name,
+            tab,
+            force,
+            speed,
+            list_speeds,
+            reasoning_effort,
+            runtime_mode,
+        } => agent_model_switch::handle(
+            &local_http,
+            &base,
+            resolve_tab(client, tab),
+            name,
+            force,
+            speed,
+            list_speeds,
+            reasoning_effort,
+            runtime_mode,
+            json,
+        ),
     }
 }
 

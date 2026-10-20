@@ -19,7 +19,14 @@ impl JsProvider {
         if self.has_js("readSessionContent") {
             return SessionContentSource::SharedStore;
         }
-        if self.has_js("parseSessionMessages") {
+        if self.has_js("parseSessionMessages")
+            || (self
+                .manifest
+                .capabilities
+                .record_sources
+                .contains_key("sessionTranscript")
+                && self.has_js("parseSessionMessageRecords"))
+        {
             return SessionContentSource::SessionFile;
         }
         self.native()

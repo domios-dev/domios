@@ -21,8 +21,13 @@ on:
         required: false
         default: all
         type: string
-      cancel_release_on_failure:
-        description: Cancel the caller release run immediately when a Rust job fails
+      cancel_run:
+        description: A failed fast check cancels the calling run at once
+        required: false
+        default: false
+        type: boolean
+      artifacts_optional:
+        description: Dry runs keep going when artifact storage refuses an upload
         required: false
         default: false
         type: boolean
@@ -35,8 +40,20 @@ on:
       - 'essences/**'
       - 'evals/**'
   workflow_dispatch:
-  # Nightly full matrix on develop while the farm is idle, so parallel-test races
-  # and flakes surface days before a release instead of on release day.
+    inputs:
+      source_ref:
+        description: Exact source commit SHA
+        required: true
+        type: string
+      phase:
+        type: choice
+        default: fast
+        options: [fast]
+      scope:
+        type: choice
+        default: full
+        options: [full, frontend]
+  # Release CI through workflow_call and manual dispatch run the full matrix.
 
 # A branch is tested through its pull request, never through its own pushes:
 # release/feat/lane pushes duplicated the matrix the PR already ran, and the
@@ -45,7 +62,7 @@ on:
 #
 # One group per pull request and per pushed ref: a new push to a PR, or a newer
 # master commit, cancels the run it supersedes instead of queueing behind it on
-# the shared runners. The nightly schedule shares master's group.
+# the shared runners.
 permissions:
   contents: read
   pull-requests: write
@@ -55,6 +72,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+  # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
+  CODETERM_BUILD_GATEWAY_MODE: queue
   CODETERM_SCCACHE_VERIFY_ONLY: '1'
   DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
   DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
@@ -75,6 +97,8 @@ jobs:
   # and skipping there would skip the one run that has never happened.
   changed:
     name: tree is new
+    # A release branch's push already runs these checks on the exact SHA in release.yml.
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/') }}
     # Every job waits on this gate, so any free light runner takes it.
     runs-on: [self-hosted, light]
     permissions:
@@ -89,11 +113,11 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 2
       - id: tree
         env:
-          CI_RELEASE_CALL: ${{ inputs.source_ref != '' || github.event_name == 'schedule' }}
+          CI_RELEASE_CALL: ${{ inputs.source_ref != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -120,51 +144,105 @@ jobs:
       - id: scope
         if: steps.tree.outputs.run == 'true'
         env:
-          CI_FULL_MATRIX: ${{ (inputs.source_ref != '' && inputs.scope != 'frontend') || github.event_name == 'schedule' }}
+          CI_FULL_MATRIX: ${{ (inputs.source_ref != '' && inputs.scope != 'frontend') }}
           CI_FRONTEND_ONLY: ${{ inputs.source_ref != '' && inputs.scope == 'frontend' }}
           CI_FAST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: node scripts/ci-scope.mjs HEAD^ HEAD
-      - &cancel-release-on-failure
-        name: Cancel release builds on test failure
-        id: cancel-release
-        if: ${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          GH_RUN_ID: ${{ github.run_id }}
-        run: gh api --method POST "repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel"
 
-  plugin-metadata:
-    name: plugin release contracts
+  # The cheapest, most frequent failures surface first: one job, one checkout, every guard
+  # reported, and it gates every other fast check so a single light runner orders them.
+  guards:
+    name: guards
     needs: changed
-    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.result == 'success') }}
-    runs-on: [self-hosted, linux-ci]
+    if: ${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}
+    # The Node and Python release contracts assume Linux paths (macOS /var is a symlink).
+    runs-on: [self-hosted, Linux, light]
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 60
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - run: node scripts/release-plugin.mjs check
-      - run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
-      - *cancel-release-on-failure
+      - &select-pr-catalogue
+        name: Select PR catalogue
+        id: catalogue
+        shell: bash
+        run: |
+          node scripts/test-catalogue.mjs select --tier pr --format json > "$RUNNER_TEMP/pr-catalogue.json"
+          node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
+      - name: Source file size discipline
+        run: bash scripts/check-file-sizes.sh --fail
+      - name: Plugin release contracts
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-release-contracts'] }}
+      - name: Plugin release and scope script tests
+        if: ${{ !cancelled() }}
+        run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
+      # Light services can miss the runner user's rustup on PATH.
+      - name: Ensure Rust toolchain on PATH
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: |
+          if command -v cargo >/dev/null 2>&1; then exit 0; fi
+          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
+            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
+          done
+          echo "cargo not found; restore Rust on the runner" >&2
+          exit 1
+      - name: cargo fmt --check
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['rust-fmt'] }}
+      # Release shards run tests from an archive extracted on another machine.
+      - name: Archive-portable Rust test paths
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: node scripts/check-archive-portable-test-paths.mjs
+      - name: Setup pnpm
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+      - name: Install dependencies
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
+        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - name: Node script tests (tests/catalogue.json node-script-tests)
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['node-script-tests'] }}
+      - name: Python script tests (tests/catalogue.json python-script-tests)
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['python-script-tests'] }}
+      - name: Offline core journey contracts
+        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['core-journeys-offline'] }}
+      # Builds already in flight stop with the first failure instead of after the slowest sibling check.
+      # Cancelling marks this job cancelled too, so the annotation is what names the failed check.
+      - &cancel-run-on-failure
+        name: Cancel the run on this fast-check failure
+        if: failure() && inputs.cancel_run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILED_CHECK: ${{ github.job }}
+        run: |
+          echo "::error title=Fast check failed::$FAILED_CHECK failed; the run is cancelled"
+          gh run cancel ${{ github.run_id }} --repo ${{ github.repository }}
 
   plugins:
     name: plugin (${{ matrix.plugin.id }})
-    needs: changed
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.plugins != '[]') }}
     runs-on: [self-hosted, linux-ci]
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 60
+    timeout-minutes: 8
     strategy:
       fail-fast: false
       matrix:
@@ -172,7 +250,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
@@ -183,67 +261,36 @@ jobs:
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
       - run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - run: node scripts/check-plugin.mjs '${{ matrix.plugin.id }}'
+      - *select-pr-catalogue
+      - env:
+          PLUGIN_COMMAND: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-check'] }}
+          PLUGIN_ID: ${{ matrix.plugin.id }}
+        shell: bash
+        run: ${PLUGIN_COMMAND//<plugin-id>/"$PLUGIN_ID"}
+      - *cancel-run-on-failure
 
-  # Formatting is platform-independent, so it does not belong inside a platform
-  # lane: gating that lane off silences the check with it, which is how 22 files
-  # drifted unseen. Its own job on any free light runner, seconds long.
-      - *cancel-release-on-failure
-
-  fmt:
-    name: fmt
-    needs: changed
-    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
-    runs-on: [self-hosted, light]
+  # The whole suite compiles and runs once, in place, on any free runner in the
+  # rust-tests pool: shipping a nextest archive between runners cost more than the tests.
+  rust-tests:
+    name: rust tests (full suite)
+    needs: [changed, guards]
+    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.guards.result == 'success') }}
+    runs-on: [self-hosted, rust-tests]
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-      # Light runners include Linux services whose PATH can miss the runner user's rustup.
-      - name: Ensure Rust toolchain on PATH
-        run: |
-          if command -v cargo >/dev/null 2>&1; then exit 0; fi
-          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
-            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
-          done
-          echo "cargo not found; restore Rust on the runner" >&2
-          exit 1
-      - name: cargo fmt --check
-        run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml --check
-          cargo fmt --manifest-path cli/Cargo.toml --check
-      - *cancel-release-on-failure
-
-  rust-archives:
-    name: rust archive (${{ matrix.os }} ${{ matrix.arch }})
-    needs: [changed, fmt]
-    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.fmt.result == 'success') }}
-    runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}', '${{ matrix.arch }}']
-    permissions:
-      contents: read
-      actions: write
-    timeout-minutes: 50
+    timeout-minutes: 60
     strategy:
-      fail-fast: false
       matrix:
-        include:
-          - os: macOS
-            arch: ARM64
-            label: codeterm-builder
-          - os: Linux
-            arch: X64
-            label: linux-build
-          - os: Windows
-            arch: X64
-            label: windows-ci
-    steps:
+        suite: [full]
+    env:
+      # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+    steps: &rust-test-steps
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
           fetch-depth: 0
         env:
           GIT_CONFIG_COUNT: '1'
@@ -257,7 +304,7 @@ jobs:
         run: node scripts/ci-runner-paths.mjs
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
-          toolchain: 1.95.0
+          toolchain: 1.99.1
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
         with:
           tool: cargo-nextest@0.9.148
@@ -266,170 +313,131 @@ jobs:
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
-      - name: Compile and archive once for platform
+      - id: target
+        name: Rust target of this runner
+        shell: bash
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            macOS-ARM64) triple=aarch64-apple-darwin ;;
+            macOS-X64) triple=x86_64-apple-darwin ;;
+            Linux-ARM64) triple=aarch64-unknown-linux-gnu ;;
+            Linux-X64) triple=x86_64-unknown-linux-gnu ;;
+            Windows-ARM64) triple=aarch64-pc-windows-msvc ;;
+            Windows-X64) triple=x86_64-pc-windows-msvc ;;
+            *) echo "::error::unsupported runner $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          echo "triple=$triple" >> "$GITHUB_OUTPUT"
+          echo "warnings=rust-warnings-tests-${{ matrix.suite }}-$RUNNER_OS-$triple" >> "$GITHUB_OUTPUT"
+      - name: Compile and run ${{ matrix.suite }} Rust tests (Unix)
+        if: runner.os != 'Windows'
         env:
-          CI_RUNNER_ARCH: ${{ runner.arch }}
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
           RUST_WARNING_LOG: ci-rust-warnings.log
         shell: bash
         run: |
-          source build.sh env
-          ct_configure_sccache
-          ./build.sh cache-verify
-          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- node scripts/ci-rust-archives.mjs
-      - *cancel-release-on-failure
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          overwrite: true
-          name: rust-archive-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            ci-rust-archives/*.tar.zst
-            ci-rust-archives/*.suite.json
-          compression-level: 0
-          if-no-files-found: error
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+          if [ "$RUNNER_OS" = macOS ] && [ "${{ matrix.suite }}" = platform ]; then
+            # The large platform test binaries exceed Mach-O compact-unwind offsets; release binaries keep compact unwind.
+            export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+            export CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
+          fi
+          bash build.sh ci-tests ${{ matrix.suite }}
+      - name: Compile and run ${{ matrix.suite }} Rust tests (Windows)
+        if: runner.os == 'Windows'
+        env:
+          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
+          RUST_WARNING_LOG: ci-rust-warnings.log
+        shell: pwsh
+        run: |
+          & .\build.ps1 ci-tests ${{ matrix.suite }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Shared compile cache statistics (Windows)
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build.ps1 cache-stats
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Shared compile cache statistics (Unix)
+        if: always() && runner.os != 'Windows'
+        shell: bash
+        run: bash build.sh cache-stats
+      - name: Store Rust test receipts
         if: always()
-        with:
-          overwrite: true
-          name: rust-build-receipt-${{ matrix.os }}-${{ matrix.arch }}
-          path: ci-rust-builds/*.json
-          if-no-files-found: error
+        continue-on-error: ${{ inputs.artifacts_optional }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          receipts=(ci-rust-receipts/*.json ci-rust-receipts/*.log)
+          [ "${#receipts[@]}" -gt 0 ] || { echo "no Rust test receipts to store" >&2; exit 1; }
+          for receipt in "${receipts[@]}"; do bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-receipt/${receipt##*/}" "$receipt"; done
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
         with:
           complete: ${{ job.status == 'success' }}
-          platform: tests-${{ matrix.os }}
-          target: ${{ matrix.os == 'macOS' && 'aarch64-apple-darwin' || matrix.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
+          platform: tests-${{ matrix.suite }}-${{ runner.os }}
+          target: ${{ steps.target.outputs.triple }}
       - name: Clean compile fixtures
         if: always()
         run: node scripts/ci-rust-prepare.mjs cleanup
-      - &cancel-release-after-receipts
-        name: Cancel release builds on test failure
-        if: ${{ failure() && steps.cancel-release.outcome != 'success' && inputs.cancel_release_on_failure && inputs.source_ref != '' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          GH_RUN_ID: ${{ github.run_id }}
-        run: gh api --method POST "repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel"
-
-  rust-shards:
-    name: rust shard (${{ matrix.shard }}/12)
-    needs: [changed, rust-archives]
-    if: ${{ !cancelled() && needs.rust-archives.result == 'success' && inputs.phase != 'fast' && (needs.changed.outputs.heavy == 'true') }}
-    runs-on: [self-hosted, rust-shard, macOS]
-    permissions:
-      contents: read
-      actions: write
-    timeout-minutes: 50
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 0
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-        env:
-          GIT_CONFIG_COUNT: '1'
-          GIT_CONFIG_KEY_0: core.longpaths
-          GIT_CONFIG_VALUE_0: 'true'
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-      - name: Prepare runner tool paths
-        run: node scripts/ci-runner-paths.mjs
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
-        with:
-          tool: cargo-nextest@0.9.148
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: rust-archive-macOS-ARM64
-          path: ci-rust-archives
-      - name: Prepare runtime fixtures
-        run: node scripts/ci-rust-prepare.mjs runtime
-      - name: Shared tests (shard ${{ matrix.shard }}/12 on ${{ runner.name }})
-        env:
-          CI_RUNNER_ARCH: ${{ runner.arch }}
-          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
-        run: node scripts/ci-rust-shards.mjs shared ${{ matrix.shard }} 12
-      - *cancel-release-on-failure
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - &clean-job-outputs
+        name: Remove job archives and sweep old Rust targets
         if: always()
-        with:
-          overwrite: true
-          name: rust-receipt-shard-${{ matrix.shard }}
-          path: |
-            ci-rust-receipts/*.json
-            ci-rust-receipts/*.log
-          if-no-files-found: error
-      - *cancel-release-after-receipts
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs
+    outputs:
+      warnings: ${{ steps.target.outputs.warnings }}
 
+  # Each OS compiles and runs only its cfg-gated tests and the native input crates.
   rust-platform:
     name: rust platform (${{ matrix.os }})
-    needs: [changed, rust-archives]
-    if: ${{ !cancelled() && needs.rust-archives.result == 'success' && inputs.phase != 'fast' && (needs.changed.outputs.heavy == 'true') }}
+    needs: [changed, guards]
+    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.guards.result == 'success') }}
     runs-on: [self-hosted, '${{ matrix.os }}', '${{ matrix.label }}']
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 50
+    timeout-minutes: 45
     strategy:
       fail-fast: false
+      # Include-only rows: added keys on one base combination would overwrite each other, leaving one OS.
       matrix:
         include:
-          - os: Linux
+          - suite: platform
+            os: Linux
             label: linux-ci
-          - os: macOS
+          - suite: platform
+            os: macOS
             label: rust-shard
-          - os: Windows
+          - suite: platform
+            os: Windows
             label: windows-ci
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 0
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-        env:
-          GIT_CONFIG_COUNT: '1'
-          GIT_CONFIG_KEY_0: core.longpaths
-          GIT_CONFIG_VALUE_0: 'true'
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-      - name: Prepare runner tool paths
-        run: node scripts/ci-runner-paths.mjs
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
-        with:
-          tool: cargo-nextest@0.9.148
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: rust-archive-${{ runner.os }}-${{ runner.arch }}
-          path: ci-rust-archives
-      - name: Prepare runtime fixtures
-        run: node scripts/ci-rust-prepare.mjs runtime
-      - name: Platform tests (${{ matrix.os }} on ${{ runner.name }})
-        env:
-          CI_RUNNER_ARCH: ${{ runner.arch }}
-          CI_RELEASE_TESTS: ${{ inputs.source_ref != '' }}
-        run: node scripts/ci-rust-shards.mjs platform
-      - *cancel-release-on-failure
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          overwrite: true
-          name: rust-receipt-platform-${{ matrix.os }}
-          path: |
-            ci-rust-receipts/*.json
-            ci-rust-receipts/*.log
-          if-no-files-found: error
-      - *cancel-release-after-receipts
+    env:
+      # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+    steps: *rust-test-steps
 
-  rust-coverage:
-    name: rust complete coverage
-    needs: [changed, rust-archives, rust-shards, rust-platform]
+  rust-embeddings:
+    name: rust embeddings
+    needs: [changed, guards]
+    if: ${{ !cancelled() && inputs.phase != 'fast' && needs.changed.outputs.heavy == 'true' && (inputs.phase == 'long' || needs.guards.result == 'success') }}
+    runs-on: [self-hosted, rust-tests]
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        suite: [embeddings]
+    env:
+      # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/tests
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+    steps: *rust-test-steps
+
+  rust-receipts:
+    name: rust test receipts
+    needs: [changed, rust-tests, rust-platform, rust-embeddings]
     if: ${{ inputs.phase != 'fast' && (always() && needs.changed.outputs.heavy == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
@@ -439,44 +447,42 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           package-manager-cache: false
           node-version: '22.22.0'
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: rust-receipt-*
-          path: ci-rust-receipts
-          merge-multiple: true
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: rust-build-receipt-*
-          path: ci-rust-builds
-          merge-multiple: true
-      - name: Require every test job
+      - name: Fetch Rust test receipts
+        continue-on-error: ${{ inputs.artifacts_optional }}
+        run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/rust-receipt/" ci-rust-receipts
+      - name: Require every Rust test job
         env:
-          ARCHIVES_RESULT: ${{ needs.rust-archives.result }}
-          SHARDS_RESULT: ${{ needs.rust-shards.result }}
+          TESTS_RESULT: ${{ needs.rust-tests.result }}
           PLATFORM_RESULT: ${{ needs.rust-platform.result }}
-        run: node -e "if (process.env.ARCHIVES_RESULT !== 'success' || process.env.SHARDS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success') process.exit(1)"
-      - name: Prove exhaustive coverage and report runners
-        run: node scripts/ci-rust-shards.mjs verify ci-rust-receipts ci-rust-builds
-      - *cancel-release-on-failure
+          EMBEDDINGS_RESULT: ${{ needs.rust-embeddings.result }}
+        run: node -e "if (process.env.TESTS_RESULT !== 'success' || process.env.PLATFORM_RESULT !== 'success' || process.env.EMBEDDINGS_RESULT !== 'success') process.exit(1)"
+      # A dry run without artifact storage still requires every test job above; only the receipts may be absent.
+      - name: One passing full suite and one passing platform subset per OS
+        continue-on-error: ${{ inputs.artifacts_optional }}
+        run: node scripts/ci-rust-tests.mjs verify ci-rust-receipts
 
   clippy-linux:
     name: clippy (linux)
-    needs: changed
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.heavy == 'true') }}
     runs-on: [self-hosted, linux-ci]
     permissions:
       contents: read
       actions: write
     timeout-minutes: 30
+    env:
+      # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/clippy
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -494,12 +500,11 @@ jobs:
         run: |
           mkdir -p dist src-tauri/bundled-cli
           [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
-          node scripts/prepare-embed-stub.js
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: clippy (repo gate)
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash scripts/clippy-gate.sh
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh ci-clippy
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
@@ -509,22 +514,23 @@ jobs:
           target: x86_64-unknown-linux-gnu
       - name: Clean 0-byte stubs
         if: always()
-        run: find src-tauri/bundled-cli src-tauri/bundled-embed -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
-      - *cancel-release-on-failure
+        run: find src-tauri/bundled-cli -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
+      - *cancel-run-on-failure
+      - *clean-job-outputs
 
   ts-static:
     name: ts static checks
-    needs: changed
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -541,37 +547,79 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
       - name: TS strict typecheck (prod build gate)
-        run: pnpm exec tsc --noEmit
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-typecheck'] }}
       - name: TypeScript unused exports
         if: ${{ !cancelled() }}
-        run: pnpm check:unused-exports
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unused-exports'] }}
       - name: Repository Knip report
         if: ${{ !cancelled() }}
-        run: pnpm knip:report
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-knip-report'] }}
       # An effect that reaches the API must key on primitives; a mux-rebuilt object
       # re-runs it at broadcast rate. Five such sites shipped before this existed.
       - name: Check API effect dependencies
         if: ${{ !cancelled() }}
-        run: pnpm check:api-effects
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-api-effects'] }}
       - name: Biome (TS lint)
         if: ${{ !cancelled() }}
-        run: pnpm lint
-      - *cancel-release-on-failure
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-biome'] }}
+      - *cancel-run-on-failure
+
+  # Windows bundles build the frontend from the gateway's subst drive, where a pnpm
+  # workspace symlink can give one file two identities; nothing else runs from there.
+  frontend-windows:
+    name: frontend (Windows, stable path)
+    needs: [changed, guards]
+    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
+    runs-on: [self-hosted, Windows, windows-light]
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 8
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.32.1
+          run_install: false
+          dest: ${{ runner.tool_cache }}/setup-pnpm
+
+      - *select-pr-catalogue
+      # frontend-build installs through the bundle's own ensure_deps, from the mapped path.
+      - name: Build the release frontend from the stable build path
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['frontend-windows-build'] }}
+      - name: Store frontend warning collection
+        if: always()
+        continue-on-error: ${{ inputs.artifacts_optional }}
+        run: test ! -f ci-rust-warnings/rust-warnings-win32-frontend.json || bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/rust-warnings/rust-warnings-win32-frontend.json" ci-rust-warnings/rust-warnings-win32-frontend.json
+      - *cancel-run-on-failure
 
   ts-types:
     name: ts generated types
-    needs: changed
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 30
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Ensure Rust toolchain on PATH
         run: |
           if command -v cargo >/dev/null 2>&1; then exit 0; fi
@@ -596,11 +644,12 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"
       - name: Check Rust generated TypeScript types
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c 'pnpm types:check'
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash -c '${{ fromJSON(steps.catalogue.outputs.commands)['ts-generated-types'] }}'
 
       - uses: ./.github/actions/rust-warnings
         if: always()
@@ -609,21 +658,22 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: types-${{ runner.os }}
           target: ${{ runner.os == 'macOS' && (runner.arch == 'ARM64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || runner.os == 'Windows' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
-      - *cancel-release-on-failure
+      - *cancel-run-on-failure
+      - *clean-job-outputs
 
   ts-unit:
     name: ts unit
-    needs: changed
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -640,23 +690,27 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
       - name: Run TS unit tests
-        run: pnpm test:unit
-      - *cancel-release-on-failure
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit'] }}
+      - name: TS unit runner contracts
+        if: ${{ !cancelled() }}
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-unit-runner-tests'] }}
+      - *cancel-run-on-failure
 
   ts-vitest:
     name: ts vitest
-    needs: changed
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -673,26 +727,27 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
       # run-ts-unit-tests.mjs deliberately skips the vitest-owned files, so this
       # job is the only thing that runs them.
       # Light runners share a 16 GiB BLACKSTAR WSL VM with a heavy runner; bound the worker fanout.
       - name: Run vitest-owned TS tests
-        run: pnpm test:vitest --maxWorkers=4
-      - *cancel-release-on-failure
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['ts-vitest'] }}
+      - *cancel-run-on-failure
 
   ts-plugins:
     name: plugin bundles + tests
-    needs: changed
+    needs: [changed, guards]
     if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
     runs-on: [self-hosted, light]
     permissions:
       contents: read
       actions: write
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+          ref: ${{ inputs.source_ref || github.ref }}
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
@@ -709,72 +764,25 @@ jobs:
       - name: Install dependencies
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
+      - *select-pr-catalogue
       - name: Check generated plugin bundles
-        run: pnpm check:plugin-bundles
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-bundles'] }}
       - name: Run plugin tests
         if: ${{ !cancelled() }}
-        run: pnpm test:plugins
-      - *cancel-release-on-failure
-
-  release-contracts:
-    name: release contract tests
-    needs: changed
-    if: ${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}
-    runs-on: [self-hosted, light]
-    permissions:
-      contents: read
-      actions: write
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
-      - name: Setup Node.js
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          package-manager-cache: false
-          node-version: '22.22.0'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          version: 10.32.1
-          run_install: false
-          dest: ${{ runner.tool_cache }}/setup-pnpm
-
-      - name: Install dependencies
-        # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
-        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - name: Release test and publication gate contracts
-        run: node --test scripts/tests/release-test-gate.test.mjs scripts/tests/ci-scope.test.mjs scripts/tests/release-job-graph.test.mjs scripts/tests/release-bundle-smoke.test.mjs scripts/tests/release-asset-scope.test.mjs
-      - name: Rust shard coverage contracts
-        run: node --test scripts/tests/ci-rust-shards.test.mjs scripts/tests/ci-runner-paths.test.mjs scripts/tests/ci-rust-archives.test.mjs
-      - name: Release metadata contract tests
-        run: python3 -m unittest scripts.tests.test_release_issue_contract
-      - name: Release workflow signature-gate contract tests
-        if: ${{ !cancelled() }}
-        run: python3 -m unittest scripts.tests.test_release_workflow_contract
-      - name: Updater manifest merge + signature tests
-        if: ${{ !cancelled() }}
-        run: node --test scripts/tests/updater-manifest.test.mjs
-      - name: Release closure authority tests
-        if: ${{ !cancelled() }}
-        run: node --test scripts/tests/release-closure-authority.test.mjs
-      - name: Release notes synchronization tests
-        if: ${{ !cancelled() }}
-        run: node --test scripts/tests/release-notes-sync.test.mjs
-      - *cancel-release-on-failure
+        run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-tests'] }}
+      - *cancel-run-on-failure
 
   rust-warnings:
     permissions:
       contents: read
       actions: write
       pull-requests: write
-    needs: [changed, rust-archives, clippy-linux, ts-types]
-    if: always()
+    needs: [changed, rust-tests, rust-platform, clippy-linux, ts-types]
+    # Release calls summarise once in release.yml; a skipped scope gate has nothing to summarise.
+    if: ${{ always() && inputs.source_ref == '' && needs.changed.result == 'success' }}
     uses: ./.github/workflows/rust-warnings-summary.yml
+    secrets: inherit
     with:
-      source_ref: ${{ inputs.source_ref || (github.event_name == 'schedule' && 'refs/heads/develop') || github.ref }}
+      source_ref: ${{ inputs.source_ref || github.ref }}
       report_name: ${{ format('rust-warnings-tests-{0}-report', inputs.phase || 'all') }}
-      cancel_release_on_failure: ${{ inputs.cancel_release_on_failure }}
-      artifacts: ${{ needs.changed.outputs.heavy == 'true' && (inputs.phase == 'fast' && '["rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]' || inputs.phase == 'long' && '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc"]' || '["rust-warnings-tests-macOS-aarch64-apple-darwin","rust-warnings-tests-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]') || '[]' }}
+      artifacts: ${{ needs.changed.outputs.heavy == 'true' && (inputs.phase == 'fast' && '["rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]' || inputs.phase == 'long' && format('["{0}","rust-warnings-tests-platform-macOS-aarch64-apple-darwin","rust-warnings-tests-platform-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-platform-Windows-x86_64-pc-windows-msvc"]', needs.rust-tests.outputs.warnings) || format('["{0}","rust-warnings-tests-platform-macOS-aarch64-apple-darwin","rust-warnings-tests-platform-Linux-x86_64-unknown-linux-gnu","rust-warnings-tests-platform-Windows-x86_64-pc-windows-msvc","rust-warnings-clippy-Linux-x86_64-unknown-linux-gnu"]', needs.rust-tests.outputs.warnings)) || '[]' }}

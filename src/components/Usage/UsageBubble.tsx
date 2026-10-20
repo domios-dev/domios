@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {uid} from "../../lib/uid";
+import {invoke} from "../../lib/bridge";
+import {DEV_BUILD} from "../../lib/devBuild";
+import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
+import {ResetCreditsSection} from "./ResetCreditsSection";
+import { ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
 import { usageForModel } from "../../lib/modelGroups";
@@ -8,12 +14,16 @@ import { formatSpend } from "./format";
 import { groupSpendSnapshot, hasGroupSpend } from "./groupSpend";
 import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
-import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, type VisibleUsageMetric } from "./metrics";
+import type {UsageSnapshot} from "../../types/usage";
+import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, usagePillText, type VisibleUsageMetric } from "./metrics";
 import { formatAge } from "../../lib/timeLabels";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 interface UsageBubbleProps {
   /** Provider id — required, no default. The component is hosted by a
       tab that already knows its provider via `usageProvider`. */
+  tabId?: string;
+  threadId?: string | null;
   provider: string;
   accountId?: string | null;
   /// Pass-through from a single top-level `useConfig()` so every tab's
@@ -33,6 +43,8 @@ const STALE_MS = 20 * 60 * 1000;
 
 export function UsageBubble({
   provider,
+  tabId,
+  threadId,
   accountId = null,
   trackingEnabled = false,
   modelId = null,
@@ -49,44 +61,43 @@ export function UsageBubble({
     () => (hasGroupSpend(groupUsage) ? groupSpendSnapshot(provider, groupUsage, Date.now()) : null),
     [provider, groupUsage],
   );
-  // nor register a usage-snapshot-updated listener (was a per-tab IPC fan-out).
   const { snapshot, refresh, refetch } = useUsageSnapshot({
     provider,
     accountId,
-    enabled: trackingEnabled && !groupSnapshot,
+    enabled: trackingEnabled,
   });
-  const active = groupSnapshot ?? snapshot;
+  const runtime = ownRuntimeUsage(snapshot,tabId,threadId);
+  const active = runtime || snapshot?.runtime_usage
+    ? latestUsageSnapshot(snapshot, tabId, threadId)
+    : groupSnapshot ?? snapshot;
+  const accountCreditsLabel = runtimeAccountCreditsLabel(runtime?.account_credits);
+  const [, updateAge] = useState(0);
+  const refreshAge = () => updateAge(value => value + 1);
+  useEffect(() => {
+    const refresh = () => updateAge(value => value + 1);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+  const tokenSession = runtime?.billing_mode === "api" ? runtime : null;
+  const resetModel = tabId ? resetCreditsForTab(tabId, uid, async (key, creditId) => {
+    const result = await invoke<ResetResponse>("agent_runtime_reset_credits", {tabId,request:{action:"redeem",confirmed:true,idempotencyKey:key,...(creditId ? {creditId} : {})}});
+    try {
+      await invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}});
+      const updated = await invoke<UsageSnapshot|null>("usage_latest", {provider,accountId:accountId ?? undefined});
+      await refetch();
+      return {...result,remainingCount:ownRuntimeUsage(updated,tabId,threadId)?.resets?.availableCount ?? null};
+    } catch {
+      return result;
+    }
+  }) : null;
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [flipUp, setFlipUp] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("mousedown", onDocClick);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDocClick);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !btnRef.current) return;
-    const btnRect = btnRef.current.getBoundingClientRect();
-    const tab = btnRef.current.closest("[data-tab-id]") as HTMLElement | null;
-    const tabRect = tab?.getBoundingClientRect();
-    const room = tabRect ? tabRect.bottom - btnRect.bottom : window.innerHeight - btnRect.bottom;
-    setFlipUp(room < 360);
-  }, [open]);
+  const closeDetail = useCallback(() => setOpen(false), []);
 
   if (!trackingEnabled || !active) return null;
   const now = Date.now();
@@ -132,7 +143,8 @@ export function UsageBubble({
 
   return (
     <div
-      ref={wrapRef}
+      onPointerEnter={refreshAge}
+      onFocus={refreshAge}
       className="ct-usage"
       style={{ position: "relative", display: "inline-flex" }}
     >
@@ -141,39 +153,46 @@ export function UsageBubble({
         type="button"
         className={bubbleClass}
         aria-label={
-          billingLabel ?? (isSpend
+          tokenSession ? `usage ${runtimeTokenLabel(tokenSession)}` : billingLabel ?? (isSpend
             ? `usage ${spendLabel}`
             : usageMetricsAriaLabel(metrics))
         }
+        title={tokenSession ? runtimeTokenBreakdown(tokenSession) : undefined}
         onClick={(e) => {
           e.stopPropagation();
+          if (!open && runtime && tabId) {
+            void invoke("agent_runtime_reset_credits", {tabId,request:{action:"read"}}).then(() => refetch()).catch((error: unknown) => {
+              if (DEV_BUILD) console.debug("Background reset credits refresh failed", error);
+            });
+          }
           setOpen((v) => !v);
         }}
       >
-        {billingLabel ? <span>{billingLabel}</span> : isSpend ? (
+        {tokenSession ? <span>{runtimeTokenLabel(tokenSession)}</span> : isSpend ? (
           <span className="glyph neutral">
             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M6 1.6v8.8M8 3.2H4.9a1.4 1.4 0 0 0 0 2.8h2.2a1.4 1.4 0 0 1 0 2.8H3.8" />
             </svg>
             <span className="pct">{spendLabel}</span>
           </span>
-        ) : (
+        ) : metrics.length ? (
           metrics.map((metric, index) => (
-            <UsageMetricGlyph
-              key={metric.key}
-              metric={metric}
-              state={metric.key === "session" ? sessionState : weeklyState}
-              separated={index > 0}
-            />
+            <UsageMetricGlyph key={metric.key} metric={metric} state={metric.key === "session" ? sessionState : weeklyState} separated={index > 0} />
           ))
+        ) : (
+          <span>{usagePillText(active)}</span>
         )}
         {isStale && <span className="stale-age">·{formatAge(active.captured_at, now)}</span>}
       </button>
 
-      {open && isSpend && (
+      <AnchoredPopover open={open} anchor={btnRef} placement="bottom-end" className="ct-usage" onClose={closeDetail}>
+      {tokenSession && <div role="status" className="ct-usage-detail">{runtimeTokenBreakdown(tokenSession)}</div>}
+
+      {!tokenSession && isSpend && (
         <UsageSpendDetail
           snapshot={active}
-          flipUp={flipUp}
+          accountCreditsLabel={accountCreditsLabel}
+          resetSection={tabId && runtime && resetModel ? <ResetCreditsSection resets={active.resets} model={resetModel} /> : undefined}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
             setHistoryOpen(true);
@@ -182,10 +201,11 @@ export function UsageBubble({
         />
       )}
 
-      {open && !isSpend && (
+      {!tokenSession && !isSpend && (
         <UsageDetail
           snapshot={active}
-          flipUp={flipUp}
+          accountCreditsLabel={accountCreditsLabel}
+          resetSection={tabId && runtime && resetModel ? <ResetCreditsSection resets={active.resets} model={resetModel} /> : undefined}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
             setHistoryOpen(true);
@@ -193,6 +213,7 @@ export function UsageBubble({
           }}
         />
       )}
+      </AnchoredPopover>
 
       {historyOpen && (
         <UsageHistoryModal
@@ -205,37 +226,14 @@ export function UsageBubble({
   );
 }
 
-function UsageMetricGlyph({
-  metric,
-  state,
-  separated,
-}: {
-  metric: VisibleUsageMetric;
-  state: "neutral" | "warn" | "danger";
-  separated: boolean;
-}) {
-  return (
-    <>
-      {separated && <span className="sep" />}
-      <span className={`glyph ${state}`}>
-        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          {metric.key === "session" ? (
-            <>
-              <circle cx="6" cy="6" r="4.6" />
-              <path d="M6 3.4V6l1.7 1.1" />
-            </>
-          ) : (
-            <path d="M1 7.2 3 5l2.2 2.2L7.4 4l3.4 3.4" />
-          )}
-        </svg>
-        <span className="pct">{formatPct(metric.pct)}</span>
-      </span>
-    </>
-  );
+function UsageMetricGlyph({metric, state, separated}: {metric: VisibleUsageMetric; state: "neutral" | "warn" | "danger"; separated: boolean}) {
+  return <>
+    {separated && <span className="sep" />}
+    <span className={`glyph ${state}`}>
+      <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        {metric.key === "session" ? <><circle cx="6" cy="6" r="4.6" /><path d="M6 3.4V6l1.7 1.1" /></> : <path d="M1 7.2 3 5l2.2 2.2L7.4 4l3.4 3.4" />}
+      </svg>
+      <span className="pct">{Math.round(metric.pct)}%</span>
+    </span>
+  </>;
 }
-
-function formatPct(pct: number | null | undefined): string {
-  if (pct == null) return "—";
-  return `${Math.round(pct)}%`;
-}
-

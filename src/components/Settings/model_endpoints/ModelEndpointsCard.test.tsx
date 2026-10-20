@@ -147,6 +147,19 @@ test("existing endpoints test, edit and remove from their own row", async () => 
   }
 });
 
+test("a failed background list read stays quiet and keeps the add action available", async () => {
+  const { api } = fakeApi();
+  api.list = async () => { throw new Error("temporary endpoint list failure"); };
+  const ui = await mount(api);
+  try {
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    assert.equal(ui.host.querySelector('[role="alert"]'), null);
+    assert.ok(ui.host.querySelector('button[aria-label="Add endpoint"]') || ui.host.textContent?.includes("Add endpoint"));
+  } finally {
+    await ui.close();
+  }
+});
+
 test("a rejected key shows one line of guidance on the form", async () => {
   const { api } = fakeApi();
   api.discover = async () => { throw "unauthorized"; };

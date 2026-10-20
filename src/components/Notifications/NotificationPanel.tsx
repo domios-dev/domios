@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useState } from "react";
 import { NotificationBody } from "./NotificationBody";
 import type { Notification } from "../../lib/types";
@@ -7,9 +8,14 @@ import { timeAgo } from "../../lib/formatters";
 import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
 import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
+import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
+
+const NOTIFICATION_SKELETON_ROWS = [78, 64, 70];
 
 interface NotificationPanelProps {
   notifications: Notification[];
+  /** History has not answered yet: an empty list means unknown, not none. */
+  loading?: boolean;
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onDelete: (id: string) => void;
@@ -21,6 +27,7 @@ interface NotificationPanelProps {
 
 export function NotificationPanel({
   notifications,
+  loading = false,
   onMarkRead,
   onMarkAllRead,
   onDelete,
@@ -99,7 +106,19 @@ export function NotificationPanel({
 
       {/* List */}
       <div className="ct-rows flex-1 overflow-y-auto">
-        {sorted.length === 0 ? (
+        {sorted.length === 0 && loading ? (
+          <Skeleton data-testid="notification-skeleton" className="flex flex-col">
+            {NOTIFICATION_SKELETON_ROWS.map((width) => (
+              <div key={width} className="flex items-start gap-2 px-2 py-2.5">
+                <SkeletonBlock shape="circle" width={8} height={8} className="mt-1" />
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <SkeletonBlock width={`${width}%`} height={10} />
+                  <SkeletonBlock width={`${width - 25}%`} height={8} faint />
+                </div>
+              </div>
+            ))}
+          </Skeleton>
+        ) : sorted.length === 0 ? (
           <div className="flex h-28 flex-col items-center justify-center gap-2">
             <Bell size={18} className="text-[var(--ct-muted)]" />
             <span className={UI_TEXT.metaMuted}>No notifications</span>
@@ -164,7 +183,7 @@ export function NotificationPanel({
                           overscrollBehavior: "contain",
                         }}
                       >
-                        <NotificationBody text={notif.body} tabId={notif.tab_id} />
+                        <NotificationBody text={notif.body} tabId={notif.tab_id} failure={notif.level === "failure" || notif.severity === "Error"} operation={notif.title} />
                       </div>
                     )}
                   </>
@@ -184,7 +203,7 @@ export function NotificationPanel({
                 )}
                 {notif.local_actions?.map((action) => <button key={action.label} type="button" className="mt-1.5 mr-2 text-xs text-[var(--ct-accent)]" onClick={(event) => { event.stopPropagation(); void action.run(); }}>{action.label}</button>)}
                 {notif.answer_pending && <div role="status">Sending answer…</div>}
-                {notif.answer_error && <div role="alert">{notif.answer_error}</div>}
+                {notif.answer_error && <InlineErrorNotice error={notif.answer_error} operation="answering this notification" blocking />}
                 {notif.resolved ? (
                   <div
                     data-testid="notification-resolved"

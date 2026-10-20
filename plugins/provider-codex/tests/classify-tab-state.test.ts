@@ -13,7 +13,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 
-// Mirror the core reactor gate (src-tauri/src/agent/state_reactor.rs).
+// Mirror the core reactor gate (src-tauri/crates/codeterm-service-core/src/agent/state_reactor.rs).
 const GLOBAL_THRESHOLD = 0.8;
 // Pin "now" so reset-time parsing is deterministic: 2026-06-25 22:38 local (same evening as 11:07 PM reset).
 const NOW_MS = new Date(2026, 5, 25, 22, 38, 0, 0).getTime();

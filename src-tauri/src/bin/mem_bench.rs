@@ -6,7 +6,7 @@
 //! HTML report.
 //!
 //! Usage:
-//!   cargo run -p codeterm --bin mem-bench -- \
+//!   cargo run -p codeterm --features dev-tools --bin mem-bench -- \
 //!       --fixture evals/mem-recall/benchmark.json \
 //!       --output-dir evals/mem-recall/results \
 //!       --report-dir evals/mem-recall/reports
@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use codeterm_lib::mem::{
+use codeterm_service_core::mem::{
     store::{MemKind, MemScope, NewMemItem},
     MemManager, SearchQuery,
 };
@@ -339,7 +339,7 @@ fn run() -> Result<(), String> {
         )),
     };
     if args.docs_hybrid {
-        codeterm_lib::mem::docs_source::prepare_hybrid_for_benchmark(&db_dir);
+        codeterm_service_core::mem::docs_source::prepare_hybrid_for_benchmark(&db_dir);
     }
     // If db points to a file path, we use its parent. Easier: treat it as a dir.
     let mem = MemManager::open_offline(&db_dir).map_err(|e| format!("open_offline: {}", e))?;

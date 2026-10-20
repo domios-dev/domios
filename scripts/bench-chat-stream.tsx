@@ -1,3 +1,4 @@
+// Caller: scripts bench-chat-stream.mjs
 import React, { useDeferredValue, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";

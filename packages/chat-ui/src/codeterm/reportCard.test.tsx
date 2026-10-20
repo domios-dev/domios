@@ -106,12 +106,6 @@ async function main(): Promise<void> {
   const inboundBody = inbound.host.querySelector('[data-testid="chat-inbound-report-body"]');
   assert(inboundBody?.textContent === SUMMARY, "the inbound card did not lead with the report summary");
   assert(inbound.host.querySelector('[data-testid="chat-inbound-report-diagnostics"]')?.textContent === DELIVERED_REJECTED_BODY, "the typed inbound card dropped the exact diagnostic");
-  assert(
-    inboundBody?.parentElement?.className.includes("ct-compact-scroll")
-      && inboundBody.parentElement.className.includes("overflow-y-auto")
-      && inboundBody.parentElement.className.includes("max-h-64"),
-    "a long inbound report is not internally scrollable",
-  );
   const showTab = [...inbound.host.querySelectorAll("button")].find((node) => node.textContent === "Show Tab");
   assert(showTab, "inbound Show Tab action is not reachable");
   assert(
@@ -205,11 +199,6 @@ async function main(): Promise<void> {
     "the outbound card did not lead with the report summary",
   );
   assert(outbound.host.querySelector('[data-testid="chat-outbound-report-diagnostics"]')?.textContent === DELIVERED_REJECTED_BODY, "the typed outbound card dropped the exact diagnostic");
-  assert(
-    outbound.host.querySelector('[data-testid="chat-outbound-report-body"]')?.parentElement
-      ?.className.includes("ct-compact-scroll"),
-    "the outbound report does not use the compact scroll surface",
-  );
   assert(
     [...outbound.host.querySelectorAll("button")].some((node) => node.textContent === "Show Tab"),
     "outbound Show Tab action is not reachable",

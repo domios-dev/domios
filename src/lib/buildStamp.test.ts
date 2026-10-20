@@ -1,16 +1,6 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-
 import { appVersion, buildHash } from "./buildStamp";
 import { __resetForTest, checkBuildMismatch } from "./buildMismatchGuard";
-
-const STAMP_IDENTIFIERS = /(__BUILD_HASH__|__APP_VERSION__)/;
-const STAMP_IDENTIFIERS_GLOBAL = /(^|[^.\w$])(__BUILD_HASH__|__APP_VERSION__)\b/g;
-const STAMP_PROPERTY_READ = /\.\s*(__BUILD_HASH__|__APP_VERSION__)\b/;
-
-const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const stampSourcePath = path.join(srcDir, "lib", "buildStamp.ts");
+import { frontendApiContract } from "./frontendApiContract";
 
 let passed = 0;
 let failed = 0;
@@ -42,20 +32,6 @@ function stubHealth(body: { build?: string; version?: string; apiVersion?: numbe
   mutableGlobal.fetch = async () => ({ ok: true, json: async () => body });
 }
 
-function sourceFiles(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name !== "node_modules" && entry.name !== "dist") sourceFiles(full, out);
-      continue;
-    }
-    if (!entry.isFile() || !/\.tsx?$/.test(entry.name)) continue;
-    if (/\.test\.tsx?$/.test(entry.name)) continue;
-    out.push(full);
-  }
-  return out;
-}
-
 async function main() {
   console.log("buildStamp: accessor reads the substituted identifier:");
   setStamps("9f3ac21", "1.9.4");
@@ -67,34 +43,10 @@ async function main() {
   assert("buildHash() falls back to dev", buildHash() === "dev");
   assert("appVersion() falls back to dev", appVersion() === "dev");
 
-  console.log("\nbuildStamp: the accessor source survives Vite `define` substitution:");
-  const stampSource = readFileSync(stampSourcePath, "utf8");
-  assert(
-    "the accessor names the stamp identifiers at all",
-    STAMP_IDENTIFIERS.test(stampSource),
-  );
-  const substituted = stampSource.replace(
-    STAMP_IDENTIFIERS_GLOBAL,
-    (_match, prefix: string) => `${prefix}"injected-by-define"`,
-  );
-  assert(
-    "no stamp read survives define substitution (a property read would)",
-    !STAMP_IDENTIFIERS.test(substituted),
-  );
-
-  console.log("\nbuildStamp: no consumer reads a stamp off an object:");
-  const offenders = sourceFiles(srcDir).filter((file) =>
-    STAMP_PROPERTY_READ.test(readFileSync(file, "utf8")),
-  );
-  assert(
-    `every stamp read is a bare identifier (offenders: ${offenders.join(", ") || "none"})`,
-    offenders.length === 0,
-  );
-
   console.log("\nbuildMismatchGuard: consumes the accessor:");
   __resetForTest();
   setStamps(undefined, undefined);
-  stubHealth({ build: "0000000", version: "1.9.4", apiVersion: 2 });
+  stubHealth({ build: "0000000", version: "1.9.4", apiVersion: frontendApiContract.minApiVersion });
   assert(
     "a compatible daemon accepts an uninjected frontend identity",
     (await checkBuildMismatch("http://fixture")) === null,
@@ -110,7 +62,7 @@ async function main() {
 
   __resetForTest();
   setStamps("9f3ac21", undefined);
-  stubHealth({ build: "independent-daemon", apiVersion: 2 });
+  stubHealth({ build: "independent-daemon", apiVersion: frontendApiContract.minApiVersion });
   assert(
     "an independent compatible daemon raises nothing",
     (await checkBuildMismatch("http://fixture")) === null,

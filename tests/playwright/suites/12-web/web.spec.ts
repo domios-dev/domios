@@ -164,10 +164,10 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       ),
       `stub requests: ${stub.requests.slice(-10).join(", ")}`,
     ).toBe(true);
-    expect(stub.requests.filter((r) => r.includes("/api/mesh/relay")).length).toBeGreaterThanOrEqual(
-      1,
+    expect(
+      stub.requests.filter((r) => r.includes("/api/mesh/relay")).length,
       `stub requests: ${stub.requests.slice(-10).join(", ")}`,
-    );
+    ).toBeGreaterThanOrEqual(1);
     expect(
       stub.requests.slice(before).filter((request) => request.includes(`/api/tabs/${oldTabId}/`)),
       "new peer received a request for the old peer tab",

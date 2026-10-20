@@ -30,11 +30,13 @@ any open state → cancelled
 - `blocked` means only an outside prerequisite can advance the task (an owner
   decision, approval, access). Work sequenced after a release or milestone is
   not blocked: keep it `pending` in a later group (`plan task update --group`).
-- The Orchestrator alone accepts, bounces, or holds an `in_review` task. `hold`
-  records a reason while preserving its assignment and lane; `bounce` returns it
-  to the assigned Worker when its continuation is available. If the Worker is
-  gone, bounce reopens the task as pending and preserves the note, attempt history,
-  and lane for redispatch.
+- The Orchestrator alone dispatches and holds `in_review` tasks. It may hand one
+  in-review task to a direct child QA with `codeterm plan review delegate`;
+  that QA may accept or bounce only the handed task and must attach its
+  evidence note. A QA cannot hold, dispatch, or transition any other task.
+  `hold` preserves assignment and lane; `bounce` resumes the Worker when its
+  continuation is available, or reopens a gone Worker task as pending while
+  preserving the note, attempt history, and lane for redispatch.
 - `paused` is a system hold, never an agent verb: a decision gate (`gate:<id>:`
   reason) or provider exhaustion with a resumable checkpoint. It is excluded
   from open work and resumes when the gate is answered or the provider recovers.
@@ -64,14 +66,24 @@ Before a wave:
    focused oracle, and central gates requested.
 3. Run plan doctor.
 4. Default to an authored task and dispatch it through `codeterm plan task dispatch`; use `codeterm agent spawn --role Worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Lanes by default,
-   `--canonical-writer` only by deliberate choice (operations playbook).
+   `--canonical-writer` only by deliberate choice (operations playbook). Add
+   `--kind qa` or `--kind release_manager` to a canonical dispatch when the
+   Worker needs that built-in prompt; it does not change `executor_role` or
+   replace parent authorization. Direct task-bound spawn cannot reserve canonical.
 5. Wait for the pushed `worker_ack` described in Task lifecycle.
 6. Dispatch failure: immediately send a standalone user alert (impact, affected tasks, cleanup, active fallback); verify rollback. After two same-class failures, stop dispatching; diagnose/escalate the coordination incident via `codeterm notify send ... --level action_needed` and a plan stride on the task. Await owner direction before retrying.
    Never self-implement plan-owned work to bypass failed dispatch; mark the task done only after an acknowledged Worker attempt or owner decision.
 
-Every Worker has a clear Orchestrator title and description,
+Every Worker has a clear Orchestrator title and description. Task dispatch
+derives a short description from the task name; pass `--description` to override
+it. Direct `agent spawn` still requires `--description`.
 `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its chosen checkout, and a self-contained
 brief with exact acceptance and test commands; it ACKs first and reports last.
+
+Respawn uses the prior attempt's recorded execution intent, provider, and
+resolved model and keeps its lane. The recovery command does not require callers
+to restate those values; explicit provider/model options remain available for an
+intentional change.
 
 For work on a paired peer, dispatch with `plan task dispatch <plan> <task>
 --mesh <peer-instance-id> --execution-intent mutating`. The origin owns the attempt and
@@ -101,4 +113,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 7 -->
+<!-- revision: 12 -->

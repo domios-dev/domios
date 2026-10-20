@@ -10,6 +10,7 @@ import {
   storeBlob,
 } from "./audio";
 import { claimCaptureOwnership, releaseCaptureOwnership, exactMicrophoneConstraints, hasExactLiveMicrophone } from "./localRecordingCaptureModel";
+import { createMicrophoneStreamModel } from "./microphoneStreamModel";
 import type { RecordedVoiceClip, RecordingRuntime } from "./composerRecording";
 
 export interface VoicePreviewData {
@@ -18,6 +19,17 @@ export interface VoicePreviewData {
   peaks: number[];
   blob: Blob;
   mime: string;
+}
+
+const pageMicrophone = createMicrophoneStreamModel<MediaStream>();
+let watchingPageMicrophone = false;
+
+function acquirePageMicrophone() {
+  if (!watchingPageMicrophone) {
+    window.addEventListener("pagehide", pageMicrophone.release);
+    watchingPageMicrophone = true;
+  }
+  return pageMicrophone.acquire(() => navigator.mediaDevices.getUserMedia({ audio: true }));
 }
 
 const WAVEFORM_BARS = 28;
@@ -67,6 +79,7 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const retainStreamRef = useRef(false);
   const stopResolveRef = useRef<((result: StopResult) => void) | null>(null);
   const stopPromiseRef = useRef<Promise<StopResult> | null>(null);
   const stopKindRef = useRef<StopKind>("send");
@@ -100,9 +113,23 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
     releaseCaptureOwnership("manual");
   }
 
+  function releaseRecordingStream() {
+    if (retainStreamRef.current) pageMicrophone.pause();
+    else streamRef.current?.getTracks().forEach((track) => {
+      if (track.readyState !== "ended") track.stop();
+    });
+    streamRef.current = null;
+  }
+
   useEffect(
     () => {
+      const hide = () => {
+        void stopWith("discard");
+        pageMicrophone.release();
+      };
+      window.addEventListener("pagehide", hide);
       return () => {
+        window.removeEventListener("pagehide", hide);
         startGenerationRef.current += 1;
         const recorder = recRef.current;
         if (recorder && recorder.state !== "inactive") {
@@ -113,8 +140,7 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
             // The recorder may already be stopping during teardown.
           }
         }
-        streamRef.current?.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
+        releaseRecordingStream();
         if (!pendingStartRef.current) releaseManualCapture();
         teardownAnalyser();
         setPreview((p) => {
@@ -243,12 +269,16 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
     }
 
     try {
+      retainStreamRef.current = !options && IS_WEB;
       const stream = options
         ? await options.runtime.getUserMedia(exactMicrophoneConstraints(options.microphoneId))
-        : await navigator.mediaDevices.getUserMedia({ audio: true });
+        : await (retainStreamRef.current
+          ? acquirePageMicrophone()
+          : navigator.mediaDevices.getUserMedia({ audio: true }));
       pendingStartRef.current = false;
       if (operation !== startGenerationRef.current || (!options && !ownsCaptureRef.current)) {
-        stream.getTracks().forEach((track) => track.stop());
+        if (retainStreamRef.current) pageMicrophone.pause();
+        else stream.getTracks().forEach((track) => track.stop());
         releaseManualCapture();
         return false;
       }
@@ -294,10 +324,7 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
         const durationSec = Math.max(0, (performance.now() - startedAtRef.current) / 1000);
         const peaks = buildWaveform(peaksRef.current);
         teardownAnalyser();
-        streamRef.current?.getTracks().forEach((track) => {
-          if (track.readyState !== "ended") track.stop();
-        });
-        streamRef.current = null;
+        releaseRecordingStream();
 
         if (kind === "discard") {
           chunksRef.current = [];
@@ -378,6 +405,7 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
       setRecording(true);
       return true;
     } catch (e) {
+      pendingStartRef.current = false;
       const recorder = recRef.current;
       if (recorder && recorder.state !== "inactive") {
         stopKindRef.current = "discard";
@@ -387,8 +415,7 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
           // A failed start can already have queued its stop event.
         }
       }
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+      releaseRecordingStream();
       teardownAnalyser();
       setLivePeaks(quietLiveWaveform());
       if (!recorder || recorder.state === "inactive") {
@@ -424,9 +451,11 @@ export function useVoiceRecorder(onError: (msg: string) => void, persistBlob = s
     stopPromiseRef.current = result;
     setLivePeaks(quietLiveWaveform());
     try {
-      streamRef.current?.getTracks().forEach((track) => {
-        if (track.readyState !== "ended") track.stop();
-      });
+      if (!retainStreamRef.current) {
+        streamRef.current?.getTracks().forEach((track) => {
+          if (track.readyState !== "ended") track.stop();
+        });
+      }
       if (rec.state !== "inactive") rec.stop();
     } catch (error) {
       stopResolveRef.current = null;

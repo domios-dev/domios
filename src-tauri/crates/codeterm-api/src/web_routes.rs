@@ -1,0 +1,1183 @@
+//! Web-mirror REST surface: HTTP equivalents for Tauri-only IPC commands
+//! the browser bundle needs (the bridge in src/lib/bridge.ts maps to
+//! these), plus the SSE event stream that replaces Tauri event emits.
+
+use crate::stream_census::{track, StreamCensus, StreamKind, STREAMS};
+use axum::{
+    extract::{Path, Query, State as AxumState},
+    http::{HeaderMap, StatusCode},
+    response::sse::{Event, KeepAlive, Sse},
+    Json,
+};
+use codeterm_commands::{commands, commands_mesh};
+use futures_core::Stream;
+use serde::Deserialize;
+use std::time::{Duration, SystemTime};
+
+use crate::routes::{check_auth, AppState};
+
+pub use crate::web_plugin_routes::plugin_ui;
+
+/// Published multiplexer JSON; lifecycle writers never delay this read.
+pub async fn mux_state(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    use axum::response::IntoResponse;
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    state
+        .svc
+        .ensure_storage_available()
+        .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
+
+    let (generation, json) = state.svc.published_mux_state_versioned();
+    Ok(generation_response(&headers, generation, || {
+        (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            json,
+        )
+            .into_response()
+    }))
+}
+
+fn generation_etag(generation: u64) -> String {
+    format!("W/\"{generation}\"")
+}
+
+fn etag_matches(headers: &HeaderMap, etag: &str) -> bool {
+    let etag = etag.strip_prefix("W/").unwrap_or(etag);
+    headers
+        .get_all(axum::http::header::IF_NONE_MATCH)
+        .iter()
+        .any(|value| {
+            value.to_str().is_ok_and(|value| {
+                value.split(',').any(|candidate| {
+                    let candidate = candidate.trim();
+                    candidate == "*" || candidate.strip_prefix("W/").unwrap_or(candidate) == etag
+                })
+            })
+        })
+}
+
+fn generation_response(
+    headers: &HeaderMap,
+    generation: u64,
+    body: impl FnOnce() -> axum::response::Response,
+) -> axum::response::Response {
+    conditional_response(headers, &generation_etag(generation), body)
+}
+
+fn conditional_response(
+    headers: &HeaderMap,
+    etag: &str,
+    body: impl FnOnce() -> axum::response::Response,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let mut response = if etag_matches(headers, etag) {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        body()
+    };
+    response.headers_mut().insert(
+        axum::http::header::ETAG,
+        // Validators contain only quotes, ASCII prefixes and integer digits.
+        etag.parse().expect("generated ASCII validator"),
+    );
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, no-cache"),
+    );
+    response
+}
+
+pub async fn tabs(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    query: Query<crate::tab_routes::TabListQuery>,
+) -> Result<axum::response::Response, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let body = crate::tab_routes::list_tabs(AxumState(state), headers.clone(), query).await?;
+    let json = serde_json::to_vec(&body.0).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to serialize Tabs",
+        )
+    })?;
+    Ok(tabs_response(&headers, json))
+}
+
+fn tabs_response(headers: &HeaderMap, json: Vec<u8>) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    json.hash(&mut hasher);
+    let etag = format!("\"{:016x}\"", hasher.finish());
+    conditional_response(headers, &etag, || {
+        (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            json,
+        )
+            .into_response()
+    })
+}
+
+pub async fn tab_focus(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((workspace_id, tab_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+        let exists = state
+            .svc
+            .mux
+            .read()
+            .snapshot()
+            .workspaces
+            .into_iter()
+            .find(|ws| ws.id == workspace_id)
+            .is_some_and(|ws| ws.tabs.contains(&tab_id));
+        if !exists {
+            return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
+        }
+        state
+            .svc
+            .set_active_tab(&workspace_id, &tab_id)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        state
+            .svc
+            .focus_tab(&tab_id)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
+}
+
+pub async fn tab_close(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((_workspace_id, tab_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    state
+        .svc
+        .close_tab_async(&tab_id)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub struct ChatViewBody {
+    enabled: bool,
+}
+
+pub async fn tab_chat_view(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+    Json(body): Json<ChatViewBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+        state.svc.set_chat_view(&tab_id, body.enabled);
+        // Explicit API request = remote-control command (bridge / agents / tests):
+        state.svc.ui.emit(
+            "tab-chat-view",
+            serde_json::json!({ "tab_id": tab_id, "enabled": body.enabled }),
+        );
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blocking task failed".to_string(),
+        )
+    })?
+}
+
+/// Peer services for the Mesh tab — same cache+failover logic as the
+/// Tauri command (`commands_mesh::fetch_peer_services_view`).
+pub async fn peer_services(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(instance_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let view = commands_mesh::fetch_peer_services_view(&state.mesh, &instance_id)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    Ok(Json(view))
+}
+
+pub async fn peer_service_delete(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let value = commands_mesh::peer_service_delete_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
+pub async fn peer_cron_action(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id, action)): Path<(String, String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let value = commands_mesh::peer_cron_action_request(&state.mesh, &instance_id, &id, &action)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
+pub async fn peer_cron_update(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id)): Path<(String, String)>,
+    Json(patch): Json<codeterm_service_core::cron::store::CronUpdateParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let patch = serde_json::to_value(patch)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    let value = commands_mesh::peer_cron_update_request(&state.mesh, &instance_id, &id, patch)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
+pub async fn peer_cron_delete(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let value = commands_mesh::peer_cron_delete_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
+pub async fn peer_cron_history(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let value = commands_mesh::peer_cron_history_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
+pub async fn peer_cron_get(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let value = commands_mesh::peer_cron_get_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
+/// Optional replay cursor: `?since=<boot_id>:<seq>` (D1).
+#[derive(Deserialize)]
+pub struct EventsStreamQuery {
+    since: Option<String>,
+    tab_id: Option<String>,
+}
+
+fn event_matches_tab(event: &crate::events::SystemEvent, tab_id: Option<&str>) -> bool {
+    let Some(tab_id) = tab_id else { return true };
+    use crate::events::SystemEvent;
+    let event_type = match event {
+        SystemEvent::Generic { event_type, .. } => event_type.as_str(),
+        other => other.type_name(),
+    };
+    if event_type
+        .strip_suffix(tab_id)
+        .is_some_and(|prefix| prefix.ends_with('-'))
+    {
+        return true;
+    }
+    match event {
+        SystemEvent::Generic { data, .. } => {
+            data.get("tab_id").and_then(serde_json::Value::as_str) == Some(tab_id)
+        }
+        SystemEvent::TabTitlePinned { tab_id: id, .. }
+        | SystemEvent::TabFocused { tab_id: id }
+        | SystemEvent::TabClosed { tab_id: id }
+        | SystemEvent::SurfaceActivity { tab_id: id, .. }
+        | SystemEvent::AgentStarted { tab_id: id, .. }
+        | SystemEvent::AgentIdle { tab_id: id, .. } => id == tab_id,
+        _ => false,
+    }
+}
+
+/// Parse a `<boot_id>:<seq>` cursor; the boot_id is dash-free hex (no colon).
+fn parse_since(raw: &str) -> Option<(String, u64)> {
+    let (boot, seq) = raw.rsplit_once(':')?;
+    if boot.is_empty() {
+        return None;
+    }
+    Some((boot.to_string(), seq.parse().ok()?))
+}
+
+fn event_frame(se: &crate::events::SeqEvent) -> Event {
+    Event::default().data(se.frame.bytes.as_ref())
+}
+
+/// The ONLY loss signal (D1): client adopts `next_seq` and full-resyncs.
+fn overflow_frame(
+    reason: &str,
+    boot: &str,
+    next_seq: u64,
+    oldest: Option<u64>,
+    build: Option<&str>,
+) -> Event {
+    Event::default().data(overflow_payload(reason, boot, next_seq, oldest, build).to_string())
+}
+
+fn overflow_payload(
+    reason: &str,
+    boot: &str,
+    next_seq: u64,
+    oldest: Option<u64>,
+    build: Option<&str>,
+) -> serde_json::Value {
+    let mut data = serde_json::json!({
+        "reason": reason,
+        "boot": boot,
+        "next_seq": next_seq,
+    });
+    if let Some(oldest) = oldest {
+        data["oldest"] = serde_json::json!(oldest);
+    }
+    if let Some(build) = build {
+        data["build"] = serde_json::json!(build);
+    }
+    serde_json::json!({ "event_type": "overflow", "data": data })
+}
+
+/// SSE stream of system events for the web bundle's `listen()` bridge (D1).
+/// Frames: `data: {"seq":N,"boot":"..","event_type":"..","data":{..}}`.
+/// `?since=<boot>:<seq>` replays missed events from the ring then goes live;
+/// overflow/boot-change/lagged emit the explicit overflow frame (no silent gap).
+/// Absent `?since` ⇒ start live from now (old-client behavior).
+pub async fn events_stream(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<EventsStreamQuery>,
+) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, (StatusCode, String)>
+{
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+
+    Ok(events_sse(state.events, q, &STREAMS))
+}
+
+pub(crate) fn events_sse(
+    events: crate::events::EventBroadcasterState,
+    q: EventsStreamQuery,
+    census: &StreamCensus,
+) -> Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>> {
+    use crate::events::ReplayPlan;
+    // between the snapshot and buffered live events is deduped by seq below.
+    let mut rx = events.subscribe();
+    let snap = events.snapshot_ring();
+    let boot = snap.boot_id.clone();
+    let since = q.since.as_deref().and_then(parse_since);
+    let cursor_seq = since.as_ref().map(|(_, s)| *s);
+    let plan = snap.plan(
+        since.as_ref().map(|(b, s)| (b.as_str(), *s)),
+        crate::events::ReplayBudget::default(),
+    );
+    let tab_id = q.tab_id;
+
+    let stream = async_stream::stream! {
+        // tracks the highest seq yielded so the live loop drops the overlap.
+        let (mut replayed_max, replay) = match plan {
+            ReplayPlan::FromNow => {
+                (0, Vec::new())
+            }
+            ReplayPlan::BootChanged { next_seq } => {
+                yield Ok(overflow_frame("boot-changed", &boot, next_seq, None, Some(codeterm_build_info::hash())));
+                (0, Vec::new())
+            }
+            ReplayPlan::Covered { replay } => {
+                (cursor_seq.unwrap_or(0), replay)
+            }
+            ReplayPlan::Evicted { oldest, next_seq, replay } => {
+                yield Ok(overflow_frame("ring-evicted", &boot, next_seq, Some(oldest), None));
+                (next_seq.saturating_sub(1), replay)
+            }
+        };
+        for se in &replay {
+            if se.seq > replayed_max {
+                replayed_max = se.seq;
+            }
+            if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
+            yield Ok(event_frame(se));
+        }
+        loop {
+            match rx.recv().await {
+                Ok(se) => {
+                    if se.seq <= replayed_max {
+                        continue;
+                    }
+                    replayed_max = se.seq;
+                    if !se.public || !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
+                    yield Ok(event_frame(&se));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    yield Ok(overflow_frame("lagged", &boot, events.current_seq(), None, None));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+    Sse::new(track(
+        stream,
+        census.open(StreamKind::Events, crate::stream_census::StreamScope::Local),
+    ))
+    .keep_alive(KeepAlive::default())
+}
+
+// ── PWA manifest — served per-token because installed iOS web apps get a storage container separate from Safari ──
+
+#[derive(Deserialize)]
+pub struct ManifestQuery {
+    token: Option<String>,
+}
+
+/// Extract a cookie value from the Cookie header.
+fn get_cookie<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a str> {
+    let cookie_header = headers.get("cookie")?.to_str().ok()?;
+    for pair in cookie_header.split(';') {
+        let pair = pair.trim();
+        if let Some((key, value)) = pair.split_once('=') {
+            if key.trim().eq_ignore_ascii_case(name) {
+                return Some(value.trim());
+            }
+        }
+    }
+    None
+}
+
+/// Validate a token against the configured local API token.
+pub(crate) fn validate_manifest_token(
+    state: &AppState,
+    candidate: &str,
+) -> Result<bool, (StatusCode, &'static str)> {
+    if candidate.is_empty() {
+        return Ok(false);
+    }
+    if let Some(ref api_token) = state.config.lock().api.token {
+        if !api_token.is_empty()
+            && codeterm_service_core::service::tokens::constant_time_eq(
+                api_token.as_bytes(),
+                candidate.as_bytes(),
+            )
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Bootstrap endpoint: validates the bearer token and sets an HttpOnly cookie
+/// so the manifest fetch (a browser subresource request) can authenticate
+/// without exposing the token in a query string (which leaks via logs/Referer).
+pub async fn web_manifest_bootstrap(
+    AxumState(state): AxumState<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<
+    (
+        [(axum::http::header::HeaderName, axum::http::HeaderValue); 1],
+        Json<serde_json::Value>,
+    ),
+    (StatusCode, &'static str),
+> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    if token.is_empty() || !validate_manifest_token(&state, token)? {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"));
+    }
+    let cookie = format!(
+        "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}",
+        token,
+        crate::routes::WEB_TOKEN_TTL.as_secs()
+    );
+    Ok((
+        [(
+            axum::http::header::SET_COOKIE,
+            axum::http::HeaderValue::from_str(&cookie).map_err(|e| {
+                log::error!("[web] failed to build manifest bootstrap cookie: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to build cookie header",
+                )
+            })?,
+        )],
+        Json(serde_json::json!({"ok": true})),
+    ))
+}
+
+/// Public like the rest of the browser bundle. Echoes the token into start_url only when
+/// it matches the configured API token, so the installed app launches
+/// pre-authenticated; otherwise start_url falls back to the plain mirror.
+///
+/// Token sources (checked in order):
+/// 1. `?token=` query param (legacy — deprecated, leaks via logs/Referer)
+/// 2. `codeterm-web-token` cookie (set by web_manifest_bootstrap)
+pub async fn web_manifest(
+    AxumState(state): AxumState<AppState>,
+    headers: axum::http::HeaderMap,
+    Query(query): Query<ManifestQuery>,
+) -> impl axum::response::IntoResponse {
+    // Determine the token: query param (legacy) or cookie (preferred).
+    let token: Option<String> = query
+        .token
+        .clone()
+        .or_else(|| get_cookie(&headers, "codeterm-web-token").map(|s| s.to_string()));
+
+    let token_ok = token
+        .as_ref()
+        .map(|t| validate_manifest_token(&state, t).unwrap_or(false))
+        .unwrap_or(false);
+    let start_url = if token_ok {
+        let t = token.as_deref().unwrap_or_default();
+        let encoded: String = url::form_urlencoded::byte_serialize(t.as_bytes()).collect();
+        format!("/#token={encoded}")
+    } else {
+        "/".to_string()
+    };
+    let manifest = serde_json::json!({
+        "name": "Domios",
+        "short_name": "Domios",
+        "id": "/",
+        "start_url": start_url,
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#0d1117",
+        "theme_color": "#0d1117",
+        "icons": [
+            { "src": "/icons/pwa-192.png", "sizes": "192x192", "type": "image/png" },
+            { "src": "/icons/pwa-512.png", "sizes": "512x512", "type": "image/png" },
+        ],
+    });
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "application/manifest+json",
+        )],
+        manifest.to_string(),
+    )
+}
+
+// ── uploads — browser attachments are copied onto daemon host for agent CLI path reads.
+
+const UPLOAD_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const UPLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
+const UPLOAD_TARGET_BYTES: u64 = 384 * 1024 * 1024;
+
+/// Strip anything that could escape the uploads dir or break a shell-quoted
+/// paste; keep the extension so the receiving agent can tell what it got.
+pub(crate) fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '-' | '_' => c,
+            _ => '_',
+        })
+        .collect();
+    let trimmed = cleaned.trim_matches('.');
+    if trimmed.is_empty() {
+        "upload.bin".to_string()
+    } else {
+        trimmed.chars().take(120).collect()
+    }
+}
+
+struct UploadEntry {
+    path: std::path::PathBuf,
+    modified: SystemTime,
+    size: u64,
+}
+
+async fn cleanup_uploads_dir(dir: &std::path::Path) {
+    let now = SystemTime::now();
+    let Ok(mut rd) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    let mut entries: Vec<UploadEntry> = Vec::new();
+    let mut total = 0_u64;
+
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        let path = entry.path();
+        let Ok(meta) = entry.metadata().await else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        let size = meta.len();
+        if now
+            .duration_since(modified)
+            .map(|age| age > UPLOAD_TTL)
+            .unwrap_or(false)
+        {
+            let _ = tokio::fs::remove_file(&path).await;
+            continue;
+        }
+        total = total.saturating_add(size);
+        entries.push(UploadEntry {
+            path,
+            modified,
+            size,
+        });
+    }
+
+    if total <= UPLOAD_MAX_BYTES {
+        return;
+    }
+    entries.sort_by_key(|e| e.modified);
+    for entry in entries {
+        if total <= UPLOAD_TARGET_BYTES {
+            break;
+        }
+        if tokio::fs::remove_file(&entry.path).await.is_ok() {
+            total = total.saturating_sub(entry.size);
+        }
+    }
+}
+
+/// The one write path for host-owned attachments, shared by browser uploads and mesh ingest.
+pub(crate) async fn store_upload(
+    dir: &std::path::Path,
+    name: &str,
+    data: &[u8],
+) -> Result<std::path::PathBuf, String> {
+    tokio::fs::create_dir_all(dir)
+        .await
+        .map_err(|e| e.to_string())?;
+    cleanup_uploads_dir(dir).await;
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let path = dir.join(format!("{}-{}", &id[..8], name));
+    tokio::fs::write(&path, data)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// Largest attachment a chat may upload (voice notes, recordings, files).
+pub const MAX_TEMP_FILE_DECODED_BYTES: usize = 150 * 1024 * 1024;
+
+#[derive(Deserialize)]
+pub struct CopyImageToClipboardBody {
+    path: String,
+}
+
+/// Web-mirror twin of the `copy_image_to_clipboard` Tauri command. Sets the
+/// daemon host's OS clipboard, not the browser's — intentional, since the
+/// PTY paste keystroke that follows reads from the same host clipboard.
+pub async fn copy_image_to_clipboard(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CopyImageToClipboardBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let host = codeterm_commands::application_host::require(&state.svc)
+        .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?;
+    host.copy_image_to_clipboard(body.path)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[cfg(test)]
+mod tests;
+
+// ── chat-raw — the chat view's JSONL window + tailer, web edition ──
+
+/// Same semantics and result shape as the Tauri `chat_start`: returns the
+/// recent raw-JSONL window and installs the per-tab tailer whose deltas
+/// arrive as `tab-chat-msg-{id}` over the SSE stream.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSubscriptionBody {
+    subscription_id: String,
+    known_window: Option<codeterm_service_core::service::tab_chat::results::KnownChatWindow>,
+}
+
+pub async fn chat_raw_start(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+    Json(body): Json<ChatSubscriptionBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let svc = state.svc.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        commands::chat_start_core(&svc, tab_id, body.subscription_id, body.known_window)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::CONFLICT, e))?;
+    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize)]
+pub struct TranscribeVoiceBody {
+    pub path: String,
+}
+
+/// Web-mirror twin of the Tauri `transcribe_voice_attachment` command: format an
+/// uploaded voice file into the agent-facing `<domios type="attachment" kind="voice" ... />` frame,
+/// transcribing when a daemon is configured.
+pub async fn transcribe_voice(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TranscribeVoiceBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let active = state
+        .svc
+        .configuration()
+        .integrations
+        .voice_transcribe
+        .active;
+    let line = codeterm_service_core::bridge::voice_transcribe::format_attachment_line(
+        &body.path,
+        "voice",
+        None,
+        state
+            .svc
+            .ext::<std::sync::Arc<codeterm_service_core::transcribe::TranscribeRegistry>>(),
+        &active,
+    )
+    .await;
+    Ok(Json(serde_json::json!({ "line": line })))
+}
+
+/// Web-mirror twin of the `plugin_manager_snapshot` Tauri command.
+pub async fn plugin_snapshot(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let snapshot = commands::plugins::plugin_manager_snapshot_for_service(state.svc.clone())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(snapshot))
+}
+
+/// Web-mirror twin of the `plugin_manager_action` Tauri command.
+pub async fn plugin_action(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(action): Json<commands::plugins::PluginManagerAction>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    // keep it off the async runtime (mirrors the Tauri command's spawn_blocking wrap).
+    let svc = state.svc.clone();
+    let result =
+        tokio::task::spawn_blocking(move || commands::plugins::run_action(action, svc.as_ref()))
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    commands::plugins::invalidate_plugin_snapshot();
+    Ok(Json(result))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlanceReq {
+    pub plugin_id: String,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub ctx: Option<serde_json::Value>,
+}
+
+/// Web-mirror twin of the `plugin_glance` Tauri command.
+pub async fn plugin_glance(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<GlanceReq>,
+) -> Result<Json<Option<codeterm_plugin::view::GlanceView>>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    commands::plugins::glance_render(
+        state
+            .svc
+            .ext::<codeterm_service_core::glance::GlanceRegistryHandle>(),
+        &req.plugin_id,
+        req.action.as_deref(),
+        req.ctx.unwrap_or(serde_json::Value::Null),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BubbleReq {
+    pub plugin_id: String,
+    #[serde(default)]
+    pub ctx: Option<serde_json::Value>,
+}
+
+/// Web-mirror twin of the `plugin_bubble` Tauri command.
+pub async fn plugin_bubble(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<BubbleReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    commands::plugins::bubble_poll(
+        state
+            .svc
+            .ext::<codeterm_service_core::bubble::BubbleRegistryHandle>(),
+        &req.plugin_id,
+        req.ctx.unwrap_or(serde_json::Value::Null),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoWatchSubscribeReq {
+    pub cwd: String,
+}
+
+/// Web-mirror twin of the `repo_watch_subscribe` Tauri command.
+pub async fn repo_watch_subscribe(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<RepoWatchSubscribeReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let registry = state
+        .svc
+        .ext::<codeterm_service_core::repowatch::RepoWatchRegistryHandle>()
+        .clone();
+    let value = tokio::task::spawn_blocking(move || {
+        commands::repo_watch::subscribe(&registry, std::path::PathBuf::from(req.cwd))
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(value))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoWatchUnsubscribeReq {
+    pub token: String,
+}
+
+/// Web-mirror twin of the `repo_watch_unsubscribe` Tauri command.
+pub async fn repo_watch_unsubscribe(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<RepoWatchUnsubscribeReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let registry = state
+        .svc
+        .ext::<codeterm_service_core::repowatch::RepoWatchRegistryHandle>()
+        .clone();
+    let value = tokio::task::spawn_blocking(move || {
+        commands::repo_watch::unsubscribe(&registry, &req.token)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(value))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewCallReq {
+    pub plugin_id: String,
+    pub method: String,
+    #[serde(default)]
+    pub args: Option<serde_json::Value>,
+}
+
+/// Web-mirror twin of the `plugin_view_call` Tauri command (the iframe bridge).
+pub async fn plugin_view_call(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<ViewCallReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    commands::plugins::view_call(
+        &state.svc,
+        &req.plugin_id,
+        &req.method,
+        req.args.unwrap_or(serde_json::Value::Null),
+    )
+    .await
+    .map(Json)
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatBackendSessionReq {
+    pub plugin_id: String,
+    pub session_id: String,
+}
+
+/// Web-mirror twin of the `chatbackend_session_info` Tauri command.
+pub async fn chatbackend_session_info(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<ChatBackendSessionReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let svc = state.svc.clone();
+    let info = tokio::task::spawn_blocking(move || {
+        svc.chatbackend_session_info(&req.plugin_id, &req.session_id)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::to_value(info).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatBackendSwitchModelReq {
+    pub plugin_id: String,
+    pub session_id: String,
+    pub model: String,
+}
+
+/// Web-mirror twin of the `chatbackend_switch_model` Tauri command.
+pub async fn chatbackend_switch_model(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<ChatBackendSwitchModelReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let svc = state.svc.clone();
+    let info = tokio::task::spawn_blocking(move || {
+        svc.chatbackend_set_model(&req.plugin_id, &req.session_id, &req.model)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::to_value(info).unwrap_or_default()))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenChatBackendTabReq {
+    pub plugin_id: String,
+    pub workspace_id: Option<String>,
+    pub config: Option<serde_json::Value>,
+    pub system_prompt: Option<String>,
+    pub preset: Option<String>,
+    pub model: Option<String>,
+}
+
+/// Web-mirror twin of the `open_chat_backend_tab` Tauri command — opens a
+/// non-PTY chatBackend tab (e.g. an LM Studio plugin) from the Extensions panel.
+pub async fn open_chat_backend_tab(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<OpenChatBackendTabReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    use codeterm_service_core::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
+    let mut config = req.config.unwrap_or(serde_json::Value::Null);
+    let overrides = codeterm_service_core::service::spawn::chatbackend_spawn_config(
+        req.system_prompt.as_deref(),
+        req.preset.as_deref(),
+        req.model.as_deref(),
+        None,
+        None,
+        None,
+    );
+    if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
+        for (key, value) in extra {
+            base.insert(key.clone(), value.clone());
+        }
+    } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+        config = overrides;
+    }
+    codeterm_service_core::service::spawn::reject_direct_watcher_chatbackend_config(&config)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let svc = state.svc.clone();
+    let handle = codeterm_service_core::service::blocking_run(move || {
+        svc.spawn_tab(SpawnTabSpec {
+            shell: None,
+            workspace_id: req.workspace_id,
+            visibility: TabVisibility::Visible,
+            command: TabCommand::ChatBackend {
+                plugin_id: req.plugin_id,
+                config,
+                role: None,
+                role_profile: None,
+                can_spawn: None,
+                watcher: None,
+            },
+            ..Default::default()
+        })
+    })
+    .await
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({ "tab_id": handle.tab_id })))
+}
+
+#[derive(Deserialize)]
+pub struct SessionTranscriptQuery {
+    pub provider: String,
+    pub cwd: String,
+    pub session_id: String,
+}
+
+/// Read-only transcript of a finished run (hidden worker / cron). Renders the
+/// same normalized ChatMsg shape as the live chat-ui, parsed straight from the
+/// session jsonl — no tab, no tailer, no composer.
+pub async fn session_transcript(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<SessionTranscriptQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let svc = state.svc.clone();
+    let (messages, total) = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::tab_chat::session_chat_snapshot(
+            &svc,
+            &q.provider,
+            &q.cwd,
+            &q.session_id,
+            0,
+        )
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    Ok(Json(
+        serde_json::json!({ "messages": messages, "total": total }),
+    ))
+}
+
+pub async fn chat_raw_stop(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+    Json(body): Json<ChatSubscriptionBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    state.svc.chat_registry.stop(&tab_id, &body.subscription_id);
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub struct ChatBackfillBody {
+    before_offset: u64,
+    offset_kind: Option<codeterm_service_core::service::tab_chat::results::ChatOffsetKind>,
+}
+
+#[derive(Deserialize)]
+pub struct ChatResumeBody {
+    cursor: String,
+}
+
+pub async fn chat_raw_resume(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+    Json(body): Json<ChatResumeBody>,
+) -> Result<
+    Json<codeterm_service_core::service::tab_chat::resume::ChatResumeResult>,
+    (StatusCode, String),
+> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
+    let svc = state.svc.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::tab_chat::resume::resume(&svc, &tab_id, &body.cursor)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::CONFLICT, error))?;
+    Ok(Json(result))
+}
+
+pub async fn chat_raw_backfill(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+    Json(body): Json<ChatBackfillBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let svc = state.svc.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        commands::chat_backfill_core(&svc, tab_id, body.before_offset, body.offset_kind)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::CONFLICT, e))?;
+    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+}
+
+pub async fn agent_runtime_retry(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+) -> Result<
+    Json<codeterm_service_core::service::agent_runtime::model::RuntimeSnapshot>,
+    (StatusCode, String),
+> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    codeterm_service_core::service::agent_runtime::retry(&state.svc, &tab_id)
+        .await
+        .map(Json)
+        .map_err(|reason| (StatusCode::CONFLICT, reason))
+}
+
+#[derive(serde::Deserialize)]
+pub struct RuntimeQuestionAnswerBody {
+    pub answers: Vec<codeterm_plugin::agent_runtime::RuntimeQuestionAnswer>,
+}
+
+pub async fn agent_runtime_answer_question(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((tab_id, item_id)): Path<(String, String)>,
+    Json(body): Json<RuntimeQuestionAnswerBody>,
+) -> Result<
+    Json<codeterm_service_core::service::chat_send_transaction::ChatSendStatus>,
+    (StatusCode, String),
+> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    codeterm_service_core::service::agent_runtime::answer_question(
+        &state.svc,
+        &tab_id,
+        &item_id,
+        body.answers,
+    )
+    .await
+    .map(Json)
+    .map_err(|reason| (StatusCode::CONFLICT, reason))
+}

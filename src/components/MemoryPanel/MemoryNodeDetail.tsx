@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import type { MemEdge, MemNode } from "./types";
@@ -223,7 +224,7 @@ export function MemoryNodeDetail({
       onWheel={(e) => e.stopPropagation()}
     >
       {saveError && (
-        <div className="bg-[#ef4444] text-white px-2 py-1.5 rounded" data-testid="memory-node-detail-error" role="alert">{saveError}</div>
+        <div data-testid="memory-node-detail-error"><InlineErrorNotice error={saveError} operation="saving this memory" blocking /></div>
       )}
 
       <div className="flex items-start gap-2">

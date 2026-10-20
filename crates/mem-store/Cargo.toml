@@ -1,10 +1,11 @@
 [package]
+license = "AGPL-3.0-only"
 name = "codeterm-mem-store"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-codeterm-paths = { path = "../codeterm-paths" }
+codeterm-paths = { path = "../../src-tauri/crates/codeterm-paths" }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = "0.4"
 serde = { version = "1", features = ["derive"] }

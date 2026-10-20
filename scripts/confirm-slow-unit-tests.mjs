@@ -1,9 +1,14 @@
 #!/usr/bin/env node
+// Caller: build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs
 import { spawnSync } from 'node:child_process';
 import { readFileSync, appendFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { candidateFilter, parseTimings } from './check-slow-unit-tests.mjs';
+
+function filtersetRejected(result) {
+  return result.status !== 0 && /failed to parse filterset/.test((result.stdout ?? '') + (result.stderr ?? ''));
+}
 
 export function confirmCandidates(entries, options, run = spawnSync) {
   candidateFilter(entries);
@@ -12,13 +17,17 @@ export function confirmCandidates(entries, options, run = spawnSync) {
   writeFileSync(options.output, '');
   let exitCode = 0;
   for (const entry of entries) {
-    const filter = candidateFilter([entry]);
-    const result = run('bash', ['scripts/test-capped.sh', '--binaries-metadata', options.binaries, '--cargo-metadata', options.cargo,
+    const reuse = options.archive ? ['--archive-file', options.archive, '--workspace-remap', resolve('src-tauri')] : ['--binaries-metadata', options.binaries, '--cargo-metadata', options.cargo];
+    const measure = filter => run('bash', ['scripts/test-capped.sh', ...reuse,
       '--filter-expr', filter, '--test-threads', '1', '--status-level', 'pass',
       '--no-fail-fast', '--no-tests=fail'], {
       encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-      env: {...process.env, CARGO_TEST_CMD: 'cargo nextest run', CARGO_TEST_BUILD_CMD: ''},
+      env: {...process.env, CARGO_TEST_CMD: 'cargo nextest run', CARGO_TEST_BUILD_CMD: '', TEST_RAW_OUTPUT: '1'},
     });
+    let result = measure(candidateFilter([entry]));
+    // A crate outside the reused metadata's package graph cannot be named by binary_id; the
+    // exact test name still selects it, and the identity check below keeps the measurement honest.
+    if (!result.error && filtersetRejected(result)) result = measure(`test(=${entry.test})`);
     const output = (result.stdout ?? '') + (result.stderr ?? '');
     appendFileSync(options.output, output);
     if (result.error) throw result.error;
@@ -26,9 +35,10 @@ export function confirmCandidates(entries, options, run = spawnSync) {
     if (timings.length !== 1 || timings[0].binary !== entry.binary || timings[0].test !== entry.test) {
       throw new Error('serial measurement selected a different test');
     }
-    (options.print ?? (text => process.stdout.write(text)))(output);
+    if (result.status !== 0) (options.print ?? (text => process.stdout.write(text)))(output.split('\n').slice(-25).join('\n'));
     if (result.status !== 0) exitCode ||= result.status ?? 1;
   }
+  (options.print ?? (text => process.stdout.write(text)))(`slow-unit confirmation: selectors=${entries.length} exit=${exitCode} artifact=${options.output}\n`);
   return exitCode;
 }
 
@@ -37,7 +47,8 @@ function main() {
   if (!output || extra.length) throw new Error('usage: node scripts/confirm-slow-unit-tests.mjs CANDIDATES_JSON BINARIES_JSON CARGO_JSON ALONE_LOG');
   const document = JSON.parse(readFileSync(candidates, 'utf8'));
   if (!Array.isArray(document.entries)) throw new Error('candidate entries are required');
-  process.exitCode = confirmCandidates(document.entries, {binaries, cargo, output});
+  const reuse = binaries === '--archive-file' ? { archive: cargo } : { binaries, cargo };
+  process.exitCode = confirmCandidates(document.entries, {...reuse, output});
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

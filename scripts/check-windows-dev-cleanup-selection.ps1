@@ -1,3 +1,4 @@
+# Caller: scripts check-build-kill-safety.sh
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $targetDebug = Join-Path $repo "src-tauri\target\debug"

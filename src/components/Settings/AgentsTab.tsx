@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useCallback, useEffect } from "react";
 import { Bot, ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
@@ -24,12 +25,14 @@ export function AgentsOverview({
   onOpenProvider,
   onOpenGuide,
   focusCard,
+  onSwitchGeneralProvider,
 }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onOpenProvider: (providerId: string) => void;
   onOpenGuide: (section: HelpSectionId) => void;
   focusCard?: SettingsCardAnchorId;
+  onSwitchGeneralProvider?: (provider: string) => Promise<void>;
 }) {
   const { providers, loading, error } = useAgentProviders();
   const authToken = daemonAuthToken(config.api);
@@ -38,7 +41,7 @@ export function AgentsOverview({
   return (
     <div className="flex flex-col gap-3" data-testid="settings-agents-overview">
       <SettingsCard icon={<Server size={16} />} title="Providers" description="Installed as plugins from Extensions.">
-        {error && <div className="text-[11px] text-[var(--ct-red)]">Failed to load agent providers: {error}</div>}
+        {error && providers.length === 0 && <InlineErrorNotice error={error} operation="loading agent providers" />}
         {loading && providers.length === 0 && <div className="text-[11px] text-[var(--ct-muted-fg)]">Loading providers…</div>}
         <div className="ct-rows !p-0">
           {providers.map((p) => (
@@ -73,7 +76,7 @@ export function AgentsOverview({
         />
       </SettingsCard>
 
-      <ModelDefaultsCard config={config} />
+      <ModelDefaultsCard config={config} onUpdate={onUpdate} onSwitchGeneralProvider={onSwitchGeneralProvider} onOpenGuide={onOpenGuide} />
 
       <OrchestrationGroup config={config} onUpdate={onUpdate} />
 
@@ -132,8 +135,8 @@ export function AgentProviderScreen({
     [fullConfig, onUpdateFullConfig],
   );
 
-  if (error) {
-    return <div className="text-[10px] text-[var(--ct-red)]">Failed to load agent providers: {error}</div>;
+  if (error && !provider) {
+    return <InlineErrorNotice error={error} operation="loading agent providers" />;
   }
   if (loading && !provider) {
     return <TabLoadingIndicator label="Loading provider" />;

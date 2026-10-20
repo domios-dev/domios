@@ -1,8 +1,19 @@
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Jobs/JobsSettingsEntry.test.tsx (SettingsPanel imports image assets)
 import assert from "node:assert/strict";
 import { act } from "react";
-import type { AppConfig } from "../../lib/types";
+import type { ReactNode } from "react";
+import type { AppConfig, Workspace } from "../../lib/types";
+import { MuxStateStoreContext } from "../../store/multiplexer/context";
+import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../store/multiplexer/tree";
 import { entry, foreignCron, installBridge, installDom, machineTransport, mount, named, removeCapsules, renderedJobs, runCases, scenarioB, settle, teams, viewControls, workspaceA, workspaces } from "./jobsEntry.testdata";
+
+const muxState = {
+  workspaces: workspaces as unknown as Workspace[], tabs: {}, teams, active_workspace_id: null, focused_tab_id: null,
+  notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+} as ExtendedState;
+const muxStore = createMuxStateStore(() => muxState);
+const withMux = (children: ReactNode) => <MuxStateStoreContext.Provider value={muxStore}>{children}</MuxStateStoreContext.Provider>;
 
 async function main() {
   installDom();
@@ -17,7 +28,7 @@ async function main() {
   function test(name: string, run: () => Promise<void>) { tests.push([name, run]); }
 
   test("Settings > Jobs sits right before Logs and opens the same view with no capsules", async () => {
-    const view = await mount(<SettingsPanel config={{ keybindings: {} } as AppConfig} onUpdateConfig={async () => {}} onClose={() => {}} workspaces={workspaces} teams={teams} />);
+    const view = await mount(withMux(<SettingsPanel config={{ keybindings: {} } as AppConfig} onUpdateConfig={async () => {}} onClose={() => {}} />));
     try {
       const sections = Array.from(view.host.querySelectorAll<HTMLButtonElement>('[role="navigation"][aria-label="Settings sections"] button'));
       const jobsIndex = sections.findIndex((button) => button.textContent?.startsWith("Jobs"));
@@ -35,7 +46,7 @@ async function main() {
   });
 
   test("the workspace entry with its capsule removed renders exactly the Settings entry", async () => {
-    const settings = await mount(<SettingsPanel config={{ keybindings: {} } as AppConfig} onUpdateConfig={async () => {}} onClose={() => {}} initialSection="jobs" workspaces={workspaces} teams={teams} />);
+    const settings = await mount(withMux(<SettingsPanel config={{ keybindings: {} } as AppConfig} onUpdateConfig={async () => {}} onClose={() => {}} initialSection="jobs" />));
     const workspace = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={jobsEntryFilter({ kind: "workspace", workspaceId: workspaceA })} adapter={machineTransport()} onClose={() => {}} />);
     try {
       await settle(() => renderedJobs(settings.host).length === 5);

@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::process::ExitCode;
 
-use codeterm_lib::agent::registry::AgentRegistry;
+use codeterm_service_core::agent::registry::AgentRegistry;
 
 fn main() -> ExitCode {
     let mut args = env::args().skip(1);
@@ -23,7 +23,7 @@ fn main() -> ExitCode {
     };
     let reg = AgentRegistry::new();
     reg.register_provider(Box::new(
-        codeterm_lib::plugin::agent_claude::ClaudeProvider::new(),
+        codeterm_service_core::plugin::agent_claude::ClaudeProvider::new(),
     ));
     // codex/opencode are JS plugins now; this dev eval covers native claude only.
     let result = reg.with_provider(&provider, |p| {

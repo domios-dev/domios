@@ -10,6 +10,8 @@ import {
   clearTranscriptWindows,
   commitTranscriptBatch,
   readTranscriptWindow,
+  markTranscriptSnapshotReady,
+  resetTranscriptWindow,
   useTranscriptWindow,
 } from "./transcriptStore";
 
@@ -40,6 +42,16 @@ function Transcript({ tab }: { tab: string }) {
 async function main() {
   clearTranscriptWindows();
   try {
+    const original = readTranscriptWindow("cached").transcript;
+    markTranscriptSnapshotReady("cached", "binding");
+    assert.equal(readTranscriptWindow("cached").transcript, original);
+    assert.equal(readTranscriptWindow("cached").snapshotBinding, "cached|binding");
+    resetTranscriptWindow("cached");
+    assert.equal(readTranscriptWindow("cached").snapshotBinding, undefined);
+    markTranscriptSnapshotReady("cached", "binding");
+    for (let index = 0; index < 8; index++) markTranscriptSnapshotReady(`other-${index}`, "binding");
+    assert.equal(readTranscriptWindow("cached").snapshotBinding, undefined);
+    clearTranscriptWindows();
     for (let cycle = 0; cycle < 30; cycle++) {
       const host = document.createElement("div");
       document.body.append(host);

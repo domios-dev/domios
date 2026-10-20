@@ -1,4 +1,4 @@
-#[path = "../src/test_support.rs"]
+#[path = "../crates/codeterm-service-core/src/test_support.rs"]
 mod test_support;
 
 #[path = "../../testbench/rust/state_doctor.rs"]

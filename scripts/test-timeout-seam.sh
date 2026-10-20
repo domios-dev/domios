@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh script-guards
 # Test seam: verify portable timeout implementation works on all platforms.
 # Tests both standard path (timeout/gtimeout) and fallback path.
 

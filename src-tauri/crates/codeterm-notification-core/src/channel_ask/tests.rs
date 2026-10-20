@@ -1,6 +1,6 @@
 use super::*;
 use crate::authority::{adopt_offer, SurfaceTarget};
-use codeterm_types::notification::{answer_actions, validate_answer_labels, CallerAction};
+use crate::contract::{answer_actions, validate_answer_labels, CallerAction};
 
 const CHOSEN: &str = "Rebase";
 const DECLINED: &str = "Merge";

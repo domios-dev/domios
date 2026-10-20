@@ -5,6 +5,8 @@ description: Test Domios dev instance via API and look at its UI. Use when you n
 
 # Dev Testing
 
+For an owner-requested integrated all-tab round, follow `evals/startup-matrix/README.md` and `EXPLORE.md`, including its event and no-loss extension; keep it local and on request.
+
 Test Domios dev instance (port 7686) by interacting with agents via REST API and verifying mem state.
 
 ## ⚠ Hard rule: never `codeterm` CLI for dev work
@@ -22,6 +24,10 @@ If you absolutely need the CLI for a specific subcommand, prefix with both env v
 CODETERM_SOCKET_PATH=/fake/codeterm-dev/sock CODETERM_API_PORT=7686 codeterm <cmd>
 ```
 The fake socket path just has to contain the substring `codeterm-dev` so the CLI picks the dev config dir; the actual socket connection is only used by a few subcommands.
+
+| Measurement | Command and observable output |
+|---|---|
+| DEV lock storm | `./build.sh qa-lock-storm --seconds 120 --out target-check/lock-storm.json` (PowerShell: `./build.ps1 qa-lock-storm ...`): requires an existing tab; three independent DEV-only `dev_get` workers request mux state, tabs and one tab's chat on a 250 ms load cadence for a bounded 1..3600-second window. Reports helper-inclusive per-route p50/p95/max milliseconds and HTTP/transport status counts, plus per-lock/per-site LOCK-HOLD counts from the DEV log in JSON and a table. Slow requests never overlap on the same route; the final request can finish up to the helper's 5-second health check plus 30-second request deadline after the load window. Log timestamps have second precision, so both boundary seconds are included; unmatched older diagnostic formats are counted separately. This cadence generates load and proves no readiness state. Fixture selector: `node --test scripts/tests/qa-lock-storm.test.mjs`. |
 
 ## Setup
 
@@ -44,9 +50,35 @@ node scripts/dev-screenshot.mjs /tmp/prod.png '' --api-port 7685   # another ins
 
 It prints the file path and the running build SHA; open the PNG with your file-read/image tool to see it. Check the build SHA before judging a change: the screenshot shows what is running, not what is merged. For state the picture cannot show (counts, attributes), evaluate DOM over the same port (`Runtime.evaluate`) instead of guessing from pixels.
 
+## Prove a wheel/scroll bug (real wheel probe)
+
+`scripts/dev-wheel-probe.mjs` sends a real CDP `mouseWheel` (`deltaY` 240) at an element's center and reports the nearest scrollable ancestor's `scrollTop` before/after, the wheel event target and `defaultPrevented`, and the hit element's ancestor chain with computed overflow, overscroll, pointer-events and app-region. It waits on the scroll event or two rAFs, never a sleep.
+
+```bash
+node scripts/dev-wheel-probe.mjs                                   # sidebar: tab label, same row icon, empty space
+node scripts/dev-wheel-probe.mjs '[data-testid=tab-title]' '.sidebar-tab-badge'   # custom points
+node scripts/dev-wheel-probe.mjs '.sidebar-workspace-card[data-selected="true"] .sidebar-workspace-card-initials' '.sidebar-workspace-card-edit' '.sidebar-workspace-card[data-selected="false"] .sidebar-workspace-card-initials'
+node scripts/dev-wheel-probe.mjs --api-port 7686 --delta 480
+```
+
+Exit 1 means a probe did not move its scroller: first make sure the sidebar actually overflows (open enough tabs), then compare the `chain` of the failing point with the passing one; the first node that differs is the cause.
+
 DEV flow tracing writes bounded, rotated `~/.codeterm-dev/logs/trace.jsonl`; production writes no trace events. Unledgered PTY input uses a fresh trace ID; existing sends retain their IDs.
 From a DEV-bound shell, use `codeterm trace recent --limit 20`, then `codeterm trace show <trace_id|tab_id> --since 1h` to see ordered stages and gaps in the retained window.
 Exact protocol-turn and append-window source links join assistant appends, including late links; a missing assistant stage means pending or missing evidence, not a delivery verdict.
+
+## Chat scroll trace (iPhone viewport)
+
+For a change to Chat scrolling (`useMountedChatWindow`, `useChatScroll`, `chatSpacerDrift`, row heights), prove the scroll with a script, not by eye. The harness mounts the real hooks over 400 tool-card-sized rows. No dev instance is needed.
+
+```bash
+./build.sh chat-scroll-trace --webkit            # WebKit (no CSS scroll anchoring), fixed path: must report 0 jumps
+./build.sh chat-scroll-trace --webkit --fix 0    # same scroll without the spacer drift wiring: reproduces the jumps
+./build.sh chat-scroll-trace --webkit --strokes 60   # scroll all the way to the transcript top
+./build.sh chat-scroll-trace                     # native anchoring (Chromium/desktop) control
+```
+
+It drives touch strokes through your Domios Browser (opened if needed; `--cdp ws://...` or `CHAT_SCROLL_TRACE_CDP` selects another CDP endpoint) at 390x844 and prints a summary JSON. It exits 1 when `visualJumps > 0` or `scrollTopReversals > 0`. A jump is on-screen motion of the first visible row that does not mirror the scrollTop change. `spacerScrollFrames` counts frames where the top spacer and scrollTop moved together (a drift fold or a window remount). Those frames are judged against the neighbouring momentum speed instead. `trace.json` and screenshots land in `--out DIR` (default: a temp dir, printed at the end).
 
 ## Find GA tab
 
@@ -315,3 +347,58 @@ The skill lives at: `.agents/skills/dev-testing/SKILL.md`
 Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/memory-internals.md](references/memory-internals.md) — memory storage, ranking, wake-up selection, workers and dreaming internals
+
+## Routed-message first-paint proof (Keel)
+
+Run after integration in canonical DEV; Workers do not start a lane server.
+Verify `/api/health` build equals the integration SHA. Use the Domios Browser
+(`codeterm plugin browser status`, `open --profile clean`, then `goto` the DEV
+web client), and select an owned, empty throwaway agent chat. Use a separate
+owned DEV agent as sender; never send a probe to an owner's working chat.
+
+Before the first routed send, open the Browser's DevTools Performance panel,
+enable Screenshots, and start recording. In its console install this frame
+probe while the empty target chat is selected:
+
+```js
+window.routeFrames = [];
+window.routeProbeActive = true;
+function routeFrame() {
+  if (!window.routeProbeActive) return;
+  const log = document.querySelector('[data-testid="tab-session-chat-messages"]');
+  window.routeFrames.push({ at: performance.now(), text: log?.textContent ?? "" });
+  requestAnimationFrame(routeFrame);
+}
+requestAnimationFrame(routeFrame);
+```
+
+From the DEV-locked bench shell, source `evals/_lib/lib.sh`. Set `sender` and
+`target` to those two owned DEV tab IDs. Author the body in the sender's pad:
+
+```bash
+proof_pad=$(dc --as-tab "$sender" pad path)
+cat > "$proof_pad/routed-proof.md" <<'EOF'
+route-first-paint-opaque-token: acknowledge this token once.
+EOF
+dc --as-tab "$sender" send --tab "$target" --require-agent --from-pad routed-proof.md
+```
+
+Wait for the target chat to show the token and its committed transcript echo,
+then stop the Performance recording and run in the console:
+
+```js
+window.routeProbeActive = false;
+({ frames: routeFrames.length,
+   observed: routeFrames.some(f => f.text.includes('route-first-paint-opaque-token')),
+   leaks: routeFrames.filter(f => /<\/?(?:domios|tip)\b/.test(f.text)) });
+```
+
+Pass requires nonzero frames, `observed: true`, `leaks: []`, and a clean sender
+card with one body throughout the screenshot filmstrip, including the first
+insertion and replacement by the committed echo. Save the recording and frame
+JSON in the QA pad. Reload the target and confirm one clean persisted body.
+Repeat with a fresh target for each transport under review, especially a
+structured runtime that publishes `chat-send-status.system_send` before its
+transcript row. A send acknowledgement alone is not proof. Close only the
+throwaway tabs and Browser this check created. Pure regression command:
+`pnpm exec tsx src/components/Terminal/chatEnrichment.routedSends.test.ts`.

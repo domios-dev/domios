@@ -16,10 +16,5 @@ pub struct UsageSnapshot {
 
 /// Normalised platform tag used by `install_command(platform)`.
 pub fn current_platform_tag() -> &'static str {
-    match std::env::consts::OS {
-        "macos" => "macos",
-        "linux" => "linux",
-        "windows" => "windows",
-        other => other,
-    }
+    std::env::consts::OS
 }

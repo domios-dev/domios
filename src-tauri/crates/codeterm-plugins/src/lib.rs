@@ -29,11 +29,13 @@ mod install;
 mod list;
 mod provenance;
 use provenance::*;
+mod retirement;
 mod state;
 mod types;
 mod update;
 mod user_config;
 mod util;
+pub use util::stop_live_git_children;
 mod version;
 
 #[cfg(test)]
@@ -292,6 +294,12 @@ fn dispatch(action: PluginAction) -> Result<serde_json::Value, String> {
 pub fn audit_failure(ctx: PluginCtx, action: &PluginAction, error: &str) {
     let _guard = enter_ctx(ctx);
     let _ = audit_command_failure(action, error);
+}
+
+pub fn retire_unshipped_system_plugins(ctx: PluginCtx) -> Result<Vec<String>, String> {
+    let _guard = enter_ctx(ctx);
+    let shipped_ids = SYSTEM_PLUGIN_IDS.map(str::to_string);
+    retirement::retire_missing_official_plugins(&shipped_ids, retired_system_plugin_ids())
 }
 
 #[cfg(test)]

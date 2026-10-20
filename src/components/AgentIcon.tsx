@@ -1,6 +1,7 @@
-import type { CSSProperties } from "react";
+import { useSyncExternalStore, type CSSProperties } from "react";
 import { useAgentDescriptor } from "../lib/useAgentDescriptor";
 import { ProviderGlyph } from "./ProviderGlyph";
+import { cachedProviderIcon, subscribeProviderIcons } from "../lib/providerIconCache";
 
 interface Props {
   providerId: string | null | undefined;
@@ -12,7 +13,8 @@ interface Props {
 }
 
 export function AgentIcon({ providerId, className, style, title, ariaLabel, working }: Props) {
-  const descriptor = useAgentDescriptor(providerId);
+  const cachedIcon = useSyncExternalStore(subscribeProviderIcons, () => cachedProviderIcon(providerId), () => undefined);
+  const descriptor = useAgentDescriptor(providerId) ?? cachedIcon;
   return (
     <ProviderGlyph
       iconSvg={descriptor?.icon_svg}

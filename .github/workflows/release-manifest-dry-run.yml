@@ -1,0 +1,60 @@
+name: Release local manifest verification
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      artifact_run_id:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact version tag of retained private CI evidence
+        required: true
+        type: string
+      source_ref:
+        description: Exact source SHA of retained private CI evidence
+        required: true
+        type: string
+      artifact_run_id:
+        description: Producing Actions run ID, within existing CI retention
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: verify consolidated manifests against private CI bytes
+    runs-on: [self-hosted, linux-build]
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Assemble and verify local channel manifests
+        env:
+          TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_ref }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d "$RUNNER_TEMP/manifest-dry-run.XXXXXX")
+          trap 'rm -rf "$work"' EXIT
+          node scripts/release-dry-run-manifest.mjs aggregate "$TAG" "$SOURCE_SHA" "$ARTIFACT_RUN_ID" "$work/input" "$work/output"
+          echo 'All six local updater platforms and both Debian platforms: PASS' >> "$GITHUB_STEP_SUMMARY"
+          bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/manifest-dry-run/manifest-local-verification.json" "$work/output/manifest-local-verification.json"

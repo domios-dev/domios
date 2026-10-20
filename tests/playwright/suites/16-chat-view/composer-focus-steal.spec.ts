@@ -64,10 +64,10 @@ test(
 
     // Switch back to A so we can initiate a send from there.
     if (tabA.tab_id) {
-      const tabA = ui.page
+      const tabAButton = ui.page
         .locator(`[data-testid="tab-item"][data-tab-id="${tabA.tab_id}"]`)
         .first();
-      await tabA.click();
+      await tabAButton.click();
     }
     await expect(chatA).toBeVisible({ timeout: 10_000 });
 
@@ -79,10 +79,10 @@ test(
 
     // Switch to B immediately (within the 300ms send delay window).
     if (tabB.tab_id) {
-      const tabB = ui.page
+      const tabBButton = ui.page
         .locator(`[data-testid="tab-item"][data-tab-id="${tabB.tab_id}"]`)
         .first();
-      await tabB.click();
+      await tabBButton.click();
     }
 
     // stolen to A, the keystrokes will go to A's composer instead.

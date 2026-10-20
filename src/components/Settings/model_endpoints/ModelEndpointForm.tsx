@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useId, useState, type FormEvent } from "react";
 import { Button } from "../../shared/Button";
 import { FormRow } from "../../shared/FormRow";
@@ -227,7 +228,7 @@ export function ModelEndpointForm({
         </span>
       </div>
 
-      {error && <p role="alert" className="m-0 text-[11px] text-[var(--ct-red)]">{error}</p>}
+      {error && <InlineErrorNotice error={error} operation="saving this model endpoint" blocking />}
 
       <div className="flex items-center justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={onCancel} disabled={busy === "save"}>Cancel</Button>

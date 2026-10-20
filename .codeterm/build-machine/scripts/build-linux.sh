@@ -22,32 +22,42 @@ if [ "$TAG" != source ]; then git checkout -q "tags/${TAG}"; fi
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/src/src-tauri/target}"
 export CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}"
 echo "HEAD=$(git rev-parse HEAD)  bundles=$BUNDLES  target=${CARGO_BUILD_TARGET:-native}"
+source scripts/cache-policy.sh
+export CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner
+CODETERM_SCCACHE_VERIFY_ONLY=0 ct_configure_sccache
+ct_sccache_verify
+export CODETERM_SCCACHE_VERIFY_ONLY=1
+trap 'ct_sccache_stats' EXIT
 
 # Fast compile gate: cargo check only, no frontend/bundle/sign. Catches
 # target-gated compile breaks in ~1 min. Stub tauri-build resources so its glob
-# validation passes without a real dist/cli/embed.
+# validation passes without a real dist/cli.
 if [ "${CHECK:-0}" = "1" ]; then
-  mkdir -p dist src-tauri/bundled-embed src-tauri/bundled-cli
+  mkdir -p dist src-tauri/bundled-cli
   touch dist/index.html src-tauri/bundled-cli/codeterm
-  touch "src-tauri/bundled-embed/codeterm-embed-$(rustc -vV | awk '/^host:/{print $2}')"
-  [ -n "${CARGO_BUILD_TARGET:-}" ] && touch "src-tauri/bundled-embed/codeterm-embed-${CARGO_BUILD_TARGET}"
   cargo check --manifest-path src-tauri/Cargo.toml ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"}
   echo "CHECK_LINUX_DONE tag=$TAG target=${CARGO_BUILD_TARGET:-native}"
   exit 0
 fi
 
 corepack prepare pnpm@10.32.1 --activate >/dev/null 2>&1 || true
-# Cross builds need externalBin/resource stubs pre-created (tauri-build glob validation runs
-# during the embed/cli cargo builds, before bundle scripts stage the real cross binaries).
+# Cross builds need CLI resource stubs pre-created (tauri-build glob validation runs
+# during cargo builds, before bundle scripts stage the real cross binaries).
 if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
-  mkdir -p src-tauri/bundled-embed src-tauri/bundled-cli
-  touch "src-tauri/bundled-embed/codeterm-embed-${CARGO_BUILD_TARGET}"
-  touch "src-tauri/bundled-embed/codeterm-embed-$(rustc -vV | awk '/^host:/{print $2}')"
+  mkdir -p src-tauri/bundled-cli
   touch src-tauri/bundled-cli/codeterm
 fi
 pnpm install --frozen-lockfile
-./build.sh release-inputs
-pnpm tauri build ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
+TARGET="${CARGO_BUILD_TARGET:-$(rustc -vV | awk '/^host:/ { print $2 }')}"
+CODETERM_RELEASE_COMMON_STAGE=1 ./build.sh release-inputs --for-bundle
+pnpm tauri build --no-bundle ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
+  --features "$CODETERM_RELEASE_FEATURES" \
+  --config '{"bundle":{"createUpdaterArtifacts":false,"resources":[],"externalBin":[]}}'
+CLIENT="src-tauri/target/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release/domios"
+node scripts/release-stage.mjs stage-full --target "$TARGET" --source-sha "$(git rev-parse HEAD)" \
+  --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
+  --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" --client-file "$CLIENT"
+pnpm tauri bundle --no-binary-patching ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
   --features "$CODETERM_RELEASE_FEATURES" --bundles "$BUNDLES" \
   --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
@@ -55,6 +65,17 @@ mkdir -p /work/out
 SUB="${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}"
 find "src-tauri/target/${SUB}release/bundle" -maxdepth 2 -type f \
   \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp -v {} /work/out/ \;
+mapfile -t DEBS < <(find "src-tauri/target/${SUB}release/bundle/deb" -maxdepth 1 -type f -name '*.deb')
+[ "${#DEBS[@]}" -eq 1 ] || { echo "Expected exactly one full Debian package" >&2; exit 1; }
+: "${RELEASE_TAG:?Release tag is required for common-stage receipt}"
+node scripts/release-stage.mjs finalize --target "$TARGET" --tag "$RELEASE_TAG" \
+  --version "${RELEASE_TAG#v}" --source-sha "$(git rev-parse HEAD)" \
+  --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
+  --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" \
+  --bundle "${DEBS[0]}" --output-dir /work/out
+cp "release-artifacts/common-stage/$TARGET/headless-stage.json" "/work/out/headless-stage-$TARGET.json"
+node scripts/release-pair-smoke.mjs "$TARGET" "$RELEASE_TAG" "$(git rev-parse HEAD)" \
+  "release-artifacts/common-stage/$TARGET" /work/out
 node scripts/release-bundle-smoke.mjs linux /work/out "$(git rev-parse HEAD)"
 ls -la /work/out/
 echo "BUILD_LINUX_DONE tag=$TAG"

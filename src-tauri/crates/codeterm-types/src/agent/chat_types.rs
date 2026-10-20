@@ -75,6 +75,8 @@ pub struct ChatSessionIntent {
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub goal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub goal_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -84,7 +86,7 @@ pub struct RichMessage {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub background_work: Vec<super::background_work::BackgroundWorkObservation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_observations: Option<super::provider_signals::SessionObservations>,
+    pub provider_observations: Option<codeterm_provider_signals::SessionObservations>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_usage: Option<super::context::TurnContext>,
     /// Free-form role string. Common values: "user", "assistant",
@@ -206,9 +208,13 @@ pub struct ChatAttachment {
 #[serde(rename_all = "camelCase")]
 pub struct ChatMsg {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub inherited_from_session_id: Option<String>,
     #[serde(rename = "type")]
     pub kind: String,
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub segments: Option<Vec<codeterm_wire::envelope::MessageSegment>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub timestamp: Option<String>,
     /// Monotonic source-order ordinal (JSONL rich-message index / structured row
@@ -248,6 +254,15 @@ pub struct ChatMsg {
     pub tool_exit_code: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(
+        type = "\"running\" | \"completed\" | \"failed\" | \"interrupted\" | \"abandoned\" | null"
+    )]
+    pub tool_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_started_at_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_completed_at_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_interrupted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -328,6 +343,21 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub interactive: Vec<InteractiveElement>,
 }
+
+impl ChatMsg {
+    pub fn refresh_segments(&mut self) {
+        self.segments =
+            (self.kind == "user").then(|| codeterm_wire::envelope::parse_envelope(&self.content));
+    }
+
+    pub fn with_segments(mut self) -> Self {
+        self.refresh_segments();
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 /// Result of one structured-chat read. `cursor` is an opaque bookmark
 /// (opencode: max part `time_created`) to pass back next poll. Empty

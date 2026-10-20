@@ -194,8 +194,8 @@ async function main() {
         trigger.focus();
         trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
       });
-      await settle(() => document.querySelector('[role="menu"]') !== null && document.activeElement?.getAttribute("role") === "menuitem");
-      const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+      await settle(() => document.querySelector('[role="menu"]:not([hidden])') !== null && document.activeElement?.getAttribute("role") === "menuitem");
+      const menu = document.querySelector<HTMLElement>('[role="menu"]:not([hidden])')!;
       assert.equal(menu.getAttribute("aria-label"), `Actions for ${title}`);
       const items = menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
       assert.equal(items[0].textContent?.trim(), "Stop");
@@ -203,7 +203,7 @@ async function main() {
       await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
       assert.equal(document.activeElement, items[1], "ArrowDown moves through menu items");
       await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
-      assert.equal(document.querySelector('[role="menu"]'), null);
+      assert.equal(document.querySelector('[role="menu"]:not([hidden])'), null);
       assert.equal(document.activeElement, trigger, "Escape restores focus to the menu button");
     } finally { await view.close(); }
   });
@@ -229,14 +229,14 @@ async function main() {
       }
       const trigger = view.host.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${target.name}"]`)!;
       await act(async () => trigger.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
-      await settle(() => document.querySelector('[role="menu"]') !== null);
-      assert.equal(document.querySelector('[role="menu"]')!.getAttribute("aria-label"), `Actions for ${target.name}`);
+      await settle(() => document.querySelector('[role="menu"]:not([hidden])') !== null);
+      assert.equal(document.querySelector('[role="menu"]:not([hidden])')!.getAttribute("aria-label"), `Actions for ${target.name}`);
       assert.ok(entry(view.host, `scenario:${target.id}`), "opening the menu leaves the list in place");
       const stop = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Stop");
       assert.ok(stop);
       await act(async () => stop.click());
       transport.stopResult.resolve();
-      await settle(() => document.querySelector('[role="menu"]') === null);
+      await settle(() => document.querySelector('[role="menu"]:not([hidden])') === null);
       assert.deepEqual(transport.stops.map((identity) => identity.id), [target.root.id]);
       assert.equal(view.host.querySelector("[data-edge-kind]"), null, "Stop never opens the job");
     } finally { await view.close(); }
@@ -252,7 +252,7 @@ async function main() {
       const trigger = view.host.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${target.name}"]`)!;
       const openDelete = async () => {
         await act(async () => trigger.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
-        await settle(() => document.querySelector('[role="menu"]') !== null);
+        await settle(() => document.querySelector('[role="menu"]:not([hidden])') !== null);
         const deleteItem = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Delete");
         assert.ok(deleteItem);
         await act(async () => deleteItem.click());
@@ -347,7 +347,7 @@ async function main() {
       await settle(() => view.host.querySelector("h3")?.textContent?.startsWith(target.name) === true);
       transport.graph = { ...transport.graph, scenarios: [transport.graph.scenarios[0]] };
       await act(async () => { transport.changed!(); });
-      const alert = view.host.querySelector<HTMLElement>('[role="alert"]');
+      const alert = view.host.querySelector<HTMLElement>('[role="status"][tabindex="-1"]');
       assert.ok(alert, "removed scenario is reported");
       assert.equal(document.activeElement, alert, "focus does not fall to the document body");
       assert.equal(entry(view.host, `scenario:${target.id}`), null);
@@ -479,9 +479,9 @@ async function main() {
     cronList = async () => { throw new Error("private-cron-failure"); };
     const failed = await mount(jobsView(transport));
     try {
-      await settle(() => failed.host.querySelector('[role="alert"]') !== null);
+      await settle(() => failed.host.querySelector('[role="status"][aria-label]') !== null);
       assert.equal(failed.host.querySelector('[role="status"][aria-label="No jobs"]'), null);
-      assert.ok(!failed.host.textContent?.includes("private-cron-failure"));
+      assert.equal(failed.host.querySelector('[role="alert"]'), null);
     } finally { await failed.close(); }
     cronList = async () => [];
     const empty = await mount(jobsView(transport));

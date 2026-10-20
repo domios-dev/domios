@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import type { ApiConfig } from "../../../lib/types";
 import { ActivityFeed } from "../../Supporter/ActivityFeed";
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -80,16 +81,13 @@ export function MissionControlBoard({
       className="mc-board"
     >
       {error && (
-        <p data-testid="mc-board-error" className="mc-board-note mc-board-note-error">
-          {error}
-        </p>
+        <div data-testid="mc-board-error"><InlineErrorNotice error={error} operation="loading plans" /></div>
       )}
       {!mc && !error && (
         <p data-testid="mc-board-pending" className="mc-board-note">
           {loading ? "Reading the plan record…" : "No stored Mission Control reading for this plan."}
         </p>
       )}
-      {api && plan.team_id && <ActivityFeed api={api} teamId={plan.team_id} />}
       {boardState && mc && (
         <>
           <div
@@ -110,14 +108,17 @@ export function MissionControlBoard({
             />
           </div>
           <NeedsYouPanel refs={refs} deepLinks={deepLinks} />
-          <BoardEventLog
-            log={mc.event_log}
-            milestoneKinds={plan.milestone_kinds ?? []}
-            refs={refs}
-            pager={eventPager}
-            now={now}
-          />
         </>
+      )}
+      {api && plan.team_id && <ActivityFeed api={api} teamId={plan.team_id} />}
+      {boardState && mc && (
+        <BoardEventLog
+          log={mc.event_log}
+          milestoneKinds={plan.milestone_kinds ?? []}
+          refs={refs}
+          pager={eventPager}
+          now={now}
+        />
       )}
     </div>
   );

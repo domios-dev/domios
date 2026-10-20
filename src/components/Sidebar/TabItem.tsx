@@ -1,4 +1,3 @@
-import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
@@ -13,6 +12,7 @@ import { getAgentDescriptor, listAgentDescriptors } from "../../lib/agentDescrip
 import { TabMenu } from "../Terminal/TabMenu";
 import { buildTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
 import { performTabMenuAction } from "../Terminal/tabMenuActions";
+import { useProviderSwitchDialog } from "./ProviderSwitchDialog";
 import { useTelegramThreadMenu } from "../Terminal/useTelegramThreadMenu";
 import { ActivityDots } from "../shared/ActivityDots";
 import { RowMenuButton } from "../shared/RowMenuButton";
@@ -25,19 +25,19 @@ import { agentModelForBadge } from "../../lib/agentLabel";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
-import { managedByLabel, remoteIdentity, meshBadgeLabel } from "./remoteOwnership";
+import { managedByLabel, meshBadgeLabel } from "./remoteOwnership";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
-import {
-  type ActiveWorkSnapshot,
-} from "../Canvas/planView/activeWork";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { TabAttentionMark } from "./TabAttentionMark";
 import {
   tabAttention, type TabAttention,
 } from "./tabAttention";
+import { tabRowText } from "./tabRowModel";
+import { sameRowTab } from "./tabRowEquality";
+import { ChecklistToggleButton, type ChecklistToggle } from "./WorkerChecklist";
 
 interface TabItemProps {
   tab: Tab;
@@ -58,8 +58,6 @@ interface TabItemProps {
   uiFontScale?: number;
   /** Plan-membership glance (resolved from the cheap index gate by the Sidebar). */
   activity?: TabTabActivity | null;
-  /** Bound in-flight tasks — drives worker subline activity dots. */
-  activeWork?: ActiveWorkSnapshot | null;
   /** Agent report count badge (orchestration worker rows). */
   reportCount?: number;
   /** Group head with children — overlay collapse chevron in the left padding gutter. */
@@ -78,6 +76,8 @@ interface TabItemProps {
   ownerBadgeTab?: Tab | null;
   /** Owner row folding its surface attachments. */
   attachmentToggle?: AttachmentToggle | null;
+  /** Worker row disclosure for its read-only checklist detail. */
+  checklistToggle?: ChecklistToggle | null;
   startedBy?: TabStartedBy | null;
 }
 
@@ -173,77 +173,29 @@ function TabWorkingActivity({ activity, label }: { activity: TabActivity; label?
   );
 }
 
-function TabSubline({ subtitle, generalAgent }: { subtitle: string | null; generalAgent: boolean }) {
-  if (!subtitle) return null;
+function TabSubline({ parts, role, generalAgent }: { parts: string[]; role: string | null; generalAgent: boolean }) {
+  if (!parts.length) return null;
   return (
-    <span
-      data-testid="tab-subline"
-      className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
-    >
-      {generalAgent && !subtitle.includes(" · @") ? (
-        <span data-testid="general-agent-subtitle" className="shrink-0">General Agent</span>
-      ) : (
-        <RoleBadge label={subtitle} className="shrink-0" />
-      )}
+    <span data-testid="tab-subline" className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
+      {parts.map((part, index) => (
+        <span key={index}>
+          {index > 0 && " · "}
+          {part === role ? (generalAgent ? <span data-testid="general-agent-subtitle">{part}</span> : <RoleBadge label={part} />) : part}
+        </span>
+      ))}
     </span>
   );
 }
 
-/** What the tab is currently busy with — subordinate to the name, above the role. */
 function TabDescriptionSubtitle({ description }: { description: string | null }) {
   const text = description?.trim() ?? "";
   if (!text) return null;
   return (
     <span
       data-testid="tab-description-subtitle"
-      className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]/80"
+      className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)] opacity-70"
     >
       {text}
-    </span>
-  );
-}
-
-function StartedByLine({ origin }: { origin: TabStartedBy }) {
-  const open = origin.onOpen;
-  return (
-    <span data-testid="tab-started-by" className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]/80">
-      started by{" "}
-      {open ? (
-        <span
-          role="link"
-          tabIndex={-1}
-          className="sidebar-tab-origin-link"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            open();
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.stopPropagation();
-            open();
-          }}
-        >
-          {origin.label}
-        </span>
-      ) : (
-        <span title={origin.id ? `Tab ${origin.id}` : undefined}>{origin.label}</span>
-      )}
-    </span>
-  );
-}
-
-function RemoteIdentityLine({ tab }: { tab: Tab }) {
-  const identity = remoteIdentity(tab);
-  if (!identity) return null;
-  return (
-    <span
-      data-testid="remote-tab-identity"
-      className="flex min-w-0 items-center gap-1 truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]"
-    >
-      {identity.role ? <RoleBadge label={identity.role} className="shrink-0" /> : null}
-      {identity.role ? <span aria-hidden="true">·</span> : null}
-      <span className="truncate">{identity.peer}</span>
     </span>
   );
 }
@@ -274,7 +226,6 @@ function TabItemInner({
   touchMode = false,
   uiFontScale,
   activity,
-  activeWork: _activeWork = null,
   reportCount = 0,
   groupCollapsible = false,
   collapsed = false,
@@ -285,11 +236,8 @@ function TabItemInner({
   insetPx,
   ownerBadgeTab = null,
   attachmentToggle = null,
-  startedBy = null,
+  checklistToggle = null,
 }: TabItemProps) {
-  const updates = useOptionalUpdatePanel();
-  const pluginId = surfaceBacking(tab)?.plugin_id ?? tab.agent_type ?? backingPluginId(tab);
-  const pluginUpdate = !!pluginId && (updates?.pluginHasUpdate(pluginId) ?? false);
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // tabs — drives the icon, tooltip, and (for shells) the model badge.
@@ -347,7 +295,7 @@ function TabItemInner({
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
   const meshLabel = meshBadgeLabel(tab);
-  const localSubtitle = tab.remote_peer_id ? null : roleShield;
+  const rowText = tabRowText({ title: displayTitle, description, typeLabel: roleShield });
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
@@ -367,6 +315,7 @@ function TabItemInner({
     }
   }, [isClosing, closePhase]);
 
+  const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(tab);
   const pluginTabMenu = usePluginTabMenu();
   const telegramThread = useTelegramThreadMenu(tab.id, !tab.remote_peer_id);
   const menuEntries = useMemo(() => buildTabMenu({
@@ -386,6 +335,7 @@ function TabItemInner({
   const runMenuAction = (action: TabMenuAction) => {
     performTabMenuAction(tab.id, action, {
       sessionBindingNonce: tab.session_binding_nonce,
+      switchProvider: openProviderSwitch,
       rename: () => { setEditName(canonicalTitle); setEditing(true); },
       close: onClose,
     }).catch((error) => console.warn("Tab action failed:", error));
@@ -508,8 +458,7 @@ function TabItemInner({
               setEditing(true);
             }}
           >
-            {displayTitle}
-            {pluginUpdate && <span aria-label="Plugin update available" className="ml-1 text-[10px] text-[var(--ct-accent)]">Update</span>}
+            {rowText.title}
           </span>
           {hasAgent && (
             <TabWorkingActivity activity={tabState} />
@@ -553,11 +502,8 @@ function TabItemInner({
           </span>
         ) : attachment ? null : (
           <span className="sidebar-tab-body__sub">
-            <TabDescriptionSubtitle description={description} />
-            {startedBy && <StartedByLine origin={startedBy} />}
-            <TabSubline subtitle={localSubtitle} generalAgent={isGeneralAgent} />
-            <RemoteIdentityLine tab={tab} />
-            {!tab.remote_peer_id && managedByLabel(tab) && <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{managedByLabel(tab)}</span>}
+            <TabSubline parts={rowText.typeLabel ? [rowText.typeLabel] : []} role={rowText.typeLabel} generalAgent={isGeneralAgent} />
+            <TabDescriptionSubtitle description={rowText.description} />
           </span>
         )}
       </div>
@@ -584,19 +530,18 @@ function TabItemInner({
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
         {!attachment && !touchMode && <MeshDot label={meshLabel} />}
+        {checklistToggle && <ChecklistToggleButton toggle={checklistToggle} title={displayTitle} />}
         {attachmentToggle && attachmentToggle.count > 0 && <AttachmentToggleButton toggle={attachmentToggle} />}
         {touchMode && tabMenu}
       </div>
       {!touchMode && tabMenu}
+      {providerSwitchDialog}
     </div>
   );
 }
 
 function backingPluginId(p: Tab | null | undefined): string | undefined {
   return p?.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
-}
-function backingSessionId(p: Tab): string | undefined {
-  return p.backing?.kind === "chat_backend" ? p.backing.session_id : undefined;
 }
 
 function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
@@ -625,11 +570,11 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.attachmentToggle?.count !== next.attachmentToggle?.count ||
     prev.attachmentToggle?.collapsed !== next.attachmentToggle?.collapsed ||
     prev.attachmentToggle?.onToggle !== next.attachmentToggle?.onToggle ||
+    prev.checklistToggle !== next.checklistToggle ||
     prev.startedBy?.id !== next.startedBy?.id ||
     prev.startedBy?.label !== next.startedBy?.label ||
     prev.onToggleCollapse !== next.onToggleCollapse ||
-    prev.reportCount !== next.reportCount ||
-    prev.activeWork !== next.activeWork
+    prev.reportCount !== next.reportCount
   ) return false;
 
   // so a non-task tab (both null) and an unchanged indicator skip the re-render.
@@ -644,56 +589,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pa.planCount !== na.planCount
   )) return false;
 
-  const pp = prev.tab;
-  const np = next.tab;
-  if (pp === np) return true;
-  if (!pp || !np) return false;
-  return (
-    pp.id === np.id &&
-    // a stale label after wake/cache-reconcile.
-    pp.title === np.title &&
-    pp.title_level === np.title_level &&
-    pp.purpose === np.purpose &&
-    pp.shell_command_state?.activity === np.shell_command_state?.activity &&
-    pp.shell_command_state?.last_exit_code === np.shell_command_state?.last_exit_code &&
-    pp.description === np.description &&
-    pp.agent_type === np.agent_type &&
-    pp.agent_session_id === np.agent_session_id &&
-    // The row menu's model entry needs a live PTY to write the switch into.
-    pp.pty_id === np.pty_id &&
-    // shell model itself comes from a hook (useShellSessionModel), not a prop.
-    pp.backing?.kind === np.backing?.kind &&
-    backingPluginId(pp) === backingPluginId(np) &&
-    backingSessionId(pp) === backingSessionId(np) &&
-    pp.protected === np.protected &&
-    pp.boot_stage === np.boot_stage &&
-    pp.boot_failure_reason === np.boot_failure_reason &&
-    pp.role_profile === np.role_profile &&
-    pp.role === np.role &&
-    pp.roleless_tracked === np.roleless_tracked &&
-    pp.role_profile === np.role_profile &&
-    JSON.stringify(pp.remote_channels) === JSON.stringify(np.remote_channels) &&
-    pp.ownership?.controller_title === np.ownership?.controller_title &&
-    pp.ownership?.team?.id === np.ownership?.team?.id &&
-    pp.remote_peer_name === np.remote_peer_name &&
-    pp.remote_peer_id === np.remote_peer_id &&
-    pp.chat_view === np.chat_view &&
-    pp.permission_auto_confirm === np.permission_auto_confirm &&
-    pp.pending_prompt === np.pending_prompt &&
-    pp.agent_session_model === np.agent_session_model &&
-    pp.agent_provider_resolved_model === np.agent_provider_resolved_model &&
-    pp.agent_requested_model === np.agent_requested_model &&
-    pp.boot_stage === np.boot_stage &&
-    pp.agent_booting === np.agent_booting &&
-    pp.pty_id === np.pty_id &&
-    pp.agent_state?.status_line === np.agent_state?.status_line &&
-    pp.agent_state?.state === np.agent_state?.state &&
-    pp.agent_state?.phase === np.agent_state?.phase &&
-    pp.agent_state?.subtype === np.agent_state?.subtype &&
-    pp.parent_tab_id === np.parent_tab_id &&
-    pp.depth === np.depth &&
-    JSON.stringify(pp.connected_services) === JSON.stringify(np.connected_services)
-  );
+  return sameRowTab(prev.tab, next.tab);
 }
 
 export const TabItem = memo(TabItemInner, tabItemPropsEqual);

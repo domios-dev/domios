@@ -1,3 +1,4 @@
+# Caller: CI qualification.yml; skill build-machine
 [CmdletBinding(DefaultParameterSetName = 'Library')]
 param(
     [Parameter(Mandatory, ParameterSetName = 'Contract')][switch]$ContractOnly,

@@ -1,5 +1,6 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useRef, useState } from "react";
-import { ClipboardCopy, FileText, FolderOpen, Link2, Maximize2 } from "lucide-react";
+import { ClipboardCopy, FolderOpen, Link2, Maximize2 } from "lucide-react";
 import { LocalArtifactScope, LocalArtifactBlock, localArtifactOpeningAvailable, RichMarkdown, openLocalArtifact, type LocalPreviewFile } from "@codeterm/chat-ui";
 import type { ChatDocument } from "../chatDocuments";
 import { insertIntoComposer } from "../composerInsertion";
@@ -29,7 +30,7 @@ export function DocumentDetail({ tabId, document, home, onBack }: { tabId: strin
     <CopyAction label="Copy content" icon={ClipboardCopy} disabled={!text} copy={() => copyText(text ?? "")} />
     <ChatAction label={`Ask about ${document.name}`} text="Ask" onClick={() => insertIntoComposer(tabId, { kind: "document", path: document.path })} />
   </>} />}>
-    {error && <p role="alert" className="tab-panel__note"><FileText size={13} aria-hidden />{error}</p>}
+    {error && <InlineErrorNotice error={error} operation="opening this document" blocking />}
     <div ref={readerRef} className="tab-panel__reader">
       <LocalArtifactScope tabId={tabId}><LocalArtifactBlock key={document.path} bare directive={document} fullscreenRequest={fullscreenRequest} fullscreenHostSelector={`[data-tab-id="${tabId}"]`}
         renderMarkdown={(markdown) => <RichMarkdown text={markdown} />} onLoaded={setSource} /></LocalArtifactScope>

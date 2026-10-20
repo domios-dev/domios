@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { listen } from "../../lib/bridge";
 import { useResilientQuery } from "../../lib/useResilientQuery";
 import type { ApiConfig } from "../../lib/types";
@@ -110,5 +110,5 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
     };
   }, [enabled, patchPlan, refetch, setData, options.contextKey]);
 
-  return { plans, loading, reconnecting, error, refetch };
+  return useMemo(() => ({ plans, loading, reconnecting, error, refetch }), [plans, loading, reconnecting, error, refetch]);
 }

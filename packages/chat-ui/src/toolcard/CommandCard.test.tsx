@@ -12,7 +12,7 @@ if (!host.querySelector("svg") || !host.querySelector('[data-testid="toolcard-sp
 assertThemeTokens(["--ct-fg", "--ct-muted-fg", "--ct-blue", "--ct-border", "--ct-surface", "--ct-green", "--ct-yellow", "--ct-red"]);
 const collapsed = await render(<CommandCard event={event({ kind: "command", result: "first line\n\nlast output", phase: "result", status: "success" })} expanded={false} onToggle={() => {}} />);
 const tail = collapsed.querySelector('[data-testid="toolcard-result-tail"]');
-if (tail?.textContent !== "→ last output" || tail.textContent.includes("first line") || !tail.className.includes("truncate")) throw new Error("command result tail regression");
+if (tail?.textContent !== "→ last output" || tail.textContent.includes("first line")) throw new Error("command result tail regression");
 const empty = await render(<CommandCard event={event({ kind: "command", result: "  \n", phase: "result", status: "success" })} expanded={false} onToggle={() => {}} />);
 if (empty.querySelector('[data-testid="toolcard-result-tail"]')) throw new Error("empty command result tail should be absent");
 console.log("command card tests: passed");

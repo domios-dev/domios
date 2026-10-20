@@ -1,151 +1,93 @@
 [package]
+license = "AGPL-3.0-only"
 name = "codeterm"
-version = "1.14.8"
+version = "1.14.9"
 edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage"]
+members = ["crates/codeterm-process-identity", "crates/codeterm-paths", "crates/domios-server", "crates/codeterm-crash", "crates/codeterm-host-runtime", "crates/codeterm-worker-services", "crates/codeterm-local-preview", "crates/codeterm-lanes", "crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core", "crates/codeterm-surface", "crates/codeterm-notifications",
+    "crates/codeterm-provider-ops", "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model", "crates/codeterm-entitlements"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
+[workspace.lints.rust]
+warnings = "deny"
+
+[lints]
+workspace = true
+
 [dependencies]
-codeterm-agent-detect = { path = "crates/codeterm-agent-detect" }
-codeterm-notification-core = { path = "crates/codeterm-notification-core" }
-codeterm-repowatch = { path = "crates/codeterm-repowatch" }
-codeterm-account = { path = "crates/codeterm-account" }
-codeterm-billing = { path = "crates/codeterm-billing" }
-tauri-plugin-deep-link = "2"
-codeterm-analytics = { path = "crates/codeterm-analytics" }
-codeterm-frontend-bundle = { path = "crates/codeterm-frontend-bundle" }
-tempfile = "3"
+uuid = { version = "1", features = ["v4", "serde"] }
+domios-server = { path = "crates/domios-server", default-features = false }
+codeterm-host-runtime = { path = "crates/codeterm-host-runtime" }
+include_dir = "0.7"
+codeterm-commands = { path = "crates/codeterm-commands", features = ["desktop"] }
+codeterm-api = { path = "crates/codeterm-api" }
+codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false }
+codeterm-sentinel-host = { path = "crates/codeterm-sentinel-host" }
+codeterm-socket = { path = "crates/codeterm-socket" }
+codeterm-orchestration = { path = "crates/codeterm-orchestration" }
+codeterm-build-info = { path = "crates/codeterm-build-info" }
 tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
-# Embedded JavaScript runtime for plugin code (provider TS bundles run
-# here when called from headless / background Rust code paths). Features chosen to keep
-# binary size minimal — no parallel/multi-context, no async, just the
-# core eval surface + ES modules.
-rquickjs = { version = "0.11", features = ["loader", "macro", "parallel"] }
+# tauri-build reads plugin ACL manifests only from direct dependencies.
+tauri-plugin-deep-link = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
-portable-pty = { path = "pty-fork" }
 tokio = { version = "1", features = ["full", "test-util"] }
+interprocess = { version = "2", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-serde_yaml = "0.9"
-uuid = { version = "1", features = ["v4", "serde"] }
+sha2 = "0.10"
 codeterm-types = { path = "crates/codeterm-types" }
-codeterm-util = { path = "crates/codeterm-util" }
-codeterm-browser = { path = "crates/codeterm-browser" }
-codeterm-mesh = { path = "crates/codeterm-mesh" }
-codeterm-mem = { path = "crates/codeterm-mem", default-features = false }
-codeterm-plan = { path = "crates/codeterm-plan" }
+codeterm-paths = { path = "crates/codeterm-paths" }
+codeterm-process-identity = { path = "crates/codeterm-process-identity" }
+codeterm-decision = { path = "crates/codeterm-decision" }
 codeterm-bridge = { path = "crates/codeterm-bridge" }
-codeterm-pty = { path = "crates/codeterm-pty" }
+axum = { version = "0.8", features = ["multipart"] }
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+
+codeterm-billing = { path = "crates/codeterm-billing" }
+codeterm-plan = { path = "crates/codeterm-plan" }
 codeterm-plugin = { path = "crates/codeterm-plugin" }
-codeterm-storage = { path = "crates/codeterm-storage" }
-codeterm-usage = { path = "crates/codeterm-usage" }
+codeterm-util = { path = "crates/codeterm-util" }
+codeterm-events = { path = "crates/codeterm-events" }
+codeterm-frontend-bundle = { path = "crates/codeterm-frontend-bundle" }
 log = { version = "0.4", features = ["release_max_level_info"] }
 fern = "0.7"
+shell-words = "1"
 parking_lot = "0.12"
-base64 = "0.22"
-interprocess = "2"
-sha2 = "0.10"
-# Embedded bundled-plugin bytes for the first-launch bootstrap. The
-# Dir struct is built at compile time from <repo>/plugins/ so a fresh
-# binary on an air-gapped machine still has working providers.
-include_dir = "0.7"
-md-5 = "0.10"
-toml = "0.8"
-dirs = "6"
-axum = { version = "0.8", features = ["multipart"] }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["catch-panic", "compression-gzip", "cors", "fs", "set-header"] }
-git2 = { version = "0.19", features = ["vendored-openssl"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
-async-stream = "0.3"
-futures-core = "0.3"
-futures-util = "0.3"
-# Native async WebSocket framing shares Tokio's runtime; sidecars use loopback without TLS.
-tokio-tungstenite = "0.28"
-futures-executor = "0.3"
-png = "0.17"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-cron = "0.13"
-chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.10"
-vt100 = "0.16"
-semver = "1"
-hostname = "0.4.2"
-notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
-notify-debouncer-mini = "0.5"
-mdns-sd = "0.11"
-if-addrs = "0.13"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-aes-gcm = "0.10"
-url = "2"
-rand = "0.8"
-rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
-regex = "1"
-ulid = "1"
 async-trait = "0.1"
-zeroize = { version = "1", features = ["zeroize_derive"] }
-which = "7"
-wait-timeout = "0.2"
-sqlite-vec = { version = "0.1.9", optional = true }
-fastembed = { version = "5", optional = true }
-ndarray = { version = "0.17", optional = true }
-hnsw_rs = { version = "0.3", optional = true }
-codeterm-mem-store = { path = "../crates/mem-store" }
-codeterm-paths = { path = "../crates/codeterm-paths" }
-codeterm-plugins = { path = "crates/codeterm-plugins" }
-crash-handler = "0.6"
-crash-context = "0.6"
-minidump-writer = "0.10"
+png = "0.17"
+dirs = "6"
+url = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+codeterm-crash = { path = "crates/codeterm-crash" }
+core-foundation = "0.10"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [features]
 default = ["embeddings"]
-# annembed (UMAP graph layout) is macOS-only: its LAPACK backend is the
-# Accelerate framework; Windows/Linux have no provider wired and fail at
-# link time. Declared in the macOS target section below.
-embeddings = ["codeterm-mem/embeddings", "dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
-dev-updater-allowlocal = []
-
-# Low-level syscalls (e.g. fd-limit raise in fdlimit.rs) on all Unix incl Linux.
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
-# macOS uses the system Accelerate framework for the annembed LAPACK path.
-[target.'cfg(target_os = "macos")'.dependencies]
-annembed = { version = "0.1.6", optional = true, default-features = false, features = ["macos-accelerate"] }
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
-objc2-foundation = "0.3"
-
-# x86_64 macOS: pyke does not ship an ort prebuilt for this target, so we
-# enable fastembed's `ort-load-dynamic` feature and dlopen libonnxruntime
-# at runtime from a dylib bundled next to the app binary. arm64 keeps
-# static linking via the default `download-binaries` path.
-[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
-fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
-
-[target.'cfg(windows)'.dependencies]
-conpty = "0.7"
-clipboard-win = "5"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+embeddings = ["codeterm-service-core/embeddings", "domios-server/embeddings"]
+dev-updater-allowlocal = ["codeterm-commands/dev-updater-allowlocal"]
+# Developer harnesses stay out of the shipped app bundle, which packages every enabled binary.
+dev-tools = []
 
 [dev-dependencies]
-codeterm-types = { path = "crates/codeterm-types", features = ["decision-fixture-clock"] }
-mockito = "1"
-filetime = "0.2.29"
+codeterm-host-runtime = { path = "crates/codeterm-host-runtime", features = ["test-support"] }
+codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false, features = ["test-support"] }
 vt100 = "0.16"
-# Enables PlanStore::new_for_test + TestSearchPort in the app's test build only.
-codeterm-plan = { path = "crates/codeterm-plan", features = ["test-support"] }
-# Writer hold gates and fault injection for the storage_contract_ tests only.
-codeterm-storage = { path = "crates/codeterm-storage", features = ["test-support"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -159,29 +101,35 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "main"
 path = "tests/main.rs"
 
+[[test]]
+name = "bridge_migrate_test"
+path = "tests/bridge_migrate_test.rs"
+test = false
+
+[[test]]
+name = "chatpipeline_seams_test"
+path = "tests/chatpipeline_seams_test.rs"
+test = false
+
 # Deterministic mem-recall bench runner. Reuses the `mem` module from the
 # lib crate directly. Default and stub modes run offline without an LLM
 # or embeddings; live decision mode is an explicit owner-run option.
 [[bin]]
 name = "mem-bench"
 path = "src/bin/mem_bench.rs"
-
-# Isolated embedding worker — fastembed/ort runs here so its Windows
-# memory leak is bounded by periodic child restart (parent kills and
-# respawns after N inferences or memory threshold).
-[[bin]]
-name = "codeterm-embed"
-path = "src/bin/codeterm_embed.rs"
+required-features = ["dev-tools"]
 
 # Fast parser-iteration harness: run a provider's usage parser against
 # a raw text fixture and print extracted fields. ~2s rebuild vs full dev.
 [[bin]]
 name = "parser-eval"
 path = "src/bin/parser_eval.rs"
+required-features = ["dev-tools"]
 
 [[bin]]
 name = "storage-verify"
 path = "src/bin/storage-verify.rs"
+required-features = ["dev-tools"]
 
 # Build-speed profiles (round-16 build audit). dev: unpacked split-debuginfo
 # skips dSYM packing on macOS (faster links); line-tables keep usable
@@ -203,8 +151,14 @@ debug = false
 # One-off legacy plan.json → store_v2 yaml migration (T7). Deep-compare gate;
 # never deletes on mismatch. Rehearse on a project copy with --dry-run first.
 [[bin]]
+name = "mem_ab_bench"
+path = "src/bin/mem_ab_bench.rs"
+required-features = ["dev-tools"]
+
+[[bin]]
 name = "convert-plan-storage"
-path = "../scripts/convert-plan-storage.rs"
+path = "src/bin/convert-plan-storage.rs"
+required-features = ["dev-tools"]
 
 [patch.crates-io]
 tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }

@@ -71,6 +71,18 @@ impl std::error::Error for ChatBackendError {}
 pub trait ChatBackendProvider: Send + Sync {
     fn id(&self) -> &str;
 
+    fn remote_task_capability(&self) -> Option<crate::remote_tasks::RemoteTaskCapability> {
+        None
+    }
+
+    /// Refresh the account-backed state of a declared remote task mode.
+    /// Implementations that use only their manifest keep the cached descriptor.
+    fn discover_remote_task(
+        &self,
+    ) -> Result<Option<crate::remote_tasks::RemoteTaskDiscovery>, ChatBackendError> {
+        Ok(None)
+    }
+
     fn supports_agent_tasks(&self) -> bool {
         false
     }
@@ -213,6 +225,7 @@ pub trait ChatBackendProvider: Send + Sync {
     fn describe(&self) -> ProviderDescriptor {
         let catalog = model_catalog::registered_snapshot(self.id());
         ProviderDescriptor {
+            remote_task: self.remote_task_capability(),
             agent_runtime: None,
             supports_session_fork: false,
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
@@ -244,6 +257,7 @@ pub trait ChatBackendProvider: Send + Sync {
             compact_command: None,
             integration_trust_grant: None,
             supports_stop: false,
+            supports_subagent_visibility: false,
             supports_chat_ui: true,
             supports_structured_prompts: false,
             supports_prompt_answers: false,
@@ -319,11 +333,17 @@ impl ChatBackendRegistry {
         id: String,
         provider: Arc<dyn ChatBackendProvider>,
     ) -> Option<std::thread::JoinHandle<()>> {
+        let refresh_remote_task = provider.remote_task_capability().is_some();
         let entries = self.entries.clone();
         let thread_id = id.clone();
         match std::thread::Builder::new()
             .name(format!("chatbackend-catalog-{id}"))
             .spawn(move || {
+                if refresh_remote_task {
+                    let result = provider.discover_remote_task();
+                    Self::apply_remote_task_result(&entries, &thread_id, &provider, result);
+                    return;
+                }
                 let presets = provider.list_presets();
                 let result = provider.list_models();
                 Self::apply_capability_result(&entries, &thread_id, &provider, presets, result);
@@ -334,6 +354,40 @@ impl ChatBackendRegistry {
                 None
             }
         }
+    }
+
+    fn apply_remote_task_result(
+        entries: &RwLock<HashMap<String, RegisteredChatBackend>>,
+        id: &str,
+        provider: &Arc<dyn ChatBackendProvider>,
+        result: Result<Option<crate::remote_tasks::RemoteTaskDiscovery>, ChatBackendError>,
+    ) {
+        let mut entries = entries.write();
+        let Some(entry) = entries.get_mut(id) else {
+            return;
+        };
+        if !Arc::ptr_eq(&entry.provider, provider) {
+            return;
+        }
+        let Some(capability) = entry.descriptor.remote_task.as_mut() else {
+            return;
+        };
+        match result {
+            Ok(Some(discovery)) => {
+                capability.availability = discovery.availability;
+                capability.environments = discovery.environments;
+            }
+            Ok(None) => return,
+            Err(_) => {
+                capability.availability =
+                    crate::remote_tasks::RemoteTaskAvailability::Unavailable {
+                        reason: "Could not refresh remote environments. Try again.".into(),
+                    };
+                capability.environments.clear();
+            }
+        }
+        let change = model_catalog::invalidate(id);
+        entry.descriptor.catalogue_version = change.version;
     }
 
     pub fn refresh_and_wait(&self, id: &str) -> bool {
@@ -357,6 +411,7 @@ impl ChatBackendRegistry {
         if !self.contains(id) {
             return false;
         }
+        log::debug!("[chatbackend.catalog] refresh trigger source=input-change provider={id}");
         model_catalog::invalidate(id);
         self.refresh_provider(id)
     }
@@ -380,6 +435,10 @@ impl ChatBackendRegistry {
             .iter()
             .map(|(id, entry)| (id.clone(), entry.provider.clone()))
             .collect::<Vec<_>>();
+        log::debug!(
+            "[chatbackend.catalog] startup discovery scheduled providers={}",
+            providers.len()
+        );
         providers
             .into_iter()
             .filter_map(|(id, provider)| self.refresh_background(id, provider))
@@ -433,7 +492,11 @@ impl ChatBackendRegistry {
     }
 
     pub fn unregister(&self, id: &str) {
-        if self.entries.write().remove(id).is_some() {
+        let entry = self.entries.write().remove(id);
+        if entry
+            .as_ref()
+            .is_some_and(|entry| entry.provider.remote_task_capability().is_none())
+        {
             let previous_version = model_catalog::current_version(id);
             model_catalog::unregister(id);
             if model_catalog::current_version(id) == previous_version {
@@ -732,7 +795,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_refresh_reruns_chatbackend_models_and_publishes_its_version() {
+    fn explicit_refresh_does_not_republish_an_identical_catalogue() {
         let id = "chatbackend-refresh-event-fixture";
         let registry = ChatBackendRegistry::new();
         let calls = Arc::new(CatalogCallTracker::default());
@@ -750,17 +813,10 @@ mod tests {
         assert!(registry.refresh_and_wait(id));
 
         let version = model_catalog::current_version(id);
-        assert!(version > initial_version);
+        assert_eq!(version, initial_version);
         assert_eq!(calls.count(), 2);
         assert_eq!(registry.descriptor(id).unwrap().catalogue_version, version);
-        let mut completion_seen = false;
-        while let Ok(change) = changes.try_recv() {
-            completion_seen |= change.provider == id && change.version == version;
-        }
-        assert!(
-            completion_seen,
-            "the completed refresh must publish its version"
-        );
+        assert!(std::iter::from_fn(|| changes.try_recv().ok()).all(|change| change.provider != id));
         registry.unregister(id);
     }
 

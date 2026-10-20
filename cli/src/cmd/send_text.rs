@@ -143,6 +143,26 @@ fn pad_file_path(value: &serde_json::Value) -> Option<&str> {
     value.get("pad_file").and_then(serde_json::Value::as_str)
 }
 
+fn send_text_json_response(
+    mut value: serde_json::Value,
+    outcome: &SendTextOutcome,
+    resolved_text: Option<&str>,
+) -> serde_json::Value {
+    if let Some(text) = resolved_text.filter(|_| {
+        matches!(
+            outcome,
+            SendTextOutcome::Success(_)
+                | SendTextOutcome::Pending {
+                    bytes_written: true,
+                    ..
+                }
+        )
+    }) {
+        value["sent_message"] = crate::cmd::resolved_text::resolved_text_evidence(text);
+    }
+    value
+}
+
 pub fn handle_send_text_result(
     json: bool,
     result: Result<serde_json::Value, String>,
@@ -162,6 +182,7 @@ pub fn handle_send_text_result(
                 std::process::exit(*exit_code);
             }
             if json {
+                let value = send_text_json_response(value, &outcome, resolved_text);
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 return;
             }
@@ -443,6 +464,10 @@ fn send_text_to_targets(
                 .map(|(tab, err)| serde_json::json!({ "tab": tab, "error": err }))
                 .collect::<Vec<_>>(),
         });
+        if !delivered.is_empty() || !pending_written.is_empty() {
+            report["sent_message"] =
+                crate::cmd::resolved_text::resolved_text_evidence(resolved_text);
+        }
         if !failures.is_empty() {
             report["error"] = crate::cmd::error_contract::error_object(
                 &format!("{} of {} target(s) refused", failures.len(), targets.len()),
@@ -708,7 +733,7 @@ fn send_composite_over_mesh(
     );
     let path = format!("/api/tabs/{}/send", urlencoding::encode(remote_tab));
     let data = crate::mesh_cli::mesh_relay_fetch_json(peer, "POST", &path, Some(&body.to_string()));
-    handle_send_text_result(json, Ok(data), None);
+    handle_send_text_result(json, Ok(data), Some(&resolved_text));
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,6 +1,7 @@
 use regex::Regex;
 
 const RESOLVED_TEXT_PREFIX: &str = "CODETERM_RESOLVED_TEXT=";
+pub const RESOLVED_TEXT_MAX_BYTES: usize = 16 * 1024;
 
 /// Mask secret-shaped substrings before a resolved payload is echoed back into
 /// the caller's transcript. Every echo path goes through this — there is no
@@ -20,16 +21,37 @@ pub fn redact_resolved_text(text: &str) -> String {
 /// staging (pad/file/stdin/doc) prints this so the chat card renders what was
 /// delivered instead of what argv happened to carry.
 pub fn resolved_text_echo(text: &str) -> String {
-    format!(
+    let evidence = resolved_text_evidence(text);
+    let echo = format!(
         "{}{}",
         RESOLVED_TEXT_PREFIX,
-        serde_json::to_string(&redact_resolved_text(text)).unwrap()
-    )
+        serde_json::to_string(evidence["text"].as_str().unwrap_or_default()).unwrap()
+    );
+    if evidence["truncated"] == true {
+        format!("{echo}\nCODETERM_RESOLVED_TEXT_TRUNCATED=true")
+    } else {
+        echo
+    }
+}
+
+pub fn resolved_text_evidence(text: &str) -> serde_json::Value {
+    let redacted = redact_resolved_text(text);
+    let mut end = redacted.len().min(RESOLVED_TEXT_MAX_BYTES);
+    while !redacted.is_char_boundary(end) {
+        end -= 1;
+    }
+    serde_json::json!({
+        "text": &redacted[..end],
+        "truncated": end < redacted.len(),
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{redact_resolved_text, resolved_text_echo, RESOLVED_TEXT_PREFIX};
+    use super::{
+        redact_resolved_text, resolved_text_echo, resolved_text_evidence, RESOLVED_TEXT_MAX_BYTES,
+        RESOLVED_TEXT_PREFIX,
+    };
 
     #[test]
     fn resolved_text_echo_redacts_secrets() {
@@ -59,5 +81,18 @@ mod tests {
             serde_json::from_str::<String>(encoded).expect("payload is JSON"),
             "first line\nsecond \"quoted\" line"
         );
+    }
+
+    #[test]
+    fn structured_evidence_is_redacted_and_bounded_on_utf8_boundaries() {
+        let text = format!("{}é", "x".repeat(RESOLVED_TEXT_MAX_BYTES - 1));
+        let evidence = resolved_text_evidence(&text);
+        assert_eq!(
+            evidence["text"].as_str().unwrap().len(),
+            RESOLVED_TEXT_MAX_BYTES - 1
+        );
+        assert_eq!(evidence["truncated"], true);
+        let secret = resolved_text_evidence("API_TOKEN=hidden");
+        assert!(!secret["text"].as_str().unwrap().contains("hidden"));
     }
 }

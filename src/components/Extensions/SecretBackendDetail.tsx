@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 /**
  * Secret-backend plugin detail (Bitwarden). The model: installing this plugin
  * lets it BECOME the secret store — a single "use as default" toggle, NOT a
@@ -257,13 +258,13 @@ export function SecretBackendDetail({
               <div style={{ fontSize: 11, color: "var(--ct-muted)", marginTop: 4 }}>
                 New secrets are filed here by default.
               </div>
-              {scopeError && <div style={{ color: "var(--ct-err)", fontSize: 12, marginTop: 8 }} data-testid="extensions-secret-scope-error">{scopeError}</div>}
+              {scopeError && <div data-testid="extensions-secret-scope-error"><InlineErrorNotice error={scopeError} operation="updating the secret store" /></div>}
             </>
           )}
         </>
       )}
 
-      {error && <div style={{ color: "var(--ct-err)", fontSize: 12, marginTop: 4 }} data-testid="extensions-secret-error">{error}</div>}
+      {error && <div data-testid="extensions-secret-error"><InlineErrorNotice error={error} operation="updating the secret store" /></div>}
     </div>
   );
 }

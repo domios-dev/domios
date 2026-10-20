@@ -1,7 +1,6 @@
 import { tabActivity } from "../../lib/tabActivity";
 import { useMemo, type ReactNode } from "react";
-import { Clock3, MonitorUp, Plus, X } from "lucide-react";
-import { invoke } from "../../lib/bridge";
+import { MonitorUp, Plus } from "lucide-react";
 import type {
   Tab,
   TabStatus,
@@ -9,11 +8,9 @@ import type {
   Team,
   Workspace,
 } from "../../lib/types";
-import { anchorsTeam, CARTOGRAPHER_KIND, roleKind } from "../../lib/roleKind";
 import { selectTeamStaffingManager, type TeamMemberRole } from "../../lib/teamActions";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
-import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { SortableContext, SortableRow, verticalListSortingStrategy, TAB_PREFIX, TEAM_PREFIX } from "./sortable";
@@ -21,21 +18,20 @@ import { buildSidebarDragModel, unitsInOrder, withSiblingOrder, workspaceTabOrde
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { CursorTooltip } from "../shared/CursorTooltip";
-import { TabItem, type TabStartedBy } from "./TabItem";
+import { TabItem } from "./TabItem";
 import { remoteTeamIdentity } from "./remoteOwnership";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
-import { cronSelectionStore } from "../Cron/cronSelectionStore";
-import { DropdownMenu } from "../shared/DropdownMenu";
-import { RowMenuButton } from "../shared/RowMenuButton";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TabAttention } from "./tabAttention";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
-import { cronReportTitle, terminalOrigin } from "./teamRowLabels";
-import { SurfaceOwnerBlock } from "./SurfaceAttachments";
-import { attachmentInset, ownerRowInset, surfaceAttachmentsByOwner, type OwnerRowContext } from "./surfaceAttachmentModel";
+import { SidebarCronRow } from "./SidebarResourceRow";
+import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
+import { surfaceAttachmentsByOwner, type OwnerRowContext } from "./surfaceAttachmentModel";
+import { WorkerChecklistDisclosure, type ChecklistToggle } from "./WorkerChecklist";
 
 import {
+  addableTeamRoles,
   effectiveTeamId,
   visibleWorkspaceTabs,
   groupWorkspaceTeamMembers,
@@ -90,38 +86,6 @@ function newestActivePlansByTeam(
   return grouped;
 }
 
-/// Every role a Team with a spawn-capable manager can place.
-const TEAM_MEMBER_ROLES = ["orchestrator", "planner", "cartographer", "worker"] as const;
-/// With no spawner inside, only an anchoring role can be placed: it takes no
-/// parent, so it is the door through which a stalled Team gets one.
-const BOOTSTRAP_ONLY_ROLES = ["orchestrator"] as const;
-/// A Team holds at most one live Orchestrator, so once it has one the role is
-/// not on offer — the daemon refuses it by code either way.
-const STAFFED_TEAM_ROLES = ["planner", "cartographer", "worker"] as const;
-
-/// Mirrors the daemon headcount: a removed Orchestrator is gone from the tab
-/// list and a dead one has had its agent identity cleared.
-function hasLiveOrchestrator(members: readonly TeamTabMember[]): boolean {
-  return members.some((member) => anchorsTeam(member.tab) && member.tab.agent_type != null);
-}
-
-export function addableTeamRoles(
-  members: readonly TeamTabMember[],
-  managerTabId: string | null,
-): readonly TeamMemberRole[] {
-  const hasCartographer = members.some(
-    (member) => member.tab.role === "Manager" && roleKind(member.tab) === CARTOGRAPHER_KIND,
-  );
-  const withoutExistingCartographer = (roles: readonly TeamMemberRole[]): readonly TeamMemberRole[] =>
-    hasCartographer ? roles.filter((role) => role !== "cartographer") : roles;
-  if (hasLiveOrchestrator(members)) {
-    return managerTabId ? withoutExistingCartographer(STAFFED_TEAM_ROLES) : [];
-  }
-  return managerTabId
-    ? withoutExistingCartographer(TEAM_MEMBER_ROLES)
-    : BOOTSTRAP_ONLY_ROLES;
-}
-
 export interface SidebarWorkspaceTabsProps {
   workspace: Workspace;
   activeTabId: string | null;
@@ -132,7 +96,6 @@ export interface SidebarWorkspaceTabsProps {
   teams: Team[];
   planIndex: PlanIndexEntry[];
   plans: Plan[];
-  activeWork: ActiveWorkSnapshot | null;
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   closingTabIds: Set<string>;
@@ -152,6 +115,7 @@ export interface SidebarWorkspaceTabsProps {
   onOpenRemoteTab?: () => void;
   newSessionDisabled?: boolean;
   onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
+  onRenamePlan?: (planId: string, title: string) => Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
@@ -160,6 +124,7 @@ export interface SidebarWorkspaceTabsProps {
     model?: string,
   ) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
+  closingTeamIds?: ReadonlySet<string>;
   onOpenSentinelJob?: (target: JobsTarget) => void;
 }
 
@@ -173,7 +138,6 @@ export function SidebarWorkspaceTabs({
   teams,
   planIndex,
   plans,
-  activeWork,
   providers,
   providersLoading,
   closingTabIds,
@@ -193,8 +157,10 @@ export function SidebarWorkspaceTabs({
   onOpenRemoteTab,
   newSessionDisabled = false,
   onRenameTeam,
+  onRenamePlan,
   onAddTeamMember,
   onCloseTeam,
+  closingTeamIds,
   onOpenSentinelJob,
 }: SidebarWorkspaceTabsProps) {
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
@@ -260,76 +226,41 @@ export function SidebarWorkspaceTabs({
     owner: Tab,
     attachments: readonly Tab[],
     context: OwnerRowContext,
-    renderOwner: Parameters<typeof SurfaceOwnerBlock>[0]["renderOwner"],
+    renderOwner: Parameters<typeof SidebarOwnerTabRow>[0]["renderOwner"],
   ): ReactNode => {
-    const inset = attachmentInset(ownerRowInset(context, touchMode));
-    return (
-      <SurfaceOwnerBlock
-        ownerId={owner.id}
-        attachments={attachments}
-        compact={compact}
-        renderOwner={renderOwner}
-        wrapAttachments={(rows) => (
-          <SortableContext items={attachments.map((surface) => `${TAB_PREFIX}${surface.id}`)} strategy={verticalListSortingStrategy}>
-            {rows}
-          </SortableContext>
-        )}
-        renderAttachment={(surface, surfaceIndex) => (
-          <SidebarSingleTabRow
-            tab={surface}
-            ownerTitle={surfaceOwnerTitle(surface, tabs)}
-            index={surfaceIndex}
-            activity={resolveTabTabActivity(planIndex, surface.id, tabs)}
-            activeWork={activeWork}
-            isClosing={closingTabIds.has(surface.id)}
-            isAppearing={appearingTabIds.has(surface.id)}
-            group="child"
-            groupKey={owner.id}
-            pinnedIds={[]}
-            toWorkspaceOrder={reorderSiblings}
-            variant="attachment"
-            insetPx={inset}
-            ownerBadgeTab={compact ? owner : null}
-            {...sharedRow}
-          />
-        )}
-      />
-    );
+    return <SidebarOwnerTabRow
+      tab={owner} index={0} attachments={attachments} context={context}
+      tabs={tabs} planIndex={planIndex}
+      closingTabIds={closingTabIds} appearingTabIds={appearingTabIds}
+      compact={compact} group="team" groupKey={owner.id} pinnedIds={[]}
+      toWorkspaceOrder={reorderSiblings} renderOwner={renderOwner} {...sharedRow}
+    />;
   };
 
-  const startedByOf = (tab: Tab): TabStartedBy => {
-    const creatorId = tab.spawned_by_tab_id ?? null;
-    const creator = creatorId ? tabs[creatorId] : null;
-    const origin = terminalOrigin(creatorId, creator?.title, Boolean(creator));
-    if (origin.kind === "tab") return { id: origin.id, label: origin.label, onOpen: () => onActivateTab(origin.id) };
-    if (origin.kind === "closed") return { id: origin.id, label: "a closed tab" };
-    return { id: null, label: "an unknown tab" };
-  };
-
-  const renderMemberRow = (member: TeamTabMember, section: TeamSection, startedBy?: TabStartedBy): ReactNode => (
-    <div key={member.tab.id} className="sidebar-team-member">
-      {renderOwnerWithAttachments(member.tab, attachmentsByOwner.get(member.tab.id) ?? [], "team", (toggle) => (
-        <SidebarSingleTabRow
-          tab={member.tab}
-          ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
-          index={member.index}
-          activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
-          activeWork={activeWork}
-          isClosing={closingTabIds.has(member.tab.id)}
-          isAppearing={appearingTabIds.has(member.tab.id)}
-          group="team"
-          groupKey={`${section.teamId}:${section.index}`}
-          pinnedIds={[]}
-          toWorkspaceOrder={reorderSiblings}
-          attachmentToggle={toggle}
-          startedBy={startedBy}
-          {...sharedRow}
-        />
-      ))}
-    </div>
+  const renderMemberRow = (
+    member: TeamTabMember,
+    section: TeamSection,
+    shell = false,
+    checklist?: { toggle: ChecklistToggle; detail: ReactNode },
+  ): ReactNode => (
+    <SidebarShellRow key={member.tab.id}
+      tab={member.tab} index={member.index} showStartedBy={shell}
+      checklistToggle={checklist?.toggle} detail={checklist?.detail}
+      attachments={attachmentsByOwner.get(member.tab.id) ?? []}
+      tabs={tabs} planIndex={planIndex}
+      closingTabIds={closingTabIds} appearingTabIds={appearingTabIds}
+      compact={compact} group="team" groupKey={`${section.teamId}:${section.index}`}
+      pinnedIds={[]} toWorkspaceOrder={reorderSiblings} {...sharedRow}
+    />
   );
 
-  const renderTerminalRow = (member: TeamTabMember, section: TeamSection): ReactNode => renderMemberRow(member, section, startedByOf(member.tab));
+  const renderTerminalRow = (member: TeamTabMember, section: TeamSection): ReactNode => renderMemberRow(member, section, true);
+
+  const renderWorkerRow = (member: TeamTabMember, section: TeamSection): ReactNode => member.tab.remote_peer_id
+    ? renderMemberRow(member, section)
+    : <WorkerChecklistDisclosure key={member.tab.id} tabId={member.tab.id}>
+      {(toggle, detail) => renderMemberRow(member, section, false, { toggle, detail })}
+    </WorkerChecklistDisclosure>;
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
@@ -362,21 +293,23 @@ export function SidebarWorkspaceTabs({
   ): ReactNode => {
     const children = looseTabs.filter((candidate) => candidate.parent_tab_id === tab.id);
     const childItems = children.map((child) => `${TAB_PREFIX}${child.id}`);
+    const toWorkspaceOrder = group === "tab" ? reorderUnits : reorderSiblings;
     return (
-      <div key={tab.id} className="sidebar-tab-tree-row">
+      <SidebarSortableBlock key={tab.id} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
+        toWorkspaceOrder={toWorkspaceOrder} className="sidebar-tab-tree-row">
         {renderOwnerWithAttachments(tab, attachmentsByOwner.get(tab.id) ?? [], "loose", (toggle) => (
           <SidebarSingleTabRow
+            sortable={false}
             tab={tab}
             ownerTitle={surfaceOwnerTitle(tab, tabs)}
             index={index}
             activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
-            activeWork={activeWork}
             isClosing={closingTabIds.has(tab.id)}
             isAppearing={appearingTabIds.has(tab.id)}
             group={group}
             groupKey={groupKey}
             pinnedIds={pinnedIds}
-            toWorkspaceOrder={group === "tab" ? reorderUnits : reorderSiblings}
+            toWorkspaceOrder={toWorkspaceOrder}
             attachmentToggle={toggle}
             {...sharedRow}
           />
@@ -388,7 +321,7 @@ export function SidebarWorkspaceTabs({
             )}
           </SortableContext>
         )}
-      </div>
+      </SidebarSortableBlock>
     );
   };
 
@@ -419,6 +352,7 @@ export function SidebarWorkspaceTabs({
       workspace_id: ws.id,
     };
     const managerTabId = selectTeamStaffingManager(managers.map((member) => member.tab));
+    const plan = plansByTeam.get(teamId) ?? null;
     const teamCrons = workspaceCrons.filter((job) => job.team_id === teamId);
 
     rows.push(
@@ -431,7 +365,7 @@ export function SidebarWorkspaceTabs({
         sentinelScope={onOpenSentinelJob && teamById.has(teamId) ? { workspace_id: ws.id, team_id: teamId } : undefined}
         onOpenSentinel={onOpenSentinelJob ? (scenarioId) => onOpenSentinelJob({ teamId, scenarioId }) : undefined}
         team={team}
-        plan={plansByTeam.get(teamId) ?? null}
+        plan={plan}
         tabs={tabs}
         managerCount={managers.length}
         managers={
@@ -444,7 +378,7 @@ export function SidebarWorkspaceTabs({
         workers={
           <>
             <SortableContext items={workerItems} strategy={verticalListSortingStrategy}>
-              {workers.map((member) => renderMemberRow(member, { teamId, index: 1 }))}
+              {workers.map((member) => renderWorkerRow(member, { teamId, index: 1 }))}
             </SortableContext>
           </>
         }
@@ -462,38 +396,14 @@ export function SidebarWorkspaceTabs({
         }
         cronCount={teamCrons.length}
         crons={teamCrons.map((job) => (
-          <div key={job.id} className="sidebar-team-cron-row">
-            <button
-              type="button"
-              className="sidebar-team-cron-main"
-              onClick={() => {
-                onBeforeOpenPlan();
-                cronSelectionStore.open({ cronId: job.id, workspaceId: ws.id });
-              }}
-              title={cronReportTitle(job.report_target_tab_id, job.report_target_tab_id ? tabs[job.report_target_tab_id]?.title : null)}
-            >
-              <Clock3 size={11} aria-hidden="true" />
-              <span className="sidebar-team-cron-name">{job.name}</span>
-              <span className="sidebar-team-cron-state">{job.enabled ? "active" : "paused"}</span>
-            </button>
-            <DropdownMenu
-              className="sidebar-team-cron-menu"
-              menuLabel="Cron actions"
-              items={[{
-                label: "Delete cron",
-                icon: <X size={11} strokeWidth={2} />,
-                danger: true,
-                onClick: () => { void invoke("cron_delete", { id: job.id }).then(() => refreshCrons()); },
-              }]}
-              trigger={<RowMenuButton label={`Cron actions for ${job.name}`} title="Cron actions" />}
-            />
-          </div>
+          <SidebarCronRow key={job.id} job={job} tabs={tabs}
+            onBeforeOpen={onBeforeOpenPlan} onDeleted={refreshCrons} />
         ))}
         providers={providers}
         providersLoading={providersLoading}
-        onRenameTeam={onRenameTeam
-          ? (teamId, name) => onRenameTeam(teamId, name, managerTabId)
-          : undefined}
+        onRenameTeam={plan
+          ? onRenamePlan ? (_teamId, name) => onRenamePlan(plan.id, name) : undefined
+          : onRenameTeam ? (teamId, name) => onRenameTeam(teamId, name, managerTabId) : undefined}
         onOpenEffort={(target) => {
           onBeforeOpenPlan();
           openTeamPlanCanvas({ ...target, managerTabId });
@@ -502,6 +412,7 @@ export function SidebarWorkspaceTabs({
         onAddMember={onAddTeamMember
           ? (role, providerId, model) => onAddTeamMember(teamId, role, providerId, managerTabId, model)
           : undefined}
+        closing={closingTeamIds?.has(teamId)}
         onCloseTeam={onCloseTeam}
       />
       </SortableRow>,

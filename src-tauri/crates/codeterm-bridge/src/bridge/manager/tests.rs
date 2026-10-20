@@ -404,8 +404,7 @@ async fn body_includes_transcript_and_file_uri() {
         "builtin-http",
     )
     .await;
-    // The frame, a newline, then the transcript as the payload.
-    assert_eq!(body, "-=-codeterm:voice file=/tmp/voice.oga-=-\nпривет мир");
+    assert_eq!(body, "<domios type=\"attachment\" kind=\"voice\" path=\"/tmp/voice.oga\" label=\"voice\" />\n<transcript>привет мир</transcript>");
 
     let _ = stop.send(());
     let _ = handle.await;
@@ -427,7 +426,7 @@ async fn body_falls_back_to_raw_when_daemon_down() {
     .await;
     // Daemon down → untranscribed voice marker; the readable note is the payload.
     assert!(
-        body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"),
+        body.starts_with("<domios type=\"attachment\" kind=\"voice\" path=\"/tmp/voice.oga\" label=\"voice\" status=\"untranscribed\" />"),
         "body: {}",
         body
     );
@@ -447,7 +446,7 @@ async fn disabled_cfg_notes_missing_transcriber() {
     .await;
     // Transcription off → untranscribed marker + readable note (with doc pointer).
     assert!(
-        body.starts_with("-=-codeterm:voice file=/tmp/voice.oga status=untranscribed-=-"),
+        body.starts_with("<domios type=\"attachment\" kind=\"voice\" path=\"/tmp/voice.oga\" label=\"voice\" status=\"untranscribed\" />"),
         "body: {}",
         body
     );
@@ -474,7 +473,10 @@ async fn empty_attachment_path_skips_transcription() {
     let cfg = enabled_cfg("http://127.0.0.1:1");
 
     let body = build_message_body(&voice_msg(""), &registry_for(&cfg), "builtin-http").await;
-    assert_eq!(body, "-=-codeterm:voice file=-=-");
+    assert_eq!(
+        body,
+        "<domios type=\"attachment\" kind=\"voice\" path=\"\" label=\"voice\" />"
+    );
 }
 
 #[tokio::test]
@@ -491,16 +493,15 @@ async fn multiple_voice_attachments_each_transcribed() {
     });
 
     let body = build_message_body(&msg, &registry_for(&cfg), "builtin-http").await;
-    // Two voice markers, each with "ok" as its transcript payload.
+    assert_eq!(body.matches("kind=\"voice\"").count(), 2, "body: {}", body);
     assert_eq!(
-        body.matches("-=-codeterm:voice").count(),
+        body.matches("<transcript>ok</transcript>").count(),
         2,
         "body: {}",
         body
     );
-    assert_eq!(body.matches("-=-\nok").count(), 2, "body: {}", body);
-    assert!(body.contains("file=/tmp/a.oga"));
-    assert!(body.contains("file=/tmp/b.oga"));
+    assert!(body.contains("path=\"/tmp/a.oga\""));
+    assert!(body.contains("path=\"/tmp/b.oga\""));
 
     let _ = stop.send(());
     let _ = handle.await;
@@ -518,7 +519,8 @@ async fn malformed_url_notes_unavailable() {
     )
     .await;
     assert!(body.contains("transcription unavailable"), "body: {}", body);
-    assert!(body.contains("file=/tmp/voice.oga"), "body: {}", body);
+    assert!(body.contains("status=\"untranscribed\""), "body: {}", body);
+    assert!(body.contains("path=\"/tmp/voice.oga\""), "body: {}", body);
 }
 
 #[test]
@@ -558,8 +560,8 @@ use std::sync::Arc;
 
 #[test]
 fn telegram_marker_carries_reply_route() {
-    let marked = codeterm_types::message_markers::telegram("100000001", Some("12345"), "hello");
-    let parsed = codeterm_types::message_markers::parse(&marked).expect("telegram marker parses");
+    let marked = codeterm_wire::message_markers::telegram("100000001", Some("12345"), "hello");
+    let parsed = codeterm_wire::message_markers::parse(&marked).expect("telegram marker parses");
 
     assert_eq!(parsed.kind, "telegram");
     assert_eq!(parsed.attr("user"), Some("100000001"));

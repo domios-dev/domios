@@ -18,7 +18,17 @@ pub struct PasteCapability {
     #[serde(default)]
     pub typed_follow_up: String,
     #[serde(default)]
+    pub paste_marker_when: PasteMarkerWhen,
+    #[serde(default)]
     pub requires_typed_instruction_for_routed_messages: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PasteMarkerWhen {
+    #[default]
+    Always,
+    Multiline,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,13 +46,22 @@ impl PasteCapability {
         !follow_up.trim().is_empty()
             && follow_up.chars().count() <= MAX_TYPED_FOLLOW_UP_CHARS
             && !follow_up.chars().any(|character| {
-                character.is_control() || matches!(character, '\u{2028}' | '\u{2029}')
+                (character.is_control() && character != '\n')
+                    || matches!(character, '\u{2028}' | '\u{2029}')
             })
+    }
+
+    pub fn marker_applies_to(&self, text: &str) -> bool {
+        match self.paste_marker_when {
+            PasteMarkerWhen::Always => true,
+            PasteMarkerWhen::Multiline => text.contains('\n'),
+        }
     }
 
     pub fn typed_follow_up_for(&self, text: &str) -> Option<&str> {
         let follow_up = self.typed_follow_up.as_str();
         (text.lines().count() > self.untrusted_above_lines
+            && self.marker_applies_to(text)
             && Self::is_valid_typed_follow_up(follow_up))
         .then_some(follow_up)
     }
@@ -67,6 +86,7 @@ mod paste_capability_tests {
             multiline: None,
             untrusted_above_lines: 4,
             typed_follow_up: " ::marker::".into(),
+            paste_marker_when: PasteMarkerWhen::Always,
             requires_typed_instruction_for_routed_messages: true,
         };
 
@@ -78,10 +98,22 @@ mod paste_capability_tests {
         );
 
         let multiline = PasteCapability {
-            typed_follow_up: "marker\nmarker".into(),
+            typed_follow_up: "marker\x1b[201~".into(),
             ..capability
         };
         assert_eq!(multiline.typed_follow_up_for("a\nb\nc\nd\ne"), None);
+
+        let multiline_only = PasteCapability {
+            untrusted_above_lines: 0,
+            paste_marker_when: PasteMarkerWhen::Multiline,
+            typed_follow_up: " ::marker::".into(),
+            ..multiline
+        };
+        assert_eq!(multiline_only.typed_follow_up_for("single line"), None);
+        assert_eq!(
+            multiline_only.typed_follow_up_for("a\nb"),
+            Some(" ::marker::")
+        );
     }
 }
 
@@ -106,6 +138,7 @@ pub struct ModelCatalogueCapability {
     /// Config files whose change voids a cached model snapshot (e.g. the
     /// provider's own model registry). Fingerprint-only, never a sandboxed read.
     pub config_files: Vec<String>,
+    pub config_file_environments: Vec<crate::js_runtime::manifest::ReadRootEnvironment>,
 }
 
 impl ModelCatalogueCapability {
@@ -114,6 +147,7 @@ impl ModelCatalogueCapability {
             authority: ModelCatalogueAuthority::Authoritative,
             live_discovery_required: false,
             config_files: Vec::new(),
+            config_file_environments: Vec::new(),
         }
     }
 
@@ -122,6 +156,7 @@ impl ModelCatalogueCapability {
             authority: ModelCatalogueAuthority::Authoritative,
             live_discovery_required: true,
             config_files: Vec::new(),
+            config_file_environments: Vec::new(),
         }
     }
 
@@ -137,6 +172,23 @@ impl ModelCatalogueCapability {
                 .iter()
                 .filter_map(|path| crate::js_runtime::PluginManifest::expand_home(path)),
         );
+        files.extend(
+            self.config_file_environments
+                .iter()
+                .filter_map(|source| source.resolve(std::env::var_os(&source.variable))),
+        );
+        files = files
+            .into_iter()
+            .filter_map(|path| {
+                if path.is_absolute() {
+                    Some(path)
+                } else {
+                    std::env::current_dir().ok().map(|cwd| cwd.join(path))
+                }
+            })
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        files.retain(|path| seen.insert(path.clone()));
         files
     }
 }
@@ -221,9 +273,17 @@ pub struct ModelSwitchTranscript {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum SwitchConfirmationPromptKind {
+    SwitchConfirmation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSwitchCommand {
     pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmation_prompt_kind: Option<SwitchConfirmationPromptKind>,
     #[serde(default)]
     pub confirmation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

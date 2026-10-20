@@ -15,7 +15,7 @@ mod quality;
 use inspect::inspect_plan;
 use inspect::inspect_stray_sidecars;
 
-// Mirrors src-tauri/src/plan/reconcile.rs PENDING_UNSTAFFED_STALE_MS.
+// Mirrors src-tauri/crates/codeterm-service-core/src/plan/reconcile.rs PENDING_UNSTAFFED_STALE_MS.
 pub(super) const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
 pub(super) const STALLED_LOOP_AFTER_MS: u64 = 3 * 24 * 60 * 60 * 1000;
 

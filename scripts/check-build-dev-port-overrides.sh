@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Caller: build.sh script-guards
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,6 +38,7 @@ assert_output \
   "$default_output"
 
 fallback_output="$(
+  env -u CODETERM_VITE_PORT -u CODETERM_CDP_PORT \
   CODETERM_TEST_KILL_DRY_RUN=1 \
   CODETERM_INSTANCE=port-check \
   CODETERM_API_PORT=7777 \

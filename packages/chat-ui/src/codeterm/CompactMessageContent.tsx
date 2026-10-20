@@ -1,5 +1,6 @@
 import React from "react";
 import { userMessageAttachments } from "@codeterm/chat-core";
+import type { MessageSegment } from "@codeterm/chat-core";
 import { LinkedText, type OpenPlan, type ResolvedChatPlanRef } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
 import { RichMarkdown } from "../MarkdownBody";
@@ -9,9 +10,11 @@ import { AttachmentStrip } from "../AttachmentStrip";
 import { OrderedAttachmentContent } from "../OrderedAttachmentContent";
 import { InlineAttachmentText } from "../AttachmentCapsule";
 import { ReplyQuote } from "../ReplyQuote";
+import { EnvelopeContent } from "../EnvelopeContent";
 
 interface Props {
   text: string;
+  segments?: MessageSegment[] | null;
   fontScale?: number;
   onOpenPlan?: OpenPlan;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
@@ -20,15 +23,15 @@ interface Props {
 }
 
 /** Body of every inbound and system notice: markdown text plus the same quote, image and file rendering a user bubble gets. */
-export function CompactMessageContent({ text, fontScale, onOpenPlan, resolvePlanRef, collapseAfter = 8, expandTestId }: Props) {
-  const parts = React.useMemo(() => userMessageAttachments(text), [text]);
+export function CompactMessageContent({ text, segments, fontScale, onOpenPlan, resolvePlanRef, collapseAfter = 8, expandTestId }: Props) {
+  const parts = React.useMemo(() => segments ? { text, files: [], inline: null, reply: null } : userMessageAttachments(text), [text, segments]);
   const normalized = normalizeMessageText(parts.text);
   const lines = normalized.split("\n");
   const collapsible = lines.length > collapseAfter;
   const [expanded, setExpanded] = React.useState(false);
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const renderText = (content: string) => {
-    const part = userMessageAttachments(content);
+    const part = segments ? { text: content, files: [], inline: null } : userMessageAttachments(content);
     const normalized = normalizeMessageText(part.text);
     const shown = expanded || !collapsible ? normalized : normalized.split("\n").slice(0, collapseAfter).join("\n");
     const body = part.inline ? <InlineAttachmentText segments={part.inline} />
@@ -40,7 +43,7 @@ export function CompactMessageContent({ text, fontScale, onOpenPlan, resolvePlan
   return (
     <div data-testid="codeterm-message-content" className={`min-w-0 ${textSize}`}>
       {parts.reply && <ReplyQuote label={parts.reply.label ?? "Quote"} excerpt={parts.reply.excerpt ?? ""} />}
-      <OrderedAttachmentContent content={text} renderText={renderText} />
+      {segments ? <EnvelopeContent segments={segments} renderText={renderText} renderInlineText={renderText} /> : <OrderedAttachmentContent content={text} renderText={renderText} renderInlineText={renderText} />}
       {collapsible && !parts.inline && (
         <button
           type="button"

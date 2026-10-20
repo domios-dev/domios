@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseOpencodeModels } from "../src/helpers";
+import { MODEL_REJECTION_QUERY, parseOpencodeModels, sessionModelIdentity } from "../src/helpers";
+import { withAsyncSqlite } from "./hostFixture.testdata";
 import { rejectedModelIds, sessionObservations, turnError, unavailableModelError } from "../src/turnErrors";
 
 const error = { role: "assistant", providerID: "opencode", modelID: "exo-free",
@@ -32,6 +33,47 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import plugin from "../src/plugin";
+import { withAsyncSqlite } from "./hostFixture.testdata";
+
+// rusqlite binds ?N by index; node:sqlite 22.14 rejects ?N, so expand each to a positional "?".
+function queryLikeHost(db: DatabaseSync, sql: string, params: Array<string | number>) {
+  const ordered: Array<string | number> = [];
+  const positional = sql.replace(/\?(\d+)/g, (_match, index: string) => {
+    ordered.push(params[Number(index) - 1]);
+    return "?";
+  });
+  return db.prepare(positional).all(...ordered);
+}
+
+it("bounds payload inspection to recent metadata candidates in mostly nonmatching history", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec("CREATE TABLE message(id TEXT PRIMARY KEY, time_updated INTEGER, data TEXT); CREATE INDEX recent_message ON message(time_updated DESC, id DESC);");
+    const insert = db.prepare("INSERT INTO message VALUES (?, ?, ?)");
+    const unavailable = (modelID: string) => JSON.stringify({ ...error, modelID });
+    insert.run("outside", 0, unavailable("outside"));
+    const user = JSON.stringify({ role: "user", content: "x".repeat(2048) });
+    db.exec("BEGIN");
+    for (let index = 1; index <= 2000; index++) insert.run(`user-${index}`, index, user);
+    db.exec("COMMIT");
+    insert.run("unavailable", 2001, unavailable("exo-free"));
+    insert.run("recovered", 2002, JSON.stringify({ role: "assistant", providerID: "opencode", modelID: "recovered", time: { completed: 1 } }));
+    insert.run("oversized", 2003, JSON.stringify({ role: "user", content: "x".repeat(16384) }));
+    let payloadChecks = 0;
+    db.function("json_valid", (_data: unknown) => { payloadChecks++; return 1; });
+    const rows = queryLikeHost(db, MODEL_REJECTION_QUERY, [4096]) as Array<{ data: string }>;
+    expect(payloadChecks).toBeGreaterThan(0);
+    expect(payloadChecks).toBeLessThanOrEqual(200);
+    const outcomes = rows.map(({ data }) => {
+      const message: unknown = JSON.parse(data);
+      return { model: sessionModelIdentity(message), message };
+    });
+    expect(outcomes.map(({ model }) => model)).toEqual(["opencode/recovered", "opencode/exo-free"]);
+    expect([...rejectedModelIds(outcomes)]).toEqual(["opencode/exo-free"]);
+  } finally {
+    db.close();
+  }
+});
 
 it("reads the 410 from a real SQLite own session, advances on message updates, and filters the failed model", () => {
   const dir = mkdtempSync(join(tmpdir(), "opencode-error-"));
@@ -45,7 +87,10 @@ it("reads the 410 from a real SQLite own session, advances on message updates, a
       envGet: (key: string) => key === "OPENCODE_DB" ? join(dir, "opencode.db") : null,
       expandHome: (value: string) => value,
       exec: () => JSON.stringify({ code: 0, stdout: 'opencode/exo-free\n{"name":"Exo"}\nopencode/good\n{"name":"Good"}' }),
-      fs: { fileExists: () => true, sqliteQuery: (_path: string, sql: string, params: Array<string | number>) => db.prepare(sql).all(...params) },
+      execStart: () => JSON.stringify({ jobId: "discovery" }),
+      awaitJob: (_id: string, then: (result: unknown) => unknown) => then({ code: 0, stdout: 'opencode/exo-free\n{"name":"Exo"}\nopencode/good\n{"name":"Good"}' }),
+      unixNowMs: () => 1_000_000,
+      fs: withAsyncSqlite({ fileExists: () => true, sqliteQuery: (_path: string, sql: string, params: Array<string | number>) => queryLikeHost(db, sql, params) }),
     } });
     const delta = plugin.readStructuredChat("/work", "ses_own", '[20,[]]') as {
       messages: Array<{ type: string; content: string }>;

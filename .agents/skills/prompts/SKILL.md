@@ -41,7 +41,7 @@ The layout is an excerpt; the complete prompt inventory is the table in [invento
 
 ## Compile and substitution flow
 
-`src-tauri/src/prompts.rs` declares each prompt file as a `const &str` via `include_str!()` — they're baked into the binary at compile time. Edit the `.md`, run `./build.sh check`, ship.
+`src-tauri/crates/codeterm-prompts/src/prompts.rs` declares prompt files as `const &str` via `include_str!()`. Service-core re-exports these constants and the persona, role-preset and skill-mirror modules. Pure tests move with the crate; host onboarding and parity tests stay in service-core. Run `./build.sh nextest codeterm-prompts` plus the affected service-core selectors.
 
 ### GA prompt rendering
 
@@ -175,7 +175,7 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 ### Seeding, rendering and mirroring
 
-`commands/skills.rs` owns three steps, all on startup:
+`service/skill_mirror.rs` owns three steps, all on startup:
 
 1. **Seed** — bundled `skills/<id>/` → the canonical dir
    (`<data_dir>/skills/<id>/`), whole directory, `references/` included.

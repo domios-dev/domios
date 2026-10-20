@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "version": "1.14.8",
+  "version": "1.14.9",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -10,7 +10,7 @@
     "task:check": "node scripts/task.mjs check",
     "task:sizes": "node scripts/task.mjs sizes",
     "task:test-cli": "node scripts/task.mjs test-cli",
-    "build": "node node_modules/typescript/bin/tsc && node node_modules/vite/bin/vite.js build",
+    "build": "node scripts/frontend-build.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "test:unit": "node scripts/run-ts-unit-tests.mjs",
@@ -50,6 +50,7 @@
     "check:release-locks": "node scripts/check-release-locks.mjs",
     "sync:plugin-versions": "node scripts/sync-plugin-versions.mjs",
     "check:plugin-versions": "node scripts/sync-plugin-versions.mjs --check",
+    "check:errors": "node scripts/check-error-presentation.mjs",
     "check:api-effects": "node scripts/check-api-effect-dependencies.mjs"
   },
   "keywords": [],
@@ -61,7 +62,7 @@
     "@playwright/test": "^1.60.0",
     "@tailwindcss/browser": "4.2.1",
     "@tailwindcss/vite": "^4.2.1",
-    "@tauri-apps/cli": "^2.10.1",
+    "@tauri-apps/cli": "^2.12.2",
     "@types/node": "^25.9.2",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.14",

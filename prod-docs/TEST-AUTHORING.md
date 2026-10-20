@@ -137,6 +137,9 @@ reds — the trace/log excerpt naming the failing oracle. "Passed locally" with
 no command is not evidence. Skipped suites are listed with reasons; silent
 skips read as coverage that does not exist.
 
+check-queue, check-tests and clippy --all-targets type-check the bin against MockRuntime.
+The Wry world is checked by clippy --workspace in the full gate, by check-queue's dev-lib check (Tone, task_10jzuo) and by every dev and production build.
+
 ## 10. Behavior, not copy
 
 A test asserts behavior: results, state transitions, delivery, accessibility
@@ -172,4 +175,4 @@ Keeping the repo path in the role_guidance still matters for local contributors;
 the embedded copy gives spawned agents a stable recovery path when they are
 outside this checkout.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

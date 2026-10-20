@@ -137,6 +137,8 @@
 }
 
 .ct-surface-canvas[data-mode="interactive"] {
+  touch-action: none;
+  user-select: none;
   outline: 1px solid var(--ct-accent);
   outline-offset: -1px;
 }
@@ -172,8 +174,7 @@
   padding: 5px 12px;
   border: 1px solid color-mix(in srgb, var(--ct-accent) 30%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ct-surface) 82%, transparent);
-  backdrop-filter: blur(var(--ct-blur-md)) saturate(1.4);
+  background: var(--ct-surface);
   color: var(--ct-fg);
   font-size: 12px;
   line-height: 16px;
@@ -311,8 +312,7 @@
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--ct-accent) 26%, transparent);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--ct-surface) 84%, transparent);
-  backdrop-filter: blur(var(--ct-blur-md)) saturate(1.4);
+  background: var(--ct-surface);
   box-shadow: var(--ct-shadow-lg);
   color: var(--ct-fg);
   transform-origin: top left;

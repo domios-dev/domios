@@ -4,6 +4,8 @@ import { Chip, type ChipVariant } from "../shared/Chip";
 import { Card } from "../shared/Card";
 import { FormRow } from "../shared/FormRow";
 import { UI_INPUT } from "../shared/design";
+import { UpdateScreen } from "../UpdateProgressLayer";
+import { updateStageView, type UpdateStage } from "../../lib/updateStageView";
 
 const BUTTON_VARIANTS: ButtonVariant[] = ["primary", "ghost", "accent", "danger", "icon"];
 const BUTTON_SIZES: ButtonSize[] = ["compact", "sm", "md", "lg"];
@@ -112,6 +114,35 @@ export function ComponentGallery() {
           </FormRow>
         </div>
       </Section>
+
+      <Section title="Update flow — simulated">
+        <UpdateFlowPreview />
+      </Section>
+    </div>
+  );
+}
+
+const SIMULATED_TOTAL = 160 * 1024 * 1024;
+
+function UpdateFlowPreview() {
+  const [stage, setStage] = React.useState<UpdateStage | null>(null);
+  const [downloaded, setDownloaded] = React.useState(0);
+  const start = () => { setDownloaded(0); setStage("downloading"); };
+  const advance = () => setDownloaded(value => Math.min(SIMULATED_TOTAL, value + SIMULATED_TOTAL / 4));
+  return (
+    <div>
+      <Row label="Steps">
+        <Button size="sm" variant="accent" onClick={start}>Update v1.14.10</Button>
+        <Button size="sm" disabled={stage !== "downloading"} onClick={advance}>Download +25%</Button>
+        <Button size="sm" disabled={!stage} onClick={() => setStage("applying")}>Install</Button>
+        <Button size="sm" disabled={!stage} onClick={() => setStage("restarting")}>Restart</Button>
+        <Button size="sm" disabled={!stage} onClick={() => setStage(null)}>Reset</Button>
+      </Row>
+      <div style={{ position: "relative", height: 420, borderRadius: 12, overflow: "hidden", border: "1px solid var(--ct-border)" }}>
+        {stage
+          ? <UpdateScreen contained view={updateStageView(stage, "1.14.10", downloaded, SIMULATED_TOTAL)} />
+          : <div style={{ display: "grid", placeItems: "center", height: "100%", opacity: 0.5, fontSize: 12 }}>App window</div>}
+      </div>
     </div>
   );
 }

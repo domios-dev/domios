@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "billing": {
+    "schema_version": 1,
+    "plan": "free",
+    "capabilities": {
+      "max_mesh_machines": 2,
+      "max_workspaces": 2,
+      "sponsor": false,
+      "priority_support": false
+    },
+    "period_end": null
+  },
+  "billing_inventory": "verified",
+  "application_access": {
+    "schema_version": 1,
+    "authority": "admin",
+    "full_access": true,
+    "max_mesh_machines": null,
+    "max_workspaces": null,
+    "priority_support": true,
+    "sponsor": false,
+    "admin_generation": 1
+  },
+  "grant": {
+    "payload": "eyJhdWQiOnsiZW52IjoidGVzdCIsInByb2plY3QiOiJkZW1vLWRvbWlvcyJ9LCJhdXRob3JpdHkiOiJhZG1pbiIsImNhcGFiaWxpdGllcyI6W10sImVuZm9yY2VtZW50Ijp7ImVuYWJsZWQiOmZhbHNlLCJyb2xsYmFjayI6ZmFsc2V9LCJleHBpcmVzX2F0IjoxNzAwMDg2NDAwLCJncmFjZV91bnRpbCI6MTcwMDI1OTIwMCwiaW5zdCI6ImZpeHR1cmUtaW5zdGFsbGF0aW9uIiwiaXNzIjoiZG9taW9zLWVudGl0bGVtZW50cyIsImlzc3VlZF9hdCI6MTcwMDAwMDAwMCwibGFiZWwiOiJhZG1pbiIsImxpbWl0cyI6eyJtZW0uaXRlbXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9LCJtZXNoLm1hY2hpbmVzIjp7Im1heCI6bnVsbCwic2NvcGUiOiJhY2NvdW50In0sIndvcmtzcGFjZXMiOnsibWF4IjpudWxsLCJzY29wZSI6Imluc3RhbGxhdGlvbiJ9fSwibm90X2JlZm9yZSI6MTcwMDAwMDAwMCwicGVyaW9kX2VuZCI6bnVsbCwicGVya3MiOnsicHJpb3JpdHlfc3VwcG9ydCI6dHJ1ZSwic3BvbnNvciI6ZmFsc2V9LCJwb2xpY3lfZXBvY2giOiJmaXh0dXJlLXBoYXNlLWEiLCJwb2xpY3lfdmVyc2lvbiI6MSwicmVmcmVzaF9hZnRlciI6MTcwMDA4NjQwMCwicmV2aXNpb24iOjEsInNjaGVtYV92ZXJzaW9uIjoxLCJzdWIiOiJmaXh0dXJlLXVzZXIifQ",
+    "signature": "4ynfgqyERnMnJE6rcXMw2tJe52AtHnVw6Kq4WR1huoxPSan7WZcLu1n_EbEFg9n-5ImBLLmOw18LsZw2uzfQCw",
+    "key_id": "e5-rfc8032-test-only",
+    "alg": "Ed25519"
+  }
+}

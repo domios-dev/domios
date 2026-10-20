@@ -1,0 +1,288 @@
+use super::{AgentRegistry, EvidenceWindow, SendEvidenceAnchor};
+
+pub(super) fn bounded_jsonl_delta(
+    path: &std::path::Path,
+    from_offset: u64,
+    parse: impl FnOnce(u64) -> crate::agent::chat_types::SessionDelta,
+) -> Option<crate::agent::chat_types::SessionDelta> {
+    let total = std::fs::metadata(path).ok()?.len();
+    bounded_append_window(from_offset, total, parse)
+}
+
+fn bounded_append_window<T>(from: u64, total: u64, read: impl FnOnce(u64) -> T) -> Option<T> {
+    let available = total.checked_sub(from)?;
+    if available == 0 || available > codeterm_plugin::jsonl_window::DELTA_CHUNK_BYTES {
+        log::debug!(
+            "[session-turn-evidence] skip append window offset={} total={} bytes={}",
+            from,
+            total,
+            available,
+        );
+        return None;
+    }
+    Some(read(from))
+}
+
+#[derive(Clone)]
+pub(super) struct StructuredUserTurn {
+    pub(super) source_row: Option<crate::service::chat_send_transaction::SourceRowRef>,
+    pub(super) content: String,
+}
+
+pub(super) fn structured_evidence_records(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+) -> Option<Vec<StructuredUserTurn>> {
+    let EvidenceWindow::Structured { cursor } = &anchor.window else {
+        return None;
+    };
+    registry
+        .with_provider(&anchor.provider_id, |provider| {
+            provider.read_structured_chat(&anchor.cwd, &anchor.session_id, cursor.as_deref())
+        })
+        .map(|chat| {
+            log::debug!(
+                "[session-turn-evidence] structured-read provider={} session={} boundary={:?} next_cursor={:?} rows={} user_rows={}",
+                anchor.provider_id,
+                anchor.session_id,
+                cursor,
+                chat.cursor,
+                chat.messages.len(),
+                chat.messages.iter().filter(|message| message.kind == "user").count(),
+            );
+            chat.messages
+                .into_iter()
+                .map(|message| StructuredUserTurn {
+                    source_row: crate::service::chat_send_transaction::SourceRowRef::structured(&anchor.session_id, &message.id),
+                    content: message.content,
+                })
+                .collect()
+        })
+}
+
+pub(crate) fn window_evidence_records(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+) -> Vec<String> {
+    window_evidence_turns(registry, anchor, None)
+        .into_iter()
+        .map(|turn| turn.content)
+        .collect()
+}
+
+pub(super) fn window_evidence_turns(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+    source: Option<&crate::service::tab_chat::registry::JsonlSource>,
+) -> Vec<StructuredUserTurn> {
+    match &anchor.window {
+        EvidenceWindow::Jsonl { transcript_offset } => {
+            let Some(path) = registry
+                .with_provider(&anchor.provider_id, |provider| {
+                    provider.session_jsonl_path(&anchor.cwd, &anchor.session_id)
+                })
+                .flatten()
+            else {
+                return Vec::new();
+            };
+            if !path.exists() {
+                return Vec::new();
+            }
+            let epoch = crate::service::tab_chat::resume_cursor::ChatEpoch {
+                source_session_id: anchor.session_id.clone(),
+                session_binding_nonce: None,
+            };
+            let incarnation = if let Some(source) = source {
+                let Some(incarnation) = crate::service::tab_chat::resume::capture_incarnation(
+                    source,
+                    &epoch,
+                    &path,
+                    *transcript_offset,
+                    None,
+                ) else {
+                    return Vec::new();
+                };
+                Some(incarnation)
+            } else {
+                None
+            };
+            registry
+                .with_provider(&anchor.provider_id, |provider| {
+                    bounded_jsonl_delta(&path, *transcript_offset, |offset| {
+                        provider.parse_session_delta(&path, offset)
+                    })
+                })
+                .flatten()
+                .map(|delta| {
+                    if let (Some(source), Some(incarnation)) = (source, incarnation.as_ref()) {
+                        let current = crate::service::tab_chat::resume::capture_incarnation(
+                            source,
+                            &epoch,
+                            &path,
+                            delta.new_offset,
+                            Some(incarnation),
+                        );
+                        if current.as_ref() != Some(incarnation) {
+                            return Vec::new();
+                        }
+                    }
+                    delta
+                        .messages
+                        .iter()
+                        .flat_map(|rich| {
+                            jsonl_evidence_turns(
+                                &anchor.session_id,
+                                incarnation
+                                    .as_ref()
+                                    .map(|incarnation| incarnation.id.as_ref()),
+                                rich,
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        EvidenceWindow::Structured { .. } => {
+            structured_evidence_records(registry, anchor).unwrap_or_default()
+        }
+    }
+}
+
+pub(super) fn jsonl_evidence_turns(
+    session: &str,
+    incarnation: Option<&str>,
+    rich: &crate::agent::chat_types::RichMessage,
+) -> Vec<StructuredUserTurn> {
+    let source_row = incarnation.and_then(|incarnation| {
+        crate::service::chat_send_transaction::SourceRowRef::jsonl(
+            session,
+            incarnation,
+            crate::service::chat_send_transaction::TurnPosition {
+                record_start: rich.record_start,
+                record_row: rich.record_row,
+            },
+        )
+    });
+    rich_evidence_segments(rich)
+        .into_iter()
+        .map(|content| StructuredUserTurn {
+            content,
+            source_row: source_row.clone(),
+        })
+        .collect()
+}
+
+pub(crate) fn window_user_turns(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+) -> Vec<String> {
+    registry
+        .with_provider(&anchor.provider_id, |provider| match &anchor.window {
+            EvidenceWindow::Jsonl { transcript_offset } => provider
+                .session_jsonl_path(&anchor.cwd, &anchor.session_id)
+                .filter(|path| path.exists())
+                .map(|path| {
+                    provider
+                        .parse_session_delta(&path, *transcript_offset)
+                        .messages
+                        .iter()
+                        .filter(|rich| rich.role == "user")
+                        .flat_map(rich_evidence_segments)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            EvidenceWindow::Structured { cursor } => provider
+                .read_structured_chat(&anchor.cwd, &anchor.session_id, cursor.as_deref())
+                .messages
+                .into_iter()
+                .filter(|message| message.kind == "user")
+                .map(|message| message.content)
+                .collect(),
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn window_has_foreign_user_turn(
+    registry: &AgentRegistry,
+    anchor: &SendEvidenceAnchor,
+    source: &crate::agent::provider::ModelSwitchTranscript,
+) -> Result<bool, String> {
+    let EvidenceWindow::Jsonl { transcript_offset } = &anchor.window else {
+        return Ok(!window_user_turns(registry, anchor).is_empty());
+    };
+    if source.record_type.is_empty() || source.content_path.is_empty() {
+        return Ok(!window_user_turns(registry, anchor).is_empty());
+    }
+    let path = registry
+        .with_provider(&anchor.provider_id, |provider| {
+            provider.session_jsonl_path(&anchor.cwd, &anchor.session_id)
+        })
+        .flatten()
+        .ok_or("the own-session command transcript path is unavailable")?;
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && *transcript_offset == 0 => {
+            return Ok(false)
+        }
+        Err(error) => {
+            return Err(format!(
+                "cannot read the own-session command transcript: {error}"
+            ))
+        }
+    };
+    if file.metadata().map_err(|error| error.to_string())?.len() < *transcript_offset {
+        return Err(
+            "the own-session command transcript was truncated past its turn boundary".into(),
+        );
+    }
+    use std::io::{Read, Seek, SeekFrom};
+    file.seek(SeekFrom::Start(*transcript_offset))
+        .map_err(|error| error.to_string())?;
+    let mut bytes = String::new();
+    file.take(1024 * 1024 + 1)
+        .read_to_string(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() > 1024 * 1024 {
+        return Err("the command transcript window exceeds its classification limit".into());
+    }
+    source.has_foreign_user_turn(&bytes)
+}
+
+fn text_segments(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::String(text) => vec![text.clone()],
+        serde_json::Value::Array(blocks) => blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(serde_json::Value::as_str) == Some("text"))
+            .filter_map(|block| {
+                block
+                    .get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+pub(super) fn rich_evidence_segments(rich: &crate::agent::chat_types::RichMessage) -> Vec<String> {
+    rich.blocks
+        .iter()
+        .flat_map(|block| match block.kind.as_str() {
+            "text" => block
+                .data
+                .get("text")
+                .map(text_segments)
+                .unwrap_or_default(),
+            "tool_result" => block
+                .data
+                .get("content")
+                .map(text_segments)
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests;

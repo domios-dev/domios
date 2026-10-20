@@ -1,0 +1,6 @@
+{
+  "fact": "What is the calibration fact supplied in your initial instructions? Reply only with its value. Do not call tools or send messages.",
+  "identity": "State your assigned name, your Domios role/profile, your executor role if assigned, and the opaque role-guidance codeword if supplied. Use only your initial instructions. Reply in your final answer; do not call tools or send messages.",
+  "long": "Enumerate the integers from 1 to 1000000, one per line, without abbreviating. Continue until complete.",
+  "approval": "Execute exactly one command in your operating system shell: node -e with this JavaScript passed as a single argument: {{PROGRAM}}. This writes only the owned calibration file {{TARGET}}. Use native approval if required and wait for the answer. Do not work around approval, use another tool to write the file, edit any other file, or send messages. After execution, give the command output in your final answer."
+}

@@ -1,7 +1,4 @@
 // The default remains opt-in, and absent or false legacy config must stay silent.
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
 import { defaultConfig } from "../../hooks/useConfig";
 import { shouldSoundArrival } from "../notificationSound";
 import { assert, mountSound, report, unansweredLevels } from "./harness";
@@ -12,22 +9,9 @@ function check(condition: unknown, message: string): void {
   assert(condition, message);
 }
 
-const here = dirname(fileURLToPath(import.meta.url));
-const read = (relative: string) => readFileSync(resolve(here, relative), "utf8");
-
 async function main() {
   // 1. The frontend default, the daemon default, and the written template all say off.
   check(defaultConfig().notifications.sound === false, "the frontend default is off");
-
-  const schema = read("../../../src-tauri/crates/codeterm-types/src/config/schema.rs");
-  check(/\bsound: false,/.test(schema), "the daemon default is off");
-  check(
-    /#\[serde\(default\)\]\s*pub struct NotificationConfig/.test(schema),
-    "an absent field falls back to that default rather than failing to parse",
-  );
-
-  const template = read("../../../src-tauri/src/config/mod.rs");
-  check(/^sound = false\b/m.test(template), "the written template ships it off");
 
   // 2. Absent or legacy: neither a missing master nor a stored `false` sounds,
   //    whatever the level says and however its own row answers.

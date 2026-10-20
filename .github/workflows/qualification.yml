@@ -45,6 +45,11 @@ concurrency:
   group: ${{ (inputs.evaluator_scope == 'rust-windows-task-local' || inputs.evaluator_scope == 'windows-sccache-maintenance') && format('qualification-rust-windows-task-local-{0}', github.ref) || format('qualification-{0}-{1}', inputs.evaluator_scope, github.ref) }}
   cancel-in-progress: false
 
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+
 jobs:
   jev-linux:
     name: Jev local evaluator (linux)
@@ -1104,7 +1109,7 @@ jobs:
           node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
-          toolchain: 1.95.0
+          toolchain: 1.99.1
       - name: Verify exact source and run five native controls
         shell: bash
         run: |
@@ -1194,7 +1199,7 @@ jobs:
           node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
-          toolchain: 1.95.0
+          toolchain: 1.99.1
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -1323,7 +1328,6 @@ jobs:
             cat "$native_log"
             stub_dirs=()
             [[ -d src-tauri/bundled-cli ]] && stub_dirs+=(src-tauri/bundled-cli)
-            [[ -d src-tauri/bundled-embed ]] && stub_dirs+=(src-tauri/bundled-embed)
             if (( ${#stub_dirs[@]} > 0 )); then
               find "${stub_dirs[@]}" -maxdepth 1 -type f -size 0 -delete 2> "$receipt_dir/stub-cleanup.stderr"
               stub_cleanup_status=$?
@@ -1611,7 +1615,7 @@ jobs:
           node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
-          toolchain: 1.95.0
+          toolchain: 1.99.1
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -1697,8 +1701,8 @@ jobs:
           account_identity="$(id -un 2>/dev/null)"
           kernel_identity="$(uname -srm 2>/dev/null)"
           # Reviewed foundation: facade, both owning test files, the Storage crate and its
-          # path-confinement dependency (codeterm-storage/Cargo.toml path = "../../../crates/codeterm-paths").
-          storage_paths=('src-tauri/src/storage.rs' 'src-tauri/src/storage' 'src-tauri/crates/codeterm-storage' 'crates/codeterm-paths')
+          # path-confinement dependency (codeterm-storage/Cargo.toml path = "../codeterm-paths").
+          storage_paths=('src-tauri/src/storage.rs' 'src-tauri/src/storage' 'src-tauri/crates/codeterm-storage' 'src-tauri/crates/codeterm-paths')
           storage_ancestor=false
           storage_inventory_equal=false
           if git cat-file -e "${REVIEWED_STORAGE_SHA}^{commit}" 2>/dev/null; then
@@ -1731,7 +1735,7 @@ jobs:
             'src-tauri/src/storage/tests.rs'
             'src-tauri/src/storage/tests/assets.rs'
           )
-          crate_listing="$(git ls-files -- src-tauri/crates/codeterm-storage crates/codeterm-paths 2>/dev/null)"
+          crate_listing="$(git ls-files -- src-tauri/crates/codeterm-storage src-tauri/crates/codeterm-paths 2>/dev/null)"
           crate_listing_status=$?
           if (( crate_listing_status != 0 )) || [[ -z "$crate_listing" ]]; then
             refuse_preflight storage_crate_listing_failed
@@ -1752,17 +1756,15 @@ jobs:
             fi
             printf '%s\t%s\n' "${hash_line%% *}" "$path" >> "$receipt_dir/source-hashes.tsv"
           done
-          # Build-owned stubs are exactly the Linux paths of scripts/prepare-cli-stub.js and prepare-embed-stub.js.
+          # Build-owned stubs are exactly the Linux paths of scripts/prepare-cli-stub.js.
           stub_host="$(printf '%s\n' "$rustc_identity" | sed -n 's/^host: //p')"
           known_stubs=('src-tauri/bundled-cli/codeterm')
-          if [[ "$stub_host" =~ ^[A-Za-z0-9_.-]+$ ]]; then
-            known_stubs+=("src-tauri/bundled-embed/codeterm-embed-$stub_host")
-          else
+          if [[ ! "$stub_host" =~ ^[A-Za-z0-9_.-]+$ ]]; then
             refuse_preflight rust_host_unavailable
           fi
           list_stub_entries() {
             local dir
-            for dir in src-tauri/bundled-cli src-tauri/bundled-embed; do
+            for dir in src-tauri/bundled-cli; do
               if [[ -L "$dir" || ( -e "$dir" && ! -d "$dir" ) ]]; then return 1; fi
               if [[ -d "$dir" ]]; then find "$dir" -mindepth 1 -maxdepth 1 -print || return 1; fi
             done
@@ -1879,7 +1881,7 @@ jobs:
           ];
           const storageFacadePaths = ['src-tauri/src/storage.rs', 'src-tauri/src/storage/tests.rs', 'src-tauri/src/storage/tests/assets.rs'];
           const storageCratePrefix = 'src-tauri/crates/codeterm-storage/';
-          const pathsCratePrefix = 'crates/codeterm-paths/';
+          const pathsCratePrefix = 'src-tauri/crates/codeterm-paths/';
           const dir = process.env.STORAGE_RECEIPT_DIR;
           const logName = 'storage-contract.log';
           const receiptLimit = 65536;
@@ -2149,7 +2151,7 @@ jobs:
           node-version: '22.22.0'
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
-          toolchain: 1.95.0
+          toolchain: 1.99.1
       - name: Ensure Rust toolchain on PATH
         shell: bash
         run: |
@@ -2245,7 +2247,7 @@ jobs:
             refuse_preflight utc_clock_unavailable
           fi
           domain_roots=(
-            src-tauri/crates/codeterm-storage crates/codeterm-paths
+            src-tauri/crates/codeterm-storage src-tauri/crates/codeterm-paths
             src-tauri/src/storage.rs src-tauri/src/storage
             src-tauri/src/cron/clock.rs src-tauri/src/cron/mod.rs src-tauri/src/cron/scheduler.rs src-tauri/src/cron/store
             src-tauri/src/sentinel/command.rs src-tauri/src/sentinel/graph.rs src-tauri/src/sentinel/handlers.rs
@@ -2299,7 +2301,7 @@ jobs:
               refuse_preflight unexpected_domain_delta_since_3972
             fi
             foundation_roots=(
-              src-tauri/src/storage.rs src-tauri/src/storage crates/codeterm-paths
+              src-tauri/src/storage.rs src-tauri/src/storage src-tauri/crates/codeterm-paths
               src-tauri/crates/codeterm-storage/Cargo.toml
               src-tauri/crates/codeterm-storage/src/backup.rs src-tauri/crates/codeterm-storage/src/error.rs
               src-tauri/crates/codeterm-storage/src/owner.rs src-tauri/crates/codeterm-storage/src/owner
@@ -2390,14 +2392,12 @@ jobs:
           done
           stub_host="$(printf '%s\n' "$rustc_identity" | sed -n 's/^host: //p')"
           known_stubs=('src-tauri/bundled-cli/codeterm')
-          if [[ "$stub_host" =~ ^[A-Za-z0-9_.-]+$ ]]; then
-            known_stubs+=("src-tauri/bundled-embed/codeterm-embed-$stub_host")
-          else
+          if [[ ! "$stub_host" =~ ^[A-Za-z0-9_.-]+$ ]]; then
             refuse_preflight rust_host_unavailable
           fi
           list_stub_entries() {
             local dir
-            for dir in src-tauri/bundled-cli src-tauri/bundled-embed; do
+            for dir in src-tauri/bundled-cli; do
               if [[ -L "$dir" || ( -e "$dir" && ! -d "$dir" ) ]]; then return 1; fi
               if [[ -d "$dir" ]]; then find "$dir" -mindepth 1 -maxdepth 1 -print || return 1; fi
             done

@@ -1,7 +1,7 @@
 import type { CronJob, Tab, Team, Workspace } from "../../lib/types";
 import type { Plan, Task } from "../Canvas/types";
 import type { BlueprintSnapshot } from "../Automation/types";
-import { flattenSidebarTabs } from "./workspaceTabs";
+import { tabsInWorkspace } from "./workspaceTabs";
 
 export interface TeamCloseResource {
   id: string;
@@ -35,7 +35,7 @@ export function teamCloseResourcesForWorkspace(
   plans: readonly Plan[],
   blueprints: readonly BlueprintSnapshot[] = [],
 ): TeamCloseResource[] {
-  const workspaceTabs = flattenSidebarTabs(workspace.tabs, tabs);
+  const workspaceTabs = tabsInWorkspace(workspace.tabs, tabs);
   const membersByTeam = new Map<string, Tab[]>();
   for (const team of teams) {
     if (team.workspace_id === workspace.id && !team.remote_peer_name) {

@@ -1,6 +1,7 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useState } from "react";
 import { CodeBlock, knownLanguageFromPath, LocalArtifactBlock, LocalArtifactScope, RichMarkdown } from "@codeterm/chat-ui";
-import { changePreviewFailure, changePreviewKind } from "./changePreviewModel";
+import { changePreviewKind } from "./changePreviewModel";
 
 function ChangeCodeView({ text, path }: { text: string; path: string }) {
   const [wrap, setWrap] = useState(false);
@@ -17,7 +18,7 @@ export function ChangeFileView({ tabId, target, deleted, onDiff }: { tabId: stri
         : <LocalArtifactScope tabId={tabId}>
           <p className="tab-panel__note">Current file on disk</p>
           <LocalArtifactBlock key={target} bare directive={{ path: target, kind: changePreviewKind(target) }}
-            renderError={(error) => <div role="alert" className="tab-panel__note flex-col"><span>{changePreviewFailure(error)}</span><details><summary>Details</summary>{error}</details></div>}
+            renderError={(error) => <InlineErrorNotice error={error} operation="previewing this file" />}
             renderMarkdown={(text) => <RichMarkdown text={text} />}
             renderText={(text) => <ChangeCodeView text={text} path={target} />} />
         </LocalArtifactScope>}

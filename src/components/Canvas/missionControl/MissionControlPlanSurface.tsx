@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { filterPlansForCanvas, isTeamActivePlan } from "../planTabMatch";
@@ -234,11 +235,10 @@ export function MissionControlPlanSurface({
       <div className="relative min-h-0 flex-1">
         {actionError && (
           <div
-            role="alert"
             data-testid="mission-control-action-error"
-            className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-md border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 px-3 py-2 text-xs text-[var(--ct-fg)]"
+            className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] px-3 py-2 text-xs text-[var(--ct-fg)]"
           >
-            <span className="min-w-0">{actionError}</span>
+            <InlineErrorNotice error={actionError} operation="updating this plan" />
             <button
               type="button"
               aria-label="Dismiss"

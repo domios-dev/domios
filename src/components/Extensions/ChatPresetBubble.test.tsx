@@ -83,8 +83,8 @@ const SEED: PresetState = {
 function bubble(host: HTMLElement): HTMLButtonElement | null {
   return host.querySelector('[data-testid="chat-preset-bubble"]');
 }
-function options(host: HTMLElement): HTMLButtonElement[] {
-  return Array.from(host.querySelectorAll('[data-testid="chat-preset-option"]'));
+function options(_host: HTMLElement): HTMLButtonElement[] {
+  return Array.from(document.querySelectorAll('[data-testid="chat-preset-option"]'));
 }
 
 setupDom();
@@ -127,7 +127,7 @@ test("with a sessionId, picking a preset applies its bound model to the live ses
   assert(opts.length === 2, `expected 2 preset options, got ${opts.length}`);
   // Pick Coder (p1) — bound to qwen-2.5.
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-testid="chat-preset-option"][data-preset-id="p1"]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-testid="chat-preset-option"][data-preset-id="p1"]')!.click();
   });
   await flush();
 
@@ -153,7 +153,7 @@ test("without a sessionId, picking a preset persists the choice but does not app
     bubble(host)!.click();
   });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-testid="chat-preset-option"][data-preset-id="p1"]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-testid="chat-preset-option"][data-preset-id="p1"]')!.click();
   });
   await flush();
 

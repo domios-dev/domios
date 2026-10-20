@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+mod activity;
 mod shell;
 pub use shell::{CloseRestoreTabState, ShellActivity, ShellCommandState, ShellPurpose};
 mod managed_tab;
@@ -52,11 +53,31 @@ pub struct Workspace {
     pub task_keys: codeterm_types::plan::task_key::WorkspaceTaskKeys,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextEpochTransport {
+    #[default]
+    AgentProvider,
+    ChatBackend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextEpochBoundary {
+    #[default]
+    ContextReset,
+    ProviderHandoff,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextEpochArchive {
     pub provider: String,
     pub cwd: String,
     pub session_id: String,
+    #[serde(default)]
+    pub transport: ContextEpochTransport,
+    #[serde(default)]
+    pub boundary: ContextEpochBoundary,
 }
 
 /// Why a tab is being closed. A `PolicyWorker` close (system/exhaustion) of a
@@ -71,6 +92,7 @@ pub enum TabCloseReason {
     PolicyStartup,
     /// A bounded run watchdog retired a tab that never reached a terminal state.
     Watchdog,
+    UtilityTimeout,
     /// The tab's own PTY exited; the role-bearing tab is pruned after it.
     PtyExit,
     /// Spawn or launch failed after the tab existed, so the half-built tab goes.
@@ -92,6 +114,7 @@ impl TabCloseReason {
             Self::PolicyWorker => "policy_worker",
             Self::PolicyStartup => "policy_startup",
             Self::Watchdog => "watchdog",
+            Self::UtilityTimeout => "utility_timeout",
             Self::PtyExit => "pty_exit",
             Self::SpawnRollback => "spawn_rollback",
             Self::AgentRunEnded => "agent_run_ended",
@@ -133,6 +156,8 @@ pub struct ClosedTab {
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub agent_runtime_config: Option<serde_json::Value>,
     #[serde(default)]
     pub restorable_launch: RestorableLaunchParameters,
     #[serde(default)]
@@ -168,6 +193,7 @@ impl From<&Tab> for ClosedTab {
                 .agent_session_model
                 .clone()
                 .or_else(|| tab.agent_provider_resolved_model.clone()),
+            agent_runtime_config: tab.agent_runtime_config.clone(),
             restorable_launch: tab.restorable_launch.clone(),
             chat_view: tab.chat_view,
             closed_at: std::time::SystemTime::now()
@@ -531,8 +557,24 @@ pub struct PendingModelSelection {
     pub effort: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SleepReason {
+    Idle,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
+    #[serde(default, skip_deserializing)]
+    pub frozen: bool,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub slept_at_ms: Option<u64>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub sleep_reason: Option<SleepReason>,
+    #[serde(default)]
+    pub last_active_at_ms: Option<u64>,
+    #[serde(default)]
+    pub last_opened_at_ms: Option<u64>,
     #[serde(default, skip_deserializing)]
     pub provider_signals: codeterm_types::agent::provider_signals::ProviderSignals,
     #[serde(default, skip_deserializing)]
@@ -568,6 +610,8 @@ pub struct Tab {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
+    #[serde(skip, default)]
+    pub description_origin: TabDescriptionOrigin,
     pub cwd: Option<String>,
     #[serde(skip, default)]
     pub provisioned_cwd: Option<String>,
@@ -674,6 +718,10 @@ pub struct Tab {
     /// external supervisors can match a lane by task rather than by title.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub task_binding: Option<TaskBinding>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Vec::is_empty")]
+    pub taskless_authorized_gates: Vec<String>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Vec::is_empty")]
+    pub taskless_authorized_review_tasks: Vec<String>,
     /// True for an agent pane spawned WITHOUT a role that was nonetheless linked
     /// into the hierarchy (parent + audit row). Distinguishes a tracked roleless
     /// agent from an ordinary shell/utility tab, which is also role=None.
@@ -813,6 +861,15 @@ pub struct Tab {
     /// provisional `boot_stage` and cleared by any stage that is not one.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub provisional_launch: Option<codeterm_types::pty::ProvisionalLaunch>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TabDescriptionOrigin {
+    #[default]
+    Default,
+    Task,
+    User,
 }
 
 fn default_show_in_tabbar() -> bool {
@@ -968,18 +1025,61 @@ impl Tab {
     }
 
     pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
-        if session_id.is_empty()
-            || self
-                .context_epoch_archives
-                .iter()
-                .any(|archive| archive.provider == provider && archive.session_id == session_id)
-        {
+        let cwd = self.cwd.clone().unwrap_or_default();
+        self.archive_provider_session(
+            provider,
+            &cwd,
+            session_id,
+            ContextEpochTransport::AgentProvider,
+            ContextEpochBoundary::ContextReset,
+        );
+    }
+
+    pub fn archive_provider_handoff(
+        &mut self,
+        provider: &str,
+        cwd: &str,
+        session_id: &str,
+        transport: ContextEpochTransport,
+    ) {
+        self.archive_provider_session(
+            provider,
+            cwd,
+            session_id,
+            transport,
+            ContextEpochBoundary::ProviderHandoff,
+        );
+    }
+
+    fn archive_provider_session(
+        &mut self,
+        provider: &str,
+        cwd: &str,
+        session_id: &str,
+        transport: ContextEpochTransport,
+        boundary: ContextEpochBoundary,
+    ) {
+        if session_id.is_empty() {
+            return;
+        }
+        if let Some(archive) = self.context_epoch_archives.iter_mut().find(|archive| {
+            archive.provider == provider
+                && archive.cwd == cwd
+                && archive.session_id == session_id
+                && archive.transport == transport
+        }) {
+            archive.transport = transport;
+            if boundary == ContextEpochBoundary::ProviderHandoff {
+                archive.boundary = boundary;
+            }
             return;
         }
         self.context_epoch_archives.push(ContextEpochArchive {
             provider: provider.to_string(),
-            cwd: self.cwd.clone().unwrap_or_default(),
+            cwd: cwd.to_string(),
             session_id: session_id.to_string(),
+            transport,
+            boundary,
         });
     }
 }

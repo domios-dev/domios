@@ -51,14 +51,17 @@ describe("indexed Chat geometry", () => {
     }
   });
   it("updates measured rows and appends across tree boundaries without rebuilding offsets", () => {
-    const heights = [100, 450, 200, 0, NaN];
+    const heights = [100, 450, 200, 0, -1, NaN];
     const geometry = new IndexedChatRowGeometry(heights);
-    assert.deepEqual(Array.from({ length: 6 }, (_, index) => geometry.offset(index)), [0, 100, 550, 750, 870, 990]);
+    assert.deepEqual(Array.from({ length: 7 }, (_, index) => geometry.offset(index)), [0, 100, 550, 750, 750, 870, 990]);
     assert.equal(geometry.update(1, 300), true);
     assert.equal(geometry.update(1, 300), false);
     assert.equal(geometry.update(2, NaN), false);
+    assert.equal(geometry.update(2, -1), false);
+    assert.equal(geometry.update(2, 0), true);
     heights[1] = 300;
-    for (let index = 5; index < 40; index++) { heights.push(index * 13); geometry.append(index * 13); }
+    heights[2] = 0;
+    for (let index = 6; index < 40; index++) { heights.push(index * 13); geometry.append(index * 13); }
     assert.deepEqual(Array.from({ length: 41 }, (_, index) => geometry.offset(index)), chatRowOffsets(heights));
   });
   it("reuses geometry for arrivals and resolves stable identities after a prepend", () => {

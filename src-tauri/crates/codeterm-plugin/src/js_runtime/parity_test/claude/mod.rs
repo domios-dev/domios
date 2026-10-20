@@ -9,6 +9,7 @@ mod catalog;
 mod commands;
 mod context;
 mod core;
+mod filled_composer;
 mod folder_trust;
 mod launch_permissions;
 mod launch_session;
@@ -18,6 +19,7 @@ mod permission_request;
 mod pre_trust;
 mod sessions;
 mod signals;
+mod switch_confirmation;
 mod usage_sources;
 
 fn pair() -> (ClaudeProvider, JsProvider) {

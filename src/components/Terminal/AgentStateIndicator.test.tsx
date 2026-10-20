@@ -24,6 +24,21 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLElement; root
 }
 
 async function main(): Promise<void> {
+  const command = '"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "pnpm test"';
+  for (const renderIdentity of [undefined, (label: string) => <span>{label}</span>]) {
+    const running = await render(
+      <AgentStateIndicator
+        activity={tabActivity({ agent_session_id:"session", agent_state:{state:"working",status_line:"Working"} })}
+        providerName="Provider"
+        renderIdentity={renderIdentity}
+        activeTool={{toolKind:"command",toolDetail:command}}
+      />,
+    );
+    assert(running.host.querySelector('[role="status"]')?.textContent?.includes("Running tests"), "running row shows the shared command label");
+    assert(Array.from(running.host.querySelectorAll("[title]")).some(element => element.getAttribute("title") === command), "hover preserves the complete raw command");
+    await act(async () => running.root.unmount());
+    running.host.remove();
+  }
   const idle = await render(
     <AgentStateIndicator
       activity={tabActivity({ agent_state: { state: "idle" } })}
@@ -33,7 +48,7 @@ async function main(): Promise<void> {
     />,
   );
   assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "idle keeps exactly one status row mounted");
-  assert(!idle.host.querySelector('[data-testid="agent-activity-dots"]'), "idle row has no working indicator");
+  assert(!idle.host.querySelector('[data-testid="agent-activity-slot"]'), "an idle row with nothing to say shows no activity dots");
   assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol · high", "idle row includes session-owned actual effort");
 
   let stopCalls = 0;
@@ -97,17 +112,24 @@ async function main(): Promise<void> {
   assert(idle.host.querySelector(".ct-agent-msg")?.textContent === "Codex · gpt-5.6-sol", "empty effort is omitted without a separator");
 
   await act(async () => idle.root.render(
-    <div style={{ width: 390 }}>
+    <div style={{ width: 390 }} data-testid="phone-composer-status">
+      <button type="button" aria-label="Attachment actions" />
       <AgentStateIndicator
         activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "A deliberately long status suffix that must remain in the compact row" } })}
         providerName="Codex"
         model="gpt-5.6-sol"
+        onStop={() => { stopCalls += 1; }}
         reasoningEffort={{ actual: "high", actual_source: "session-owned" }}
       />
     </div>,
   ));
   assert(idle.host.querySelectorAll('[data-testid="agent-state"]').length === 1, "390px rendering keeps one compact status row");
-  assert(idle.host.querySelector(".ct-agent-msg")?.classList.contains("truncate"), "status suffix remains truncatable at narrow width");
+  const phoneStatus = idle.host.querySelector('[data-testid="phone-composer-status"]');
+  const phoneAttach = phoneStatus?.querySelector('button[aria-label="Attachment actions"]');
+  const phoneStop = phoneStatus?.querySelector<HTMLButtonElement>('[data-testid="agent-stop"]');
+  assert(phoneAttach && phoneStop, "phone status row keeps attachment actions and working Stop together");
+  await act(async () => phoneStop.click());
+  assert(Number(stopCalls) === 2, "phone Stop still interrupts the active agent");
 
   let terminalCalls = 0;
   let cancelCalls = 0;

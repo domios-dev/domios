@@ -1,12 +1,13 @@
 [package]
+license = "AGPL-3.0-only"
 name = "codeterm-mesh"
-version = "1.6.2"
+version = "0.0.0"
 edition = "2021"
 
 [dependencies]
 aes-gcm = "0.10"
 base64 = "0.22"
-codeterm-paths = { path = "../../../crates/codeterm-paths" }
+codeterm-paths = { path = "../codeterm-paths" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-util = { path = "../codeterm-util" }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
@@ -29,3 +30,6 @@ chrono = { version = "0.4", features = ["serde"] }
 [dev-dependencies]
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
+
+[lints]
+workspace = true

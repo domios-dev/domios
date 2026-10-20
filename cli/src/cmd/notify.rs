@@ -1,4 +1,6 @@
-use codeterm_types::notification::{answer_actions, validate_title, CallerAction, NotifyLevel};
+use codeterm_notification_core::contract::{
+    answer_actions, validate_title, CallerAction, NotifyLevel,
+};
 
 /// `notification.create` params. The body has exactly one source — the calling
 /// tab's pad — so a shell can never mangle a question before the user reads it.

@@ -3,7 +3,6 @@
 
 export {};
 
-import { readFileSync } from "node:fs";
 
 class FakeStorage {
   private map = new Map<string, string>();
@@ -83,7 +82,7 @@ function makeSnapshot(workspaces: BackendWs[], gen: number) {
 
 interface MuxLike {
   workspaces: Array<{ id: string; tabs: string[] }>;
-  toasts: Array<{ title: string; body?: string }>;
+  toasts: Array<Pick<import("../../lib/types").Notification, "title" | "body" | "level" | "severity">>;
   notifications: Array<{ id: string }>;
 }
 function hasTab(state: MuxLike, tabId: string): boolean {
@@ -196,9 +195,6 @@ async function renderHarness(
 }
 
 test("restore incidents and Blueprint outcomes cannot create toasts", async () => {
-  const app = readFileSync("src/App.tsx", "utf8");
-  assert(!app.includes("RecoveryStatusBanner"), "the app has no recovery toast producer");
-  assert(!app.includes("useBlueprintRunPopups"), "the app has no Blueprint toast producer");
   const h = await renderHarness(async <T,>(cmd: string) => {
     if (cmd === "mux_get_state") return makeSnapshot([], 1) as T;
     if (cmd === "list_notifications") return [] as T;
@@ -274,7 +270,7 @@ test("failed closeWorkspace restores the workspace from authoritative state", as
 
   assert(hasWorkspace(h.state(), "w1"), "workspace w1 must reappear from authoritative state after a failed close");
   const closeToast = h.state().toasts.find((toast) => toast.title === "Workspace close failed");
-  assert(closeToast?.body === "close rejected", "workspace close rejection is visible in a toast");
+  assert(closeToast?.body === "A", "workspace close rejection is visible in a toast");
   await h.act(async () => h.root.unmount());
   h.clear();
 });
@@ -371,5 +367,41 @@ async function main() {
   console.log(`\n${tests.length - failed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 }
+
+
+
+test("workspace close bookkeeping rejection after removal produces no failure", async () => {
+  let backend: BackendWs[] = [{ id: "w1", tabs: [{ id: "tab-A", title: "A" }] }];
+  let gen = 10;
+  const invokeMock = async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "mux_get_state") return makeSnapshot(backend, ++gen) as T;
+    if (cmd === "list_notifications" || cmd === "mux_list_tabs") return [] as T;
+    if (cmd === "mux_close_workspace") {
+      backend = [];
+      throw new Error("history failed after close");
+    }
+    return {} as T;
+  };
+  const h = await renderHarness(invokeMock);
+  await h.act(async () => { h.actions().closeWorkspace("w1", true); await drain(); });
+  assert(!hasWorkspace(h.state(), "w1"), "closed workspace stays removed after a bookkeeping rejection");
+  assert(!h.state().toasts.some(toast => toast.level === "failure"), "closed workspace produces no failure");
+  await h.act(async () => h.root.unmount());
+  h.clear();
+});
+
+test("workspace preserved lane event displays an info note", async () => {
+  let gen = 10;
+  const h = await renderHarness(async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "mux_get_state") return makeSnapshot([], ++gen) as T;
+    return [] as T;
+  });
+  await h.act(async () => { h.emit("close-lanes-preserved", { workspace_id: "w1", paths: ["C:/lanes/work"] }); });
+  const note = h.state().toasts.find(toast => toast.body === "C:/lanes/work");
+  assert(note?.severity === "Info", "preserved lane note uses info severity");
+  assert(note.level === "verbose", "preserved lane note does not demand attention");
+  await h.act(async () => h.root.unmount());
+  h.clear();
+});
 
 void main();

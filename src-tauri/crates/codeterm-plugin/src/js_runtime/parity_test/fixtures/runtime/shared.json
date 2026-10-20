@@ -16,7 +16,7 @@
       },
       "reply": {
         "kind": "success",
-        "value": null
+        "value": {"binaryVersion": "7.8.9"}
       },
       "plan": {
         "action": {
@@ -33,7 +33,8 @@
       "step": {
         "kind": "complete",
         "result": {
-          "kind": "initialized"
+          "kind": "initialized",
+          "binaryVersion": "7.8.9"
         }
       }
     },
@@ -448,6 +449,480 @@
         },
         "state": null
       }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "thread-a"
+      },
+      "operation": {
+        "kind": "readHistory",
+        "threadId": "thread-a"
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "items": [],
+          "more": true
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "readHistory",
+            "params": {
+              "kind": "readHistory",
+              "threadId": "thread-a"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "continue",
+        "plan": {
+          "action": {
+            "kind": "request",
+            "call": {
+              "method": "readHistory",
+              "params": {
+                "kind": "readHistory",
+                "threadId": "thread-a"
+              }
+            }
+          },
+          "state": null
+        },
+        "history": {
+          "kind": "historyPage",
+          "threadId": "thread-a",
+          "items": [],
+          "openItems": []
+        },
+        "beforeAcceptance": false
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "redeemResetCredit",
+        "value": {
+          "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "outcome": "reset"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "control",
+            "params": {
+              "kind": "control",
+              "action": "redeemResetCredit",
+              "value": {
+                "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+              }
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "resetCreditConsumed",
+          "outcome": "reset"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "redeemResetCredit",
+        "value": {
+          "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "outcome": "nothingToReset"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "control",
+            "params": {
+              "kind": "control",
+              "action": "redeemResetCredit",
+              "value": {
+                "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+              }
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "resetCreditConsumed",
+          "outcome": "nothingToReset"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "redeemResetCredit",
+        "value": {
+          "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "outcome": "noCredit"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "control",
+            "params": {
+              "kind": "control",
+              "action": "redeemResetCredit",
+              "value": {
+                "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+              }
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "resetCreditConsumed",
+          "outcome": "noCredit"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "redeemResetCredit",
+        "value": {
+          "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+        }
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "outcome": "alreadyRedeemed"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "control",
+            "params": {
+              "kind": "control",
+              "action": "redeemResetCredit",
+              "value": {
+                "idempotencyKey": "12345678-1234-4123-8123-123456789abc"
+              }
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "resetCreditConsumed",
+          "outcome": "alreadyRedeemed"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "child",
+        "action": {
+          "kind": "list",
+          "cursor": null
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "root",
+        "activeTurns": [],
+        "threadParents": [
+          {
+            "threadId": "child",
+            "parentThreadId": "root"
+          }
+        ]
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "processes": [
+            {
+              "processId": "process-1",
+              "itemId": "item-1",
+              "command": "opaque command",
+              "cwd": "/fixture",
+              "osPid": 123
+            }
+          ]
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "backgroundProcesses",
+            "params": {
+              "kind": "backgroundProcesses",
+              "threadId": "child",
+              "action": {
+                "kind": "list",
+                "cursor": null
+              }
+            },
+            "target": {
+              "threadId": "child"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "backgroundProcesses",
+          "threadId": "child",
+          "processes": [
+            {
+              "processId": "process-1",
+              "itemId": "item-1",
+              "command": "opaque command",
+              "cwd": "/fixture",
+              "osPid": 123
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "child",
+        "action": {
+          "kind": "terminate",
+          "processId": "process-1"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "root",
+        "activeTurns": [],
+        "threadParents": [
+          {
+            "threadId": "child",
+            "parentThreadId": "root"
+          }
+        ]
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "acknowledged": true
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "backgroundProcesses",
+            "params": {
+              "kind": "backgroundProcesses",
+              "threadId": "child",
+              "action": {
+                "kind": "terminate",
+                "processId": "process-1"
+              }
+            },
+            "target": {
+              "threadId": "child"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "backgroundProcessTermination",
+          "threadId": "child",
+          "processId": "process-1",
+          "acknowledged": true
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "child",
+        "action": {
+          "kind": "clean"
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "root",
+        "activeTurns": [],
+        "threadParents": [
+          {
+            "threadId": "child",
+            "parentThreadId": "root"
+          }
+        ]
+      },
+      "reply": {
+        "kind": "success",
+        "value": {}
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "backgroundProcesses",
+            "params": {
+              "kind": "backgroundProcesses",
+              "threadId": "child",
+              "action": {
+                "kind": "clean"
+              }
+            },
+            "target": {
+              "threadId": "child"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "done"
+        }
+      }
+    },
+    {
+      "operation": {
+        "kind": "backgroundProcesses",
+        "threadId": "child",
+        "action": {
+          "kind": "list",
+          "cursor": null
+        }
+      },
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "root",
+        "activeTurns": [],
+        "threadParents": [
+          {
+            "threadId": "child",
+            "parentThreadId": "root"
+          }
+        ]
+      },
+      "reply": {
+        "kind": "success",
+        "value": {
+          "processes": [],
+          "nextCursor": "next-page"
+        }
+      },
+      "plan": {
+        "action": {
+          "kind": "request",
+          "call": {
+            "method": "backgroundProcesses",
+            "params": {
+              "kind": "backgroundProcesses",
+              "threadId": "child",
+              "action": {
+                "kind": "list",
+                "cursor": null
+              }
+            },
+            "target": {
+              "threadId": "child"
+            }
+          }
+        },
+        "state": null
+      },
+      "step": {
+        "kind": "complete",
+        "result": {
+          "kind": "backgroundProcesses",
+          "threadId": "child",
+          "processes": [],
+          "nextCursor": "next-page"
+        }
+      }
     }
   ],
   "reductions": [
@@ -510,6 +985,160 @@
               "content": "second",
               "seq": 2
             }
+          }
+        ]
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "threadId": "thread-a",
+        "settings": {},
+        "providerSettings": {}
+      },
+      "state": null,
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "usage",
+              "threadId": "thread-a",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "cache_read_tokens": 30,
+                "cost_micros": 20000
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "state": {
+          "count": 1
+        },
+        "events": [
+          {
+            "kind": "usage",
+            "threadId": "thread-a",
+            "usage": {
+              "input_tokens": 100,
+              "output_tokens": 20,
+              "cache_read_tokens": 30,
+              "cost_micros": 20000
+            }
+          }
+        ]
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "threadId": "thread-a",
+        "settings": {},
+        "providerSettings": {}
+      },
+      "state": null,
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "rateLimits",
+              "rateLimits": [],
+              "resets": {
+                "availableCount": 5,
+                "nextExpiry": 1000,
+                "credits": [
+                  {
+                    "id": "fixture-credit",
+                    "status": "available",
+                    "expiresAt": 1000
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "state": {
+          "count": 1
+        },
+        "events": [
+          {
+            "kind": "rateLimits",
+            "rateLimits": [],
+            "resets": {
+              "availableCount": 5,
+              "nextExpiry": 1000,
+              "credits": [
+                {
+                  "id": "fixture-credit",
+                  "status": "available",
+                  "expiresAt": 1000
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "context": {
+        "epoch": 1,
+        "tabId": "fixture-tab",
+        "bindingNonce": "fixture-nonce",
+        "cwd": "/fixture",
+        "hostVersion": "1.0.0",
+        "claimedSends": [],
+        "settings": {},
+        "providerSettings": {},
+        "threadId": "root",
+        "activeTurns": [],
+        "threadParents": [
+          {
+            "threadId": "child",
+            "parentThreadId": "root"
+          }
+        ]
+      },
+      "state": null,
+      "frames": [
+        {
+          "kind": "notification",
+          "method": "item",
+          "params": {
+            "usageEvent": {
+              "kind": "backgroundProcesses",
+              "threadId": "child",
+              "processes": []
+            }
+          }
+        }
+      ],
+      "expected": {
+        "state": {
+          "count": 1
+        },
+        "events": [
+          {
+            "kind": "backgroundProcesses",
+            "threadId": "child",
+            "processes": []
           }
         ]
       }

@@ -3,7 +3,7 @@ use super::{
     NotificationConfig, OrchestrationConfig, OrchestrationDigestsConfig, PushChannelConfig,
     UiConfig, UsageConfig,
 };
-use crate::notification::{NotifyDestination, NotifyLevel};
+use codeterm_notify_types::{NotifyDestination, NotifyLevel};
 
 /// A channel id core has never heard of. Every column assertion below routes
 /// through one of these, so nothing here can pass by knowing a real channel.
@@ -589,4 +589,12 @@ fn cleanup_digest_conditions_and_overrides_roundtrip() {
         assert_eq!(restored.rules[0].condition, config.rules[0].condition);
         assert_eq!(restored.rules[0].template, "{count}");
     }
+}
+
+#[test]
+fn restore_window_defaults_to_two_days() {
+    let config: super::AppConfig = serde_json::from_str("{}").unwrap();
+    assert_eq!(config.restore.active_window_hours, 48);
+    let config: super::RestoreConfig = serde_json::from_str("{}").unwrap();
+    assert_eq!(config.active_window_hours, 48);
 }

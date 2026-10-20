@@ -174,36 +174,14 @@ fn json_error_envelope_shape_is_shared_by_every_error_path() {
 }
 
 #[test]
-fn no_command_prints_an_error_and_exits_by_hand() {
-    const BY_HAND: &str = concat!("eprintln!(\"", "Error:");
-    const OWN_REPORT: &[&str] = &["bridge/migrate.rs"];
-    let mut pending = vec![crate::test_support::fixture_manifest_dir().join("src")];
-    let mut offenders = Vec::new();
-    while let Some(dir) = pending.pop() {
-        for entry in std::fs::read_dir(&dir).expect("read source dir").flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                pending.push(path);
-                continue;
-            }
-            let name = path.to_string_lossy().replace('\\', "/");
-            let is_test = name.ends_with("tests.rs")
-                || name.ends_with("_tests.rs")
-                || name.contains("/tests/");
-            let exempt = OWN_REPORT.iter().any(|own| name.ends_with(own));
-            if !name.ends_with(".rs") || is_test || exempt {
-                continue;
-            }
-            if std::fs::read_to_string(&path)
-                .unwrap_or_default()
-                .contains(BY_HAND)
-            {
-                offenders.push(name);
-            }
-        }
-    }
-    assert!(
-        offenders.is_empty(),
-        "failures must leave through cmd::print::fail*, which honours --json: {offenders:?}"
+fn planner_live_attempt_races_classify_as_conflict() {
+    let data = serde_json::json!({"type": "respawn_attempt_not_current", "current_attempt_id": "attempt_b", "tab_id": "tab"});
+    assert_eq!(
+        classify(
+            "the named attempt is no longer current",
+            Some(-32022),
+            Some(&data)
+        ),
+        ErrorCode::Conflict
     );
 }

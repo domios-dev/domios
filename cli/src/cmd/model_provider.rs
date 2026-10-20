@@ -151,7 +151,11 @@ mod tests {
         .unwrap();
         assert_eq!(client.calls.len(), 1);
         assert_eq!(client.calls[0].0, "model_provider.add");
-        assert_eq!(client.calls[0].1["value"], key);
+        let wire: Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/model-provider/add.json"
+        ))
+        .unwrap();
+        assert!(client.calls[0].1 == wire);
         assert_eq!(
             serde_json::to_string(&result).unwrap(),
             r#"{"models":["fixture-model"]}"#

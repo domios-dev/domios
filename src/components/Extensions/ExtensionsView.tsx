@@ -1,10 +1,12 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { BackPill } from "../shared/BackPill";
 /**
  * Extensions — a VS Code-like plugin manager (list + marketplace on the left, detail
  * on the right). Catalog merge/filter logic lives in `pluginCatalog.ts` (pure, tested);
  * this owns state + side effects over `plugin_manager_snapshot` / `plugin_manager_action`.
  */
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { invoke } from "../../lib/bridge";
 import {
   buildCatalog,
@@ -39,6 +41,8 @@ export function ExtensionsView({
 }) {
   const snapshotState = usePluginSnapshotStore();
   const snapshot = snapshotState.snapshot;
+  const hasCachedSnapshot = useRef(snapshotState.lastSuccessfulSnapshot !== null);
+  hasCachedSnapshot.current = snapshotState.lastSuccessfulSnapshot !== null;
   const [config, setConfig] = useState<AppConfigShape | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<CatalogFilter>("all");
@@ -56,16 +60,14 @@ export function ExtensionsView({
       setConfig(cfg ?? {});
       setLocalError(null);
     } catch (e) {
-      setLocalError(String(e));
+      if (DEV_BUILD) console.debug("Background plugin settings read failed", e);
     }
   }, []);
 
   useEffect(() => {
     if (!visible) return;
-    void Promise.all([
-      ensurePluginSnapshot({ force: true }),
-      refreshConfig(),
-    ]);
+    void ensurePluginSnapshot({ force: true, background: hasCachedSnapshot.current }).catch(() => undefined);
+    void refreshConfig();
   }, [visible, refreshConfig]);
 
   useEffect(() => {
@@ -191,13 +193,7 @@ export function ExtensionsView({
           </div>
         )}
         {error && (
-          <div
-            role="alert"
-            data-testid="extensions-error"
-            style={{ fontSize: 12.5, color: "var(--ct-err)", border: "1px solid color-mix(in srgb, var(--ct-err) 40%, transparent)", borderRadius: 8, padding: "9px 12px", marginBottom: 12, flex: "none" }}
-          >
-            {error}
-          </div>
+          <div data-testid="extensions-error"><InlineErrorNotice error={error} operation="loading plugins" blocking /></div>
         )}
         {snapshotState.refreshing && snapshotState.lastSuccessfulSnapshot && (
           <div data-testid="extensions-stale-refresh" style={{ fontSize: 12, color: "var(--ct-muted)", marginBottom: 12, flex: "none" }}>

@@ -42,6 +42,7 @@ async fn runtime_hooks_refuse_schema_size_and_unlisted_method() {
     .unwrap()
     .unwrap_err();
     assert_eq!(failure.code, RuntimeFailureCode::Deadline);
+    assert_eq!(failure.message, "runtime hook execution deadline");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -117,7 +118,7 @@ fn runtime_hook_validation_refuses_retargeting_and_submit_replay() {
     .is_ok());
     let wrong: RuntimeReduction = serde_json::from_value(json!({"state":null,"events":[{"kind":"turnState","threadId":"foreign-thread","state":"idle"}]})).unwrap();
     assert!(validate_runtime_reduction(&ctx, &wrong).is_err());
-    let unknown_send: RuntimeReduction = serde_json::from_value(json!({"state":null,"events":[{"kind":"sendEvidence","threadId":"own-thread","sendId":"unclaimed","turnId":"turn-1"}]})).unwrap();
+    let unknown_send: RuntimeReduction = serde_json::from_value(json!({"state":null,"events":[{"kind":"sendEvidence","threadId":"own-thread","sendId":"unclaimed","turnId":"turn-1","itemId":"user-item"}]})).unwrap();
     assert!(validate_runtime_reduction(&ctx, &unknown_send).is_err());
     ctx.pending_request = Some(PendingRuntimeRequest {
         request_id: RpcId::Number(7),

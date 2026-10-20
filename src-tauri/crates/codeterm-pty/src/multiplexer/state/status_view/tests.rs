@@ -82,7 +82,7 @@ fn snapshot_projects_agent_state_without_mutating_classifier() {
 
 #[test]
 fn provider_access_loss_overrides_idle_status_and_recovers() {
-    use codeterm_types::agent::provider_signals::{ApiErrorKind, SessionObservations};
+    use codeterm_provider_signals::{ApiErrorKind, SessionObservations};
     use codeterm_types::pty::QuestionSubtype;
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.link_pty(&tab_id, "access-pty".into());

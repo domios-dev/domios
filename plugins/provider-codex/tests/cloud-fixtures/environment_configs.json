@@ -1,0 +1,16 @@
+{
+  "items": [
+    {
+      "id": "asenvcfg_redacted-one",
+      "name": "domios 1",
+      "provider": "caas",
+      "currentVersion": {"id": "cecfgver_redacted-one"}
+    },
+    {
+      "id": "asenvcfg_redacted-two",
+      "name": "domios 2",
+      "provider": "caas",
+      "currentVersion": {"id": "cecfgver_redacted-two"}
+    }
+  ]
+}

@@ -1,11 +1,14 @@
+import { useLatestCallback } from "../../hooks/useLatestCallback";
+import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { canSendDelayedMessage, sendCurrentDelayedMessage } from "./delayedMessageModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
 import { onResync } from "../../lib/resync";
 import { createDelayedMessageFeed } from "./delayedMessageFeed";
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
-import {cachedSlashCommands} from "../../lib/providerCapabilities";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
+import { cachedSlashCommands, slashCommandsEqual } from "../../lib/providerCapabilities";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { ComposerBubbleRow } from "./ComposerBubbles";
+import { ComposerUploadNotices } from "./ComposerUploadNotices";
 import { ComposerDock } from "./ComposerDock";
 import { useComposerLayout } from "./useComposerLayout";
 import { evaluateWhen } from "../../lib/evaluateWhen";
@@ -52,9 +55,11 @@ import { ComposerCapsuleField } from "./ComposerCapsuleField";
 import { ComposerTextInput } from "./ComposerTextInput";
 import { hasCapsuleTokens } from "./composerCapsules";
 import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } from "./useComposerCapsules";
-import { draftHasPendingUploads } from "./composerUploadModel";
+import { composerSendPlan, resolveComposerSend } from "./composerSendPlan";
+import { recordDroppedUploads } from "./DroppedUploadNotice";
 import { classifyAttachmentPaths } from "./composerFiles";
 import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
 import type { ComposerReply } from "./composerReply";
@@ -91,25 +96,25 @@ function cliFallbackCommandPayload(text: string): string | null {
   return `${trimmed}\r`;
 }
 
-function SlashPicker({
+const NO_SUGGESTIONS: SlashCommandSuggestion[] = [];
+
+const SlashPicker = memo(function SlashPicker({
   suggestions,
   highlighted,
   onHighlight,
   onPick,
+  triggerRef,
 }: {
   suggestions: SlashCommandSuggestion[];
   highlighted: number;
   onHighlight: (index: number) => void;
   onPick: (cmd: SlashCommandSuggestion) => void;
+  triggerRef: RefObject<HTMLElement | null>;
 }) {
   if (suggestions.length === 0) return null;
   return (
-    <div
-      role="listbox"
-      aria-label="Command suggestions"
-      className="ct-menu absolute bottom-full left-0 right-0 mb-1 max-h-56 overflow-y-auto"
-      style={SUGGESTION_MENU_STYLE}
-    >
+    <AnchoredPopover open anchor={triggerRef} placement="top-start" width="anchor">
+    <div role="listbox" aria-label="Command suggestions" className="ct-menu max-h-56 overflow-y-auto">
       {suggestions.map((c, i) => (
         <button
           key={c.name}
@@ -129,10 +134,9 @@ function SlashPicker({
         </button>
       ))}
     </div>
+    </AnchoredPopover>
   );
-}
-
-const SUGGESTION_MENU_STYLE = { zIndex: 10, "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties;
+});
 
 function recordComposerRender(tabId: string): void {
   if (typeof window === "undefined") return;
@@ -186,6 +190,8 @@ function ChatComposerImpl({
   promptDock,
   replacement,
   inlineAttachmentSink,
+  pluginError,
+  sessionIntent,
   contextSlot = null,
   chatBackend = false,
   isActive = true,
@@ -216,6 +222,8 @@ function ChatComposerImpl({
   replacement?: ReactNode;
   /** Where pasted and dropped files land as capsules at the caret. */
   inlineAttachmentSink?: MutableRefObject<InlineAttachmentSink | null>;
+  pluginError?: string | null;
+  sessionIntent?: ChatSessionIntent | null;
   /** Element above the status line that hosts the context header. */
   contextSlot?: HTMLElement | null;
 }) {
@@ -225,7 +233,7 @@ function ChatComposerImpl({
 
   const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
   const recall = useComposerRecall(tabId);
-  const workspaceId = useMuxSelector(useCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
+  const workspaceId = useMuxSelector(useLatestCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const touchMode = useTouchOptimizedUi();
@@ -246,7 +254,7 @@ function ChatComposerImpl({
   // Screen-reader-visible mirror of showComposerError: the field's current
   // content was rejected, until the user edits it again.
   const [composerInvalid, setComposerInvalid] = useState(false);
-  const flagComposerError = useCallback(
+  const flagComposerError = useLatestCallback(
     (message: string) => {
       setComposerInvalid(true);
       showComposerError(message);
@@ -256,16 +264,15 @@ function ChatComposerImpl({
   const capsules = useComposerCapsules({ tabId, textareaRef, sinkRef: inlineAttachmentSink, onError: flagComposerError });
   const [composing, setComposing] = useState(false);
   const capsulesActive = !composing && hasCapsuleTokens(input);
-  const pendingUploads = draftHasPendingUploads(input, capsules.registry);
   const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
-  const capabilities = useMuxSelector(useCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
+  const commands = useMuxSelector(useLatestCallback(state => cachedSlashCommands(state.tabs[tabId]?.provider_signals?.capabilities), [tabId]), slashCommandsEqual);
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
-    () => filterSlashCommands(firstLine, cachedSlashCommands(capabilities)),
-    [firstLine, capabilities],
+    () => filterSlashCommands(firstLine, commands),
+    [firstLine, commands],
   );
 
-  const refocusComposer = useCallback(() => {
+  const refocusComposer = useLatestCallback(() => {
     if (!isActiveRef.current) return;
     const focus = () => {
       if (!isActiveRef.current) return;
@@ -301,7 +308,7 @@ function ChatComposerImpl({
 
   const delayedFeedRef = useRef<ReturnType<typeof createDelayedMessageFeed> | null>(null);
   const delayedTabRef = useRef<string | null>(null);
-  const refreshDelayedMessages = useCallback(async () => {
+  const refreshDelayedMessages = useLatestCallback(async () => {
     await delayedFeedRef.current?.refresh();
   }, []);
 
@@ -347,7 +354,6 @@ function ChatComposerImpl({
   }
 
   function buildDraft(extraAttachments: string[] = []) {
-    if (draftHasPendingUploads(textareaRef.current?.value ?? input, capsules.registryRef.current)) return;
     const text = input.trim();
     const cleanExtraAttachments = extraAttachments
       .map((p) => p.trim())
@@ -390,7 +396,9 @@ function ChatComposerImpl({
     setInput("");
     if (textareaRef.current) textareaRef.current.value = "";
     clearAttachments();
-    capsules.clear();
+    const plan = composerSendPlan(text, registry, capsules.uploads.uploads);
+    const capturedUploads = duplicate ? [] : capsules.uploads.take(plan.uploadIds);
+    capsules.detach();
     reply.clearIfSent(quoted);
     if (duplicate) return;
     lastSendRef.current = { text: dupKey, at: Date.now() };
@@ -406,7 +414,17 @@ function ChatComposerImpl({
     try {
       const send = readChatSends(tabId).find((item) => item.id === optimisticId)
         ?? { id: optimisticId, content: portable, sentAtMs: Date.now(), draft: deliveryDraft };
-      composed = await prepareChatDelivery(tabId, send, expandDsTasks);
+      const results = await Promise.all(capturedUploads.map(async item => ({ ...item, path: await item.result })));
+      const resolved = resolveComposerSend(text, registry, new Map(results.map(item => [item.upload.id, item.path])));
+      recordDroppedUploads(tabId, optimisticId, results.filter(item => !item.path).map(item => item.upload));
+      const readyDraft = { ...deliveryDraft, ...resolved };
+      setChatSendDraft(tabId, optimisticId, readyDraft);
+      composed = await prepareChatDelivery(tabId, { ...send, draft: readyDraft }, expandDsTasks);
+      if (!composed.trim()) {
+        failChatSendRequest(tabId, optimisticId);
+        pendingDraftsRef.current.delete(dupKey);
+        return;
+      }
       updateOptimistic(optimisticId, composed);
     } catch {
       failChatSendRequest(tabId, optimisticId);
@@ -492,7 +510,13 @@ function ChatComposerImpl({
     });
   }
 
-  const openScheduleModal = () => setDelayedModal({ kind: "create", text: input.trim() });
+  // Stable identities so the memoized header and pickers sit out keystrokes.
+  const openScheduleModal = useLatestCallback(() => setDelayedModal({ kind: "create", text: input.trim() }), []);
+  const editDelayed = useLatestCallback((message: DelayedMessage) => setDelayedModal({ kind: "edit", message }), []);
+  const deleteDelayed = useLatestCallback((id: string) => void withDelayedBusy(id, async () => {
+    await deleteDelayedMessage(id);
+  }), []);
+  const pickSlashCommand = useLatestCallback(pickSuggestion, []);
 
   if (replacement) return <ComposerDock mode={composerLayout.mode} ref={shellRef}>{replacement}</ComposerDock>;
 
@@ -500,13 +524,13 @@ function ChatComposerImpl({
     <ComposerDock mode={composerLayout.mode} ref={shellRef}>
       {contextSlot && createPortal(
         <ComposerContextHeader
+          pluginError={pluginError}
+          sessionIntent={sessionIntent}
           tabId={tabId}
           workspaceId={workspaceId}
           delayed={delayedMessages}
-          onEditDelayed={(message) => setDelayedModal({ kind: "edit", message })}
-          onDeleteDelayed={(id) => void withDelayedBusy(id, async () => {
-            await deleteDelayedMessage(id);
-          })}
+          onEditDelayed={editDelayed}
+          onDeleteDelayed={deleteDelayed}
           onScheduleDelayed={openScheduleModal}
           draftActive={input.length > 0}
         />,
@@ -535,7 +559,7 @@ function ChatComposerImpl({
           />
         );
       })()}
-      <div className="mb-2 flex flex-wrap items-center gap-1 empty:hidden">
+      <div className="mb-2 flex flex-wrap items-center gap-1 pl-8 empty:hidden">
       <ComposerContextMeter tabId={tabId} />
       <ProviderCapabilityBadge tabId={tabId} />
       </div>
@@ -549,7 +573,7 @@ function ChatComposerImpl({
           onSchedule={openScheduleModal}
           onSendWithAttachments={(paths) => void send(paths)}
           onError={flagComposerError}
-          sendDisabled={pendingUploads || (!input.trim() && attachments.length === 0 && !reply.reply)}
+          sendDisabled={(!input.trim() && attachments.length === 0 && !reply.reply)}
           hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
           cardHeader={(reply.reply || attachments.length > 0) && <>
             {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}
@@ -557,14 +581,16 @@ function ChatComposerImpl({
           </>}
         >
           <SlashPicker
-            suggestions={pickerOpen ? suggestions : []}
+            suggestions={pickerOpen ? suggestions : NO_SUGGESTIONS}
             highlighted={pickerHighlight}
+            triggerRef={textareaRef}
             onHighlight={setPickerHighlight}
-            onPick={pickSuggestion}
+            onPick={pickSlashCommand}
           />
           <ComposerMentionPicker
             mentions={mentionPicker.mentions}
             highlighted={mentionPicker.highlighted}
+            triggerRef={textareaRef}
             onHighlight={mentionPicker.setHighlighted}
             onPick={mentionPicker.pick}
           />
@@ -578,7 +604,6 @@ function ChatComposerImpl({
             marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0}
             onRemove={capsules.remove}
             uploads={capsules.uploads.uploads}
-            onRetryUpload={(id) => void capsules.uploads.retry(id)}
           >
             <ComposerTextInput
               data-testid="chat-composer"
@@ -701,6 +726,7 @@ function ChatComposerImpl({
             />
           </ComposerCapsuleField>
         </ComposerActions>
+        <ComposerUploadNotices value={input} registry={capsules.registry} uploads={capsules.uploads.uploads} onRemove={capsules.remove} />
       </div>
     </ComposerDock>
   );
@@ -725,6 +751,8 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.replacement === b.replacement
   && a.promptDock === b.promptDock
   && a.inlineAttachmentSink === b.inlineAttachmentSink
+  && a.pluginError === b.pluginError
+  && a.sessionIntent === b.sessionIntent
   && a.contextSlot === b.contextSlot
   && a.chatBackend === b.chatBackend
   && a.isActive === b.isActive

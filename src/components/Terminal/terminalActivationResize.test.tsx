@@ -10,6 +10,8 @@ import type { ResizeOwner } from "../../lib/resizeOwner";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
 import { useTerminalActivationResize } from "../../hooks/terminal/useTerminalActivationResize";
 import { useTerminalResize } from "../../hooks/terminal/useTerminalResize";
+import { terminalViewerLocalGeometry } from "./terminalViewerGeometry";
+import { tabOutputRoute } from "../../lib/remoteTabRoute";
 
 interface FakeTerminal {
   cols: number;
@@ -72,8 +74,12 @@ let currentPtySize = { cols: 80, rows: 24 };
 let claims: Array<{ args: Record<string, unknown>; owner: ResizeOwner }> = [];
 let resizes: Array<Record<string, unknown>> = [];
 let holdClaims = false;
+let holdResizes = false;
+let settleResize: ((succeeded: boolean) => void) | null = null;
 let eventHandlers = new Map<string, (event: { payload: unknown }) => void>();
 let activateViewer: (() => void) | null = null;
+let commitCurrentResize: ((force?: boolean) => void) | null = null;
+let fitAndCommitCurrentResize: (() => void) | null = null;
 
 function createTerminal(): FakeTerminal {
   const value = {
@@ -96,7 +102,7 @@ function createTerminal(): FakeTerminal {
   return value;
 }
 
-function Harness({ active }: { active: boolean }) {
+function Harness({ active, isRemote = false }: { active: boolean; isRemote?: boolean }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef(terminal as unknown as Terminal | null);
   const fitAddonRef = useRef({ fit: () => terminal.setSize(targetSize.cols, targetSize.rows) } as unknown as FitAddon | null);
@@ -112,9 +118,16 @@ function Harness({ active }: { active: boolean }) {
     isFocused: active,
     resizeEnabled: active,
     resizeClientId,
+    isRemote,
   });
+  commitCurrentResize = resize.commitResize;
+  fitAndCommitCurrentResize = () => {
+    fitAddonRef.current?.fit();
+    resize.commitResize();
+  };
   activateViewer = useTerminalActivationResize({
     active,
+    viewerLocalGeometry: isRemote,
     isFocused: active,
     termReady: true,
     tabId: "tab",
@@ -154,11 +167,11 @@ async function flushFrames() {
   });
 }
 
-async function mount(active: boolean) {
+async function mount(active: boolean, isRemote = false) {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root!.render(createElement(Harness, { active })));
+  await act(async () => root!.render(createElement(Harness, { active, isRemote })));
   await flushFrames();
 }
 
@@ -175,6 +188,8 @@ async function cleanup() {
   frames.clear();
   eventHandlers.clear();
   activateViewer = null;
+  commitCurrentResize = null;
+  fitAndCommitCurrentResize = null;
   __setInvokeForTest(null);
   __setListenForTest(null);
   vi.useRealTimers();
@@ -190,6 +205,15 @@ function configureBridge() {
     }
     if (command === "resize_pty") {
       resizes.push(args);
+      if (holdResizes) {
+        return new Promise<T>((resolve, reject) => {
+          settleResize = (succeeded) => {
+            if (!succeeded) return reject(new Error("resize failed"));
+            currentPtySize = { cols: Number(args.cols), rows: Number(args.rows) };
+            resolve({ ok: true } as T);
+          };
+        });
+      }
       currentPtySize = { cols: Number(args.cols), rows: Number(args.rows) };
       return { ok: true } as T;
     }
@@ -208,6 +232,8 @@ beforeEach(() => {
   claims = [];
   resizes = [];
   holdClaims = false;
+  holdResizes = false;
+  settleResize = null;
   eventHandlers = new Map();
   activateViewer = null;
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
@@ -217,6 +243,91 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("terminal viewer activation resize", () => {
+  it("fits a remote xterm locally without resizing its shared PTY", async () => {
+    const remoteOwnShellTab = { id: "d51b72ef" } as const;
+    const relayPeerId = "meshqa-peer";
+    const viewerLocalGeometry = terminalViewerLocalGeometry(remoteOwnShellTab, relayPeerId);
+    assert.deepEqual(tabOutputRoute(remoteOwnShellTab.id, relayPeerId), {
+      peerId: relayPeerId,
+      tabId: remoteOwnShellTab.id,
+    });
+    assert.equal(viewerLocalGeometry, true);
+    targetSize = { cols: 45, rows: 38 };
+    await mount(true, viewerLocalGeometry);
+    assert.deepEqual({ cols: terminal.cols, rows: terminal.rows }, targetSize);
+    assert.equal(claims.length, 0);
+    assert.equal(resizes.length, 0);
+    targetSize = { cols: 60, rows: 30 };
+    await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    assert.deepEqual({ cols: terminal.cols, rows: terminal.rows }, targetSize);
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await flushFrames();
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await flushFrames();
+    await act(async () => window.dispatchEvent(new Event(TERMINAL_VIEWER_RECONNECTED_EVENT)));
+    await flushFrames();
+    await act(async () => fitAndCommitCurrentResize?.());
+    await act(async () => commitCurrentResize?.(true));
+    assert.equal(claims.length, 0);
+    assert.equal(resizes.length, 0);
+  });
+
+  it("drains only the latest fitted geometry on actual completion", async () => {
+    holdResizes = true;
+    await mount(true);
+    assert.equal(resizes.length, 1);
+    for (const cols of [120, 100, 140]) {
+      targetSize = { cols, rows: 42 };
+      await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    }
+    assert.equal(resizes.length, 1);
+    assert.deepEqual(currentPtySize, { cols: 80, rows: 24 });
+    await act(async () => settleResize?.(true));
+    assert.equal(resizes.length, 2);
+    assert.equal(resizes[1]?.cols, 140);
+    await act(async () => settleResize?.(true));
+    assert.deepEqual(currentPtySize, { cols: terminal.cols, rows: terminal.rows });
+    assert.equal(resizes.length, 2);
+  });
+
+  it("drops the pending resize after failure", async () => {
+    holdResizes = true;
+    await mount(true);
+    targetSize = { cols: 120, rows: 40 };
+    await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    await act(async () => settleResize?.(false));
+    assert.equal(resizes.length, 1);
+    holdResizes = false;
+    await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    assert.equal(resizes.length, 2);
+    assert.deepEqual(currentPtySize, targetSize);
+  });
+
+  it("does not drain an in-flight viewer's pending resize after deactivation", async () => {
+    holdResizes = true;
+    await mount(true);
+    targetSize = { cols: 120, rows: 40 };
+    await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    await renderActive(false);
+    await act(async () => settleResize?.(true));
+    assert.equal(resizes.length, 1);
+  });
+
+  it("drops queued geometry when another viewer takes ownership during a resize", async () => {
+    holdResizes = true;
+    await mount(true);
+    targetSize = { cols: 120, rows: 40 };
+    await act(async () => window.dispatchEvent(new Event("codeterm-tab-resize")));
+    const ownerChanged = eventHandlers.get("pty-resize-owner-changed");
+    assert.ok(ownerChanged);
+    await act(async () => ownerChanged({ payload: { ...baseOwner, client_id: "web:phone" } }));
+    await act(async () => settleResize?.(true));
+    assert.equal(resizes.length, 1);
+  });
+
   it("force-claims once and sends one fitted resize after another client left a narrow PTY", async () => {
     await mount(true);
     assert.equal(claims.length, 1);
@@ -224,6 +335,14 @@ describe("terminal viewer activation resize", () => {
     assert.equal(claims[0]?.args.cols, 160);
     assert.equal(claims[0]?.args.rows, 48);
     assert.deepEqual(resizes.map(({ cols, rows }) => ({ cols, rows })), [{ cols: 160, rows: 48 }]);
+  });
+
+  it("commits the fitted local row count to the owned PTY", async () => {
+    targetSize = { cols: 45, rows: 38 };
+    await mount(true);
+    assert.deepEqual({ cols: terminal.cols, rows: terminal.rows }, targetSize);
+    assert.deepEqual(resizes.map(({ cols, rows }) => ({ cols, rows })), [targetSize]);
+    assert.deepEqual(currentPtySize, targetSize);
   });
 
   it("does not resize when the current PTY already matches the fitted screen", async () => {

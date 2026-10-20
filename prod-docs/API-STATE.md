@@ -46,11 +46,20 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | GET | `/api/session/backups` | — | List rotated full-desk backup projections from Storage, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `codeterm sessions backups list`. |
 | POST | `/api/session/backups/{name}/restore` | — | Additive desk recovery from one backup: recreates workspaces/tabs missing from the live desk under their original ids; existing ones are never modified or closed. Returns `{restored, workspaces_added, tabs_added, tabs_already_present}`; 404 for an unknown/invalid name. CLI: `codeterm sessions backups restore <name>`. |
 
+Authenticated snapshot exchange: `GET /api/session/backups/{name}/export`
+accepts `latest` or a backup timestamp and returns a sanitized desk, Plan store,
+filler histories, size evidence and hidden-tab metadata. CLI:
+`codeterm sessions backups export latest --sanitize --out /tmp/desk.json`.
+`POST /api/session/backups/import` replaces a disposable named `upgrade-restore-*`
+DEV desk without PTYs; PROD refuses it. CLI: `codeterm sessions backups import --file /tmp/desk.json`.
+Import returns `{imported_tabs, restart_required, boot_id}`; `/api/health` boot_id proves a subsequent restart.
+
 #### Web Mirror
+
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/` | — | The Domios web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
-| GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs + focus) **Bounded:** only a few snapshots build at once; over that, or while a lifecycle change is being written, the request is answered **503** immediately rather than queued. A `mux-state-changed` event drives the next read; callers must not poll. |
+| GET | `/api/mux/state` | — | Published multiplexer snapshot (workspaces/tabs + focus). Writers and rebuilds do not delay reads or cause 503. Genuine storage unavailability still returns 503. Publication sends `mux-state-changed`; callers must not poll. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
 | POST | `/api/tabs/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
@@ -61,7 +70,7 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
 | POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
 
-Snapshot refetch coalescing, the snapshot bound and its `503`, and the known event-order gap in the stream: `codeterm docs API-EVENTS`.
+Published reads, coalesced refresh and stream event order: `codeterm docs API-EVENTS`.
 
 #### Debug (test-only capabilities)
 | Method | Path | Body / Query | Description |
@@ -228,4 +237,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 27 -->
+<!-- revision: 29 -->

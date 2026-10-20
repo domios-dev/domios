@@ -8,6 +8,10 @@ let refreshing = false;
 let catalogueVersions: Record<string, number> = {};
 const subscribers = new Set<() => void>();
 
+export function resetAgentCatalogueVersions(): void {
+  catalogueVersions = {};
+}
+
 export function setAgentDescriptors(list: ProviderDescriptor[], loading = false): void {
   refreshing = loading;
   const next: Record<string, ProviderDescriptor> = {};

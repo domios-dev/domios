@@ -60,7 +60,7 @@ export async function findVisibleContentBoundsIssues(
         const cs = getComputedStyle(html);
         return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) >= 0.05;
       };
-      const within = (a: DOMRect, b: DOMRect) =>
+      const within = (a: Pick<DOMRect, "left" | "top" | "right" | "bottom">, b: Pick<DOMRect, "left" | "top" | "right" | "bottom">) =>
         a.left + tolerancePx >= b.left &&
         a.top + tolerancePx >= b.top &&
         a.right - tolerancePx <= b.right &&

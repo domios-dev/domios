@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import { imageConversionPlan, jpegConversionAccepted } from "./imageConversionModel";
+assert.deepEqual(imageConversionPlan("Screen.HEIC", "", { bitmap: true, image: true }), { convert: true, decoders: ["bitmap", "image"], name: "Screen.jpg" });
+assert.deepEqual(imageConversionPlan("Screen", "image/heif", { bitmap: false, image: true }), { convert: true, decoders: ["image"], name: "Screen.jpg" });
+assert.deepEqual(imageConversionPlan("a.heif", "image/heif", { bitmap: false, image: false }).decoders, []);
+assert.equal(imageConversionPlan("a.png", "image/png", { bitmap: true, image: true }).convert, false);
+assert.equal(jpegConversionAccepted(null), false);
+assert.equal(jpegConversionAccepted({ type: "image/png", size: 12 }), false);
+assert.equal(jpegConversionAccepted({ type: "image/jpeg", size: 0 }), false);
+assert.equal(jpegConversionAccepted({ type: "image/jpeg", size: 12 }), true);
+console.log("image conversion model: 8 checks passed");

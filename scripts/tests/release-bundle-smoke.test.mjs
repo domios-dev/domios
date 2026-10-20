@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertMachine, machine, checkContents } from '../release-bundle-smoke.mjs';
+import { assertMachine, machine, checkContents, packagedExecutables } from '../release-bundle-smoke.mjs';
+
+test('package selection separates domios native client from codeterm CLI on every platform', () => {
+  for (const [app, cli, server] of [
+    ['/usr/bin/domios', '/usr/lib/CodeTerm/cli/codeterm', '/usr/lib/CodeTerm/domios-server/domios-server'],
+    ['C:\\package\\domios.exe', 'C:\\package\\cli\\codeterm.exe', 'C:\\package\\domios-server\\domios-server.exe'],
+    ['/CodeTerm.app/Contents/MacOS/domios', '/CodeTerm.app/Contents/Resources/cli/codeterm', '/CodeTerm.app/Contents/MacOS/domios-server'],
+  ]) {
+    assert.deepEqual(packagedExecutables([app, cli, server]), { app, cli });
+    assert.throws(() => packagedExecutables([cli, server]), /app executable, found 0/);
+    assert.throws(() => packagedExecutables([app, cli, app]), /app executable, found 2/);
+  }
+});
 function executable(format, arch) {
   const bytes = Buffer.alloc(128);
   if (format === 'PE') { bytes.write('MZ'); bytes.writeUInt32LE(64, 60); bytes.write('PE\0\0', 64, 'binary'); bytes.writeUInt16LE(arch === 'arm64' ? 0xaa64 : 0x8664, 68); }
@@ -9,7 +21,7 @@ function executable(format, arch) {
   return bytes;
 }
 for (const format of ['PE','ELF','Mach-O']) {
-  test(`${format} rejects mixed app/CLI/embed architectures`, () => {
+  test(`${format} rejects mixed app/CLI architectures`, () => {
     for (const arch of ['x64','arm64']) {
       const bytes = executable(format,arch);
       assert.deepEqual(machine(bytes),{format,arch});

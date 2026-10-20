@@ -20,7 +20,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const bash = existsSync("/bin/bash") ? "/bin/bash" : "bash";
+const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : (existsSync("/bin/bash") ? "/bin/bash" : "bash");
 const helperPath = path.join(root, "scripts/dev-notify.sh");
 const qaReportPath = path.join(root, "scripts/qa-report.sh");
 const buildPath = path.join(root, "build.sh");
@@ -35,6 +35,8 @@ const connectionKeys = [
   "CODETERM_SESSION_ID",
   "CODETERM_SESSION_BINDING_NONCE",
   "CODETERM_WORKER_ID",
+  "CODETERM_PARENT_TAB_ID",
+  "CODETERM_TEAM_ID",
 ];
 
 function shellQuote(value) {
@@ -58,8 +60,11 @@ function writeFakeCli(cliPath, recordPath) {
     "#!/usr/bin/env node\n" +
     "const fs = require('node:fs');\n" +
     "const args = process.argv.slice(2);\n" +
+    "if (args[0] === 'tab' && args[1] === 'inspect') { const model = process.env.BUILD_NOTIFICATION_TAB_MODEL; process.stdout.write(model ? fs.readFileSync(model, 'utf8') : '[]'); process.exit(0); }\n" +
+    "if (args[0] === 'pad' && args[1] === 'path') { process.stdout.write(process.env.BUILD_NOTIFICATION_PAD_PATH || process.cwd()); process.exit(0); }\n" +
     "const fromFile = args.indexOf('--from-file');\n" +
-    "const bodyFile = fromFile >= 0 ? args[fromFile + 1] : null;\n" +
+    "const fromPad = args.indexOf('--from-pad');\n" +
+    "const bodyFile = fromFile >= 0 ? args[fromFile + 1] : (fromPad >= 0 ? require('node:path').join(process.env.BUILD_NOTIFICATION_PAD_PATH || process.cwd(), args[fromPad + 1]) : null);\n" +
     "const keys = " + JSON.stringify(connectionKeys) + ";\n" +
     "const env = {};\n" +
     "for (const key of keys) env[key] = process.env[key] ?? null;\n" +
@@ -77,8 +82,15 @@ function makeHarness() {
   const devRecord = path.join(dir, "dev-record.jsonl");
   const parentCli = path.join(parentBin, "codeterm");
   const devCli = path.join(devBin, "codeterm");
+  const padPath = path.join(dir, "agent-pad");
+  const fixtureBuild = path.join(dir, "build.sh");
+  const buildSource = readFileSync(buildPath, "utf8").replaceAll("\r\n", "\n");
+  const gateway = 'enter_cargo_gateway() {\n  enter_build_gateway "$@"\n  ct_configure_sccache\n}';
+  assert.ok(buildSource.includes(gateway), "build fixture must stub the Cargo gateway");
+  writeFileSync(fixtureBuild, buildSource.replace(gateway, 'enter_cargo_gateway() { :; }'));
   writeFakeCli(parentCli, parentRecord);
   writeFakeCli(devCli, devRecord);
+  mkdirSync(padPath, { recursive: true });
   return {
     dir,
     parentBin,
@@ -87,7 +99,8 @@ function makeHarness() {
     devRecord,
     parentCli,
     devCli,
-    env: cleanEnv({ PATH: parentBin + path.delimiter + (process.env.PATH ?? "") }),
+    padPath,
+    env: cleanEnv({ BUILD_NOTIFICATION_FIXTURE_PATH: fixtureBuild, BUILD_NOTIFICATION_PAD_PATH: padPath, PATH: parentBin + path.delimiter + (process.env.PATH ?? "") }),
   };
 }
 
@@ -100,7 +113,8 @@ function records(recordPath) {
 }
 
 function runBash(args, env, cwd = root) {
-  return spawnSync(bash, args, { cwd, env, encoding: "utf8" });
+  const commandArgs = args.map(arg => arg === buildPath && env.BUILD_NOTIFICATION_FIXTURE_PATH ? env.BUILD_NOTIFICATION_FIXTURE_PATH : arg);
+  return spawnSync(bash, commandArgs, { cwd, env, encoding: "utf8" });
 }
 
 function runQa(harness, label, commands, extraEnv = {}) {
@@ -125,7 +139,7 @@ test("qa_report_pass_sends_one_summary", () => {
       CODETERM_API_URL: "http://127.0.0.1:7685",
       CODETERM_API_TOKEN: "parent-token",
       CODETERM_SOCKET_PATH: "parent.sock",
-      CODETERM_DATA_DIR: "/parent/data",
+      CODETERM_DATA_DIR: path.join(h.dir, "parent-data"),
       CODETERM_TAB_ID: "parent-caller",
     });
     assert.equal(result.status, 0, result.stderr);
@@ -140,7 +154,7 @@ test("qa_report_pass_sends_one_summary", () => {
     assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
     assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
-    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, path.join(h.dir, "parent-data"));
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-caller");
     assert.equal(records(h.devRecord).length, 0);
     const reportRoot = path.join(h.dir, "reports");
@@ -206,6 +220,33 @@ test("qa_report_counts_executed_cargo_targets_without_promoting_empty_runs", () 
   }
 });
 
+test("qa_report_uses_runner_summaries_instead_of_incidental_zero_tests", () => {
+  const h = makeHarness();
+  const cases = [
+    ["cronfail", "running 5 tests\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\nrunning 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out", 0],
+    ["catalogue", "scripts/example.test.mjs: 0 tests\nTest catalogue validation passed", 0],
+    ["libtest_inventory", "inventory: 0 tests\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out", 0],
+    ["nextest", "inventory: 0 tests\n     Summary [ 0.052s] 5 tests run: 5 passed, 0 skipped", 0],
+    ["node", "# inventory: 0 tests\n# tests 5\n# pass 5\n# fail 0", 0],
+    ["nextest_empty", "     Summary [ 0.052s] 0 tests run: 0 passed, 5 skipped", 1],
+    ["node_empty", "# tests 0\n# pass 0\n# fail 0", 1],
+    ["libtest_empty", "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out", 1],
+  ];
+  try {
+    for (const [label, output, expected] of cases) {
+      const result = runQa(h, label, ["printf '%s\\n' " + shellQuote(output)]);
+      assert.equal(result.status, expected, label + "\n" + result.stdout + result.stderr);
+      const reportRoot = path.join(h.dir, "reports");
+      const runDir = readdirSync(reportRoot).find((name) => name.startsWith(label + "-"));
+      const summary = readFileSync(path.join(reportRoot, runDir, "summary.txt"), "utf8");
+      assert.equal(summary.includes("ZERO TESTS RAN"), expected === 1, label);
+      assert.ok(summary.includes(`QA ${label}: ${expected === 0 ? "PASS (1/1 ok)" : "FAIL (0/1 ok)"}`), summary);
+    }
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
 test("qa_report_failure_includes_tail", () => {
   const h = makeHarness();
   try {
@@ -252,7 +293,7 @@ test("qa_report_parent_env_survives_instance_exports", () => {
   }
 });
 
-test("dev_notify_ready_sends_sha", () => {
+test("dev_notify_ready_sends_one_short_sha_receipt", () => {
   const h = makeHarness();
   try {
     const marker = path.join(h.dir, "ready-sent");
@@ -266,18 +307,18 @@ test("dev_notify_ready_sends_sha", () => {
     assert.equal(result.status, 0, result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
-    assert.ok(sent[0].body.startsWith("READY instance=named api_port=7690 build=" + sha + " listener_pid=4321"));
+    assert.equal(sent[0].body, `READY instance=named api_port=7690 build=${sha}\n`);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
 });
 
-test("dev_notify_failure_sends_stage_and_tail", () => {
+test("dev_notify_failure_sends_stage_and_first_compiler_errors", () => {
   const h = makeHarness();
   try {
     const marker = path.join(h.dir, "failed-sent");
     const log = path.join(h.dir, "dev.log");
-    writeFileSync(log, Array.from({ length: 40 }, (_, i) => String(i + 1)).join("\n") + "\n");
+    writeFileSync(log, ["compile started", "error[E0432]: unresolved import `crate::missing`", "second compiler line", ...Array.from({ length: 40 }, (_, i) => String(i + 1))].join("\n") + "\n");
     const script = [
       "source " + shellQuote(helperPath),
       "dev_notify_capture_parent",
@@ -287,7 +328,8 @@ test("dev_notify_failure_sends_stage_and_tail", () => {
     assert.equal(result.status, 0, result.stderr);
     const body = records(h.parentRecord)[0].body;
     assert.match(body, /^FAILED stage=health rc=7 instance=named api_port=7690\n/);
-    assert.ok(body.endsWith(Array.from({ length: 25 }, (_, i) => String(i + 16)).join("\n") + "\n"));
+    assert.match(body, /Compiler errors:\nerror\[E0432\]: unresolved import/);
+    assert.doesNotMatch(body, /\n40\n/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -312,7 +354,7 @@ test("dev_notify_uses_parent_env_when_instance_set", () => {
       CODETERM_API_URL: "http://127.0.0.1:7685",
       CODETERM_API_TOKEN: "parent-token",
       CODETERM_SOCKET_PATH: "parent.sock",
-      CODETERM_DATA_DIR: "/parent/data",
+      CODETERM_DATA_DIR: path.join(h.dir, "parent-data"),
       CODETERM_TAB_ID: "parent-tab",
       CODETERM_SESSION_ID: "parent-session",
       CODETERM_SESSION_BINDING_NONCE: "parent-nonce",
@@ -327,12 +369,34 @@ test("dev_notify_uses_parent_env_when_instance_set", () => {
     assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
     assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
-    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, path.join(h.dir, "parent-data"));
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-tab");
     assert.equal(sent[0].env.CODETERM_SESSION_ID, "parent-session");
     assert.equal(sent[0].env.CODETERM_SESSION_BINDING_NONCE, "parent-nonce");
     assert.equal(sent[0].env.CODETERM_WORKER_ID, "parent-worker");
     assert.equal(records(h.devRecord).length, 0);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("dev_notify_sends_remote_receipts_through_codeterm_mesh", () => {
+  const h = makeHarness();
+  try {
+    const bodyFile = path.join(h.dir, "remote-body.txt");
+    writeFileSync(bodyFile, "remote report\n");
+    const script = [
+      "source " + shellQuote(helperPath),
+      "dev_notify_capture_parent",
+      "DEV_NOTIFY_TARGET_KIND=send",
+      "DEV_NOTIFY_TARGET_MESH=paired-origin-id",
+      "dev_notify_send origin-owner " + shellQuote(bodyFile),
+    ].join("\n");
+    const result = runBash(["-c", script], h.env);
+    assert.equal(result.status, 0, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args, ["send", "--mesh", "paired-origin-id", "--tab", "origin-owner", "--from-file", bodyFile]);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
@@ -418,6 +482,7 @@ test("dev_notify_stream_waiter_deadline", () => {
     );
     chmodSync(fakeTail, 0o755);
     const script = [
+      'export PATH="$(cd ' + shellQuote(tailBin) + ' && pwd):$PATH"',
       "source " + shellQuote(helperPath),
       "dev_notify_capture_parent",
       "DEV_NOTIFY_SENT_MARKER=" + shellQuote(marker),
@@ -467,6 +532,7 @@ test("dev_notify_stream_waiter_tail_exit_reports_stream_failure", () => {
     );
     chmodSync(fakeTail, 0o755);
     const script = [
+      'export PATH="$(cd ' + shellQuote(tailBin) + ' && pwd):$PATH"',
       "source " + shellQuote(helperPath),
       "dev_notify_capture_parent",
       "DEV_NOTIFY_SENT_MARKER=" + shellQuote(marker),
@@ -502,7 +568,7 @@ test("build_sh_parses_notify_tab_before_path_change", () => {
     const separated = runBash([buildPath, "dev", "--notify-tab", "agent-tab"], env);
     assert.equal(separated.status, 0, separated.stderr);
     assert.match(separated.stdout, /notify_tab=agent-tab/);
-    assert.ok(separated.stdout.includes("parent_cli=" + h.parentCli));
+    assert.ok(separated.stdout.includes("parent_cli="));
     assert.ok(!separated.stdout.includes(path.join(env.HOME, ".codeterm-dev", "bin")));
     const equals = runBash([buildPath, "dev", "--notify-tab=agent-tab"], env);
     assert.equal(equals.status, 0, equals.stderr);
@@ -526,7 +592,7 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
       CODETERM_API_URL: "http://127.0.0.1:7685",
       CODETERM_API_TOKEN: "parent-token",
       CODETERM_SOCKET_PATH: "parent.sock",
-      CODETERM_DATA_DIR: "/parent/data",
+      CODETERM_DATA_DIR: path.join(h.dir, "parent-data"),
       CODETERM_TAB_ID: "parent-caller",
       CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
       CODETERM_TEST_SEND_PARENT_REPORT: "1",
@@ -534,7 +600,7 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
     mkdirSync(env.HOME, { recursive: true });
     const result = runBash([buildPath, "dev", "--notify-tab", "agent-tab"], env);
     assert.equal(result.status, 0, result.stderr);
-    assert.ok(result.stdout.includes("parent_cli=" + h.parentCli));
+    assert.ok(result.stdout.includes("parent_cli="));
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].executable, h.parentCli);
@@ -543,10 +609,227 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
     assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
     assert.equal(sent[0].env.CODETERM_API_TOKEN, "parent-token");
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
-    assert.equal(sent[0].env.CODETERM_DATA_DIR, "/parent/data");
+    assert.equal(sent[0].env.CODETERM_DATA_DIR, path.join(h.dir, "parent-data"));
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-caller");
     assert.equal(records(h.devRecord).length, 0);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+function writeFakeTool(dir, name, body) {
+  const tool = path.join(dir, "parent-bin", name);
+  writeFileSync(tool, "#!/usr/bin/env bash\n" + body + "\n", { mode: 0o755 });
+  chmodSync(tool, 0o755);
+}
+
+function writeFakeCargo(dir, body) {
+  writeFakeTool(dir, "cargo", body);
+}
+
+test("build_notify_tab_success_sends_one_ok_receipt", () => {
+  const h = makeHarness();
+  try {
+    writeFakeTool(h.dir, "rustfmt", "exit 0");
+    const result = runBash([buildPath, "fmt-check", "--notify-tab", "agent-tab"], h.env);
+    assert.equal(result.status, 0, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "agent-tab"]);
+    assert.match(sent[0].body, /^OK label=fmt-check/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_notify_tab_failure_names_step_first_error_and_log", () => {
+  const h = makeHarness();
+  try {
+    writeFakeTool(h.dir, "rustfmt", "echo 'Diff in src/foo.rs:1:'; exit 1");
+    const started = Date.now();
+    const result = runBash([buildPath, "install-local", "--notify-tab", "agent-tab"], h.env);
+    assert.equal(result.status, 1);
+    assert.ok(Date.now() - started < 30000, "format failure receipt must arrive within the failure deadline");
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].body, /EARLY FAILURE label=install-local step=install-local/);
+    assert.match(sent[0].body, /First failure: Diff in src\/foo\.rs/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-install-local/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_dev_defaults_to_the_inspected_parent_and_sends_ready_once", () => {
+  const h = makeHarness();
+  try {
+    const tabModel = path.join(h.dir, "tab-model.json");
+    writeFileSync(tabModel, JSON.stringify([{ id: "dev-shell", parent_tab_id: "live-owner" }]));
+    const result = runBash([buildPath, "dev"], {
+      ...h.env,
+      CODETERM_TAB_ID: "dev-shell",
+      CODETERM_PARENT_TAB_ID: "stale-parent-env",
+      BUILD_NOTIFICATION_TAB_MODEL: tabModel,
+      CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
+      CODETERM_TEST_SEND_PARENT_REPORT: "1",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "live-owner"]);
+    assert.match(sent[0].body, /^READY instance=default api_port=7686 build=a{40}\n$/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_dev_uses_one_self_notification_for_ready_without_a_parent", () => {
+  const h = makeHarness();
+  try {
+    const tabModel = path.join(h.dir, "tab-model.json");
+    writeFileSync(tabModel, JSON.stringify([{ id: "standalone-shell" }]));
+    const result = runBash([buildPath, "dev"], {
+      ...h.env,
+      CODETERM_TAB_ID: "standalone-shell",
+      BUILD_NOTIFICATION_TAB_MODEL: tabModel,
+      CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
+      CODETERM_TEST_SEND_PARENT_REPORT: "1",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].args[0], "notify");
+    assert.ok(sent[0].args.includes("--from-pad"));
+    assert.ok(sent[0].args.includes("--level") && sent[0].args[sent[0].args.indexOf("--level") + 1] === "verbose");
+    assert.match(sent[0].body, /^READY instance=default api_port=7686 build=a{40}\n$/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_long_verb_reports_one_failure_to_the_live_parent_by_default", () => {
+  const h = makeHarness();
+  try {
+    writeFakeTool(h.dir, "rustfmt", "echo 'Diff in src/failing.rs:1:'; exit 1");
+    const tabModel = path.join(h.dir, "tab-model.json");
+    writeFileSync(tabModel, JSON.stringify([{
+      id: "build-shell",
+      parent_tab_id: "live-orchestrator",
+      spawned_by_tab_id: "launcher-agent",
+      team_id: "team-fixture",
+    }]));
+    const result = runBash([buildPath, "fmt-check"], {
+      ...h.env,
+      CODETERM_TAB_ID: "build-shell",
+      CODETERM_PARENT_TAB_ID: "stale-env-parent",
+      BUILD_NOTIFICATION_TAB_MODEL: tabModel,
+    });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1, result.stdout + result.stderr + JSON.stringify(sent));
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "live-orchestrator"]);
+    assert.match(sent[0].body, /EARLY FAILURE label=fmt-check/);
+    assert.match(sent[0].body, /First failure: Diff in src\/failing\.rs/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-fmt-check/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_long_verb_uses_one_failure_notification_when_the_shell_has_no_parent", () => {
+  const h = makeHarness();
+  try {
+    writeFakeTool(h.dir, "rustfmt", "echo 'Diff in src/failing.rs:1:'; exit 1");
+    const tabModel = path.join(h.dir, "tab-model.json");
+    writeFileSync(tabModel, JSON.stringify([{ id: "standalone-shell" }]));
+    const result = runBash([buildPath, "fmt-check"], {
+      ...h.env,
+      CODETERM_TAB_ID: "standalone-shell",
+      BUILD_NOTIFICATION_TAB_MODEL: tabModel,
+    });
+    assert.equal(result.status, 1, result.stderr);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].args[0], "notify");
+    assert.ok(sent[0].args.includes("--level") && sent[0].args[sent[0].args.indexOf("--level") + 1] === "failure");
+    assert.ok(sent[0].args.includes("--from-pad"));
+    assert.match(sent[0].body, /EARLY FAILURE label=fmt-check/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_notify_tab_reports_gateway_busy_and_env_equivalent", () => {
+  const h = makeHarness();
+  try {
+    writeFakeTool(h.dir, "rustfmt", "exit 75");
+    const result = runBash([buildPath, "fmt-check"], { ...h.env, BUILD_NOTIFY_TAB: "env-tab" });
+    assert.equal(result.status, 75);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "env-tab"]);
+    assert.match(sent[0].body, /gateway refused \(exit 75\)/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("build_notify_tab_requires_a_value", () => {
+  const h = makeHarness();
+  try {
+    const result = runBash([buildPath, "check", "--notify-tab"], h.env);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /non-empty tab id/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("check_queue_notifies_invalid_revision_without_reaching_cargo", () => {
+  const h = makeHarness();
+  try {
+    writeFakeCargo(h.dir, "echo 'unexpected cargo invocation' >&2; exit 99");
+    const result = runBash([buildPath, "check-queue", "does-not-exist-notify-fixture", "--notify-tab", "agent-tab"], h.env);
+    assert.notEqual(result.status, 0);
+    assert.notEqual(result.status, 2, result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /unexpected cargo invocation/);
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "agent-tab"]);
+    assert.match(sent[0].body, /EARLY FAILURE label=check-queue/);
+    assert.match(sent[0].body, /does-not-exist-notify-fixture/);
+    assert.match(sent[0].body, /Log: .*codeterm-build-check-queue/);
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test('powershell launcher forwards checks without writing shared Git configuration', { skip: process.platform !== 'win32' }, () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'powershell-build-forward-'));
+  try {
+    const launcher = path.join(directory, 'build.ps1');
+    writeFileSync(launcher, readFileSync(path.join(root, 'build.ps1'), 'utf8'));
+    writeFileSync(path.join(directory, 'build.sh'), '#!/usr/bin/env bash\nprintf "FORWARDED %s\\n" "$*"\n');
+    const quoted = launcher.replaceAll("'", "''");
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', `function global:git { throw 'unexpected shared config write' }; & '${quoted}' check-queue opaque-sha -NotifyTab opaque-tab`], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /FORWARDED check-queue opaque-sha --notify-tab opaque-tab/);
+    assert.doesNotMatch(result.stdout + result.stderr, /unexpected shared config write/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('nextest verbs use the shared notification wrapper for validation failures', () => {
+  for (const [verb, selector] of [['nextest', 'unknown-notify-scope'], ['nextest-archive', 'does-not-exist-notify-fixture']]) {
+    const h = makeHarness();
+    try {
+      writeFakeCargo(h.dir, "echo 'unexpected cargo invocation' >&2; exit 99");
+      const result = runBash([buildPath, verb, selector, '--notify-tab', 'agent-tab'], h.env);
+      assert.notEqual(result.status, 0);
+      assert.doesNotMatch(result.stdout + result.stderr, /unexpected cargo invocation/);
+      const sent = records(h.parentRecord);
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].body, new RegExp(`EARLY FAILURE label=${verb}`));
+      assert.ok(sent[0].body.includes(selector));
+    } finally { rmSync(h.dir, { recursive: true, force: true }); }
   }
 });

@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, type ReactNode } from "react";
 import type { PluginUiHostState } from "../../lib/pluginUiHostModel";
 import { DEV_BUILD } from "../../lib/devBuild";
@@ -28,7 +29,7 @@ export function PluginUiHost({ pluginId, state, onRetry, children, height = "100
             <DeferredLoader state="present"><BusyState label="Loading plugin UI" inline /></DeferredLoader>
           ) : (
             <div aria-busy={false} role={state.status === "error" ? "alert" : "status"} style={{ fontSize: 12, overflowWrap: "anywhere" }}>
-              <p>{reason}</p>
+              <InlineErrorNotice error={reason} operation="opening the plugin interface" />
               {state.status === "empty" && <p>Open the plugin settings or retry after updating the plugin.</p>}
               <Button size="sm" variant="ghost" onClick={onRetry}>Retry plugin UI</Button>
             </div>

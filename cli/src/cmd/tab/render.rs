@@ -103,7 +103,7 @@ pub fn render_tab_tree_with_current(
         is_current: bool,
     }
     // HashMap-unordered).
-    let mut groups: std::collections::BTreeMap<(String, String), Vec<Row>> =
+    let mut groups: std::collections::BTreeMap<(String, String, String), Vec<Row>> =
         std::collections::BTreeMap::new();
     for p in tabs {
         let id = sfield(p, "id").to_string();
@@ -124,22 +124,26 @@ pub fn render_tab_tree_with_current(
             .map(str::to_string);
         let ws_name = sfield(p, "workspace_name").to_string();
         let ws_id = sfield(p, "workspace_id").to_string();
-        groups.entry((ws_name, ws_id)).or_default().push(Row {
-            is_current: current_tab_id == Some(id.as_str()),
-            id,
-            label,
-            model,
-            description,
-            parent,
-            role,
-            peer,
-            team_id,
-            creator_tab_id,
-        });
+        let remote_peer_id = sfield(p, "remote_peer_id").to_string();
+        groups
+            .entry((ws_name, ws_id, remote_peer_id.clone()))
+            .or_default()
+            .push(Row {
+                is_current: current_tab_id == Some(id.as_str()),
+                id,
+                label,
+                model,
+                description,
+                parent,
+                role,
+                peer,
+                team_id,
+                creator_tab_id,
+            });
     }
 
     let mut out = String::new();
-    for (gi, ((ws_name, ws_id), rows)) in groups.iter().enumerate() {
+    for (gi, ((ws_name, ws_id, remote_peer_id), rows)) in groups.iter().enumerate() {
         if gi > 0 {
             out.push('\n');
         }
@@ -148,10 +152,15 @@ pub fn render_tab_tree_with_current(
         } else {
             ws_name.as_str()
         };
-        if ws_id.is_empty() {
-            out.push_str(&format!("{}\n", name));
+        let peer_suffix = if remote_peer_id.is_empty() {
+            String::new()
         } else {
-            out.push_str(&format!("{}  {}\n", name, ws_id));
+            format!(" @{}", rows[0].peer)
+        };
+        if ws_id.is_empty() {
+            out.push_str(&format!("{}{}\n", name, peer_suffix));
+        } else {
+            out.push_str(&format!("{}  {}{}\n", name, ws_id, peer_suffix));
         }
 
         // Nest by parent within the workspace. A tab whose parent lives in another workspace (or has none) is a root here.

@@ -1,4 +1,6 @@
+import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import type { AppConfig } from "../../lib/types";
+import type { HelpSectionId } from "../../help/types";
 
 export interface ModelDefaultRow {
   key: string;
@@ -6,6 +8,21 @@ export interface ModelDefaultRow {
   provider: string;
   model: string;
   replacedFrom?: string;
+}
+
+export function modelDefaultGuideSection(row: ModelDefaultRow): HelpSectionId {
+  return row.key.startsWith("memory.") ? "memory" : "agents";
+}
+
+export function modelDefaultPatch(config: AppConfig, row: ModelDefaultRow, model: string, serviceTier?: ServiceTierSelection): Partial<AppConfig> {
+  if (row.key === `agents.${row.provider}.default_model`) {
+    return { agents: { ...config.agents, [row.provider]: { ...config.agents?.[row.provider], default_model: model, ...(serviceTier !== undefined ? { default_service_tier: serviceTier.id ?? "" } : {}) } } };
+  }
+  for (const key of ["extraction_model", "dreaming_model", "worker_model"] as const) {
+    if (row.key === `memory.${key}`) return { memory: { ...config.memory, [key]: model },
+      ...(serviceTier !== undefined ? { agents: { ...config.agents, [row.provider]: { ...config.agents?.[row.provider], default_service_tier: serviceTier.id ?? "" } } } : {}) };
+  }
+  throw new Error("Unknown model default");
 }
 
 function workerAgent(configured: string | undefined, fallback: string): string {

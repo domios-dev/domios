@@ -120,9 +120,10 @@ export function ServicesTable({
           <div
             key={`service-issue-${p.instance_id}`}
             data-testid="service-peer-unavailable"
+            role="status"
             className="px-2 py-2 text-[11px] text-[var(--ct-yellow)]"
           >
-            {p.name}: services {p.services_error ? `unreachable (${p.services_error})` : "cached / stale"}
+            {p.name}: services {p.services_loaded ? "cached / stale" : "unavailable"}
           </div>
         ))}
       </div>

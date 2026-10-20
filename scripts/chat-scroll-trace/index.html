@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- Caller: scripts/chat-scroll-trace/serve.mjs (build.sh chat-scroll-trace) -->
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chat scroll trace</title>
+<script>
+  // ?webkit=1 emulates WebKit, which implements no CSS scroll anchoring.
+  if (new URLSearchParams(location.search).get("webkit") === "1") {
+    const supports = CSS.supports.bind(CSS);
+    CSS.supports = (a, b) => (String(a).includes("overflow-anchor") ? false : b === undefined ? supports(a) : supports(a, b));
+    document.write("<style>* { overflow-anchor: none !important; }</style>");
+  }
+</script>
+<style>html, body { margin: 0; background: #0f1520; }</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="./main.tsx"></script>
+</body>
+</html>

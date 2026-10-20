@@ -4,13 +4,9 @@ name: Release Linux x86_64 platform
 # self-hosted runner (label `linux-build`). It uploads build assets and updater
 # fragments; the caller's final job assembles and verifies the channel manifests.
 #
-# glibc requirement: Ubuntu 24.04 (glibc 2.39). The pyke/ort prebuilt
-# onnxruntime static lib references symbols (e.g. __isoc23_strtoll) that only
-# exist in glibc >= 2.38; Ubuntu 22.04 (glibc 2.35) fails the link step.
-#
 # The caller creates the private and public draft releases before platform jobs start.
 # Runner provisioning (one-time, on ubunta): register a self-hosted runner with
-# label `linux-build`; install rustup on the repo-pinned channel (1.95.0),
+# label `linux-build`; install rustup on the repo-pinned channel (1.99.1),
 # node 22 / pnpm 10.32.1, gh, and the GTK/webkit/appindicator/rsvg/patchelf/
 # libfuse2/xdg-utils deps (pre-provisioned — the runner user has no passwordless
 # sudo, so there is no per-build apt step).
@@ -24,6 +20,23 @@ name: Release Linux x86_64 platform
 # encrypted — it evaluates to empty when unset).
 
 "on":
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Package version (vX.Y.Z)
+        required: true
+        type: string
+      source_ref:
+        description: Exact source commit SHA
+        required: true
+        type: string
+      dry_run:
+        description: Direct dispatch never publishes
+        type: boolean
+        default: true
+      mirror:
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
@@ -44,6 +57,11 @@ permissions:
   contents: write
 
 env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+  CODETERM_SCCACHE_CREDENTIAL_SOURCE: runner
+  # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
+  CODETERM_BUILD_GATEWAY_MODE: queue
   DOMIOS_FIREBASE_API_KEY: ${{ secrets.DOMIOS_FIREBASE_API_KEY }}
   DOMIOS_FIREBASE_PROJECT_ID: ${{ secrets.DOMIOS_FIREBASE_PROJECT_ID }}
   DOMIOS_FIREBASE_APP_ID: ${{ secrets.DOMIOS_FIREBASE_APP_ID }}
@@ -59,12 +77,15 @@ jobs:
     timeout-minutes: 120
     env:
       CODETERM_SCCACHE_VERIFY_ONLY: '1'
+      RUSTUP_TOOLCHAIN: 1.99.1
+      RUSTC_WRAPPER: sccache
       TARGET: x86_64-unknown-linux-gnu
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       # Absolute: the prebuild step runs from the repo root and tauri-action runs
       # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       CODETERM_RELEASE_FEATURES: embeddings
+      CODETERM_RELEASE_COMMON_STAGE: '1'
       CARGO_INCREMENTAL: '0'
       # linuxdeploy is itself an AppImage; if FUSE is unavailable in the runner's
       # service context, extract-and-run avoids the FUSE mount.
@@ -103,7 +124,7 @@ jobs:
       # (ubunta). No apt-install step — the runner user has no passwordless sudo,
       # and re-installing per build is wrong for a self-hosted machine.
 
-      # Repo-pinned toolchain (rust-toolchain.toml = 1.95.0) drives rustc; do NOT
+      # Repo-pinned toolchain (rust-toolchain.toml = 1.99.1) drives rustc; do NOT
       # use dtolnay@stable, which would float off the pin. x86_64-unknown-linux-gnu
       # is the host target on the x86_64 runner, so no cross target is needed.
       - name: Show pinned Rust toolchain
@@ -133,7 +154,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Clear incomplete release uploads for retry
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
@@ -147,9 +168,13 @@ jobs:
             GH_TOKEN="$MIRROR_TOKEN" node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG" linux-x86_64
           fi
 
+      - name: Verify shared compile cache
+        run: bash build.sh cache-verify
+
       - name: Build release bundle inputs
+        id: compile
         shell: bash
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh release-inputs
+        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash build.sh release-inputs --for-bundle
 
       # Build and sign only. tauri-action's uploader reports a bare "Error saving
       # asset" with no status, body or asset name, which cost 1.11.3 four runs.
@@ -161,7 +186,46 @@ jobs:
           # repo secrets — this evaluates to an empty string otherwise.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- pnpm tauri build --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES" --bundles deb,appimage
+        # Cargo's raw domios-server file occupies the resource directory name during compilation.
+        run: >-
+          node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log --
+          pnpm tauri build --no-bundle --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"
+          --config '{"bundle":{"resources":[],"externalBin":[]}}'
+
+      - name: Stage final pair resources and bundle without compilation
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_ref }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          node scripts/release-stage.mjs stage-full --target "$TARGET" --source-sha "$SOURCE_SHA" \
+            --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
+            --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" \
+            --client-file "src-tauri/target/$TARGET/release/domios"
+          pnpm tauri bundle --no-binary-patching --target "$TARGET" --features "$CODETERM_RELEASE_FEATURES" --bundles deb,appimage
+
+      - name: Produce shared headless stage and package
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          mapfile -t debs < <(find "src-tauri/target/${TARGET}/release/bundle/deb" -maxdepth 1 -type f -name '*.deb')
+          [ "${#debs[@]}" -eq 1 ] || { echo "::error::Expected one full Debian package"; exit 1; }
+          node scripts/release-stage.mjs finalize --target "$TARGET" --tag "$TAG" \
+            --version "${TAG#v}" --source-sha "$SOURCE_SHA" \
+            --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
+            --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" \
+            --bundle "${debs[0]}" --output-dir release-artifacts
+
+      - name: Verify independent headless assets and checksum
+        run: node scripts/release-headless-assets.mjs verify "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}"
+
+      - name: Smoke packaged client and isolated server pair
+        run: node scripts/release-pair-smoke.mjs "$TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "release-artifacts/common-stage/$TARGET" release-artifacts
 
       - name: Smoke built release bundle
         run: node scripts/release-bundle-smoke.mjs linux "src-tauri/target/${TARGET}/release/bundle" "${{ inputs.source_ref }}" x64
@@ -181,8 +245,14 @@ jobs:
             node scripts/verify-updater-manifest.mjs --manifest "$RUNNER_TEMP/verify-$type.json" --local "$root" --require-version "${TAG#v}" --require-platform linux-x86_64
           done
 
+      - name: Retain private dry-run updater evidence
+        if: ${{ inputs.dry_run }}
+        run: >-
+          node scripts/release-dry-run-manifest.mjs capture "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$GITHUB_RUN_ID"
+          linux-x86_64 "src-tauri/target/$TARGET/release/bundle" release-artifacts "$RUNNER_TEMP/dry-run-linux-x86_64"
+
       - name: Publish the Linux bundles
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -209,7 +279,7 @@ jobs:
       # read for its signature string but NOT uploaded (the updater reads the
       # signature from latest.json, never the .sig asset).
       - name: Publish AppImage updater fragment
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -249,7 +319,7 @@ jobs:
       # separate manifest because linux-x86_64 can only map to one artifact per
       # Tauri manifest.
       - name: Publish Debian updater fragment
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -274,7 +344,7 @@ jobs:
           gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
       - name: Mirror to public release repo
-        if: ${{ inputs.mirror && !inputs.dry_run }}
+        if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -295,6 +365,18 @@ jobs:
           [ -n "$UPDATER_BUNDLE" ] && ASSETS+=("$UPDATER_BUNDLE")
           gh release upload "$TAG" "${ASSETS[@]}" --clobber --repo "$MIRROR_REPO"
 
+      - name: Publish and read back headless source assets
+        if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}" "${{ github.repository }}"
+
+      - name: Publish and read back headless mirror assets
+        if: ${{ inputs.mirror && !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        run: node scripts/release-headless-assets.mjs publish "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}" rollacode/codeterm-releases
+
       - uses: ./.github/actions/rust-warnings
         if: always()
         continue-on-error: true
@@ -302,3 +384,12 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-Linux
           target: x86_64-unknown-linux-gnu
+
+      # Without a compile step no sccache server ever started, so there is nothing to report.
+      - name: Shared compile cache statistics
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
+        run: bash build.sh cache-stats
+      - name: Remove this job's Rust targets and archives
+        if: always()
+        continue-on-error: true
+        run: node scripts/ci-workspace-cleanup.mjs

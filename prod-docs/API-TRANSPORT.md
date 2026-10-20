@@ -72,21 +72,13 @@ Newline-delimited JSON:
 
 #### Protocol version skew
 
-Every request envelope carries the control-plane `protocol_version` integer
-(one value shared by the CLI and the daemon). Dispatch compares it before
-routing: an older integer, or none (treated as the oldest, never crashed on),
-gets one typed error instead of method-level parse noise:
+Every request envelope carries the control-plane `protocol_version` integer (one value shared by the CLI and the daemon). Dispatch compares it before routing: an older integer, or none (treated as the oldest, never crashed on), gets one typed error instead of method-level parse noise:
 
 ```json
 {"code": -32002, "message": "client protocol v0, server requires >=1 — run ./build.sh cli", "data": {"type": "version_skew", "client_protocol": 0, "server_protocol": 1, "recovery": "./build.sh cli"}}
 ```
 
-`recovery` is `./build.sh cli` on dev builds and `codeterm update install --auto`
-on release builds. The CLI prints the daemon-composed message verbatim.
-Same-version requests add zero round-trips. `POST /api/mesh/rpc` accepts the
-same field and returns the same typed error, which the mesh relay forwards
-untranslated. A newer client against an older daemon passes this gate; a method the old daemon
-lacks still fails as `-32601`, which the CLI enriches with both app versions.
+On dev, recovery is `./build.sh cli`; on release, `codeterm update install --auto`. The CLI prints the daemon-composed message verbatim. Same-version requests add zero round-trips. `POST /api/mesh/rpc` accepts the field and forwards its typed error unchanged. Newer clients pass this gate against older daemons; a missing method still fails as `-32601`, enriched by the CLI with both app versions.
 
 Missing `protocol_version` is refused, including relayed reports. Update peer CLIs with their daemon using the error's `recovery` command.
 
@@ -194,7 +186,7 @@ Missing `protocol_version` is refused, including relayed reports. Update peer CL
 | `agent.startup_hold` | `{caller_tab_id, tab_id, attempt_id}` | Cancel automatic cleanup for one inspected startup attempt. Authority is the tuple `(creator_tab_id, team_id, child_tab_id, attempt_id)`: only the attempt's recorded creator may hold it, the child must still run that exact attempt, and a pair-leased attempt must still sit in its leased Team. No role bypasses this; a General Agent may hold only children it spawned. The result carries `authority: {creator_tab_id, child_tab_id, attempt_id, team_id}`; a refusal returns `-32603` whose `data` carries `{held:false, reason, caller_tab_id, child_tab_id, attempt_id, authority}` with `reason` one of `unknown_child_tab`, `no_supervised_attempt`, `creator_mismatch`, `attempt_replaced`, `team_mismatch`. |
 | `plan.task.attempts` | `{plan_id, task_id}` | List execution attempts for one plan task; each carries the requested and provider-resolved model ids, the bound session's `session_model` (null until detected), and `model_identity_mismatch` when the session reports a different model |
 | `plan.task.attempt.show` | `{plan_id, task_id, attempt_id}` | Show one historical task attempt |
-| `plan.task.respawn` | `{plan_id, task_id, attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Spawn a new Worker from one prior task attempt, recording a new live attempt. Returns `state: "awaiting_dispatch_ready"` and `readiness.awaiting_event: "dispatch_ready"`; runtime readiness precedes the Worker-ACK phase. Respawning a blocked task atomically reopens it, recording its previous block reason; a held review task may be respawned via the review-hold recovery path. |
+| `plan.task.respawn` | `{plan_id, task_id, attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Spawn a new Worker from one prior task attempt, inheriting its recorded execution intent, provider, resolved model, and lane unless provider/model are explicitly overridden. Returns `state: "awaiting_dispatch_ready"` and `readiness.awaiting_event: "dispatch_ready"`; runtime readiness precedes the Worker-ACK phase. Respawning a blocked task atomically reopens it, recording its previous block reason; a held review task may be respawned via the review-hold recovery path. |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
 | `cron.create` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
@@ -215,10 +207,7 @@ Missing `protocol_version` is refused, including relayed reports. Update peer CL
 | `activity.list` | `{source?, since?, limit?}` | Recent activity events (push / health / peer / cron). Default `limit=500`. |
 | `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to an external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute media path. `append`: concatenate to the previous message. |
 
-Plan-bound Workers use signed peer routes, never arbitrary Git remotes.
-`POST /api/mesh/worker-dispatch` provisions after repo/base preflight;
-`worker-lane-bundle` requires the bound attempt, accepted SHA, and Full access.
-Origin `plan.task.merge_remote_lane` verifies the bundle after review.
+Plan-bound Workers use signed peer routes, never arbitrary Git remotes. `POST /api/mesh/worker-dispatch` provisions after repo/base preflight; `worker-lane-bundle` requires the bound attempt, accepted SHA, and Full access. Origin `plan.task.merge_remote_lane` verifies the bundle after review.
 
 A `team pair` mints its Team with the two launch attempts it reserves and holds a lease on that exact reservation. When a leased attempt starts, is held, or the pair rolls back, the lease retires and the Team becomes ordinary. When a leased attempt reaches its terminal startup deadline, the closing tab sweeps the lease and removes that exact Team, only while it is still forming, empty, and free of any member the reservation never claimed. Normal, active, adopted, manually created, nonempty, and mismatched Teams are never touched, and `team.close` is unchanged.
 
@@ -226,13 +215,6 @@ A `team pair` mints its Team with the two launch attempts it reserves and holds 
 
 For `team.rename`, an omitted `caller_tab_id` is the trusted direct-user path on the local socket. Destructive `team.close` requires a caller tab or a matching `force: true` and `confirm` echo; HTTP Team close applies the same body rule without a caller-tab header. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption keeps the structured `team_already_has_active_plan` conflict when the Team owns another active plan. Events emit only after persistence succeeds.
 
-Plan writes require the live bound session of the Plan owner or Planner. They,
-and a Planner-authored `plan.create` from a live launch presenting its own
-nonce, wait on the binding event through the startup deadline without blocking
-the HTTP runtime. On expiry HTTP returns `503` with `{ "type": "session_binding_pending", "retryable": true }`;
-the socket error carries the same type and retryability in `data`. A settled
-launch without a registered session remains the distinct
-`plan_binding_session_unregistered` error on both transports. Pending status
-never authorizes the mutation.
+Plan writes require the live bound session of the Plan owner or Planner. They, and a Planner-authored `plan.create` from a live launch presenting its own nonce, wait on the binding event through the startup deadline without blocking the HTTP runtime. On expiry HTTP returns `503` with `{ "type": "session_binding_pending", "retryable": true }`; the socket error carries the same type and retryability in `data`. A settled launch without a registered session remains the distinct `plan_binding_session_unregistered` error on both transports. Pending status never authorizes the mutation.
 
-<!-- revision: 53 -->
+<!-- revision: 56 -->

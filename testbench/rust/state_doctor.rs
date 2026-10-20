@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use codeterm_lib::agent::offline_state_classifier::{
+use codeterm_service_core::agent::offline_state_classifier::{
     classify_timeline, render_signals_at, CastEvent, CastTimelineInput, ClassifiedSegment,
     QuestionSubtype, TimelineState, DONE_MS,
 };

@@ -22,6 +22,8 @@ export interface TranscriptSegment {
   kind: TranscriptBatchKind;
   /** `null` for events with no paging window. */
   range: TranscriptRange | null;
+  /** Unranged archived provider rows belong before the current session windows. */
+  placement?: "oldest";
   rows: NormalizedChatMessage[];
 }
 
@@ -32,10 +34,15 @@ export interface TranscriptState {
   evictedOlder: number;
 }
 
+export function transcriptOffsetKind(state: TranscriptState): "bytes" | "items" {
+  return state.segments.some(segment => segment.range?.unit === "items") ? "items" : "bytes";
+}
+
 export interface TranscriptBatch {
   kind: TranscriptBatchKind;
   authority: TranscriptAuthority;
   range: TranscriptRange | null;
+  placement?: "oldest";
   rows: NormalizedChatMessage[];
 }
 
@@ -45,8 +52,7 @@ export type TranscriptOutcome =
   | "ignored_stale"
   | "ignored_empty"
   | "rejected_range"
-  | "recover_gap"
-  | "recover_overlap";
+  | "recover_gap";
 
 export interface TranscriptResult {
   state: TranscriptState;
@@ -109,6 +115,7 @@ export function transcriptBackfillCursor(state: TranscriptState): number | null 
 
 function orderedSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
   return [...segments].sort((left, right) => {
+    if (left.placement !== right.placement) return left.placement === "oldest" ? -1 : 1;
     const leftStart = left.range?.start ?? Number.MAX_SAFE_INTEGER;
     const rightStart = right.range?.start ?? Number.MAX_SAFE_INTEGER;
     return leftStart - rightStart;
@@ -167,10 +174,13 @@ function committed(
   };
 }
 
-function unrangedRows(state: TranscriptState): NormalizedChatMessage[] {
+function unrangedRows(
+  state: TranscriptState,
+  placement?: TranscriptSegment["placement"],
+): NormalizedChatMessage[] {
   const rows: NormalizedChatMessage[] = [];
   for (const segment of state.segments) {
-    if (segment.range == null) rows.push(...segment.rows);
+    if (segment.range == null && segment.placement === placement) rows.push(...segment.rows);
   }
   return rows;
 }
@@ -179,14 +189,17 @@ function withUnrangedRows(
   state: TranscriptState,
   kind: TranscriptBatchKind,
   rows: NormalizedChatMessage[],
+  placement?: TranscriptSegment["placement"],
 ): TranscriptSegment[] {
   return [
-    ...state.segments.filter((segment) => segment.range != null),
-    { kind, range: null, rows },
+    ...state.segments.filter((segment) => segment.range != null || segment.placement !== placement),
+    { kind, range: null, placement, rows },
   ];
 }
 
 function reduceItems(state: TranscriptState, batch: TranscriptBatch): TranscriptResult {
+  const oldest = state.segments.filter((segment) => segment.placement === "oldest");
+  const currentSegments = state.segments.filter((segment) => segment.placement !== "oldest");
   const ranges = state.segments.flatMap((segment) => segment.range?.unit === "items" ? [segment.range] : []);
   if (batch.range != null) ranges.push(batch.range);
   const range: TranscriptRange = {
@@ -194,10 +207,13 @@ function reduceItems(state: TranscriptState, batch: TranscriptBatch): Transcript
     start: Math.min(...ranges.map((entry) => entry.start)),
     end: Math.max(...ranges.map((entry) => entry.end)),
   };
-  const previous = transcriptRows(state);
+  const previous = transcriptRows({ ...state, segments: currentSegments });
   const incoming = ownedRows(batch.authority, batch.rows);
   const rows = batch.kind === "backfill" ? mergeById(incoming, previous) : mergeById(previous, incoming);
-  return { state: { ...state, segments: [{ kind: batch.kind, range, rows }] }, outcome: "adopted" };
+  return {
+    state: { ...state, segments: [...oldest, { kind: batch.kind, range, rows }] },
+    outcome: "adopted",
+  };
 }
 
 function reduceSnapshot(
@@ -206,8 +222,16 @@ function reduceSnapshot(
   limit: number,
 ): TranscriptResult {
   if (!isRange(batch.range)) {
-    const rows = mergeById(unrangedRows(state), ownedRows(batch.authority, batch.rows));
-    return committed(state, withUnrangedRows(state, "snapshot", rows), "adopted", limit);
+    const rows = mergeById(
+      unrangedRows(state, batch.placement),
+      ownedRows(batch.authority, batch.rows),
+    );
+    return committed(
+      state,
+      withUnrangedRows(state, "snapshot", rows, batch.placement),
+      "adopted",
+      limit,
+    );
   }
   const range = batch.range;
   // Nothing proves which rows of a segment straddling the window end were
@@ -236,6 +260,32 @@ function reduceSnapshot(
   );
 }
 
+function supersedeRows(
+  segments: TranscriptSegment[],
+  incoming: NormalizedChatMessage[],
+): TranscriptSegment[] {
+  const incomingIds = new Set(incoming.map(row => row.id));
+  const preserved: TranscriptSegment[] = [];
+  const superseded: TranscriptSegment[] = [];
+  let anchorStart = Number.POSITIVE_INFINITY;
+  let anchorEnd = 0;
+  for (const segment of segments) {
+    const rows = segment.rows.filter(row => !incomingIds.has(row.id));
+    if (rows.length > 0) {
+      preserved.push({ ...segment, rows });
+    } else if (segment.range != null) {
+      if (superseded.length === 0) superseded.push({ ...segment, rows });
+      anchorStart = Math.min(anchorStart, segment.range.start);
+      anchorEnd = Math.max(anchorEnd, segment.range.end);
+    }
+  }
+  const anchor = superseded[0];
+  return anchor == null ? preserved : [
+    ...preserved,
+    { ...anchor, range: { ...anchor.range, start: anchorStart, end: anchorEnd } },
+  ];
+}
+
 function reduceDelta(
   state: TranscriptState,
   batch: TranscriptBatch,
@@ -247,16 +297,17 @@ function reduceDelta(
   }
   const range = batch.range;
   const end = transcriptCommittedEnd(state);
-  // A committed transcript never grows a hole: only a range that continues the
-  // committed span is adopted, everything else asks for an authoritative parse.
   if (end != null) {
     if (range.end <= end) return { state, outcome: "ignored_stale" };
-    if (range.start < end) return { state, outcome: "recover_overlap" };
     if (range.start > end) return { state, outcome: "recover_gap" };
   }
+  const incoming = ownedRows(batch.authority, batch.rows);
+  const preserved = end != null && range.start < end
+    ? supersedeRows(state.segments, incoming)
+    : state.segments;
   return committed(
     state,
-    [...state.segments, { kind: "delta", range, rows: ownedRows(batch.authority, batch.rows) }],
+    [...preserved, { kind: "delta", range, rows: incoming }],
     "adopted",
     limit,
   );
@@ -305,7 +356,24 @@ export function reduceTranscript(
     if (rotated.outcome !== "adopted") return { state, outcome: rotated.outcome };
     return { state: rotated.state, outcome: "rotated" };
   }
-  const based: TranscriptState = { ...state, authority: batch.authority };
+  if (batch.rows.some(row => row.inheritedFromSessionId != null)
+    && state.segments.some(segment => segment.range != null && segment.range.end > 0
+      && segment.rows.some(row => row.inheritedFromSessionId == null))) {
+    return { state, outcome: "ignored_stale" };
+  }
+  const ownMaterialized = batch.range != null && batch.range.end > batch.range.start
+    && (batch.kind === "snapshot" || (batch.kind === "delta" && batch.range.start === 0))
+    && batch.rows.length > 0
+    && batch.rows.every(row => row.inheritedFromSessionId == null);
+  const segments = ownMaterialized
+    ? state.segments.map(segment => ({
+      ...segment, rows: segment.rows.filter(row => row.inheritedFromSessionId == null),
+    }))
+    : state.segments;
+  const based: TranscriptState = { ...state, segments, authority: batch.authority };
+  if (batch.placement === "oldest" && batch.range == null) {
+    return reduceSnapshot(based, batch, limit);
+  }
   if (batch.range?.unit === "items" || (batch.range == null && based.segments.some((segment) => segment.range?.unit === "items"))) {
     return reduceItems(based, batch);
   }
@@ -327,7 +395,7 @@ export function projectTranscript(
   sends: readonly ChatSend[] = [],
 ): TranscriptProjection {
   const committedRows = transcriptRows(state);
-  const { echoes, pending } = reconcileSends(sends, committedRows);
+  const { echoes, pending } = reconcileSends(sends, committedRows, state.authority);
   const projectedCommittedRows = projectTranscriptParts(committedRows, sends);
   return { rows: placePendingSends(projectedCommittedRows, pending), pending, echoes };
 }

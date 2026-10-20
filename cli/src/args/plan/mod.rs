@@ -90,6 +90,15 @@ pub enum PlanAction {
         /// Only show stale lanes (dead tab / report-overdue / uncleaned)
         #[arg(long)]
         stale: bool,
+        /// Preview cleanup of merged, clean, unoccupied terminal/review lanes
+        #[arg(long, conflicts_with = "stale")]
+        clean: bool,
+        /// Execute cleanup instead of previewing it
+        #[arg(long, requires = "clean")]
+        confirm: bool,
+        /// Fetch remote refs before assessing lanes (otherwise dry run is offline)
+        #[arg(long, requires = "clean")]
+        fetch: bool,
     },
     /// Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it
     LaneRemove {
@@ -832,5 +841,34 @@ mod tests {
 
         assert_eq!(parse(&short), (None, "t_1".to_string()));
         assert_eq!(parse(&full), (Some("pl_1".to_string()), "t_1".to_string()));
+    }
+
+    #[test]
+    fn review_delegate_requires_a_qa_tab_and_accepts_optional_plan_id() {
+        use crate::args::cli::Commands;
+        use crate::args::plan::{PlanAction, PlanReviewAction};
+        use clap::Parser;
+
+        let parsed = Cli::try_parse_from([
+            "codeterm", "plan", "review", "delegate", "task_1", "--qa-tab", "qa_1",
+        ])
+        .expect("review delegation contract should parse");
+        let Commands::Plan {
+            action:
+                PlanAction::Review {
+                    action:
+                        PlanReviewAction::Delegate {
+                            plan_id,
+                            task_id,
+                            qa_tab_id,
+                        },
+                },
+        } = parsed.command
+        else {
+            panic!("expected plan review delegate");
+        };
+        assert_eq!(plan_id, None);
+        assert_eq!(task_id, "task_1");
+        assert_eq!(qa_tab_id, "qa_1");
     }
 }

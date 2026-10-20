@@ -5,6 +5,75 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+`capabilities.remoteTask` declares an execution mode of the same provider. It carries `mode`, `displayName`, `backend`, `availability`, `environments` (`id`, `label`, opaque non-secret `accountRef`), and `followUp`, `cancel`, `applyDiff` flags. The cached descriptor exposes it as `remote_task`. Local/Cloud selection uses this declaration, never a sibling provider or provider IDs. Local runtime and General eligibility remain independent. Native/JS descriptor parity covers this data-only declaration; it adds no host API or confinement grant.
+
+Use the SDK `RemoteTaskController` and `RemoteTaskFileStorage` for durable create claims and exact-task restoration. Storage belongs in the provider's conventional instance data directory, outside the replaceable plugin bundle. The host file lock and atomic write precede creation; an unconfirmed create never replays. A remote mode exposes `viewCall` methods `read`, `submit`, `refresh` for its tab and an ordinary `chatBackend` transcript projection. Refresh is an explicit request; transcript reads do not poll a remote server. Persist the explicit execution mode with the tab launch and binding; restore and view routing must preserve it. Only that mode may open the remote backend; unavailable adapters refuse open and create. Test with an injected deterministic transport and source-attributed fixtures; no real credentials or billable requests belong in tests.
+
+`agentRuntime.serviceTiers` declares tier descriptors (`id`, `name`, `description`,
+optional `unavailableReason`) in the shared model picker. `RuntimeSettings.serviceTier`
+is `{id: string | null}`: omission preserves the tier, `{id:null}` explicitly selects
+Default. Providers refresh `serviceTierAvailability` through the `serviceTiers`
+control, keyed by model, using their account catalogue and managed requirements.
+Unknown availability disables advertised paid tiers. Account changes invalidate it.
+The provider's own settings event confirms the selected tier; metadata is never
+selection confirmation. This adds no host API or sandbox access; native/JS parity
+must cover descriptor and selection round trips, including explicit Default.
+
+`capabilities.recordSources` opts JSONL sources into parsed records. Declare
+`sessionTranscript` for `parseSessionRecords(records, meta)` (delta rows) and
+`parseSessionMessageRecords(records, meta)` (search rows), or `storedHistory`
+for `runtimeStoredRecords(sessionId, records, meta)`. Each hook independently
+falls back to its text sibling when absent. Records are host-built JS objects,
+never JSON text, shaped `{offset,row,value,oversized?,bytes?}`. Preserve `row`
+as returned delta rows' `recordIndex`, and return `new_offset: meta.newOffset`.
+Meta carries `fromOffset`, `toOffset`, `newOffset`, `truncatedTail` and counts
+`{total,matched,invalid,oversized}`. The host owns byte advancement.
+`sourceKey` is an optional opaque source identity, stable across windows;
+compare it for per-source state, never parse it or use it as filesystem authority.
+
+A source declares `{format:"jsonl",filter:{type:{path:["type"],in:["user"]},
+where:[{path:["payload","thread_id"],equals:{placeholder:"sessionId"}}]}}`.
+Type and where are optional; missing paths never satisfy equality. Only
+`sessionId` is a placeholder; other equality values are literal JSON. No new
+filesystem, environment, sqlite or subprocess host function is exposed.
+`maxRecordBytes` may lower the existing source threshold; omitted retains it.
+`oversized.keep` lists paths whose bounded metadata survives in oversized
+records; the plugin owns its truncation rows. Invalid JSON records are counted
+and dropped. Keep text/records sibling fixture parity, including offsets and
+oversized metadata. Measure the 1 MiB marshalling oracle in canonical before
+claiming a speedup; live VM timing remains a separate end-to-end gate.
+
+`sessionResume()` returns `{exact: boolean}`. Declare `true` only when relaunching
+the same session id restores its conversation and identity while preserving the
+tab's transcript source. Missing, malformed or false declarations disable idle
+sleep. This pure declaration adds no host API or sandbox access; native providers
+implement `supports_exact_session_resume()`, with native/JS parity coverage.
+
+JSONL cursor recovery calls the host's `parse_session_delta_bounded` capability.
+The JS host owns the byte budget and complete-record offsets; `parseSessionDelta`
+still receives the same line-aligned chunk and gains no filesystem access.
+Unsupported native parsers return `None`, never an unbounded fallback. A record
+larger than the budget is returned alone under the existing oversized-record guard.
+Pin host/JS budget and record-identity parity before extending another parser.
+
+`agentRuntime.storedHistory` declares that `runtimeStoredHistory(sessionId, records)` projects bounded native session records to the same item ids and row order as runtime history. It is pure: no process, filesystem or new sandbox host API. Reject foreign session metadata, ignore foreign-thread events, and test offline/runtime projection parity. The host keeps stored byte cursors separate from runtime item cursors.
+
+`runtimeStoredHistoryAvailable(cwd, sessionId)` may decline native storage for an
+exact session whose own file only references inherited history. Resolve only that
+session's recorded path and bounded header through existing host APIs; never read
+the referenced parent's file. False selects the bound child's runtime history
+with full RPC paging and item cursors. Missing hooks retain the static capability;
+hook failures decline native storage. Core runs the check off the async runtime.
+Keep own-session filtering in the stored projector and cover native/JS policy parity.
+
+Runtime agent rows may carry `agent_parent_thread_id` beside `agent_id`, `agent_ordinal`, `agent_state`, `agent_description`, `agent_model` and `agent_reasoning_effort` in `toolInput`. Emit the parent marker only for provider-authenticated spawn/activity receivers. The host records those children under the current root binding and permits descendant `readHistory` requests with an exact `call.target.threadId`, never child sends, rebinds, notifications or response side effects. Ordinary references to another thread grant no inspection authority.
+
+Live agent activity also carries `agent_binding_nonce` and `agent_runtime_epoch` from its runtime context. Historical activity cannot establish liveness: the background panel shows unknown status without elapsed time unless those fields match the current parent binding.
+
+History projection preserves authenticated spawn parent/child markers under the exact requested root session. Restoring those relations grants only descendant history reads; it never restores active turns or current liveness evidence.
+
+A provider-authenticated started-activity record in that parent's own history can establish the same relation as a spawn call. Completion-only activity and references from foreign sessions cannot establish it.
+
 `launchOnboardingSafeChoice(screen)` declares the exact option value associated
 with `launchOnboardingResponse(screen)`. Missing or null means unsupported. The
 host requires a unique provider-parsed option, a delegated Worker/Planner role,
@@ -15,6 +84,22 @@ For model-bound update responses, a JS `buildPromptResponse` implementation
 declares live-focus navigation; native providers declare it through
 `live_prompt_response`. The generic arrow-down default is unsupported
 for this automatic path. The host consumes one returned step, then re-observes.
+
+`agentRuntime.backgroundProcesses` declares pure `backgroundProcesses` operations:
+list returns a bounded page and next cursor; terminate returns an acknowledgement;
+clean returns Done. The host owns pagination, exact root/descendant authority and
+termination verification. An acknowledgement never proves absence. No filesystem,
+network, subprocess or environment host function is added by this capability.
+
+`agentRuntime.goals.actions` declares goal status reads and lifecycle controls.
+Include `read`; optional actions are `cancel`, `pause`, `resume`, and `complete`.
+The host issues `control` with action `goal` and value `{action: ...}`; a
+confirmed result is `{kind:"goal",threadId,intent}` with a nullable session
+intent carrying `goal` and `goalStatus`. Mutations require host confirmation of
+the exact thread, nonce, epoch and displayed goal. Cancel must confirm removal;
+Complete is an explicit achievement action. Codex uses user-origin set/clear
+and verifies clear through get. This adds no sandbox host API, filesystem,
+network, subprocess or environment access. Use fixtures only for lifecycle tests.
 
 How to build a JS drop-in agent provider for Domios — the manifest schema, the
 JS exports the host calls, what falls back to what, and what tests you owe.
@@ -33,6 +118,25 @@ Every claim below is transcribed from the Rust source of truth:
 
 ## The two-surface contract
 
+`spawn.executionSandbox` declares filesystem enforcement per platform and intent.
+Each `readOnly` or `mutating` mode supplies `launchArgs` and an optional
+`runtimeMode`; `{cwd}` expands to the canonical launch directory. Missing
+read-only enforcement refuses dispatch with `unsupportedReason`. Permission
+prompts or planning modes alone do not establish filesystem confinement.
+Core persists the resolved intent, cwd, arguments, mode and host-owned roots,
+revalidates them on relaunch and rejects runtime overrides. Scoped launches
+reject custom arguments; use typed model and effort controls. Read-only adds
+no writable roots. Mutating roots include the lane, its pad and required Git
+metadata. Confined mutating launches also persist canonical Cargo home, lane-check
+cache, sccache and pnpm store roots, with lane-local temp exported as TMPDIR/TEMP/TMP.
+The lane cache uses `$CODETERM_RUST_CACHE_ROOT/lanes`, falling back to
+`${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. The pnpm store uses host environment configuration, falling back to `<lane>/.codeterm-pnpm-store`.
+Task-bound Workers must explicitly declare read_only or mutating; older restored
+task tabs without a saved policy keep their existing behavior.
+Read-only reports use stdin `--from-pad -`; gates needing writes
+outside the sandbox are explicit owner-run canonical gates. Native/JS parity
+and pure intent/transport/platform tests are required; no host API is added.
+
 `spawn.paste.supportsBracketedPaste` defaults to true. Set it to false for
 plain input that cannot interpret bracketed paste; the refusal overrides live
 terminal mode, multiline TUI framing and typed prefixes. Declare
@@ -41,8 +145,9 @@ terminal mode, multiline TUI framing and typed prefixes. Declare
 tag at the shared PTY submit seam, including typed envelopes. Chat, CLI, reports
 and launch input all use this declaration; do not duplicate transport wrapping
 in a chat preprocessor. Plain frames otherwise normalize newlines to carriage
-returns. A paste-only declaration may omit the typed follow-up
-fields; it adds no sandbox host function.
+returns. `typedFollowUp` is a second bracketed paste in the same write,
+sent only when the body itself is bracketed. A paste-only declaration may omit
+the follow-up fields; it adds no sandbox host function.
 
 `authStatusProbe()` declares bounded subprocess arguments; `parseAuthStatus(record)`
 decodes its supported JSON. `parseSessionObservations(record)` carries typed API
@@ -146,6 +251,12 @@ derived from the manifest command's leading executable or explicit shell
 availability checks. This diagnostic does not parse arbitrary shell programs or
 install prerequisites; conditional installers can use an available alternative.
 
+## Catalogue inputs
+
+Declare model configuration paths in `modelCatalogue.configFiles` and environment-selected paths in `modelCatalogue.configFileEnvironments` as `{variable, subdir?}`. These are metadata-only watcher/fingerprint inputs; they grant no file reads. Declare native account files through `credentials.file` and its existing `fileEnvironment` selector. A discovery receives an opaque input fingerprint covering the CLI, declared files and invalidation generation. Cache by that complete fingerprint, reject late results from a previous input, and return null on failure rather than presenting the previous snapshot as a fresh result.
+
+Keep authoritative identity discovery complete within the existing exec capture bound. Optional verbose metadata can decorate identities; a partial identity list cannot become authoritative. Derive the model set from the provider's effective configuration/discovery, without a second manually maintained list.
+
 ## Minimal vs full: pick your tier
 
 The contract supports a thin provider; nothing forces codex-grade depth.
@@ -187,6 +298,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
 | `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, Domios preserves the requested id and returns a warning. |
 | `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
+| `workerLaneSettings` | `[{path: string, patch: object}]` | Project settings files merged into every Worker lane at provisioning, for example to keep the provider's own language-server plugin from building there. `path` is lane-relative and may not escape the lane; JSON files merge, `.toml` files merge as TOML. The files stay ignored and unstaged in the lane. Require the first host version supporting this declaration. |
 | `credentials` | `[{id, file, fileEnvironment?, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
 | `defaultModel` | string? | Default model id. |
 | `reasoningEfforts` | `[{id, displayName, description?}]` | Reasoning-effort levels. |
@@ -298,6 +410,21 @@ All fields optional.
 | `stopKeyWaitForOutput` | bool | Wait for a PTY screen change between sequence keys. Default `false`. |
 | `modelSwitch` | `"restart_resume"` \| `"live"` \| `"live_command"` \| `"next_turn"` \| `"unsupported"` | `next_turn` keeps the session running: an RPC endpoint receives per-turn controls; a provider hook consumes the authenticated tab's resolved controls before persisting its user message. Hook providers require `sessionModelTranscriptBoundary` and `detectSessionModelAfterBoundary`; the shared core stages busy requests and confirms only a new assistant record. Unavailable boundaries refuse without restart. `live` uses the tab's advertised model route. `restart_resume` resumes the same verified session with new launch args and waits for post-boundary assistant evidence. `live_command` runs a declared idle command and confirms fresh bound-session output; failures never restart automatically. Default `unsupported` refuses without writing. |
 | `modelSwitchCommands` | `{model: {command, confirmation}, effort?: {command, confirmation}, transcript: {recordType, contentPath, prefix, suffix, ignoredContentRegexes?}}` | Required for `live_command`. Commands substitute `{model}` or `{effort}`; confirmation regexes also accept `{display_name}`, with selection values regex-escaped. Transcript declarations select the JSONL record type, string content path, and exact output wrapper. Optional `ignoredContentRegexes` identify complete non-turn command records such as caveats and exact command echoes; the inter-command guard excludes only whole-content matches or the exact stdout wrapper, retaining mixed prompt content. Only fresh output in the tab's own bound session confirms a switch. Busy tabs refuse before writing; a timeout fails without replay or restart. The picker offers a separate, confirmed `restart_resume` fallback. |
+
+A live command can declare `confirmationPromptKind: "switch_confirmation"` and export
+`parseSwitchConfirmationPrompt(screen, selection)`. This pure structural classifier
+returns the current two-option confirmation with its confirming option first, or
+null. It must reject unrelated, stale and ambiguous frames without matching vendor
+copy. The host additionally verifies its options against `parsePrompt` and uses
+`buildPromptResponse` for that exact frame. No new sandbox host access is granted.
+
+The observer is armed only when Domios queues that declared slash command, including
+Chat writes. A bare picker command supplies the requested selection from the switch
+operation. A later payload cancels the observer. One response is permitted, and only
+fresh declared output from the same session confirms the switch; no prompt means no
+keys. Screen and own-file events drive observation within a failure deadline.
+This declaration supersedes the legacy regex prompt response for that command.
+Native and JS implementations owe shared classifier parity fixtures.
 
 Each live command may declare `prompt: {screenRegex, responseKeys, cancelKeys?}`. The screen
 regex accepts the same escaped placeholders; response keys are literal UTF-8
@@ -449,6 +576,17 @@ instead.
 | `notificationsSchema()` | — | SettingField[] | `[]`. Cached with `settingsSchema`. |
 | `providerSelfUpdateCapability()` | — | capability object or `null` | native fallback; else `null`. |
 
+`providerSelfUpdateCapability()` returns `{npmPackage, standaloneDirectory, standaloneArgs}`.
+It composes with `cliBinary` and `checkForUpdate()` (`--version` and npm registry
+`/<encoded npmPackage>/latest`). The host verifies the resolved binary belongs
+to that npm package or the declared standalone directory. Npm updates preserve
+the owning global prefix; standalone updates invoke that binary with the declared
+arguments. Other installation methods refuse without changing installers. This
+pure declaration adds no sandbox host functions or plugin filesystem grants.
+Updates require an explicit action and run in a visible utility tab. Completion
+reports `provider`, `operation`, `success`, `old_version`, `new_version`, `tab_id`,
+`exit_code` and `summary`; success requires the requested installed version.
+
 ### Rule & integration
 
 `installBridgeRule`, `uninstallBridgeRule`, `installIntegration`,
@@ -548,3 +686,17 @@ stdout from caller-supplied JSON (1 MiB record and 24 KiB declaration bounds),
 with no filesystem, network, environment or subprocess access. The guard,
 confirmation reader and native/JS model-label detection share that parser;
 shared command fixtures cover native/QuickJS parity.
+
+`agentRuntime.usage: true` declares live usage publication and earns the shared Usage Tracking setting. Runtime auth events declare `billingMode`; account rate windows reach the subscription meter and exact-thread token events reach the session chip. `TokenUsage.cost_micros` is optional reported USD cost, never an estimate. These pure data extensions grant no host filesystem, environment, network or subprocess access.
+
+`agentRuntime.resetCreditsMinVersion` declares account rate-limit reset support
+and the minimum installed provider CLI version. The host hides reset data and
+refuses redemption below that version or when the version is unknown. Runtime
+`rateLimits` events may include provider-neutral `resets` with authoritative
+`availableCount`, millisecond `nextExpiry`, and nullable credit details. A capped
+list never replaces the count. Explicit popover opens request details; background
+reads omit them. `redeemResetCredit` returns `resetCreditConsumed` with one of the
+four typed outcomes. Confirmation creates a UUID once; retries preserve it.
+An optional `creditId` selects an actual reported available credit; omission lets
+the provider choose. Adapters must preserve it through consume and retries.
+Never invoke a live redemption during testing: credits are irreversible.

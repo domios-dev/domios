@@ -3,7 +3,7 @@
 
 use super::classify::{classify_relay_answer, refusal_class, RefusalClass};
 use super::*;
-use codeterm_types::mesh::delivery;
+use codeterm_mesh::contract::delivery;
 
 const SEND: (&str, &str) = ("POST", "/api/tabs/e35319d7/send");
 const PEER_ID: &str = "dc737738-aaaa-bbbb-cccc-000000000001";

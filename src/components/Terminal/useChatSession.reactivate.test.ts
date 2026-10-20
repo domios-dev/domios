@@ -96,15 +96,17 @@ class FakeChatServer {
   ): void {
     const start = this.offset;
     this.offset = start + span;
-    this.handler?.({
-      payload: {
-        tab_id: this.tabId,
-        messages,
-        start_offset: start,
-        offset: this.offset,
-        source_session_id: sourceSessionId,
-        session_binding_nonce: "nonce-1",
-      },
+    act(() => {
+      this.handler?.({
+        payload: {
+          tab_id: this.tabId,
+          messages,
+          start_offset: start,
+          offset: this.offset,
+          source_session_id: sourceSessionId,
+          session_binding_nonce: "nonce-1",
+        },
+      });
     });
   }
 
@@ -134,10 +136,13 @@ interface Mounted {
 
 async function main(): Promise<void> {
   setupHookDom();
+  const chatSendStore = await import("./chatSendStore");
+  const { MemoryChatSendRepository } = await import("./chatSendRepository.testSupport");
+  chatSendStore.__setChatSendRepositoryForTest(new MemoryChatSendRepository());
   const bridge = await import("../../lib/bridge");
   const { useChatSession } = await import("./useChatSession");
 
-  async function mount(server: FakeChatServer): Promise<Mounted> {
+  async function mount(server: FakeChatServer, retainAttachment = false): Promise<Mounted> {
     server.install(bridge as never);
     let view: NormalizedChatMessage[] = [];
     let addOptimistic: ((content: string) => string) | null = null;
@@ -147,6 +152,7 @@ async function main(): Promise<void> {
         agentSessionId: sid,
         sessionBindingNonce: "nonce-1",
         active,
+        retainAttachment,
       });
       view = session.allMessages;
       addOptimistic = session.addOptimistic;
@@ -171,6 +177,33 @@ async function main(): Promise<void> {
         return addOptimistic(content);
       },
     };
+  }
+
+  {
+    const server = new FakeChatServer();
+    server.snapshot = [msg("retained", "retained", "1")];
+    let app = await mount(server, true);
+    const handler = server.handler;
+    const subscription = [...server.subscribers][0];
+    await app.render(server.sessionId, false);
+    assert(server.handler === handler, "retained hidden chat keeps the listener");
+    assert(server.subscribers.has(subscription), "retained hidden chat keeps the subscription");
+    server.emit([msg("hidden-live", "hidden-live", "2")]);
+    await flush();
+    await app.render(server.sessionId, true);
+    assert(server.log.starts.length === 1, "retained revisit requests no snapshot");
+    assert(app.messages().some(row => row.id === "hidden-live"), "hidden deltas remain visible on revisit");
+    await act(async () => app.root.unmount());
+    assert(!server.tailing(), "eviction releases the retained attachment");
+    app = await mount(server, true);
+    assert(Number(server.log.starts.length) === 2, "evicted chat attaches on remount");
+    await app.render(server.sessionId, false);
+    server.sessionId = "retained-rotated";
+    server.snapshot = [msg("rotated", "rotated", "3")];
+    await app.render(server.sessionId, false);
+    assert(Number(server.log.starts.length) === 3, "hidden authority change attaches once");
+    assert(app.messages().some(row => row.id === "rotated"), "hidden authority change adopts its own snapshot");
+    await act(async () => app.root.unmount());
   }
 
   // --- 1. plain leave/return: exactly one reattach, live deltas resume ---
@@ -487,7 +520,7 @@ async function main(): Promise<void> {
 
   // Late echoes replace pending sends at their source positions through remount and restart.
   {
-    const { forgetChatSendsInMemory } = await import("./chatSendStore");
+    const { forgetChatSendsInMemory, ensureChatSendTabHydrated } = chatSendStore;
     const realNow = Date.now;
     const base = 1_800_000_000_000;
     let clock = base;
@@ -576,6 +609,7 @@ async function main(): Promise<void> {
 
       await act(async () => app.root.unmount());
       forgetChatSendsInMemory();
+      await ensureChatSendTabHydrated(server.tabId);
       app = await mount(server);
       assert(shape(app.messages()) === remounted, "a restart hydrates byte-for-byte identical rows and identities");
       await act(async () => app.root.unmount());

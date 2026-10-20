@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/plugin-sdk",
-  "version": "1.14.8",
+  "version": "1.14.9",
   "type": "module",
   "description": "Type-only SDK for authoring CodeTerm plugin logic (host API + capability contracts) in TypeScript.",
   "license": "Apache-2.0",
@@ -22,7 +22,8 @@
   },
   "files": [
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"

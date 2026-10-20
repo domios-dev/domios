@@ -1,4 +1,4 @@
-//! Dev-only hold-time instrumentation for the ordered hot locks.
+//! Dev-only hold-time instrumentation for hot locks.
 //! Debug builds wrap guards and log `[LOCK-HOLD]` when a guard is held past the
 //! threshold; release builds compile to transparent parking_lot wrappers (zero overhead).
 
@@ -13,16 +13,52 @@ pub fn should_report(held: Duration) -> bool {
 
 #[cfg(debug_assertions)]
 mod imp {
-    use super::{should_report, LOCK_HOLD_THRESHOLD};
+    use super::should_report;
     use parking_lot::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
     use std::ops::{Deref, DerefMut};
+    use std::panic::Location;
+    use std::time::Duration;
     use std::time::Instant;
 
     pub struct TimedGuard<G> {
         name: &'static str,
         kind: &'static str,
         start: Instant,
+        waited: Duration,
+        site: &'static Location<'static>,
         inner: G,
+    }
+
+    impl<G> TimedGuard<G> {
+        fn acquired(
+            name: &'static str,
+            kind: &'static str,
+            waiting: Instant,
+            site: &'static Location<'static>,
+            inner: G,
+        ) -> Self {
+            let start = Instant::now();
+            Self {
+                name,
+                kind,
+                start,
+                waited: start.duration_since(waiting),
+                site,
+                inner,
+            }
+        }
+
+        pub(super) fn report_held(&self, held: Duration, report: impl FnOnce(String)) {
+            if should_report(held) {
+                report(format_report(
+                    self.name,
+                    self.kind,
+                    held,
+                    self.waited,
+                    self.site,
+                ));
+            }
+        }
     }
 
     impl<G: Deref> Deref for TimedGuard<G> {
@@ -40,17 +76,26 @@ mod imp {
 
     impl<G> Drop for TimedGuard<G> {
         fn drop(&mut self) {
-            let held = self.start.elapsed();
-            if should_report(held) {
-                log::warn!(
-                    "[LOCK-HOLD] {}.{}() held {}ms (threshold {}ms)",
-                    self.name,
-                    self.kind,
-                    held.as_millis(),
-                    LOCK_HOLD_THRESHOLD.as_millis()
-                );
-            }
+            self.report_held(self.start.elapsed(), |report| log::debug!("{report}"));
         }
+    }
+
+    pub(super) fn format_report(
+        name: &str,
+        kind: &str,
+        held: Duration,
+        waited: Duration,
+        site: &'static Location<'static>,
+    ) -> String {
+        format!(
+            "[LOCK-HOLD] {}.{}() held {}ms (waited {}ms) at {}:{}",
+            name,
+            kind,
+            held.as_millis(),
+            waited.as_millis(),
+            site.file(),
+            site.line()
+        )
     }
 
     pub struct TimedMutex<T> {
@@ -65,29 +110,27 @@ mod imp {
                 inner: Mutex::new(val),
             }
         }
+        #[track_caller]
         pub fn lock(&self) -> TimedGuard<MutexGuard<'_, T>> {
+            let site = Location::caller();
+            let waiting = Instant::now();
             let inner = self.inner.lock();
-            TimedGuard {
-                name: self.name,
-                kind: "lock",
-                start: Instant::now(),
-                inner,
-            }
+            TimedGuard::acquired(self.name, "lock", waiting, site, inner)
         }
+        #[track_caller]
         pub fn try_lock(&self) -> Option<TimedGuard<MutexGuard<'_, T>>> {
-            self.inner.try_lock().map(|inner| TimedGuard {
-                name: self.name,
-                kind: "try_lock",
-                start: Instant::now(),
-                inner,
-            })
+            let site = Location::caller();
+            let waiting = Instant::now();
+            self.inner
+                .try_lock()
+                .map(|inner| TimedGuard::acquired(self.name, "try_lock", waiting, site, inner))
         }
+        #[track_caller]
         pub fn try_lock_until(&self, deadline: Instant) -> Option<TimedGuard<MutexGuard<'_, T>>> {
-            self.inner.try_lock_until(deadline).map(|inner| TimedGuard {
-                name: self.name,
-                kind: "try_lock_until",
-                start: Instant::now(),
-                inner,
+            let site = Location::caller();
+            let waiting = Instant::now();
+            self.inner.try_lock_until(deadline).map(|inner| {
+                TimedGuard::acquired(self.name, "try_lock_until", waiting, site, inner)
             })
         }
     }
@@ -104,50 +147,46 @@ mod imp {
                 inner: RwLock::new(val),
             }
         }
+        #[track_caller]
         pub fn read(&self) -> TimedGuard<RwLockReadGuard<'_, T>> {
+            let site = Location::caller();
+            let waiting = Instant::now();
             let inner = self.inner.read();
-            TimedGuard {
-                name: self.name,
-                kind: "read",
-                start: Instant::now(),
-                inner,
-            }
+            TimedGuard::acquired(self.name, "read", waiting, site, inner)
         }
+        #[track_caller]
         pub fn try_read(&self) -> Option<TimedGuard<RwLockReadGuard<'_, T>>> {
-            self.inner.try_read().map(|inner| TimedGuard {
-                name: self.name,
-                kind: "try_read",
-                start: Instant::now(),
-                inner,
-            })
+            let site = Location::caller();
+            let waiting = Instant::now();
+            self.inner
+                .try_read()
+                .map(|inner| TimedGuard::acquired(self.name, "try_read", waiting, site, inner))
         }
+        #[track_caller]
         pub fn try_read_until(
             &self,
             deadline: Instant,
         ) -> Option<TimedGuard<RwLockReadGuard<'_, T>>> {
-            self.inner.try_read_until(deadline).map(|inner| TimedGuard {
-                name: self.name,
-                kind: "try_read_until",
-                start: Instant::now(),
-                inner,
+            let site = Location::caller();
+            let waiting = Instant::now();
+            self.inner.try_read_until(deadline).map(|inner| {
+                TimedGuard::acquired(self.name, "try_read_until", waiting, site, inner)
             })
         }
+        #[track_caller]
         pub fn write(&self) -> TimedGuard<RwLockWriteGuard<'_, T>> {
+            let site = Location::caller();
+            let waiting = Instant::now();
             let inner = self.inner.write();
-            TimedGuard {
-                name: self.name,
-                kind: "write",
-                start: Instant::now(),
-                inner,
-            }
+            TimedGuard::acquired(self.name, "write", waiting, site, inner)
         }
+        #[track_caller]
         pub fn try_write(&self) -> Option<TimedGuard<RwLockWriteGuard<'_, T>>> {
-            self.inner.try_write().map(|inner| TimedGuard {
-                name: self.name,
-                kind: "try_write",
-                start: Instant::now(),
-                inner,
-            })
+            let site = Location::caller();
+            let waiting = Instant::now();
+            self.inner
+                .try_write()
+                .map(|inner| TimedGuard::acquired(self.name, "try_write", waiting, site, inner))
         }
     }
 }
@@ -213,6 +252,39 @@ pub use imp::{TimedMutex, TimedRwLock};
 #[cfg(all(test, debug_assertions))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_mutex_reports_through_guard_hold_seam_without_waiting() {
+        let mutex = TimedMutex::new("launch_registry", ());
+        let guard = mutex.lock();
+        let mut reports = Vec::new();
+        guard.report_held(Duration::from_millis(49), |report| reports.push(report));
+        assert!(reports.is_empty());
+        guard.report_held(LOCK_HOLD_THRESHOLD, |report| reports.push(report));
+        assert_eq!(reports.len(), 1);
+        assert!(reports[0].starts_with("[LOCK-HOLD] launch_registry.lock() held 50ms (waited "));
+        assert!(reports[0].contains(file!()));
+    }
+
+    #[test]
+    fn lock_hold_report_names_test_location_and_wait() {
+        let site = std::panic::Location::caller();
+        let report = imp::format_report(
+            "pty",
+            "lock",
+            Duration::from_millis(5961),
+            Duration::from_millis(12),
+            site,
+        );
+        assert_eq!(
+            report,
+            format!(
+                "[LOCK-HOLD] pty.lock() held 5961ms (waited 12ms) at {}:{}",
+                file!(),
+                site.line()
+            )
+        );
+    }
 
     #[test]
     fn threshold_boundary() {

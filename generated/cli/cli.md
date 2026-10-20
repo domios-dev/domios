@@ -14,6 +14,8 @@ backlog or debt reaches the threshold. Dispatch, compete, and respawn do not nee
 capacity grants. Prioritize review closures; all ownership, dependency, evidence,
 and review-verdict requirements remain unchanged.
 
+Tab checklists are bounded service records, independent of tab snapshots. Task dispatch seeds locked items from acceptance criteria. `codeterm todo list` reads the current agent tab; `codeterm todo write --from-pad todos.json` accepts a JSON array of `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "link?", "reason?" }`, where content matches an existing title, optional link is a string matching its current label/URL/task id, and at most one status is `in_progress`. `blocked` and `skipped` require a `reason`. Write changes statuses only; omitted locked items stay in place and the reply reports their count and the remaining open items, as does `tab todo complete`. Writing a completed item back to `in_progress` restarts the same item: its id stays, its attempt counter increments and the reason is recorded. Every item keeps lifetime counters (started, completed, reopened, blocked, skipped) and its newest 32 events with actor, time, attempt and reason, from which attempt durations follow; older events fold into the counters. A checklist holds at most 12 items; a larger write is refused, and the remedy is a task split proposed in the report. `codeterm tab todo list --tab <child-id>` uses the authorized parent-list API. Parent `init` reads a JSON array of criteria strings; QA `append` reads checklist drafts and requires the current `--generation`; Orchestrator `amend` reads one draft. The Orchestrator or a QA Worker reopens one child item with `tab todo reopen <item-id> --tab <child-id> --reason "<why>"`; `plan review bounce ... --todo-item <item-id>` reopens that item with the bounce note before recording the bounce. A respawned or re-dispatched Worker on the same task inherits its predecessor's list with attempts and history. Drafts use `{ "title", "description?", "link?" }`, with link `{ "kind": "url", "url", "label" }` or `{ "kind": "domios_task", "task_ref", "plan_ref?", "label?" }`. User `reset --from-file` starts a generation from a draft array and `clear <item-id>` / `clear --all` remove unlocked items; locked items (dispatch criteria and QA checks) are never deleted, so a generation holding them refuses clear and reset and its items are marked `skipped` with a reason instead.
+
 `workspace current` prints a bare id for shell use. Its point-query `--json`
 form identifies `explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`
 as the source. When no identity resolves, it exits 1 with empty stdout.
@@ -95,6 +97,17 @@ Toggle whether a tab can spawn children
 - `--enable` — Enable or disable spawning
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
+#### `codeterm agent child-history`
+
+Read one recorded child's transcript under the exact parent binding
+
+- `--binding-nonce` — Current parent binding nonce
+- `--cursor` — Opaque continuation cursor from the prior response
+- `--epoch` — Current parent runtime epoch
+- `--root-thread-id` — Current parent thread id from its runtime binding
+- `--tab` — Parent agent tab id
+- `--thread` — Recorded child thread id
+
 #### `codeterm agent cli`
 
 Inspect or manage a provider's CLI using its manifest commands
@@ -156,7 +169,11 @@ Sign in to the tab's runtime provider without a terminal
 Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`
 
 - `--force` — Explicitly override the background-work restart guard and report the affected work
-- `<name>` — Model id. Run `agent models PROVIDER` to list
+- `--list-speeds` — List this tab's currently available service tiers
+- `<name>` — Model id. Run `agent models PROVIDER` to list. Model id. Omit when changing only the service tier
+- `--reasoning-effort` — Reasoning effort declared for the selected model
+- `--runtime-mode` — Structured runtime mode declared by the selected provider
+- `--speed` — Service tier id or `default` to clear the selection
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent models`
@@ -221,8 +238,11 @@ Spawn a new agent; roleless unless --role is provided.
 - `--charter-file` — Read watcher charter text from a file
 - `--cwd` — Working directory: an existing directory, refused otherwise. A relative path resolves against your current directory. With --mesh it must be absolute on the peer; from Git Bash set MSYS_NO_PATHCONV=1 for POSIX paths
 - `--description` — Short tab description (max 200 chars)
-- `--execution-intent` — Declared execution intent. `mutating` requires a task binding; `read_only` is also the task-less verification-Worker shape
+- `--environment` — Remote environment ID or unambiguous label; never inferred
+- `--execution-intent` — Declared execution intent. Plain mutating Workers require a task binding; Worker kinds may mutate task-less and default to `mutating`
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
+- `--kind` — Worker prompt kind/profile, with or without a task: qa, release_manager or reviewer (read-only by default)
+- `--location` — Execution location declared by the provider. Remote tasks are one-shot tabs
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its prompts and exits never notify the user; they are reported to its parent instead
@@ -236,6 +256,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
+- `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
@@ -256,6 +277,23 @@ Cancel automatic cleanup for an inspected startup attempt
 - `--attempt` — Launch attempt shown in the startup-overdue report
 - `--tab` — Target spawned Tab
 
+#### `codeterm agent switch-provider`
+
+Continue this tab on another provider through a bounded handoff produced by the target
+
+- `--force` — Stop the current turn before switching. Otherwise a busy tab refuses
+- `--model`
+- `<provider>`
+- `--reasoning-effort`
+- `--tab`
+
+#### `codeterm agent switch-provider-status`
+
+Read a daemon-owned provider switch operation, including self-switch results
+
+- `<operation>`
+- `--tab`
+
 #### `codeterm agent turns`
 
 Read completed turns from a tool-less agent's exact bound session
@@ -269,6 +307,23 @@ Read completed turns from a tool-less agent's exact bound session
 Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
+#### `codeterm agent usage`
+
+Read usage or consume a confirmed reset credit for an exact tab
+
+#### `codeterm agent usage read`
+
+Read this exact tab's provider usage snapshot
+
+- `--tab`
+
+#### `codeterm agent usage reset`
+
+Consume one available reset credit on this exact tab's account
+
+- `--confirm` — Confirm spending one reset credit
+- `--tab`
 
 #### `codeterm analytics`
 
@@ -285,6 +340,16 @@ Record opt-in consent and create an installation identifier
 #### `codeterm analytics status`
 
 Show recorded consent, queue size and delivery counters
+
+#### `codeterm app`
+
+Control the exact local native application and server lifecycle
+
+#### `codeterm app quit`
+
+Quit the exact local application after successful server cleanup and observed exits
+
+- `--exact`
 
 #### `codeterm blueprint`
 
@@ -2072,6 +2137,9 @@ Remove one lane worktree and its branch, refusing while a live tab's shell sits 
 
 Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/cleanup)
 
+- `--clean` — Preview cleanup of merged, clean, unoccupied terminal/review lanes
+- `--confirm` — Execute cleanup instead of previewing it
+- `--fetch` — Fetch remote refs before assessing lanes (otherwise dry run is offline)
 - `<plan_id>`
 - `--stale` — Only show stale lanes (dead tab / report-overdue / uncleaned)
 
@@ -2418,6 +2486,15 @@ BOUNCE: atomically exits in_review back to in_progress
 - `--note-from-pad` — Read the review note from a file in this tab's pad
 - `<plan_id>`
 - `<task_id>`
+- `--todo-item` — Reopen this Worker checklist item with the bounce note as its reason
+
+#### `codeterm plan review delegate`
+
+Hand one in-review task to a direct child QA for accept/bounce review
+
+- `<plan_id>`
+- `--qa-tab`
+- `<task_id>`
 
 #### `codeterm plan review hold`
 
@@ -2694,12 +2771,15 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--authorized-gate` — Gate token the worker may claim as executed; repeatable
 - `--canonical-writer` — Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred
 - `--cwd`
+- `--description` — Worker tab description (defaults to a short summary of the task name)
 - `--execution-intent` — Explicit task intent used by provider reserve policy
+- `--kind` — Select a built-in Worker prompt kind without changing the task's executor_role
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
 - `<plan_id>`
 - `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
+- `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `<task_id>`
 - `--workspace`
 
@@ -2768,7 +2848,7 @@ Persist a remote Worker's in-review report on the origin plan
 
 #### `codeterm plan task respawn`
 
-Respawn a worker from one prior execution attempt
+Respawn a worker from one prior attempt, inheriting its recorded execution intent and provider/model
 
 - `--attempt`
 - `--model`
@@ -3121,6 +3201,20 @@ Past agent sessions — search conversations across all providers
 #### `codeterm sessions backups`
 
 Full-desk session backups (workspaces + tabs). List the rotated snapshots and recover a reduced/wiped desk from one without hand-editing JSON
+
+#### `codeterm sessions backups export`
+
+Export a read-only, sanitized desk snapshot with transcript size evidence
+
+- `<name>` — Unix backup timestamp, or latest for the live desk
+- `--out` — Destination JSON file. Nothing is written to the instance
+- `--sanitize` — Required: message bodies, paths and secrets become same-size filler
+
+#### `codeterm sessions backups import`
+
+Replace a disposable named DEV desk with a sanitized fixture
+
+- `--file`
 
 #### `codeterm sessions backups list`
 
@@ -3522,6 +3616,7 @@ Replace a plain shell's process in the same tab, preserving tab identity and met
 - `--cmd` — Command to execute after the replacement shell is ready
 - `--cwd` — Working directory for the replacement shell
 - `--tab` — Tab ID to restart (default: current tab)
+- `--timeout` — Fresh shell lifetime (30s, 10m, 2h, none); defaults to the previous duration
 
 #### `codeterm tab search`
 
@@ -3547,6 +3642,72 @@ Reset an owned utility shell's lifetime from now, or disable it with none
 
 - `--tab`
 - `--timeout`
+
+#### `codeterm tab todo`
+
+Manage a tab-owned bounded checklist through the daemon service
+
+#### `codeterm tab todo amend`
+
+Amend one checklist item (Orchestrator only)
+
+- `--from-file` — One JSON checklist draft from a file
+- `--from-pad` — One JSON checklist draft from this tab's pad
+- `<item_id>` — Stable checklist item id
+- `--tab` — Child tab id
+
+#### `codeterm tab todo append`
+
+Append ordered checks to a child checklist (QA Worker only)
+
+- `--from-file` — JSON array of checklist drafts from a file
+- `--from-pad` — JSON array of checklist drafts from this tab's pad
+- `--generation` — Current checklist generation, supplied by the authorized Orchestrator
+- `--tab` — Child tab id
+
+#### `codeterm tab todo clear`
+
+Clear one item or the entire checklist as the user
+
+- `--all` — Clear every item in the current generation
+- `<item_id>` — Stable checklist item id; omit when using --all
+- `--tab` — Target tab id (default: this tab when invoked from the host)
+
+#### `codeterm tab todo complete`
+
+Mark one checklist item complete
+
+- `<item_id>` — Stable checklist item id
+- `--tab` — Target tab id (default: this tab)
+
+#### `codeterm tab todo init`
+
+Seed a child tab's locked checklist from acceptance criteria (Orchestrator only)
+
+- `--from-file` — JSON array of acceptance-criteria strings from a file
+- `--from-pad` — JSON array of acceptance-criteria strings from this tab's pad
+- `--tab` — Child tab id to initialize
+
+#### `codeterm tab todo list`
+
+List the current tab's checklist or inspect one child as its parent
+
+- `--tab` — Child tab id. Requires this tab to be its authorized parent
+
+#### `codeterm tab todo reopen`
+
+Reopen one child checklist item with the review reason (Orchestrator or QA)
+
+- `<item_id>` — Stable checklist item id
+- `--reason` — Why the step failed review; the Worker sees it on the item
+- `--tab` — Child tab id
+
+#### `codeterm tab todo reset`
+
+Reset/rewrite a checklist as the user, starting a new generation
+
+- `--from-file` — JSON array of checklist drafts from a file
+- `--tab` — Target tab id (default: this tab when invoked from the host)
 
 #### `codeterm task`
 
@@ -3676,6 +3837,20 @@ Save a custom theme from a TOML file
 - `--apply` — Apply the theme immediately after saving
 - `<file>` — Path to theme TOML file
 - `<id>` — Theme ID (filename without .toml)
+
+#### `codeterm todo`
+
+Read or update the current agent tab's bounded checklist
+
+#### `codeterm todo list`
+
+Read this agent tab's current bounded checklist
+
+#### `codeterm todo write`
+
+Reconcile checklist statuses while retaining locked item ids
+
+- `--from-pad` — JSON array of {content,status,activeForm,link?,reason?} from this tab's pad
 
 #### `codeterm trace`
 

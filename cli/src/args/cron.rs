@@ -152,7 +152,7 @@ pub enum CronAction {
 }
 
 fn parse_cron_name(value: &str) -> Result<String, String> {
-    codeterm_types::automation_name::validate_cron_name(value)?;
+    codeterm_blueprint_types::automation_name::validate_cron_name(value)?;
     Ok(value.to_string())
 }
 

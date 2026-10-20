@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useId, useRef } from "react";
 import { AUTOMATION_TOOL } from "../Automation/styles";
 
@@ -50,7 +51,7 @@ export function JobConfirmationDialog({ title, description, confirmLabel, busy, 
     <div ref={dialog} role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} className="w-full max-w-md rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)] p-5 text-[var(--ct-fg)] shadow-xl">
       <h2 id={`${id}-title`} className="text-[length:var(--ct-font-size-md)] font-semibold">{title}</h2>
       <p id={`${id}-description`} className="mt-2 text-sm text-[var(--ct-muted-fg)]">{description}</p>
-      {error && <p role="alert" className="mt-3 text-sm text-[var(--ct-fg)]">{error}</p>}
+      {error && <InlineErrorNotice error={error} operation="updating this job" blocking />}
       <div className="mt-5 flex justify-end gap-2">
         <button ref={cancel} type="button" className={AUTOMATION_TOOL} disabled={busy} onClick={onCancel}>Cancel</button>
         <button type="button" data-dialog-confirm className={AUTOMATION_TOOL} disabled={busy} onClick={onConfirm}>

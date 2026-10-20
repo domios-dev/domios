@@ -2,6 +2,13 @@ import type { HttpMethod, TransportClient } from "../transportClient";
 import { describe, expect, it } from "vitest";
 import { createTabsTransport, type TabsTransportClient } from "./tabs";
 
+it("carries the client's known window to chat attach", async () => {
+  const { transport, calls } = fixture();
+  const knownWindow = { source_session_id: "own", session_binding_nonce: "nonce", end_offset: 123, file_length: 125, cursor: "opaque" };
+  await transport.chat_start({ tabId: "tab", subscriptionId: "sub", knownWindow });
+  expect(calls[0].body).toEqual({ subscriptionId: "sub", knownWindow });
+});
+
 function fixture(responses: unknown[] = [{}]) {
   const calls: Array<{ method: string; path: string; body: unknown; opts: unknown }> = [];
   const client: TabsTransportClient = {
@@ -16,8 +23,42 @@ function fixture(responses: unknown[] = [{}]) {
   return { calls, transport: createTabsTransport(client) };
 }
 
+it("reads current child authority from the daemon snapshot", async()=>{
+  const {transport,calls}=fixture([{tabs:{owned:{agent_session_id:"root",session_binding_nonce:"restored",agent_runtime_state:{state:"loaded",epoch:9}}}}]);
+  expect(await transport.agent_runtime_child_authority({tabId:"owned"})).toEqual({rootThreadId:"root",bindingNonce:"restored",epoch:9});
+  expect(calls[0]).toMatchObject({method:"GET",path:"/api/mux/state"});
+});
+
+it("relays a child authority snapshot read to the owning peer", async()=>{
+  const {transport,calls}=fixture([{ok:true,data:{tabs:{}}}]);
+  await transport.mesh_remote_tab_action({ordinaryTabId:"mesh:peer/owned",peerId:"peer",method:"GET",suffix:"/runtime-authority"});
+  expect(calls[0]).toMatchObject({method:"POST",path:"/api/mesh/relay-to",body:{target_peer_id:"peer",method:"GET",path:"/api/mux/state",body:null}});
+});
+
+it("reads child history with root authority and no send payload",async()=>{
+  const {transport,calls}=fixture();
+  await transport.agent_runtime_child_history({tabId:"owned",threadId:"child/a",request:{rootThreadId:"root",bindingNonce:"nonce",epoch:4}});
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({method:"GET",path:"/api/tabs/owned/agent/runtime/children/child%2Fa/history?rootThreadId=root&bindingNonce=nonce&epoch=4",body:undefined});
+});
+
+it("lists owned background processes and stops one through the same bound thread", async () => {
+  const request = {rootThreadId:"root",bindingNonce:"nonce",epoch:4};
+  const {transport,calls}=fixture();
+  await transport.agent_runtime_background_processes({tabId:"owned",request});
+  await transport.agent_runtime_stop_background_process({tabId:"owned",request:{...request,threadId:"child",processId:"process"}});
+  expect(calls).toMatchObject([
+    {method:"GET",path:"/api/tabs/owned/agent/runtime/background-processes?rootThreadId=root&bindingNonce=nonce&epoch=4",body:undefined},
+    {method:"POST",path:"/api/tabs/owned/agent/runtime/background-processes",body:{...request,threadId:"child",processId:"process"}},
+  ]);
+});
+
 const simple = [
+  ["wake_tab", "POST", "/api/tabs/tab/wake"],
   ["agent_runtime_answer_question", "POST", "/api/tabs/tab/agent/runtime/questions/question/answer"],
+  ["agent_runtime_goal", "POST", "/api/tabs/tab/agent/runtime/goal"],
+  ["agent_runtime_thread_history", "POST", "/api/tabs/tab/agent/runtime/thread-history"],
+  ["agent_runtime_reset_credits", "POST", "/api/tabs/tab/agent/runtime/reset-credits"],
   ["agent_runtime_login", "POST", "/api/tabs/tab/agent/runtime/login"],
   ["agent_runtime_retry", "POST", "/api/tabs/tab/agent/runtime/retry"],
   ["chat_send_admissions", "POST", "/api/tabs/tab/chat-send/admissions"],
@@ -51,6 +92,8 @@ const simple = [
   ["chat_stop", "POST", "/api/tabs/tab/chat-raw/stop"],
   ["chat_backfill", "POST", "/api/tabs/tab/chat-raw/backfill"],
   ["chat_send_text", "POST", "/api/tabs/tab/chat-send"],
+  ["chat_send_dismissals", "GET", "/api/tabs/tab/chat-send/dismissals"],
+  ["chat_send_delete", "POST", "/api/tabs/tab/chat-send/dismissals"],
   ["chat_send_status", "GET", "/api/tabs/tab/chat-send"],
   ["ordinary_tabs_list", "GET", "/api/tabs"],
   ["write_pty_string", "POST", "/api/pty/pty/write"],
@@ -61,6 +104,8 @@ const simple = [
   ["restart_general_agent", "POST", "/api/agents/general/restart"],
   ["spawn_general_agent_session", "POST", "/api/agents/general/sessions"],
   ["restart_agent_tab", "POST", "/api/tabs/tab/agent/restart"],
+  ["read_provider_history", "GET", "/api/tabs/tab/agent/provider-history?file="],
+  ["switch_agent_provider", "POST", "/api/tabs/tab/agent/switch-provider"],
   ["refresh_provider_capabilities", "POST", "/api/tabs/tab/agent/capabilities/refresh"],
   ["fork_agent_tab", "POST", "/api/tabs/tab/agent/fork"],
   ["switch_agent_model", "POST", "/api/tabs/tab/agent/model"],
@@ -77,6 +122,13 @@ describe("tab command HTTP contract", () => {
     await transport[name](args);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ method, path, opts: { callerTabId: "caller" } });
+  });
+
+  it("preserves reset confirmation and retry UUID", async () => {
+    const {transport,calls}=fixture();
+    const request={action:"redeem",confirmed:true,idempotencyKey:"confirmation-key"};
+    await transport.agent_runtime_reset_credits({tabId:"owned",request});
+    expect(calls[0]).toMatchObject({method:"POST",path:"/api/tabs/owned/agent/runtime/reset-credits",body:request});
   });
 
   it("preserves captured prompt identity and native value on the existing response route", async () => {
@@ -105,6 +157,16 @@ describe("tab command HTTP contract", () => {
       { method: "POST", path: "/api/tabs/tab/chat-send", body: { text: "hello", client_token: "once" } },
       { method: "POST", path: "/api/tabs/tab/session/rebind", body: { session_id: "bound" } },
       { method: "POST", path: "/api/tabs/tab/resize-owner", body: { pty_id: "pty", client_id: "client", cols: 80, rows: 24, force: true } },
+    ]);
+  });
+
+  it("preserves byte and item cursor units on history backfill", async () => {
+    const { transport, calls } = fixture();
+    await transport.chat_backfill({ tabId:"tab", beforeOffset:4096, offsetKind:"bytes" });
+    await transport.chat_backfill({ tabId:"tab", beforeOffset:200, offsetKind:"items" });
+    expect(calls.map(call => call.body)).toEqual([
+      {before_offset:4096, offset_kind:"bytes"},
+      {before_offset:200, offset_kind:"items"},
     ]);
   });
 
@@ -195,4 +257,20 @@ describe("provider restart transport", () => {
     expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/main/agent/restart",
       body: { fresh: false, provider: "opaque-provider" } });
   });
+});
+
+
+it("carries explicit Fast mode on and off through the model Apply request", async () => {
+  for (const serviceTier of [{id:null},{id:"priority"},{id:"ultrafast"}]) {
+    const { transport, calls } = fixture();
+    await transport.switch_agent_model({ tabId: "owned", model: "selected", reasoningEffort: "high", serviceTier });
+    expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/owned/agent/model",
+      body: { model: "selected", reasoning_effort: "high", service_tier: serviceTier } });
+  }
+});
+
+it("transports provider handoff selection and explicit stop without losing the tab", async () => {
+  const {transport, calls} = fixture();
+  await transport.switch_agent_provider({tabId: "owned", providerId: "target", model: "model-token", reasoningEffort: "effort-token", force: true});
+  expect(calls).toMatchObject([{method: "POST", path: "/api/tabs/owned/agent/switch-provider", body: {provider: "target", model: "model-token", reasoning_effort: "effort-token", force: true}}]);
 });

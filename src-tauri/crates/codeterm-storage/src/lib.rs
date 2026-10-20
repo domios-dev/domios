@@ -35,21 +35,26 @@ pub use repositories::cron::{
     CronWrite, StoredCronJob, MAX_CRON_BATCH, MAX_CRON_HISTORY, MAX_CRON_JOBS,
 };
 pub use repositories::desk::{
-    DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskRepository, DeskSnapshot,
-    DeskState, DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace, MAX_DESK_CATALOGUE,
-    MAX_DESK_LAYOUT_DEPTH, MAX_DESK_LAYOUT_NODES, MAX_DESK_LEAF_BYTES, MAX_DESK_TABS,
-    MAX_DESK_TEAMS, MAX_DESK_WORKSPACES,
+    normalize_legacy_session_id, DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields,
+    DeskRepository, DeskSnapshot, DeskState, DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace,
+    LEGACY_SESSION_ID_FIELD, MAX_DESK_CATALOGUE, MAX_DESK_LAYOUT_DEPTH, MAX_DESK_LAYOUT_NODES,
+    MAX_DESK_LEAF_BYTES, MAX_DESK_TABS, MAX_DESK_TEAMS, MAX_DESK_WORKSPACES,
 };
 pub use repositories::sentinel::{
     AmendmentRecord, BatchFence, BlueprintJournalEntry, BlueprintJournalWrite, BucketDefinition,
     CaptureRecord, CommandParameters, CommandResultRecord, CommandStatus, DefinitionProvenance,
     DefinitionUpdate, EscalateTarget, Fence, HandlerAction, HandlerDefinition, HandlerResultRecord,
     HandlerStatus, MutationOutcome, NewTransition, ObserveKind, ObserveSource, RunRecord,
-    RuntimeOutcome, SafeKind, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelId,
-    SentinelIdentity, SentinelImport, SentinelRecord, SentinelRepository, SentinelScope,
-    SourceKind, StageDefinition, StageRuntime, StageSource, StoredDefinition, StoredSentinel,
-    TargetIdentity, TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE,
+    RuntimeOutcome, SafeKind, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelEviction,
+    SentinelId, SentinelIdentity, SentinelImport, SentinelRecord, SentinelRepository,
+    SentinelScope, SourceKind, StageDefinition, StageRuntime, StageSource, StoredDefinition,
+    StoredSentinel, TargetIdentity, TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE,
     MAX_SENTINEL_RECORDS, OTHER_BUCKET,
+};
+pub use repositories::tab_todo::{
+    TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoCountersRecord, TabTodoItemEventRecord,
+    TabTodoItemRecord, TabTodoNewItemRecord, TabTodoRepository, MAX_TAB_TODO_AUDIT_EVENTS,
+    MAX_TAB_TODO_ITEMS, MAX_TAB_TODO_ITEM_EVENTS,
 };
 pub use repositories::workspaces::{
     AssetRole, StoredWorkspace, WorkspaceAsset, WorkspaceId, WorkspaceInventory, WorkspaceRecord,

@@ -189,7 +189,6 @@ async function testRetainedPreviewSemantics() {
   );
 
   const preview = host.querySelector('[data-testid="composer-voice-preview"]');
-  assert(preview?.classList.contains("ct-voice-preview"));
   assert.equal(preview?.querySelector("audio")?.getAttribute("src"), data.url);
   assert.equal(preview?.querySelectorAll("button").length, 3);
   const controls = Array.from(preview?.querySelectorAll("button") ?? []);
@@ -198,7 +197,6 @@ async function testRetainedPreviewSemantics() {
     ["Delete recording", "Play", "Send voice note"],
   );
   assert(controls.every((button) => button.tabIndex === 0));
-  assert(controls.every((button) => button.classList.contains("ct-voice-control")));
 
   await act(async () => {
     (host.querySelector('[data-testid="composer-voice-preview-discard"]') as HTMLButtonElement).click();

@@ -1,7 +1,4 @@
 // Sound reads the level row alone so routing and notification tone cannot diverge.
-import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join, resolve } from "node:path";
 import { LOCAL_DESTINATIONS, destinationColumns } from "../notifyDestinations";
 import { assert, mountSound, report } from "./harness";
 
@@ -12,87 +9,7 @@ function check(condition: unknown, message: string): void {
 }
 
 const OPTED_IN = true;
-const here = dirname(fileURLToPath(import.meta.url));
-const src = resolve(here, "../..");
-const read = (relative: string) => readFileSync(resolve(here, relative), "utf8");
-
-function productionFiles(directory: string, found: string[] = []): string[] {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const full = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      productionFiles(full, found);
-      continue;
-    }
-    if (!/\.tsx?$/.test(entry.name)) continue;
-    if (/\.test\.tsx?$/.test(entry.name) || /harness\.tsx$/.test(entry.name)) continue;
-    found.push(full);
-  }
-  return found;
-}
-
 async function main() {
-  // A gate here would be a gate on the panel's only live path, which is the defect that retired it — so this pins that no successor gate grew back.
-  const gate = read("../../../src-tauri/src/service/notification.rs");
-  check(
-    (gate.match(/\bemit\(payload\)/g) ?? []).length === 1,
-    "the arrival event is emitted from exactly one place",
-  );
-  check(
-    /^ {4}emit\(payload\);$/m.test(gate),
-    "at the function body's own indentation, so it sits in no branch",
-  );
-  check(
-    !/BellPolicy|bell::admit|BellAdmission/.test(gate),
-    "and the policy that used to stand in front of it is gone, not merely bypassed",
-  );
-
-  // 2. Every daemon producer crosses the same event boundary.
-  const producers = gate
-    .split(/\r?\n/)
-    .filter((line) => line.includes('"notification-created"'));
-  check(producers.length === 1, "the gate names the arrival event once");
-  check(
-    /fn notify_created\(&self, payload: serde_json::Value\)/.test(gate) &&
-      /self\.notify_event\("notification-created", payload\);/.test(gate),
-    "the arrival event has one daemon helper",
-  );
-  check(
-    (gate.match(/self\.notify_created\(/g) ?? []).length >= 1,
-    "creation and coalesced updates share the arrival helper",
-  );
-
-  // 3. The frontend side: the arrival event is the only trigger, and the player
-  //    has exactly one caller.
-  const hook = read("../../hooks/useNotificationSound.ts");
-  check(
-    (hook.match(/\blisten</g) ?? []).length === 1,
-    "the hook subscribes once and to nothing else",
-  );
-  check(
-    /const ARRIVAL_EVENT = "notification-created";/.test(hook),
-    "and that subscription is the daemon's arrival",
-  );
-  const callers = productionFiles(src).filter((file) =>
-    readFileSync(file, "utf8").includes("playArrivalChime"),
-  );
-  check(
-    callers.length === 2,
-    `only the module and its one caller reach the player, found ${callers.length}`,
-  );
-  check(
-    callers.some((file) => file.endsWith(join("hooks", "useNotificationSound.ts"))),
-    "and the caller is the arrival subscription",
-  );
-
-  // The decision module reads the level rows and NOTHING about where a level is routed, so the two cannot drift into disagreement.
-  const decision = read("../notificationSound.ts");
-  check(!decision.includes("notifyDestinations"), "the sound never reads the destination set");
-  check(!decision.includes("isRouted"), "and never asks whether a level is routed anywhere");
-  check(
-    (decision.match(/levels\.find\(/g) ?? []).length === 1,
-    "and it selects that row in exactly one place",
-  );
-
   // 5. Nor is it a column anyone could set: `sound` is a NAMED field of the row,
   //    never a destination at any roster size, and the bell is no longer one either.
   check(

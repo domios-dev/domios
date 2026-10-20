@@ -69,11 +69,9 @@ export function requestTeamMember(invoke: Invoke, request: TeamMemberRequest): P
 export function buildTeamActions({
   invoke,
   callerNonce,
-  selectedTab,
 }: {
   invoke: Invoke;
   callerNonce: (tabId: string) => string | undefined;
-  selectedTab: () => string | null;
 }): TeamActions {
   return {
     async onRenameTeam(teamId, name, managerTabId) {
@@ -83,8 +81,7 @@ export function buildTeamActions({
       await requestTeamMember(invoke, { teamId, role, providerId, managerTabId, model, sessionBindingNonce: managerTabId ? callerNonce(managerTabId) : undefined });
     },
     async onCloseTeam(teamId) {
-      const tabId = selectedTab();
-      const result = await invoke("mux_close_team", { teamId, forceBusy: true, ...teamCallerClaim(tabId, tabId ? callerNonce(tabId) : undefined) });
+      const result = await invoke("mux_close_team", { teamId, forceBusy: true });
       if (typeof result !== "object" || result === null || !("inventory" in result)) {
         throw new Error("Team close response did not include its lane inventory");
       }

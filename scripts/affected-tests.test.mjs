@@ -1,3 +1,4 @@
+// Caller: skill testing
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
@@ -29,7 +30,7 @@ async function makeDiffFixture(t, changedPath) {
   await mkdir(path.join(directory, "packages"), { recursive: true });
 
   await writeFile(path.join(directory, "src-tauri", "Cargo.toml"), `[workspace]
-members = [".", "crates/codeterm-plugin", "crates/codeterm-frontend-bundle"]
+members = [".", "crates/codeterm-plugin", "crates/codeterm-frontend-bundle", "crates/codeterm-service-core", "crates/codeterm-prompts"]
 resolver = "2"
 
 [package]
@@ -42,6 +43,12 @@ path = "src/lib.rs"
 `);
   await writeFile(path.join(directory, "src-tauri", "src", "lib.rs"), "pub mod service;\n");
   await writeFile(path.join(directory, "src-tauri", "src", "service.rs"), "pub fn current() {}\n");
+  await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "src"), { recursive: true });
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "Cargo.toml"), '[package]\nname = "codeterm-service-core"\nversion = "0.1.0"\nedition = "2021"\n');
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "src", "lib.rs"), 'pub fn core() {}\n');
+  await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-prompts", "src"), { recursive: true });
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-prompts", "Cargo.toml"), '[package]\nname = "codeterm-prompts"\nversion = "0.0.0"\nedition = "2021"\n');
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-prompts", "src", "lib.rs"), 'pub fn prompts() {}\n');
   await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-plugin", "Cargo.toml"), `[package]
 name = "codeterm-plugin"
 version = "0.1.0"
@@ -63,6 +70,12 @@ edition = "2021"
   await writeFile(path.join(directory, "cli", "src", "main.rs"), "fn main() {}\n");
   await writeFile(path.join(directory, "scripts", "vitest-owned-tests.json"), "[]\n");
 
+  const roots = ["src-tauri", "cli", ...["codeterm-plugin", "codeterm-frontend-bundle", "codeterm-service-core", "codeterm-prompts"].map(name => "src-tauri/crates/" + name)];
+  const packages = roots.map(root => {
+    const name = root === "src-tauri" ? "codeterm" : root === "cli" ? "codeterm-cli" : root.split("/").at(-1);
+    return { name, manifest_path: path.join(directory, root, "Cargo.toml"), targets: [{kind: [root === "cli" ? "bin" : "lib"], src_path: path.join(directory, root, "src", root === "cli" ? "main.rs" : "lib.rs")}] };
+  });
+  await writeFile(path.join(directory, "metadata.json"), JSON.stringify({packages}));
   run("git", ["init", "--quiet"], directory);
   run("git", ["config", "user.name", "Affected tests fixture"], directory);
   run("git", ["config", "user.email", "affected-tests@example.invalid"], directory);
@@ -78,23 +91,41 @@ edition = "2021"
   return { directory, base };
 }
 
-function mapFixture(directory, base) {
-  return run(process.execPath, [
+function mapFixture(directory, base, mode = "module-filters") {
+  const output = run(process.execPath, [
     mapper,
+    "--metadata", path.join(directory, "metadata.json"),
     "--repo",
     directory,
     "--base",
     base,
     "--rust-mode",
-    "module-filters",
+    mode,
   ], directory);
+  assert.doesNotMatch(output, /rdeps\(|--workspace/);
+  return output;
 }
+
+test("maps plugin root metadata to release checks without plugin suites", () => {
+  for (const file of ["plugins/channel.json", "plugins/README.md", "plugins/metadata"]) {
+    const output = run(process.execPath, [mapper, file], repoRoot);
+    assert.match(output, /node scripts\/release-plugin\.mjs check/);
+    assert.doesNotMatch(output, /bash scripts\/plugin-tests\.sh/);
+  }
+});
 
 test("maps a Rust service diff to its module filter", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/src/service/handler.rs");
   const output = mapFixture(fixture.directory, fixture.base);
-  assert.match(output, /\.\/build\.sh nextest app 'test\(\/\^service::handler::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest shell 'test\(\/\^service::handler::\/\)'/);
   assert.match(output, /Cost: 1 codeterm compile \+ 1 filter/);
+});
+
+test("maps root startup changes to the shell test binary", async (t) => {
+  const fixture = await makeDiffFixture(t, "src-tauri/src/startup/servers.rs");
+  const output = mapFixture(fixture.directory, fixture.base);
+  assert.match(output, /\.\/build\.sh nextest shell 'test\(\/\^startup::servers::\/\)'/);
+  assert.doesNotMatch(output, /nextest app/);
 });
 
 test("maps a provider plugin diff to plugin and native parity coverage", async (t) => {
@@ -107,12 +138,36 @@ test("maps a provider plugin diff to plugin and native parity coverage", async (
 test("maps a prompt diff to the prompt contract suite", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/prompts/launch.md");
   const output = mapFixture(fixture.directory, fixture.base);
-  assert.match(output, /\.\/build\.sh nextest app 'test\(\/\^prompts::tests::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest codeterm-prompts 'test\(\/\^prompts::tests::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest codeterm-service-core 'test\(\/\^prompts::\/\)'/);
 });
 
-test("maps bundle crate changes to its supported scope and reverse dependents", async (t) => {
+test("maps bundle crate changes to its supported scope and narrow module", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/crates/codeterm-frontend-bundle/src/activation.rs");
   const output = mapFixture(fixture.directory, fixture.base);
-  assert.match(output, /\.\/build\.sh nextest frontend-bundle 'rdeps\(codeterm-frontend-bundle\)'/);
+  assert.match(output, /\.\/build\.sh nextest frontend-bundle 'test\(\/\^activation::\/\)'/);
   assert.match(output, /Cost: 1 codeterm-frontend-bundle compile/);
+});
+
+test("a Rust fixture under scripts/tests/fixtures selects no Rust compile", async (t) => {
+  const fixture = await makeDiffFixture(t, "scripts/tests/fixtures/rust-test-inventory/scan/src-tauri/src/lib.rs");
+  const output = mapFixture(fixture.directory, fixture.base);
+  assert.doesNotMatch(output, /check-tests|Rust compile fallback|build\.sh nextest/);
+});
+
+test("manifest changes require review of only the touched package", async t => {
+ const fixture = await makeDiffFixture(t, "src-tauri/Cargo.lock");
+ const output = mapFixture(fixture.directory, fixture.base);
+ assert.doesNotMatch(output, /build\.sh (nextest|check-tests)/);
+ assert.match(output, /canonical \(Orchestrator\)/);
+});
+
+test("does not prescribe a suite for a deleted plugin directory", async (t) => {
+  const fixture = await makeDiffFixture(t, "plugins/retired-provider/src/plugin.ts");
+  const beforeDeletion = run("git", ["rev-parse", "HEAD"], fixture.directory);
+  await rm(path.join(fixture.directory, "plugins", "retired-provider"), {recursive: true, force: true});
+  run("git", ["add", "-A"], fixture.directory);
+  run("git", ["commit", "--quiet", "-m", "remove fixture plugin"], fixture.directory);
+  const output = mapFixture(fixture.directory, beforeDeletion);
+  assert.doesNotMatch(output, /bash scripts\/plugin-tests\.sh retired-provider/);
 });

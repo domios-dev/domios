@@ -221,7 +221,7 @@ fn host_api_v2_gating_by_allowlist() {
 
 #[test]
 fn supporter_header_preparation_refuses_unallowed_hosts_before_injection() {
-    use codeterm_types::decision::TokenMode;
+    use codeterm_decision::TokenMode;
 
     let sandbox = PluginSandbox::restricted(vec![], vec![])
         .with_identity_and_perms("local-model", &Default::default())

@@ -1,9 +1,13 @@
-import React, { useMemo, useContext, useRef } from "react";
+import { localArtifactOpeningAvailable, openLocalArtifact } from "./localArtifactLoader";
+import { boundedMessageLayout, expandedMessageHeight } from "./boundedMessageModel";
+import { BoundedMessageContent } from "./BoundedMessageContent";
+import React, { useMemo, useContext, useRef, useState } from "react";
 import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
-import { File, Image, Info, Mic, Settings } from "lucide-react";
+import { File, Image, Info, Mic, Play, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { remarkCachedParse } from "./markdownParse";
 import { remarkBareDomains, remarkCodeMetadata } from "./remarkBareDomains";
 import { CompactCode } from "./CompactCode";
 import rehypeRaw from "rehype-raw";
@@ -20,7 +24,7 @@ import { SyntaxHighlighter, createElement } from "./syntaxHighlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
-import { inferCodeLanguage } from "./codeLanguage";
+import { inferCodeLanguage, languageFromInfoString } from "./codeLanguage";
 import { pickUiFontScaleValue } from "./uiFontScale";
 export { extractCommand, extractEdits, extractFilePath } from "./toolcard/toolParsing";
 import { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
@@ -35,7 +39,7 @@ export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
 export const DIFF_HIGHLIGHT_MAX_LINES = 400;
 export const LONG_ARTIFACT_PREVIEW_LINES = 36;
 export const LONG_ARTIFACT_PREVIEW_MAX_HEIGHT = 320;
-export const LONG_ARTIFACT_FULL_MAX_HEIGHT = 700;
+export const LONG_ARTIFACT_FULL_MAX_HEIGHT = expandedMessageHeight(LONG_ARTIFACT_PREVIEW_MAX_HEIGHT);
 
 function extractCodeText(children: unknown): string {
   if (Array.isArray(children)) {
@@ -47,7 +51,7 @@ function extractCodeText(children: unknown): string {
 function resolveCodeLanguage(className: string | undefined, children: unknown): string | null {
   const explicit = /language-([a-z0-9+#-]+)/i.exec(className || "");
   if (explicit) {
-    return explicit[1].toLowerCase();
+    return languageFromInfoString(explicit[1]);
   }
   const source = extractCodeText(children).replace(/\r/g, "").trim();
   return looksLikeMermaidSource(source) ? "mermaid" : null;
@@ -358,7 +362,7 @@ export function RichMarkdown({
   return rendered;
 }
 
-const REMARK_PLUGINS = [remarkGfm, remarkBareDomains, remarkCodeMetadata];
+const REMARK_PLUGINS = [remarkGfm, remarkCachedParse, remarkBareDomains, remarkCodeMetadata];
 const MARKDOWN_RENDER_CACHE_ENTRIES = 3000;
 const MARKDOWN_RENDER_CACHE_CHARS = 500_000;
 const markdownRenderCache = new Map<string, { element: React.ReactElement; chars: number }>();
@@ -513,17 +517,16 @@ export function shortPath(fullPath: string): string {
 /** Extract shell command text across Claude/Codex provider shapes. */
 export function PlainOutput({ text, maxHeight = "12rem" }: { text: string; maxHeight?: string }) {
   return (
-    <pre
-      className={`${PRE_WRAP_CLASS} m-0 overflow-auto rounded-md border px-2 py-1.5 font-mono text-[11px] leading-relaxed`}
+    <BoundedMessageContent collapsedHeight={maxHeight} as="pre"
+      className={`${PRE_WRAP_CLASS} m-0 rounded-md border px-2 py-1.5 font-mono text-[11px] leading-relaxed`}
       style={{
-        maxHeight,
         color: "var(--ct-fg)",
         background: "color-mix(in srgb, var(--ct-bg, #0d1117) 72%, black 10%)",
         borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)",
       }}
     >
       {text}
-    </pre>
+    </BoundedMessageContent>
   );
 }
 
@@ -595,8 +598,7 @@ export function LongArtifact({
               className="px-3 py-2 text-xs"
               style={{
                 color: "var(--ct-fg)",
-                maxHeight: `${showAll ? LONG_ARTIFACT_FULL_MAX_HEIGHT : LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`,
-                overflowY: showAll ? "auto" : "hidden",
+                ...boundedMessageLayout(`${LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`, showAll),
                 overflowX: "auto",
               }}
             >
@@ -681,6 +683,16 @@ export function parseVoiceMessage(content: string): ParsedVoice | null {
 }
 
 export function VoiceCard({ v }: { v: ParsedVoice }) {
+  const [playError, setPlayError] = useState("");
+  const play = async () => {
+    if (!v.fileUrl) return;
+    try {
+      await openLocalArtifact(v.fileUrl);
+      setPlayError("");
+    } catch (error) {
+      setPlayError(error instanceof Error ? error.message : String(error));
+    }
+  };
   return (
     <div className="flex flex-col gap-1">
       <div
@@ -689,10 +701,16 @@ export function VoiceCard({ v }: { v: ParsedVoice }) {
       >
         <Mic size={13} strokeWidth={2} className="shrink-0" />
         <span className="opacity-80 font-medium shrink-0">Voice</span>
+        {v.fileUrl && localArtifactOpeningAvailable() && (
+          <button type="button" aria-label="Play voice note" title="Open audio in player" onClick={play}>
+            <Play size={13} aria-hidden />
+          </button>
+        )}
         {v.fileName && (
           <span className="opacity-40 font-mono min-w-0 break-all [overflow-wrap:anywhere]">{v.fileName}</span>
         )}
       </div>
+      {playError && <span role="alert">{playError}</span>}
       {v.transcript ? (
         <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{v.transcript}</pre>
       ) : (
@@ -738,26 +756,26 @@ export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
   );
 }
 
-export function renderUserContent(rawContent: string): React.ReactNode {
+export function renderUserContent(rawContent: string, parseTransport = true): React.ReactNode {
   const parts = localArtifactTextParts(rawContent);
   if (parts.some((part) => part.directive)) {
     return <>{parts.map((part, index) => part.directive
       ? <RichMarkdown key={index} text={part.text} />
-      : <React.Fragment key={index}>{renderPlainUserContent(part.text)}</React.Fragment>)}</>;
+      : <React.Fragment key={index}>{renderPlainUserContent(part.text, parseTransport)}</React.Fragment>)}</>;
   }
-  return renderPlainUserContent(rawContent);
+  return renderPlainUserContent(rawContent, parseTransport);
 }
 
-function renderPlainUserContent(rawContent: string): React.ReactNode {
+function renderPlainUserContent(rawContent: string, parseTransport: boolean): React.ReactNode {
   const content = decodeCliMessageText(rawContent);
   const discussion = parseAttachedDiscussionDoc(content);
   if (discussion) return <AttachedDiscussionDocView doc={discussion} />;
-  const voice = parseVoiceMessage(content);
+  const voice = parseTransport ? parseVoiceMessage(content) : null;
   if (voice) return <VoiceCard v={voice} />;
-  const pluginConfig = parsePluginConfigMessage(content);
+  const pluginConfig = parseTransport ? parsePluginConfigMessage(content) : null;
   if (pluginConfig) return <PluginConfigCard c={pluginConfig} />;
   // Non-voice attachment markers (photo/document/video/file) → file badge.
-  const mk = parseMarker(content.trim());
+  const mk = parseTransport ? parseMarker(content.trim()) : null;
   if (mk && ["photo", "file", "document", "video", "audio", "sticker"].includes(mk.kind)) {
     const fp = mk.attrs.file ?? "";
     const name = mk.attrs.name || (fp ? fileName(fp) : mk.kind);

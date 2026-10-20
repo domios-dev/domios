@@ -1,4 +1,4 @@
-use codeterm_lib::storage::verification::verify_copied_state;
+use codeterm_service_core::storage::verification::verify_copied_state;
 use std::env;
 use std::ffi::OsString;
 use std::fs;

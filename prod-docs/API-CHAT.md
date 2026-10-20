@@ -19,7 +19,10 @@ Local `codeterm send` uses socket `tab.send_text`: `OK (sent)` after a confirmed
 
 `POST .../chat-send` is the Chat UI user turn. A PTY tab without agent identity is refused before the send transaction so prose never reaches a bare shell. Accepted sends open a ledger entry for later reconciliation; `GET .../chat-send` reads it, `state` one of `accepted`, `unknown`, `confirmed`, `failed`.
 
-Local and mesh `codeterm send` open no Chat send ledger entry, so `GET .../chat-send` never lists them.
+Runtime-tab sends retain a Chat send ledger entry. A possible handoff returns
+`delivery:"pending"`, `bytes_written:true`, and `send_id`; this is uncertainty,
+not permission to replay. `GET .../chat-send` reconciles the receipt against exact
+own-session evidence. Other programmatic transports do not open this ledger entry.
 
 Neither route promises the recipient *answered*. Replies come through the sender's return-address channel (`codeterm send --tab ID [--mesh PEER]`, or `codeterm agent report` for a Worker). The recipient's visible terminal text is never a delivery signal.
 
@@ -29,7 +32,11 @@ Neither route promises the recipient *answered*. Replies come through the sender
 |--------|------|------|-------------|
 | POST | `/api/tabs/{id}/chat-send` | `{text?, client_token?}` (shares the `/send` body type; only these two are read) | Chat UI user turn. Adds a ledger entry to delivery; returns one `ChatSendStatus` (`send_id`, `state`, `ledger_id`, `sequence`, `correlationId?`). `client_token` is echoed verbatim, never interpreted. The CLI does not use this route. |
 | GET | `/api/tabs/{id}/chat-send` | — | This tab's chat-send ledger (`ChatSendStatus[]`), including submitted socket user sends admitted by the same owner; states and reconciliation: API-CHAT. |
+| GET | `/api/tabs/{id}/chat-send/dismissals` | — | Durable dismissal receipts `{send_id, send}[]`. Clients keep hidden send correlations to consume later echoes without restoring dismissed rows. |
+| POST | `/api/tabs/{id}/chat-send/dismissals` | `{send_id, send:{id, correlationId, content, sentAtMs, echo?}}` | Delete a retained undelivered user bubble. Cancels queued input atomically against claim; a claimed or written send is only dismissed. Returns the durable receipt. Delivered and system sends are refused; never replays input. |
 | GET | `/api/tabs/{id}/chat` | `?since=N` | Stateless transcript read, resolved from the tab's own session record. `{messages, count, pending}`. A tab with no bound session answers `pending: true` with an empty list — never another tab's transcript. Unknown tab → 404 |
+
+Sleeping tabs read their own persisted transcript without waking or starting a runtime. A runtime tab awaiting its first session returns `200` with `pending: true` and `state: "waking"`; opening or addressing the tab owns waking it. Snapshot failures return JSON `{code, state, error}` with the original reason in `error`; unknown failures use HTTP 500, code `chat_snapshot_failed` and state `failed`. Request refusals preserve their HTTP status with code `chat_snapshot_refused` and state `refused`.
 
 #### Delayed Chat messages
 
@@ -45,9 +52,11 @@ Neither route promises the recipient *answered*. Replies come through the sender
 
 The desktop `chat_start` command and web-mirror `POST /api/tabs/{id}/chat-raw/start` return the same bounded snapshot shape. `source_session_id` and `session_binding_nonce` are derived from the Tab and form one authority generation; a client adopts snapshots and `tab-chat-msg-{id}` deltas only when both match the Tab's current generation.
 
+The start request accepts optional `knownWindow`: `{source_session_id, session_binding_nonce, end_offset, file_length, cursor}` from the client's last adopted byte window. JSONL responses include `file_length` and `kind`: `unchanged` keeps the cached rows with no messages, `delta` appends the returned byte range, and `snapshot` reconciles a bounded snapshot. Authority or file-incarnation mismatch, truncation, an invalid cursor, or growth at least the snapshot byte limit requires a snapshot. Omit `knownWindow` for a cold attach.
+
 Snapshots and backfill return `offset_kind`: `bytes` identifies complete-record byte windows; `items` identifies structured item paging positions. Paging positions never identify rows or imply byte gaps. Message `id` remains the provider item or source-record identity across snapshots, live deltas and backfill; equal content under different ids remains distinct.
 
-`pending=true` without session authority means the Tab awaits its own session and never falls back to another; with authority and a subscription it awaits its own store. `pending=false` is a complete bounded snapshot, possibly empty. Visible Chat owns one subscription and takes a fresh snapshot on reactivation or resync.
+`pending=true` without session authority means the Tab awaits its own session and never falls back to another; with authority and a subscription it awaits its own store. `pending=false` completes attachment, possibly with an empty snapshot. Once activated, a retained mounted Chat keeps its listener and subscription while hidden; eviction releases them. A cached remount attaches from its known window, and resync recovers from the adopted cursor or requests a snapshot.
 
 #### Interactive chat prompts
 
@@ -61,4 +70,6 @@ Chat messages may carry an `interactive` array of answerable prompt widgets pars
 
 The enum is open for future element types. The frontend renders each as a clickable widget and routes the answer through the tab send path (`/api/tabs/{id}/send`).
 
-<!-- revision: 1 -->
+Backfill accepts `offset_kind` (`bytes` or `items`) alongside `before_offset`; preserve the snapshot's unit across runtime startup. Providers declaring native stored runtime history can serve recorded messages before their runtime starts; live updates reconcile by the same native item ids.
+
+<!-- revision: 6 -->

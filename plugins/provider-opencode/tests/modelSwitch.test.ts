@@ -4,6 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import { DatabaseSync } from "node:sqlite";
 import { opencodeBindingPluginSource } from "../src/helpers";
+import { withAsyncSqlite } from "./hostFixture.testdata";
 
 const controls = {
   id: "tab-owned", agent_session_id: "ses_owned", session_binding_nonce: "nonce",
@@ -112,11 +113,11 @@ test("confirmation reads first new assistant model in the claimed SQLite session
   db.exec(fs.readFileSync(new URL("./fixtures/sqlite-1.18.35.sql", import.meta.url), "utf8"));
   const context = {
     host: { platform: () => "linux", envGet: () => null, expandHome: (p: string) => p,
-      fs: { fileExists: () => true, sqliteQuery: (_path: string, sql: string, args: unknown[]) => {
+      fs: withAsyncSqlite({ fileExists: () => true, sqliteQuery: (_path: string, sql: string, args: unknown[]) => {
         const statement = db.prepare(sql);
         statement.setAllowBareNamedParameters(true);
         return statement.all(Object.fromEntries(args.map((value, index) => [String(index + 1), value])));
-      } },
+      } }),
     },
     module: { exports: {} as { default?: {
       sessionModelTranscriptBoundary: (cwd: string, sid: string) => unknown;
@@ -146,11 +147,11 @@ test("captured SQLite stores render owned text and tool history through the buil
     db.exec(fs.readFileSync(new URL(`./fixtures/sqlite-${version}.sql`, import.meta.url), "utf8"));
     const context = {
       host: { platform: () => "linux", envGet: () => null, expandHome: (p: string) => p,
-        fs: { fileExists: () => true, sqliteQuery: (_path: string, sql: string, args: unknown[]) => {
+        fs: withAsyncSqlite({ fileExists: () => true, sqliteQuery: (_path: string, sql: string, args: unknown[]) => {
           const statement = db.prepare(sql);
           statement.setAllowBareNamedParameters(true);
           return statement.all(Object.fromEntries(args.map((value, index) => [String(index + 1), value])));
-        } },
+        } }),
       },
       module: { exports: {} as { default?: {
         readStructuredChat: (cwd: string, sid: string, cursor?: string) => { messages: Array<{type: string; content: string}>; cursor: string };

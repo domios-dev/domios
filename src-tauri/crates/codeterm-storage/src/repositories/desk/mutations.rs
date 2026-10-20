@@ -561,6 +561,7 @@ pub(super) fn close_workspace(
         active_workspace_id
     };
     let revision = sql_revision(cx)?;
+    crate::repositories::tab_todo::forget_workspace_in_transaction(cx, id)?;
     cx.write("DELETE FROM workspaces WHERE id = ?1", [id])?;
     cx.write(
         "UPDATE desk_meta SET active_workspace_id = ?1, workspace_order_revision = ?2 \

@@ -1,1204 +1,303 @@
 ---
 name: github-release
 description: >-
-  End-to-end GitHub release workflow for Domios. Use when asked to release,
-  ship, tag, publish, bump a version, trigger the self-hosted build machine,
-  monitor release CI, produce signed/notarized macOS/Linux/Windows artifacts,
-  update the public updater mirror, or debug the Domios release pipeline.
+  Prepare, dry-run, monitor and publish Domios releases; debug release workflows,
+  shared full/headless packaging, signing, artifact readback and the updater mirror.
 ---
 
+# Domios release
 
-# End-to-end Domios release to GitHub
+## Keep this skill useful
 
-## Branches and the release flow (since 1.14.4)
+Update this skill when release work reveals a verified, reusable constraint or a missing
+procedure. Put the lesson in its existing section, replace superseded guidance and remove
+duplicates in the same edit. Keep commands, prerequisites, failure boundaries and observable
+pass conditions. Run IDs, candidate SHAs, timings, temporary workarounds and incident narratives
+belong in the release handoff or plan evidence. Do not append a new troubleshooting story for
+each failed run. An untested proposal must not become an established recipe.
 
-| Branch | What lands there | CI |
+## Authority and prerequisites
+
+- Publication, tags, version bumps, installation and production restart require owner GO.
+  Dry-run authorization does not authorize shipping. Never move a published tag, overwrite a
+  published version with rebuilt bytes, force-push master or bypass a failed gate.
+- Use the exact reviewed committed candidate. Real-merge lanes; never reconstruct their tree
+  by copying patches. Exclude unrelated dirty files. Record workflow-ref SHA separately from
+  application `source_ref` SHA when they differ.
+- Use the authorized self-hosted fleet. Honor physical-machine exclusions for every job,
+  including preparation/tests and that machine's WSL/VM runners. Verify eligible labels and
+  actual job runner names through the runners/jobs REST APIs. Do not change labels, repository
+  variables or shared routing to evade an exclusion. BLACKSTAR is excluded from current
+  release builds and packaging.
+- Read [gates](../gates/SKILL.md) before qualification, [build](../build/SKILL.md) for build and
+  install verbs, [build-machine](../build-machine/SKILL.md) for runner/image recovery, and
+  [release-signing](../release-signing/SKILL.md) before credential changes. A busy build gateway
+  is a refusal unless intentional waiting was explicitly authorized.
+- Keep PROD 7685 untouched. Native builds, suites and installs follow the assigned machine and
+  checkout ownership. Do not stop another owner's process or replace installed files manually.
+
+## Choose the release kind
+
+| Kind | Procedure |
+|---|---|
+| Application | Rust/CLI/native changes require the application graph, including bundled frontend. |
+| Frontend only | Follow [frontend release](../../../scripts/frontend-release/README.md); no native build. |
+| Official plugin | Independent plugin version/tag and `plugin-release.yml`; no app version bump. |
+
+Application and frontend versions share one increasing sequence. An incompatible frontend wire
+change updates `API_VERSION`, the bundled API range and `frontend-release-contract.json` together.
+For frontend-only releases, change the frontend contract version; do not change Rust or app version
+files, which select an application release. Frontend discovery is separate from app `latest`.
+
+For a plugin release, run `node scripts/release-plugin.mjs bump <id> <version>`, with explicit
+`--min-codeterm` only when a new host capability is required. Verify `release-plugin.mjs check`
+and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag the verified master
+commit `plugin-<id>-v<version>`. Verify the installed version through `codeterm plugin update-system`.
+
+## Application train
+
+| Branch | Purpose |
+|---|---|
+| `develop` | Integration through reviewed real merges. |
+| `release/X.Y.Z` | One version; owner pushes start the publishing release graph. |
+| `master` | Released code, promoted by the successful release workflow. |
+| `ci/*` | Reviewed non-publishing candidate refs for diagnostics. |
+
+1. Record the candidate, included lanes, fixed/deferred issues and evidence in
+   `docs/release/<version>-pr.md`. Review changed commands/docs and remove obsolete callers.
+2. Before a release-branch push, qualify the exact committed release head in canonical using
+   the gates skill. `build.sh check` is not release qualification. Required live evidence includes
+   [core journeys](../../../evals/core-journeys/README.md) and
+   [upgrade restore](../../../evals/upgrade-restore/README.md), with isolated named instances,
+   their documented commands, passing evidence contracts and real startup/restore results.
+   Source fixtures or capture/import alone do not replace these gates.
+3. With version-bump GO, create the release branch from reviewed develop. Edit package.json's
+   version, run `npm run sync:versions`, refresh both workspace lockfiles offline, then run
+   `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
+   plugin versions remain independent. Run `build.sh release-preflight` per the gates skill on
+   that committed head and `git diff --check`.
+4. Verify runner availability with `bash scripts/check-release-runners.sh` and credential
+   preflight through `release-credentials.yml`. Confirm the intended version is unpublished.
+   With publication GO, push `release/X.Y.Z` and open its PR to master. Do not manually create
+   `vX.Y.Z`; release.yml owns tag creation and promotion.
+5. The final manifest job requires all builds and test gates, publishes and verifies served
+   bytes. Promotion merges the release PR to master, merges master back to develop and deletes
+   the release branch. A later correction takes a new version.
+
+## Dry runs and narrow diagnostics
+
+Inspect the actual workflow inputs and publication conditions at the pinned workflow ref before
+any dispatch. `mirror=false` alone is not a dry run. For the full graph use:
+
+```bash
+gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
+  -f tag=<version-tag> -f dry_run=true -f mirror=false -f dry_run_tests=true
+```
+
+Verify the remote ref resolves to the reviewed SHA before dispatch. Capture the returned/new run
+ID and its workflow/source identity. Do not identify a run merely as the latest result in a list.
+`dry_run_tests=false` is an explicitly limited packaging diagnostic: skipped tests remain unverified.
+Dry runs skip release creation/public uploads/publication, public served-byte verification and promotion;
+they cannot prove write permissions or CDN behavior.
+
+Dry-run platform jobs retain original updater bytes, signed fragments and digest/source receipts
+in the existing private MinIO CI store under `<run-id>/release-dry-run/<platform>/`, with its
+existing retention. `release-manifest-dry-run.yml` assembles all six platforms plus both Debian
+entries and invokes the existing validator with `--local`. It refuses missing, changed or foreign
+evidence; no public release, tag, channel asset or issue-closure boundary is created. Its direct
+dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
+An older run that did not retain those inputs cannot be retroactively called validated.
+
+For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml` or
+`release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
+and `mirror=false`, using that workflow's declared inputs. `tests.yml` accepts `phase=fast`.
+Direct platform dispatch cannot mutate release assets. Its guard distinguishes the direct workflow
+name from a manually dispatched release.yml caller: reusable workflows inherit the caller's event.
+Do not disable publication for a legitimate release caller merely because its event is workflow_dispatch.
+
+The full graph separates fast guards/checks from full Rust and platform-specific tests. Required
+Rust receipts include nonzero executed counts for the full suite and each OS subset. A failed,
+cancelled or skipped required gate cannot publish. Diagnose cancellation from run/job evidence
+and workflow conditions; never call cancelled jobs passes or assume who cancelled them.
+
+## One build, two distributions
+
+Per target, build frontend, CLI and release server once, then native client once. Both distributions
+consume the same final server/CLI/resources; packaging must not compile them again.
+
+1. `release-inputs --for-bundle` builds inputs and stages the actual frontend at
+   `target/domios-package/dist` before Tauri compilation. Compile-only resource stubs are marked;
+   they never authorize packaging.
+2. `tauri build --no-bundle` compiles the native client (`domios`, with .exe on Windows); the
+   packaged CLI stays `codeterm`. Linux's compile-only config empties resources/externalBin to
+   avoid the raw server-file/resource-directory collision. Restore full platform maps for bundling.
+   macOS also empties compile-only externalBin: tauri-build otherwise copies the sidecar stub
+   over the already signed Cargo server when both share the target release directory.
+3. `scripts/release-stage.mjs stage-full` replaces the compile stage with complete resources and
+   manifests from final executable bytes. The stable Tauri source is `target/domios-package/`;
+   the target receipt stage is `release-artifacts/common-stage/<rust-target>/`.
+4. Use the pinned Tauri CLI from the frozen lockfile and `tauri bundle --no-binary-patching`.
+   Earlier bundlers mutate the client after its manifest digest is frozen. Never repair a finished
+   installer by replacing its embedded resource. Bundle-only must reuse the compiled client.
+5. Finalize extracts the full package and compares manifest/server/CLI bytes to the stage, then
+   produces the headless archive, checksum and metadata and independently reads them back.
+   Missing resources, stubs, symlinks, path escapes, extras or changed bytes fail closed.
+   On Windows use `build.ps1 release-finalize` so Cargo receipt paths remain accessible through
+   the gateway's stable drive mapping; direct finalize after gateway exit loses that mapping.
+
+The stage receipt schema1 inventories every regular payload file except itself as UTF-8-sorted,
+unique `{path,sha256}` rows, with platform/target/tag/version/source_sha identity. Required payload:
+server, CLI, frontend index/assets, skills, LICENSE/NOTICE and Windows target ConPTY pair.
+Use the existing validators in `headless-release-package.mjs`; do not invent a parallel schema.
+
+Component manifest schema2 uses exact final `server_sha256`, independent `server_build`, API and
+bootstrap versions, plus platform-specific `client_identity`:
+
+| Package | Client identity | Server path relative to manifest resource root |
 |---|---|---|
-| `develop` | every work PR (Worker lanes, fixes, features); may break | fast checks on each PR |
-| `release/X.Y.Z` | cut from `develop`; release fixes go straight onto it | every push by `rollacode` is the release run |
-| `master` | only released code: the release PR, merged by the release run after publication | `master accepts only release branches` is red for any other source |
-
-1. **Work.** PRs target `develop`. CI on every pull request runs fast checks only: `tree is new`, `fmt`, the TS jobs, `plugin bundles + tests`, `release contract tests`, file sizes, comment length and issue metadata (`scripts/ci-scope.mjs` sets `heavy=false` for pull requests). The nightly schedule runs the full matrix on `develop`.
-2. **Cut the release.** Create `release/X.Y.Z` from `develop`, run `npm run sync:versions` for X.Y.Z plus the offline lockfile refresh (step 1 below), push, and open the release PR `release/X.Y.Z` → `master`. Its description is the release notes.
-3. **The push is the release.** `release.yml` runs on every push to `release/**` by the owner account (`github.actor == 'rollacode'`; other pushes skip). `prepare` reads the version from the branch name, refuses a branch whose committed version differs, and skips everything when `vX.Y.Z` is already published. Parallel fast checks (`tests.yml`, `phase: fast`) gate every bundle build; Rust archives queue independently at preparation completion, then builds queue after the fast gate and overlap Rust tests from the exact pushed SHA; publication runs serialize; dry runs for a ref supersede older dry runs.
-4. **Red** publishes nothing: fix on the release branch and push again. **Green**: `release-manifest` stamps `vX.Y.Z`, publishes both releases and the signed `latest.json`; `promote` then merges the release PR into `master`, merges `master` back into `develop`, and deletes the branch.
-5. **One branch, one version.** After publication a further change needs `release/X.Y.(Z+1)`.
-
-**Which release.** Any Rust (`src-tauri/`, `cli/`) since the last release means an app release, which bundles the frontend; frontend-only changes can ship as a frontend release (below); plugins release separately. Start frontend lanes from `develop`.
-
-**Versions are one shared sequence.** Every app or frontend release takes the next number, so an app never accepts an older bundled frontend. A patch release takes the next patch. A minor or major release is chosen only by the branch name, for example `release/1.15.0`; the app, CLI, frontend contract and lockfiles follow it.
-
-**Protection.** This private repo has no rulesets on the free plan, so the owner-account guard in `release.yml` and the red `master accepts only release branches` check are the enforcement; with GitHub Pro, add rulesets restricting `release/*` creation and `master` merges to `rollacode`.
-
-## Independent frontend release
-
-The procedure and signing contract live in `scripts/frontend-release/README.md`; this is the operating summary.
-
-A frontend release goes through the same `release/X.Y.Z` flow. The release run decides the kind by
-`node scripts/ci-scope.mjs --release-kind <last vX.Y.Z tag> <sha>`: no Rust since the last app release
-means a frontend release.
-
-1. Cut `release/X.Y.Z` from `develop` and set only `frontend-release-contract.json` `version` to X.Y.Z.
-   Do not touch `package.json`, Cargo or `BUNDLED_FRONTEND_VERSION`: any Rust change makes it an app
-   release. The bundled constant catches up at the next app release, where `npm run sync:versions`
-   and the version bump set both to the app version.
-2. Push it and open the release PR. The run tests the frontend only (`tests.yml` with
-   `scope: frontend`), then calls `frontend-release.yml`: `build` packs and minisigns the bundle,
-   `publish` creates a draft in `rollacode/codeterm-releases`, uploads the archive, manifest and
-   signature, reads each back byte-for-byte, publishes with `latest=false`, and replaces the
-   `frontend-latest` discovery assets. App `latest` never changes.
-3. `promote` merges the release PR into `master`, tags `frontend-vX.Y.Z` on the released SHA, merges
-   `master` back into `develop`, and deletes the branch.
-4. Both frontend jobs run on `[self-hosted, Linux, light]`. Linux runners have `minisign` and `gh`;
-   the workflow also fetches pinned, SHA256-checked copies when a runner lacks them.
-5. Rerun a failed publish job with its saved build artifact. An existing draft is reused, incomplete
-   slots are cleared and uploads are replaced before byte verification. If the version is already
-   published, retry verifies immutable bytes and repairs discovery only; it refuses changed bytes.
-
-How an installed app picks it up (`src-tauri/src/startup/frontend_bundles.rs`, `src-tauri/src/frontend_bundle/`): the daemon checks `frontend-latest/frontend-manifest.json` at start and on every app update check (desktop native check and `GET /api/update/check`, 30-minute UI cadence), or on `POST /api/frontend/check`. It verifies the minisign signature with the baked key, the API range and the version floor, follows GitHub's signed asset redirect, checks the archive SHA256, stages it, and emits `frontend-update-ready`. The UI activates it with `/api/frontend/activate`, reloads only the window, reports `/api/frontend/healthy`, and rolls back on failure. Apps up to 1.14.2 rejected the signed redirect URL and cannot receive any frontend release; 1.14.4 is the first app that can.
-
-## Independent official plugin release
-
-Provider and capability plugin versions are independent of the app. For a plugin-only change, do not bump the app, run app release-preflight, build installers, or push an app release tag.
-
-1. Prepare only the selected plugin: `node scripts/release-plugin.mjs bump <id> <version>`. Preserve `minCodeterm` unless the release needs a new host capability; then pass `--min-codeterm <host-version>` explicitly.
-2. Commit the manifest, package, channel entry, source and generated bundle in a PR. Verify metadata with `node scripts/release-plugin.mjs check` and the selected plugin with `node scripts/check-plugin.mjs <id>` in canonical. Plugin-only CI checks bundles, types, tests and release metadata; mixed host changes retain host CI.
-3. Merge only after required checks pass. Tag the verified master commit `plugin-<id>-v<version>` and push that tag. `plugin-release.yml` validates the tag and selected plugin, publishes its archive and checksum, and leaves the app's latest release unchanged. The official git channel serves the merged plugin.
-4. Install with `codeterm plugin update-system <id>` and verify the installed version and compatibility. Updating the channel is explicit; this release path does not add automatic installation to the host. Existing tabs need no restart for plugin registration; a tab already using the plain PTY fallback needs its ordinary verified-session restart to change transport.
-
-Use a Blueprint to watch publication and stop it at completion or failure. Do not poll CI or bypass required checks.
-
-If plugin-only CI stays queued at `tree is new`, check the required runner label and runner status. An offline Mac runner once blocked all platform-independent plugin checks. Issue metadata, release preparation and plugin publication use `linux-build` (ubunta only); plugin metadata, plugin verification, the Linux Rust job and the PR lint workflows use the `linux-ci` pool (ubunta and BLACKSTAR-wsl-ci). Restore the missing runner rather than waiting for Mac or running an app release.
-
-If a plugin check reports "Vitest failed to access its internal state", its Vitest tests were run through a standalone TypeScript runner. `check-plugin.mjs` selects Vitest-owned files from `scripts/vitest-owned-tests.json`, including owned UI tests, and runs only those files through Vitest; standalone tests use tsx.
-
-## Application release
-
-**Default since 1.14.4: a push to `release/X.Y.Z` is the release.** See "Branches and the release flow" above. The sections below cover runners, credentials, versioning and the manual fallback.
-
----
-
-## ⚡ Default release path: a push to release/X.Y.Z (automated, self-hosted CI)
-
-Each push of `release/X.Y.Z` by `rollacode` starts one `.github/workflows/release.yml` run. It prepares draft
-releases, then queues Rust archives and parallel quick checks together; after the fast gate it queues four reusable platform callers: macOS builds on configurable per-architecture labels (default `codeterm-builder`), Linux arm64 builds in a separate Docker job (default `codeterm-builder`), Windows `windows-build` builds x64 and arm64, and WSL2 Linux `linux-build`
-builds x86_64 Linux. Builds depend only on fast checks and take any matching free runner while Rust tests continue. A final `release-manifest` job needs all four callers and both test stages, merges their updater
-fragments, publishes the signed public manifests, marks the releases, verifies served bytes, and
-closes eligible public issues. The platform workflows are reusable pieces and do not start their
-own tag runs. Each platform job clears incomplete upload slots before building, so a failed platform
-can be rerun by itself. Self-hosted runner minutes are free, so releases do not burn GitHub-hosted
-minutes.
-
-For a manual build, dispatch `release.yml` with `tag=release/X.Y.Z`. Set `mirror` false
-only for a dry run; it leaves the private release draft unpublished and skips public verification.
-
-**Normal change flow:** verify the UI from the main checkout on `release/X.Y.Z`, clean old lane
-worktrees, then bump `package.json`, run `npm run sync:versions`, verify `npm run check:versions`,
-open a PR from `release/X.Y.Z` into `master`, and let the release run tag and promote the verified
-head only after publication succeeds.
-
-**Step one of every release — every release runner is online:**
-
-```bash
-bash scripts/check-release-runners.sh   # exit 1 names each offline label
-```
-
-**Then every release credential is valid** (about a minute, nothing built):
-
-```bash
-gh workflow run release-credentials.yml --repo rollacode/codeterm
-gh run watch --repo rollacode/codeterm --exit-status "$(gh run list --repo rollacode/codeterm \
-  --workflow release-credentials.yml --limit 1 --json databaseId -q '.[0].databaseId')"
-```
-
-It runs `scripts/check-release-credentials-mac.sh` on the Mac builder (Developer ID, minisign key,
-`gh`, Apple notary) and checks the updater signing key and repository write tokens on the Linux and
-Windows runners. The release builder runs the same Mac script, so a green check here is what the
-release run will see. 1.12.2 was tagged before anyone looked and the Mac job died on
-`403 A required agreement is missing or has expired`: the Account Holder must accept the new Apple
-Developer agreement at https://developer.apple.com/account; the password is not the problem, and
-Apple may take a minute or two to honour a fresh acceptance. The weekly schedule surfaces an
-expiring agreement or token between releases.
-
-It requires an online runner for each of `codeterm-builder` (Mac: macOS and arm64 Linux),
-`windows-build` (ROG: Windows) and `linux-build` (x86_64 Linux). Run it before the version bump
-and again right before pushing the tag. An offline runner leaves its job queued forever: the PR CI
-check never starts and the release run never reaches `release-manifest`. Get the owner to bring the
-machine up first; never tag around it.
-
-**Hard preflight before version bump / master PR:**
-
-```bash
-VER=X.Y.Z
-bash scripts/check-release-runners.sh
-gh workflow run release-credentials.yml --repo rollacode/codeterm   # watch it green
-git fetch origin --prune
-git checkout "release/$VER"
-git pull --ff-only origin "release/$VER"
-
-git status --short                  # must be clean
-ls -la ../codeterm-worktrees         # should be empty or only explicitly preserved lanes
-curl -s http://127.0.0.1:7686/api/health
-```
-
-Start dev from this main checkout and visually inspect the release UI before opening the release
-PR. Do not cut a release from a lane worktree or a stale dev build.
-
-**To cut a release:**
-
-```bash
-VER=X.Y.Z
-git fetch origin --prune
-git checkout -B "release/$VER" origin/develop
-# edit package.json "version" to $VER, then:
-npm run sync:versions
-cargo update --workspace --offline --manifest-path src-tauri/Cargo.toml
-cargo update --workspace --offline --manifest-path cli/Cargo.toml
-npm run check:versions && node scripts/check-release-locks.mjs
-git commit -am "release: v$VER" && git push -u origin "release/$VER"   # this push starts the release
-gh pr create --base master --head "release/$VER" --title "release: $VER" --body-file <release-notes.md>
-```
-
-Do **not** create or push any tag. The release run stamps `vX.Y.Z` on the released SHA itself, after every gate is green.
-
-After publication the `promote` job merges the release PR into `master` (merge commit), verifies the
-released SHA is an ancestor of master, merges `master` back into `develop` and deletes the branch. If
-`promote` fails (for example the token cannot push workflow files), do the same by hand:
-
-```bash
-gh pr merge <release-pr> --merge
-git fetch origin && git merge-base --is-ancestor "v$VER" origin/master
-git checkout -B develop origin/develop && git merge --no-ff origin/master && git push origin develop
-git push origin --delete "release/$VER"
-```
-
-A fix found after publication is a new patch release through the normal flow.
-
-A push to `release/X.Y.Z` creates one Actions run. After source preparation, Rust archives queue alongside parallel fast checks. Platform builds queue after the fast gate and overlap ongoing Rust archives, shards and native tests. The Mac job signs and notarizes macOS
-artifacts; Linux jobs package AppImage and Debian assets; Windows builds the NSIS installers. The
-final `release-manifest` job runs only after all platform jobs succeed. It merges every updater
-fragment, uploads `latest.json` and the Debian manifest to both repositories, publishes the
-releases, syncs notes, verifies all six updater platforms against public served bytes, then applies
-the issue-closure contract.
-
-The publication path also runs `scripts/sync-release-notes.mjs --tag vX.Y.Z` after both GitHub
-releases exist. It preserves authored source notes or replaces a known placeholder with generated
-notes from the release PR (with GitHub generation as fallback), then writes the identical body to
-the private release and public mirror.
-
-End-to-end ≈ 25–30 min, hands-off. Watch the single run: `gh run watch --repo rollacode/codeterm`.
-
-**Prereqs for the automated path** (one-time, see `.agents/skills/build-machine/SKILL.md`):
-- self-hosted runner registered + running (`~/actions-runner`; `./svc.sh install` for always-on);
-- Docker image baked for arm64 Linux: `codeterm-build-linux-arm64`;
-- ROG self-hosted runners provisioned (Windows `windows-build`, x86_64 Linux `linux-build`) — they
-  build + sign themselves via `TAURI_SIGNING_PRIVATE_KEY` / `PACKAGE_REPOS_TOKEN`, no SSH/QEMU;
-- Mac runner toolchain: Xcode command line tools, Rust, Node and pnpm; Docker and the baked
-  arm64 image for Linux arm64. Repository secrets supply all signing and notary credentials.
-
-`release-macos-build.yml`, `release-linux-arm64.yml` and macOS credential preflight call `scripts/release-signing-material.py`
-before building. Each job imports `APPLE_CERTIFICATE` (base64 .p12) with
-`APPLE_CERTIFICATE_PASSWORD` into a random temporary keychain under `RUNNER_TEMP`, enables
-codesign access and adds that keychain to the search list. `APPLE_SIGNING_IDENTITY` selects
-that identity explicitly. `APPLE_ID`, `APPLE_TEAM_ID` and `APPLE_PASSWORD` provision and validate
-a notary profile in that same keychain through interactive stdin; secret values never enter
-process arguments or logs. `TAURI_SIGNING_PRIVATE_KEY` is written to a mode-0600 temporary
-file exposed as `TAURI_SIGNING_PRIVATE_KEY_PATH`, and `TAURI_KEY_PASSWORD` reaches Tauri through `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-Every job cleans up in `always()`, removing only its own keychain search entry and files.
-No login-keychain identity, local notary env file or persistent updater key is required.
-The Mac-hosted Linux arm64 job uses the same isolated material and verifies its updater
-signatures before upload.
-
-If a stage fails before publishing: `gh run view <id> --log-failed`, fix the runner/build-farm issue,
-and push a fix to the release branch, or rerun the run when the failure was environmental. Rerun only
-the failed platform (`gh run rerun <id> --failed`); each platform job clears its own incomplete
-uploads, so the green platforms keep their assets. Do not
-move or overwrite a published release tag/artifact by default. If a public bad release was deleted
-intentionally, cut the correction as a new patch version through the normal flow.
-
-### Artifact graph and granular reruns
-
-`prepare` starts `quick-checks` (`tests.yml`, `phase: fast`): tree freshness, fmt, clippy,
-TS unit/Vitest/static/generated-type checks, release/plugin contracts and plugin bundles/tests.
-Every check depends only on tree/scope discovery; clippy does not wait for fmt.
-No Rust archive, shard, native test or coverage job belongs to this gate.
-
-`tests` (`tests.yml`, `phase: long`) needs only `prepare` and queues Rust archives
-at preparation completion, independently of `quick-checks`. Shards and native tests
-queue when the archives finish; the coverage summary requires their receipts.
-Every platform build needs only `prepare` and `quick-checks`: it queues after the fast
-gate and takes any matching idle runner, without waiting for an archive to finish.
-The test jobs get an earlier queue position on shared runners. GitHub queue order is
-best effort, not strict priority; the live overlap map lives in the build-machine README.
-Workflow concurrency includes phase so the fast and long calls cannot supersede each other.
-
-A failing test/gate job requests cancellation of this caller run through the Actions API
-using `GITHUB_TOKEN` with `actions: write`. Rust cancellation runs before receipt uploads,
-so a failed archive or test stops queued and running builds without waiting for sibling
-jobs or the coverage summary. Cancellation also stops remaining tests. The switch is
-explicitly enabled only by release callers; standalone PR/nightly tests retain their
-existing execution. Setup and receipt failures also trigger cancellation.
-`release-manifest` needs every build, `quick-checks` and `tests`; frontend publication
-needs both test stages. Failure, cancellation or a skipped required gate cannot publish.
-Dry runs with tests use the same graph; `dry_run_tests: false` explicitly skips both
-stages for bundle diagnostics.
-macOS arm64 and x64 are independent matrix jobs, as are Windows x64 and arm64: both matrices
-use `fail-fast: false`, so one architecture failure preserves the other's successful uploads.
-`macos` calls `release-macos-build.yml` once; `linux-arm64` calls `release-linux-arm64.yml`
-once. Each reusable workflow contains only its own `build` job, with no platform selector or
-skipped placeholder. The graph reads `macOS / build (arm64)`, `macOS / build (x86_64)` and
-`Linux arm64 / build`. The hosted manual fallback remains `release-macos.yml`.
-Runner variables and their existing-label defaults live in the build-machine README.
-
-For an environmental failure in the same immutable source run, list failed job IDs and rerun
-one selected job (the numeric Actions job ID, not a matrix index):
-
-```bash
-gh run view <run-id> --repo rollacode/codeterm --json jobs \
-  --jq '.jobs[] | [.databaseId, .name, .conclusion] | @tsv'
-gh run rerun <run-id> --repo rollacode/codeterm --job <failed-job-id>
-# Or rerun all failed jobs and their downstream gates:
-gh run rerun <run-id> --repo rollacode/codeterm --failed
-```
-
-Green artifact jobs stay valid when only tests or another artifact fail. Do not select “Re-run all
-jobs”: that rebuilds and re-signs green artifacts. A Linux arm64 retry does not touch either macOS
-bundle. Retry upload cleanup matches only the job's own asset names. A code fix needs a new SHA
-and therefore a new complete run; artifacts from different source commits cannot be mixed.
-After publication has started, recover the failed manifest/promote job in its original run rather
-than pushing a replacement build under the published version.
-
-Dry runs default `dry_run_tests: true`: they execute the full test matrix, structural bundle checks,
-CLI version checks where executable, and local updater signature verification. Setting it false is
-an explicit bundle-only diagnostic. Dry runs skip draft creation, uploads, publication, public
-served-byte verification and promotion; they cannot prove write-token permissions or CDN behavior.
-
-For 1.14.7 smoke is structural: unpack the just-built artifact, require target machine types for
-app/CLI/embed, full source SHA, resources and embedded plugin bytes, and verify the CLI's exact
-release version without a daemon where executable. macOS also verifies deep strict codesigning
-and the stapled DMG. Windows records Authenticode status; it is not required until signing is
-provisioned. Windows arm64 checks PE/resources/version only on its x64 cross-builder. No app is
-launched: release builds currently have no isolated profile mode. Isolated execution smoke and a
-native Windows ARM64 VM runner are proposed post-release work.
-
-Troubleshooting: `Bundle structural smoke failed` is a platform failure before upload; inspect the
-named missing file, machine type, plugin or version. Do not bypass it. A Linux Docker preflight
-failure requires restoring the baked arm64 image/daemon; CI never starts Desktop with a sleep loop.
-A local/draft signature failure requires rebuilding the owning artifact and fragment in the same
-run. No manifest is published until downloaded draft artifact signatures verify. If publication
-or promote fails, rerun that job; promotion pins the PR head to the verified source SHA.
-
-Self-hosted job failures emit an Actions error and failed-job event as soon as the owning step
-exits, and smoke writes its result to the job summary. The release Orchestrator owns the Blueprint
-watch of this run's job events; no runner assumes an arbitrary local Orchestrator tab identity.
-
-> **Everything below this line is the MANUAL FALLBACK** — only for when the runner/CI is down or
-> you're debugging a single platform. The full from-scratch build-machine setup (Docker arm64
-> Linux, the ROG Windows + x86_64-Linux runners, signing) lives in **`.agents/skills/build-machine/SKILL.md`**.
-
----
-
-## Two-repo layout (since 2026-05-03)
-
-- **`rollacode/codeterm`** — private source repo. Releases here for archive only; the GUI updater can't reach private-repo assets anonymously.
-- **`rollacode/codeterm-releases`** — public mirror, artifacts + `latest.json` only. The Tauri-plugin-updater endpoint baked into `tauri.conf.json` points here. Without this mirror, `update install --auto` from the GUI hangs/404s.
-
-## When to use
-
-User says: «сделай релиз», «выпусти vX.Y.Z», «ship it», «bump version + release», «assemble the binaries and put on github».
-
-For just **building locally** (no release), use `prod-build`. For **just** the macOS x86_64 cross-compile gotchas, read `references/macos-x86-64.md`. This skill ties all three targets + upload + brew in one flow.
-
-## Agent report contract — machine-token first line
-
-Every worker that finishes a step reports back via `codeterm agent report`. The orchestrator parses the FIRST LINE of the report as a structured event, never regex-greps the prose. Sourced from `scripts/lib/report.sh` which both mac and win helpers `source`:
-
-| Outcome  | First line                                     |
-| -------- | ---------------------------------------------- |
-| Ready    | `WINDOWS_READY=<ver> sig=<base64>` (or similar key=val pairs) |
-| Blocked  | `BLOCKED step=<name> err=<short>`              |
-
-A blank line separates the token from free-form prose. Helpers:
-
-- `report_ready KEY=VAL ...` — emits the kv line + `\n\n` + stdin prose
-- `report_blocked STEP MSG` — emits `BLOCKED step=… err=…` + `\n\n` + stdin prose
-- `validate_b64_sig RAW` — echoes the trimmed sig if it looks valid (≥200 chars, only b64 alphabet), exits non-zero otherwise. Wrap the output of any `*-bundle.sh` before reporting it.
-
-Reason: v1.3.2 release wasted a round-trip because BLACKSTAR reported "sig: \<base64\>" inside prose and the mac orchestrator couldn't extract it without human relay. Machine token on line 1 fixes that class permanently.
-
-## Release-pipeline secrets backup
-
-Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` on any machine with BW unlocked):
-
-| Bitwarden slug | Restore to | Notes |
-|---|---|---|
-| `codeterm-apple-notary-env` | `~/.claude/.secrets/apple-notary.env` (`chmod 600`) | Then `source <file>; xcrun notarytool store-credentials codeterm --apple-id $APPLE_ID --team-id $APPLE_TEAM_ID --password $APPLE_APP_SPECIFIC_PASSWORD` |
-| `codeterm-tauri-minisign-private-key` | `~/.tauri/codeterm.key` (`chmod 600`) | Empty password. Used by `tauri signer sign` for updater artifacts |
-| `codeterm-tauri-minisign-public-key` | `~/.tauri/codeterm.key.pub` (`chmod 644`) | Same value already baked into `src-tauri/tauri.conf.json::plugins.updater.pubkey` |
-
-The Developer ID certificate and private key are backed up in repository secrets
-`APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD`. CI imports them only into a job keychain.
-
-## Prereqs (verify once per machine)
-
-- Mac runner: Xcode command line tools, Rust, Node and pnpm; Docker for Linux arm64.
-- For a manual fallback, export the same repository credentials through environment or stdin,
-  set `RUNNER_TEMP` and `GITHUB_ENV`, run the signing-material setup, and source the generated
-  environment before invoking the helpers. Always invoke cleanup on exit. Do not provision a
-  login-keychain identity or copy a permanent updater key as a runner requirement.
-- `gh` logged in as `rollacode`: `gh auth status`.
-- Windows builder mesh peer paired and online: `codeterm mesh peers`. Pick the Windows builder from `codeterm mesh peers`; it needs its own minisign key copy and a codeterm workspace checkout. Resolve its address, user and workspace id at run time rather than recording them here.
-- **Windows builder prereqs** (verify on the chosen peer before invoking `win-release.sh`):
-  - `gh auth status` shows `rollacode (keyring)` as **valid**, not just `r0llac0de (work)` as the active account. The work account has happened to retain push access to `rollacode/codeterm` (so uploads can succeed even when rollacode keyring is stale), but this is fragile — refresh via `gh auth login` if rollacode is invalid. *(v1.2.1 caught: rollacode keyring expired silently; r0llac0de was the actual writer.)*
-  - `node --version` ≥ 22.12 (Vite 8 hard requirement). If lower, `nvm use 22.22.0` (or whichever 22.12+ is installed). nvm-windows shim is usually not on PATH by default — prepend the version dir manually if `nvm use` doesn't work.
-  - Windows SDK matches what `build.sh` expects (default `SDK_VER=10.0.22621.0`). Check `ls "/c/Program Files (x86)/Windows Kits/10/Include"`. On ROG only `10.0.26100.0` is installed → build.sh has a local stash with the override; restore via `git stash pop` after `git checkout v$VER`. A clean ROG without that stash dead-ends on `sqlite-sys: malloc.h not found`.
-
-## Steps
-
-### Agent model
-
-When delegating this skill to an agent (release coordinator or ROG worker), **spawn with `--model haiku`**. The pipeline is mostly orchestration + bash + git/gh — Haiku is fast and cheap enough; Sonnet/Opus is overkill and doubles wall time on thinking phases.
-
-Spawn with `codeterm agent spawn claude --task "..." --model haiku`. Parent is inferred from `$CODETERM_TAB_ID`; reports route back to you automatically (Orchestrator + child-tab model, no `--role` flag needed).
-
-### 0. Kill any running dev
-
-Rust builds share the target dir — concurrent `tauri build` + `tauri dev` fight and one silently fails:
-
-```bash
-./build.sh kill
-```
-
-### 1. Bump version on the release branch (one commit)
-
-```bash
-VER=1.2.0  # new
-git checkout "release/$VER"
-git fetch origin --prune
-git pull --ff-only origin "release/$VER"
-
-# Edit package.json "version" to $VER first: sync reads it from there and ignores an argument.
-npm run sync:versions
-cargo update --workspace --offline --manifest-path src-tauri/Cargo.toml   # lockfile entries only,
-cargo update --workspace --offline --manifest-path cli/Cargo.toml         # no build, no gateway
-npm run check:versions
-node scripts/check-release-locks.mjs
-
-# check:versions covers root package.json, src-tauri/Cargo.toml,
-# cli/Cargo.toml, src-tauri/tauri.conf.json, and shared packages.
-# Plugin metadata is validated without changing its versions or minimum host.
-# Do not hand-edit just one version file.
-
-git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
-  src-tauri/tauri.conf.json cli/Cargo.toml cli/Cargo.lock plugins packages scripts
-git commit -m "release: v$VER"
-git push origin "release/$VER"
-```
-
-Run this on the exact release head before opening the master PR:
-
-```bash
-./build.sh release-preflight   # THE PR qualification gate: fmt, both Rust workspaces,
-                               # app+CLI tests, clippy, TS build/unit/plugin/lint,
-                               # bundle freshness, file-size policy
-git diff --check               # whitespace; not owned by preflight
-```
-
-`./build.sh check` is NOT PR qualification: it never runs formatting or the
-test/lint matrix, so a green `check` says nothing about whether CI will pass.
-Commit both lockfiles before preflight, so the gate runs on the SHA you will merge.
-
-**No separate bundle dry run.** The release run is both the full test matrix and the bundle build: a
-bundle or test failure (1.12.1 failed in all three bundle jobs) now fails before anything is
-published or merged, and the fix lands on the release branch as a new commit. Use the dry run
-(`gh workflow run release.yml --ref "release/$VER" -f tag="release/$VER" -f dry_run=true -f mirror=false`)
-only to debug a bundle job, never as a routine step, because it builds every platform a second time.
-
-**Iterating on a red release branch.** Reproduce a failing test with the focused
-oracle (`./build.sh test-one ...`, one TS file) and fix it there. Do not re-dispatch
-the whole `tests.yml` matrix to learn whether a single fix worked: every matrix run
-holds a `linux-ci` runner, and on ubunta also delays the release jobs that need `linux-build`.
-A newer push to the PR cancels the superseded matrix run automatically.
-
-Then start dev from the main checkout and visually confirm the app:
-
-```bash
-./build.sh kill
-codeterm tab new --team <team-id> --purpose dev --cmd "cd $(pwd) && ./build.sh dev"
-curl -s http://127.0.0.1:7686/api/health
-```
-
-Clean old orchestration state before the PR: close finished worker tabs, remove merged lane
-worktrees under `../codeterm-worktrees/`, and leave only documented stashes/lane directories.
-Run `scripts/merge-stack-audit.sh --target <release-head> <accepted-lane-ref>...`
-before final QA; stale patch-landed refs or unlanded accepted lanes must be
-merged, explicitly recorded as superseded, or deferred before the master PR.
-Patch-equivalent stale refs are not ancestry proof and must not be silently
-deleted without that superseded record.
-
-### 2. Push the release branch, publish, then merge to master
-
-**Always via the release PR** — never direct-push to `master`. The release run is the test gate and
-the bundle build; the release PR shows fast checks only.
-
-```bash
-bash scripts/check-release-runners.sh                  # every release runner online
-git ls-remote --tags origin "refs/tags/v$VER"          # must be empty
-git push origin "release/$VER"                         # starts the release run
-```
-
-Do **not** create or push `v$VER`. The release workflows create the private and public GitHub
-releases under `v$VER`, stamp the tag after every gate, and map the updater metadata there.
-
-After publication and verification, merge the PR with a merge commit and delete the branch, as
-shown in "To cut a release".
-
-### 2.1. Release closeout cleanup
-
-After the workflows publish successfully and before archiving the plan:
-
-```bash
-git worktree list
-find ../codeterm-worktrees -mindepth 1 -maxdepth 1 -type d -print
-cargo sweep --time 2
-```
-
-Remove merged lane worktrees and delete their merged `lane/*` branches. Close finished worker tabs
-and stop lane-specific dev daemons. Keep only documented stashes or explicitly preserved scratch
-checkouts. Do not leave `src-tauri/target` or lane `target/` directories to grow silently between
-releases; `cargo sweep --time 2` is the default cleanup because active build artifacts are touched
-daily and stale layers otherwise accumulate into tens of GB. The `release/X.Y.Z` branch is already
-gone (deleted with the tag above) — there is no back-merge step: a branch that dies at the tag
-cannot drift from `master` in the first place.
-
-If push to master is rejected: always `git pull origin master --no-rebase --no-edit` first — origin/master may already have a merge commit from a GitHub PR that your local doesn't have yet.
-
-### 3. Manual fallback only: create GitHub release (draft)
-
-Skip this in the normal automated path. The `release-$VER` workflows create/update `v$VER`.
-
-```bash
-gh release create v$VER --title "v$VER" --draft --notes "$(cat <<'NOTES'
-## Changes
-- ...
-NOTES
-)"
-```
-
-Create as draft first. Publish after all assets are uploaded.
-
-### 4. Manual fallback only: checkout tag for building
-
-**Critical: build from the tag, not from a branch.**
-
-```bash
-git checkout "release-$VER"
-```
-
-You're now in detached HEAD on the exact tagged commit. All builds below use this tree.
-
-### 5+6. Build + notarize + pack updater bundles (both archs)
-
-```bash
-WORK=/tmp/codeterm-${VER}-mirror
-mkdir -p "$WORK"
-HELPERS=.agents/skills/github-release/scripts
-ARM_SIG=$("$HELPERS/mac-bundle.sh" "$VER" arm64   "$WORK")
-X64_SIG=$("$HELPERS/mac-bundle.sh" "$VER" x86_64 "$WORK")
-```
-
-`mac-bundle.sh` does the whole arch-pipeline per call:
-1. `build-mac.sh` — consumes the imported job signing identity, kills any running dev for manual builds, runs the build, verifies the resulting `.app` was signed with `Developer ID Application` + `flags=0x10000(runtime)`. Failing this sanity check beats discovering an ad-hoc-signed binary half an hour into Apple's notarize queue. (Hard-learned 2026-05-17 v1.3.0.)
-2. `notarize-dmg.sh` — submits, waits (quiet mode: dot-spam suppressed), staples, runs `spctl`. On rejection prints Apple's detailed issues to stderr.
-3. `pack-mac-updater.sh` — `tar --no-mac-metadata` (required: without it Tauri's Rust tar lib materializes `._CodeTerm.app` AppleDouble shadows on extract and the updater rejects with "failed to unpack `._CodeTerm.app`"), Python-extract sanity check, minisign-sign. Echoes the base64 signature to stdout.
-
-The captured `ARM_SIG` / `X64_SIG` go straight into latest.json below.
-
-### Status dashboard (any time during the flow)
-
-```bash
-.agents/skills/github-release/scripts/release-status.sh "$VER"
-```
-
-Compact one-shot view of: private/public assets, latest.json platform coverage, and the single release run state.
-
-Cross-compile detail (why this script exists): `references/macos-x86-64.md`.
-
-### 7. Upload macOS DMGs to the private (source) repo
-
-```bash
-gh release upload v$VER "$ARM" "$X64" --clobber
-```
-
-### 7b. Build `latest.json` + mirror to public repo
-
-The GUI updater fetches `latest.json` anonymously, so the manifest plus the asset copies live in `rollacode/codeterm-releases`. Same files, separate repo.
-
-**⚠️ Format gotcha:** updater artifact names depend on `bundle.createUpdaterArtifacts`. Domios currently uses Tauri v2 mode (`true`), not `"v1Compatible"`:
-
-- macOS: `CodeTerm_aarch64.app.tar.gz` / `CodeTerm_x64.app.tar.gz` (the `.app` bundle wrapped in gzipped tar)
-- Linux: `CodeTerm_<ver>_amd64.AppImage`
-- Windows: `<name>_<ver>_x64-setup.exe` (the signed NSIS installer itself)
-
-Pointing macOS `latest.json` at `.dmg` makes `codeterm update install --auto` fail with `invalid gzip header`. In Tauri v2 mode, Windows `.exe` and Linux `.AppImage` are valid updater URLs; `.nsis.zip` / `.AppImage.tar.gz` are the old v1-compatible artifact names.
-
-**Preferred path:** one tag-push run builds all platform jobs in parallel, uploads source artifacts to `rollacode/codeterm`, writes updater fragments whose URLs point at `rollacode/codeterm-releases`, then the final job mirrors assets and the merged manifests.
-
-```bash
-.agents/skills/github-release/scripts/release-status.sh "$VER"
-
-# Reachability is not installability — verify signatures against the served bytes.
-# --require-version pins the manifest to THIS release: a previous release verifies
-# perfectly against its own bytes and is not evidence for the one you are shipping.
-node scripts/verify-updater-manifest.mjs \
-  --manifest "https://github.com/rollacode/codeterm-releases/releases/download/v$VER/latest.json?cb=$(date +%s)" \
-  --require-version "$VER" \
-  --require-platform darwin-aarch64 --require-platform darwin-x86_64 \
-  --require-platform windows-x86_64 --require-platform windows-aarch64 \
-  --require-platform linux-x86_64 --require-platform linux-aarch64 \
-  --evidence "$RUNNER_TEMP/manifest-verification.json"
-
-# Closing a public issue is authorised by that record, never by owning the release.
-node scripts/check-release-closure.mjs \
-  --evidence "$RUNNER_TEMP/manifest-verification.json" --version "$VER" --issue <n>
-```
-
-The consolidated `release-manifest` job is the only automatic verifier. It runs after the macOS,
-arm64 Linux, x86_64 Linux, and Windows jobs succeed, requires all six platform keys, and verifies
-the public served bytes before minting `issue-closure-boundary.json`. A partial platform recovery
-must not mint closure authority.
-
-**Manual mirror fallback:** use only when CI produced source assets but the public mirror failed (usually `PACKAGE_REPOS_TOKEN` 403 or a workflow script bug). This is what keeps the release shippable without rebuilding all platforms.
-
-```bash
-WORK=/tmp/codeterm-v${VER}-mirror
-rm -rf "$WORK" && mkdir -p "$WORK"
-gh release download "v$VER" --repo rollacode/codeterm --dir "$WORK" --clobber
-
-ARM_SIG=$(tr -d '\n' < "$WORK/CodeTerm_aarch64.app.tar.gz.sig")
-X64_SIG=$(tr -d '\n' < "$WORK/CodeTerm_x64.app.tar.gz.sig")
-LINUX_SIG=$(tr -d '\n' < "$WORK/CodeTerm_${VER}_amd64.AppImage.sig")
-WIN_SIG=$(tr -d '\n' < "$WORK/CodeTerm_${VER}_x64-setup.exe.sig")
-PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-NOTES="See the assets to download this version and install."
-cat > "$WORK/latest.json" <<JSON
-{
-  "version": "$VER",
-  "notes": "$NOTES",
-  "pub_date": "$PUB_DATE",
-  "platforms": {
-    "darwin-aarch64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/download/v${VER}/CodeTerm_aarch64.app.tar.gz",
-      "signature": "$ARM_SIG"
-    },
-    "darwin-x86_64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/download/v${VER}/CodeTerm_x64.app.tar.gz",
-      "signature": "$X64_SIG"
-    },
-    "linux-x86_64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/download/v${VER}/CodeTerm_${VER}_amd64.AppImage",
-      "signature": "$LINUX_SIG"
-    },
-    "windows-x86_64": {
-      "url": "https://github.com/rollacode/codeterm-releases/releases/download/v${VER}/CodeTerm_${VER}_x64-setup.exe",
-      "signature": "$WIN_SIG"
-    }
-  }
-}
-JSON
-python3 -m json.tool "$WORK/latest.json" >/dev/null  # validate
-
-if ! gh release view "v$VER" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
-  gh release create "v$VER" \
-    --repo rollacode/codeterm-releases \
-    --title "Domios v$VER" \
-    --notes "Auto-mirrored release artifacts for Domios v$VER. Source: rollacode/codeterm v$VER." \
-    --latest
-fi
-
-gh release upload "v$VER" --repo rollacode/codeterm-releases --clobber \
-  "$WORK/CodeTerm_${VER}_aarch64.dmg" \
-  "$WORK/CodeTerm_${VER}_x64.dmg" \
-  "$WORK/CodeTerm_${VER}_amd64.AppImage" \
-  "$WORK/CodeTerm_${VER}_amd64.AppImage.sig" \
-  "$WORK/CodeTerm_${VER}_amd64.deb" \
-  "$WORK/CodeTerm_${VER}_amd64.deb.sig" \
-  "$WORK/CodeTerm_${VER}_x64-setup.exe" \
-  "$WORK/CodeTerm_${VER}_x64-setup.exe.sig" \
-  "$WORK/CodeTerm_aarch64.app.tar.gz" \
-  "$WORK/CodeTerm_aarch64.app.tar.gz.sig" \
-  "$WORK/CodeTerm_x64.app.tar.gz" \
-  "$WORK/CodeTerm_x64.app.tar.gz.sig" \
-  "$WORK/latest.json"
-
-# Verify anon access and all updater URLs:
-curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json \
-  | grep -E '^HTTP' | tail -1     # -> HTTP/2 200
-python3 - <<'PY'
-import json, urllib.request
-m=json.load(urllib.request.urlopen("https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json"))
-for platform, entry in m["platforms"].items():
-    req=urllib.request.Request(entry["url"], method="HEAD")
-    print(platform, urllib.request.urlopen(req).status, entry["url"])
-PY
-
-# End-to-end smoke: a freshly-installed v$VER- daemon should pick this up.
-# Run on the build host (after self-installing v$VER- via codeterm self-update or DMG):
-codeterm update check       # → 'Update available!' OR 'Up to date' (latest manifest is current)
-# On the previous-version host (still on v<previous>):
-codeterm update install --auto     # → must NOT fail with 'invalid gzip header'.
-                            # If it does, the manifest is still wrong — fix and re-publish before continuing.
-```
-
-The consolidated run keeps both releases in draft until every platform job succeeds. The final
-manifest job requires all six updater platforms before it publishes the source release or public
-mirror.
-
-### 8. Windows build
-
-**Default path: dispatch a worker on a paired Windows mesh peer** running `win-release.sh`. The script is the single end-to-end Windows pipeline (checkout → install → bundle → sign → upload → machine-parseable agent report). BLACKSTAR is the primary builder; ROG is a fallback with the same flow.
-
-```bash
-WORKSPACE_ID=$(codeterm --mesh BLACKSTAR --json workspace list \
-  | python3 -c "import json,sys; print(next(w['id'] for w in json.load(sys.stdin) if w['name']=='codeterm'))")
-WORKSPACE_CWD=$(codeterm --mesh BLACKSTAR --json workspace list \
-  | python3 -c "import json,sys; print(next(w['cwd'] for w in json.load(sys.stdin) if w['name']=='codeterm'))")
-
-codeterm --mesh BLACKSTAR agent spawn claude \
-  --workspace "$WORKSPACE_ID" \
-  --cwd "$WORKSPACE_CWD" \
-  --title "v$VER windows release" \
-  --role Orchestrator \
-  --model haiku \
-  --task "bash .agents/skills/github-release/scripts/win-release.sh $VER"
-```
-
-The agent's final `codeterm agent report` line is parseable:
-
-```
-WINDOWS_READY=1.3.3 sig=dW50cnVzdGVkIGNvbW1lbnQ6...
-
-Windows release v1.3.3 built, signed, and uploaded to both repos.
-```
-
-Grep the first line for `WINDOWS_READY=` (success) or `BLOCKED step=` (failure) — the orchestrator does NOT need to read the prose.
-
-What the script does internally (`scripts/win-bundle.sh` + `win-upload.sh`):
-
-1. `git -c core.autocrlf=false checkout v$VER` (CRLF phantom-dirt workaround on Windows is built in).
-2. `pnpm install --frozen-lockfile`.
-3. **Export `TAURI_SIGNING_PRIVATE_KEY` BEFORE `./build.sh build`.** Without this env var, the Tauri bundler skips updater signatures.
-4. `./build.sh build` (NSIS bundler emits `.exe` + `.exe.sig` in current Tauri v2 mode).
-5. Idempotent `gh release view || gh release create --draft` for both repos, then `gh release upload --clobber` for `.exe` + `.exe.sig`.
-
-Wall times (BLACKSTAR, cache-warm): ~3min build, +~30s install if `node_modules` cold, +~10s upload. Cold from a fresh `pnpm install`: ~5-7min total.
-
-**CI path (`release.yml` → `release-windows.yml`)**: the Windows reusable job runs inside the
-single release run and uploads signed NSIS bundles and updater fragments. Treat CI artifacts as a
-back-up source for `gh release download` when the worker is offline.
-
-Direct local invocation (on a Windows machine with a checkout, e.g. for testing the pipeline without dispatching an agent):
-
-```bash
-# In Git Bash on BLACKSTAR / ROG:
-bash .agents/skills/github-release/scripts/win-release.sh $VER
-# stdout is the machine-parseable agent report
-```
-
-ROG-specific gotchas (still relevant if you fall back to ROG):
-- Local SDK pinning (`build.sh` SDK_VER + `@rolldown/binding-win32-x64-msvc` 1.0.0-rc.9). Stored in a local `git stash` on the machine; `win-release.sh` does not auto-pop it — manual `git stash pop` if you see "SDK not found".
-- `nvm use 22.22.0` (or any 22.12+) BEFORE invocation — Vite 8 fails on lower Node.
-- gh authed as `rollacode (keyring)` should be valid; `r0llac0de (work)` is the work fallback and has push access too.
-
-Alternative paths (debugging tactics, not normal flow):
-- Send to an existing General Agent tab via `codeterm --mesh BLACKSTAR send --tab <general> --from-file <msg.txt>` to bypass `agent spawn` argv-split bugs.
-- Open a parallel shell tab on the builder with `codeterm tab new --purpose build --workspace <workspace-id>` for tactical interventions while the agent runs the long compile.
-
-### 9. Publish release + verify
-
-```bash
-# Private source repo:
-gh release edit v$VER --draft=false --latest
-gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
-# Expect Mac DMGs, both Windows installers, Linux deb/AppImage assets, updater bundles,
-# per-platform fragments, and the merged manifests. The final job mirrors and verifies them.
-
-# Public mirror — once Windows .exe arrives, also update its sig in latest.json
-# and re-upload --clobber. Verify GUI updater can resolve anonymously:
-curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json | grep '^HTTP' | tail -1
-```
-
-Verify the notes contract or repair it idempotently:
-
-```bash
-node scripts/sync-release-notes.mjs --tag "v$VER"
-```
-
-For historical cleanup, `node scripts/sync-release-notes.mjs --backfill 10` preserves meaningful
-source notes, replaces only placeholders or weak generated bodies, and synchronizes the chosen
-release-PR summary to both repos.
-
-### 10. Bump Homebrew cask (optional, repos still private)
-
-```bash
-gh api repos/rollacode/codeterm/releases/tags/v$VER --jq '.assets[] | select(.name|endswith(".dmg")) | "\(.name) \(.digest)"'
-# → captures two sha256 values; drop them into the cask
-
-gh repo clone rollacode/homebrew-codeterm /tmp/homebrew-codeterm
-cd /tmp/homebrew-codeterm && git pull --ff-only
-# Edit Casks/codeterm.rb:
-#   - bump version string
-#   - replace on_arm sha256 with aarch64 digest
-#   - replace on_intel sha256 with x64 digest
-git add Casks/codeterm.rb
-git commit -m "codeterm: bump to $VER"
-git push origin main
-```
-
-Both repos are currently PRIVATE — `brew install codeterm` still won't work for the public. Bumping the cask keeps the tap self-consistent for when repos go public.
-
-### 11. Regenerate translated READMEs from README.md (agent pass) translations must not ship stale
-
-## Retrigger in-place (post-publish hotfix)
-
-When a critical bug surfaces shortly after publish — **before users have widely auto-updated** —
-it's safe to force-move the release trigger tag and re-upload artifacts under the same version
-rather than bumping. Used for v1.1.15 (2026-05-05).
-
-```bash
-# 1. Commit fix on a fix/* branch, merge by PR directly to master
-#    (the release/X.Y.Z branch is already gone by this point — it died with the tag):
-git checkout -b fix/<description> && git push origin fix/<description>
-# On GitHub: open PR fix/<description> -> master and merge it.
-git checkout master && git pull origin master --no-rebase
-
-# 2. Move the release trigger tag:
-git tag -f "release-$VER"
-git push origin "release-$VER" --force
-
-# 3. Checkout the new trigger tag commit (now points at the merge):
-git checkout "release-$VER"
-
-# 4. Rebuild + notarize + staple all 3 platforms (steps 5–8 above).
-
-# 5. Re-upload to private repo with --clobber:
-gh release upload v$VER "$ARM" "$X64" "$WIN_EXE" --clobber
-
-# 6. Fetch existing latest.json BEFORE patching, to preserve any platform's signature
-#    you are NOT rebuilding (e.g. if you only re-ran macOS, keep the Windows sig):
-curl -sLO https://github.com/rollacode/codeterm-releases/releases/download/v$VER/latest.json
-#    ... patch only the rebuilt platforms ...
-gh release upload v$VER --repo rollacode/codeterm-releases <new files + latest.json> --clobber
-
-# 7. Bump brew cask sha256 (DMG bytes change with every rebuild even if content is equivalent).
-```
-
-**Constraint:** only safe while the audience is small/internal. Anyone who already auto-updated to the broken artifact keeps the broken binary. For external user-facing releases, always bump version instead.
-
-Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_sync_protocol`.
-
-## Failure modes seen in the wild
-
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| CI `rust (linux)` fails at `cargo fmt --check` after local `check` + frontend + file-size all passed | `release-preflight` was skipped; `check` does not run fmt or the test/lint matrix | run `./build.sh release-preflight` at the exact PR head, fix what it reports, push the fix as a new commit and let fresh CI run. Never blind-rerun the job |
-| `tauri build` ends with no DMG, no error | `build.sh dev` still running, Cargo target dir contention | `./build.sh kill` first |
-| DMG `spctl` → "rejected, Unnotarized Developer ID" | tauri signed the `.app` but left the DMG wrapper unsigned | Run `xcrun notarytool submit … --wait && xcrun stapler staple …` manually |
-| `notarytool store-credentials` → HTTP 401 | keychain creds expired OR used `APPLE_PASSWORD` instead of `APPLE_APP_SPECIFIC_PASSWORD` | source the env file, use correct var name |
-| `git push origin master` → non-fast-forward | master diverged (e.g. previous release merged differently) | `git pull origin master --no-rebase --no-edit` then push again |
-| `codeterm update install --auto` → "invalid gzip header" | macOS `latest.json` URL points at raw `.dmg` instead of `.app.tar.gz` | rebuild manifest with `.app.tar.gz` URLs — see Step 7b |
-| `update install` → "The signature verification failed" on one platform while all URLs 200 | a lane reran and republished a **rebuilt** artifact, but the merged manifest kept the earlier run's signature for it (signatures sign artifact bytes, not the manifest) | rebuild `latest.json` from the `updater-*.json` fragments of the run that produced the served bytes, `--clobber` to both repos, then `node scripts/verify-updater-manifest.mjs --manifest "<mirror>/latest.json?cb=$(date +%s)"` must report all platforms OK |
-| tauri-plugin-updater unpack on Windows → "Compression method not supported" | `.nsis.zip` built with 7z default (Deflate64); zip-rs only supports Deflate/Store | regenerate with `7z a -tzip -mm=Copy` (Store compression) |
-| tauri-plugin-updater unpack on macOS → "failed to unpack ._CodeTerm.app" | macOS `tar` includes AppleDouble metadata files (`._*`) by default | `COPYFILE_DISABLE=1 tar -czf ...` |
-| BLACKSTAR build: `UNKNOWN error opening node_modules/sigma/package.json` | Windows filesystem race on freshly added dep | `rm -rf node_modules && pnpm install` on BLACKSTAR |
-| Windows: Vite 8 build fails / version error | system node < 22.12 | `nvm install 22.22.0 && nvm use 22.22.0` on builder |
-| macOS CI: `codesign ... no identity found` for bundled CLI/sidecar | `APPLE_SIGNING_IDENTITY` does not match the imported p12 certificate | align the repository identity secret with the certificate; the job preflight checks only the temporary keychain before building |
-| release workflow mirror step → `EXTRA_FLAGS[@]: unbound variable` | empty Bash array expansion under `set -u` on older Bash | avoid optional-flag arrays in release shell; branch explicitly for prerelease vs stable `gh release create` |
-| macOS x86_64 release job stays queued on `macos-13` | GitHub retired the macOS 13 runner image in December 2025 | use `macos-15-intel` for `x86_64-apple-darwin` |
-| release workflow mirror step → HTTP 403 `Resource not accessible by personal access token` | `PACKAGE_REPOS_TOKEN` lacks `contents:write` on `rollacode/codeterm-releases` | rotate/update the repo secret, or manually mirror with a local `gh` login that has admin/write on the public mirror before publishing |
-| `latest.json` maps both macOS platforms to `CodeTerm.app.tar.gz` | macOS workflow used the local generic updater bundle basename for the public URL | copy/sign/upload arch-specific updater assets and build fragments from `CodeTerm_aarch64.app.tar.gz` / `CodeTerm_x64.app.tar.gz` |
-| public mirror has assets but GUI updater still 404s | fragments were generated with `REPO=rollacode/codeterm`, so `latest.json` points at the private source repo | generate fragments with `REPO=rollacode/codeterm-releases`; source release may still store the fragment, but its URLs must be public |
-| Windows workflow says `No NSIS signature` while `.exe.sig` exists | workflow still assumes `createUpdaterArtifacts="v1Compatible"` `.nsis.zip`; current Tauri v2 `true` emits `.exe.sig` | use `*-setup.exe` / `.exe.sig` for `windows-x86_64`, or switch config to `"v1Compatible"` intentionally |
-| Windows: `sqlite-sys` cc-rs → "malloc.h not found" | `build.sh`'s `SDK_VER` (10.0.22621.0) ≠ installed Windows Kit | check `ls "/c/Program Files (x86)/Windows Kits/10/Include"` then `export SDK_VER=<found-version>` (e.g. 10.0.26100.0 on ROG) |
-| `gh release upload ...` → "no matches found" on Windows | MSYS git-bash + stale cd + relative paths | `cd` back to repo root before upload, or use absolute paths |
-| `git rev-parse v$VER` returns a SHA that doesn't appear in `git log` | annotated tag (`-a`) creates a tag object that points to the commit (one level of indirection) | use `git rev-parse v$VER^{commit}` for the commit SHA, or `gh release view v$VER --json targetCommitish` |
-| `codeterm send --mesh PEER --tab ID "..."` does not get a reply | `OK (pending)` means the socket accepted background work, not that the payload was written; `OK (sent)` is reserved for a completed write | check the authoritative send outcome before acting; do not re-send while delivery is unknown. A refusal returns a structured error (`tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`, …) with `bytes_written`; do not read the recipient's screen to decide whether the message landed |
-| SSH to BLACKSTAR: `cd /c/…` fails | `bash -lc` runs a login shell that re-homes | use `bash -c` (non-login) |
-| `scp User@blackstar:/c/…` fails | remote shell is cmd.exe, doesn't grok the path | stage the file to `C:\Users\dev\` on BLACKSTAR first, then `scp User@blackstar:filename` |
-| Public `curl` of release asset → 404 | repo private, CDN rejects unauthenticated | use `gh release download`, or make repo public |
-| Tag pushed but version files still say OLD | step 1 sed didn't catch all 3 (quote style, OLD value wrong) | run the post-bump verification grep BEFORE pushing the tag |
-| `codeterm update check` returns stale `Latest:` after a fresh release | daemon caches the manifest at startup; default TTL outlasts your release | `codeterm update check --force` bypasses cache. GUI path (tauri-plugin-updater via public mirror endpoint) is independent of daemon cache — that always sees fresh |
-
-## Multi-machine operational protocol
-
-Adopted v1.1.8 onward. Cross-machine release coordination between Mac-Air (macOS signing host), ROG / BLACKSTAR (Windows builders), and the rest of the mesh.
-
-**Roles per release:**
-- **macOS builder (Mac-Air)**: macOS arm64 + x86_64 builds, notarize+staple, minisign all 3 platforms, compose `latest.json`, publish public mirror.
-- **Windows builder (ROG primary, BLACKSTAR fallback)**: Windows build, `.exe` + `.exe.sig` upload to private repo draft.
-- **Either side** can make the final "mark Latest on private" call after public mirror is verified live.
-
-**Communication contract:**
-- Mesh messages limited to milestones and blockers — not ad-hoc "where are you" polls.
-- Default for status checks: fetch from `gh` + `git` (release asset list, master HEAD, tag SHA) without pinging the other side. Ping only when those don't tell the story, or at a milestone gate.
-- Milestone format: `v$VER milestone: $stage — $details`. Stages: `tagged`, `win-built`, `mac-built`, `signed`, `public-live`, `private-published`.
-- Blocker format: `v$VER BLOCKER: $where — $reason`. Reply within ~5 min or the other side may proceed unilaterally on small calls.
-
-**Unilateral permissions (no ack needed each time):**
-- Either side: cfg-only patches to fix per-target build breaks, force-retag tags pre-publish, regenerate `latest.json`.
-
-**Catastrophic-only escalations (always ack required from the other side):**
-- master force-push that touches commits already in BOTH local copies.
-- minisign or Apple Developer cert key rotation.
-- public mirror destructive ops (delete release, change `tauri.conf.json` updater endpoint URL, alter pubkey).
-
-**Tiebreaker:** Andrey (local user) decides anything contested.
-
-**Why:** prior coordination ping-ponged every blocker which stalled both sides. Codifying default permissions and milestone-only comms reduces interrupts. Catastrophic-ack list contains ops that can lose work or brick existing installs.
-
-## Cross-machine signing when Bitwarden is locked
-
-If the Windows builder can't access the minisign key (Bitwarden locked, no `~/.tauri/codeterm.key` on disk), delegate signing to whichever peer DOES have BW unlocked.
-
-```bash
-# On the build host (ROG), send the file to the signer peer via Taildrop:
-tailscale file cp ~/Downloads/CodeTerm_${VER}_x64-setup.exe BLACKSTAR:
-
-# On the signer host (BLACKSTAR):
-# 1. File lands in ~/Downloads via the Windows GUI Tailscale (NOT the CLI inbox —
-#    `tailscale file get` returns 0/0 because GUI Tailscale handles incoming differently).
-#    May need to `mv ~/Downloads/CodeTerm_*.exe ./` manually.
-
-# 2. Verify hash matches what the builder reported:
-sha256sum CodeTerm_${VER}_x64-setup.exe
-# → compare against builder's number
-
-# 3. Pull minisign key from Bitwarden (BW unlocked here):
-codeterm mem secret get --name codeterm-tauri-minisign-private-key > ~/.tauri/codeterm.key
-
-# 4. Sign — key is used AS-IS (single-line base64), don't base64-decode:
-KEY=$(cat ~/.tauri/codeterm.key | tr -d '\n')
-TAURI_SIGNING_PRIVATE_KEY=$KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD='' \
-  pnpm --package=@tauri-apps/cli dlx tauri signer sign CodeTerm_${VER}_x64-setup.exe
-
-# 5. Upload the .sig to the private repo:
-gh release upload v$VER CodeTerm_${VER}_x64-setup.exe.sig --clobber --repo rollacode/codeterm
-```
-
-**Important:** if Mac-Air already published the public mirror with its own valid sig (signs everything from one place), the cross-machine `.sig` upload to the private repo is redundant but harmless. The public mirror's `latest.json` is what the auto-updater actually consumes.
-
-## Local install paths — pre-release dev/test only
-
-Three ways to get a freshly-built binary running on YOUR machine, in increasing order of "real" install:
-
-### Path 1 — manual file swap (Windows, debug-only)
-
-Use when iterating on a prod-mode-only bug and you need fresh `codeterm.exe` in the running install without touching the installer:
-
-```bash
-# 1. Kill running prod (port 7685)
-powershell.exe -NoProfile -Command "Get-Process codeterm -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2"
-
-# 2. Copy fresh binaries into the installed location
-cp C:/Developer/codeterm/src-tauri/target/release/codeterm.exe \
-   "$USERPROFILE/AppData/Local/CodeTerm/codeterm.exe"
-cp C:/Developer/codeterm/src-tauri/target/release/codeterm-embed.exe \
-   "$USERPROFILE/AppData/Local/CodeTerm/codeterm-embed.exe"   # only if you touched the sidecar
-
-# 3. Restart
-powershell.exe -NoProfile -Command "Start-Process -FilePath 'C:\Users\dev\AppData\Local\CodeTerm\codeterm.exe'"
-
-# 4. Verify
-curl -s http://127.0.0.1:7685/api/health
-```
-
-If the window shows `ERR_CONNECTION_REFUSED` for localhost → your build was compiled in dev mode (devUrl = http://localhost:1420). Re-run `./build.sh build`, not raw `cargo build --release`.
-
-Known gotcha — WIX MSI bundler may fail on Windows (`failed to run light.exe`) but the `.exe`s are already produced by then; NSIS / file-swap paths still work.
-
-### Path 2 — self-install via CLI (Windows, programmatic)
-
-`codeterm update install --from-file` runs the freshly-built NSIS installer silently in a detached helper, swaps the binary, and restarts:
-
-```bash
-codeterm update install --from-file 'C:\Developer\codeterm\src-tauri\target\release\bundle\nsis\CodeTerm_X.Y.Z_x64-setup.exe'
-
-# With session continuation (resume the calling agent's session after restart):
-codeterm update install \
-  --from-file '...\CodeTerm_X.Y.Z_x64-setup.exe' \
-  --continue-prompt "after restart, verify tab performance"
-```
-
-`--continue-tab` defaults to `$CODETERM_TAB_ID`. Before detaching, the CLI saves the desk through `/api/session/save` with the continuation; the relaunched daemon delivers it once, after that tab's own resumed session is agent-ready (`codeterm docs TAB-LIFECYCLE`, "Resume after restart"). Every other agent that was mid-turn gets one default continue the same way. The helper:
-1. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
-2. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
-3. Launches the freshly installed `codeterm.exe`. It never writes to a tab.
-4. Logs to `%LocalAppData%\codeterm\self-install.log`.
-
-Fallback when CLI itself is broken or version-mismatched — use the standalone PowerShell script:
-```powershell
-powershell -ExecutionPolicy Bypass `
-  -File "$env:USERPROFILE\.codeterm\skills\self-install-local\scripts\self-install-local.ps1" `
-  -Installer "C:\Developer\codeterm\src-tauri\target\release\bundle\nsis\CodeTerm_X.Y.Z_x64-setup.exe" `
-  -Resume
-```
-
-The script lives in this skill's folder at `<repo>/.agents/skills/github-release/scripts/self-install-local.ps1`.
-
-Gotchas:
-- Don't pass `-Verb RunAs` to the installer. `installMode=currentUser` doesn't need elevation; RunAs triggers UAC and hangs on headless.
-- Helper survives the daemon, not your terminal tab — if invoked from a Domios-managed tab, the tab dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
-- A daemon older than the restart-continuation owner ignores the continuation (the CLI warns `predates restart continuation`); the first install INTO a build with the owner continues no tab.
-
-### Path 3 — full release publish
-
-The rest of this skill. Use when shipping to users. The local-install paths above are NOT a substitute; the public `latest.json` must be updated for end-users' auto-update to work.
-
-## Why no specialized "devops" agent
-
-As of 2026-05-12 this skill is the canonical release procedure. No `.claude/agents/devops.md` exists. When the user says «релиз», «выпусти vX.Y.Z», «ship it», any Lead or Sonnet worker can execute by fetching this skill from mem (`codeterm mem get skill_end_to_end_github_release_for_codeterm`) and following it end-to-end. Single source of truth, no drift between `.md` and `mem`.
-
-## Known gaps (fix opportunistically)
-
-- `./build.sh build` should staple the DMG wrapper automatically — currently manual step in §5. Worth patching `build.sh` to mirror what `scripts/release-macos-x86_64.sh` already does.
-- Release workflows still need a green dry-run after `PACKAGE_REPOS_TOKEN` rotation; manual mirror fallback above is the escape hatch when source artifacts are valid but mirror upload fails.
-- Brew tap bump is manual — a `scripts/release-bump-brew.sh` could read the release JSON and rewrite the cask in one shot.
-- `tailscale file get` on Windows ignores GUI-Tailscale-received files (they land in `~/Downloads`, not the CLI inbox). Worth verifying / filing upstream.
-
-
-## Build timing and no-waste contract
-
-Release inputs and the Tauri build use the same `CARGO_TARGET_DIR`, target triple,
-`CARGO_INCREMENTAL=0`, and `embeddings` feature set. `release-inputs` prepares both the
-`codeterm` application and `codeterm-embed` bins in one Cargo invocation, so Tauri can reuse
-the dependency graph. The reusable platform jobs do not use Rust target caches; clean
-checkouts therefore remain explicit and reproducible.
-
-The 1.10.22 baseline was captured from runs `35009190163` (Mac), `35009189838` (Windows),
-and `35009190153` (Linux):
-
-| Lane | Before change | Waste measured |
-|---|---:|---|
-| Mac arm64 / x86_64 | 418s / 427s, sequential | first-arch notarization blocked the second build |
-| Windows arm64 | release-inputs 7m04s; Tauri 5m30s; cache save 42s | app target was selected in separate Cargo invocations; target upload failed |
-| Windows x86_64 | release-inputs 8m01s; Tauri 5m15s; cache save 43s | same separate target selection; target upload failed |
-| Linux x86_64 | release-inputs 18m45s; Tauri 16m05s; cache save 1m33s | release-inputs used `target/release`, Tauri used `target/x86_64-unknown-linux-gnu/release` |
-| Completion signals | Mac queued 19m54s; Windows queued 7m37s | former validator jobs waited for `linux-build` |
-
-The Windows logs show the same `CARGO_BUILD_TARGET` and `CARGO_INCREMENTAL=0` in both steps,
-but no Cargo fingerprint or feature diagnostics. The verified source-level cause is that
-`release-inputs` selected `--bin codeterm-embed` and Tauri selected the `codeterm` application
-target in a second Cargo invocation; the new input command selects both bins together.
-
-After the next real release, record the corresponding step durations and tag-to-publish time
-in this table. Read-only timing capture (run IDs are the three workflow runs) is:
-
-```bash
-gh api repos/rollacode/codeterm/actions/runs/<run-id>/jobs --paginate \
-  --jq '.jobs[] | [.name, .started_at, .completed_at, .conclusion] | @tsv'
-```
-
-The next run should show four parallel platform callers inside one caller run, one `release-inputs`
-and one Tauri build per target, no cache-save step, and the final manifest job waiting on every
-platform job. The release remains incomplete until six-platform updater verification passes.
-
-
-## 7. Runner restoration boundaries
-
-Safe for an agent to do unilaterally:
-- Restart a runner service (`./svc.sh start`/`stop` on the Mac; the equivalent runner-service
-  restart on ROG) and confirm it shows **Idle** under repo Settings → Actions → Runners.
-- Re-export an env var whose correct value is already documented/backed up (e.g.
-  `CODETERM_MONTEREY_LIBCXX_DIR` pointing at an existing LLVM libc++ install).
-- Rebuild a Docker image from the checked-in Dockerfile.
-- `gh run rerun --failed` / `gh workflow run … -f tag=vX.Y.Z-rcN` (§5).
-
-Escalate to Andrey before doing:
-- Anything touching signing/notary credentials or the minisign key.
-- Provisioning a **new** runner/VM, or changing which physical machine is registered as
-  `codeterm-builder` / `windows-build` / `linux-build`.
-- A `master` force-push touching commits already present in both local copies, or any public
-  mirror destructive op (delete a release, change the updater endpoint URL, alter the pubkey).
-
-These mirror the catastrophic-ack list in the `github-release` skill's multi-machine protocol.
-
-
-## Issue closure contracts
-
-### Open the living PR body when the train starts, not when it ends
-
-The first act of a release train is `docs/release/<version>-pr.md`, created before the first lane is
-dispatched. It carries the plan id and goal, the slice-to-issue map, and empty "Fixed",
-"Investigated, not fixed", and "Deferred, with reasons" sections. Each slice appends its own block
-there **as its lane merges into `release/X.Y.Z`**, with one `Repository-Issue:` metadata line per
-issue it actually fixed.
-
-This exists because the alternative has failed in practice: reconstructing the closing set from
-`git log` at release time is when issues get missed, and a fix that closed an issue nobody recorded
-leaves that issue open for the next train to rediscover. Writing the entry at merge time costs one
-paragraph while the work is still in the author's head.
-
-Rules the renderer enforces, so they are not optional:
-
-- Only a `Repository-Issue:` line counts. A bare `#123` anywhere in the body fails validation — put
-  issue numbers in backticks in prose, tables, and deferral notes.
-- An issue you investigated but did not fix gets `Refs` and a backticked number, never a closing
-  keyword. Declaring a fix you did not ship is worse than declaring nothing.
-- A deferred issue is named in the body with its reason. "Not in this release" is a decision and
-  belongs in the record; silently dropping it is not.
-
-Before opening the final `release/X.Y.Z` → `master` PR, render the closing block rather than
-hand-writing it:
-
-```bash
-python3 scripts/release_issue_contract.py repository-closes --body-file docs/release/<version>-pr.md
-```
-
-Run it early and often — it is also the validator, and it fails the same way CI will.
-
-### The two-stage contract
-
-Source-repository issues use a separate two-stage contract. Integration PRs targeting
-non-default branches declare one exact line per fixed issue:
+| Windows/Linux full | `sha256` of final native client | `domios-server/domios-server[.exe]` |
+| macOS full | `macos_designated_requirement` | exactly `../MacOS/domios-server` |
+| Headless, every OS | `none` | `domios-server/domios-server[.exe]` |
+
+Full and headless manifests differ; their server digest/build/protocol identity and payload bytes
+must agree. Headless `none` never enrolls a native client. Windows/Linux resolve resources through
+Tauri resource_dir, not hardcoded installation paths. Platform overlays provide one server location.
+
+### macOS signing
+
+Sign/freeze CLI and nested server first. Tauri's sidecar source needs a byte-identical
+`domios-server-<rust-target>` alias; the installed server is `Contents/MacOS/domios-server`.
+The manifest is sealed at `Contents/Resources/server-component.json`.
+Its client identity contains team_id, identifier `com.codeterm.app`, and exactly:
 
 ```text
-Repository-Issue: rollacode/codeterm#294
+anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "<TEAMID>"
 ```
 
-The final `release/X.Y.Z` → `master` PR renders those declarations as `Closes #294`; merging that PR
-closes the issue. The validator rejects closing keywords on integration PRs because GitHub ignores
-them outside the default branch.
+Derive TEAMID from the approved signing identity. Do not embed the final outer app cdhash inside
+its own seal. Runtime verifies the authenticated process and containing app through Security.framework.
+No ad-hoc signer, raw-SHA/debug exception or unsigned adjacent manifest is permitted.
 
-A private-source PR or commit declares a public issue only with an exact,
-repository-qualified metadata line:
+`scripts/release-macos-bundle.mjs` assembles the app without re-signing frozen nested bytes,
+signs only the outer app, verifies byte equality and strict signing, creates the standard app-only
+DMG, mounts it read-only and verifies the payload. The existing notary helper submits/staples the
+DMG; staple/assess the app before creating its updater archive. Unexpected helper executables or
+Tauri re-signing fail loudly. Native execution must validate this path; injected fixtures are only
+source-contract evidence. Standard DMG, .app.tar.gz updater and self-install remain the transports.
+
+### Packaged runtime proof
+
+`scripts/release-pair-smoke.mjs` checks extraction, stage/manifest digests and exactly one server
+copy, then launches packaged server bytes in isolated temporary data/config roots on a private
+loopback port. It waits for READY under a deadline, verifies health/build identity, runs authenticated
+packaged CLI and requires clean shutdown. Token stays in child environment, never argv/URL/logs.
+Use the committed isolated-verification contract; do not launch against a user's production roots.
+
+Cross-architecture jobs still perform every byte check. Unsupported execution writes an explicit
+`unverified_cross_arch` receipt, never PASS. macOS x64 on Apple Silicon tries Rosetta first.
+Packaged native-client attach, browser authentication and cold update/restore need their own real
+platform evidence; headless smoke alone does not prove those surfaces.
+
+Headless users launch from the extracted root with
+`./domios-server/domios-server start --production --json` (Windows: the .exe equivalent).
+The default resource root is executable parent-parent; `--resources` overrides it. Authenticate
+through WebGate using protected local configuration. Never expose credentials in archive or output.
+
+## Credentials, caches and runners
+
+Use repository secrets and `scripts/release-signing-material.py`. macOS jobs import the approved
+certificate and pinned Apple intermediates into a unique RUNNER_TEMP keychain, validate team/identity
+and notary credentials, and clean up only their own keychain/files in always(). No persistent login
+keychain changes or copied private keys are a release prerequisite. Updater keys use temporary
+restricted files; Tauri needs `TAURI_SIGNING_PRIVATE_KEY` pointing to the prepared key file.
+Off-CI recovery copies live in Bitwarden, read with `codeterm mem secret get --name <slug>` and
+never printed: `codeterm-tauri-minisign-private-key` (updater signing, empty password; its public
+key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-env`. The Developer ID
+certificate is backed up only as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` repo secrets.
+Windows updater signatures are not Authenticode: no Authenticode signing is currently configured.
+
+Use the existing sccache policy and named cache-verify/cache-stats operations. Configured zero
+counters do not prove a live cache or reuse. Container evidence comes from its own cache server,
+not host statistics. Recovery/image baking follows the build-machine skill and assigned authority;
+no automatic reboots, pruning, runner provisioning or global configuration changes.
+Rust warning reports must be complete and zero-new-warning. Fix owning-platform warnings; never
+increase baseline allowances or treat missing/cancelled reports as clean. Retrieve CI report evidence
+through the existing ci-artifact tooling rather than assuming GitHub artifact storage.
+
+## Monitoring and failure recovery
+
+Read `codeterm docs BLUEPRINTS`. Use one named monitor per actual run ID; validate its probe once
+and verify blueprint show names that run's real bucket. Handle success, failure, cancellation,
+probe error and queued-too-long explicitly. Stop at terminal; never leave repeated failing probes,
+sleep/poll loops or duplicate watchers. A launch acknowledgement is not a completed build receipt.
+
+Fetch completed job logs while siblings run:
+
+```bash
+gh api repos/rollacode/codeterm/actions/runs/<run-id>/jobs --paginate
+gh api repos/rollacode/codeterm/actions/jobs/<job-id>/logs
+```
+
+Classify the first error as pipeline, product or machine failure. Fix owned pipeline defects with
+focused checks; route product defects with exact SHA/job/step/log. Collect remaining platform evidence
+without blind reruns. A source fix needs a new SHA/run; do not combine artifacts across candidates.
+For a proven environmental failure on unchanged source, rerun only the failed job after recovery.
+After publication starts, recover the original manifest/promote job rather than rebuilding that version.
+
+Manual fallback uses the same committed build/stage/readback helpers on an authorized peer through
+the build gateway, isolated checkout and output directory. Inspect helpers before invoking: some
+legacy wrappers upload or install. Missing signing/notary inputs remain an explicit verification gap;
+unsigned diagnostics cannot be called signed releases. No file swaps or process-kill workaround.
+
+## Publication, notes and issue closure
+
+Private source: `rollacode/codeterm`. Public updater mirror: `rollacode/codeterm-releases`.
+Manifest URLs must be anonymously reachable public assets. macOS updater uses arch-specific
+.app.tar.gz, Linux AppImage, Windows NSIS .exe; a DMG is not a macOS updater archive.
+Keep signatures/fragments paired to the exact bytes from their producing run.
+
+The final job assembles all six updater keys (darwin/windows/linux × aarch64/x86_64), verifies
+private draft bytes, publishes and verifies public served bytes with a cache-busted URL and required
+version/platforms using `scripts/verify-updater-manifest.mjs`. HTTP 200 alone proves no installability.
+A partial recovery cannot mint complete release evidence. Manual mirror repair needs owner GO and
+must reuse original verified artifacts/fragments, not handwrite a reduced latest.json.
+
+Served bytes are not the whole proof: on a host still running the previous version,
+`codeterm update install --auto` must install this release and come back on the new pair with
+sessions restored. A published defect ships as the next patch version through this same train;
+never move a tag or re-upload changed bytes under a published version.
+
+`sync-release-notes.mjs` maintains one substantive notes body across both repositories. Historical
+backfill mutates published notes and needs explicit authorization.
+
+Declare fixed issues as exact metadata, one per line:
 
 ```text
-Public-Issue: rollacode/codeterm-releases#123
+Repository-Issue: rollacode/codeterm#<number>
+Public-Issue: rollacode/codeterm-releases#<number>
 ```
 
-Use one line per issue. In PR bodies, duplicates, malformed or wrong-repository metadata, prose
-`#123` references, and GitHub closing keywords fail validation. Commit messages ignore incidental
-issue prose but reject malformed `Public-Issue:` metadata. The validator uses
-`GH_RELEASE_TOKEN` to prove every declared issue exists in `rollacode/codeterm-releases` and
-prints the normalized set in the check summary. This metadata is deliberately not a GitHub
-closing keyword, so merging private source cannot close a public issue prematurely.
+Integration PRs use metadata; the final master PR gets generated closing keywords through
+`release_issue_contract.py repository-closes`, `reconcile` and `audit-commits`. Record investigated
+and deferred issues with reasons; do not invent fixes or handwrite a second closing set.
+Public issues close only after this version's complete served-byte verification passes
+`check-release-closure.mjs`. The closure boundary records validator run ID/repository/URL and source
+SHA; readers confirm that successful run through Actions. Missing/unverifiable boundaries are
+refused, never inferred from asset presence or release ownership.
 
-The single `release.yml` run has four parallel reusable platform callers and a final
-`release-manifest` job whose `needs` includes all four, fast checks and Rust tests. That final job rebuilds `latest.json` and
-the Debian manifest from every uploaded updater fragment, uploads both manifests to the source
-release and public mirror, publishes the releases, and verifies the public served bytes. Only a
-successful verification proceeds to resolve commits and associated private PRs in the release
-range, union their validated metadata, and close still-open public issues. Each close comment names
-`vX.Y.Z` and a declaring commit or private PR URL. Already-closed issues are skipped, making
-reruns idempotent.
+## Handoff and closeout
 
-The close step is downstream of build, private/public publication, and mirror verification.
-Queued, cancelled, skipped, failed, or mirror-unverified runs therefore execute no issue mutation.
+Keep a handoff file current with candidate and workflow SHAs, run URL/ID, inputs, actual per-job
+runner names, first failures and owners, build counts per target, artifact names/sizes/SHA256,
+full/headless server/CLI equality, extraction/checksum readback, smoke receipts and every unrun or
+UNVERIFIED platform. Record signing/notarization/update gaps and any routing/config changes explicitly.
+Deliver results once through `codeterm agent report`; milestones and blockers may be short updates.
 
-### The closure boundary names the run that minted it
+After publication, verify the updater/install/restore surfaces authorized by the owner. Cleanup
+follows the lane-cleanup and build skills, with ancestry checks and preserved unmerged work;
+never sweep caches or delete worktrees merely because the release ended.
 
-`issue-closure-boundary.json` marks the last release whose public mirror was verified, and
-`release_issue_contract.py range-start` reads it to decide where the next release's commit range
-begins. It used to be accepted on presence: v1.10.11 carries a boundary dated a day the validator
-did not run, so a range start was taken from a release nothing had verified.
+Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
+[macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-The minted asset therefore carries `validator_run_id`, `validator_repository` and
-`validator_run_url` — the validator run that produced it. Reading it back, the validator downloads
-each historical boundary, asks Actions for the run it names, and accepts the release only when
-that run is the release workflow run, concluded `success`, and the boundary's `source_sha`
-is the release's own commit. A boundary with no run id, or one whose run Actions cannot confirm,
-is refused and `range-start` falls back to the previous release that can be confirmed. Refusing
-widens the commit range, which over-reports candidate issues; accepting an unverified boundary
-narrows it, which silently drops shipped work. Reading a run back from the Actions API needs
-`actions: read` on the job token.
-
-Boundaries minted before run ids were added carry no run id and are refused by design. Re-mint one
-by rerunning the `release-manifest` job in the successful `release.yml` run. Historical boundaries
-from the former standalone validator remain accepted when Actions confirms their run path.
-
-Closure authority is evidence-bound, never role-bound. Owning the release is not grounds; the
-grounds are a passing published-manifest verification for **this** release, and the close cites
-that run:
-
-```bash
-node scripts/check-release-closure.mjs \
-  --evidence "$RUNNER_TEMP/manifest-verification.json" \
-  --version "$VER" --issue 55
-```
-
-It refuses, each with its own reason, when the verification never ran, when it failed, when it ran
-without a cache-buster (GitHub serves a replaced asset stale for minutes, so an uncached fetch can
-verify the previous run's bytes and call this release good), when the record belongs to another
-release, when it cites no manifest URL scoped to the public release repo, and when any required
-platform went unverified. Ambiguous evidence is refused rather than treated as a pass. `release.yml` runs it
-before the first `gh issue close`.
-
-Reconcile the release PR body against the range that merged rather than trusting either alone:
-
-```bash
-python3 scripts/release_issue_contract.py reconcile \
-  --body-file <release-pr-body.md> \
-  --commits-file <commits.json> --prs-file <prs.json>
-python3 scripts/release_issue_contract.py audit-commits \
-  --commits-file <commits.json> --body-file <release-pr-body.md>
-```
-
-`reconcile` renders the `Closes #N` block only when the body declares exactly the issues the range
-fixed - no invented entry, no dropped one. `audit-commits` fails on a closing keyword naming an
-issue outside that set and on a fixed issue no commit claims. Put the rendered lines in the final
-PR body verbatim; a hand-typed closing block is a second, unchecked source of the closing set.
-Cross-repository reads and writes always name `rollacode/codeterm-releases` explicitly and use
-`GH_RELEASE_TOKEN`; `$GITHUB_REPOSITORY` is used only to read private source PR associations.
-
-
-## Release notes contract
-
-Every published version has one canonical notes body shared by the private source release and the
-public download mirror. The main release workflow runs `scripts/sync-release-notes.mjs --tag vX.Y.Z`
-after both releases exist and before served-byte verification. An authored source body is preserved;
-an empty or known placeholder body is replaced with the release PR summary, falling back to
-GitHub-generated notes only when no substantive PR body exists.
-
-Backfill the latest published releases with the same fail-closed rule:
-
-```bash
-node scripts/sync-release-notes.mjs --backfill 10
-```
-
-The command refuses missing mirror releases, empty generated notes, and bodies too short to be
-meaningful. It then writes the exact same Markdown to both repositories.
-
-## Internal references
-
-Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
-
-- [references/updater-internals.md](references/updater-internals.md) — the auto-install flow
-
-<!-- revision: 1 -->
-
-## Rust warning inventory and cleanup
-
-Every release target and test archive/clippy build uploads a `rust-warnings-<lane>-<target>.json`
-artifact. The always-running warning summary publishes per-target, per-lint and per-file tables
-in its job summary. Download `rust-warnings-release-report` (or `rust-warnings-tests-report`)
-for `rust-warnings-report.md` and `rust-warnings-report.json`; the release summary also comments
-on associated release PRs. JSON diagnostics include crate, location, lint, message and snippet.
-Capture/upload/comment failures do not change platform build results; new warning identities fail
-the summary ratchet. Incomplete runs are labelled and never propose a baseline update.
-
-`scripts/rust-warnings-baseline.json` starts explicitly uninitialized: do not invent counts or
-seed it from local macOS output. After the first complete real release run, copy the generated
-`rust-warnings-baseline.json` from `rust-warnings-release-report` into the repository and commit
-it on develop, citing the run URL. No workflow dispatch is needed to initialize the mechanism.
-Until that seed is committed, reports explicitly say the ratchet is awaiting initialization.
-
-The post-release cleanup task consumes the full JSON report, groups by target/file/lint, and
-fixes cfg-specific warnings on their owning platform (including Windows arm64). After a complete
-run verifies the fixes, commit its proposed baseline alongside the cleanup. Subsequent baseline
-entries/counts may only shrink relative to origin/develop; adding a replacement warning at the
-same count still fails. A test-only run preserves baseline targets it did not build. Never copy
-an incomplete run's inventory over the baseline or hand-increase an allowance.
-
-Focused collector verification: `node --test scripts/tests/collect-rust-warnings.test.mjs`.
-Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
-of collector verification; the next real release proves the six-platform delivery and PR comment.
+<!-- revision: 6 -->

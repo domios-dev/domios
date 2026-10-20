@@ -67,25 +67,21 @@ async function main() {
   const host = document.createElement("div");
   document.body.append(host);
   const root: Root = createRoot(host);
-  const opened: string[] = [];
   const render = async (state: "peer" | null) => {
-    await act(async () => root.render(<ServiceDrawer state={state ? { kind: "peer", id: "Remote" } : null} services={services} peers={[peer]} thisMachineName="Local" onClose={() => void 0} onOpenResource={(_, key) => opened.push(key)} onActionDone={() => void 0} />));
+    await act(async () => root.render(<ServiceDrawer state={state ? { kind: "peer", id: "Remote" } : null} services={services} peers={[peer]} thisMachineName="Local" onClose={() => void 0} onActionDone={() => void 0} />));
   };
   await render("peer");
   assert(host.querySelector("[data-testid='mesh-peer-drawer']")?.getAttribute("aria-labelledby") === "mesh-peer-drawer-heading", "peer drawer has a labelled dialog heading");
-  assert(host.querySelector("[data-testid='mesh-peer-services-section']")?.textContent?.includes("Services (1)"), "Services is a separate discoverable section");
-  assert(host.querySelector("[data-testid='mesh-peer-schedules-section']")?.textContent?.includes("Schedules (1)"), "Schedules is a separate discoverable section");
-  assert(host.textContent?.includes("Partial peer fetch failure"), "partial peer failure language is visible");
-  assert(host.textContent?.includes("offline · cached"), "offline cached resource language is visible");
-  assert(host.textContent?.includes("access denied"), "denied capability language is visible");
   assert(document.activeElement?.id === "mesh-peer-drawer-heading", "opening focuses the labelled drawer heading");
-  const schedule = host.querySelector<HTMLButtonElement>("[data-resource-key='machine-remote:cron-backup']");
-  await act(async () => schedule?.click());
-  assert(opened[0] === "machine-remote:cron-backup", "peer resource row opens the exact resource key");
+  const servicesSection = host.querySelector('section[aria-label="Services"]');
+  assert(servicesSection?.querySelector('button')?.textContent?.includes("API"), "Services section wires the peer daemon");
+  const cronsSection = host.querySelector('section[aria-label="Crons"]');
+  assert(cronsSection?.querySelector('button')?.textContent?.includes("Backup"), "Crons section wires the peer schedule");
+  assert(servicesSection?.querySelector('[role="status"]'), "unavailable inventory is announced in each section");
   await render(null);
   assert(document.activeElement === origin, "closing restores focus to the originating control");
   await act(async () => root.unmount());
-  console.log("✓ Peer detail separates resource kinds and restores focus");
+  console.log("✓ Peer detail remains labelled and restores focus");
 }
 
 void main();

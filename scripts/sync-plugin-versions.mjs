@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Caller: build.sh release-preflight; CI release.yml; package.json script; scripts ci-scope.mjs, tests/plugin-releases.test.mjs
 import fs from "node:fs";
 import path from "node:path";
 import { channelPlugins } from "./plugin-release-metadata.mjs";

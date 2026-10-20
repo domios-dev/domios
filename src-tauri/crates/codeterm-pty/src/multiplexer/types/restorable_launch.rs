@@ -27,6 +27,10 @@ impl ReasoningEffortIdentity {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RestorableLaunchParameters {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_sandbox: Option<codeterm_types::plan::ExecutionSandboxPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub structured_runtime_mode: Option<String>,
@@ -59,8 +63,24 @@ pub struct RestorableLaunchParameters {
 }
 
 impl RestorableLaunchParameters {
+    pub fn restored_reasoning_effort_identity(
+        &self,
+        mut identity: ReasoningEffortIdentity,
+    ) -> ReasoningEffortIdentity {
+        if !self.is_empty() {
+            identity.requested = self.requested_reasoning_effort.clone();
+            identity.resolved = self.resolved_reasoning_effort.clone();
+            identity.actual = None;
+            identity.actual_source = (identity.requested.is_some() || identity.resolved.is_some())
+                .then(|| "provider-default-unverified".to_string());
+        }
+        identity
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.failed_provider.is_none()
+        self.execution_mode.is_none()
+            && self.execution_sandbox.is_none()
+            && self.failed_provider.is_none()
             && self.structured_runtime_mode.is_none()
             && self.context_files.is_none()
             && self.context_skills.is_none()

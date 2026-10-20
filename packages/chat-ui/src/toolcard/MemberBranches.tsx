@@ -1,3 +1,4 @@
+import { BoundedMessageContent } from "../BoundedMessageContent";
 import { assignedCommand, toolCommand, type FileDiffHunk, type ToolEvent } from "@codeterm/chat-core";
 import { useState } from "react";
 import { ToolOutputContent } from "../ToolOutputContent";
@@ -127,9 +128,9 @@ function BranchDetailView({ detail }: { detail: BranchDetail }) {
     return <div data-testid="chat-branch-output"><ToolOutputContent text={detail.text} maxHeight="12rem" /></div>;
   }
   return (
-    <pre data-testid="chat-branch-command" className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
+    <BoundedMessageContent collapsedHeight={"12rem"} as="pre" data-testid="chat-branch-command" className="m-0 whitespace-pre-wrap break-words font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
       {detail.command}
-    </pre>
+    </BoundedMessageContent>
   );
 }
 

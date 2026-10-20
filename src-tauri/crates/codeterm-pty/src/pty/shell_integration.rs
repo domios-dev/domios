@@ -20,6 +20,27 @@ use std::sync::Mutex;
 
 static SCRIPTS_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
+pub const AGENT_SHELL_ENV: &str = "CODETERM_AGENT_SHELL";
+
+pub(super) fn apply_agent_startup(cmd: &mut CommandBuilder, shell: &str, agent_shell: bool) {
+    #[cfg(target_os = "windows")]
+    if agent_shell && !cmd.is_default_prog() && is_powershell(shell) {
+        cmd.arg("-NoProfile");
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = (cmd, shell, agent_shell);
+}
+
+#[cfg(target_os = "windows")]
+fn is_powershell(shell: &str) -> bool {
+    std::path::Path::new(shell)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            name.eq_ignore_ascii_case("pwsh") || name.eq_ignore_ascii_case("powershell")
+        })
+}
+
 /// Data dir where shell integration scripts live.
 pub(super) fn integration_dir() -> PathBuf {
     codeterm_paths::data_dir().join("shell-integration")
@@ -53,7 +74,11 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
       function global:PSConsoleHostReadLine {
         $line = & $global:__CodeTermOriginalReadLine @args
         if (-not [string]::IsNullOrWhiteSpace($line) -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
-          [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
+          $escapedLine = [regex]::Replace($line, '[\\;\x00-\x1f\x7f]', {
+            param($match)
+            if ($match.Value -eq '\') { '\\' } else { '\x{0:x2}' -f [int][char]$match.Value }
+          })
+          [Console]::Write(([char]27 + ']633;E;' + $escapedLine + ';' + $global:__CodeTermShellNonce + [char]7))
           [Console]::Write(([char]27 + ']633;C' + [char]7))
         }
         $line
@@ -192,14 +217,7 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
 
     #[cfg(target_os = "windows")]
     {
-        let shell_name = std::path::Path::new(shell)
-            .file_stem()
-            .and_then(|name| name.to_str());
-        if !cmd.is_default_prog()
-            && shell_name.is_some_and(|name| {
-                name.eq_ignore_ascii_case("pwsh") || name.eq_ignore_ascii_case("powershell")
-            })
-        {
+        if !cmd.is_default_prog() && is_powershell(shell) {
             let script = dir.join("powershell.ps1");
             if script.exists() {
                 cmd.arg("-NoExit");
@@ -578,6 +596,39 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
+    fn only_agent_powershell_skips_profiles_and_keeps_integration() {
+        ensure_scripts();
+        for shell in ["powershell.exe", "pwsh.exe", "cmd.exe", "bash.exe"] {
+            for agent_shell in [false, true] {
+                let mut cmd = CommandBuilder::new(shell);
+                cmd.env("PATH", "inherited-provider-path");
+                cmd.env("OPAQUE_AUTH", "inherited-auth");
+                apply_agent_startup(&mut cmd, shell, agent_shell);
+                apply_env(&mut cmd, shell);
+                assert_eq!(
+                    cmd.get_argv().iter().any(|arg| arg == "-NoProfile"),
+                    agent_shell && is_powershell(shell)
+                );
+                assert_eq!(
+                    cmd.get_env("PATH"),
+                    Some(std::ffi::OsStr::new("inherited-provider-path"))
+                );
+                assert_eq!(
+                    cmd.get_env("OPAQUE_AUTH"),
+                    Some(std::ffi::OsStr::new("inherited-auth"))
+                );
+                if is_powershell(shell) {
+                    assert_eq!(
+                        cmd.get_argv().last().unwrap().to_string_lossy(),
+                        powershell_integration_command(&integration_dir().join("powershell.ps1"))
+                    );
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
     fn restore_contract_powershell_command_finished_requires_a_new_history_entry() {
         // The shipped script, for the same reason as the test above.
         let content = POWERSHELL_PS1;
@@ -630,7 +681,7 @@ if ((PSConsoleHostReadLine) -ne '') { throw 'Empty input changed' }
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert_eq!(
             stdout
-                .matches("\x1b]633;E;;own-nonce\x07\x1b]633;C\x07")
+                .matches("\x1b]633;E;line-argument;own-nonce\x07\x1b]633;C\x07")
                 .count(),
             1
         );

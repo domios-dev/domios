@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Bell } from "lucide-react";
 import type { Notification } from "../../lib/types";
 import { UI_TRAY_BTN } from "../shared/design";
 import { NotificationPanel } from "./NotificationPanel";
-import { anchoredPanelPosition } from "./notificationPanelPosition";
-export { anchoredPanelPosition } from "./notificationPanelPosition";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 interface NotificationBellProps {
   notifications: Notification[];
+  loading?: boolean;
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onDelete: (id: string) => void;
@@ -19,6 +18,7 @@ interface NotificationBellProps {
 
 export function NotificationBell({
   notifications,
+  loading = false,
   onMarkRead,
   onMarkAllRead,
   onDelete,
@@ -27,10 +27,8 @@ export function NotificationBell({
   onAnswer,
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ top: 38, right: 8, maxWidth: 360 });
   const [lookedAtId, setLookedAtId] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const unreadStatusId = useId();
   const newestUnread = notifications.reduce<Notification | null>((newest, notification) => {
     if (notification.read) return newest;
@@ -40,41 +38,13 @@ export function NotificationBell({
   // The dot means something arrived and you have not looked — never how many.
   const arrived = newestUnreadId !== null && newestUnreadId !== lookedAtId;
 
-  const updatePosition = useCallback(() => {
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setPosition(anchoredPanelPosition(rect, window.innerWidth));
-  }, []);
-
-  const toggle = useCallback(() => {
-    updatePosition();
-    setOpen((value) => !value);
-  }, [updatePosition]);
+  const toggle = useCallback(() => setOpen((value) => !value), []);
+  const close = useCallback(() => setOpen(false), []);
 
   // Looking is the clear action: an open panel keeps pace with what arrives.
   useEffect(() => {
     if (open) setLookedAtId(newestUnreadId);
   }, [open, newestUnreadId]);
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (buttonRef.current?.contains(target) || panelRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("resize", updatePosition);
-    document.addEventListener("pointerdown", closeOutside, true);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      document.removeEventListener("pointerdown", closeOutside, true);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open, updatePosition]);
 
   return (
     <>
@@ -106,13 +76,9 @@ export function NotificationBell({
       <span id={unreadStatusId} role="status" className="sr-only">
         {arrived ? "Unread notifications" : ""}
       </span>
-      {open && createPortal(
-        <div
-          ref={panelRef}
-          className="fixed z-[70]"
-          style={{ top: position.top, right: position.right, maxWidth: position.maxWidth }}
-        >
+      <AnchoredPopover open={open} anchor={buttonRef} placement="bottom-end" gap={6} onClose={close}>
           <NotificationPanel
+            loading={loading}
             notifications={notifications}
             onMarkRead={onMarkRead}
             onMarkAllRead={onMarkAllRead}
@@ -123,11 +89,9 @@ export function NotificationBell({
               onNavigate(tabId, workspaceId);
               setOpen(false);
             }}
-            onClose={() => setOpen(false)}
+            onClose={close}
           />
-        </div>,
-        document.body,
-      )}
+      </AnchoredPopover>
     </>
   );
 }

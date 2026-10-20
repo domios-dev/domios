@@ -17,6 +17,12 @@ fn parity_provider_compat_claude_manifest_and_default() {
         DiscoverModelsNativeStub.cli_compatibility(),
         undeclared.cli_compatibility()
     );
+    assert!(!native.worker_lane_settings().is_empty());
+    assert_eq!(native.worker_lane_settings(), js.worker_lane_settings());
+    assert_eq!(
+        DiscoverModelsNativeStub.worker_lane_settings(),
+        undeclared.worker_lane_settings()
+    );
 }
 
 #[test]

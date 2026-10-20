@@ -233,14 +233,16 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
   const expectedSurface = [
     "starterPromptText", "detectFromTitle", "detectFromOutput", "screenHasTui", "isOutputNoise",
     "hasEventMarkers", "detectEvents", "parsePrompt", "parseDirectoryTrustPrompt", "buildPromptResponse", "directoryTrustPromptResponse", "directoryTrustState",
-    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "buildResumeCommandWithContext", "sessionFilePath", "sessionExists", "sessionJsonlPath",
-    "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
+    "discoverModels", "buildLaunchCommand", "buildLaunchSpec", "buildResumeCommand", "buildResumeCommandWithContext", "sessionFilePath", "sessionExists", "sessionJsonlPath", "sessionResume",
+    "parseSessionDelta", "parseSessionRecords", "parseSessionMessageRecords", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
     "detectActiveSession", "enumerateSessions", "findSession", "folderTrustAnswered", "checkForUpdate", "isDirectoryTrusted", "detectSessionModel", "detectSessionReasoningEffort", "parseSessionMessages", "parseSessionObservations", "classifyTabState",
     "detectLaunchSession", "releaseTabLaunchArtifacts", "sweepLaunchArtifacts", "classifiedPromptAutoResponse",
-    "updatePromptSafeChoice", "runtimePlan", "runtimeResponse", "runtimeReduce",
+    "updatePromptSafeChoice", "providerSelfUpdateCapability", "runtimePlan", "runtimeResponse", "runtimeReduce", "runtimeStoredHistory", "runtimeStoredHistoryAvailable", "runtimeStoredRecords",
+    "openSession", "sendMessage", "poll", "closeSession", "viewCall", "discoverRemoteTask",
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
+  eq(loadHostPlugin().sessionResume(), { exact: true }, "exact session resume is explicitly declared");
   assert(
     sourceFiles(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src"))
       .every((file) => fs.readFileSync(file, "utf8").split(/\r?\n/).length < 1200),

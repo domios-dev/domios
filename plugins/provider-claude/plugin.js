@@ -24,153 +24,34 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
-// plugins/provider-claude/src/launchPromptRule.json
-var launchPromptRule_default = "Ask every question through codeterm notify send --choice; never use your own question tool or menus.";
-
-// plugins/provider-claude/src/launchPrompt.ts
-function writeClaudeLaunchPrompt(task) {
-  const suffix = ".ct-task-" + Math.random().toString(16).slice(2, 10);
-  const fragment = task + "\n\n" + launchPromptRule_default;
-  const body = host.platform() === "windows" ? "\uFEFF" + fragment : fragment;
-  return host.fs.writeTempFile(body, suffix);
-}
-
-// plugins/provider-claude/src/imageMetadata.ts
-var IMAGE_GEOMETRY = /^\[Image: original \d+x\d+, displayed at \d+x\d+\. Multiply coordinates by \d+(?:\.\d+)? to map to original image\.\]$/;
-function isImageDisplayMetadata(entry) {
-  return entry.type === "user" && entry.isMeta === true && typeof entry.message?.content === "string" && IMAGE_GEOMETRY.test(entry.message.content.trim());
-}
-
-// plugins/provider-shared/updateCheck.ts
-function record(raw) {
-  if (typeof raw !== "string") return null;
-  try {
-    const value = JSON.parse(raw);
-    return value !== null && typeof value === "object" ? value : null;
-  } catch {
-    return null;
+// plugins/provider-shared/sessionRecords.ts
+function* sessionRecords(input, accepts) {
+  if (typeof input !== "string") {
+    for (const record3 of input) yield { row: record3.row, value: record3.value };
+    return;
   }
-}
-function versionParts(version) {
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
-  const parts = version.split(".").map(Number);
-  return parts.every(Number.isSafeInteger) ? parts : null;
-}
-function compare(left, right) {
-  const a = versionParts(left), b = versionParts(right);
-  if (!a || !b) return null;
-  for (let index = 0; index < 3; index++) {
-    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
-  }
-  return 0;
-}
-function matchesRange(version, range) {
-  return range.split(",").every((clause) => {
-    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
-    if (!match) return false;
-    const order = compare(version, match[2]);
-    if (order === null) return false;
-    switch (match[1] ?? "=") {
-      case ">=":
-        return order >= 0;
-      case "<=":
-        return order <= 0;
-      case ">":
-        return order > 0;
-      case "<":
-        return order < 0;
-      default:
-        return order === 0;
+  const lines = String(input || "").split("\n");
+  for (let row = 0; row < lines.length; row++) {
+    const line = lines[row];
+    if (!line || accepts && !accepts(line)) continue;
+    let value;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      continue;
     }
-  });
-}
-function newestSupportedVersion(versions, compatibility) {
-  return versions.reduce((best, version) => {
-    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
-    return best === null || compare(version, best) === 1 ? version : best;
-  }, null);
-}
-function checkProviderUpdate(host2, binary, metadataUrl, compatibility) {
-  const installed = record(host2.exec(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
-  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
-  const currentVersion = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
-  if (!currentVersion || !versionParts(currentVersion)) return null;
-  const response = record(host2.fetch(JSON.stringify({
-    url: metadataUrl,
-    method: "GET",
-    timeoutMs: 6e3,
-    headers: { Accept: "application/vnd.npm.install-v1+json" }
-  })));
-  if (response?.status !== 200) return null;
-  const metadata = record(response.body);
-  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
-  if (compatibility) {
-    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
-    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
-  }
-  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : null;
-}
-
-// plugins/provider-claude/src/update.ts
-function checkClaudeUpdate() {
-  return checkProviderUpdate(host, "claude", "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest");
-}
-
-// plugins/provider-claude/src/preTrust.ts
-function claudeProjectKey(canonical, windows) {
-  if (!windows) return canonical;
-  return canonical.replace(/\\/g, "/").replace(/^\/\/\?\/UNC\//, "//").replace(/^\/\/\?\//, "").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
-}
-function claudeTrustRecord(host2, cwd, grant) {
-  const root = host2.envGet("CLAUDE_CONFIG_DIR") || host2.homeDir();
-  const canonical = host2.canonicalPath(cwd);
-  if (!root) return { status: "skipped", reason: "configuration root unavailable" };
-  if (!canonical) return { status: "skipped", reason: "launch cwd cannot be resolved" };
-  const windows = host2.platform() === "windows";
-  const absoluteRoot = windows ? /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(root) : root.startsWith("/");
-  if (!absoluteRoot) return { status: "skipped", reason: "configuration root unavailable" };
-  const key = claudeProjectKey(canonical, windows);
-  const path = root.replace(/[\\/]$/, "") + "/.claude.json";
-  try {
-    return JSON.parse(host2.jsonBooleanRecord(path, JSON.stringify(["projects", key, "hasTrustDialogAccepted"]), grant));
-  } catch {
-    return { status: "failed", reason: "record capability failed" };
+    yield { row, value };
   }
 }
 
-// plugins/provider-shared/updatePrompt.ts
-function updatePromptSafeChoice(prompt) {
-  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
-    return null;
-  }
-  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
-  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
-  const chosen = safe.length === 1 ? safe : bare;
-  if (chosen.length !== 1) return null;
-  const [label, value] = chosen[0];
-  if (!value || /\bupdate\b/i.test(label)) return null;
-  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
-  return value;
+// plugins/provider-shared/nativeArgument.ts
+function quoteWindowsArgument(value) {
+  return '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/\\+$/, "$&$&") + '"';
 }
-
-// plugins/provider-claude/src/shared.ts
-function manifest() {
-  try {
-    return JSON.parse(host.manifestJson() || "null");
-  } catch (e) {
-    return null;
-  }
-}
-
-// plugins/provider-claude/src/permissionHook.ts
-function permissionHookCapability() {
-  return {
-    protocol: "claude-permission-request",
-    options: [
-      { label: "Allow", value: "allow" },
-      { label: "Deny", value: "deny" }
-    ]
-  };
+function quoteNativeArgument(value, platform, quote) {
+  const literal = quote(value, platform);
+  if (platform !== "windows") return literal;
+  return `$(if ($PSVersionTable.PSVersion -ge [version]'7.3') { ${literal} } else { ${quote(quoteWindowsArgument(value), platform)} })`;
 }
 
 // plugins/provider-claude/model-capabilities.json
@@ -245,13 +126,13 @@ function parseContextUsage(record3) {
   }
   const statusline = record3.context_window;
   const hasStatusline = Object.prototype.hasOwnProperty.call(record3, "context_window");
-  const usage = hasStatusline ? statusline?.current_usage : record3.type === "assistant" ? record3.message?.usage : null;
-  if (!usage || typeof usage !== "object") return null;
-  const input = count(usage.input_tokens);
-  const creation = usage.cache_creation_input_tokens === void 0 ? 0 : count(usage.cache_creation_input_tokens);
-  const read = usage.cache_read_input_tokens === void 0 ? 0 : count(usage.cache_read_input_tokens);
+  const usage2 = hasStatusline ? statusline?.current_usage : record3.type === "assistant" ? record3.message?.usage : null;
+  if (!usage2 || typeof usage2 !== "object") return null;
+  const input = count(usage2.input_tokens);
+  const creation = usage2.cache_creation_input_tokens === void 0 ? 0 : count(usage2.cache_creation_input_tokens);
+  const read = usage2.cache_read_input_tokens === void 0 ? 0 : count(usage2.cache_read_input_tokens);
   if (input === null || creation === null || read === null || input + creation + read > LIMIT) return null;
-  const window = count(statusline?.context_window_size !== void 0 ? statusline.context_window_size : usage.context_window_size !== void 0 ? usage.context_window_size : 0);
+  const window = count(statusline?.context_window_size !== void 0 ? statusline.context_window_size : usage2.context_window_size !== void 0 ? usage2.context_window_size : 0);
   if (window === null) return null;
   const rawCost = record3.cost?.total_cost_usd;
   const cost = typeof rawCost === "number" && Number.isFinite(rawCost) && rawCost >= 0 && rawCost <= 1e6 ? rawCost : null;
@@ -337,13 +218,321 @@ function statuslineLaunchArgs(args) {
   return [...composed.slice(0, -1), path];
 }
 
+// plugins/provider-claude/src/launchPromptRule.json
+var launchPromptRule_default = "Ask every question through codeterm notify send --choice; never use your own question tool or menus.";
+
+// plugins/provider-claude/src/launchPrompt.ts
+function writeClaudeLaunchPrompt(task) {
+  const suffix = ".ct-task-" + Math.random().toString(16).slice(2, 10);
+  const fragment = task + "\n\n" + launchPromptRule_default;
+  const body = host.platform() === "windows" ? "\uFEFF" + fragment : fragment;
+  return host.fs.writeTempFile(body, suffix);
+}
+
+// plugins/provider-claude/src/launchSpec.ts
+var FILE_TASK_PROMPT = "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
+var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+function starterPrompt(prompt, hostText) {
+  if (hostText) return hostText;
+  if (prompt === "no_starter") return void 0;
+  if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
+  return FILE_TASK_PROMPT;
+}
+function hostOwnedLaunchArgs(hostOwned) {
+  const tools = [
+    ...hostOwned?.questions ? ["AskUserQuestion"] : [],
+    ...hostOwned?.todos ? ["TodoWrite"] : []
+  ];
+  return tools.length ? ["--disallowedTools", tools.join(",")] : [];
+}
+function hasResume(input) {
+  const resume = input.resume;
+  return typeof resume === "object" && resume !== null && "sessionId" in resume && typeof resume.sessionId === "string";
+}
+function buildClaudeLaunchSpec(input) {
+  if ("resume" in input && !hasResume(input)) return null;
+  const params = hasResume(input) ? {
+    args: ["--resume", input.resume.sessionId, ...input.resume.args || []],
+    task: input.resume.systemPrompt ?? void 0,
+    skipPermissions: input.resume.skipPermissions,
+    hostOwned: input.resume.hostOwned,
+    starterPrompt: "no_starter"
+  } : input;
+  const args = [];
+  if (params.skipPermissions) args.push("--dangerously-skip-permissions");
+  if (params.agentName) args.push("--agent", params.agentName);
+  if (params.sessionId) args.push("--session-id", params.sessionId);
+  const extra = statuslineLaunchArgs(params.args || []);
+  if (!extra) return null;
+  args.push(...extra);
+  args.push(...hostOwnedLaunchArgs(params.hostOwned));
+  const path = writeClaudeLaunchPrompt(params.task || "");
+  if (!path) return null;
+  args.push("--append-system-prompt-file", path);
+  const prompt = params.task ? starterPrompt(params.starterPrompt, params.starterPromptText) : void 0;
+  if (prompt) {
+    const framed = params.starterPromptPrefix ? params.starterPromptPrefix + prompt + "</domios>" : prompt;
+    args.push("--", framed);
+  }
+  return { program: "claude", args, envSet: {}, envUnset: ["CLAUDECODE"] };
+}
+function buildClaudeLaunchCommand(params) {
+  const spec = buildClaudeLaunchSpec(params);
+  if (!spec) return "";
+  const unset = host.platform() === "windows" ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
+  const parts = [unset, spec.program];
+  let previous = "";
+  for (const arg of spec.args) {
+    if (previous === "--") parts.push(quoteNativeArgument(arg, host.platform(), host.shell.quoteFor));
+    else if (["--agent", "--session-id", "--append-system-prompt-file"].includes(previous)) {
+      parts.push(host.shell.quoteFor(arg, host.platform()));
+    } else {
+      parts.push(/^[A-Za-z0-9_\-.,:=@/+%]+$/.test(arg) ? arg : host.shell.quoteFor(arg, host.platform()));
+    }
+    previous = arg;
+  }
+  return parts.join(" ");
+}
+
+// plugins/provider-claude/src/switchConfirmation.ts
+function parseSwitchConfirmationPrompt(screen, selection) {
+  if (!selection || /\s|[\x00-\x1f]/.test(selection)) return null;
+  const lines = screen.replace(/\r\n?/g, "\n").trimEnd().split("\n");
+  const row = /^\s*(❯\s*)?([12])\.\s+(.+?)\s*$/;
+  const second = row.exec(lines[lines.length - 1] ?? "");
+  const first = row.exec(lines[lines.length - 2] ?? "");
+  if (!first || !second || first[2] !== "1" || second[2] !== "2") return null;
+  if (!first[1] || second[1]) return null;
+  const before = lines.slice(0, -2);
+  let questionIndex = -1;
+  for (let index = before.length - 1; index >= 0; index--) {
+    if (before[index].trim().endsWith("?")) {
+      questionIndex = index;
+      break;
+    }
+  }
+  if (questionIndex < 0 || before.slice(questionIndex + 1).filter((line) => line.trim()).length < 1) return null;
+  if (before.slice(questionIndex).some((line) => /[│┃┌└☐☑]|^\s*[❯>]\s*\d+\./.test(line))) return null;
+  const escaped = selection.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const token = new RegExp(`(?:^|[^a-z0-9_-])${escaped}(?:$|[^a-z0-9_-])`, "i");
+  if (!token.test(first[3]) || token.test(second[3])) return null;
+  return { question: before[questionIndex].trim(), options: [[first[3], "1"], [second[3], "2"]] };
+}
+
+// plugins/provider-claude/src/imageMetadata.ts
+var IMAGE_GEOMETRY = /^\[Image: original \d+x\d+, displayed at \d+x\d+\. Multiply coordinates by \d+(?:\.\d+)? to map to original image\.\]$/;
+function isImageDisplayMetadata(entry) {
+  return entry.type === "user" && entry.isMeta === true && typeof entry.message?.content === "string" && IMAGE_GEOMETRY.test(entry.message.content.trim());
+}
+
+// plugins/provider-claude/src/recordPrefix.ts
+function storedRecordType(line) {
+  const tokens = /"type"\s*:\s*"([^"\\]*)"|"(?:\\.|[^"\\])*"|[\{\[]/g;
+  const opening = tokens.exec(line);
+  if (opening?.[0] !== "{") return void 0;
+  for (let token = tokens.exec(line); token; token = tokens.exec(line)) {
+    if (token[1] !== void 0) return token[1];
+    if (token[0] === "{" || token[0] === "[") return void 0;
+  }
+  return void 0;
+}
+function shouldParseClaudeRecord(line, delta) {
+  const type = storedRecordType(line);
+  if (type === void 0 || type === "user" || type === "assistant") return true;
+  if (!delta) return false;
+  if (["system", "ai-title", "edited_text_file", "attachment"].includes(type)) return true;
+  return /"(?:permissionMode|isApiErrorMessage|toolUseResult|message|attachment)"\s*:|\\u/.test(line);
+}
+
+// plugins/provider-shared/updateCheck.ts
+function record(raw) {
+  if (raw !== null && typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  try {
+    const value = JSON.parse(raw);
+    return value !== null && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function versionParts(version) {
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) return null;
+  const parts = version.split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+function compare(left, right) {
+  const a = versionParts(left), b = versionParts(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < 3; index++) {
+    if (a[index] !== b[index]) return a[index] < b[index] ? -1 : 1;
+  }
+  return 0;
+}
+function matchesRange(version, range) {
+  return range.split(",").every((clause) => {
+    const match = clause.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) return false;
+    const order = compare(version, match[2]);
+    if (order === null) return false;
+    switch (match[1] ?? "=") {
+      case ">=":
+        return order >= 0;
+      case "<=":
+        return order <= 0;
+      case ">":
+        return order > 0;
+      case "<":
+        return order < 0;
+      default:
+        return order === 0;
+    }
+  });
+}
+function newestSupportedVersion(versions, compatibility) {
+  return versions.reduce((best, version) => {
+    if (!versionParts(version) || !compatibility.supported.some((range) => matchesRange(version, range)) || compatibility.breaking?.some((rule) => matchesRange(version, rule.range))) return best;
+    return best === null || compare(version, best) === 1 ? version : best;
+  }, null);
+}
+function installedVersion(result) {
+  const installed = record(result);
+  if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
+  const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
+  return version && versionParts(version) ? version : null;
+}
+function availableUpdate(currentVersion, result, compatibility) {
+  const response = record(result);
+  if (response?.status !== 200) return null;
+  const metadata = record(response.body);
+  let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
+  if (!compatibility && !latestVersion) return null;
+  if (compatibility) {
+    if (!metadata?.versions || typeof metadata.versions !== "object") return null;
+    latestVersion = newestSupportedVersion(Object.keys(metadata.versions), compatibility);
+  }
+  return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
+}
+function startedJob(raw) {
+  const job = record(raw)?.jobId;
+  return typeof job === "string" && job !== "" ? job : null;
+}
+function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
+  if (!probe) return null;
+  return host2.awaitJob(probe, (installed) => {
+    const currentVersion = parseInstalled(installed);
+    if (!currentVersion) return null;
+    const metadata = startedJob(host2.fetchStart(JSON.stringify({
+      url: metadataUrl,
+      method: "GET",
+      timeoutMs: 6e3,
+      headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" }
+    })));
+    if (!metadata) return null;
+    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
+  });
+}
+
+// plugins/provider-claude/src/update.ts
+function checkClaudeUpdate() {
+  return checkProviderUpdate(host, "claude", "https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest");
+}
+
+// plugins/provider-claude/src/preTrust.ts
+function claudeProjectKey(canonical, windows) {
+  if (!windows) return canonical;
+  return canonical.replace(/\\/g, "/").replace(/^\/\/\?\/UNC\//, "//").replace(/^\/\/\?\//, "").replace(/^[a-z]:/, (drive) => drive.toUpperCase());
+}
+function claudeTrustRecord(host2, cwd, grant) {
+  const root = host2.envGet("CLAUDE_CONFIG_DIR") || host2.homeDir();
+  const canonical = host2.canonicalPath(cwd);
+  if (!root) return { status: "skipped", reason: "configuration root unavailable" };
+  if (!canonical) return { status: "skipped", reason: "launch cwd cannot be resolved" };
+  const windows = host2.platform() === "windows";
+  const absoluteRoot = windows ? /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(root) : root.startsWith("/");
+  if (!absoluteRoot) return { status: "skipped", reason: "configuration root unavailable" };
+  const key = claudeProjectKey(canonical, windows);
+  const path = root.replace(/[\\/]$/, "") + "/.claude.json";
+  try {
+    return JSON.parse(host2.jsonBooleanRecord(path, JSON.stringify(["projects", key, "hasTrustDialogAccepted"]), grant));
+  } catch {
+    return { status: "failed", reason: "record capability failed" };
+  }
+}
+
+// plugins/provider-shared/updatePrompt.ts
+function updatePromptSafeChoice(prompt) {
+  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
+    return null;
+  }
+  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
+  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
+  const chosen = safe.length === 1 ? safe : bare;
+  if (chosen.length !== 1) return null;
+  const [label, value] = chosen[0];
+  if (!value || /\bupdate\b/i.test(label)) return null;
+  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
+  return value;
+}
+
+// plugins/provider-claude/src/shared.ts
+function manifest() {
+  try {
+    return JSON.parse(host.manifestJson() || "null");
+  } catch (e) {
+    return null;
+  }
+}
+
+// plugins/provider-claude/src/permissionHook.ts
+function permissionHookCapability() {
+  return {
+    protocol: "claude-permission-request",
+    options: [
+      { label: "Allow", value: "allow" },
+      { label: "Deny", value: "deny" }
+    ]
+  };
+}
+
 // plugins/provider-shared/accessError.ts
 function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
+var authExpiry = ["token_expired", "refresh_token_expired", "auth_expired", "auth_expiry"];
+var authentication = [
+  "401",
+  "403",
+  "authentication_error",
+  "auth",
+  "unauthorized",
+  "permission_error",
+  "permission_denied",
+  "forbidden",
+  "subscription_disabled",
+  "organization_disabled",
+  "oauth_refresh_failed",
+  "token_revoked",
+  "refresh_token_reused",
+  "refresh_token_invalidated",
+  "logged_out",
+  "signed_out",
+  "unauthenticated",
+  "authError"
+];
+var usage = ["usageLimitExceeded", "usage_limit", "sessionBudgetExceeded"];
+var rate = ["429", "rate_limit", "rate_limit_error", "rateLimitExceeded"];
+var server = ["overloaded", "overloaded_error", "serverOverloaded", "server_overloaded", "internalServerError", "internal_server_error"];
+function statusCode(value) {
+  if (typeof value === "number" && Number.isInteger(value)) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
 function classifyAccessError(error, record3) {
   const detail = object(error);
-  const info = object(detail?.codexErrorInfo);
+  const info = detail?.codexErrorInfo;
+  const infoObject = object(info);
   const fields = [
     typeof error === "string" ? error : null,
     detail?.type,
@@ -352,40 +541,64 @@ function classifyAccessError(error, record3) {
     detail?.statusCode,
     detail?.status_code,
     detail?.httpStatusCode,
-    detail?.codexErrorInfo,
-    ...Object.keys(info ?? {}),
-    ...Object.values(info ?? {}).map((value) => object(value)?.httpStatusCode),
+    typeof info === "string" ? info : null,
+    ...Object.keys(infoObject ?? {}),
+    ...Object.values(infoObject ?? {}).map((value) => object(value)?.httpStatusCode),
     record3.status,
     record3.statusCode,
     record3.status_code,
     record3.apiErrorStatus,
     record3.apiErrorCode
   ];
-  if (fields.some((value) => typeof value === "string" && (value.startsWith("oauth_") || value.startsWith("authentication_")))) return "authentication";
-  if (fields.some((value) => value === 401 || value === 403 || typeof value === "string" && [
-    "401",
-    "403",
-    "authentication_error",
-    "auth",
-    "unauthorized",
-    "permission_error",
-    "permission_denied",
-    "forbidden",
-    "subscription_disabled",
-    "organization_disabled",
-    "oauth_refresh_failed",
-    "token_expired",
-    "token_revoked",
-    "refresh_token_reused",
-    "refresh_token_expired",
-    "refresh_token_invalidated",
-    "logged_out",
-    "signed_out",
-    "unauthenticated",
-    "authError"
-  ].includes(value))) return "authentication";
-  if (fields.some((value) => value === 429 || value === "429" || value === "rate_limit" || value === "rate_limit_error" || value === "usageLimitExceeded")) return "rate_limit";
+  const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
+  const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
+  const status = (match) => fields.some((value) => {
+    const code = statusCode(value);
+    return code != null && match(code);
+  });
+  if (named(authExpiry)) return "auth_expiry";
+  if (named(["authError"]) || prefixed("oauth_") || prefixed("authentication_") || status((code) => code === 401 || code === 403) || named(authentication)) return "authentication";
+  if (named(usage)) return "usage_limit";
+  if (status((code) => code === 429) || named(rate)) return "rate_limit";
+  if (status((code) => code >= 500 && code <= 599) || named(server)) return "server_overloaded";
   return "other";
+}
+function readRetry(value) {
+  if (!value) return null;
+  for (const key of ["retryAfter", "retry_after", "retryAfterSeconds", "retry_after_secs", "retryAfterSecs"]) {
+    const field = value[key];
+    if (typeof field === "number" && Number.isInteger(field) && field >= 0) return field;
+    if (typeof field === "string" && /^\d+$/.test(field)) return Number(field);
+  }
+  return null;
+}
+function retryAfterSecs(error, record3) {
+  return readRetry(object(error)) ?? readRetry(record3);
+}
+function observationTurnId(record3) {
+  for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
+    const value = record3[key];
+    if (typeof value === "string" && value) return value;
+  }
+  const payload = object(record3.payload);
+  if (!payload) return null;
+  for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return null;
+}
+function observationRetrying(error, record3) {
+  return record3.willRetry === true || object(error)?.willRetry === true;
+}
+function observationExtras(error, record3) {
+  const extras = {};
+  const retry = retryAfterSecs(error, record3);
+  if (retry != null) extras.retry_after_secs = retry;
+  const turn = observationTurnId(record3);
+  if (turn) extras.turn_id = turn;
+  if (observationRetrying(error, record3)) extras.retrying = true;
+  return extras;
 }
 
 // plugins/provider-claude/src/signals.ts
@@ -414,7 +627,7 @@ function parseSessionObservations(value) {
   const isError = record3.isApiErrorMessage === true;
   const api_error = isError ? classifyAccessError(record3.error, record3) : null;
   const clears_api_error = record3.type === "assistant" && !isError && !!object2(record3.message);
-  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error } : null;
+  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error, ...observationExtras(record3.error, record3) } : null;
 }
 
 // plugins/provider-claude/src/backgroundWork.ts
@@ -1301,17 +1514,17 @@ function subAgentNotification(content) {
   const callId = xmlTagBody(block, "tool-use-id") ?? "";
   const agentId = xmlTagBody(block, "task-id") ?? "";
   const result = xmlTagBody(block, "result");
-  const usage = xmlTagBody(block, "usage");
-  if (!callId || !PLAIN_ID_RE.test(agentId) || result === null && usage === null) return null;
+  const usage2 = xmlTagBody(block, "usage");
+  if (!callId || !PLAIN_ID_RE.test(agentId) || result === null && usage2 === null) return null;
   return {
     callId,
     agentId,
     state: NOTIFICATION_STATES[xmlTagBody(block, "status") ?? ""] ?? "unknown",
     ...result ? { result } : {},
-    ...usage !== null ? {
-      tokens: count2(xmlTagBody(usage, "subagent_tokens")),
-      toolUses: count2(xmlTagBody(usage, "tool_uses")),
-      durationMs: count2(xmlTagBody(usage, "duration_ms"))
+    ...usage2 !== null ? {
+      tokens: count2(xmlTagBody(usage2, "subagent_tokens")),
+      toolUses: count2(xmlTagBody(usage2, "tool_uses")),
+      durationMs: count2(xmlTagBody(usage2, "duration_ms"))
     } : {}
   };
 }
@@ -1675,7 +1888,7 @@ function parseNumberedOptions(text2) {
     options.push({
       label,
       value: m[1],
-      highlighted: m[0].indexOf("\u276F") !== -1 || m[0].indexOf(">") !== -1,
+      highlighted: leadingMenuCursor(m[0]),
       selected: false,
       line: text2.slice(0, m.index).split("\n").length - 1
     });
@@ -1693,7 +1906,7 @@ function parseCheckboxOptions(text2) {
     options.push({
       label,
       value: String(options.length + 1),
-      highlighted: m[0].indexOf("\u276F") !== -1 || m[0].indexOf(">") !== -1,
+      highlighted: leadingMenuCursor(m[0]),
       selected: mark === "\u2611" || mark === "\u2612" || mark === "\u2714" || /\[[xX]\]/.test(mark),
       line: text2.slice(0, m.index).split("\n").length - 1
     });
@@ -1709,7 +1922,7 @@ function parseClaudeNumberedPrompt(text2) {
   const options = lastNumberedOptionCluster(allOptions);
   if (options.length < 2) return null;
   const lastOption = options[options.length - 1];
-  if (lines.slice(lastOption.line + 1).some((line) => /^\s*[❯›]\s*$/.test(line))) return null;
+  if (lines.slice(lastOption.line + 1).some(composerPromptLine)) return null;
   const hasActiveFooter = lines.some(
     (line, index) => index > lastOption.line && index <= lastOption.line + 5 && /(?:Esc\s*to\s*(?:cancel|reject|exit)|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend)/i.test(line)
   );
@@ -1721,6 +1934,16 @@ function parseClaudeNumberedPrompt(text2) {
     question,
     options: options.map((opt) => [opt.label, opt.value])
   };
+}
+function leadingMenuCursor(match) {
+  return /^\s*[❯>]/.test(match);
+}
+function composerPromptLine(line) {
+  const marked = /^[❯›](?:\s+([\s\S]*))?$/.exec(line.trim());
+  if (!marked) return false;
+  const body = (marked[1] || "").trim();
+  if (!body) return true;
+  return !/^(?:\d+|[A-C])[.)]\s/.test(body);
 }
 function lastNumberedOptionCluster(options) {
   let start = options.length - 1;
@@ -2084,7 +2307,11 @@ function activeClarifyingPromptBlock(screen) {
   return questions.length > 0 ? { questions, options: choice.options } : null;
 }
 function isActiveChoiceFooter(line) {
-  return /^(?:press\s+)?enter\s+\S/i.test(line.trim());
+  const trimmed = line.trim();
+  return /^(?:press\s+)?enter\s+\S/i.test(trimmed) || isCancelOnlyChoiceFooter(trimmed);
+}
+function isCancelOnlyChoiceFooter(line) {
+  return /^esc\s+to\s+cancel(?:\s*[·•]\s*tab\s+to\s+amend)?$/i.test(line);
 }
 function lastMeaningfulLineIndex(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -2193,6 +2420,7 @@ function claudePermissionPromptResponse(toolName, prompt, screen) {
 
 // plugins/provider-claude/src/hookOwnership.ts
 var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+var CODETERM_HOOK_TIMEOUT_SECONDS = 5;
 var CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
 var CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
 var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
@@ -2251,6 +2479,11 @@ function entriesCarryMarker(entries) {
     });
   });
 }
+function entriesHaveBoundedTimeout(entries) {
+  return entries.every((entry) => (entry.hooks || []).every((hook) => {
+    return !isCodetermHook({ hooks: [hook] }) || hook.timeout === CODETERM_HOOK_TIMEOUT_SECONDS;
+  }));
+}
 
 // plugins/provider-claude/src/plugin.ts
 var TITLE_RE = /claude/i;
@@ -2280,15 +2513,6 @@ var NOISE_FRAGMENTS = [
   "Monthly spend limit",
   "hold Space"
 ];
-var FILE_TASK_PROMPT = "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
-var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-function starterPrompt(prompt, hostText) {
-  if (hostText) return hostText;
-  if (prompt === "no_starter") return void 0;
-  if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
-  if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
-  return FILE_TASK_PROMPT;
-}
 function taskNotificationStatus(content) {
   const trimmed = content.trim();
   const start = trimmed.indexOf("<task-notification>");
@@ -2341,6 +2565,7 @@ function retainForeignPrecompactEntry(entry) {
   return remaining.length > 0;
 }
 var plugin = {
+  sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
   tracksBackgroundWork: () => true,
@@ -2438,6 +2663,7 @@ var plugin = {
     return events;
   },
   updatePromptSafeChoice,
+  parseSwitchConfirmationPrompt,
   parsePrompt(text2) {
     const onboarding = claudeOnboardingPrompt(text2);
     return onboarding && { question: onboarding.question, options: onboarding.options } || claudeFolderTrustPrompt(text2) || parseClaudeWizardPrompt(text2) || parseClaudeNumberedPrompt(text2) || parseClaudeLetteredPrompt(text2);
@@ -2470,43 +2696,9 @@ var plugin = {
   permissionPromptResponse(toolName, prompt, screen) {
     return claudePermissionPromptResponse(toolName, prompt, screen);
   },
-  // Launch command parity for native behavior across OS-specific execution modes.
-  buildLaunchCommand(params) {
-    const p = params || {};
-    const win = host.platform() === "windows";
-    const unset = win ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
-    const parts = [unset];
-    parts.push("claude");
-    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-    if (p.agentName) {
-      parts.push("--agent");
-      parts.push(host.shell.quoteFor(p.agentName, host.platform()));
-    }
-    if (p.sessionId) {
-      parts.push("--session-id");
-      parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
-    }
-    const launchArgs = statuslineLaunchArgs(p.args || []);
-    if (!launchArgs) {
-      host.log("error", "[claude-launch] cannot compose launch settings");
-      return "";
-    }
-    if (launchArgs.length > 0) {
-      for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
-    }
-    {
-      const visiblePath = writeClaudeLaunchPrompt(p.task || "");
-      if (!visiblePath) return "";
-      parts.push("--append-system-prompt-file");
-      parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
-      const prompt = p.task ? starterPrompt(p.starterPrompt, p.starterPromptText) : void 0;
-      if (prompt) {
-        parts.push("--");
-        const framed = p.starterPromptPrefix ? p.starterPromptPrefix + prompt + "</domios>" : prompt;
-        parts.push(host.shell.quoteFor(framed, host.platform()));
-      }
-    }
-    return parts.join(" ");
+  buildLaunchCommand: buildClaudeLaunchCommand,
+  buildLaunchSpec(params) {
+    return manifest()?.commands?.launchSpec ? buildClaudeLaunchSpec(params) : null;
   },
   buildResumeCommand(sessionId, skipPermissions) {
     const args = statuslineLaunchArgs([]);
@@ -2522,6 +2714,7 @@ var plugin = {
     if (resumeArgs.length > 0) {
       for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
+    parts.push(...hostOwnedLaunchArgs(p.hostOwned).map(quoteArg));
     const systemPrompt = p.systemPrompt;
     {
       const visiblePath = writeClaudeLaunchPrompt(systemPrompt || "");
@@ -2630,285 +2823,14 @@ var plugin = {
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
   // Parse `user`/`assistant` lines and map content blocks to SessionMessage.
-  parseSessionMessages(text2) {
-    const out = [];
-    const lines = String(text2 || "").split("\n");
-    let hadInvalid = false;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      let v;
-      try {
-        v = JSON.parse(line);
-      } catch (e) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (!isValidClaudeSessionMessage(v)) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      const msgType = v && v.type || "";
-      if (msgType !== "user" && msgType !== "assistant") continue;
-      const isMeta = !!(v && v.isMeta);
-      const msg = v.message;
-      if (!msg) continue;
-      const content = msg.content;
-      let text22 = "";
-      if (typeof content === "string") {
-        text22 = content;
-      } else if (Array.isArray(content)) {
-        const chunks = [];
-        for (let j = 0; j < content.length; j++) {
-          const b = content[j];
-          if (b && b.type === "text" && typeof b.text === "string") {
-            chunks.push(b.text);
-          }
-        }
-        text22 = chunks.join(" ");
-      } else {
-        continue;
-      }
-      if (!text22 || !text22.trim()) continue;
-      let ts = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1e3);
-      }
-      out.push({ role: msgType, text: text22, ts, isMeta });
-    }
-    return out;
+  parseSessionMessages,
+  parseSessionMessageRecords(records) {
+    return parseSessionMessages(records);
   },
   // Rust provides complete lines; plugin parses JSON into RichMessage[]. Byte offsets stay in Rust.
-  parseSessionDelta(chunk) {
-    const out = [];
-    const lines = String(chunk || "").split("\n");
-    let stamped = 0;
-    const stampRows = (lineIndex) => {
-      for (; stamped < out.length; stamped++) {
-        out[stamped].recordIndex = lineIndex;
-      }
-    };
-    let hadInvalid = false;
-    for (let i = 0; i < lines.length; i++) {
-      stampRows(i - 1);
-      const line = lines[i];
-      if (!line) continue;
-      let v;
-      try {
-        v = JSON.parse(line);
-      } catch (_) {
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      const emitObservations = () => {
-        const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
-        if (!observations && !background.length) return false;
-        out.push({
-          role: "system",
-          blocks: [],
-          ts: null,
-          uuid: null,
-          provider_observations: observations,
-          background_work: background,
-          provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null
-        });
-        return true;
-      };
-      if (!validateEntry(v)) {
-        if (emitObservations()) continue;
-        if (!hadInvalid) {
-          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
-          hadInvalid = true;
-        }
-        continue;
-      }
-      if (isImageDisplayMetadata(v)) continue;
-      const t = v && v.type;
-      let ts = null;
-      if (typeof v.timestamp === "string") {
-        const d = Date.parse(v.timestamp);
-        if (!isNaN(d)) ts = Math.floor(d / 1e3);
-      }
-      const timestamp = typeof v.timestamp === "string" ? v.timestamp : null;
-      if (t === "ai-title") {
-        const title = aiTitleFromEntry(v);
-        if (!title) continue;
-        out.push({
-          role: "custom",
-          blocks: [],
-          ts,
-          uuid: typeof v.uuid === "string" ? v.uuid : null,
-          sessionIntent: { title },
-          timestamp
-        });
-        continue;
-      }
-      if (t === "edited_text_file" || t === "attachment" && v.attachment?.type === "edited_text_file") {
-        const path = editedTextFilePath(v);
-        if (!path) continue;
-        out.push({
-          role: "system",
-          blocks: [],
-          ts,
-          uuid: typeof v.uuid === "string" ? v.uuid : null,
-          timelineMarker: { kind: "external_edit", path },
-          timestamp
-        });
-        continue;
-      }
-      const blocks = [];
-      let role;
-      let sourceSubtype = typeof v.subtype === "string" ? v.subtype : null;
-      let timelineMarker;
-      if (t === "system") {
-        role = "system";
-        const sysText = typeof v.content === "string" ? v.content : Array.isArray(v.content) ? v.content.filter((c) => c && c.type === "text").map((c) => c.text || "").join("\n") : "";
-        const sdata = { text: sysText };
-        if (typeof v.subtype === "string") sdata.subtype = v.subtype;
-        if (typeof v.level === "string") sdata.level = v.level;
-        blocks.push({ kind: "text", data: sdata });
-      } else if (t === "user" || t === "assistant") {
-        role = t;
-        const msg = v.message;
-        if (!msg) continue;
-        const content = msg.content;
-        if (typeof content === "string") {
-          const agentNotice = t === "user" ? subAgentNotificationBlock(content, v) : null;
-          const taskStatus = t === "user" && !agentNotice ? taskNotificationStatus(content) : null;
-          if (agentNotice) {
-            blocks.push(agentNotice);
-          } else if (taskStatus) {
-            role = "status";
-            sourceSubtype = "task_notification";
-            blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
-          } else if (t === "user" && isCompactSummaryRow(v, content)) {
-            role = "system";
-            sourceSubtype = "compact_summary";
-            timelineMarker = { kind: "context_compaction" };
-            blocks.push({ kind: "text", data: { text: content, subtype: sourceSubtype } });
-          } else if (content) {
-            blocks.push({ kind: "text", data: { text: content } });
-          }
-        } else if (Array.isArray(content)) {
-          for (let j = 0; j < content.length; j++) {
-            const b = content[j];
-            if (!b || typeof b.type !== "string") continue;
-            const data = {};
-            for (const k in b) {
-              if (Object.prototype.hasOwnProperty.call(b, k) && k !== "type") {
-                data[k] = b[k];
-              }
-            }
-            if (b.type === "tool_use" && isSubAgentCall(data.name, data.input)) {
-              const agent = subAgentCallBlock(data.id, data.input);
-              if (agent) {
-                blocks.push(agent);
-                continue;
-              }
-            }
-            if (b.type === "tool_use") {
-              const canonical = canonicalToolFields(
-                typeof data.name === "string" ? data.name : "",
-                data.input
-              );
-              data.tool_kind = canonical.kind;
-              data.tool_summary = canonical.summary;
-              data.tool_detail = canonical.detail;
-              data.tool_edits = canonical.edits;
-              const description = toolDescription(data.input);
-              if (description) data.tool_description = description;
-              if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
-              const sourceId = exactSourceIdentity(v.uuid);
-              if (sourceId) data.tool_call_source_id = sourceId;
-            } else if (b.type === "thinking") {
-              delete data.signature;
-            }
-            if (b.type === "tool_result") {
-              const agent = subAgentLaunchBlock(data.tool_use_id, v.toolUseResult);
-              if (agent) {
-                blocks.push(agent);
-                continue;
-              }
-              const outcome = commandOutcome(v.toolUseResult);
-              if (outcome) Object.assign(data, outcome);
-              const sourceId = exactSourceIdentity(v.sourceToolAssistantUUID);
-              data.tool_pairing = sourceId ? "exact" : "unavailable";
-              if (sourceId) data.tool_call_source_id = sourceId;
-            }
-            blocks.push({ kind: b.type, data });
-          }
-          const results = blocks.filter((block) => block.kind === "tool_result");
-          if (t === "user" && results.length === 1) {
-            const diffs = claudeFileDiffs(v.toolUseResult);
-            if (diffs.length > 0) results[0].data.file_diffs = diffs;
-          }
-        } else {
-          continue;
-        }
-        if (blocks.length > 0 && blocks.every(isAgentActivityBlock)) role = "assistant";
-      } else if (t === "attachment") {
-        const att = v.attachment;
-        if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
-          emitObservations();
-          continue;
-        }
-        const agentNotice = subAgentNotificationBlock(att.prompt, v);
-        const taskStatus = agentNotice ? null : att.commandMode === "task-notification" ? taskNotificationStatus(att.prompt) ?? "Task notification" : taskNotificationStatus(att.prompt);
-        if (agentNotice) {
-          role = "assistant";
-          blocks.push(agentNotice);
-        } else if (taskStatus) {
-          role = "status";
-          sourceSubtype = "task_notification";
-          blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
-        } else {
-          role = "user";
-          timelineMarker = { kind: "queued" };
-          blocks.push({ kind: "text", data: { text: att.prompt } });
-        }
-      } else {
-        emitObservations();
-        continue;
-      }
-      if (!blocks.length) {
-        emitObservations();
-        continue;
-      }
-      if (t === "system" && sourceSubtype === "compact_boundary") {
-        timelineMarker = { kind: "context_compaction" };
-      }
-      const context = parseContextUsage(v);
-      out.push({
-        ...context ? { context_usage: context } : {},
-        provider_observations: parseSessionObservations(v),
-        provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
-        background_work: parseBackgroundWork(v),
-        role,
-        blocks,
-        ts,
-        uuid: typeof v.uuid === "string" ? v.uuid : null,
-        isMeta: v.isMeta === true ? true : null,
-        sourceType: typeof v.type === "string" ? v.type : null,
-        sourceSubtype,
-        level: typeof v.level === "string" ? v.level : null,
-        isCompactSummary: v.isCompactSummary === true ? true : null,
-        isVisibleInTranscriptOnly: v.isVisibleInTranscriptOnly === true ? true : null,
-        timelineMarker,
-        timestamp
-      });
-    }
-    stampRows(lines.length - 1);
-    return { messages: out };
+  parseSessionDelta,
+  parseSessionRecords(records, meta) {
+    return { ...parseSessionDelta(records), new_offset: meta.newOffset };
   },
   // Keep JSONL path encoding aligned with `claudeSessionFilePath`.
   sessionJsonlPath(_cwd, sessionId) {
@@ -3016,7 +2938,7 @@ var plugin = {
     let marked = true;
     for (let i = 0; i < INTEGRATION_HOOK_KEYS.length; i++) {
       const arr = json.hooks && json.hooks[INTEGRATION_HOOK_KEYS[i]];
-      if (Array.isArray(arr) && !entriesCarryMarker(arr)) {
+      if (Array.isArray(arr) && (!entriesCarryMarker(arr) || !entriesHaveBoundedTimeout(arr))) {
         marked = false;
         break;
       }
@@ -3090,10 +3012,10 @@ var plugin = {
       };
     }
     const newHooks = {
-      PermissionRequest: newEntry("*", notifyCmd, 5e3),
-      Notification: newEntry("permission_prompt", notifyCmd, 5e3),
-      Stop: newEntry("", stopCmd, 5e3),
-      SessionStart: newEntry("", sessionStartCmd, 5e3)
+      PermissionRequest: newEntry("*", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      Notification: newEntry("permission_prompt", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      Stop: newEntry("", stopCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      SessionStart: newEntry("", sessionStartCmd, CODETERM_HOOK_TIMEOUT_SECONDS)
     };
     const keys = INTEGRATION_HOOK_KEYS;
     let preservedUnclassified = 0;
@@ -3222,5 +3144,258 @@ function resumeBase(sessionId, skipPermissions) {
   parts.push("--resume");
   parts.push(host.shell.quoteFor(sessionId, host.platform()));
   return parts.join(" ");
+}
+function parseSessionDelta(chunk) {
+  const out = [];
+  let stamped = 0;
+  const stampRows = (row) => {
+    for (; stamped < out.length; stamped++) out[stamped].recordIndex = row;
+  };
+  let hadInvalid = false;
+  let previousRow = -1;
+  for (const { row, value: v } of sessionRecords(chunk, (line) => shouldParseClaudeRecord(line, true))) {
+    stampRows(previousRow);
+    previousRow = row;
+    const emitObservations = () => {
+      const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
+      if (!observations && !background.length) return false;
+      out.push({
+        role: "system",
+        blocks: [],
+        ts: null,
+        uuid: null,
+        provider_observations: observations,
+        background_work: background,
+        provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null
+      });
+      return true;
+    };
+    if (!validateEntry(v)) {
+      if (emitObservations()) continue;
+      if (!hadInvalid) {
+        if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
+        hadInvalid = true;
+      }
+      continue;
+    }
+    if (isImageDisplayMetadata(v)) continue;
+    const t = v && v.type;
+    let ts = null;
+    if (typeof v.timestamp === "string") {
+      const d = Date.parse(v.timestamp);
+      if (!isNaN(d)) ts = Math.floor(d / 1e3);
+    }
+    const timestamp = typeof v.timestamp === "string" ? v.timestamp : null;
+    if (t === "ai-title") {
+      const title = aiTitleFromEntry(v);
+      if (!title) continue;
+      out.push({
+        role: "custom",
+        blocks: [],
+        ts,
+        uuid: typeof v.uuid === "string" ? v.uuid : null,
+        sessionIntent: { title },
+        timestamp
+      });
+      continue;
+    }
+    if (t === "edited_text_file" || t === "attachment" && v.attachment?.type === "edited_text_file") {
+      const path = editedTextFilePath(v);
+      if (!path) continue;
+      out.push({
+        role: "system",
+        blocks: [],
+        ts,
+        uuid: typeof v.uuid === "string" ? v.uuid : null,
+        timelineMarker: { kind: "external_edit", path },
+        timestamp
+      });
+      continue;
+    }
+    const blocks = [];
+    let role;
+    let sourceSubtype = typeof v.subtype === "string" ? v.subtype : null;
+    let timelineMarker;
+    if (t === "system") {
+      role = "system";
+      const sysText = typeof v.content === "string" ? v.content : Array.isArray(v.content) ? v.content.filter((c) => c && c.type === "text").map((c) => c.text || "").join("\n") : "";
+      const sdata = { text: sysText };
+      if (typeof v.subtype === "string") sdata.subtype = v.subtype;
+      if (typeof v.level === "string") sdata.level = v.level;
+      blocks.push({ kind: "text", data: sdata });
+    } else if (t === "user" || t === "assistant") {
+      role = t;
+      const msg = v.message;
+      if (!msg) continue;
+      const content = msg.content;
+      if (typeof content === "string") {
+        const agentNotice = t === "user" ? subAgentNotificationBlock(content, v) : null;
+        const taskStatus = t === "user" && !agentNotice ? taskNotificationStatus(content) : null;
+        if (agentNotice) {
+          blocks.push(agentNotice);
+        } else if (taskStatus) {
+          role = "status";
+          sourceSubtype = "task_notification";
+          blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
+        } else if (t === "user" && isCompactSummaryRow(v, content)) {
+          role = "system";
+          sourceSubtype = "compact_summary";
+          timelineMarker = { kind: "context_compaction" };
+          blocks.push({ kind: "text", data: { text: content, subtype: sourceSubtype } });
+        } else if (content) {
+          blocks.push({ kind: "text", data: { text: content } });
+        }
+      } else if (Array.isArray(content)) {
+        for (let j = 0; j < content.length; j++) {
+          const b = content[j];
+          if (!b || typeof b.type !== "string") continue;
+          const data = {};
+          for (const k in b) {
+            if (Object.prototype.hasOwnProperty.call(b, k) && k !== "type") {
+              data[k] = b[k];
+            }
+          }
+          if (b.type === "tool_use" && isSubAgentCall(data.name, data.input)) {
+            const agent = subAgentCallBlock(data.id, data.input);
+            if (agent) {
+              blocks.push(agent);
+              continue;
+            }
+          }
+          if (b.type === "tool_use") {
+            const canonical = canonicalToolFields(
+              typeof data.name === "string" ? data.name : "",
+              data.input
+            );
+            data.tool_kind = canonical.kind;
+            data.tool_summary = canonical.summary;
+            data.tool_detail = canonical.detail;
+            data.tool_edits = canonical.edits;
+            const description = toolDescription(data.input);
+            if (description) data.tool_description = description;
+            if (typeof msg.id === "string" && msg.id) data.tool_flow_id = msg.id;
+            const sourceId = exactSourceIdentity(v.uuid);
+            if (sourceId) data.tool_call_source_id = sourceId;
+          } else if (b.type === "thinking") {
+            delete data.signature;
+          }
+          if (b.type === "tool_result") {
+            const agent = subAgentLaunchBlock(data.tool_use_id, v.toolUseResult);
+            if (agent) {
+              blocks.push(agent);
+              continue;
+            }
+            const outcome = commandOutcome(v.toolUseResult);
+            if (outcome) Object.assign(data, outcome);
+            const sourceId = exactSourceIdentity(v.sourceToolAssistantUUID);
+            data.tool_pairing = sourceId ? "exact" : "unavailable";
+            if (sourceId) data.tool_call_source_id = sourceId;
+          }
+          blocks.push({ kind: b.type, data });
+        }
+        const results = blocks.filter((block) => block.kind === "tool_result");
+        if (t === "user" && results.length === 1) {
+          const diffs = claudeFileDiffs(v.toolUseResult);
+          if (diffs.length > 0) results[0].data.file_diffs = diffs;
+        }
+      } else {
+        continue;
+      }
+      if (blocks.length > 0 && blocks.every(isAgentActivityBlock)) role = "assistant";
+    } else if (t === "attachment") {
+      const att = v.attachment;
+      if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
+        emitObservations();
+        continue;
+      }
+      const agentNotice = subAgentNotificationBlock(att.prompt, v);
+      const taskStatus = agentNotice ? null : att.commandMode === "task-notification" ? taskNotificationStatus(att.prompt) ?? "Task notification" : taskNotificationStatus(att.prompt);
+      if (agentNotice) {
+        role = "assistant";
+        blocks.push(agentNotice);
+      } else if (taskStatus) {
+        role = "status";
+        sourceSubtype = "task_notification";
+        blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
+      } else {
+        role = "user";
+        timelineMarker = { kind: "queued" };
+        blocks.push({ kind: "text", data: { text: att.prompt } });
+      }
+    } else {
+      emitObservations();
+      continue;
+    }
+    if (!blocks.length) {
+      emitObservations();
+      continue;
+    }
+    if (t === "system" && sourceSubtype === "compact_boundary") {
+      timelineMarker = { kind: "context_compaction" };
+    }
+    const context = parseContextUsage(v);
+    out.push({
+      ...context ? { context_usage: context } : {},
+      provider_observations: parseSessionObservations(v),
+      provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
+      background_work: parseBackgroundWork(v),
+      role,
+      blocks,
+      ts,
+      uuid: typeof v.uuid === "string" ? v.uuid : null,
+      isMeta: v.isMeta === true ? true : null,
+      sourceType: typeof v.type === "string" ? v.type : null,
+      sourceSubtype,
+      level: typeof v.level === "string" ? v.level : null,
+      isCompactSummary: v.isCompactSummary === true ? true : null,
+      isVisibleInTranscriptOnly: v.isVisibleInTranscriptOnly === true ? true : null,
+      timelineMarker,
+      timestamp
+    });
+  }
+  stampRows(previousRow);
+  return { messages: out };
+}
+function parseSessionMessages(text2) {
+  const out = [];
+  let hadInvalid = false;
+  for (const { value: v } of sessionRecords(text2, (line) => shouldParseClaudeRecord(line, false))) {
+    if (!isValidClaudeSessionMessage(v)) {
+      if (!hadInvalid) {
+        if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
+        hadInvalid = true;
+      }
+      continue;
+    }
+    const msgType = v && v.type || "";
+    if (msgType !== "user" && msgType !== "assistant") continue;
+    const isMeta = !!(v && v.isMeta);
+    const msg = v.message;
+    if (!msg) continue;
+    const content = msg.content;
+    let text22 = "";
+    if (typeof content === "string") {
+      text22 = content;
+    } else if (Array.isArray(content)) {
+      const chunks = [];
+      for (let j = 0; j < content.length; j++) {
+        const b = content[j];
+        if (b && b.type === "text" && typeof b.text === "string") {
+          chunks.push(b.text);
+        }
+      }
+      text22 = chunks.join(" ");
+    } else {
+      continue;
+    }
+    if (!text22 || !text22.trim()) continue;
+    let ts = null;
+    if (typeof v.timestamp === "string") {
+      const d = Date.parse(v.timestamp);
+      if (!isNaN(d)) ts = Math.floor(d / 1e3);
+    }
+    out.push({ role: msgType, text: text22, ts, isMeta });
+  }
+  return out;
 }
 var plugin_default = plugin;

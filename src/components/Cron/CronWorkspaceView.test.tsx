@@ -35,6 +35,9 @@ function setupDom() {
 }
 
 const CRON_ID = "cron-1";
+let failCronRead = false;
+let cronReadAttempts = 0;
+let cronRunFinished: (() => void) | null = null;
 
 // Mirrors the fully allowed cron projection returned by mesh_inventory_list.
 // The component must consume this map rather than deriving its own.
@@ -145,13 +148,23 @@ async function flushUntil(predicate: () => boolean, maxTicks = 50): Promise<void
 }
 
 async function render(cronId: string, actionAdapter: MeshResourceActionAdapter, calls: string[], lastRunStatus = "Success", automation?: AutomationGraphViewProps): Promise<{ host: HTMLDivElement; root: Root }> {
-  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => cronJob() as T));
+  failCronRead = false;
+  cronReadAttempts = 0;
+  cronRunFinished = null;
+  configureOrchestrationTransport(orchestrationTestClient(async <T,>() => {
+    cronReadAttempts++;
+    if (failCronRead) throw new Error("cron service unavailable");
+    return cronJob() as T;
+  }));
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
     if (command === "cron_get") return cronJob() as T;
     if (command === "mesh_inventory_list") return inventory([projectedCronService(lastRunStatus)]) as T;
     throw new Error(`unexpected invoke: ${command}`);
   });
-  __setListenForTest(async () => () => undefined);
+  __setListenForTest(async (event, handler) => {
+    if (event === "cron-run-finished") cronRunFinished = handler as () => void;
+    return () => { if (event === "cron-run-finished") cronRunFinished = null; };
+  });
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -184,6 +197,22 @@ test("a cron with no report_target_tab_id renders schedule, history and controls
   assert(pauseButton.disabled === false, "Pause/Resume control is not disabled");
 
   await act(async () => root.unmount());
+});
+
+test("a background refresh failure keeps loaded cron details without an alert", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(CRON_ID, adapter({}, calls), calls);
+  failCronRead = true;
+  await act(async () => {
+    cronRunFinished?.();
+    await flushUntil(() => cronReadAttempts === 2);
+    for (let tick = 0; tick < 5; tick++) await Promise.resolve();
+  });
+
+  assert(host.querySelector('[aria-label="Cron Nightly sync"]'), "last loaded cron details stay visible");
+  assert(host.querySelector('[role="alert"]') === null, "background refresh failure does not create an alert");
+  await act(async () => root.unmount());
+  failCronRead = false;
 });
 
 test("an owner prompt remains visible in history and exposes cancel while active", async () => {
