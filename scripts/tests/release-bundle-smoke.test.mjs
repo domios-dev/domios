@@ -40,10 +40,10 @@ test('the app carries the source SHA and the server it starts carries the embedd
   assert.throws(()=>checkContents(Buffer.from('app'), Buffer.from(sha), sha), /source SHA/);
   assert.throws(()=>checkContents(Buffer.from(sha), Buffer.from('server'), sha), /plugin/);
 });
-test('x64 CLI execution on Apple Silicon requires Rosetta; other cross targets are skipped', () => {
+test('the macOS x64 CLI must execute on Apple Silicon, so missing Rosetta fails; other cross targets are skipped', () => {
   const silicon = { platform: 'darwin', arch: 'arm64' };
   assert.equal(canExecuteTarget('arm64', silicon, false), true);
   assert.equal(canExecuteTarget('x64', silicon, true), true);
-  assert.equal(canExecuteTarget('x64', silicon, false), false);
+  assert.throws(() => canExecuteTarget('x64', silicon, false), /install Rosetta on this runner/);
   assert.equal(canExecuteTarget('arm64', { platform: 'win32', arch: 'x64' }, true), false);
 });

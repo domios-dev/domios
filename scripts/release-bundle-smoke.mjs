@@ -61,9 +61,14 @@ export function checkContents(appBytes, serverBytes, sha) {
     }
   }
 }
-// An Apple Silicon runner executes x64 only with Rosetta installed; without it spawn fails with EBADARCH.
+// A macOS x64 bundle built on Apple Silicon must run its CLI there, which needs Rosetta.
 export function canExecuteTarget(target, host = { platform: platform(), arch: arch() }, rosetta = existsSync('/Library/Apple/usr/libexec/oah/libRosettaRuntime')) {
-  return target === host.arch || (host.platform === 'darwin' && host.arch === 'arm64' && target === 'x64' && rosetta);
+  if (target === host.arch) return true;
+  if (host.platform === 'darwin' && host.arch === 'arm64' && target === 'x64') {
+    if (!rosetta) throw new Error('The macOS x64 CLI must execute here: install Rosetta on this runner (softwareupdate --install-rosetta --agree-to-license)');
+    return true;
+  }
+  return false;
 }
 export function smoke(kind, directory, sha, expectedArch) {
   const version = JSON.parse(readFileSync(path.join(root, 'package.json'))).version;
