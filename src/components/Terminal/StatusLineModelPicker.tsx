@@ -4,7 +4,6 @@ import { tierAfterModelChange } from "./serviceTierPickerModel";
 import { ServiceTierPicker } from "./ServiceTierPicker";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import { createPortal } from "react-dom";
 import { Check, ChevronDown, RotateCw } from "lucide-react";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
@@ -21,7 +20,6 @@ import {
   effortAfterModelChange,
   effortChoices,
   matchesModel,
-  pickerAnchor,
   pickerModelGroups,
   pickerNeedsSearch,
   pickerHasPrimaryModels,
@@ -32,6 +30,7 @@ import {
   type PickerSelection,
   type StatusLineTabFacts,
 } from "./statusLinePickerModel";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 import { readPickerShowAll, writePickerShowAll } from "./statusLinePickerPreference";
 
@@ -260,29 +259,11 @@ export function ModelPickerPopover({
   const [restartFallback, setRestartFallback] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(failure?.message ?? null);
-  const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
   const searchable = pickerNeedsSearch(descriptor);
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll);
   const efforts = showReasoning ? effortChoices(descriptor, staged?.model) : [];
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
   const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
-
-  useLayoutEffect(() => {
-    const place = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      setAnchor(pickerAnchor(rect, { width: window.innerWidth, height: window.innerHeight }, PICKER_WIDTH));
-    };
-    place();
-    window.addEventListener("resize", place);
-    window.visualViewport?.addEventListener("resize", place);
-    window.visualViewport?.addEventListener("scroll", place);
-    return () => {
-      window.removeEventListener("resize", place);
-      window.visualViewport?.removeEventListener("resize", place);
-      window.visualViewport?.removeEventListener("scroll", place);
-    };
-  }, [triggerRef]);
 
   useLayoutEffect(() => {
     if (searchable) {
@@ -292,16 +273,6 @@ export function ModelPickerPopover({
     const selected = popoverRef.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]');
     (selected ?? popoverRef.current?.querySelector<HTMLElement>(OPTION_SELECTOR))?.focus({ preventScroll: true });
   }, [searchable]);
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (!target || popoverRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
-      onClose();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [onClose, triggerRef]);
 
   function apply(selection: PickerSelection, restart = false) {
     if (busy) return;
@@ -356,14 +327,15 @@ export function ModelPickerPopover({
   const stagedLabel = descriptor.available_models.find((model) => model.id === confirming?.model)?.display_name
     ?? confirming?.model;
 
-  return createPortal(
+  return (
+    <AnchoredPopover open anchor={triggerRef} placement="top-start" width={PICKER_WIDTH} onClose={onClose}>
     <div
       ref={popoverRef}
       role="dialog"
       aria-labelledby={titleId}
       data-testid="status-model-picker"
       className="ct-menu ct-model-picker"
-      style={{ width: PICKER_WIDTH, left: anchor?.left ?? 0, bottom: `max(${anchor?.bottom ?? 0}px, calc(var(--ct-visual-bottom, 0px) + 8px))`, maxHeight: `min(440px, calc(var(--ct-visual-height, 100vh) - max(8px, ${anchor?.bottom ?? 0}px - var(--ct-visual-bottom, 0px)) - 8px))`, visibility: anchor ? undefined : "hidden" }}
+      style={{ width: PICKER_WIDTH, maxHeight: 440, overflowY: "auto" }}
       onKeyDown={(event) => {
         if (event.code !== "Escape" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
         if (event.code !== "Escape" && (event.target as HTMLElement).closest("button")) return;
@@ -510,7 +482,7 @@ export function ModelPickerPopover({
           Restart and resume instead
         </button>
       )}
-    </div>,
-    document.body,
+    </div>
+    </AnchoredPopover>
   );
 }

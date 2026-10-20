@@ -8,7 +8,7 @@ import {
   type PluginTabMenuState,
 } from "../../lib/pluginTabMenu";
 
-import { GlancePopover, type GlanceAnchor } from "../Extensions/GlancePopover";
+import { GlancePopover } from "../Extensions/GlancePopover";
 import { subscribePluginBubble, type BubbleData } from "../../lib/pluginBubbleCache";
 
 export type ReceiverTargetMarkSurface = "composer" | "header";
@@ -29,21 +29,18 @@ function ReceiverTargetMarkButton({ entry, tabId, surface }: {
 }) {
   const [detaching, setDetaching] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<GlanceAnchor | null>(null);
+  const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [bubble, setBubble] = useState<BubbleData | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const ctx = useMemo(() => ({ tabId }), [tabId]);
-  const close = useCallback(() => { setOpen(null); setPinned(false); }, []);
+  const close = useCallback(() => { setOpen(false); setPinned(false); }, []);
   const receiverName = entry.pluginId || "Unknown receiver";
   useEffect(() => {
     const subscription = subscribePluginBubble(entry.pluginId, null, tabId, true, setBubble);
     return () => subscription.unsubscribe();
   }, [entry.pluginId, tabId]);
-  const show = () => {
-    const rect = trigger.current?.getBoundingClientRect();
-    if (rect) setOpen({ right: Math.max(8, window.innerWidth - rect.right), top: rect.bottom + 6 });
-  };
+  const show = () => setOpen(true);
   return (
     <>
       <button
@@ -53,7 +50,7 @@ function ReceiverTargetMarkButton({ entry, tabId, surface }: {
         data-receiver-plugin-id={entry.pluginId}
         aria-label={`Show ${receiverName} receiver status`}
         aria-haspopup="dialog"
-        aria-expanded={open !== null}
+        aria-expanded={open}
         onPointerEnter={show}
         onClick={() => { show(); setPinned(true); }}
         className="ct-liquid-interactive relative inline-flex h-7 w-7 items-center justify-center rounded-full border"
@@ -67,9 +64,8 @@ function ReceiverTargetMarkButton({ entry, tabId, surface }: {
       {open && <GlancePopover
         pluginId={entry.pluginId}
         displayName={receiverName}
-        anchor={open}
+        anchor={trigger}
         ctx={ctx}
-        trigger={trigger.current}
         hoverOnly={!pinned}
         onClose={close}
         onOpenSettings={(id) => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: `view:${id}` } }))}

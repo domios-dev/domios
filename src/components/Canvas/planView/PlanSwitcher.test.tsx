@@ -25,10 +25,13 @@ Object.defineProperty(globalThis, "document", { value: window.document, configur
 Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
 Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
 
+const mounted: Root[] = [];
+
 async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
+  mounted.push(root);
   await act(async () => {
     root.render(ui);
   });
@@ -40,21 +43,21 @@ function opts(n: number, overrides?: Partial<PlanSwitcherOption>): PlanSwitcherO
 }
 
 test("renders nothing for a single plan", async () => {
-  const { host } = await render(<PlanSwitcher plans={opts(1)} selectedId="p-0" onSelect={() => {}} />);
-  assert(!host.querySelector('[data-testid="plan-switcher"]'), "no switcher");
+  await render(<PlanSwitcher plans={opts(1)} selectedId="p-0" onSelect={() => {}} />);
+  assert(!document.querySelector('[data-testid="plan-switcher"]'), "no switcher");
 });
 
 test("segmented buttons for <=3 active plans; click selects", async () => {
   let picked = "";
-  const { host } = await render(
+  await render(
     <PlanSwitcher plans={opts(3)} selectedId="p-0" onSelect={(id) => (picked = id)} />,
   );
-  const options = host.querySelectorAll('[data-testid="plan-switcher-option"]');
+  const options = document.querySelectorAll('[data-testid="plan-switcher-option"]');
   assert(options.length === 3, `segmented count=${options.length}`);
-  assert(!host.querySelector('[data-testid="plan-switcher-select"]'), "no native dropdown");
-  const active = host.querySelector('[data-testid="plan-switcher-option"][data-plan-id="p-0"]');
+  assert(!document.querySelector('[data-testid="plan-switcher-select"]'), "no native dropdown");
+  const active = document.querySelector('[data-testid="plan-switcher-option"][data-plan-id="p-0"]');
   assert(active?.getAttribute("data-active") === "true", "selected marked active");
-  const target = host.querySelector(
+  const target = document.querySelector(
     '[data-testid="plan-switcher-option"][data-plan-id="p-2"]',
   ) as HTMLElement;
   await act(async () => {
@@ -65,19 +68,19 @@ test("segmented buttons for <=3 active plans; click selects", async () => {
 
 test("overflow mode for >3 active plans; combo trigger and listbox appear", async () => {
   let picked = "";
-  const { host } = await render(
+  await render(
     <PlanSwitcher plans={opts(5)} selectedId="p-1" onSelect={(id) => (picked = id)} />,
   );
-  const trigger = host.querySelector('[data-testid="plan-switcher-combo-trigger"]') as HTMLElement;
+  const trigger = document.querySelector('[data-testid="plan-switcher-combo-trigger"]') as HTMLElement;
   assert(trigger, "combo trigger present");
-  assert(!host.querySelector('[data-testid="plan-switcher-select"]'), "no native select");
-  assert(!host.querySelector('[data-testid="plan-switcher-option"]'), "no segmented buttons");
-  assert(!host.querySelector('[data-testid="plan-switcher-listbox"]'), "listbox closed initially");
+  assert(!document.querySelector('[data-testid="plan-switcher-select"]'), "no native select");
+  assert(!document.querySelector('[data-testid="plan-switcher-option"]'), "no segmented buttons");
+  assert(!document.querySelector('[data-testid="plan-switcher-listbox"]'), "listbox closed initially");
 
   await act(async () => {
     trigger.click();
   });
-  const listbox = host.querySelector('[data-testid="plan-switcher-listbox"]');
+  const listbox = document.querySelector('[data-testid="plan-switcher-listbox"]');
   assert(listbox, "listbox opened on trigger click");
   assert(listbox?.getAttribute("role") === "listbox", "listbox role");
 
@@ -91,15 +94,15 @@ test("overflow mode for >3 active plans; combo trigger and listbox appear", asyn
     p4Btn.click();
   });
   assert(picked === "p-4", `picked=${picked}`);
-  assert(!host.querySelector('[data-testid="plan-switcher-listbox"]'), "listbox closes on select");
+  assert(!document.querySelector('[data-testid="plan-switcher-listbox"]'), "listbox closes on select");
 });
 
 test("kebab click does not change selection (stopPropagation)", async () => {
   let picked = "";
-  const { host } = await render(
+  await render(
     <PlanSwitcher plans={opts(2)} selectedId="p-0" onSelect={(id) => (picked = id)} />,
   );
-  const kebab = host.querySelector(
+  const kebab = document.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="p-1"]',
   ) as HTMLElement;
   assert(kebab, "kebab present on non-selected plan");
@@ -110,32 +113,32 @@ test("kebab click does not change selection (stopPropagation)", async () => {
 });
 
 test("kebab opens menu with correct aria attributes", async () => {
-  const { host } = await render(
+  await render(
     <PlanSwitcher plans={opts(2)} selectedId="p-0" onSelect={() => {}} />,
   );
-  const kebab = host.querySelector('[data-testid="plan-switcher-kebab"]') as HTMLElement;
+  const kebab = document.querySelector('[data-testid="plan-switcher-kebab"]') as HTMLElement;
   assert(kebab?.getAttribute("aria-haspopup") === "menu", "aria-haspopup=menu");
   assert(kebab?.getAttribute("aria-expanded") === "false", "aria-expanded=false initially");
   await act(async () => {
     kebab.click();
   });
   assert(kebab.getAttribute("aria-expanded") === "true", "aria-expanded=true when open");
-  assert(host.querySelector('[data-testid="plan-switcher-menu"]'), "menu visible");
+  assert(document.querySelector('[data-testid="plan-switcher-menu"]'), "menu visible");
   assert(
-    host.querySelector('[data-testid="plan-switcher-menu"]')?.getAttribute("role") === "menu",
+    document.querySelector('[data-testid="plan-switcher-menu"]')?.getAttribute("role") === "menu",
     "role=menu",
   );
 });
 
 test("kebab menu items: Rename, Copy plan ID, Archive", async () => {
-  const { host } = await render(
+  await render(
     <PlanSwitcher plans={opts(2)} selectedId="p-0" onSelect={() => {}} />,
   );
-  const kebab = host.querySelector('[data-testid="plan-switcher-kebab"]') as HTMLElement;
+  const kebab = document.querySelector('[data-testid="plan-switcher-kebab"]') as HTMLElement;
   await act(async () => {
     kebab.click();
   });
-  const items = host.querySelectorAll('[role="menuitem"]');
+  const items = document.querySelectorAll('[role="menuitem"]');
   const labels = Array.from(items).map((el) => el.textContent?.trim());
   assert(labels.includes("Rename"), "Rename present");
   assert(labels.includes("Copy plan ID"), "Copy plan ID present");
@@ -144,7 +147,7 @@ test("kebab menu items: Rename, Copy plan ID, Archive", async () => {
 
 test("rename fires onAction with kind=rename", async () => {
   const actions: PlanKebabAction[] = [];
-  const { host } = await render(
+  await render(
     <PlanSwitcher
       plans={opts(2)}
       selectedId="p-0"
@@ -152,13 +155,13 @@ test("rename fires onAction with kind=rename", async () => {
       onAction={(a) => actions.push(a)}
     />,
   );
-  const kebab = host.querySelector(
+  const kebab = document.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="p-0"]',
   ) as HTMLElement;
   await act(async () => {
     kebab.click();
   });
-  const rename = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const rename = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.trim() === "Rename",
   ) as HTMLElement;
   await act(async () => {
@@ -170,13 +173,13 @@ test("rename fires onAction with kind=rename", async () => {
     action.planId === "p-0",
     "planId=p-0",
   );
-  assert(!host.querySelector('[data-testid="plan-switcher-menu"]'), "menu closes after action");
+  assert(!document.querySelector('[data-testid="plan-switcher-menu"]'), "menu closes after action");
 });
 
 test("archive fires onAction and auto-selects next plan when archiving selected", async () => {
   let picked = "";
   const actions: PlanKebabAction[] = [];
-  const { host } = await render(
+  await render(
     <PlanSwitcher
       plans={opts(3)}
       selectedId="p-0"
@@ -184,13 +187,13 @@ test("archive fires onAction and auto-selects next plan when archiving selected"
       onAction={(a) => actions.push(a)}
     />,
   );
-  const kebab = host.querySelector(
+  const kebab = document.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="p-0"]',
   ) as HTMLElement;
   await act(async () => {
     kebab.click();
   });
-  const archiveBtn = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const archiveBtn = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.includes("Archive"),
   ) as HTMLElement;
   await act(async () => {
@@ -210,16 +213,16 @@ test("Open plan document appears only when docUrl is provided", async () => {
     { id: "p-0", title: "Plan 0", docUrl: "https://example.com/doc" },
     { id: "p-1", title: "Plan 1" },
   ];
-  const { host } = await render(
+  await render(
     <PlanSwitcher plans={plansWithDoc} selectedId="p-0" onSelect={() => {}} />,
   );
-  const kebabWithDoc = host.querySelector(
+  const kebabWithDoc = document.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="p-0"]',
   ) as HTMLElement;
   await act(async () => {
     kebabWithDoc.click();
   });
-  const items0 = Array.from(host.querySelectorAll('[role="menuitem"]')).map((el) =>
+  const items0 = Array.from(document.querySelectorAll('[role="menuitem"]')).map((el) =>
     el.textContent?.trim(),
   );
   assert(items0.includes("Open plan document"), "doc link present when docUrl set");
@@ -227,13 +230,13 @@ test("Open plan document appears only when docUrl is provided", async () => {
     kebabWithDoc.click();
   }); // close
 
-  const kebabNoDoc = host.querySelector(
+  const kebabNoDoc = document.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="p-1"]',
   ) as HTMLElement;
   await act(async () => {
     kebabNoDoc.click();
   });
-  const items1 = Array.from(host.querySelectorAll('[role="menuitem"]')).map((el) =>
+  const items1 = Array.from(document.querySelectorAll('[role="menuitem"]')).map((el) =>
     el.textContent?.trim(),
   );
   assert(!items1.includes("Open plan document"), "doc link absent when docUrl missing");
@@ -241,7 +244,7 @@ test("Open plan document appears only when docUrl is provided", async () => {
 
 test("overflow mode: kebab inside listbox fires action without closing listbox", async () => {
   const actions: PlanKebabAction[] = [];
-  const { host } = await render(
+  await render(
     <PlanSwitcher
       plans={opts(5)}
       selectedId="p-0"
@@ -249,11 +252,11 @@ test("overflow mode: kebab inside listbox fires action without closing listbox",
       onAction={(a) => actions.push(a)}
     />,
   );
-  const trigger = host.querySelector('[data-testid="plan-switcher-combo-trigger"]') as HTMLElement;
+  const trigger = document.querySelector('[data-testid="plan-switcher-combo-trigger"]') as HTMLElement;
   await act(async () => {
     trigger.click();
   });
-  const listbox = host.querySelector('[data-testid="plan-switcher-listbox"]');
+  const listbox = document.querySelector('[data-testid="plan-switcher-listbox"]');
   assert(listbox, "listbox open");
 
   const kebab = listbox?.querySelector(
@@ -263,10 +266,10 @@ test("overflow mode: kebab inside listbox fires action without closing listbox",
   await act(async () => {
     kebab.click();
   });
-  assert(host.querySelector('[data-testid="plan-switcher-menu"]'), "menu open");
-  assert(host.querySelector('[data-testid="plan-switcher-listbox"]'), "listbox still open");
+  assert(document.querySelector('[data-testid="plan-switcher-menu"]'), "menu open");
+  assert(document.querySelector('[data-testid="plan-switcher-listbox"]'), "listbox still open");
 
-  const rename = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const rename = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.trim() === "Rename",
   ) as HTMLElement;
   await act(async () => {
@@ -284,7 +287,7 @@ test("archived plans use a compact dropdown in segmented mode; select and Unarch
     { id: "p-2", title: "Active Plan 2" },
     { id: "p-archived", title: "Old Plan", archived: true },
   ];
-  const { host } = await render(
+  await render(
     <PlanSwitcher
       plans={plans}
       selectedId="p-active"
@@ -292,14 +295,14 @@ test("archived plans use a compact dropdown in segmented mode; select and Unarch
       onAction={(a) => actions.push(a)}
     />,
   );
-  assert(!host.querySelector('[data-testid="plan-switcher-archived-list"]'), "footer hidden initially");
-  const toggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
+  assert(!document.querySelector('[data-testid="plan-switcher-archived-list"]'), "footer hidden initially");
+  const toggle = document.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
   assert(toggle, "archived toggle button present");
   assert(toggle.textContent?.includes("1 archived"), "count shown");
   await act(async () => {
     toggle.click();
   });
-  const archivedList = host.querySelector('[data-testid="plan-switcher-archived-list"]');
+  const archivedList = document.querySelector('[data-testid="plan-switcher-archived-list"]');
   assert(archivedList?.getAttribute("role") === "listbox", "archived listbox visible after toggle");
   const archivedSelect = archivedList?.querySelector(
     '[data-plan-id="p-archived"] .plan-switcher-opt-select',
@@ -313,7 +316,7 @@ test("archived plans use a compact dropdown in segmented mode; select and Unarch
   await act(async () => {
     toggle.click();
   });
-  const reopenedArchivedList = host.querySelector('[data-testid="plan-switcher-archived-list"]');
+  const reopenedArchivedList = document.querySelector('[data-testid="plan-switcher-archived-list"]');
   const archivedKebab = reopenedArchivedList?.querySelector(
     '[data-testid="plan-switcher-kebab"][data-plan-id="p-archived"]',
   ) as HTMLElement;
@@ -321,7 +324,7 @@ test("archived plans use a compact dropdown in segmented mode; select and Unarch
   await act(async () => {
     archivedKebab.click();
   });
-  const unarchive = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const unarchive = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.trim() === "Unarchive",
   ) as HTMLElement;
   assert(unarchive, "Unarchive action in archived plan menu");
@@ -346,7 +349,7 @@ test("archived plans are selectable in overflow listbox footer with Unarchive", 
     { id: "p-3", title: "Active D" },
     { id: "p-archived", title: "Old Plan", archived: true },
   ];
-  const { host } = await render(
+  await render(
     <PlanSwitcher
       plans={plans}
       selectedId="p-0"
@@ -354,11 +357,11 @@ test("archived plans are selectable in overflow listbox footer with Unarchive", 
       onAction={(a) => actions.push(a)}
     />,
   );
-  const trigger = host.querySelector('[data-testid="plan-switcher-combo-trigger"]') as HTMLElement;
+  const trigger = document.querySelector('[data-testid="plan-switcher-combo-trigger"]') as HTMLElement;
   await act(async () => {
     trigger.click();
   });
-  const listbox = host.querySelector('[data-testid="plan-switcher-listbox"]') as HTMLElement;
+  const listbox = document.querySelector('[data-testid="plan-switcher-listbox"]') as HTMLElement;
   const archivedRow = listbox.querySelector('[data-plan-id="p-archived"]');
   assert(archivedRow, "archived plan in listbox");
   assert(archivedRow.getAttribute("aria-disabled") === null, "archived remains selectable");
@@ -372,14 +375,14 @@ test("archived plans are selectable in overflow listbox footer with Unarchive", 
   await act(async () => {
     trigger.click();
   });
-  const reopenedListbox = host.querySelector('[data-testid="plan-switcher-listbox"]') as HTMLElement;
+  const reopenedListbox = document.querySelector('[data-testid="plan-switcher-listbox"]') as HTMLElement;
   const reopenedArchivedRow = reopenedListbox.querySelector('[data-plan-id="p-archived"]') as HTMLElement;
 
   const kebab = reopenedArchivedRow.querySelector('[data-testid="plan-switcher-kebab"]') as HTMLElement;
   await act(async () => {
     kebab.click();
   });
-  const unarchive = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+  const unarchive = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
     (el) => el.textContent?.trim() === "Unarchive",
   ) as HTMLElement;
   assert(unarchive, "Unarchive action in archived plan menu");
@@ -399,6 +402,8 @@ let passed = 0;
   for (const [name, fn] of tests) {
     try {
       await fn();
+      await act(async () => mounted.splice(0).forEach((root) => root.unmount()));
+      document.body.innerHTML = "";
       passed++;
       console.log(`  ✓ ${name}`);
     } catch (e) {

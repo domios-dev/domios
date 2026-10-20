@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { anchoredPopoverPosition } from "./floatingPosition";
+import { visualViewportBounds } from "./useAnchoredPopoverPosition";
 
 const OFFSET_X = 16;
 const OFFSET_Y = 18;
@@ -24,12 +26,10 @@ export function CursorTooltip({ content, active, children, className }: CursorTo
   const frame = useRef<number | null>(null);
 
   const clamp = useCallback((x: number, y: number) => {
-    const width = tipRef.current?.offsetWidth ?? 0;
-    const height = tipRef.current?.offsetHeight ?? 0;
-    return {
-      x: Math.min(x, window.innerWidth - width - 8),
-      y: Math.min(y, window.innerHeight - height - 8),
-    };
+    const size = { width: tipRef.current?.offsetWidth ?? 0, height: tipRef.current?.offsetHeight ?? 0 };
+    const pointer = { left: x, right: x, top: y - OFFSET_Y, bottom: y };
+    const { left, top } = anchoredPopoverPosition(pointer, size, visualViewportBounds(), "bottom-start", { gap: 0 });
+    return { x: left, y: top };
   }, []);
 
   useEffect(() => {

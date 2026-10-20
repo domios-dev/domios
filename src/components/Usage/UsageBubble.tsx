@@ -4,7 +4,7 @@ import {DEV_BUILD} from "../../lib/devBuild";
 import {resetCreditsForTab, type ResetResponse} from "./resetCreditsModel";
 import {ResetCreditsSection} from "./ResetCreditsSection";
 import { ownRuntimeUsage, latestUsageSnapshot, runtimeTokenLabel, runtimeTokenBreakdown, runtimeAccountCreditsLabel } from "./runtimeUsage";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { useProviderModelUsageState } from "../../hooks/useProviderModelUsage";
 import { usageForModel } from "../../lib/modelGroups";
@@ -17,6 +17,7 @@ import { UsageHistoryModal } from "./UsageHistoryModal";
 import type {UsageSnapshot} from "../../types/usage";
 import { unreportedBillingLabel, usageMetricsAriaLabel, visibleUsageMetrics, usagePillText, type VisibleUsageMetric } from "./metrics";
 import { formatAge } from "../../lib/timeLabels";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 interface UsageBubbleProps {
   /** Provider id — required, no default. The component is hosted by a
@@ -95,35 +96,8 @@ export function UsageBubble({
   }) : null;
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [flipUp, setFlipUp] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("mousedown", onDocClick);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDocClick);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !btnRef.current) return;
-    const btnRect = btnRef.current.getBoundingClientRect();
-    const tab = btnRef.current.closest("[data-tab-id]") as HTMLElement | null;
-    const tabRect = tab?.getBoundingClientRect();
-    const room = tabRect ? tabRect.bottom - btnRect.bottom : window.innerHeight - btnRect.bottom;
-    setFlipUp(room < 360);
-  }, [open]);
+  const closeDetail = useCallback(() => setOpen(false), []);
 
   if (!trackingEnabled || !active) return null;
   const now = Date.now();
@@ -169,7 +143,6 @@ export function UsageBubble({
 
   return (
     <div
-      ref={wrapRef}
       onPointerEnter={refreshAge}
       onFocus={refreshAge}
       className="ct-usage"
@@ -212,14 +185,14 @@ export function UsageBubble({
         {isStale && <span className="stale-age">·{formatAge(active.captured_at, now)}</span>}
       </button>
 
-      {open && tokenSession && <div role="status" className="ct-usage-detail">{runtimeTokenBreakdown(tokenSession)}</div>}
+      <AnchoredPopover open={open} anchor={btnRef} placement="bottom-end" className="ct-usage" onClose={closeDetail}>
+      {tokenSession && <div role="status" className="ct-usage-detail">{runtimeTokenBreakdown(tokenSession)}</div>}
 
-      {open && !tokenSession && isSpend && (
+      {!tokenSession && isSpend && (
         <UsageSpendDetail
           snapshot={active}
           accountCreditsLabel={accountCreditsLabel}
           resetSection={tabId && runtime && resetModel ? <ResetCreditsSection resets={active.resets} model={resetModel} /> : undefined}
-          flipUp={flipUp}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
             setHistoryOpen(true);
@@ -228,12 +201,11 @@ export function UsageBubble({
         />
       )}
 
-      {open && !tokenSession && !isSpend && (
+      {!tokenSession && !isSpend && (
         <UsageDetail
           snapshot={active}
           accountCreditsLabel={accountCreditsLabel}
           resetSection={tabId && runtime && resetModel ? <ResetCreditsSection resets={active.resets} model={resetModel} /> : undefined}
-          flipUp={flipUp}
           onRefresh={refreshUsage}
           onOpenHistory={() => {
             setHistoryOpen(true);
@@ -241,6 +213,7 @@ export function UsageBubble({
           }}
         />
       )}
+      </AnchoredPopover>
 
       {historyOpen && (
         <UsageHistoryModal

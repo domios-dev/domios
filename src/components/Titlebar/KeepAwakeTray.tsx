@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
 import { getCachedConfig, loadConfig, setUiSettings } from "../../lib/clientSettings";
 import { Power } from "lucide-react";
-import { createPortal } from "react-dom";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { UI_TRAY_BTN } from "../shared/design";
 import { LiquidToggleTrack, useLiquidTravel } from "../shared/LiquidToggle";
 import { Segmented } from "../shared/Segmented";
@@ -48,7 +48,6 @@ export function KeepAwakeTray() {
   const [picked, setPicked] = useState<PresetValue>("inf");
   const [tick, setTick] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   // Hydrate the display preference from centralized config once it loads.
   useEffect(() => {
@@ -134,28 +133,6 @@ export function KeepAwakeTray() {
     finishTravel: finishDisplayTravel,
   } = useLiquidTravel(displaySleep, applyDisplay);
 
-  useEffect(() => {
-    if (!open) return;
-    const click = (e: MouseEvent) => {
-      if (
-        menuRef.current && !menuRef.current.contains(e.target as Node) &&
-        triggerRef.current && !triggerRef.current.contains(e.target as Node)
-      ) setOpen(false);
-    };
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", click, true);
-    document.addEventListener("keydown", key);
-    return () => {
-      document.removeEventListener("mousedown", click, true);
-      document.removeEventListener("keydown", key);
-    };
-  }, [open]);
-
-  const pos = (() => {
-    if (!open || !triggerRef.current) return null;
-    const rect = triggerRef.current.getBoundingClientRect();
-    return { top: rect.bottom + 4, right: window.innerWidth - rect.right };
-  })();
 
   // The strip follows status where it can: a countdown drifts off its preset, so a
   // session begun elsewhere keeps this window's last pick; the header clock rules time.
@@ -202,11 +179,9 @@ export function KeepAwakeTray() {
         <Power size={14} />
       </button>
 
-      {open && pos && createPortal(
+      <AnchoredPopover open={open} anchor={triggerRef} placement="bottom-end" width={260} onClose={() => setOpen(false)}>
         <div
-          ref={menuRef}
-          className="ct-portal-menu ct-menu fixed w-[260px]"
-          style={{ top: pos.top, right: pos.right, "--ct-menu-origin": "top right" } as CSSProperties}
+          className="ct-portal-menu ct-menu w-[260px]"
         >
           <div className="ct-menu-head">
             <div className="flex min-w-0 items-baseline gap-1.5 px-2 pt-1.5 pb-1">
@@ -270,9 +245,8 @@ export function KeepAwakeTray() {
               onTravelEnd={finishDisplayTravel}
             />
           </button>
-        </div>,
-        document.body
-      )}
+        </div>
+      </AnchoredPopover>
     </>
   );
 }

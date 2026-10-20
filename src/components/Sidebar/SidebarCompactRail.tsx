@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import type { Tab, TabStatus } from "../../lib/types";
 import { tabActivity } from "../../lib/tabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
@@ -27,8 +27,8 @@ interface Peek {
   tab: Tab;
   workspaceId: string;
   active: boolean;
-  top: number;
-  left: number;
+  x: number;
+  y: number;
 }
 
 const PEEK_RELEASE_MS = 140;
@@ -81,7 +81,7 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
                 onMouseEnter={(event) => {
                   hold();
                   const rect = event.currentTarget.getBoundingClientRect();
-                  setPeek({ tab, workspaceId: group.workspaceId, active, top: rect.top + rect.height / 2, left: rect.right + 10 });
+                  setPeek({ tab, workspaceId: group.workspaceId, active, x: rect.right + 10, y: rect.top - 4 });
                 }}
                 onMouseLeave={release}
               >
@@ -93,12 +93,12 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
           })}
         </div>
       ))}
-      {peek && createPortal(
+      {peek && (
+        <AnchoredPopover open anchor={{ x: peek.x, y: peek.y }} gap={0}>
         <div
           key={peek.tab.id}
           className="ct-compact-peek"
           data-testid="sidebar-compact-peek"
-          style={{ top: peek.top, left: peek.left }}
           onMouseEnter={hold}
           onMouseLeave={release}
         >
@@ -114,8 +114,8 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
             status={tabStatuses[peek.tab.id] ?? null}
             attention={attentionByTab[peek.tab.id]}
           />
-        </div>,
-        document.body,
+        </div>
+        </AnchoredPopover>
       )}
     </nav>
   );

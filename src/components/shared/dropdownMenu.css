@@ -1,3 +1,22 @@
+.ct-anchored-popover {
+  position: fixed;
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* Layered so a popover's own overflow and sizing win; the placement's bounds land on content that
+   sets none, which then scrolls instead of leaving the screen. */
+@layer components {
+  .ct-anchored-popover > * {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-width: 100%;
+    overflow-y: auto;
+  }
+}
+
 .ct-menu {
   --ct-menu-row-radius: 9px;
   min-width: 11rem;

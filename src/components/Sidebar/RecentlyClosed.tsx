@@ -1,7 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { memo, useState, useCallback, useRef } from "react";
 import { formatAge } from "../../lib/timeLabels";
-import { createPortal } from "react-dom";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { GitBranch, Layers } from "lucide-react";
 import type { ClosedTabView, ClosedStructureView } from "../../lib/types";
 import { closedLabel, describeRestore, restorableStructures } from "../../lib/closeHistoryModel";
@@ -261,16 +261,13 @@ function RecentlyClosedInner({
         </div>
       )}
       {restoreError && <InlineErrorNotice error={restoreError} operation="restoring this tab" blocking />}
-      {tooltip &&
-        createPortal(
-          <div
-            className="fixed z-[9999] pointer-events-none px-2 py-1 rounded text-[11px] text-[var(--ct-fg)] bg-[var(--ct-surface)] border border-[var(--ct-border)] shadow-lg max-w-[240px] break-words"
-            style={{ left: tooltip.x + 14, top: tooltip.y - 8 }}
-          >
+      {tooltip && (
+        <AnchoredPopover open anchor={{ x: tooltip.x + 14, y: tooltip.y - 8 }} gap={0} style={{ pointerEvents: "none" }}>
+          <div className="pointer-events-none px-2 py-1 rounded text-[11px] text-[var(--ct-fg)] bg-[var(--ct-surface)] border border-[var(--ct-border)] shadow-lg max-w-[240px] break-words">
             {tooltip.text}
-          </div>,
-          document.body,
-        )}
+          </div>
+        </AnchoredPopover>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 export interface ContextMenuAction {
   label: string;
@@ -15,52 +15,11 @@ interface ContextMenuProps {
 }
 
 export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    // mousedown both close — `mousedown` covers right-click outside too.
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-
-    document.addEventListener("mousedown", handleClickOutside, true);
-    document.addEventListener("keydown", handleEscape, true);
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside, true);
-      document.removeEventListener("keydown", handleEscape, true);
-    };
-  }, [onClose]);
-
-  useEffect(() => {
-    if (!menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    if (rect.right > vw) {
-      menuRef.current.style.left = `${x - rect.width}px`;
-    }
-    if (rect.bottom > vh) {
-      menuRef.current.style.top = `${y - rect.height}px`;
-    }
-  }, [x, y]);
-
   return (
+    <AnchoredPopover open anchor={{ x, y }} gap={0} onClose={onClose}>
     <div
-      ref={menuRef}
       data-testid="terminal-context-menu"
       style={{
-        position: "fixed",
-        left: x,
-        top: y,
-        zIndex: 9999,
         minWidth: 180,
         backgroundColor: "var(--ct-surface)",
         border: "1px solid var(--ct-border)",
@@ -120,5 +79,6 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
         </div>
       ))}
     </div>
+    </AnchoredPopover>
   );
 }

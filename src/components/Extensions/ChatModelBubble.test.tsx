@@ -101,13 +101,13 @@ function buttonNamed(host: HTMLElement, name: string): HTMLButtonElement | null 
     .find((button) => button.getAttribute("aria-label") === name || button.textContent?.trim() === name) ?? null;
 }
 
-function modelOptionNames(host: HTMLElement): string[] {
-  return Array.from(host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"][aria-label]'))
+function modelOptionNames(_host: HTMLElement): string[] {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"][aria-label]'))
     .map((button) => button.getAttribute("aria-label")!);
 }
 
-function options(host: HTMLElement): HTMLButtonElement[] {
-  return Array.from(host.querySelectorAll('[data-testid="chat-model-option"]'));
+function options(_host: HTMLElement): HTMLButtonElement[] {
+  return Array.from(document.querySelectorAll('[data-testid="chat-model-option"]'));
 }
 
 // it lives inside the bubble's wrapper subtree — query the whole document.
