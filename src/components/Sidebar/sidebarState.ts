@@ -11,7 +11,7 @@ export function selectSidebarState(state: ExtendedState): SidebarState {
   return Object.fromEntries(sidebarFields.map((key) => [key, state[key]])) as SidebarState;
 }
 
-function equalValue(a: unknown, b: unknown, ignoredKey?: string): boolean {
+function equalValue(a: unknown, b: unknown, ...ignoredKeys: string[]): boolean {
   if (Object.is(a, b)) return true;
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
@@ -19,7 +19,7 @@ function equalValue(a: unknown, b: unknown, ignoredKey?: string): boolean {
   const right = b as Record<string, unknown>;
   const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
   for (const key of keys) {
-    if (key === ignoredKey) continue;
+    if (ignoredKeys.includes(key)) continue;
     if (!equalValue(left[key], right[key])) return false;
   }
   return true;
@@ -37,7 +37,7 @@ export function sidebarStateEqual(a: SidebarState, b: SidebarState): boolean {
       const right = b.tabs[id];
       if (left === right) continue;
       if (!left || !right) return false;
-      if (!equalValue(left, right, "agent_state")) return false;
+      if (!equalValue(left, right, "agent_state", "last_active_at_ms")) return false;
       if (!equalValue(left.agent_state, right.agent_state, "elapsed_ms")) return false;
     }
   }

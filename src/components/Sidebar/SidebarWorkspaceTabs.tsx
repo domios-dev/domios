@@ -21,6 +21,7 @@ import { CursorTooltip } from "../shared/CursorTooltip";
 import { TabItem } from "./TabItem";
 import { remoteTeamIdentity } from "./remoteOwnership";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
+import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TabAttention } from "./tabAttention";
@@ -205,6 +206,13 @@ export function SidebarWorkspaceTabs({
     [plans, planIndex],
   );
 
+  // Memoized rows compare handlers by identity; these always reach the current props.
+  const activateRowTab = useLatestCallback(onActivateTab, []);
+  const closeRowTab = useLatestCallback(onCloseTab, []);
+  const renameRowTab = useLatestCallback((tabId: string, title: string) => {
+    onRenameTab(tabId, title);
+    persistTabRename(ws.id, tabId, title);
+  }, []);
   const sharedRow = {
     workspaceId: ws.id,
     activeTabId: wsActiveTabId,
@@ -215,12 +223,9 @@ export function SidebarWorkspaceTabs({
     orchestrators,
     touchMode,
     uiFontScale,
-    onActivateTab,
-    onCloseTab,
-    onRenameTab: (tabId: string, title: string) => {
-      onRenameTab(tabId, title);
-      persistTabRename(ws.id, tabId, title);
-    },
+    onActivateTab: activateRowTab,
+    onCloseTab: closeRowTab,
+    onRenameTab: renameRowTab,
   };
 
   const renderOwnerWithAttachments = (
@@ -268,16 +273,14 @@ export function SidebarWorkspaceTabs({
   const rows: ReactNode[] = [];
   const workspaceTabIds = allSortedTabs.map((tab) => tab.id);
   const unitItems = dragModel.units.map((unit) => `${unit.kind === "team" ? TEAM_PREFIX : TAB_PREFIX}${unit.key}`);
-  const reorderUnits = (orderedKeys: string[]) => ({
+  const reorderUnits = useLatestCallback((orderedKeys: string[]) => ({
     workspaceId: ws.id,
     orderedTabIds: workspaceTabOrder(workspaceTabIds, unitsInOrder(dragModel.units, orderedKeys)),
-  });
-  function reorderSiblings(ordered: string[]) {
-    return {
-      workspaceId: ws.id,
-      orderedTabIds: workspaceTabOrder(workspaceTabIds, withSiblingOrder(dragModel.units, ordered, dragModel.blockOf)),
-    };
-  }
+  }), []);
+  const reorderSiblings = useLatestCallback((ordered: string[]) => ({
+    workspaceId: ws.id,
+    orderedTabIds: workspaceTabOrder(workspaceTabIds, withSiblingOrder(dragModel.units, ordered, dragModel.blockOf)),
+  }), []);
 
   const pinnedLooseItems = looseTabs
     .filter(
