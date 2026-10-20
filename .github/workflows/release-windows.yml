@@ -105,7 +105,6 @@ jobs:
       # Absolute: the prebuild step runs from the repo root and tauri-action runs
       # cargo from src-tauri, so a relative path lands in src-tauri/src-tauri/target.
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
-      CODETERM_RELEASE_FEATURES: embeddings
       CODETERM_RELEASE_COMMON_STAGE: '1'
       CARGO_INCREMENTAL: '0'
       # Some repo paths exceed Windows' 260-char limit (.codeterm/plans/**). git's

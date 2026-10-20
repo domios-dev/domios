@@ -1,13 +1,11 @@
-use codeterm_service_core::ports::host::{Shell, ShellError, WebviewRequest};
 use codeterm_types::native_host::{NativeHostRejection, NativeHostUncertainty};
 use std::{
-    path::PathBuf,
     sync::atomic::{AtomicU8, AtomicUsize, Ordering},
     time::Duration,
 };
 use tauri::Manager;
 
-type AppHandle = codeterm_host_runtime::app_runtime::AppHandle;
+type AppHandle = codeterm_client_shell::app_runtime::AppHandle;
 
 const MAX_QUEUED_MAIN_THREAD_CALLS: usize = 64;
 const MAIN_THREAD_ACK_DEADLINE: Duration = Duration::from_secs(10);
@@ -19,13 +17,13 @@ static QUEUED_MAIN_THREAD_CALLS: AtomicUsize = AtomicUsize::new(0);
 struct MainThreadQueuePermit;
 
 impl MainThreadQueuePermit {
-    fn acquire() -> Result<Self, ShellError> {
+    fn acquire() -> Option<Self> {
         QUEUED_MAIN_THREAD_CALLS
             .try_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
                 (pending < MAX_QUEUED_MAIN_THREAD_CALLS).then_some(pending + 1)
             })
-            .map_err(|_| ShellError::Failed("Native main-thread queue is full".into()))?;
-        Ok(Self)
+            .ok()
+            .map(|_| Self)
     }
 }
 
@@ -45,27 +43,29 @@ pub(crate) enum NativeShellFailure {
 
 enum MainThreadCallError {
     QueueFull,
-    Scheduling(ShellError),
-    Action(ShellError),
+    Scheduling,
+    Action,
     DeadlineBeforeDispatch,
     UncertainAfterDispatch,
 }
 
-fn failed(error: impl std::fmt::Display) -> ShellError {
-    ShellError::Failed(error.to_string())
+/// The native host protocol reports only the failure class, never the action's error text.
+struct ActionFailed;
+
+fn failed(_: impl std::fmt::Display) -> ActionFailed {
+    ActionFailed
 }
 
 impl TauriShell {
     fn on_main_call<T: Send + 'static>(
         &self,
-        action: impl FnOnce(AppHandle) -> Result<T, ShellError> + Send + 'static,
+        action: impl FnOnce(AppHandle) -> Result<T, ActionFailed> + Send + 'static,
     ) -> Result<T, MainThreadCallError> {
         let app = self.0.clone();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let phase = std::sync::Arc::new(AtomicU8::new(MAIN_THREAD_QUEUED));
         let scheduled_phase = phase.clone();
-        let permit =
-            MainThreadQueuePermit::acquire().map_err(|_| MainThreadCallError::QueueFull)?;
+        let permit = MainThreadQueuePermit::acquire().ok_or(MainThreadCallError::QueueFull)?;
         self.0
             .run_on_main_thread(move || {
                 let _permit = permit;
@@ -83,10 +83,10 @@ impl TauriShell {
                 let _ = sender.send(action(app));
                 scheduled_phase.store(MAIN_THREAD_COMPLETED, Ordering::Release);
             })
-            .map_err(|error| MainThreadCallError::Scheduling(failed(error)))?;
+            .map_err(|_| MainThreadCallError::Scheduling)?;
         match receiver.recv_timeout(MAIN_THREAD_ACK_DEADLINE) {
             Ok(Ok(result)) => Ok(result),
-            Ok(Err(error)) => Err(MainThreadCallError::Action(error)),
+            Ok(Err(ActionFailed)) => Err(MainThreadCallError::Action),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 if phase
                     .compare_exchange(
@@ -101,7 +101,7 @@ impl TauriShell {
                 } else {
                     match receiver.try_recv() {
                         Ok(Ok(result)) => Ok(result),
-                        Ok(Err(error)) => Err(MainThreadCallError::Action(error)),
+                        Ok(Err(ActionFailed)) => Err(MainThreadCallError::Action),
                         Err(_) => Err(MainThreadCallError::UncertainAfterDispatch),
                     }
                 }
@@ -124,39 +124,21 @@ impl TauriShell {
         }
     }
 
-    fn on_main<T: Send + 'static>(
-        &self,
-        action: impl FnOnce(AppHandle) -> Result<T, ShellError> + Send + 'static,
-    ) -> Result<T, ShellError> {
-        self.on_main_call(action).map_err(|error| match error {
-            MainThreadCallError::Scheduling(error) | MainThreadCallError::Action(error) => error,
-            MainThreadCallError::QueueFull => {
-                ShellError::Failed("Native main-thread queue is full".into())
-            }
-            MainThreadCallError::DeadlineBeforeDispatch => ShellError::Failed(
-                "Main-thread action was cancelled before execution at its deadline".into(),
-            ),
-            MainThreadCallError::UncertainAfterDispatch => ShellError::Failed(
-                "Main-thread action acknowledgement elapsed after execution began".into(),
-            ),
-        })
-    }
-
     fn on_main_native<T: Send + 'static>(
         &self,
-        action: impl FnOnce(AppHandle) -> Result<T, ShellError> + Send + 'static,
+        action: impl FnOnce(AppHandle) -> Result<T, ActionFailed> + Send + 'static,
     ) -> Result<T, NativeShellFailure> {
         self.on_main_call(action).map_err(|error| match error {
             MainThreadCallError::QueueFull => {
                 NativeShellFailure::Refused(NativeHostRejection::QueueFull)
             }
-            MainThreadCallError::Scheduling(_) => {
+            MainThreadCallError::Scheduling => {
                 NativeShellFailure::Refused(NativeHostRejection::HostRejected)
             }
             MainThreadCallError::DeadlineBeforeDispatch => {
                 NativeShellFailure::Refused(NativeHostRejection::DeadlineBeforeDispatch)
             }
-            MainThreadCallError::Action(_) | MainThreadCallError::UncertainAfterDispatch => {
+            MainThreadCallError::Action | MainThreadCallError::UncertainAfterDispatch => {
                 NativeShellFailure::Uncertain(NativeHostUncertainty::DisconnectedAfterDispatch)
             }
         })
@@ -196,65 +178,5 @@ impl TauriShell {
                 .map_err(failed)?;
             Ok(())
         })
-    }
-}
-
-impl Shell for TauriShell {
-    fn resource_dir(&self) -> Result<PathBuf, ShellError> {
-        self.0.path().resource_dir().map_err(failed)
-    }
-
-    fn focus_window(&self, label: &str) -> Result<(), ShellError> {
-        let label = label.to_owned();
-        self.on_main(move |app| {
-            if label == "main" {
-                return crate::startup::desktop_lifecycle::show_or_create(&app).map_err(failed);
-            }
-            if let Some(window) = app.get_webview_window(&label) {
-                window.show().map_err(failed)?;
-                window.unminimize().map_err(failed)?;
-                window.set_focus().map_err(failed)?;
-            }
-            Ok(())
-        })
-    }
-
-    fn window_exists(&self, label: &str) -> bool {
-        let label = label.to_owned();
-        self.on_main(move |app| Ok(app.get_webview_window(&label).is_some()))
-            .unwrap_or(false)
-    }
-
-    fn os_notify(&self, title: &str, body: Option<&str>) -> Result<(), ShellError> {
-        crate::os_notify::_send_os_notification(&self.0, title, body);
-        Ok(())
-    }
-
-    fn toast_permission(&self, enabling: Option<bool>) -> String {
-        match enabling {
-            Some(enabling) => crate::os_notify::establish_toast_permission(&self.0, enabling),
-            None => crate::os_notify::toast_permission(&self.0),
-        }
-        .to_string()
-    }
-
-    fn open_webview(&self, request: WebviewRequest) -> Result<(), ShellError> {
-        let url = request.url.parse().map_err(failed)?;
-        self.on_main(move |app| {
-            tauri::WebviewWindowBuilder::new(&app, request.label, tauri::WebviewUrl::External(url))
-                .title(request.title)
-                .inner_size(request.width, request.height)
-                .build()
-                .map_err(failed)?;
-            Ok(())
-        })
-    }
-
-    fn current_exe(&self) -> Result<PathBuf, ShellError> {
-        tauri::utils::platform::current_exe().map_err(failed)
-    }
-
-    fn config_dir(&self) -> Result<PathBuf, ShellError> {
-        self.0.path().config_dir().map_err(failed)
     }
 }

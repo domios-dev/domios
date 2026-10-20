@@ -6,8 +6,8 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = ["crates/codeterm-process-identity", "crates/codeterm-paths", "crates/domios-server", "crates/codeterm-crash", "crates/codeterm-host-runtime", "crates/codeterm-worker-services", "crates/codeterm-local-preview", "crates/codeterm-lanes", "crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core", "crates/codeterm-surface", "crates/codeterm-notifications",
-    "crates/codeterm-provider-ops", "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model", "crates/codeterm-entitlements"]
+members = ["crates/codeterm-process-identity", "crates/codeterm-paths", "crates/domios-server", "crates/codeterm-crash", "crates/codeterm-worker-services", "crates/codeterm-local-preview", "crates/codeterm-lanes", "crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core", "crates/codeterm-surface", "crates/codeterm-notifications",
+    "crates/codeterm-provider-ops", "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model", "crates/codeterm-entitlements", "crates/codeterm-update", "crates/codeterm-client-shell", "crates/codeterm-frontend-shell", "tools/codeterm-devtools"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
@@ -18,17 +18,14 @@ warnings = "deny"
 workspace = true
 
 [dependencies]
-uuid = { version = "1", features = ["v4", "serde"] }
-domios-server = { path = "crates/domios-server", default-features = false }
-codeterm-host-runtime = { path = "crates/codeterm-host-runtime" }
-include_dir = "0.7"
-codeterm-commands = { path = "crates/codeterm-commands", features = ["desktop"] }
-codeterm-api = { path = "crates/codeterm-api" }
-codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false }
-codeterm-sentinel-host = { path = "crates/codeterm-sentinel-host" }
-codeterm-socket = { path = "crates/codeterm-socket" }
-codeterm-orchestration = { path = "crates/codeterm-orchestration" }
 codeterm-build-info = { path = "crates/codeterm-build-info" }
+codeterm-client-shell = { path = "crates/codeterm-client-shell" }
+codeterm-frontend-shell = { path = "crates/codeterm-frontend-shell" }
+codeterm-paths = { path = "crates/codeterm-paths" }
+codeterm-process-identity = { path = "crates/codeterm-process-identity" }
+codeterm-types = { path = "crates/codeterm-types" }
+codeterm-update = { path = "crates/codeterm-update" }
+codeterm-util = { path = "crates/codeterm-util" }
 tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
 # tauri-build reads plugin ACL manifests only from direct dependencies.
 tauri-plugin-deep-link = "2"
@@ -42,23 +39,8 @@ interprocess = { version = "2", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
-codeterm-types = { path = "crates/codeterm-types" }
-codeterm-paths = { path = "crates/codeterm-paths" }
-codeterm-process-identity = { path = "crates/codeterm-process-identity" }
-codeterm-decision = { path = "crates/codeterm-decision" }
-codeterm-bridge = { path = "crates/codeterm-bridge" }
-axum = { version = "0.8", features = ["multipart"] }
-base64 = "0.22"
-chrono = { version = "0.4", features = ["serde"] }
-
-codeterm-billing = { path = "crates/codeterm-billing" }
-codeterm-plan = { path = "crates/codeterm-plan" }
-codeterm-plugin = { path = "crates/codeterm-plugin" }
-codeterm-util = { path = "crates/codeterm-util" }
-codeterm-events = { path = "crates/codeterm-events" }
-codeterm-frontend-bundle = { path = "crates/codeterm-frontend-bundle" }
+uuid = { version = "1", features = ["v4", "serde"] }
 log = { version = "0.4", features = ["release_max_level_info"] }
-fern = "0.7"
 shell-words = "1"
 parking_lot = "0.12"
 async-trait = "0.1"
@@ -66,7 +48,6 @@ png = "0.17"
 dirs = "6"
 url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 codeterm-crash = { path = "crates/codeterm-crash" }
@@ -78,16 +59,11 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponde
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [features]
-default = ["embeddings"]
-embeddings = ["codeterm-service-core/embeddings", "domios-server/embeddings"]
-dev-updater-allowlocal = ["codeterm-commands/dev-updater-allowlocal"]
-# Developer harnesses stay out of the shipped app bundle, which packages every enabled binary.
-dev-tools = []
+dev-updater-allowlocal = ["codeterm-client-shell/dev-updater-allowlocal"]
 
 [dev-dependencies]
-codeterm-host-runtime = { path = "crates/codeterm-host-runtime", features = ["test-support"] }
-codeterm-service-core = { path = "crates/codeterm-service-core", default-features = false, features = ["test-support"] }
-vt100 = "0.16"
+codeterm-client-shell = { path = "crates/codeterm-client-shell", features = ["test-support"] }
+tempfile = "3"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -96,40 +72,6 @@ sha2 = "0.10"
 [lib]
 name = "codeterm_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
-
-[[test]]
-name = "main"
-path = "tests/main.rs"
-
-[[test]]
-name = "bridge_migrate_test"
-path = "tests/bridge_migrate_test.rs"
-test = false
-
-[[test]]
-name = "chatpipeline_seams_test"
-path = "tests/chatpipeline_seams_test.rs"
-test = false
-
-# Deterministic mem-recall bench runner. Reuses the `mem` module from the
-# lib crate directly. Default and stub modes run offline without an LLM
-# or embeddings; live decision mode is an explicit owner-run option.
-[[bin]]
-name = "mem-bench"
-path = "src/bin/mem_bench.rs"
-required-features = ["dev-tools"]
-
-# Fast parser-iteration harness: run a provider's usage parser against
-# a raw text fixture and print extracted fields. ~2s rebuild vs full dev.
-[[bin]]
-name = "parser-eval"
-path = "src/bin/parser_eval.rs"
-required-features = ["dev-tools"]
-
-[[bin]]
-name = "storage-verify"
-path = "src/bin/storage-verify.rs"
-required-features = ["dev-tools"]
 
 # Build-speed profiles (round-16 build audit). dev: unpacked split-debuginfo
 # skips dSYM packing on macOS (faster links); line-tables keep usable
@@ -147,18 +89,6 @@ debug = "line-tables-only"
 
 [profile.test.package."*"]
 debug = false
-
-# One-off legacy plan.json → store_v2 yaml migration (T7). Deep-compare gate;
-# never deletes on mismatch. Rehearse on a project copy with --dry-run first.
-[[bin]]
-name = "mem_ab_bench"
-path = "src/bin/mem_ab_bench.rs"
-required-features = ["dev-tools"]
-
-[[bin]]
-name = "convert-plan-storage"
-path = "src/bin/convert-plan-storage.rs"
-required-features = ["dev-tools"]
 
 [patch.crates-io]
 tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }

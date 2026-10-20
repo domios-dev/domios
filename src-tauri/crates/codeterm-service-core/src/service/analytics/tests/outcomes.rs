@@ -146,8 +146,8 @@ fn product_billing_enum_contract_matches_serialized_authority() {
 async fn product_update_installed_requires_running_target_with_kind_only() {
     let sink = Sink::new(Consent::On).await;
     let path = sink.dir.path().join("update.json");
-    crate::service::analytics::update_confirm::stage(&path, "1.1.0-rc.2").unwrap();
-    crate::service::analytics::update_confirm::stage(&path, "1.1.0-rc.2").unwrap();
+    codeterm_update::receipt::stage(&path, "1.1.0-rc.2").unwrap();
+    codeterm_update::receipt::stage(&path, "1.1.0-rc.2").unwrap();
     let worker = sink.worker.clone();
     let receipt = path.clone();
     tokio::task::spawn_blocking(move || {

@@ -1,4 +1,4 @@
-use codeterm_service_core::startup::{
+use codeterm_util::user_path::{
     repair_user_path_with, user_path_repair_report, SystemUserPathStore,
 };
 

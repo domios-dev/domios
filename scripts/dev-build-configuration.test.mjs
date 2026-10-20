@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { devBuildConfiguration, assertAppFeatureConfiguration } from './dev-build-configuration.mjs';
+import { devBuildConfiguration, assertServerFeatureConfiguration } from './dev-build-configuration.mjs';
 const root = path.resolve(import.meta.dirname, '..');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 
@@ -20,6 +20,8 @@ test('product feature arguments omit Cargo default markers and enable only selec
     printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
     configure_product_cargo -p codeterm
     printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
+    configure_product_cargo -p domios-server
+    printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
     configure_product_cargo -p codeterm-util
     printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
     configure_product_cargo --workspace
@@ -31,9 +33,10 @@ test('product feature arguments omit Cargo default markers and enable only selec
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
     '--no-default-features --features codeterm-service-core/opaque',
-    '--no-default-features --features codeterm/opaque',
     '--no-default-features',
-    '--no-default-features --features codeterm/opaque --features codeterm-service-core/opaque --features codeterm-mem/opaque',
+    '--no-default-features --features domios-server/opaque',
+    '--no-default-features',
+    '--no-default-features --features domios-server/opaque --features codeterm-service-core/opaque --features codeterm-mem/opaque',
     '--no-default-features',
   ]);
 });
@@ -44,14 +47,14 @@ test('dev features follow manifest defaults while custom-protocol stays out of t
   assert.deepEqual(devBuildConfiguration('[features]\ndefault = []').features, []);
 });
 
-test('divergent dev, root-default and core-default test features refuse another core configuration', () => {
+test('divergent dev, server-default and core-default test features refuse another core configuration', () => {
   const manifest = features => `[features]\ndefault = [${features.map(feature => `"${feature}"`).join(',')}]\n`;
-  assert.deepEqual(assertAppFeatureConfiguration(manifest(['opaque']), manifest(['opaque'])), ['opaque']);
-  assert.throws(() => assertAppFeatureConfiguration(manifest(['opaque']), manifest([])), /diverged/);
-  assert.throws(() => assertAppFeatureConfiguration(manifest(['opaque', 'custom-protocol']), manifest(['opaque'])), /diverged/);
+  assert.deepEqual(assertServerFeatureConfiguration(manifest(['opaque']), manifest(['opaque'])), ['opaque']);
+  assert.throws(() => assertServerFeatureConfiguration(manifest(['opaque']), manifest([])), /diverged/);
+  assert.throws(() => assertServerFeatureConfiguration(manifest(['opaque', 'custom-protocol']), manifest(['opaque'])), /diverged/);
 });
 
-test('dev launch and the regular library check share profile, features, flags and no test cfg', () => {
+test('dev launch and the regular library check share profile and flags, and the client carries no server features', () => {
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
   const fn = source.match(/^configure_dev_cargo\(\) \{[\s\S]*?^\}/m)[0];
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-cargo-config-'));
@@ -67,13 +70,8 @@ test('dev launch and the regular library check share profile, features, flags an
     `], { cwd: root, env: { ...process.env, PATH: process.platform === 'win32' ? `C:/Program Files/Git/usr/bin;C:/Program Files/Git/bin;${path.dirname(process.execPath)};${process.env.PATH}` : process.env.PATH }, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const [check, launch, flags, debug] = result.stdout.trim().split(/\r?\n/);
-    const features = devBuildConfiguration(fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8')).features.join(',');
-    assert.match(check, /-p codeterm --lib --profile dev --no-default-features/);
-    assert.match(launch, /-- --profile dev$/);
-    if (features) {
-      assert.ok(check.includes(`--features ${features}`));
-      assert.ok(launch.includes(`--features ${features}`));
-    }
+    assert.match(check, /-p codeterm --lib --profile dev --no-default-features$/);
+    assert.equal(launch, '-- --profile dev');
     assert.doesNotMatch(check, /--all-targets|--tests|--release/);
     assert.equal(flags, '--cfg opaque_dev');
     assert.equal(debug, 'false');

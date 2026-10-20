@@ -79,7 +79,6 @@ jobs:
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
-      CODETERM_RELEASE_FEATURES: embeddings
       CODETERM_RELEASE_COMMON_STAGE: '1'
       CARGO_INCREMENTAL: '0'
       ART: ${{ github.workspace }}/release-artifacts/macos-${{ matrix.arch }}
