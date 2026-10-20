@@ -13,8 +13,7 @@ use super::ServiceContext;
 pub use codeterm_notifications::bridge_threads::{sender_identity, TabIdentity};
 
 pub fn registry_path() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(crate::paths::dir_name())
+    crate::paths::data_dir_path()
         .join("bridge")
         .join("telegram-threads.json")
 }

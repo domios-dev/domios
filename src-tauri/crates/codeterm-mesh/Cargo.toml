@@ -30,6 +30,7 @@ chrono = { version = "0.4", features = ["serde"] }
 semver = "1"
 
 [dev-dependencies]
+codeterm-paths = { path = "../codeterm-paths", features = ["isolated-data-root"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
 
