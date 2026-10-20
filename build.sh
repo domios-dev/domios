@@ -582,7 +582,7 @@ CT_VITE_PORT="${CODETERM_VITE_PORT:-}"
 CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 CT_INSTANCE_HASH=""
 case "$CMD" in
-  dev|dev-prebuilt|dev-server|kill|e2e|e2e:llm)
+  dev|dev-prebuilt|dev-server|dev-front|kill|e2e|e2e:llm)
     CT_DEV_SELECTION="$(node scripts/dev-instance-policy.mjs)" || exit $?
     CT_INSTANCE="${CT_DEV_SELECTION%:*}"
     CT_PORT="${CT_DEV_SELECTION##*:}"
