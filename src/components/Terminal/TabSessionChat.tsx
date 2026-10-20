@@ -95,7 +95,7 @@ import { useTabChatBlockHost } from "./pinnedBlocks";
 import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
-import { deliveryPresentation, sendForRow } from "./chatDeliveryModel";
+import { awaitsTranscriptEcho, deliveryPresentation, sendForRow } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -306,6 +306,7 @@ function TabSessionChatBody({
     allowUnboundAuthority: effectiveChatBackend,
     followTailRef: chatFollowTailRef,
     history: runtime.state?.history,
+    live: isActive || awaitsTranscriptEcho(deliverySends),
   });
   const retryChatDelivery = useLatestCallback(async (id: string) => {
     const send = beginChatSendRetry(tabId, id);
