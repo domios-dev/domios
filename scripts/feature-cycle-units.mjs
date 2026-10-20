@@ -9,9 +9,9 @@ export function coreUnits(logs) {
     for (const line of log.split('\n')) {
       let item;
       try { item = JSON.parse(line); } catch { continue; }
-      if (item.reason !== 'compiler-artifact' || item.target?.name !== 'codeterm_service_core') continue;
+      if (item.reason !== 'compiler-artifact' || item.target?.name !== 'domios_service_core') continue;
       for (const file of item.filenames ?? []) {
-        const hash = file.replaceAll('\\', '/').split('/').at(-1).match(/^(?:lib)?codeterm_service_core-([a-f0-9]{16})(?:\.|$)/)?.[1];
+        const hash = file.replaceAll('\\', '/').split('/').at(-1).match(/^(?:lib)?domios_service_core-([a-f0-9]{16})(?:\.|$)/)?.[1];
         if (!hash) continue;
         const unit = units.get(hash) ?? { hash, features: item.features, profile: item.profile, phases: [] };
         if (!unit.phases.includes(phase)) unit.phases.push(phase);

@@ -1,11 +1,11 @@
 [package]
 license = "PolyForm-Shield-1.0.0"
-name = "codeterm-cli"
+name = "domios-cli"
 version = "1.15.0"
 edition = "2021"
 
 [[bin]]
-name = "codeterm"
+name = "domios"
 path = "src/main.rs"
 
 [lints.rust]
@@ -35,27 +35,27 @@ sha2 = "0.10"
 # Transliteration for `tab find` — lets users search "далтон" → "Dalton"
 # without minding the input language.
 deunicode = "1"
-codeterm-mem-store = { path = "../crates/mem-store" }
-codeterm-plugins = { path = "../src-tauri/crates/codeterm-plugins" }
+domios-mem-store = { path = "../src-tauri/crates/mem-store" }
+domios-plugins = { path = "../src-tauri/crates/domios-plugins" }
 # In-process reuse of the daemon's strict PluginManifest + QuickJS loader for
 # `plugin validate` — the CLI never grows its own manifest interpretation.
-codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin" }
-codeterm-build-info = { path = "../src-tauri/crates/codeterm-build-info" }
-codeterm-paths = { path = "../src-tauri/crates/codeterm-paths" }
-codeterm-process-identity = { path = "../src-tauri/crates/codeterm-process-identity" }
+domios-plugin = { path = "../src-tauri/crates/domios-plugin" }
+domios-build-info = { path = "../src-tauri/crates/domios-build-info" }
+domios-paths = { path = "../src-tauri/crates/domios-paths" }
+domios-process-identity = { path = "../src-tauri/crates/domios-process-identity" }
 # The notification level set is defined once in the daemon-shared crate; the CLI
 # derives its flag values from it instead of mirroring the enum.
-codeterm-types = { path = "../src-tauri/crates/codeterm-types" }
-codeterm-notification-core = { path = "../src-tauri/crates/codeterm-notification-core" }
-codeterm-blueprint-types = { path = "../src-tauri/crates/codeterm-blueprint-types" }
-codeterm-mesh = { path = "../src-tauri/crates/codeterm-mesh" }
-codeterm-wire = { path = "../src-tauri/crates/codeterm-wire" }
+domios-types = { path = "../src-tauri/crates/domios-types" }
+domios-notification-core = { path = "../src-tauri/crates/domios-notification-core" }
+domios-blueprint-types = { path = "../src-tauri/crates/domios-blueprint-types" }
+domios-mesh = { path = "../src-tauri/crates/domios-mesh" }
+domios-wire = { path = "../src-tauri/crates/domios-wire" }
 
 [build-dependencies]
 sha2 = "0.10"
 
 [dev-dependencies]
-codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin", features = ["test-support"] }
+domios-plugin = { path = "../src-tauri/crates/domios-plugin", features = ["test-support"] }
 tempfile = "3"
 
 # CLI ships release (agents exec it constantly — startup latency matters),
@@ -69,5 +69,5 @@ debug = "line-tables-only"
 
 # Building Cli::command is ~10^4x slower unoptimized (release: 0ms) — every dev/test
 # calling try_parse_from otherwise hangs for minutes. opt-1 on just this crate fixes it.
-[profile.dev.package.codeterm-cli]
+[profile.dev.package.domios-cli]
 opt-level = 1

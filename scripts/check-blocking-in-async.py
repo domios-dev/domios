@@ -143,11 +143,11 @@ def main(repo=None):
                                            text=True).strip())
     crates = repo / "src-tauri/crates"
     roots = [crates / name / "src" for name in
-             ("codeterm-api", "codeterm-commands", "codeterm-socket",
-              "codeterm-sentinel-host")]
-    roots += [crates / "codeterm-service-core/src" / name
+             ("domios-api", "domios-commands", "domios-socket",
+              "domios-sentinel-host")]
+    roots += [crates / "domios-service-core/src" / name
               for name in ("api_support", "startup")]
-    roots.append(crates / "codeterm-service-core/src/service")
+    roots.append(crates / "domios-service-core/src/service")
     bad = []
     for root in roots:
         for path in sorted(root.rglob("*.rs")):

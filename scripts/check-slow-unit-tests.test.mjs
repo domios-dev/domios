@@ -9,19 +9,19 @@ import { resolve, join } from 'node:path';
 import { splitTestName, testKey } from './rust-test-inventory.mjs';
 import { checkSlowTests, parseTimings, unitKey, validateBaseline, selectCandidates, candidateFilter, timingWarnings, regressionLimit, validateBenchmarks, checkBenchmarks } from './check-slow-unit-tests.mjs';
 
-const entry = (name, seconds) => ({ binary: 'codeterm', test: name, measuredSeconds: seconds });
+const entry = (name, seconds) => ({ binary: 'domios', test: name, measuredSeconds: seconds });
 const slow = (key, seconds) => ({ key, measuredSeconds: seconds });
 const baseline = (...entries) => ({ version: 1, entries });
 
 test('parses nextest timings and keeps the slowest retry', () => {
-  assert.deepEqual(parseTimings('\x1b[32m PASS [ 1.200s] codeterm a\x1b[0m\n FAIL [ 0.200s] codeterm a\n PASS [ 0.010s] ( 2/2) codeterm b\n Summary [ 1.210s] 2 tests run: 2 passed\n'), [entry('a', 1.2), entry('b', 0.01)]);
+  assert.deepEqual(parseTimings('\x1b[32m PASS [ 1.200s] domios a\x1b[0m\n FAIL [ 0.200s] domios a\n PASS [ 0.010s] ( 2/2) domios b\n Summary [ 1.210s] 2 tests run: 2 passed\n'), [entry('a', 1.2), entry('b', 0.01)]);
 });
 
 test('rejects incomplete and empty reports', () => {
-  assert.throws(() => parseTimings('PASS [ 1.200s] codeterm a'), /summary/);
+  assert.throws(() => parseTimings('PASS [ 1.200s] domios a'), /summary/);
   assert.deepEqual(parseTimings('Summary [ 0.000s] 0 tests run'), []);
   assert.throws(() => parseTimings('Summary [ 1.000s] 2 tests run'), /no per-test/);
-  assert.throws(() => parseTimings('PASS [ 0.200s] codeterm a\nSummary [ 1.000s] 2 tests run'), /incomplete/);
+  assert.throws(() => parseTimings('PASS [ 0.200s] domios a\nSummary [ 1.000s] 2 tests run'), /incomplete/);
 });
 
 test('new slow unit fails above noise band and one second is permitted', () => {
@@ -47,10 +47,10 @@ test('baseline identities are exact and unique', () => {
 });
 
 test('captured nextest output includes failing tests and timeout lower bounds', () => {
-  const output = 'FAIL [ 0.210s] ( 1/2) codeterm a\nTIMEOUT [> 1.234s] (2/2) codeterm b\nSummary [ 1.234s] 2 tests run: 2 failed';
+  const output = 'FAIL [ 0.210s] ( 1/2) domios a\nTIMEOUT [> 1.234s] (2/2) domios b\nSummary [ 1.234s] 2 tests run: 2 failed';
   assert.deepEqual(parseTimings(output), [
-    {binary: 'codeterm', test: 'a', measuredSeconds: 0.21},
-    {binary: 'codeterm', test: 'b', measuredSeconds: 1.234},
+    {binary: 'domios', test: 'a', measuredSeconds: 0.21},
+    {binary: 'domios', test: 'b', measuredSeconds: 1.234},
   ]);
 });
 
@@ -78,7 +78,7 @@ describe('build nextest ratchet', () => {
       ...process.env, FIXTURE_SCOPE: scope, FIXTURE_CARGO_LOG: join(root, 'cargo-args.log'), FIXTURE_REPORT: join(root, 'nextest.log'), FIXTURE_RUN_EXIT: String(code), SLOW_UNIT_TESTS_BASE: base,
     }});
   };
-  const output = (status, seconds) => `${status} [ ${seconds}s] (1/1) codeterm opaque\nSummary [ ${seconds}s] 1 tests run\n`;
+  const output = (status, seconds) => `${status} [ ${seconds}s] (1/1) domios opaque\nSummary [ ${seconds}s] 1 tests run\n`;
   test('accepts a fast executed unit', () => assert.equal(run(output('PASS', 0.2), 0).status, 0));
   test('compares at the fork point, ignoring a later incompatible baseline on the base', () => {
     const git = (...args) => execFileSync('git', ['-C', root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', ...args]);
@@ -93,8 +93,8 @@ describe('build nextest ratchet', () => {
     const calls = readFileSync(join(root, 'cargo-args.log'), 'utf8').trim().split('\n');
     const compile = calls.filter((call) => call.startsWith('nextest list '));
     assert.equal(compile.length, 1);
-    assert.match(compile[0], /--lib -p codeterm-input-macos -p codeterm-input-windows/);
-    assert.doesNotMatch(compile[0], /--workspace|-p codeterm(?: |$)/);
+    assert.match(compile[0], /--lib -p domios-input-macos -p domios-input-windows/);
+    assert.doesNotMatch(compile[0], /--workspace|-p domios(?: |$)/);
   });
   test('warns about a new slow unit without failing the run', () => {
     const slow = run(output('PASS', 1.251), 0);
@@ -103,16 +103,16 @@ describe('build nextest ratchet', () => {
   });
   test('preserves a failed test exit', () => assert.equal(run(output('FAIL', 0.2), 100).status, 100));
   test('preserves a compilation failure exit', () => assert.equal(run('compiler failed\n', 100).status, 100));
-  test('rejects an incomplete successful runner log', () => assert.equal(run('PASS [ 0.2s] codeterm opaque\n', 0).status, 1));
+  test('rejects an incomplete successful runner log', () => assert.equal(run('PASS [ 0.2s] domios opaque\n', 0).status, 1));
   test('serial confirmation reuses exact binaries and retains test failure status', () => {
     const calls = [];
-    const code = confirmCandidates([{binary: 'codeterm', test: 'a'}, {binary: 'codeterm', test: 'b'}], {
+    const code = confirmCandidates([{binary: 'domios', test: 'a'}, {binary: 'domios', test: 'b'}], {
       manifest: 'source/Cargo.toml', binaries: 'same-binaries.json', cargo: 'same-cargo.json',
       output: join(root, 'alone.log'), print: () => {},
     }, (command, args, options) => {
       calls.push({command, args, options});
       const name = calls.length === 1 ? 'a' : 'b';
-      return {status: name === 'a' ? 0 : 100, stdout: `PASS [ 0.2s] codeterm ${name}\nSummary [ 0.2s] 1 tests run\n`, stderr: ''};
+      return {status: name === 'a' ? 0 : 100, stdout: `PASS [ 0.2s] domios ${name}\nSummary [ 0.2s] 1 tests run\n`, stderr: ''};
     });
     assert.equal(code, 100);
     assert.equal(calls.length, 2);
@@ -147,24 +147,24 @@ describe('build nextest ratchet', () => {
 
   test('serial confirmation falls back to the exact test name when binary_id cannot be resolved', () => {
     const filters = [];
-    assert.equal(confirmCandidates([{binary: 'codeterm-mem-store', test: 'tests::graph::opaque'}], {
+    assert.equal(confirmCandidates([{binary: 'domios-mem-store', test: 'tests::graph::opaque'}], {
       binaries: 'b.json', cargo: 'c.json', output: join(root, 'fallback-alone.log'), print: () => {},
     }, (_command, args) => {
       filters.push(args[args.indexOf('--filter-expr') + 1]);
       if (filters.length === 1) return { status: 1, stdout: '', stderr: "  error: operator didn't match any binary IDs\nerror: failed to parse filterset\n" };
-      return { status: 0, stdout: 'PASS [ 0.2s] codeterm-mem-store tests::graph::opaque\nSummary [ 0.2s] 1 tests run\n', stderr: '' };
+      return { status: 0, stdout: 'PASS [ 0.2s] domios-mem-store tests::graph::opaque\nSummary [ 0.2s] 1 tests run\n', stderr: '' };
     }), 0);
-    assert.deepEqual(filters, ['(binary_id(=codeterm-mem-store) & test(=tests::graph::opaque))', 'test(=tests::graph::opaque)']);
+    assert.deepEqual(filters, ['(binary_id(=domios-mem-store) & test(=tests::graph::opaque))', 'test(=tests::graph::opaque)']);
   });
 
   test('serial confirmation reuses the selected archive without compiling or switching binaries', () => {
     let args;
-    assert.equal(confirmCandidates([{binary: 'codeterm', test: 'opaque'}], {
+    assert.equal(confirmCandidates([{binary: 'domios', test: 'opaque'}], {
       archive: 'opaque-archive.tar.zst', output: join(root, 'archive-alone.log'), print: () => {},
     }, (_command, selected, options) => {
       args = selected;
       assert.equal(options.env.CARGO_TEST_BUILD_CMD, '');
-      return { status: 0, stdout: 'PASS [ 0.2s] codeterm opaque\nSummary [ 0.2s] 1 tests run\n' };
+      return { status: 0, stdout: 'PASS [ 0.2s] domios opaque\nSummary [ 0.2s] 1 tests run\n' };
     }), 0);
     assert.equal(args[args.indexOf('--archive-file') + 1], 'opaque-archive.tar.zst');
     const workspace = args[args.indexOf('--workspace-remap') + 1];
@@ -186,13 +186,13 @@ test('only new or over-baseline slow candidates need confirmation', () => {
 });
 
 test('candidate filters contain exact data and reject syntax injection', () => {
-  assert.equal(candidateFilter([entry('a::b', 2)]), '(binary_id(=codeterm) & test(=a::b))');
+  assert.equal(candidateFilter([entry('a::b', 2)]), '(binary_id(=domios) & test(=a::b))');
   assert.throws(() => candidateFilter([entry('a) | all()', 2)]), /unsafe/);
-  assert.throws(() => parseTimings('PASS [ 1.2s] codeterm a)\nSummary [ 1.2s] 1 tests run'), /invalid/);
+  assert.throws(() => parseTimings('PASS [ 1.2s] domios a)\nSummary [ 1.2s] 1 tests run'), /invalid/);
 });
 
 test('serial reports can concatenate separate one-test executions', () => {
-  assert.deepEqual(parseTimings('PASS [ 0.2s] codeterm a\nSummary [ 0.2s] 1 tests run\nFAIL [ 1.2s] codeterm b\nSummary [ 1.2s] 1 tests run'), [entry('a', 0.2), entry('b', 1.2)]);
+  assert.deepEqual(parseTimings('PASS [ 0.2s] domios a\nSummary [ 0.2s] 1 tests run\nFAIL [ 1.2s] domios b\nSummary [ 1.2s] 1 tests run'), [entry('a', 0.2), entry('b', 1.2)]);
 });
 
 test('new alone timings in the 1s to 1.25s band warn without failing', () => {
@@ -213,7 +213,7 @@ test('regression noise band uses the larger of twenty percent and quarter second
 });
 
 test('benchmark exemptions require exact unique identities and an explicit reason', () => {
-  const exemption = {binary: 'codeterm', test: 'throughput', reason: 'Measures throughput by repeated replay'};
+  const exemption = {binary: 'domios', test: 'throughput', reason: 'Measures throughput by repeated replay'};
   assert.deepEqual(validateBenchmarks(baseline(exemption)), [exemption]);
   assert.throws(() => validateBenchmarks(baseline({...exemption, test: '*'})), /exact/);
   assert.throws(() => validateBenchmarks(baseline({...exemption, reason: ''})), /reason/);
@@ -223,7 +223,7 @@ test('benchmark exemptions require exact unique identities and an explicit reaso
 });
 
 test('an audited benchmark is exempt from timing only and cannot become a baseline allowance', () => {
-  const exemptions = [{binary: 'codeterm', test: 'throughput', reason: 'Measures throughput'}];
+  const exemptions = [{binary: 'domios', test: 'throughput', reason: 'Measures throughput'}];
   assert.deepEqual(selectCandidates([entry('throughput', 21), entry('unit', 2)], baseline(), exemptions), [entry('unit', 2)]);
   assert.deepEqual(checkSlowTests([entry('throughput', 21)], baseline(), baseline(), [], exemptions), []);
   assert.match(checkSlowTests([], baseline(slow('throughput', 21)), baseline(slow('throughput', 21)), [], exemptions)[0], /must not be baselined/);
@@ -232,12 +232,12 @@ test('an audited benchmark is exempt from timing only and cannot become a baseli
 test('a slow test keeps its baseline across a crate move, whatever the crate is named', () => {
   const key = 'storage::probe::native_tests::slow_probe';
   const document = baseline(slow(key, 8.5));
-  const moved = { binary: 'codeterm-persist-engine', test: 'probe::native_tests::slow_probe', measuredSeconds: 8.6 };
+  const moved = { binary: 'domios-persist-engine', test: 'probe::native_tests::slow_probe', measuredSeconds: 8.6 };
   assert.equal(unitKey(key), key);
   assert.equal(unitKey(moved.test), testKey(splitTestName(moved.test)));
   assert.deepEqual(checkSlowTests([moved], document, document, [moved]), []);
-  assert.match(checkSlowTests([moved], document, document, [{ ...moved, measuredSeconds: 12 }])[0], /slow unit regression: codeterm-persist-engine probe::native_tests::slow_probe \(key storage::probe/);
-  const back = { binary: 'codeterm', test: key, measuredSeconds: 2 };
+  assert.match(checkSlowTests([moved], document, document, [{ ...moved, measuredSeconds: 12 }])[0], /slow unit regression: domios-persist-engine probe::native_tests::slow_probe \(key storage::probe/);
+  const back = { binary: 'domios', test: key, measuredSeconds: 2 };
   assert.deepEqual(checkSlowTests([back], baseline(slow('probe::native_tests::slow_probe', 8.5)), baseline(slow('probe::native_tests::slow_probe', 8.5)), [back]), []);
   const renamed = { ...moved, test: 'probe::tests::slow_probe' };
   assert.match(checkSlowTests([renamed], document, document, [renamed])[0], /new slow unit/);
@@ -251,8 +251,8 @@ test('moved api, socket, and commands tests retain their source-module allowance
   ];
   const moved = [
     entry('plan_routes::tasks::tests::refusal', 1.6),
-    { ...entry('server::agent::tests::refusal', 1.6), binary: 'codeterm-socket' },
-    { ...entry('commands::identity_tests::uuidless', 1.6), binary: 'codeterm-commands' },
+    { ...entry('server::agent::tests::refusal', 1.6), binary: 'domios-socket' },
+    { ...entry('commands::identity_tests::uuidless', 1.6), binary: 'domios-commands' },
   ];
   const allowances = baseline(...oldKeys.map((key) => slow(key, 1.5)));
   assert.deepEqual(checkSlowTests(moved, allowances, allowances, moved), []);
@@ -269,12 +269,12 @@ test('moved api, socket, and commands tests retain their source-module allowance
 
 test('an ambiguous facade match gives no allowance', () => {
   const document = baseline(slow('alpha::tests::slow', 3), slow('beta::tests::slow', 3));
-  const moved = { binary: 'codeterm-alpha', test: 'tests::slow', measuredSeconds: 3 };
+  const moved = { binary: 'domios-alpha', test: 'tests::slow', measuredSeconds: 3 };
   assert.match(checkSlowTests([moved], document, document, [moved])[0], /new slow unit/);
 });
 
 test('a base-ref baseline still keyed by binary and test is read through the same key', () => {
-  const legacy = baseline({ binary: 'codeterm', test: 'sentinel::scheduler_tests::slow', measuredSeconds: 4.1 }, { binary: 'codeterm-plan', test: 'tests::slow', measuredSeconds: 1.3 });
+  const legacy = baseline({ binary: 'codeterm', test: 'sentinel::scheduler_tests::slow', measuredSeconds: 4.1 }, { binary: 'domios-plan', test: 'tests::slow', measuredSeconds: 1.3 }); // rename-bridge
   assert.deepEqual(checkSlowTests([], baseline(slow('sentinel::scheduler_tests::slow', 4.1), slow('tests::slow', 1.3)), legacy), []);
   assert.throws(() => validateBaseline(legacy), /exact module_path::test_name key/);
 });

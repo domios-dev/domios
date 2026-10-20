@@ -42,7 +42,7 @@ configure_lane_workspace_wrapper() {
 }
 
 lane_check() (
-  local packages=() tests=() timings=() target=(--lib) manifest=src-tauri/Cargo.toml package has_cli=0
+  local packages=() tests=() timings=() target=(--lib) manifest=src-tauri/Cargo.toml package index has_cli=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --tests) tests=(--tests) ;;
@@ -53,17 +53,23 @@ lane_check() (
     shift
   done
   [ "${#packages[@]}" -gt 0 ] || { echo 'lane-check requires a touched package' >&2; return 2; }
-  for package in "${packages[@]}"; do
+  for index in "${!packages[@]}"; do
+    package="${packages[$index]}"
     case "$package" in
-      domios-server|codeterm|codeterm-*) ;;
-      *) echo 'lane-check requires a codeterm package' >&2; return 2 ;;
+      codeterm) package=domios ;; # rename-bridge
+      codeterm-*) package="domios-${package#codeterm-}" ;; # rename-bridge
     esac
-    [ "$package" != codeterm-cli ] || has_cli=1
+    packages[$index]="$package"
+    case "$package" in
+      domios|domios-server|domios-*) ;;
+      *) echo 'lane-check requires a Domios package' >&2; return 2 ;;
+    esac
+    [ "$package" != domios-cli ] || has_cli=1
   done
   if [ "$has_cli" = 1 ]; then
     [ "${#packages[@]}" = 1 ] || { echo 'lane-check cannot mix CLI and app workspace packages' >&2; return 2; }
     manifest=cli/Cargo.toml
-    target=(--bin codeterm)
+    target=(--bin domios)
   fi
   local package_args=()
   for package in "${packages[@]}"; do package_args+=(-p "$package"); done

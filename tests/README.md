@@ -40,33 +40,33 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `docs-source-of-truth` | guard | bash | pr | no | no | 60 | single | `bash scripts/check-api-docs.sh && bash scripts/check-prompts-doc.sh && bash scripts/check-evals-list.sh` | `essences/begin_here.md` |
 | `script-guards` | guard | bash | pr | no | no | 120 | single | `./build.sh script-guards` | `.agents/skills/build/SKILL.md` |
 | `test-catalogue` | guard | js | pr | no | no | 60 | single | `node scripts/test-catalogue.mjs validate` | `tests/README.md` |
-| `rust-agent-model` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-agent-model` | `.agents/skills/gates/SKILL.md` |
-| `rust-provider-ops` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-provider-ops` | `.agents/skills/gates/SKILL.md` |
-| `rust-prompts` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-prompts` | `.agents/skills/gates/SKILL.md` |
-| `rust-supporter` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-supporter` | `.agents/skills/gates/SKILL.md` |
-| `rust-recall` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-recall` | `.agents/skills/gates/SKILL.md` |
-| `rust-surface` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-surface` | `.agents/skills/gates/SKILL.md` |
+| `rust-agent-model` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-agent-model` | `.agents/skills/gates/SKILL.md` |
+| `rust-provider-ops` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-provider-ops` | `.agents/skills/gates/SKILL.md` |
+| `rust-prompts` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-prompts` | `.agents/skills/gates/SKILL.md` |
+| `rust-supporter` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-supporter` | `.agents/skills/gates/SKILL.md` |
+| `rust-recall` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-recall` | `.agents/skills/gates/SKILL.md` |
+| `rust-surface` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-surface` | `.agents/skills/gates/SKILL.md` |
 | `rust-domios-server` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-server` | `.agents/skills/testing/SKILL.md` |
 | `process-probe-server-only` | contract | mixed | manual | no | no | 600 | single | `./build.sh process-probe --case server-only --instance split-oracle` | `.agents/skills/testing/SKILL.md` |
 | `process-probe-arbitration` | contract | mixed | manual | no | no | 600 | single | `./build.sh process-probe --case arbitration --instance split-oracle` | `.agents/skills/testing/SKILL.md` |
 | `rust-service-core` | unit | rust | release | no | no | 3600 | nextest-list (fallback static-scan) | `./build.sh nextest app` | `.agents/skills/gates/SKILL.md` |
 | `rust-app` | unit | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest shell` | `.agents/skills/gates/SKILL.md` |
 | `rust-devtools` | integration | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest devtools` | `.agents/skills/gates/SKILL.md` |
-| `rust-app-agent-state-replay` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test agent_state_replay -- --nocapture` | `evals/agent-state/README.md` |
-| `rust-app-pty-test` | integration | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test pty_test` | `.agents/skills/gates/SKILL.md` |
-| `rust-app-snapshot-testbench` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test snapshot_testbench -- --nocapture` | `testbench/README.md` |
-| `rust-app-state-calibration` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test state_calibration -- --nocapture` | `testbench/README.md` |
-| `rust-app-state-doctor` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --test state_doctor state_dump_quality_gate -- --ignored --nocapture` | `testbench/README.md` |
-| `rust-build-info` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-build-info` | `.agents/skills/gates/SKILL.md` |
+| `rust-app-agent-state-replay` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p domios-devtools --test agent_state_replay -- --nocapture` | `evals/agent-state/README.md` |
+| `rust-app-pty-test` | integration | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p domios-devtools --test pty_test` | `.agents/skills/gates/SKILL.md` |
+| `rust-app-snapshot-testbench` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p domios-devtools --test snapshot_testbench -- --nocapture` | `testbench/README.md` |
+| `rust-app-state-calibration` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p domios-devtools --test state_calibration -- --nocapture` | `testbench/README.md` |
+| `rust-app-state-doctor` | eval | rust | manual | no | no | 600 | single | `scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p domios-devtools --test state_doctor state_dump_quality_gate -- --ignored --nocapture` | `testbench/README.md` |
+| `rust-build-info` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-build-info` | `.agents/skills/gates/SKILL.md` |
 | `rust-account` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest account` | `.agents/skills/gates/SKILL.md` |
-| `rust-entitlements` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-entitlements` | `.agents/skills/gates/SKILL.md` |
+| `rust-entitlements` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-entitlements` | `.agents/skills/gates/SKILL.md` |
 | `rust-billing` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest billing` | `.agents/skills/gates/SKILL.md` |
 | `rust-analytics` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest analytics` | `.agents/skills/gates/SKILL.md` |
 | `rust-frontend-bundle` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest frontend-bundle` | `.agents/skills/gates/SKILL.md` |
-| `rust-worker-services` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-worker-services` | `.agents/skills/gates/SKILL.md` |
-| `rust-crash` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-crash` | `.agents/skills/gates/SKILL.md` |
-| `rust-local-preview` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-local-preview` | `.agents/skills/gates/SKILL.md` |
-| `rust-lanes` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-lanes` | `.agents/skills/gates/SKILL.md` |
+| `rust-worker-services` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-worker-services` | `.agents/skills/gates/SKILL.md` |
+| `rust-crash` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-crash` | `.agents/skills/gates/SKILL.md` |
+| `rust-local-preview` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-local-preview` | `.agents/skills/gates/SKILL.md` |
+| `rust-lanes` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-lanes` | `.agents/skills/gates/SKILL.md` |
 | `rust-types` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest types` | `.agents/skills/gates/SKILL.md` |
 | `rust-wire` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest wire` | `.agents/skills/gates/SKILL.md` |
 | `rust-sentinel` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest sentinel` | `.agents/skills/gates/SKILL.md` |
@@ -77,37 +77,37 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-mesh` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest mesh` | `.agents/skills/gates/SKILL.md` |
 | `rust-mem` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest mem` | `.agents/skills/gates/SKILL.md` |
 | `rust-plan` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest plan` | `.agents/skills/gates/SKILL.md` |
-| `rust-bridge` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-bridge` | `.agents/skills/gates/SKILL.md` |
+| `rust-bridge` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-bridge` | `.agents/skills/gates/SKILL.md` |
 | `rust-pty` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest pty` | `.agents/skills/gates/SKILL.md` |
 | `rust-plugin` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest plugin` | `.agents/skills/gates/SKILL.md` |
 | `rust-plugins` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest plugins` | `.agents/skills/gates/SKILL.md` |
-| `rust-storage` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-storage` | `.agents/skills/gates/SKILL.md` |
-| `rust-api` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-api` | `.agents/skills/gates/SKILL.md` |
-| `rust-socket` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-socket` | `.agents/skills/gates/SKILL.md` |
-| `rust-commands` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-commands` | `.agents/skills/gates/SKILL.md` |
-| `rust-sentinel-host` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-sentinel-host` | `.agents/skills/gates/SKILL.md` |
-| `rust-orchestration` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-orchestration` | `.agents/skills/gates/SKILL.md` |
+| `rust-storage` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-storage` | `.agents/skills/gates/SKILL.md` |
+| `rust-api` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-api` | `.agents/skills/gates/SKILL.md` |
+| `rust-socket` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-socket` | `.agents/skills/gates/SKILL.md` |
+| `rust-commands` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-commands` | `.agents/skills/gates/SKILL.md` |
+| `rust-sentinel-host` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-sentinel-host` | `.agents/skills/gates/SKILL.md` |
+| `rust-orchestration` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-orchestration` | `.agents/skills/gates/SKILL.md` |
 | `rust-agent-detect` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest agent-detect` | `.agents/skills/gates/SKILL.md` |
-| `rust-notifications` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-notifications` | `.agents/skills/gates/SKILL.md` |
+| `rust-notifications` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-notifications` | `.agents/skills/gates/SKILL.md` |
 | `rust-notification-core` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest notification-core` | `.agents/skills/gates/SKILL.md` |
 | `rust-repowatch` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest repowatch` | `.agents/skills/gates/SKILL.md` |
 | `rust-usage` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest usage` | `.agents/skills/gates/SKILL.md` |
-| `rust-blueprint-types` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-blueprint-types` | `.agents/skills/gates/SKILL.md` |
-| `rust-local-recording` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-local-recording` | `.agents/skills/gates/SKILL.md` |
-| `rust-notify-types` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-notify-types` | `.agents/skills/gates/SKILL.md` |
-| `rust-client-shell` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-client-shell` | `.agents/skills/gates/SKILL.md` |
-| `rust-update` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-update` | `.agents/skills/gates/SKILL.md` |
-| `rust-frontend-shell` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-frontend-shell` | `.agents/skills/gates/SKILL.md` |
-| `rust-events` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-events` | `.agents/skills/gates/SKILL.md` |
-| `rust-config` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-config` | `.agents/skills/gates/SKILL.md` |
-| `rust-secrets` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-secrets` | `.agents/skills/gates/SKILL.md` |
-| `rust-keepawake` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-keepawake` | `.agents/skills/gates/SKILL.md` |
-| `rust-cron` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-cron` | `.agents/skills/gates/SKILL.md` |
-| `rust-shutdown` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-shutdown` | `.agents/skills/gates/SKILL.md` |
+| `rust-blueprint-types` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-blueprint-types` | `.agents/skills/gates/SKILL.md` |
+| `rust-local-recording` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-local-recording` | `.agents/skills/gates/SKILL.md` |
+| `rust-notify-types` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-notify-types` | `.agents/skills/gates/SKILL.md` |
+| `rust-client-shell` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-client-shell` | `.agents/skills/gates/SKILL.md` |
+| `rust-update` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-update` | `.agents/skills/gates/SKILL.md` |
+| `rust-frontend-shell` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-frontend-shell` | `.agents/skills/gates/SKILL.md` |
+| `rust-events` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-events` | `.agents/skills/gates/SKILL.md` |
+| `rust-config` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-config` | `.agents/skills/gates/SKILL.md` |
+| `rust-secrets` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-secrets` | `.agents/skills/gates/SKILL.md` |
+| `rust-keepawake` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-keepawake` | `.agents/skills/gates/SKILL.md` |
+| `rust-cron` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-cron` | `.agents/skills/gates/SKILL.md` |
+| `rust-shutdown` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest domios-shutdown` | `.agents/skills/gates/SKILL.md` |
 | `rust-input-macos` | unit | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest input-platform` | `.agents/skills/gates/SKILL.md` |
 | `rust-input-windows` | unit | rust | release | no | no | 900 | nextest-list (fallback static-scan) | `./build.sh nextest input-platform` | `.agents/skills/gates/SKILL.md` |
 | `rust-cli` | unit | rust | release | no | no | 3600 | nextest-list (fallback static-scan) | `./build.sh nextest cli` | `.agents/skills/gates/SKILL.md` |
-| `rust-cli-manifest-contract` | contract | rust | pr | no | no | 480 | single | `cargo test -p codeterm-cli cmd::manifest && cargo test -p codeterm-cli plugin_subcommands_parse` | `generated/cli/cli.md` |
+| `rust-cli-manifest-contract` | contract | rust | pr | no | no | 480 | single | `cargo test -p domios-cli cmd::manifest && cargo test -p domios-cli plugin_subcommands_parse` | `generated/cli/cli.md` |
 | `rust-pty-fork` | unit | rust | manual | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest pty-fork` | `.agents/skills/gates/SKILL.md` |
 | `rust-mem-store` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest mem-store` | `.agents/skills/gates/SKILL.md` |
 | `rust-paths` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest paths` | `.agents/skills/gates/SKILL.md` |
@@ -173,7 +173,7 @@ Patterns: `**/*.test.{ts,tsx,mjs,js,cjs}`, `**/*.spec.{ts,tsx}`, `**/test_*.py`,
 Not tests:
 
 - `playground/src/gallery/specimens/*.spec.tsx`: Playground gallery specimens rendered by playground/src/gallery, not test cases.
-- `src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/fixtures/**`: Scripts the codeterm-plugin parity_test Rust tests execute as fixtures; owned by rust-plugin.
+- `src-tauri/crates/domios-plugin/src/js_runtime/parity_test/fixtures/**`: Scripts the domios-plugin parity_test Rust tests execute as fixtures; owned by rust-plugin.
 - `scripts/tests/fixtures/**`: Fixture trees read by scripts/tests (Cargo manifests for the rust-test-inventory tests), not crates.
 - `src-tauri/vendor/**`: Vendored upstream crate (tauri-runtime-wry); its tests belong upstream.
 

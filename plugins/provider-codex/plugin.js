@@ -5376,56 +5376,79 @@ function scoreAuthPrompt(screen) {
   return score > 1 ? 1 : score;
 }
 
-// plugins/provider-codex/src/hooks.ts
-var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
-var LEGACY_CODEX_HOOK_COMMANDS = /* @__PURE__ */ new Set([
-  `curl -s -X POST http://localhost:\${CODETERM_API_PORT:-7686}/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H "X-CodeTerm-Binding-Nonce: \${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer \${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true`,
-  "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' --data-binary @- > /dev/null 2>&1 || true"
-]);
-for (const event of ["session_start", "stop"]) {
-  LEGACY_CODEX_HOOK_COMMANDS.add(
-    'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + event + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' -H "X-CodeTerm-Binding-Nonce: \${CODETERM_SESSION_BINDING_NONCE}" -H "Authorization: Bearer \${CODETERM_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true; fi`
-  );
+// plugins/provider-codex/src/upgrade_from_1_14_9.ts
+var CODETERM_CODEX_HOOK_MARKER_V1149 = "codeterm-codex-session-binding-v1";
+var CODETERM_CODEX_HOOK_SCRIPT_NAME_V1149 = "codeterm-session-hook.cmd";
+function containsExactMarker(value, marker) {
+  let index = value.indexOf(marker);
+  while (index !== -1) {
+    const previous = value[index - 1];
+    const next = value[index + marker.length];
+    const isTokenChar = (character) => !!character && /[A-Za-z0-9_-]/.test(character);
+    if (!isTokenChar(previous) && !isTokenChar(next)) return true;
+    index = value.indexOf(marker, index + 1);
+  }
+  return false;
 }
+function commandIsOwned(command) {
+  return containsExactMarker(command, "X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER_V1149);
+}
+function scriptIsOwned(contents) {
+  return containsExactMarker(contents, CODETERM_CODEX_HOOK_MARKER_V1149);
+}
+
+// plugins/provider-codex/src/hooks.ts
+var DOMIOS_CODEX_HOOK_MARKER = "domios-hook-v4";
+var DOMIOS_CODEX_HOOK_MARKER_HEADER = "X-Domios-Hook: domios-hook-v4";
 var CODEX_HOOK_TIMEOUT_SECS = 60;
 var CODEX_HOOK_REQUEST_TIMEOUT_SECS = 30;
 function codexWindowsHookScript() {
   return [
     "@echo off",
     "setlocal DisableDelayedExpansion",
-    "rem " + CODETERM_CODEX_HOOK_MARKER,
-    "if not defined CODETERM_TAB_ID exit /b 0",
-    "if not defined CODETERM_API_URL exit /b 0",
-    "if not defined CODETERM_API_TOKEN exit /b 0",
-    "if not defined CODETERM_SESSION_BINDING_NONCE exit /b 0",
+    "rem " + DOMIOS_CODEX_HOOK_MARKER,
+    "if not defined DOMIOS_TAB_ID exit /b 0",
+    "if not defined DOMIOS_API_URL exit /b 0",
+    "if not defined DOMIOS_API_TOKEN exit /b 0",
+    "if not defined DOMIOS_SESSION_BINDING_NONCE exit /b 0",
     'set "hookEvent=%~1"',
     'set "hookMarker=%~2 %~3"',
-    'if /I not "%hookMarker%"=="X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '" exit /b 0',
+    'if /I not "%hookMarker%"=="X-Domios-Hook: ' + DOMIOS_CODEX_HOOK_MARKER + '" exit /b 0',
     'if /I "%hookEvent%"=="session_start" goto post_event',
     'if /I "%hookEvent%"=="stop" goto post_event',
     "exit /b 0",
     ":post_event",
-    'set "apiBase=%CODETERM_API_URL%"',
+    'set "apiBase=%DOMIOS_API_URL%"',
     'if "%apiBase:~-1%"=="/" set "apiBase=%apiBase:~0,-1%"',
-    'set "responseFile=%TEMP%\\codeterm-hook-%CODETERM_TAB_ID%-%hookEvent%-%RANDOM%.tmp"',
-    "curl.exe --silent --show-error --max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' --request POST "%apiBase%/api/tabs/%CODETERM_TAB_ID%/hook/%hookEvent%" --header "Content-Type: application/json" --header "X-CodeTerm-Agent-Provider: codex" --header "%hookMarker%" --header "X-CodeTerm-Binding-Nonce: %CODETERM_SESSION_BINDING_NONCE%" --header "Authorization: Bearer %CODETERM_API_TOKEN%" --output "%responseFile%" --data-binary @-',
+    'set "responseFile=%TEMP%\\domios-hook-%DOMIOS_TAB_ID%-%hookEvent%-%RANDOM%.tmp"',
+    "curl.exe --silent --show-error --max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS + ' --request POST "%apiBase%/api/tabs/%DOMIOS_TAB_ID%/hook/%hookEvent%" --header "Content-Type: application/json" --header "X-Domios-Agent-Provider: codex" --header "%hookMarker%" --header "X-Domios-Binding-Nonce: %DOMIOS_SESSION_BINDING_NONCE%" --header "Authorization: Bearer %DOMIOS_API_TOKEN%" --output "%responseFile%" --data-binary @-',
     'if exist "%responseFile%" del /F /Q "%responseFile%"',
     "exit /b 0",
     ""
   ].join("\r\n");
 }
-function isCodetermCodexHook(entry) {
+function isOwnedCodexHook(hook) {
+  if (!hook) return false;
+  const command = String(hook.command || "");
+  const windowsCommand = String(hook.commandWindows || "");
+  return command.includes(DOMIOS_CODEX_HOOK_MARKER_HEADER) || windowsCommand.includes(DOMIOS_CODEX_HOOK_MARKER_HEADER) || commandIsOwned(command) || commandIsOwned(windowsCommand);
+}
+function is1149CodexHook(entry) {
   const hooks = entry && entry.hooks;
-  if (!Array.isArray(hooks)) return false;
-  for (let i = 0; i < hooks.length; i++) {
-    if (isOwnedCodexHook(hooks[i])) return true;
-  }
-  return false;
+  return Array.isArray(hooks) && hooks.some((hook) => {
+    return commandIsOwned(String(hook?.command || "")) || commandIsOwned(String(hook?.commandWindows || ""));
+  });
+}
+function is1149CodexHookCommand(command) {
+  return commandIsOwned(command);
+}
+function isDomiosCodexHook(entry) {
+  const hooks = entry && entry.hooks;
+  return Array.isArray(hooks) && hooks.some(isOwnedCodexHook);
 }
 function removeOwnedCodexHooks(entries) {
   const out = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
+  for (const entry of entries) {
     const hooks = entry && entry.hooks;
     if (!Array.isArray(hooks)) {
       out.push(entry);
@@ -5437,22 +5460,14 @@ function removeOwnedCodexHooks(entries) {
   }
   return out;
 }
-function isOwnedCodexHook(hook) {
-  if (!hook) return false;
-  const command = String(hook.command || "");
-  const fullCommand = command + "\n" + String(hook.commandWindows || "");
-  if (fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1) return true;
-  if (hook._source === CODETERM_CODEX_HOOK_MARKER) return true;
-  return LEGACY_CODEX_HOOK_COMMANDS.has(command);
-}
-var CODEX_HOOK_SCRIPT_CONTRACT = [
-  "rem " + CODETERM_CODEX_HOOK_MARKER,
+var DOMIOS_CODEX_HOOK_SCRIPT_CONTRACT = [
+  "rem " + DOMIOS_CODEX_HOOK_MARKER,
   "hookEvent",
-  "CODETERM_TAB_ID",
-  "CODETERM_API_URL",
-  "CODETERM_API_TOKEN",
-  "CODETERM_SESSION_BINDING_NONCE",
-  "X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER,
+  "DOMIOS_TAB_ID",
+  "DOMIOS_API_URL",
+  "DOMIOS_API_TOKEN",
+  "DOMIOS_SESSION_BINDING_NONCE",
+  DOMIOS_CODEX_HOOK_MARKER_HEADER,
   "/api/tabs/",
   "curl.exe",
   "--max-time " + CODEX_HOOK_REQUEST_TIMEOUT_SECS,
@@ -5476,18 +5491,14 @@ function codexHookContentHash(text7) {
   return ("0000000" + hash.toString(16)).slice(-8);
 }
 function isOwnedCodexHookScriptContent(text7) {
-  return text7.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
+  return text7.indexOf(DOMIOS_CODEX_HOOK_MARKER) !== -1 || scriptIsOwned(text7);
+}
+function is1149CodexHookScriptContent(text7) {
+  return scriptIsOwned(text7);
 }
 function isCurrentCodexHookScriptContent(text7) {
-  if (!isOwnedCodexHookScriptContent(text7)) return false;
-  if (text7.indexOf("codeterm-profile-cleanup-v1") !== -1) return false;
-  if (text7.indexOf("codeterm-%CODETERM_TAB_ID%.config.toml") !== -1) return false;
-  if (/:\d{2,5}/.test(text7)) return false;
-  if (text7.indexOf("CODETERM_API_PORT") !== -1 || /127\.0\.0\.1|localhost/i.test(text7)) return false;
-  for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
-    if (text7.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
-  }
-  return true;
+  const normalizeLineEndings = (value) => value.split("\r\n").join("\n").split("\r").join("\n");
+  return normalizeLineEndings(text7) === normalizeLineEndings(codexWindowsHookScript());
 }
 function isOwnedCodexWindowsHookScript(path) {
   const text7 = host.fs.readFile(path);
@@ -5554,7 +5565,7 @@ function runAppServerSession(requests, then) {
     method: "initialize",
     id: 1,
     params: {
-      clientInfo: { name: "codeterm", title: "CodeTerm", version: "0.0.0" },
+      clientInfo: { name: "domios", title: "Domios", version: "0.0.0" },
       capabilities: { experimentalApi: true }
     }
   });
@@ -5624,15 +5635,15 @@ function slashNormalize(value) {
 function keyMatchesManagedLabel(key, hooksPath, label) {
   return slashNormalize(key).indexOf(slashNormalize(hooksPath) + ":" + label + ":") === 0;
 }
-function isCodetermManagedHookCommand(command) {
+function isDomiosManagedHookCommand(command) {
   const c = String(command || "");
-  return c.indexOf("/hook/session_start") !== -1 || c.indexOf("/hook/stop") !== -1 || c.indexOf("codeterm-session-start.ps1") !== -1 || c.indexOf("codeterm-session-hook.cmd") !== -1 && c.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1;
+  return c.indexOf(DOMIOS_CODEX_HOOK_MARKER_HEADER) !== -1 || is1149CodexHookCommand(c);
 }
 function managedListings(listings, hooksPath, labels) {
   const out = [];
   for (let i = 0; i < listings.length; i++) {
     const listing = listings[i];
-    if (!isCodetermManagedHookCommand(listing.command)) continue;
+    if (!isDomiosManagedHookCommand(listing.command)) continue;
     for (let j = 0; j < labels.length; j++) {
       if (keyMatchesManagedLabel(listing.key, hooksPath, labels[j])) {
         out.push(listing);
@@ -5805,6 +5816,8 @@ var CODEX_INTEGRATION_STATE_ABSENT = "absent";
 var CODEX_INTEGRATION_STATE_STALE_VERSION = "stale_version";
 var CODEX_INTEGRATION_STATE_UNTRUSTED_HASH = "untrusted_hash";
 var CODEX_INTEGRATION_STATE_INSTALLED = "installed";
+var CODETERM_BACKUP_SUFFIX = ".codeterm-backup";
+var CODETERM_BACKUP_STATE_SUFFIX = ".codeterm-backup-state";
 var codexHookTrustCache = /* @__PURE__ */ new Map();
 function checkIntegration() {
   const path = codexHooksPath();
@@ -5817,16 +5830,16 @@ function checkIntegration() {
   }
   const arr = json2.hooks && json2.hooks.SessionStart;
   const stopArr = json2.hooks && json2.hooks.Stop;
-  const installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
-  const stopInstalled = Array.isArray(stopArr) && stopArr.some(isCodetermCodexHook) && (host.platform() !== "windows" || stopArr.some(hasCodetermCodexWindowsCommand));
+  const installed = Array.isArray(arr) && arr.some(isDomiosCodexHook);
+  const stopInstalled = Array.isArray(stopArr) && stopArr.some(isDomiosCodexHook) && (host.platform() !== "windows" || stopArr.some(hasDomiosCodexWindowsCommand));
   const winScript = codexWindowsHookScriptPath();
   const winScriptText = winScript && host.fs.fileExists(winScript) ? String(host.fs.readFile(winScript) || "") : "";
-  const windowsReady = host.platform() !== "windows" || !!winScript && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
+  const windowsReady = host.platform() !== "windows" || !!winScript && Array.isArray(arr) && arr.some(hasDomiosCodexWindowsCommand);
   const contractOk = host.platform() === "windows" ? isCurrentCodexHookScriptContent(winScriptText) : Array.isArray(arr) && arr.some((entry) => {
     const hk = entry && entry.hooks;
     return Array.isArray(hk) && hk.some((h) => {
       const command = String(h?.command || "");
-      return command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 && !hasLiteralPort(command) && command.indexOf("/api/tabs/") !== -1;
+      return command.indexOf("DOMIOS_SESSION_BINDING_NONCE") !== -1 && command.indexOf("DOMIOS_TAB_ID") !== -1 && command.indexOf("DOMIOS_API_URL") !== -1 && command.indexOf("DOMIOS_API_TOKEN") !== -1 && command.indexOf(DOMIOS_CODEX_HOOK_MARKER_HEADER) !== -1 && !hasLiteralPort(command) && command.indexOf("/api/tabs/") !== -1;
     });
   });
   const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
@@ -5854,7 +5867,7 @@ function checkIntegration() {
     hooks_owned: installed,
     hook_contract_current: current && stopInstalled,
     target: path,
-    backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
+    backup_exists: host.fs.fileExists(path + CODETERM_BACKUP_SUFFIX),
     proposed_changes: proposedChanges
   };
 }
@@ -5863,7 +5876,7 @@ function ownedContentHash(sessionStart, stop, scriptText) {
   for (const entries of [sessionStart, stop]) {
     if (!Array.isArray(entries)) continue;
     for (const entry of entries) {
-      if (!isCodetermCodexHook(entry)) continue;
+      if (!isDomiosCodexHook(entry)) continue;
       const hooks = entry && entry.hooks || [];
       for (const hook of hooks) {
         parts.push(String(hook?.command || ""));
@@ -5890,7 +5903,7 @@ function emptyIntegrationStatus(path, fileExists) {
     hooks_owned: false,
     hook_contract_current: false,
     target: path || "~/.codex/hooks.json",
-    backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"),
+    backup_exists: !!path && host.fs.fileExists(path + CODETERM_BACKUP_SUFFIX),
     proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"]
   };
 }
@@ -5929,6 +5942,9 @@ function installIntegration(apiPort, options) {
   if (json2.hooks?.Stop !== void 0 && !Array.isArray(json2.hooks.Stop)) {
     return { ok: false, error: "hooks.Stop is not an array" };
   }
+  if (has1149CodexGeneration(path, json2)) {
+    return { ok: true, changed: false, reason: "DEV left the 1.14.9 hook generation untouched" };
+  }
   const configPath = codexConfigPath2();
   const configExisted = !!configPath && host.fs.fileExists(configPath);
   const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
@@ -5952,14 +5968,14 @@ function installIntegration(apiPort, options) {
     return { ok: false, error: "could not read existing Codex trust ownership record" };
   }
   const artifactPaths = [
-    path + ".codeterm-backup",
-    path + ".codeterm-backup-state",
-    ...configPath && configExisted ? [configPath + ".codeterm-backup"] : [],
-    ...scriptPath ? [scriptPath + ".codeterm-backup", scriptPath + ".codeterm-backup-state"] : []
+    path + CODETERM_BACKUP_SUFFIX,
+    path + CODETERM_BACKUP_STATE_SUFFIX,
+    ...configPath && configExisted ? [configPath + CODETERM_BACKUP_SUFFIX] : [],
+    ...scriptPath ? [scriptPath + CODETERM_BACKUP_SUFFIX, scriptPath + CODETERM_BACKUP_STATE_SUFFIX] : []
   ];
   const artifactSnapshots = artifactPaths.map(captureIntegrationFile);
   if (artifactSnapshots.some((snapshot) => snapshot === null)) {
-    return { ok: false, error: "could not snapshot existing CodeTerm integration artifacts" };
+    return { ok: false, error: "could not snapshot existing Domios integration artifacts" };
   }
   const rollbackSnapshots = [
     { path, existed: hooksExisted, bytes: originalHooks },
@@ -5973,13 +5989,13 @@ function installIntegration(apiPort, options) {
     invalidateCodexHookTrust(path);
     return { ok: false, error: restored ? error : error + "; exact rollback failed" };
   };
-  if (!writeFileIfChanged(path + ".codeterm-backup", originalHooks) || !writeFileIfChanged(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
+  if (!writeFileIfChanged(path + CODETERM_BACKUP_SUFFIX, originalHooks) || !writeFileIfChanged(path + CODETERM_BACKUP_STATE_SUFFIX, hooksExisted ? "present" : "absent")) {
     return fail3("could not write recoverable backup for " + path);
   }
-  if (configPath && configExisted && !writeFileIfChanged(configPath + ".codeterm-backup", originalConfig)) {
+  if (configPath && configExisted && !writeFileIfChanged(configPath + CODETERM_BACKUP_SUFFIX, originalConfig)) {
     return fail3("could not write recoverable backup for " + configPath);
   }
-  if (scriptPath && (!writeFileIfChanged(scriptPath + ".codeterm-backup", originalScript) || !writeFileIfChanged(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
+  if (scriptPath && (!writeFileIfChanged(scriptPath + CODETERM_BACKUP_SUFFIX, originalScript) || !writeFileIfChanged(scriptPath + CODETERM_BACKUP_STATE_SUFFIX, scriptExisted ? "present" : "absent"))) {
     return fail3("could not write recoverable backup for " + scriptPath);
   }
   if (!json2.hooks) json2.hooks = {};
@@ -5990,17 +6006,17 @@ function installIntegration(apiPort, options) {
     }
     json2.hooks[event] = removeOwnedCodexHooks(existing || []);
   }
-  const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
-  const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-  const markerH = '-H "X-CodeTerm-Hook: ' + CODETERM_CODEX_HOOK_MARKER + '"';
-  const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ] && [ -n "${CODETERM_SESSION_BINDING_NONCE:-}" ]; then ';
-  const hookCmd = (route) => guard + 'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + route + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' ` + markerH + " " + nonceH + " " + authH + " --data-binary @- > /dev/null 2>&1 || true; fi";
+  const authH = '-H "Authorization: Bearer ${DOMIOS_API_TOKEN}"';
+  const nonceH = '-H "X-Domios-Binding-Nonce: ${DOMIOS_SESSION_BINDING_NONCE}"';
+  const markerH = '-H "' + DOMIOS_CODEX_HOOK_MARKER_HEADER + '"';
+  const guard = 'if [ -n "${DOMIOS_API_URL:-}" ] && [ -n "${DOMIOS_API_TOKEN:-}" ] && [ -n "${DOMIOS_TAB_ID:-}" ] && [ -n "${DOMIOS_SESSION_BINDING_NONCE:-}" ]; then ';
+  const hookCmd = (route) => guard + 'curl -s -X POST "$DOMIOS_API_URL/api/tabs/$DOMIOS_TAB_ID/hook/' + route + `" -H 'Content-Type: application/json' -H 'X-Domios-Agent-Provider: codex' ` + markerH + " " + nonceH + " " + authH + " --data-binary @- > /dev/null 2>&1 || true; fi";
   const winCmd = (route) => scriptPath ? [
     "cmd.exe /d /s /c call",
     '"' + scriptPath + '"',
     route,
-    "X-CodeTerm-Hook:",
-    CODETERM_CODEX_HOOK_MARKER
+    "X-Domios-Hook:",
+    DOMIOS_CODEX_HOOK_MARKER
   ].join(" ") : hookCmd(route);
   const scriptContents = codexWindowsHookScript();
   const scriptChanged = !!scriptPath && (!scriptExisted || originalScript !== scriptContents);
@@ -6014,7 +6030,7 @@ function installIntegration(apiPort, options) {
       command: hookCmd("session_start"),
       commandWindows: winCmd("session_start"),
       timeout: CODEX_HOOK_TIMEOUT_SECS,
-      _source: CODETERM_CODEX_HOOK_MARKER
+      _source: DOMIOS_CODEX_HOOK_MARKER
     }]
   });
   json2.hooks.Stop.push({
@@ -6023,7 +6039,7 @@ function installIntegration(apiPort, options) {
       command: hookCmd("stop"),
       commandWindows: winCmd("stop"),
       timeout: CODEX_HOOK_TIMEOUT_SECS,
-      _source: CODETERM_CODEX_HOOK_MARKER
+      _source: DOMIOS_CODEX_HOOK_MARKER
     }]
   });
   const hooksChanged = !hooksExisted || JSON.stringify(json2) !== originalHooksJson;
@@ -6047,6 +6063,9 @@ function grantIntegrationTrust(managedKeys, then = (result) => result) {
   if (!hooksPath) {
     return then({ granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" });
   }
+  if (has1149CodexGeneration(hooksPath)) {
+    return then({ granted: false, wrote: false, degraded: false, verify_failed: false, reason: "DEV left the 1.14.9 hook generation untouched" });
+  }
   invalidateCodexHookTrust(hooksPath);
   return grantCodexHookTrust({
     hooksPath,
@@ -6062,6 +6081,9 @@ function grantIntegrationTrust(managedKeys, then = (result) => result) {
 function uninstallIntegration() {
   const path = codexHooksPath();
   if (!path) return { ok: true };
+  if (has1149CodexGeneration(path)) {
+    return { ok: true, changed: false, reason: "DEV left the 1.14.9 hook generation untouched" };
+  }
   let hooksOk = true;
   if (host.fs.fileExists(path)) {
     const json2 = host.fs.readJson(path);
@@ -6094,28 +6116,31 @@ function uninstallIntegration() {
 function restoreIntegration() {
   const path = codexHooksPath();
   if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
-  const backup = path + ".codeterm-backup";
+  if (has1149CodexGeneration(path)) {
+    return { ok: true, changed: false, reason: "DEV left the 1.14.9 hook generation untouched" };
+  }
+  const backup = path + CODETERM_BACKUP_SUFFIX;
   if (!host.fs.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
   const hooks = host.fs.readFile(backup);
   if (typeof hooks !== "string") return { ok: false, error: "restore failed for " + path };
-  const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
+  const hooksState = host.fs.readFile(path + CODETERM_BACKUP_STATE_SUFFIX);
   if (hooksState === "absent" || typeof hooksState !== "string" && hooks === "") {
     if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
   } else if (!writeFileIfChanged(path, hooks)) {
     return { ok: false, error: "restore failed for " + path };
   }
   const config = codexConfigPath2();
-  if (config && host.fs.fileExists(config + ".codeterm-backup")) {
-    const original = host.fs.readFile(config + ".codeterm-backup");
+  if (config && host.fs.fileExists(config + CODETERM_BACKUP_SUFFIX)) {
+    const original = host.fs.readFile(config + CODETERM_BACKUP_SUFFIX);
     if (typeof original !== "string" || !writeFileIfChanged(config, original)) return { ok: false, error: "restore failed for " + config };
     const ownershipPath = codexHookTrustOwnershipPath();
     if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
   }
   const script = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
-  if (script && host.fs.fileExists(script + ".codeterm-backup")) {
-    const original = host.fs.readFile(script + ".codeterm-backup");
+  if (script && host.fs.fileExists(script + CODETERM_BACKUP_SUFFIX)) {
+    const original = host.fs.readFile(script + CODETERM_BACKUP_SUFFIX);
     if (typeof original !== "string") return { ok: false, error: "restore failed for " + script };
-    const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
+    const scriptState = host.fs.readFile(script + CODETERM_BACKUP_STATE_SUFFIX);
     if (scriptState === "absent" || typeof scriptState !== "string" && original === "") {
       if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
     } else if (!writeFileIfChanged(script, original)) {
@@ -6126,25 +6151,18 @@ function restoreIntegration() {
   return { ok: true };
 }
 function ensureIntegrationOnStartup(apiPort, install, then = (result) => result) {
-  void apiPort;
-  void install;
   const path = codexHooksPath();
   if (!path || !host.fs.fileExists(path)) return then({ ok: true, changed: false });
+  if (has1149CodexGeneration(path)) {
+    return then({ ok: true, changed: false, reason: "DEV left the 1.14.9 hook generation untouched" });
+  }
   const json2 = host.fs.readJson(path);
   if (!json2 || !json2.hooks) return then({ ok: true, changed: false });
-  const owned = (json2.hooks.SessionStart || []).filter(isCodetermCodexHook);
+  const owned = (json2.hooks.SessionStart || []).filter(isDomiosCodexHook);
   if (owned.length === 0) return then({ ok: true, changed: false });
   return refreshCodexHookTrustState(path, (trustState) => {
     if (trustState === "disabled") {
       return then({ ok: true, changed: false, reason: "Codex hook trust is disabled" });
-    }
-    if (trustState === "unknown") {
-      return then({
-        ok: false,
-        changed: false,
-        actionable: true,
-        error: "Codex could not confirm hook trust: " + codexHookTrustReason(path)
-      });
     }
     const scriptPath = codexWindowsHookScriptPath();
     const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isCurrentCodexHookScriptContent(String(host.fs.readFile(scriptPath) || "")));
@@ -6153,25 +6171,38 @@ function ensureIntegrationOnStartup(apiPort, install, then = (result) => result)
       return hooks.some(
         (hook) => {
           const command = String(hook && hook.command || "");
-          return command.indexOf("$CODETERM_API_URL") === -1 || command.indexOf("${CODETERM_API_TOKEN}") === -1 || command.indexOf("$CODETERM_TAB_ID") === -1 || command.indexOf("${CODETERM_SESSION_BINDING_NONCE}") === -1 || command.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) === -1 || hasLiteralPort(command) || host.platform() === "windows" && !hasCodetermCodexWindowsCommand(entry);
+          return command.indexOf("$DOMIOS_API_URL") === -1 || command.indexOf("${DOMIOS_API_TOKEN}") === -1 || command.indexOf("$DOMIOS_TAB_ID") === -1 || command.indexOf("${DOMIOS_SESSION_BINDING_NONCE}") === -1 || command.indexOf(DOMIOS_CODEX_HOOK_MARKER_HEADER) === -1 || hasLiteralPort(command) || host.platform() === "windows" && !hasDomiosCodexWindowsCommand(entry);
         }
       );
     });
     const stopEntries = json2.hooks?.Stop || [];
-    const ownedStopEntries = stopEntries.filter(isCodetermCodexHook);
+    const ownedStopEntries = stopEntries.filter(isDomiosCodexHook);
     const stopOwned = ownedStopEntries.length > 0;
-    const stopCommandStale = host.platform() === "windows" && ownedStopEntries.some((entry) => !hasCodetermCodexWindowsCommand(entry));
+    const stopCommandStale = host.platform() === "windows" && ownedStopEntries.some((entry) => !hasDomiosCodexWindowsCommand(entry));
     const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
     const trustStale = trustState === "stale";
-    if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned && !trustStale) {
+    const contractStale = scriptStale || commandStale || timeoutStale || stopCommandStale || !stopOwned;
+    if (!contractStale) {
+      if (trustState === "unknown" || trustStale) {
+        return then({
+          ok: false,
+          changed: false,
+          actionable: true,
+          error: "Codex could not confirm hook trust: " + codexHookTrustReason(path)
+        });
+      }
       return then({ ok: true, changed: false });
     }
-    return then({
-      ok: false,
-      changed: false,
-      actionable: true,
-      error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair"
-    });
+    const legacyOwned = [...owned, ...ownedStopEntries].some(is1149CodexHook) || host.platform() === "windows" && !!scriptPath && host.fs.fileExists(scriptPath) && is1149CodexHookScriptContent(String(host.fs.readFile(scriptPath) || ""));
+    if (!legacyOwned) {
+      return then({
+        ok: false,
+        changed: false,
+        actionable: true,
+        error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair"
+      });
+    }
+    return then(install(apiPort, { consent: true }));
   });
 }
 function codexHooksPath() {
@@ -6180,11 +6211,20 @@ function codexHooksPath() {
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "hooks.json";
 }
+function has1149CodexGeneration(path, loaded) {
+  if (host.envGet("DOMIOS_INSTANCE") === null) return false;
+  const json2 = loaded || host.fs.readJson(path);
+  const entries = [...json2?.hooks?.SessionStart || [], ...json2?.hooks?.Stop || []];
+  if (entries.some(is1149CodexHook)) return true;
+  const scriptPath = codexWindowsHookScriptPath();
+  const script = scriptPath ? host.fs.readFile(scriptPath) : null;
+  return typeof script === "string" && is1149CodexHookScriptContent(script);
+}
 function hasLiteralPort(value) {
   return /:\d{2,5}/.test(value);
 }
 function hookTimeoutsAdequate(sessionStart, stop) {
-  const owned = [...sessionStart || [], ...stop || []].filter(isCodetermCodexHook);
+  const owned = [...sessionStart || [], ...stop || []].filter(isDomiosCodexHook);
   return owned.length > 0 && owned.every(hasAdequateCodexHookTimeout);
 }
 function codexConfigPath2() {
@@ -6197,7 +6237,7 @@ function codexWindowsHookScriptPath() {
   const home = host.homeDir();
   if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "codeterm-session-hook.cmd";
+  return home + sep + ".codex" + sep + CODETERM_CODEX_HOOK_SCRIPT_NAME_V1149;
 }
 function codexHookTrustOwnershipPath() {
   const config = codexConfigPath2();
@@ -6228,8 +6268,8 @@ function codexHookTrustContext(hooksPath) {
   if (block == null) return null;
   const hooks = host.fs.readJson(hooksPath)?.hooks;
   const labels = [];
-  if ((hooks?.SessionStart || []).some(isCodetermCodexHook)) labels.push("session_start");
-  if ((hooks?.Stop || []).some(isCodetermCodexHook)) labels.push("stop");
+  if ((hooks?.SessionStart || []).some(isDomiosCodexHook)) labels.push("session_start");
+  if ((hooks?.Stop || []).some(isDomiosCodexHook)) labels.push("stop");
   const script = codexWindowsHookScriptPath();
   const scriptText = script && host.fs.fileExists(script) ? String(host.fs.readFile(script) || "") : "";
   const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text7));
@@ -6403,7 +6443,7 @@ function normalizeCodexHookKey(value) {
   const normalized = value.replace(/\\/g, "/");
   return host.platform() === "windows" ? normalized.toLowerCase() : normalized;
 }
-function hasCodetermCodexWindowsCommand(entry) {
+function hasDomiosCodexWindowsCommand(entry) {
   const hooks = entry && entry.hooks;
   if (!Array.isArray(hooks)) return false;
   for (let i = 0; i < hooks.length; i++) {
@@ -6411,8 +6451,8 @@ function hasCodetermCodexWindowsCommand(entry) {
     if (!hook) continue;
     const command = String(hook.commandWindows || "");
     const fullCommand = String(hook.command || "") + "\n" + command;
-    const owned = fullCommand.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1 || fullCommand.indexOf("X-CodeTerm-Hook:" + CODETERM_CODEX_HOOK_MARKER) !== -1 || hook._source === CODETERM_CODEX_HOOK_MARKER;
-    if (owned && command.startsWith('cmd.exe /d /s /c call "') && command.indexOf("codeterm-session-hook.cmd") !== -1) {
+    const owned = fullCommand.indexOf(DOMIOS_CODEX_HOOK_MARKER_HEADER) !== -1;
+    if (owned && command.startsWith('cmd.exe /d /s /c call "') && command.indexOf(CODETERM_CODEX_HOOK_SCRIPT_NAME_V1149) !== -1) {
       return true;
     }
   }

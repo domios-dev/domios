@@ -686,7 +686,7 @@ seed_empty_storage_root() {
     cd "$EVAL_LIB_REPO_ROOT" || exit 1
     CARGO_TARGET_DIR="$data_dir/target" CODETERM_ALLOW_EXTERNAL_TARGET=1 \
       cargo run --quiet --manifest-path "$EVAL_LIB_REPO_ROOT/src-tauri/Cargo.toml" \
-        -p codeterm-devtools --features dev-tools --bin storage-verify -- --copy-root "$stage/copy-root" --work-root "$stage/work-root"
+        -p domios-devtools --features dev-tools --bin storage-verify -- --copy-root "$stage/copy-root" --work-root "$stage/work-root"
   ); then
     rm -rf "$stage"
     return 1

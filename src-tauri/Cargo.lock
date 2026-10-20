@@ -1067,1292 +1067,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "codeterm"
-version = "1.15.0"
-dependencies = [
- "async-trait",
- "codeterm-build-info",
- "codeterm-client-shell",
- "codeterm-crash",
- "codeterm-frontend-shell",
- "codeterm-paths",
- "codeterm-process-identity",
- "codeterm-types",
- "codeterm-update",
- "codeterm-util",
- "core-foundation",
- "dirs 6.0.0",
- "interprocess",
- "log",
- "objc2",
- "objc2-app-kit",
- "parking_lot",
- "png 0.17.16",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2",
- "shell-words",
- "tauri",
- "tauri-build",
- "tauri-plugin-deep-link",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-shell",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tempfile",
- "tokio",
- "url",
- "uuid",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-account"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "log",
- "rand 0.8.5",
- "reqwest 0.12.28",
- "security-framework",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "url",
- "windows-sys 0.61.2",
- "zeroize",
-]
-
-[[package]]
-name = "codeterm-agent-detect"
-version = "0.0.0"
-dependencies = [
- "codeterm-paths",
- "codeterm-plugin",
- "codeterm-pty",
- "codeterm-types",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "sha2",
- "vt100",
-]
-
-[[package]]
-name = "codeterm-agent-model"
-version = "0.0.0"
-dependencies = [
- "codeterm-agent-detect",
- "codeterm-blueprint-types",
- "codeterm-config",
- "codeterm-cron",
- "codeterm-mem",
- "codeterm-paths",
- "codeterm-plan",
- "codeterm-plugin",
- "codeterm-pty",
- "codeterm-sentinel",
- "codeterm-storage",
- "codeterm-types",
- "codeterm-util",
- "log",
- "parking_lot",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "toml 0.8.2",
- "ulid",
- "uuid",
- "vt100",
-]
-
-[[package]]
-name = "codeterm-analytics"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "log",
- "mockito",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-api"
-version = "0.0.0"
-dependencies = [
- "async-stream",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "chrono",
- "codeterm-account",
- "codeterm-analytics",
- "codeterm-billing",
- "codeterm-blueprint-types",
- "codeterm-bridge",
- "codeterm-build-info",
- "codeterm-commands",
- "codeterm-decision",
- "codeterm-events",
- "codeterm-frontend-bundle",
- "codeterm-frontend-shell",
- "codeterm-mem",
- "codeterm-mesh",
- "codeterm-notification-core",
- "codeterm-orchestration",
- "codeterm-paths",
- "codeterm-plan",
- "codeterm-plugin",
- "codeterm-plugins",
- "codeterm-pty",
- "codeterm-sentinel-host",
- "codeterm-service-core",
- "codeterm-storage",
- "codeterm-types",
- "codeterm-update",
- "codeterm-usage",
- "codeterm-util",
- "codeterm-wire",
- "cron",
- "dirs 6.0.0",
- "futures-core",
- "futures-util",
- "http-body",
- "log",
- "mockito",
- "parking_lot",
- "regex",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "toml 0.8.2",
- "tower",
- "tower-http",
- "ulid",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-billing"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "codeterm-account",
- "codeterm-entitlements",
- "ed25519-dalek",
- "log",
- "parking_lot",
- "rand 0.8.5",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "codeterm-blueprint-types"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-bridge"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "axum",
- "chrono",
- "codeterm-plugin",
- "codeterm-types",
- "codeterm-util",
- "codeterm-wire",
- "log",
- "parking_lot",
- "pulldown-cmark",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-browser"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "codeterm-util",
- "dirs 6.0.0",
- "futures-util",
- "libc",
- "log",
- "parking_lot",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-build-info"
-version = "0.0.0"
-
-[[package]]
-name = "codeterm-client-shell"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "clipboard-win",
- "codeterm-build-info",
- "codeterm-crash",
- "codeterm-paths",
- "codeterm-update",
- "codeterm-util",
- "dirs 6.0.0",
- "log",
- "objc2-app-kit",
- "objc2-foundation",
- "serde_json",
- "tauri",
- "tauri-plugin-updater",
- "tempfile",
- "tokio",
- "url",
- "which",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-commands"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "axum",
- "codeterm-analytics",
- "codeterm-build-info",
- "codeterm-events",
- "codeterm-frontend-bundle",
- "codeterm-mesh",
- "codeterm-orchestration",
- "codeterm-plugin",
- "codeterm-plugins",
- "codeterm-service-core",
- "codeterm-types",
- "codeterm-update",
- "codeterm-util",
- "log",
- "parking_lot",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "url",
- "uuid",
- "which",
-]
-
-[[package]]
-name = "codeterm-config"
-version = "0.0.0"
-dependencies = [
- "codeterm-mesh",
- "codeterm-notify-types",
- "codeterm-paths",
- "codeterm-types",
- "codeterm-util",
- "hostname",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
- "toml 0.8.2",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-crash"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-build-info",
- "codeterm-keepawake",
- "codeterm-paths",
- "codeterm-shutdown",
- "codeterm-util",
- "crash-context",
- "crash-handler",
- "hostname",
- "libc",
- "log",
- "minidump-writer",
- "objc2",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
- "wait-timeout",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-cron"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "chrono-tz",
- "cron",
- "rand 0.8.5",
-]
-
-[[package]]
-name = "codeterm-decision"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "codeterm-devtools"
-version = "0.0.0"
-dependencies = [
- "axum",
- "base64 0.22.1",
- "chrono",
- "codeterm-bridge",
- "codeterm-decision",
- "codeterm-service-core",
- "codeterm-types",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "codeterm-entitlements"
-version = "0.0.0"
-dependencies = [
- "base64 0.22.1",
- "ed25519-dalek",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "codeterm-events"
-version = "0.0.0"
-dependencies = [
- "codeterm-plugin",
- "parking_lot",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-frontend-bundle"
-version = "0.0.0"
-dependencies = [
- "codeterm-plugins",
- "flate2",
- "minisign-verify",
- "parking_lot",
- "reqwest 0.12.28",
- "rusqlite",
- "semver",
- "serde",
- "serde_json",
- "sha2",
- "subtle",
- "tar",
- "tempfile",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-frontend-shell"
-version = "0.0.0"
-dependencies = [
- "url",
-]
-
-[[package]]
-name = "codeterm-input-macos"
-version = "0.0.0"
-
-[[package]]
-name = "codeterm-input-windows"
-version = "0.0.0"
-dependencies = [
- "codeterm-local-recording",
- "codeterm-types",
- "parking_lot",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-keepawake"
-version = "0.0.0"
-dependencies = [
- "codeterm-paths",
- "codeterm-util",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "codeterm-lanes"
-version = "0.0.0"
-dependencies = [
- "codeterm-paths",
- "codeterm-plan",
- "codeterm-plugin",
- "codeterm-repowatch",
- "codeterm-util",
- "log",
- "serde_json",
- "sha2",
- "tempfile",
- "toml 0.8.2",
- "url",
- "uuid",
- "wait-timeout",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-local-preview"
-version = "0.0.0"
-dependencies = [
- "base64 0.22.1",
- "codeterm-types",
- "dirs 6.0.0",
- "libc",
- "log",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "url",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-local-recording"
-version = "0.0.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "codeterm-mem"
-version = "0.0.0"
-dependencies = [
- "annembed",
- "async-trait",
- "candle-core",
- "candle-nn",
- "candle-transformers",
- "chrono",
- "codeterm-decision",
- "codeterm-mem-store",
- "codeterm-paths",
- "codeterm-types",
- "codeterm-util",
- "hf-hub",
- "hnsw_rs",
- "libc",
- "log",
- "ndarray",
- "parking_lot",
- "rand 0.8.5",
- "rayon",
- "regex",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "sqlite-vec",
- "tempfile",
- "tokenizers",
- "tokio",
- "ulid",
- "uuid",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-mem-store"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-paths",
- "rusqlite",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "codeterm-mesh"
-version = "0.0.0"
-dependencies = [
- "aes-gcm",
- "base64 0.22.1",
- "chrono",
- "codeterm-build-info",
- "codeterm-paths",
- "codeterm-types",
- "codeterm-util",
- "dirs 6.0.0",
- "ed25519-dalek",
- "hostname",
- "if-addrs",
- "log",
- "mdns-sd",
- "parking_lot",
- "rand 0.8.5",
- "reqwest 0.12.28",
- "semver",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "uuid",
- "x25519-dalek",
-]
-
-[[package]]
-name = "codeterm-notification-core"
-version = "0.0.0"
-dependencies = [
- "codeterm-notify-types",
- "codeterm-types",
- "codeterm-util",
- "log",
- "serde",
- "serde_json",
- "tempfile",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-notifications"
-version = "0.0.0"
-dependencies = [
- "codeterm-agent-model",
- "codeterm-bridge",
- "codeterm-config",
- "codeterm-notification-core",
- "codeterm-paths",
- "codeterm-plugin",
- "codeterm-pty",
- "codeterm-types",
- "codeterm-util",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
- "toml 0.8.2",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-notify-types"
-version = "0.0.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "codeterm-orchestration"
-version = "0.0.0"
-dependencies = [
- "codeterm-analytics",
- "codeterm-events",
- "codeterm-paths",
- "codeterm-sentinel",
- "codeterm-service-core",
- "codeterm-types",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "codeterm-paths"
-version = "0.0.0"
-dependencies = [
- "dirs 6.0.0",
- "tempfile",
-]
-
-[[package]]
-name = "codeterm-plan"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-paths",
- "codeterm-plan",
- "codeterm-types",
- "codeterm-usage",
- "codeterm-util",
- "filetime",
- "log",
- "notify 7.0.0",
- "notify-debouncer-mini",
- "parking_lot",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-plugin"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "axum",
- "base64 0.22.1",
- "chrono",
- "codeterm-blueprint-types",
- "codeterm-build-info",
- "codeterm-decision",
- "codeterm-local-recording",
- "codeterm-paths",
- "codeterm-provider-signals",
- "codeterm-types",
- "codeterm-usage",
- "codeterm-util",
- "codeterm-wire",
- "dirs 6.0.0",
- "futures-executor",
- "futures-util",
- "include_dir",
- "indexmap 2.13.0",
- "libc",
- "log",
- "md-5",
- "notify 8.2.0",
- "parking_lot",
- "quick-xml 0.37.5",
- "regex",
- "reqwest 0.12.28",
- "rquickjs",
- "rusqlite",
- "semver",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "tokio",
- "toml 0.8.2",
- "uuid",
- "wait-timeout",
-]
-
-[[package]]
-name = "codeterm-plugins"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-util",
- "dirs 5.0.1",
- "log",
- "reqwest 0.12.28",
- "semver",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-process-identity"
-version = "0.0.0"
-dependencies = [
- "codeterm-types",
- "core-foundation",
- "libc",
- "security-framework",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-prompts"
-version = "0.0.0"
-dependencies = [
- "codeterm-build-info",
- "codeterm-mem",
- "codeterm-paths",
- "codeterm-plan",
- "codeterm-plugin",
- "codeterm-types",
- "dirs 6.0.0",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "toml 0.8.2",
-]
-
-[[package]]
-name = "codeterm-provider-ops"
-version = "0.0.0"
-dependencies = [
- "codeterm-agent-model",
- "codeterm-plugin",
- "codeterm-supporter",
- "codeterm-types",
- "codeterm-util",
- "dirs 6.0.0",
- "libc",
- "log",
- "notify 7.0.0",
- "parking_lot",
- "semver",
- "serde",
- "serde_json",
- "tempfile",
- "wait-timeout",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-provider-signals"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "codeterm-pty"
-version = "0.0.0"
-dependencies = [
- "arc-swap",
- "base64 0.22.1",
- "codeterm-build-info",
- "codeterm-paths",
- "codeterm-provider-signals",
- "codeterm-storage",
- "codeterm-types",
- "codeterm-util",
- "libc",
- "log",
- "parking_lot",
- "portable-pty",
- "rand 0.8.5",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "ulid",
- "uuid",
- "vt100",
- "wait-timeout",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-recall"
-version = "0.0.0"
-dependencies = [
- "codeterm-agent-model",
- "codeterm-config",
- "codeterm-decision",
- "codeterm-mem",
- "codeterm-paths",
- "codeterm-plan",
- "codeterm-supporter",
- "codeterm-types",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "codeterm-repowatch"
-version = "0.0.0"
-dependencies = [
- "codeterm-util",
- "git2",
- "log",
- "notify 7.0.0",
- "notify-debouncer-mini",
- "parking_lot",
- "serde",
- "tempfile",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-secrets"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "codeterm-config",
- "codeterm-paths",
- "codeterm-plugin",
- "codeterm-util",
- "dirs 6.0.0",
- "hostname",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "tokio",
- "zeroize",
-]
-
-[[package]]
-name = "codeterm-sentinel"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-blueprint-types",
- "codeterm-cron",
- "codeterm-paths",
- "codeterm-plugin",
- "codeterm-pty",
- "codeterm-storage",
- "codeterm-types",
- "codeterm-util",
- "libc",
- "log",
- "parking_lot",
- "regex",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "uuid",
- "wait-timeout",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-sentinel-host"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-analytics",
- "codeterm-blueprint-types",
- "codeterm-cron",
- "codeterm-decision",
- "codeterm-events",
- "codeterm-plugin",
- "codeterm-pty",
- "codeterm-sentinel",
- "codeterm-service-core",
- "codeterm-shutdown",
- "codeterm-storage",
- "codeterm-types",
- "codeterm-util",
- "cron",
- "log",
- "parking_lot",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-service-core"
-version = "0.0.0"
-dependencies = [
- "aes-gcm",
- "annembed",
- "arc-swap",
- "async-stream",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "chrono-tz",
- "clipboard-win",
- "codeterm-account",
- "codeterm-agent-detect",
- "codeterm-agent-model",
- "codeterm-analytics",
- "codeterm-billing",
- "codeterm-blueprint-types",
- "codeterm-bridge",
- "codeterm-browser",
- "codeterm-build-info",
- "codeterm-config",
- "codeterm-crash",
- "codeterm-cron",
- "codeterm-decision",
- "codeterm-events",
- "codeterm-frontend-bundle",
- "codeterm-frontend-shell",
- "codeterm-input-macos",
- "codeterm-input-windows",
- "codeterm-keepawake",
- "codeterm-lanes",
- "codeterm-local-preview",
- "codeterm-local-recording",
- "codeterm-mem",
- "codeterm-mem-store",
- "codeterm-mesh",
- "codeterm-notification-core",
- "codeterm-notifications",
- "codeterm-paths",
- "codeterm-plan",
- "codeterm-plugin",
- "codeterm-plugins",
- "codeterm-prompts",
- "codeterm-provider-ops",
- "codeterm-provider-signals",
- "codeterm-pty",
- "codeterm-recall",
- "codeterm-repowatch",
- "codeterm-secrets",
- "codeterm-sentinel",
- "codeterm-shutdown",
- "codeterm-storage",
- "codeterm-supporter",
- "codeterm-surface",
- "codeterm-types",
- "codeterm-update",
- "codeterm-usage",
- "codeterm-util",
- "codeterm-wire",
- "codeterm-worker-services",
- "conpty",
- "cron",
- "dirs 6.0.0",
- "ed25519-dalek",
- "fern",
- "filetime",
- "futures-core",
- "futures-executor",
- "futures-util",
- "git2",
- "hnsw_rs",
- "hostname",
- "if-addrs",
- "image",
- "include_dir",
- "interprocess",
- "libc",
- "log",
- "md-5",
- "mdns-sd",
- "mockito",
- "ndarray",
- "notify 7.0.0",
- "notify-debouncer-mini",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "parking_lot",
- "png 0.17.16",
- "portable-pty",
- "rand 0.8.5",
- "regex",
- "reqwest 0.12.28",
- "rquickjs",
- "rusqlite",
- "semver",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "shell-words",
- "sqlite-vec",
- "sysinfo",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "toml 0.8.2",
- "tower",
- "tower-http",
- "ulid",
- "url",
- "uuid",
- "vt100",
- "wait-timeout",
- "which",
- "windows-sys 0.61.2",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
-name = "codeterm-shutdown"
-version = "0.0.0"
-dependencies = [
- "parking_lot",
- "serde",
-]
-
-[[package]]
-name = "codeterm-socket"
-version = "0.0.0"
-dependencies = [
- "axum",
- "base64 0.22.1",
- "chrono",
- "codeterm-api",
- "codeterm-blueprint-types",
- "codeterm-bridge",
- "codeterm-build-info",
- "codeterm-events",
- "codeterm-mem",
- "codeterm-notification-core",
- "codeterm-orchestration",
- "codeterm-paths",
- "codeterm-plan",
- "codeterm-plugin",
- "codeterm-sentinel",
- "codeterm-sentinel-host",
- "codeterm-service-core",
- "codeterm-types",
- "codeterm-util",
- "interprocess",
- "libc",
- "log",
- "parking_lot",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "tower",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-storage"
-version = "0.0.0"
-dependencies = [
- "codeterm-blueprint-types",
- "codeterm-paths",
- "codeterm-types",
- "rusqlite",
- "serde",
- "serde_json",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "codeterm-supporter"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-decision",
- "codeterm-mem",
- "codeterm-notification-core",
- "codeterm-paths",
- "codeterm-plugin",
- "codeterm-types",
- "codeterm-util",
- "codeterm-worker-services",
- "log",
- "parking_lot",
- "regex",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "toml 0.8.2",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-surface"
-version = "0.0.0"
-dependencies = [
- "async-stream",
- "async-trait",
- "base64 0.22.1",
- "codeterm-browser",
- "codeterm-input-macos",
- "codeterm-input-windows",
- "codeterm-local-recording",
- "codeterm-paths",
- "codeterm-plugin",
- "codeterm-util",
- "futures-core",
- "futures-util",
- "image",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-types"
-version = "0.0.0"
-dependencies = [
- "codeterm-notify-types",
- "codeterm-provider-signals",
- "codeterm-wire",
- "dirs 6.0.0",
- "serde",
- "serde_json",
- "tempfile",
- "toml 0.8.2",
- "ts-rs",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-update"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "codeterm-build-info",
- "codeterm-paths",
- "codeterm-plugins",
- "codeterm-types",
- "libc",
- "log",
- "parking_lot",
- "reqwest 0.12.28",
- "semver",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "codeterm-usage"
-version = "0.0.0"
-dependencies = [
- "chrono",
- "codeterm-types",
- "parking_lot",
- "rusqlite",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "codeterm-util"
-version = "0.0.0"
-dependencies = [
- "codeterm-paths",
- "libc",
- "log",
- "parking_lot",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "tokio",
- "uuid",
- "vt100",
- "winapi",
- "windows-sys 0.61.2",
- "winreg 0.10.1",
-]
-
-[[package]]
-name = "codeterm-wire"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
- "ts-rs",
-]
-
-[[package]]
-name = "codeterm-worker-services"
-version = "0.0.0"
-dependencies = [
- "codeterm-pty",
- "codeterm-types",
- "log",
- "parking_lot",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3076,29 +1790,985 @@ dependencies = [
 ]
 
 [[package]]
+name = "domios"
+version = "1.15.0"
+dependencies = [
+ "async-trait",
+ "core-foundation",
+ "dirs 6.0.0",
+ "domios-build-info",
+ "domios-client-shell",
+ "domios-crash",
+ "domios-frontend-shell",
+ "domios-paths",
+ "domios-process-identity",
+ "domios-types",
+ "domios-update",
+ "domios-util",
+ "interprocess",
+ "log",
+ "objc2",
+ "objc2-app-kit",
+ "parking_lot",
+ "png 0.17.16",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "shell-words",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-deep-link",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-shell",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-account"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "log",
+ "rand 0.8.5",
+ "reqwest 0.12.28",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "url",
+ "windows-sys 0.61.2",
+ "zeroize",
+]
+
+[[package]]
+name = "domios-agent-detect"
+version = "0.0.0"
+dependencies = [
+ "domios-paths",
+ "domios-plugin",
+ "domios-pty",
+ "domios-types",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2",
+ "vt100",
+]
+
+[[package]]
+name = "domios-agent-model"
+version = "0.0.0"
+dependencies = [
+ "domios-agent-detect",
+ "domios-blueprint-types",
+ "domios-config",
+ "domios-cron",
+ "domios-mem",
+ "domios-paths",
+ "domios-plan",
+ "domios-plugin",
+ "domios-pty",
+ "domios-sentinel",
+ "domios-storage",
+ "domios-types",
+ "domios-util",
+ "log",
+ "parking_lot",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "toml 0.8.2",
+ "ulid",
+ "uuid",
+ "vt100",
+]
+
+[[package]]
+name = "domios-analytics"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "log",
+ "mockito",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "domios-api"
+version = "0.0.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "cron",
+ "dirs 6.0.0",
+ "domios-account",
+ "domios-analytics",
+ "domios-billing",
+ "domios-blueprint-types",
+ "domios-bridge",
+ "domios-build-info",
+ "domios-commands",
+ "domios-decision",
+ "domios-events",
+ "domios-frontend-bundle",
+ "domios-frontend-shell",
+ "domios-mem",
+ "domios-mesh",
+ "domios-notification-core",
+ "domios-orchestration",
+ "domios-paths",
+ "domios-plan",
+ "domios-plugin",
+ "domios-plugins",
+ "domios-pty",
+ "domios-sentinel-host",
+ "domios-service-core",
+ "domios-storage",
+ "domios-types",
+ "domios-update",
+ "domios-usage",
+ "domios-util",
+ "domios-wire",
+ "futures-core",
+ "futures-util",
+ "http-body",
+ "log",
+ "mockito",
+ "parking_lot",
+ "regex",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml 0.8.2",
+ "tower",
+ "tower-http",
+ "ulid",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "domios-billing"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "domios-account",
+ "domios-entitlements",
+ "ed25519-dalek",
+ "log",
+ "parking_lot",
+ "rand 0.8.5",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "domios-blueprint-types"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "domios-bridge"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "domios-plugin",
+ "domios-types",
+ "domios-util",
+ "domios-wire",
+ "log",
+ "parking_lot",
+ "pulldown-cmark",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "domios-browser"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "dirs 6.0.0",
+ "domios-util",
+ "futures-util",
+ "libc",
+ "log",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "domios-build-info"
+version = "0.0.0"
+
+[[package]]
+name = "domios-client-shell"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "clipboard-win",
+ "dirs 6.0.0",
+ "domios-build-info",
+ "domios-crash",
+ "domios-paths",
+ "domios-update",
+ "domios-util",
+ "log",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "serde_json",
+ "tauri",
+ "tauri-plugin-updater",
+ "tempfile",
+ "tokio",
+ "url",
+ "which",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-commands"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "domios-analytics",
+ "domios-build-info",
+ "domios-events",
+ "domios-frontend-bundle",
+ "domios-mesh",
+ "domios-orchestration",
+ "domios-plugin",
+ "domios-plugins",
+ "domios-service-core",
+ "domios-types",
+ "domios-update",
+ "domios-util",
+ "log",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "which",
+]
+
+[[package]]
+name = "domios-config"
+version = "0.0.0"
+dependencies = [
+ "domios-mesh",
+ "domios-notify-types",
+ "domios-paths",
+ "domios-types",
+ "domios-util",
+ "hostname",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.2",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "domios-crash"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "crash-context",
+ "crash-handler",
+ "domios-build-info",
+ "domios-keepawake",
+ "domios-paths",
+ "domios-shutdown",
+ "domios-util",
+ "hostname",
+ "libc",
+ "log",
+ "minidump-writer",
+ "objc2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-cron"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "cron",
+ "rand 0.8.5",
+]
+
+[[package]]
+name = "domios-decision"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "domios-devtools"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "domios-bridge",
+ "domios-decision",
+ "domios-service-core",
+ "domios-types",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "domios-entitlements"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "domios-events"
+version = "0.0.0"
+dependencies = [
+ "domios-plugin",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "domios-frontend-bundle"
+version = "0.0.0"
+dependencies = [
+ "domios-plugins",
+ "flate2",
+ "minisign-verify",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tar",
+ "tempfile",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "domios-frontend-shell"
+version = "0.0.0"
+dependencies = [
+ "url",
+]
+
+[[package]]
+name = "domios-input-macos"
+version = "0.0.0"
+
+[[package]]
+name = "domios-input-windows"
+version = "0.0.0"
+dependencies = [
+ "domios-local-recording",
+ "domios-types",
+ "parking_lot",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-keepawake"
+version = "0.0.0"
+dependencies = [
+ "domios-paths",
+ "domios-util",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "domios-lanes"
+version = "0.0.0"
+dependencies = [
+ "domios-paths",
+ "domios-plan",
+ "domios-plugin",
+ "domios-repowatch",
+ "domios-util",
+ "log",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.8.2",
+ "url",
+ "uuid",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-local-preview"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "dirs 6.0.0",
+ "domios-types",
+ "libc",
+ "log",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "url",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-local-recording"
+version = "0.0.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "domios-mem"
+version = "0.0.0"
+dependencies = [
+ "annembed",
+ "async-trait",
+ "candle-core",
+ "candle-nn",
+ "candle-transformers",
+ "chrono",
+ "domios-decision",
+ "domios-mem-store",
+ "domios-paths",
+ "domios-types",
+ "domios-util",
+ "hf-hub",
+ "hnsw_rs",
+ "libc",
+ "log",
+ "ndarray",
+ "parking_lot",
+ "rand 0.8.5",
+ "rayon",
+ "regex",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlite-vec",
+ "tempfile",
+ "tokenizers",
+ "tokio",
+ "ulid",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-mem-store"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "domios-paths",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "domios-mesh"
+version = "0.0.0"
+dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
+ "chrono",
+ "dirs 6.0.0",
+ "domios-build-info",
+ "domios-paths",
+ "domios-types",
+ "domios-util",
+ "ed25519-dalek",
+ "hostname",
+ "if-addrs",
+ "log",
+ "mdns-sd",
+ "parking_lot",
+ "rand 0.8.5",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "uuid",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "domios-notification-core"
+version = "0.0.0"
+dependencies = [
+ "domios-notify-types",
+ "domios-types",
+ "domios-util",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
+name = "domios-notifications"
+version = "0.0.0"
+dependencies = [
+ "domios-agent-model",
+ "domios-bridge",
+ "domios-config",
+ "domios-notification-core",
+ "domios-paths",
+ "domios-plugin",
+ "domios-pty",
+ "domios-types",
+ "domios-util",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.2",
+ "uuid",
+]
+
+[[package]]
+name = "domios-notify-types"
+version = "0.0.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "domios-orchestration"
+version = "0.0.0"
+dependencies = [
+ "domios-analytics",
+ "domios-events",
+ "domios-paths",
+ "domios-sentinel",
+ "domios-service-core",
+ "domios-types",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "domios-paths"
+version = "0.0.0"
+dependencies = [
+ "dirs 6.0.0",
+ "tempfile",
+]
+
+[[package]]
+name = "domios-plan"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "domios-paths",
+ "domios-plan",
+ "domios-types",
+ "domios-usage",
+ "domios-util",
+ "filetime",
+ "log",
+ "notify 7.0.0",
+ "notify-debouncer-mini",
+ "parking_lot",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
+name = "domios-plugin"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "dirs 6.0.0",
+ "domios-blueprint-types",
+ "domios-build-info",
+ "domios-decision",
+ "domios-local-recording",
+ "domios-paths",
+ "domios-provider-signals",
+ "domios-types",
+ "domios-usage",
+ "domios-util",
+ "domios-wire",
+ "futures-executor",
+ "futures-util",
+ "include_dir",
+ "indexmap 2.13.0",
+ "libc",
+ "log",
+ "md-5",
+ "notify 8.2.0",
+ "parking_lot",
+ "quick-xml 0.37.5",
+ "regex",
+ "reqwest 0.12.28",
+ "rquickjs",
+ "rusqlite",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "toml 0.8.2",
+ "uuid",
+ "wait-timeout",
+]
+
+[[package]]
+name = "domios-plugins"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "dirs 5.0.1",
+ "domios-util",
+ "log",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
+name = "domios-process-identity"
+version = "0.0.0"
+dependencies = [
+ "core-foundation",
+ "domios-types",
+ "libc",
+ "security-framework",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-prompts"
+version = "0.0.0"
+dependencies = [
+ "dirs 6.0.0",
+ "domios-build-info",
+ "domios-mem",
+ "domios-paths",
+ "domios-plan",
+ "domios-plugin",
+ "domios-types",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.8.2",
+]
+
+[[package]]
+name = "domios-provider-ops"
+version = "0.0.0"
+dependencies = [
+ "dirs 6.0.0",
+ "domios-agent-model",
+ "domios-plugin",
+ "domios-supporter",
+ "domios-types",
+ "domios-util",
+ "libc",
+ "log",
+ "notify 7.0.0",
+ "parking_lot",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-provider-signals"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "domios-pty"
+version = "0.0.0"
+dependencies = [
+ "arc-swap",
+ "base64 0.22.1",
+ "domios-build-info",
+ "domios-paths",
+ "domios-provider-signals",
+ "domios-storage",
+ "domios-types",
+ "domios-util",
+ "libc",
+ "log",
+ "parking_lot",
+ "portable-pty",
+ "rand 0.8.5",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "ulid",
+ "uuid",
+ "vt100",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-recall"
+version = "0.0.0"
+dependencies = [
+ "domios-agent-model",
+ "domios-config",
+ "domios-decision",
+ "domios-mem",
+ "domios-paths",
+ "domios-plan",
+ "domios-supporter",
+ "domios-types",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "domios-repowatch"
+version = "0.0.0"
+dependencies = [
+ "domios-util",
+ "git2",
+ "log",
+ "notify 7.0.0",
+ "notify-debouncer-mini",
+ "parking_lot",
+ "serde",
+ "tempfile",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-secrets"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "dirs 6.0.0",
+ "domios-config",
+ "domios-paths",
+ "domios-plugin",
+ "domios-util",
+ "hostname",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "domios-sentinel"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "domios-blueprint-types",
+ "domios-cron",
+ "domios-paths",
+ "domios-plugin",
+ "domios-pty",
+ "domios-storage",
+ "domios-types",
+ "domios-util",
+ "libc",
+ "log",
+ "parking_lot",
+ "regex",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "uuid",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-sentinel-host"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "cron",
+ "domios-analytics",
+ "domios-blueprint-types",
+ "domios-cron",
+ "domios-decision",
+ "domios-events",
+ "domios-plugin",
+ "domios-pty",
+ "domios-sentinel",
+ "domios-service-core",
+ "domios-shutdown",
+ "domios-storage",
+ "domios-types",
+ "domios-util",
+ "log",
+ "parking_lot",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "domios-server"
 version = "0.0.0"
 dependencies = [
  "chrono",
- "codeterm-api",
- "codeterm-billing",
- "codeterm-build-info",
- "codeterm-commands",
- "codeterm-events",
- "codeterm-frontend-bundle",
- "codeterm-frontend-shell",
- "codeterm-orchestration",
- "codeterm-plan",
- "codeterm-plugin",
- "codeterm-plugins",
- "codeterm-process-identity",
- "codeterm-sentinel-host",
- "codeterm-service-core",
- "codeterm-socket",
- "codeterm-types",
- "codeterm-update",
- "codeterm-util",
  "dirs 6.0.0",
+ "domios-api",
+ "domios-billing",
+ "domios-build-info",
+ "domios-commands",
+ "domios-events",
+ "domios-frontend-bundle",
+ "domios-frontend-shell",
+ "domios-orchestration",
+ "domios-plan",
+ "domios-plugin",
+ "domios-plugins",
+ "domios-process-identity",
+ "domios-sentinel-host",
+ "domios-service-core",
+ "domios-socket",
+ "domios-types",
+ "domios-update",
+ "domios-util",
  "fern",
  "include_dir",
  "interprocess",
@@ -3115,6 +2785,336 @@ dependencies = [
  "uuid",
  "widestring",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-service-core"
+version = "0.0.0"
+dependencies = [
+ "aes-gcm",
+ "annembed",
+ "arc-swap",
+ "async-stream",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "chrono-tz",
+ "clipboard-win",
+ "conpty",
+ "cron",
+ "dirs 6.0.0",
+ "domios-account",
+ "domios-agent-detect",
+ "domios-agent-model",
+ "domios-analytics",
+ "domios-billing",
+ "domios-blueprint-types",
+ "domios-bridge",
+ "domios-browser",
+ "domios-build-info",
+ "domios-config",
+ "domios-crash",
+ "domios-cron",
+ "domios-decision",
+ "domios-events",
+ "domios-frontend-bundle",
+ "domios-frontend-shell",
+ "domios-input-macos",
+ "domios-input-windows",
+ "domios-keepawake",
+ "domios-lanes",
+ "domios-local-preview",
+ "domios-local-recording",
+ "domios-mem",
+ "domios-mem-store",
+ "domios-mesh",
+ "domios-notification-core",
+ "domios-notifications",
+ "domios-paths",
+ "domios-plan",
+ "domios-plugin",
+ "domios-plugins",
+ "domios-prompts",
+ "domios-provider-ops",
+ "domios-provider-signals",
+ "domios-pty",
+ "domios-recall",
+ "domios-repowatch",
+ "domios-secrets",
+ "domios-sentinel",
+ "domios-shutdown",
+ "domios-storage",
+ "domios-supporter",
+ "domios-surface",
+ "domios-types",
+ "domios-update",
+ "domios-usage",
+ "domios-util",
+ "domios-wire",
+ "domios-worker-services",
+ "ed25519-dalek",
+ "fern",
+ "filetime",
+ "futures-core",
+ "futures-executor",
+ "futures-util",
+ "git2",
+ "hnsw_rs",
+ "hostname",
+ "if-addrs",
+ "image",
+ "include_dir",
+ "interprocess",
+ "libc",
+ "log",
+ "md-5",
+ "mdns-sd",
+ "mockito",
+ "ndarray",
+ "notify 7.0.0",
+ "notify-debouncer-mini",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "parking_lot",
+ "png 0.17.16",
+ "portable-pty",
+ "rand 0.8.5",
+ "regex",
+ "reqwest 0.12.28",
+ "rquickjs",
+ "rusqlite",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "shell-words",
+ "sqlite-vec",
+ "sysinfo",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "toml 0.8.2",
+ "tower",
+ "tower-http",
+ "ulid",
+ "url",
+ "uuid",
+ "vt100",
+ "wait-timeout",
+ "which",
+ "windows-sys 0.61.2",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "domios-shutdown"
+version = "0.0.0"
+dependencies = [
+ "parking_lot",
+ "serde",
+]
+
+[[package]]
+name = "domios-socket"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "domios-api",
+ "domios-blueprint-types",
+ "domios-bridge",
+ "domios-build-info",
+ "domios-events",
+ "domios-mem",
+ "domios-notification-core",
+ "domios-orchestration",
+ "domios-paths",
+ "domios-plan",
+ "domios-plugin",
+ "domios-sentinel",
+ "domios-sentinel-host",
+ "domios-service-core",
+ "domios-types",
+ "domios-util",
+ "interprocess",
+ "libc",
+ "log",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tower",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-storage"
+version = "0.0.0"
+dependencies = [
+ "domios-blueprint-types",
+ "domios-paths",
+ "domios-types",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "domios-supporter"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "domios-decision",
+ "domios-mem",
+ "domios-notification-core",
+ "domios-paths",
+ "domios-plugin",
+ "domios-types",
+ "domios-util",
+ "domios-worker-services",
+ "log",
+ "parking_lot",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml 0.8.2",
+ "uuid",
+]
+
+[[package]]
+name = "domios-surface"
+version = "0.0.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "base64 0.22.1",
+ "domios-browser",
+ "domios-input-macos",
+ "domios-input-windows",
+ "domios-local-recording",
+ "domios-paths",
+ "domios-plugin",
+ "domios-util",
+ "futures-core",
+ "futures-util",
+ "image",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "domios-types"
+version = "0.0.0"
+dependencies = [
+ "dirs 6.0.0",
+ "domios-notify-types",
+ "domios-provider-signals",
+ "domios-wire",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.2",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
+name = "domios-update"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "domios-build-info",
+ "domios-paths",
+ "domios-plugins",
+ "domios-types",
+ "libc",
+ "log",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "domios-usage"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "domios-types",
+ "parking_lot",
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "domios-util"
+version = "0.0.0"
+dependencies = [
+ "domios-paths",
+ "libc",
+ "log",
+ "parking_lot",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "vt100",
+ "winapi",
+ "windows-sys 0.61.2",
+ "winreg 0.10.1",
+]
+
+[[package]]
+name = "domios-wire"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "ts-rs",
+]
+
+[[package]]
+name = "domios-worker-services"
+version = "0.0.0"
+dependencies = [
+ "domios-pty",
+ "domios-types",
+ "log",
+ "parking_lot",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "url",
+ "uuid",
 ]
 
 [[package]]

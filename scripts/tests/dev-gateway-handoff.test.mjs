@@ -41,7 +41,7 @@ cargo() {
   case "$*" in
     'build --manifest-path src-tauri/Cargo.toml -p domios-server '*) echo server-artifact ;;
     'tree --manifest-path src-tauri/Cargo.toml -p domios-server '*) echo server-tree ;;
-    'build --manifest-path src-tauri/Cargo.toml -p codeterm '*) echo client-artifact ;;
+    'build --manifest-path src-tauri/Cargo.toml -p domios '*) echo client-artifact ;;
     *) return 93 ;;
   esac
 }
@@ -60,7 +60,7 @@ build_and_launch_dev --wait --notify-tab opaque-tab`;
     const result = spawnSync(bash, ['-c', script], { encoding: 'utf8' });
     assert.equal(result.status, failure, result.stderr);
     assert.match(result.stderr, /cargo build .*--bin domios-server/);
-    if (!failure) assert.match(result.stderr, /cargo build .*--bin codeterm --profile dev --no-default-features --features opaque/);
+    if (!failure) assert.match(result.stderr, /cargo build .*--bin domios --profile dev --no-default-features/);
     if (failure) assert.doesNotMatch(result.stdout, /frontend|staged|provenance|released|launch/);
     else assert.match(result.stdout, /frontend\nstaged\nprovenance\nreleased\n[^\n]*\nlaunch dev-prebuilt --wait --notify-tab opaque-tab/);
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }

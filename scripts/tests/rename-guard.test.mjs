@@ -126,6 +126,7 @@ test('lane checker rejects out-of-list edits, reports occurrences, overlaps and 
   write(root, 'src/owned.txt', `baseline ${marker}\n`);
   write(root, 'docs/other.txt', 'baseline\n');
   commit(root, 'lane base');
+  const baseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
   execFileSync('git', ['checkout', '-b', 'worker'], { cwd: root, stdio: 'ignore' });
   write(root, 'src/owned.txt', `changed ${marker}\n`);
   write(root, 'docs/other.txt', `changed ${marker}\n`);
@@ -135,11 +136,77 @@ test('lane checker rejects out-of-list edits, reports occurrences, overlaps and 
     { phase: '3', key: 'COD-1', id: 'owner', handle: 'worker', paths: ['src', 'src/owned.txt'] },
     { phase: '3', key: 'COD-2', id: 'other', handle: 'other', paths: ['src/owned.txt'] },
   ] } }));
-  const result = checkLane({ root, ownership: manifest, taskKey: 'COD-1' });
+  const result = checkLane({ root, ownership: manifest, taskKey: 'COD-1', baseRef });
   assert.deepEqual(result.pathFailures, ['docs/other.txt']);
   assert.ok(result.occurrences.some((entry) => entry.file === 'src/owned.txt'));
   assert.deepEqual(result.diagnostics['3'].overlaps, [{ file: 'src/owned.txt', tasks: ['COD-1', 'COD-2'] }]);
   assert.deepEqual(result.diagnostics['3'].unowned, ['docs/other.txt']);
+});
+
+test('lane checker defaults to the recorded dispatch base', (t) => {
+  const root = fixture(t);
+  write(root, 'build.sh', 'baseline\n');
+  commit(root, 'lane base');
+  const baseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  execFileSync('git', ['checkout', '-b', 'worker'], { cwd: root, stdio: 'ignore' });
+  write(root, 'build.sh', 'changed\n');
+  commit(root, 'lane edit');
+  const manifest = path.join(root, 'ownership.json');
+  writeFileSync(manifest, JSON.stringify({ phases: { '2': [
+    { phase: '2', key: 'COD-X', id: 'owner', handle: 'worker', paths: ['build.sh'] },
+  ] } }));
+  const previousBase = process.env.CODETERM_LANE_BASE;
+  process.env.CODETERM_LANE_BASE = baseRef;
+  try {
+    const result = checkLane({ root, ownership: manifest, taskKey: 'COD-X' });
+    assert.equal(result.base, baseRef);
+    assert.deepEqual(result.pathFailures, []);
+  } finally {
+    if (previousBase === undefined) delete process.env.CODETERM_LANE_BASE;
+    else process.env.CODETERM_LANE_BASE = previousBase;
+  }
+});
+
+test('a narrow phase owner excludes transferred files from a broad later owner', (t) => {
+  const root = fixture(t);
+  const transferred = 'plugins/provider-claude/tests/plugin.test.ts';
+  write(root, transferred, `baseline ${marker}\n`);
+  commit(root, 'lane base');
+  const baseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  execFileSync('git', ['checkout', '-b', 'worker'], { cwd: root, stdio: 'ignore' });
+  write(root, transferred, `changed ${marker}\n`);
+  commit(root, 'edit transferred file');
+  const manifest = path.join(root, 'ownership.json');
+  writeFileSync(manifest, JSON.stringify({ phases: {
+    '2': [{ phase: '2', key: 'COD-HERALD', id: 'herald', handle: 'backend-1-15-0-4', paths: ['plugins'] }],
+    '3': [{ phase: '3', key: 'COD-PLUMBER', id: 'plumber', handle: 'backend-1-15-0-10',
+      paths: ['plugins'], exclude_paths: [transferred] }],
+  } }));
+
+  const phase2 = checkLane({ root, ownership: manifest, taskKey: 'COD-HERALD', baseRef });
+  assert.deepEqual(phase2.pathFailures, []);
+  assert.deepEqual(phase2.diagnostics['3'].overlaps, []);
+  const phase3 = checkLane({ root, ownership: manifest, taskKey: 'COD-PLUMBER', baseRef });
+  assert.deepEqual(phase3.pathFailures, [transferred]);
+});
+
+test('lane checker accepts crate paths projected through the rename', (t) => {
+  const root = fixture(t);
+  const legacyCrate = marker + '-fixture';
+  const oldPath = 'src-tauri/crates/' + legacyCrate;
+  const newPath = 'src-tauri/crates/domios-fixture';
+  write(root, oldPath + '/src/lib.rs', 'baseline\n');
+  commit(root, 'crate base');
+  const baseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  execFileSync('git', ['checkout', '-b', 'worker'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['mv', oldPath, newPath], { cwd: root });
+  commit(root, 'rename crate path');
+  const manifest = path.join(root, 'ownership.json');
+  writeFileSync(manifest, JSON.stringify({ phases: { '2': [
+    { phase: '2', key: 'COD-X', id: 'owner', handle: 'worker', paths: ['src-tauri/crates/' + marker + '-*'] },
+  ] } }));
+  const result = checkLane({ root, ownership: manifest, taskKey: 'COD-X', baseRef });
+  assert.deepEqual(result.pathFailures, []);
 });
 
 test('only Herald bridge additions and Closer bridge removals are admitted', (t) => {
@@ -151,12 +218,13 @@ test('only Herald bridge additions and Closer bridge removals are admitted', (t)
     const root = fixture(t);
     write(root, 'build.sh', baseline);
     commit(root, 'lane base');
+    const baseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
     execFileSync('git', ['checkout', '-b', 'worker'], { cwd: root, stdio: 'ignore' });
     write(root, 'build.sh', body);
     commit(root, 'bridge change');
     const manifest = path.join(root, 'ownership.json');
     writeFileSync(manifest, JSON.stringify({ phases: { '2': [{ phase: '2', key: 'COD-X', id: 'owner', handle, paths: ['build.sh'] }] } }));
-    const result = checkLane({ root, ownership: manifest, taskKey: 'COD-X' });
+    const result = checkLane({ root, ownership: manifest, taskKey: 'COD-X', baseRef });
     assert.equal(result.bridgeFailures.length, failures);
   }
 });

@@ -11,8 +11,8 @@ import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
 const { runners: RELEASE_RUST } = loadReleaseRust(path.resolve(import.meta.dirname, '..'));
 const WORKSPACE = { lane: 'workspace', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', ...archiveTargets('workspace', RELEASE_RUST)] };
 const CLI = { lane: 'cli', manifest: 'cli/Cargo.toml', targets: archiveTargets('cli', RELEASE_RUST) };
-const INPUT = { lane: 'input', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--lib', '-p', 'codeterm-input-macos', '-p', 'codeterm-input-windows'], whole: true };
-const EMBEDDINGS = { lane: 'embeddings', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--features', 'codeterm-service-core/embeddings,codeterm-mem/embeddings', '-p', 'codeterm-service-core', '-p', 'codeterm-mem', '--lib'] };
+const INPUT = { lane: 'input', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--lib', '-p', 'domios-input-macos', '-p', 'domios-input-windows'], whole: true };
+const EMBEDDINGS = { lane: 'embeddings', manifest: 'src-tauri/Cargo.toml', targets: ['--no-default-features', '--features', 'domios-service-core/embeddings,domios-mem/embeddings', '-p', 'domios-service-core', '-p', 'domios-mem', '--lib'] };
 // The full suite runs once on one runner; each OS runs only its cfg-gated tests and the native input crates.
 export const MODES = { full: [WORKSPACE, CLI], platform: [WORKSPACE, CLI, INPUT], embeddings: [EMBEDDINGS] };
 const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
@@ -189,7 +189,7 @@ async function run(mode) {
       const messages = compile(lane);
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
       fs.writeFileSync(config, tomlConfig('all()', false));
-      let scope = mode === 'embeddings' ? 'package(=codeterm-mem) | (package(=codeterm-service-core) & test(/^mem::/))' : 'all()';
+      let scope = mode === 'embeddings' ? 'package(=domios-mem) | (package(=domios-service-core) & test(/^mem::/))' : 'all()';
       fs.writeFileSync(config, tomlConfig(scope, false));
       if (mode === 'platform' && !lane.whole) {
         const rows = classify(lane, messages, config);
@@ -231,7 +231,7 @@ async function run(mode) {
     if (mode === 'embeddings') {
       const lane = lanes[0];
       const config = path.join(directory, 'embedding-parity.toml');
-      fs.writeFileSync(config, tomlConfig('package(=codeterm-mem) & test(=embedding_model::tests::candle_embedding_matches_fastembed_golden)', false));
+      fs.writeFileSync(config, tomlConfig('package(=domios-mem) & test(=embedding_model::tests::candle_embedding_matches_fastembed_golden)', false));
       const log = path.join(directory, 'embedding-parity.log');
       const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest',
         ...runArgs(lane, config), '--run-ignored', 'only'], log, env);

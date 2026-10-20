@@ -16,13 +16,13 @@ test('product feature arguments omit Cargo default markers and enable only selec
     set -eu
     ${fn}
     CT_DEV_CARGO_FEATURES=opaque
-    configure_product_cargo -p codeterm-service-core -p codeterm-util
+    configure_product_cargo -p domios-service-core -p domios-util
     printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
-    configure_product_cargo -p codeterm
+    configure_product_cargo -p domios
     printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
     configure_product_cargo -p domios-server
     printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
-    configure_product_cargo -p codeterm-util
+    configure_product_cargo -p domios-util
     printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
     configure_product_cargo --workspace
     printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
@@ -32,11 +32,11 @@ test('product feature arguments omit Cargo default markers and enable only selec
   `], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
-    '--no-default-features --features codeterm-service-core/opaque',
+    '--no-default-features --features domios-service-core/opaque',
     '--no-default-features',
     '--no-default-features --features domios-server/opaque',
     '--no-default-features',
-    '--no-default-features --features domios-server/opaque --features codeterm-service-core/opaque --features codeterm-mem/opaque',
+    '--no-default-features --features domios-server/opaque --features domios-service-core/opaque --features domios-mem/opaque',
     '--no-default-features',
   ]);
 });
@@ -70,7 +70,7 @@ test('dev launch and the regular library check share profile and flags, and the 
     `], { cwd: root, env: { ...process.env, PATH: process.platform === 'win32' ? `C:/Program Files/Git/usr/bin;C:/Program Files/Git/bin;${path.dirname(process.execPath)};${process.env.PATH}` : process.env.PATH }, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const [check, launch, flags, debug] = result.stdout.trim().split(/\r?\n/);
-    assert.match(check, /-p codeterm --lib --profile dev --no-default-features$/);
+    assert.match(check, /-p domios --lib --profile dev --no-default-features$/);
     assert.equal(launch, '-- --profile dev');
     assert.doesNotMatch(check, /--all-targets|--tests|--release/);
     assert.equal(flags, '--cfg opaque_dev');
@@ -162,9 +162,9 @@ test('external path dependency test scopes omit workspace-only feature selection
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
   const nextest = source.match(/^run_nextest_scope\(\) \{[\s\S]*?^\}/m)[0];
   const focused = source.slice(source.indexOf('  test-one)'));
-  const arms = ['paths|codeterm-paths', 'mem-store|codeterm-mem-store'].map(scope =>
-    focused.split('\n').find(line => line.trimStart().startsWith(`${scope})`))).join('\n');
-  const scopes = ['paths', 'codeterm-paths', 'mem-store', 'codeterm-mem-store'];
+  const arms = ['paths|domios-paths', 'mem-store|domios-mem-store'].map(scope =>
+    focused.split('\n').find(line => line.trimStart().startsWith(`${scope}|`) || line.trimStart().startsWith(`${scope})`))).join('\n');
+  const scopes = ['paths', 'domios-paths', 'mem-store', 'domios-mem-store'];
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'external-test-scope-'));
   try {
     fs.writeFileSync(path.join(directory, 'fixture.sh'), `
@@ -185,7 +185,7 @@ test('external path dependency test scopes omit workspace-only feature selection
     const calls = fs.readFileSync(path.join(directory, 'calls.log'), 'utf8').trim().split('\n');
     assert.equal(calls.length, scopes.length * 2);
     for (const [index, scope] of scopes.entries()) {
-      const pkg = scope.startsWith('codeterm-') ? scope : `codeterm-${scope}`;
+      const pkg = scope.startsWith('domios-') ? scope : `domios-${scope}`;
       const [nextestArgs, focusedArgs] = calls.slice(index * 2, index * 2 + 2);
       assert.ok(nextestArgs.startsWith('nextest list '));
       assert.ok(focusedArgs.startsWith('focused '));

@@ -1,0 +1,13 @@
+[package]
+license = "PolyForm-Shield-1.0.0"
+name = "domios-mem-store"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+domios-paths = { path = "../domios-paths" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"

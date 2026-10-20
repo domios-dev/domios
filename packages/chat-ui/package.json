@@ -1,6 +1,6 @@
 {
   "license": "PolyForm-Shield-1.0.0",
-  "name": "@codeterm/chat-ui",
+  "name": "@domios/chat-ui",
   "version": "1.15.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "./dsTasksBlock": "./src/codeterm/dsTasksBlock.ts"
   },
   "dependencies": {
-    "@codeterm/chat-core": "workspace:*",
+    "@domios/chat-core": "workspace:*",
     "tlds": "^1.261.0"
   },
   "peerDependencies": {
