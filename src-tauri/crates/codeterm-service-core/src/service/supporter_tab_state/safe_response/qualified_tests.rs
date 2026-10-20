@@ -508,6 +508,8 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
     let command = format!(
         "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; $global:LASTEXITCODE = 98; $ErrorActionPreference = 'Stop'; try {{ & '{command_path}'; $scriptExit = $global:LASTEXITCODE; if ($scriptExit -eq 98) {{ throw 'fixture script returned without an exit code' }}; [Console]::Out.Flush(); [Console]::Error.Flush(); [System.Environment]::Exit([int]$scriptExit) }} catch {{ try {{ [Console]::Error.WriteLine('SAFE_TEST_SETUP_FAILURE: {{0}}', $_.Exception.Message); [Console]::Error.Flush() }} finally {{ [System.Environment]::Exit(98) }} }}\r"
     );
+    // The isolated test data root starts empty; prompt readiness needs the shipped integration script.
+    crate::pty::shell_integration::ensure_scripts();
     let (_, session) = {
         let gate = fixture.service.pty.lock().spawn_gate();
         crate::pty::manager::build_session(

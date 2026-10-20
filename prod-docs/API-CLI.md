@@ -181,21 +181,7 @@ Overlay files add leaf kinds only; one that declares capability, claims an ancho
 
 ## Account
 
-```bash
-codeterm account login
-codeterm account status
-codeterm account logout
-```
-
-Login opens the system browser for a configured hosted provider and waits for a matching callback and successful redemption. The default local provider signs in a development identity without an external account. Status shows uid, email, display name and provider; logout deletes the saved refresh credential. Account commands are local to the owning machine. Settings > Account offers the same actions.
-
-| Method | Path | Result |
-|---|---|---|
-| GET | `/api/account/status` | Signed-in identity and pending flag |
-| POST | `/api/account/login` | Completes sign-in and returns identity |
-| POST | `/api/account/logout` | Deletes saved refresh credential |
-
-Local account: Login waits for completion and returns the identity. Account routes require the local daemon credential and refuse peer or service callers. No account tokens are returned.
+Domios account commands and routes: `codeterm docs ACCOUNT`.
 
 Runtime provider sign-in is available from the Chat banner or CLI:
 
@@ -213,4 +199,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 53 -->
+<!-- revision: 54 -->
