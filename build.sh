@@ -2574,6 +2574,7 @@ inside Domios. --notify-tab <tab> or BUILD_NOTIFY_TAB overrides the recipient.
   cache-verify                Verify shared S3 storage; start the S3 server only when none is live
   cache-stats                 Show gateway cache deltas by job kind and live server counters
   gateway-status              Show the machine build owner
+  gateway-relocate            Windows: move idle gateway state out of the app install folder
   build-history [--last N] [--verb V] [--json]  Build durations, cache hits and rebuild reasons
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
 
@@ -2616,6 +2617,9 @@ EOF
     ;;
   gateway-status)
     ct_gateway_status
+    ;;
+  gateway-relocate)
+    ct_gateway_relocate strict
     ;;
   build-history)
     node scripts/build-history.mjs "${@:2}" --dir "$(ct_gateway_dir)" \

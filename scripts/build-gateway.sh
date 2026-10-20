@@ -19,19 +19,91 @@ ct_gateway_dir() {
     home="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)"
     printf '%s\n' "${home:-$HOME}/.local/state/codeterm-build-gateway"
   else
-    local_app_data="$(powershell.exe -NoProfile -Command "[Console]::Write([Environment]::GetFolderPath('LocalApplicationData'))" 2>/dev/null | tr -d '\r')"
-    if [ -z "$local_app_data" ] && [ -n "${LOCALAPPDATA:-}" ]; then
-      local_app_data="$LOCALAPPDATA"
-    fi
-    if [ -z "$local_app_data" ] && [ -n "${USERPROFILE:-}" ]; then
-      local_app_data="$USERPROFILE/AppData/Local"
-    fi
-    if [ -z "$local_app_data" ] && [ -n "${ProgramData:-}" ]; then
-      local_app_data="$ProgramData"
-    fi
-    [ -n "$local_app_data" ] || { echo "ERROR: cannot resolve canonical LocalApplicationData" >&2; return 2; }
-    printf '%s\n' "$local_app_data/CodeTerm/build-gateway"
+    local_app_data="$(ct_gateway_local_app_data)" || return 2
+    ct_gateway_windows_dir "$local_app_data/domios-build-gateway" "$(ct_gateway_windows_legacy_dir "$local_app_data")"
   fi
+}
+
+ct_gateway_local_app_data() {
+  local local_app_data
+  local_app_data="$(powershell.exe -NoProfile -Command "[Console]::Write([Environment]::GetFolderPath('LocalApplicationData'))" 2>/dev/null | tr -d '\r')"
+  if [ -z "$local_app_data" ] && [ -n "${LOCALAPPDATA:-}" ]; then
+    local_app_data="$LOCALAPPDATA"
+  fi
+  if [ -z "$local_app_data" ] && [ -n "${USERPROFILE:-}" ]; then
+    local_app_data="$USERPROFILE/AppData/Local"
+  fi
+  if [ -z "$local_app_data" ] && [ -n "${ProgramData:-}" ]; then
+    local_app_data="$ProgramData"
+  fi
+  [ -n "$local_app_data" ] || { echo "ERROR: cannot resolve canonical LocalApplicationData" >&2; return 2; }
+  printf '%s\n' "$local_app_data"
+}
+
+# The former location sits inside the per-user Windows install folder, which the updater must stay small.
+ct_gateway_windows_legacy_dir() {
+  printf '%s\n' "$1/CodeTerm/build-gateway"
+}
+
+# Keeps sharing a busy legacy directory with older checkouts until ct_gateway_relocate moves it once.
+ct_gateway_windows_dir() {
+  local target="$1" legacy="$2"
+  if [ ! -e "$target" ] && [ -d "$legacy" ]; then
+    printf '%s\n' "$legacy"
+  else
+    printf '%s\n' "$target"
+  fi
+}
+
+# Moves legacy gateway state to target by one same-volume rename under the legacy metadata mutex; never copies.
+ct_gateway_move_when_idle() {
+  local legacy="$1" target="$2" rc=0 moved=0 start
+  [ -d "$legacy" ] || return 0
+  [ ! -e "$target" ] || return 3
+  start="$(ct_gateway_process_start_token "${BASHPID:-$$}")" || return 75
+  node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-mutex.mjs" acquire "$legacy" "${BASHPID:-$$}" "$start" "${CT_GATEWAY_RELOCATE_TIMEOUT_MS:-5000}" "${CT_BUILD_GATEWAY_SCOPE:-production}" >/dev/null 2>&1 || return 75
+  if [ -e "$legacy/lock" ] || [ -n "$(ls -A "$legacy/queue" 2>/dev/null)" ]; then
+    rc=75
+  elif node -e 'require("fs").renameSync(process.argv[1], process.argv[2])' "$legacy" "$target" 2>/dev/null; then
+    moved=1
+  else
+    rc=75
+  fi
+  if [ "$moved" = 1 ]; then
+    CT_GATEWAY_MUTEX_OWNER_PID="${BASHPID:-$$}" CT_GATEWAY_MUTEX_START="$start" ct_gateway_mutex_release "$target" || rc=$?
+    echo "[build-gateway] moved gateway state from $legacy to $target" >&2
+  else
+    CT_GATEWAY_MUTEX_OWNER_PID="${BASHPID:-$$}" CT_GATEWAY_MUTEX_START="$start" ct_gateway_mutex_release "$legacy" || true
+  fi
+  return "$rc"
+}
+
+ct_gateway_relocate() {
+  local mode="${1:-auto}" local_app_data legacy target rc=0
+  [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = production ] || return 0
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then return 0; fi
+  local_app_data="$(ct_gateway_local_app_data)" || return 2
+  legacy="$(ct_gateway_windows_legacy_dir "$local_app_data")"
+  target="$local_app_data/domios-build-gateway"
+  if [ "$mode" = strict ] && [ -d "$legacy" ] && [ ! -e "$target" ]; then
+    if powershell.exe -NoProfile -NonInteractive -Command 'if (Get-Process cargo,rustc -ErrorAction SilentlyContinue) { exit 0 }; exit 1' >/dev/null 2>&1; then
+      echo "ERROR: gateway relocation requires an idle machine; Cargo or rustc is running" >&2
+      return 75
+    fi
+    # The cache server keeps its log open inside the gateway directory, which blocks the rename.
+    sccache --stop-server >/dev/null 2>&1 || true
+  fi
+  ct_gateway_move_when_idle "$legacy" "$target" || rc=$?
+  case "$mode:$rc" in
+    *:0|auto:3) return 0 ;;
+    auto:75)
+      echo "[build-gateway] legacy gateway state at $legacy is busy; run './build.sh gateway-relocate' when no build runs" >&2
+      return 0
+      ;;
+    strict:3) echo "ERROR: legacy gateway state remains at $legacy beside $target; delete it once no older checkout builds" >&2 ;;
+    strict:75) echo "ERROR: legacy gateway state at $legacy is busy or held open; stop builds and the cache server, then retry" >&2 ;;
+  esac
+  return "$rc"
 }
 
 ct_gateway_set_fixture_dir() {
@@ -409,6 +481,7 @@ ct_gateway_acquire() {
   local command="$1" dir lock wait_mode deadline first owner job log queued_at source_sha worktree owner_command
   local blocker_job blocker_command blocker_owner blocker_record slot_snapshot queued_notice=0
   CT_BUILD_GATEWAY_STATE_SCRIPT="$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-state.mjs"
+  ct_gateway_relocate auto
   dir="$(ct_gateway_dir)"
   lock="$dir/lock"
   wait_mode="${CODETERM_BUILD_GATEWAY_MODE:-queue}"
