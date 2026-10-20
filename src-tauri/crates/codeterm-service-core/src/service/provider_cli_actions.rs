@@ -50,6 +50,7 @@ pub(crate) fn operation_command(
 #[derive(serde::Serialize)]
 pub struct CliLaunch {
     pub tab_id: String,
+    pub workspace_id: String,
     pub launch_state: &'static str,
     pub warnings: Vec<String>,
 }
@@ -203,6 +204,7 @@ pub fn launch_with_dispatch(
         ..Default::default()
     })?;
     let tab_id = handle.tab_id;
+    let workspace_id = handle.workspace_id;
     let dispatched = (|| {
         svc.ensure_tab_pty_for_send(&tab_id)?;
         let pty = svc.resolve_pty_id(&tab_id)?;
@@ -249,6 +251,7 @@ pub fn launch_with_dispatch(
         let completion = waiter.wait(std::time::Duration::from_secs(1800)).await;
         let _ = tokio::task::spawn_blocking(move || {
             let _permit = permit;
+            codeterm_plugin::js_runtime::refresh_user_path();
             crate::agent::model_catalog::invalidate(&provider);
             let old_version = target.as_ref().map(|v| v.current_version.clone());
             let new_version = if explicit_update { version_path.as_deref().and_then(|path| codeterm_plugin::provider_version::refresh(path).version) } else { None };
@@ -276,6 +279,9 @@ pub fn launch_with_dispatch(
                     super::provider_runtime_update::completed(&service, &provider, old, new);
                 }
             }
+            if matches!(operation, CliOperation::Install) {
+                publish_availability(&service, &provider, &monitor_tab);
+            }
             service.ui.emit("provider-cli-completed", serde_json::to_value(serde_json::json!({
                 "provider": provider, "operation": operation, "tab_id": monitor_tab,
                 "success": success, "old_version": old_version, "new_version": new_version,
@@ -288,9 +294,29 @@ pub fn launch_with_dispatch(
     });
     Ok(CliLaunch {
         tab_id,
+        workspace_id,
         launch_state: "command_dispatched",
         warnings: prerequisite_hint.into_iter().collect(),
     })
+}
+
+/// Re-probe the provider the installer just finished and push its answer, so
+/// an open picker flips without polling.
+fn publish_availability(svc: &ServiceContext, provider: &str, tab_id: &str) {
+    if let Some(agent) = svc.agent_registry.provider_arc(provider) {
+        crate::agent::model_binary_watch::on_catalogue_input_changed(agent);
+    }
+    let availability = svc
+        .provider_registry
+        .describe_all()
+        .into_iter()
+        .find(|descriptor| descriptor.id == provider)
+        .map(|descriptor| descriptor.availability)
+        .unwrap_or_default();
+    svc.ui.emit(
+        "provider-availability-changed",
+        serde_json::json!({ "provider": provider, "availability": availability, "tab_id": tab_id }),
+    );
 }
 
 fn completion_summary(
