@@ -39,35 +39,40 @@ function linkedText(node: MarkdownNode): MarkdownNode[] {
   return result;
 }
 
+// Parsed trees are shared between renders, so transformers copy the paths they change instead of mutating.
+function withChildren(node: MarkdownNode, children: MarkdownNode[]): MarkdownNode {
+  return children.length === node.children!.length && children.every((child, index) => child === node.children![index])
+    ? node
+    : { ...node, children };
+}
+
 export function remarkBareDomains() {
   return (tree: MarkdownNode) => {
-    function walk(node: MarkdownNode): void {
-      if (["link", "linkReference", "code", "inlineCode"].includes(node.type) || !node.children) return;
+    function walk(node: MarkdownNode): MarkdownNode {
+      if (["link", "linkReference", "code", "inlineCode"].includes(node.type) || !node.children) return node;
       let rawProtected = 0;
-      node.children = node.children.flatMap((child) => {
+      return withChildren(node, node.children.flatMap((child) => {
         if (child.type === "html") {
           for (const tag of (child.value ?? "").matchAll(/<(\/)?(?:a|code|pre)\b[^>]*>/gi)) rawProtected += tag[1] ? -1 : 1;
           return [child];
         }
         if (rawProtected > 0) return [child];
         if (child.type === "text") return linkedText(child);
-        walk(child);
-        return [child];
-      });
+        return [walk(child)];
+      }));
     }
-    walk(tree);
+    return walk(tree);
   };
 }
 
 export function remarkCodeMetadata() {
   return (tree: MarkdownNode) => {
-    function walk(node: MarkdownNode): void {
+    function walk(node: MarkdownNode): MarkdownNode {
       if (node.type === "code" || node.type === "inlineCode") {
-        const data = node.data ??= {};
-        data.hProperties = { ...data.hProperties, "data-code-text": node.value ?? "", "data-code-block": node.type === "code" };
+        return { ...node, data: { ...node.data, hProperties: { ...node.data?.hProperties, "data-code-text": node.value ?? "", "data-code-block": node.type === "code" } } };
       }
-      node.children?.forEach(walk);
+      return node.children ? withChildren(node, node.children.map(walk)) : node;
     }
-    walk(tree);
+    return walk(tree);
   };
 }
