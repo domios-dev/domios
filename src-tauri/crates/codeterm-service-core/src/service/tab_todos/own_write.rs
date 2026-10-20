@@ -82,9 +82,11 @@ pub fn restore_checklist_presence(service: &ServiceContext) {
     };
     let changed = {
         let mut mux = service.mux.write();
-        tab_ids.iter().fold(false, |changed, tab_id| {
-            mux.set_tab_has_checklist(tab_id, true) || changed
-        })
+        let mut changed = false;
+        for tab_id in &tab_ids {
+            changed |= mux.set_tab_has_checklist(tab_id, true);
+        }
+        changed
     };
     if changed {
         service.emit_state_changed(MuxEmitCause::TabMetadata);
