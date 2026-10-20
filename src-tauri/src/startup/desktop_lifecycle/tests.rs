@@ -1,6 +1,6 @@
 use super::*;
 
-fn fixture() -> codeterm_host_runtime::app_runtime::App {
+fn fixture() -> codeterm_client_shell::app_runtime::App {
     let mut context = crate::app_context();
     context.config_mut().build.dev_url = None;
     context.config_mut().app.windows = vec![tauri::utils::config::WindowConfig {
@@ -15,7 +15,7 @@ fn fixture() -> codeterm_host_runtime::app_runtime::App {
 
 fn authenticated_window(
     app: &AppHandle,
-) -> Result<codeterm_host_runtime::app_runtime::WebviewWindow, Box<dyn std::error::Error>> {
+) -> Result<codeterm_client_shell::app_runtime::WebviewWindow, Box<dyn std::error::Error>> {
     use crate::host_ports::ServerApiAttachmentSlot;
     use codeterm_types::server_bootstrap::{
         ProcessProvenance, ServerIdentity, ServerReady, API_VERSION, BOOTSTRAP_PROTOCOL,

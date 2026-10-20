@@ -416,7 +416,8 @@ run_nextest_scope() {
       targets=("${CT_APP_TEST_TARGET_ARGS[@]}")
       ;;
     domios-server) package="domios-server"; targets+=(--lib) ;;
-    shell) package="codeterm"; targets+=(--lib --test main) ;;
+    shell) package="codeterm"; targets+=(--lib) ;;
+    devtools|codeterm-devtools) package="codeterm-devtools"; targets+=(--test main) ;;
     mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets=(--lib) ;;
     paths|codeterm-paths) package="codeterm-paths"; targets=(--lib) ;;
     process-identity|codeterm-process-identity) package="codeterm-process-identity"; targets=(--lib) ;;
@@ -1718,21 +1719,17 @@ configure_app_test_cargo() {
 
 configure_dev_cargo() {
   CT_DEV_CARGO_PROFILE=dev
-  CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" --guard src-tauri/Cargo.toml src-tauri/crates/codeterm-service-core/Cargo.toml)" || return $?
+  CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" --guard src-tauri/crates/domios-server/Cargo.toml src-tauri/crates/codeterm-service-core/Cargo.toml)" || return $?
+  # The native client carries no server features; CT_DEV_CARGO_FEATURES applies to server packages only.
   CT_DEV_CHECK_ARGS=(--manifest-path src-tauri/Cargo.toml -p codeterm --lib --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
-  CT_DEV_TAURI_ARGS=()
-  if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
-    CT_DEV_CHECK_ARGS+=(--features "$CT_DEV_CARGO_FEATURES")
-    CT_DEV_TAURI_ARGS+=(--features "$CT_DEV_CARGO_FEATURES")
-  fi
-  CT_DEV_TAURI_ARGS+=(-- --profile "$CT_DEV_CARGO_PROFILE")
+  CT_DEV_TAURI_ARGS=(-- --profile "$CT_DEV_CARGO_PROFILE")
 }
 
 configure_product_cargo() {
   local package feature features=()
   CT_PRODUCT_CARGO_ARGS=(--no-default-features)
   IFS=, read -r -a features <<< "$CT_DEV_CARGO_FEATURES"
-  for package in codeterm codeterm-service-core codeterm-mem; do
+  for package in domios-server codeterm-service-core codeterm-mem; do
     case " $* " in
       *" --workspace "*|*" -p $package "*)
         for feature in "${features[@]}"; do CT_PRODUCT_CARGO_ARGS+=(--features "$package/$feature"); done
@@ -2068,9 +2065,6 @@ build_and_launch_dev() {
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
   local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
-  if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
-    build_args+=(--features "$CT_DEV_CARGO_FEATURES")
-  fi
   build_dev_client "$conf" "${build_args[@]}"
   build_sha="$CODETERM_BUILD_SHA"
   build_dev_frontend
@@ -2447,7 +2441,7 @@ prepare_release_bundle_inputs() {
   if [ "$mode" = "standalone" ]; then
     cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
       "${cargo_target_args[@]}" \
-      --features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol" \
+      --features "tauri/custom-protocol${CODETERM_RELEASE_FEATURES:+,$CODETERM_RELEASE_FEATURES}" \
       --bin codeterm
   fi
   if [ "$mode" = "bundle" ] && [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" != 1 ]; then
@@ -2469,13 +2463,13 @@ bundle_windows_common_stage() {
     target_args=(--target "$CARGO_BUILD_TARGET")
     client_dir="$client_dir/$CARGO_BUILD_TARGET"
   fi
-  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
+  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"}
   node scripts/release-stage.mjs stage-full --target "$target" \
     --source-sha "$(git rev-parse HEAD)" \
     --cargo-log "release-artifacts/build-logs/$target/server.jsonl" \
     --tree-log "release-artifacts/build-logs/$target/closure.txt" \
     --client-file "$client_dir/release/domios.exe"
-  "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles nsis
+  "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles nsis
 }
 
 case "$CMD" in
@@ -2793,9 +2787,6 @@ EOF
     prepare_bundle_stubs
     measure_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
       --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --timings)
-    if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
-      measure_args+=(--features "$CT_DEV_CARGO_FEATURES")
-    fi
     TAURI_CONFIG="$(cat "$(dev_conf_path)")" cargo build "${measure_args[@]}"
     ;;
   embedding-parity)
@@ -2864,7 +2855,7 @@ EOF
       [ "${#bundle_args[@]}" -eq 0 ] || { echo "Shared-stage release-bundle takes no extra Tauri flags" >&2; exit 2; }
       bundle_windows_common_stage
     else
-      pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${bundle_args[@]}"
+      pnpm tauri build "${bundle_target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} "${bundle_args[@]}"
     fi
     ;;
   release-finalize)
@@ -2878,6 +2869,7 @@ EOF
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
     bash scripts/check-tauri-reach.sh
+    bash scripts/check-crate-layering.sh
     bash scripts/check-empty-array-expansion.sh
     # esbuild cannot relativize a linked workspace package across the gateway's subst drive,
     # so the bundle diff runs from the real worktree where the committed bundles were built.
@@ -2979,7 +2971,7 @@ EOF
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm --lib --test main "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
         ;;
       mem-store|codeterm-mem-store) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
       paths|codeterm-paths) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;

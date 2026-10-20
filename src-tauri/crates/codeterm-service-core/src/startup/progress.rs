@@ -53,3 +53,6 @@ fn log_boundary(boundary: Boundary, name: &'static str, elapsed: Option<Duration
         ),
     }
 }
+
+#[cfg(test)]
+mod tests;

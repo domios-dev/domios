@@ -53,7 +53,7 @@ use tokio::{
 };
 use url::Url;
 
-type AppHandle = codeterm_host_runtime::app_runtime::AppHandle;
+type AppHandle = codeterm_client_shell::app_runtime::AppHandle;
 type Frame = NativeHostFrame<NativeUpdateRequest, NativeUpdateResult>;
 
 const REQUEST_DEADLINE: Duration = Duration::from_secs(10);

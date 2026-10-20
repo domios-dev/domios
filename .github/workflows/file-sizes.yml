@@ -1,6 +1,6 @@
 name: file-sizes
 
-# Source size and exact provider boundary guards.
+# Source size, exact provider boundary and crate layering guards.
 
 on:
   pull_request:
@@ -17,6 +17,11 @@ on:
       - 'scripts/check-tauri-reach.mjs'
       - 'scripts/tauri-reach-baseline.json'
       - 'scripts/tests/check-tauri-reach.test.mjs'
+      - '**/Cargo.toml'
+      - 'scripts/check-crate-layering.sh'
+      - 'scripts/check-crate-layering.mjs'
+      - 'scripts/tests/crate-layering.test.mjs'
+      - 'scripts/crate-layers.json'
       - 'src-tauri/src/**'
       - 'src-tauri/crates/**'
       - 'crates/**'
@@ -48,6 +53,10 @@ jobs:
         run: node --test scripts/tests/check-provider-boundary.test.mjs
       - name: Test tauri reach guard
         run: node --test scripts/tests/check-tauri-reach.test.mjs
+      - name: Test crate layering guard
+        run: node --test scripts/tests/crate-layering.test.mjs
+      - name: Check crate layering and the thin native client
+        run: bash scripts/check-crate-layering.sh
       - name: Check tauri reach against target baseline
         env:
           TAURI_REACH_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}

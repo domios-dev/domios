@@ -124,6 +124,8 @@ hnsw_rs = { version = "0.3", optional = true }
 codeterm-mem-store = { path = "../../../crates/mem-store" }
 codeterm-paths = { path = "../codeterm-paths" }
 codeterm-plugins = { path = "../codeterm-plugins" }
+codeterm-update = { path = "../codeterm-update" }
+codeterm-frontend-shell = { path = "../codeterm-frontend-shell" }
 
 [features]
 default = ["embeddings"]

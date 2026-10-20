@@ -114,7 +114,7 @@ impl ServiceContext {
                     }
                     let _ = worker.record_activity_nowait(|| workspaces);
                     if crate::service::analytics::update_confirm::confirm(
-                        &crate::paths::data_dir().join("analytics-update.json"),
+                        &codeterm_update::receipt::path(),
                         codeterm_build_info::version(),
                         &worker,
                     )
@@ -194,5 +194,3 @@ pub(crate) fn subscription_event(
 }
 #[cfg(test)]
 mod tests;
-
-pub use update_confirm::stage_app;

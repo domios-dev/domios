@@ -5,8 +5,9 @@ use crate::notification::NotifState;
 use crate::session::SessionState;
 use crate::{
     AgentTrackerState, KeepAwakeStateHandle, MeshStateHandle, OutputBufferState, PtyState,
-    ReportStoreState, ResizeOwnerState, ScreenStateHandle, UpdateStateHandle,
+    ReportStoreState, ResizeOwnerState, ScreenStateHandle,
 };
+use codeterm_update::UpdateStateHandle;
 
 /// All shared application states, grouped for easier passing between init functions.
 pub struct AppStates {

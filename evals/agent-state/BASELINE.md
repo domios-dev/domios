@@ -3,7 +3,7 @@
 The first **real** labeled corpus: live `claude` + `codex` agents driven through the
 deterministic on-demand states by `capture-live.sh`, captured byte-exact to `.cast`
 via the RT1 capture tap, replayed through the P1a `SignalExtractor` + each provider's
-`classify_tab_state` by `cargo test --test agent_state_replay`.
+`classify_tab_state` by `cargo test -p codeterm-devtools --test agent_state_replay`.
 
 These fixtures are the `*_real` dirs under `tests/fixtures/agent-state/<provider>/`.
 They are **non-gating** (`"gating": false` in `expected.json`): MEASURED into this
@@ -100,7 +100,7 @@ evals/agent-state/capture-live.sh claude working_streaming_real "Write approxima
 
 # score
 export CARGO_TARGET_DIR=/Users/user/Developer/.psetup-target
-evals/agent-state/run.sh        # or: cd src-tauri && cargo test --test agent_state_replay -- --nocapture
+evals/agent-state/run.sh        # or: cd src-tauri && cargo test -p codeterm-devtools --test agent_state_replay -- --nocapture
 ```
 
 <!-- revision: 1 -->

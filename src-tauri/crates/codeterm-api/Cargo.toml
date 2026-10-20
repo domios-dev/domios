@@ -31,6 +31,8 @@ codeterm-wire = { path = "../codeterm-wire" }
 codeterm-decision = { path = "../codeterm-decision" }
 codeterm-events = { path = "../codeterm-events" }
 codeterm-util = { path = "../codeterm-util" }
+codeterm-update = { path = "../codeterm-update" }
+codeterm-frontend-shell = { path = "../codeterm-frontend-shell" }
 codeterm-mesh = { path = "../codeterm-mesh" }
 codeterm-mem = { path = "../codeterm-mem", default-features = false }
 codeterm-plan = { path = "../codeterm-plan" }

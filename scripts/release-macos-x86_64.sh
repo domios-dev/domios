@@ -15,11 +15,10 @@ mkdir -p src-tauri/bundled-cli
 touch src-tauri/bundled-cli/codeterm
 CARGO_BUILD_TARGET=x86_64-apple-darwin \
   CODETERM_RELEASE_COMMON_STAGE=1 \
-  CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}" \
   ./build.sh release-inputs --for-bundle
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
 pnpm tauri build --no-bundle --target x86_64-apple-darwin \
-  --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
+  ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} \
   --config '{"bundle":{"externalBin":[]}}'
 node scripts/release-stage.mjs stage-full --target x86_64-apple-darwin \
   --source-sha "$(git rev-parse HEAD)" \
