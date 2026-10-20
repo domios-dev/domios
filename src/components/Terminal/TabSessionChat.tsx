@@ -95,7 +95,8 @@ import { useTabChatBlockHost } from "./pinnedBlocks";
 import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
 import { ChatMessageRow } from "./ChatMessageRow";
-import { deliveryPresentation, sendForRow } from "./chatDeliveryModel";
+import { HoldWhileHidden } from "./HoldWhileHidden";
+import { awaitsTranscriptEcho, deliveryPresentation, sendForRow } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
 import { deleteTrackedChatMessage, sendTrackedChatMessage } from "./chatSendStatus";
 import { prepareChatDelivery } from "./chatDeliveryPreparation";
@@ -306,6 +307,7 @@ function TabSessionChatBody({
     allowUnboundAuthority: effectiveChatBackend,
     followTailRef: chatFollowTailRef,
     history: runtime.state?.history,
+    live: isActive || awaitsTranscriptEcho(deliverySends),
   });
   const retryChatDelivery = useLatestCallback(async (id: string) => {
     const send = beginChatSendRetry(tabId, id);
@@ -940,6 +942,7 @@ function TabSessionChatBody({
         {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
         <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.topSpacer }} />
         <div ref={mountedWindow.rowsRef}>
+        <HoldWhileHidden visible={isActive}>
         {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map((entry, mountedIndex) => {
           const { msg } = entry;
           const messageIndex = mountedWindow.range.start + mountedIndex;
@@ -972,6 +975,7 @@ function TabSessionChatBody({
             />
           );
         })}
+        </HoldWhileHidden>
         </div>
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
         {runtime.questions.map((item) => <RuntimeQuestionCard key={JSON.stringify([tab?.session_binding_nonce, item.threadId, item.itemId])} tabId={tabId} item={item} onReceipt={observeChatSendStatus} />)}
