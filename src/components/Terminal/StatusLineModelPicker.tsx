@@ -8,7 +8,7 @@ import { Check, ChevronDown, RotateCw } from "lucide-react";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
-import { getModelCatalogueRefreshApi, refreshFailureMessage } from "../../lib/modelCatalogueRefresh";
+import { getModelCatalogueRefreshApi, refreshFailureToast } from "../../lib/modelCatalogueRefresh";
 import { getTabModelApi } from "../Sidebar/tabModelApi";
 import { modelSwitchFailure } from "../../lib/modelSwitchFailure";
 import { BusySpinner } from "../shared/BusyState";
@@ -248,6 +248,7 @@ export function ModelPickerPopover({
   onClose: () => void;
 }) {
   const titleId = useId();
+  const actions = useContext(MultiplexerActionsContext);
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -299,12 +300,14 @@ export function ModelPickerPopover({
 
   async function refresh() {
     setRefreshing(true);
-    setError(null);
+    const raise = (reason: string | undefined) => actions?.upsertToast(
+      refreshFailureToast(descriptor.id, reason, (text) => navigator.clipboard?.writeText(text)),
+    );
     try {
       const outcome = await getModelCatalogueRefreshApi().refresh(descriptor.id);
-      if (!outcome.refreshed) setError(refreshFailureMessage(outcome.reason));
+      if (!outcome.refreshed) raise(outcome.reason);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      raise(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setRefreshing(false);
     }
