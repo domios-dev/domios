@@ -5,6 +5,7 @@
 import { writeFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 import { devApiToken } from "./cdp.mjs";
+import { READ_RENDERS, RENDER_HOOK_SOURCE, RESET_RENDERS } from "./renderHook.mjs";
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : fallback; };
@@ -16,6 +17,8 @@ const profilePath = option("--profile");
 
 const browser = await chromium.launch();
 const page = await (await browser.newContext({ viewport: { width: 1280, height: 860 } })).newPage();
+const countRenders = args.includes("--renders");
+if (countRenders) await page.addInitScript(RENDER_HOOK_SOURCE);
 await page.goto(`${target.replace(/#.*$/, "")}#token=${encodeURIComponent(devApiToken())}`);
 await page.waitForSelector(".ct-sidebar-content [data-dnd-group]", { timeout: 60_000 });
 await page.waitForTimeout(3000);
@@ -38,17 +41,26 @@ if (cdp) {
   await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
   await cdp.send("Profiler.start");
 }
+if (countRenders) await page.evaluate(RESET_RENDERS);
 const activationMs = [];
 const perSwitch = [];
 for (let index = 0; index < switchCount; index++) {
   const id = ids[index % ids.length];
   const started = Date.now();
-  await page.locator(`.ct-sidebar-content [data-tab-id="${id}"] button`).first().click();
-  await page.waitForFunction((tabId) => document.querySelector(`.ct-sidebar-content [data-tab-id="${tabId}"] [aria-current=page]`), id, { timeout: 10_000 })
-    .catch(() => {});
-  activationMs.push(Date.now() - started);
+  // `--idle` keeps the pacing without clicking: the streaming baseline the switches add to.
+  if (!args.includes("--idle")) {
+    await page.locator(`.ct-sidebar-content [data-tab-id="${id}"] button`).first().click();
+    await page.waitForFunction((tabId) => document.querySelector(`.ct-sidebar-content [data-tab-id="${tabId}"] [aria-current=page]`), id, { timeout: 10_000 })
+      .catch(() => {});
+    activationMs.push(Date.now() - started);
+  } else await page.waitForTimeout(250);
   await page.waitForTimeout(700);
   perSwitch.push({ id, longTasks: await page.evaluate(() => window.__longTasks.splice(0)) });
+  if (args.includes("--renders-per-switch")) {
+    const renders = await page.evaluate(READ_RENDERS);
+    await page.evaluate(RESET_RENDERS);
+    console.log(`-- ${id}: renders=${renders.renders} commits=${renders.commits} ${renders.rendered.slice(0, 12).join(", ")}`);
+  }
 }
 const longTasks = perSwitch.flatMap((entry) => entry.longTasks);
 const result = {
@@ -59,6 +71,11 @@ const result = {
   longest: Math.max(0, ...longTasks),
   perSwitch: perSwitch.map((entry) => `${entry.id}:${entry.longTasks.join("/") || "-"}`),
 };
+if (countRenders) {
+  const renders = await page.evaluate(READ_RENDERS);
+  result.renders = { total: renders.renders, commits: renders.commits, triggers: renders.triggers.slice(0, 15),
+    top: Object.entries(renders.byName).sort((a, b) => b[1] - a[1]).slice(0, Number(option("--top", 25))).map(([name, count]) => `${count} ${name}`) };
+}
 if (cdp) {
   const { profile } = await cdp.send("Profiler.stop");
   writeFileSync(profilePath, JSON.stringify(profile));
@@ -69,6 +86,7 @@ if (args.includes("--json")) console.log(JSON.stringify(result));
 else {
   console.log(`activation=${activationMs.join(",")}ms longTasks>50=${result.longTasksOver50} longest=${result.longest}ms`);
   console.log(`per switch: ${result.perSwitch.join(" ")}`);
+  if (result.renders) console.log(`renders=${result.renders.total} commits=${result.renders.commits}\ntriggers:\n  ${result.renders.triggers.join("\n  ")}\nrendered:\n  ${result.renders.top.join("\n  ")}`);
   if (result.heaviest) console.log("self ms / total ms  function:\n  " + result.heaviest.join("\n  "));
 }
 
