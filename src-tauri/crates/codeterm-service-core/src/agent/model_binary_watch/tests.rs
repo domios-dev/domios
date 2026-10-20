@@ -137,6 +137,68 @@ async fn native_config_and_auth_events_refresh_the_warm_authoritative_catalogue(
     model_catalog::unregister(id);
 }
 
+#[tokio::test]
+async fn a_provider_cli_update_republishes_the_catalogue_probed_against_it() {
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    let dir = tempfile::tempdir().unwrap();
+    let cli = dir.path().join("fixture-cli");
+    std::fs::write(&cli, b"v1").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let id = "cli-update-catalogue-watch-fixture";
+    let manifest = serde_json::json!({
+        "id": id, "version":"0.1.0", "displayName":"Fixture", "cliBinary": cli,
+        "modelCatalogue":{"authority":"authoritative", "liveDiscoveryRequired":true},
+    })
+    .to_string();
+    let vm = PluginVm::from_source_with(
+        id,
+        r#"
+        module.exports.default = {
+            discoverModels: function(binaryFingerprint) {
+                if (binaryFingerprint === null) return null;
+                return [{id: "fixture/" + binaryFingerprint.slice(0, 16), displayName: "Fixture"}];
+            }
+        };
+    "#
+        .into(),
+        Some(manifest.clone()),
+    )
+    .unwrap();
+    let provider: Arc<dyn AgentProvider> = Arc::new(JsProvider::new(
+        PluginManifest::from_json_str(&manifest).unwrap(),
+        Arc::new(vm),
+    ));
+    model_catalog::refresh_models(provider.clone(), true)
+        .await
+        .expect("a probe that resolves its CLI publishes");
+    assert_eq!(model_catalog::last_refresh_failure(id), None);
+    let before = model_catalog::resolve_models(id)[0].id.clone();
+    install(provider.clone());
+    let mut changes = model_catalog::subscribe_changes();
+    std::fs::write(&cli, b"v2-updated-cli").unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let change = changes.recv().await.unwrap();
+            if change.provider == id
+                && model_catalog::resolve_models(id)
+                    .first()
+                    .is_some_and(|model| model.id != before)
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("a rewritten provider CLI refreshes its catalogue");
+    assert!(!model_catalog::provider_binary_changed(id));
+    watchers().watchers.lock().remove(&format!("pty:{id}"));
+    model_catalog::unregister(id);
+}
+
 #[test]
 fn refresh_requests_coalesce_input_events_and_preserve_forced_work() {
     let mut queue = RefreshRequests::default();
