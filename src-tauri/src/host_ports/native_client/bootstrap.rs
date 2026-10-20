@@ -548,15 +548,17 @@ pub(super) async fn attach_or_launch(
         Err(error) if allow_launch && error.allows_initial_server_launch() => {
             helper_diagnostic(ClientStartupStage::Attach, &error);
             startup_started(ClientStartupStage::Launch);
-            match invoke_helper_until(
+            let trail_pause = super::startup_log::pause_for_server_launch();
+            let launch_result = invoke_helper_until(
                 &install.server_executable,
                 "launch",
                 &install.launch_options,
                 deadline,
                 || Ok(()),
             )
-            .await
-            {
+            .await;
+            drop(trail_pause);
+            match launch_result {
                 Ok(line) => validate_attach_reply(
                     install,
                     &inspect,
