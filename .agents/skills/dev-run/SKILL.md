@@ -44,10 +44,15 @@ replaces the window. Hosts older than the Team DEV breakaway report that the win
 | `node scripts/dev-perf/typing.mjs --prompt "Write a long poem"` | Keystroke-to-frame latency at rest and while the active agent answers, React commits, which components rendered and why (context or hook) |
 | `node scripts/dev-perf/connections.mjs --seconds 30` | Daemon requests held open by the page; about six per origin starve everything else |
 | `node scripts/dev-perf/profile.mjs --seconds 10` | CPU self time and app-frame totals |
+| `node scripts/dev-perf/open.mjs http://127.0.0.1:<vite>/ --port <cdp>` | Opens a lane frontend as a DEV web client in a Domios Browser (`codeterm plugin browser endpoint`) with the hook installed |
+| `node scripts/dev-perf/surface.mjs <scenario> --port <cdp> --url-match 127.0.0.1:<vite>` | One surface driven by real wheel, pointer, touch (`--width 390`) or key input: renders per component, long tasks, the hook or context behind each render and the props that re-rendered a memoized component |
+| `node scripts/dev-perf/suite.mjs ... --out run.jsonl` then `compare.mjs before.jsonl after.jsonl` | Every surface in order, and the before/after table |
 
 Activate a cheap agent tab first (Haiku, Luna). `typing` and `connections` reload the page
 once to install their hook before React loads. The Vite dev server hides `console.timeStamp`
 so React's dev-only prop-diff logging does not distort these numbers.
+
+For a lane frontend, run its own Vite against DEV (`CODETERM_API_PORT=7686 CODETERM_VITE_PORT=<free port> node node_modules/vite/bin/vite.js --port <same>`) in a dev utility tab and open it with `open.mjs`. Keep cheap agents streaming in another workspace for load, and compare before and after in one page alternately under the same load: a hidden tab is throttled and measures nothing.
 
 ## Reload by change type
 
