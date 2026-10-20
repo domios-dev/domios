@@ -20,8 +20,32 @@ fn connect_failure_diagnostic_names_the_caller_tab_and_distinguishes_denial() {
     assert_ne!(plain, denied);
 }
 
-// The helper under test only exists off Windows, where /tmp socket files do.
-#[cfg(not(target_os = "windows"))]
+#[test]
+fn server_internal_channels_are_not_daemon_sockets() {
+    let hash = "a".repeat(64);
+    assert!(!is_daemon_socket_name(&format!(
+        "domios-bootstrap-{hash}.sock"
+    )));
+    assert!(!is_daemon_socket_name(&format!(
+        "domios-native-host-{hash}.sock"
+    )));
+    assert!(is_daemon_socket_name("domios-49765.sock"));
+    assert!(is_daemon_socket_name("domios-dev.sock"));
+    assert!(is_daemon_socket_name("domios-dev-exp.sock"));
+    assert!(!is_daemon_socket_name("domios-.sock"));
+    assert!(!is_daemon_socket_name("domios-dev-.sock"));
+
+    let scanned: Vec<String> = [
+        format!("domios-bootstrap-{hash}.sock"),
+        format!("domios-native-host-{hash}.sock"),
+        "codeterm-4242.sock".to_string(),
+    ]
+    .into_iter()
+    .filter(|name| is_daemon_socket_name(name))
+    .collect();
+    assert_eq!(pick_preferred_socket_for(&scanned, false, None), None);
+}
+
 #[test]
 fn build_gateway_mutex_files_are_not_daemon_sockets() {
     assert!(!is_daemon_socket_name(
