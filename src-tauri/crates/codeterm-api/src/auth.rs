@@ -628,9 +628,13 @@ mod tests {
 
     #[test]
     fn v1_14_9_peer_protocol_is_refused_with_a_version_upgrade_message() {
+        crate::test_support::install_app_version();
         let ancient_protocol = codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1;
         let refusal = peer_protocol_refusal(ancient_protocol).unwrap();
-        assert!(refusal.contains("both peers on Domios 1.15.0"));
+        assert!(refusal.contains(&format!(
+            "both peers on Domios {}",
+            crate::test_support::TEST_APP_VERSION
+        )));
         assert!(refusal.contains("upgrade both peers through the updater"));
         for path in ["/api/mesh/announce", "/api/mesh/sync"] {
             assert!(!peer_protocol_allowed(ancient_protocol, path));
