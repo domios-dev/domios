@@ -207,7 +207,7 @@ export function checkLane({ root = REPO, ownership = DEFAULT_OWNERSHIP, taskKey,
     const found = sources.flatMap((source) => occurrences(source.text.toLowerCase()).map(() => source.kind));
     return found.length ? [{ file, occurrences: found.length, sources: [...new Set(found)] }] : [];
   });
-  const patch = runGit(root, ['diff', '--unified=0', `${base}...HEAD`, '--']);
+  const patch = runGit(root, ['diff', '--unified=0', '-G', 'rename-bridge', `${base}...HEAD`, '--']);
   const bridgeLines = patch.split(/\r?\n/).filter((line) => /^[+-](?![+-]).*rename-bridge/i.test(line));
   const bridgeMode = owner.handle === 'backend-1-15-0-4' ? 'add' : owner.handle === 'infra-1-15-0-4' ? 'remove' : 'none';
   const bridgeFailures = bridgeLines.filter((line) => bridgeMode === 'none'
