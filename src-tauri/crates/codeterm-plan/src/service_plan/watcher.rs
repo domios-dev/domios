@@ -108,19 +108,19 @@ mod tests {
     fn plan_id_from_plan_json_and_bodies() {
         assert_eq!(
             plan_id_from_path(Path::new(
-                "/tmp/project/.codeterm/plans/active/pl_1/plan.json"
+                "/tmp/project/.domios/plans/active/pl_1/plan.json"
             )),
             Some("pl_1".into())
         );
         assert_eq!(
             plan_id_from_path(Path::new(
-                "/tmp/project/.codeterm/plans/active/pl_1/sections/sec_1.md"
+                "/tmp/project/.domios/plans/active/pl_1/sections/sec_1.md"
             )),
             Some("pl_1".into())
         );
         assert_eq!(
             plan_id_from_path(Path::new(
-                "/tmp/project/.codeterm/plans/active/pl_1/tasks/task_1/strides.jsonl"
+                "/tmp/project/.domios/plans/active/pl_1/tasks/task_1/strides.jsonl"
             )),
             Some("pl_1".into())
         );
@@ -130,11 +130,11 @@ mod tests {
     fn plan_id_from_directory_delete_event() {
         // Whole-plan external deletes surface as a directory-level event, not a file.
         assert_eq!(
-            plan_id_from_path(Path::new("/tmp/project/.codeterm/plans/active/pl_1")),
+            plan_id_from_path(Path::new("/tmp/project/.domios/plans/active/pl_1")),
             Some("pl_1".into())
         );
         assert_eq!(
-            plan_id_from_path(Path::new("/tmp/project/.codeterm/plans/archive/pl_2")),
+            plan_id_from_path(Path::new("/tmp/project/.domios/plans/archive/pl_2")),
             Some("pl_2".into())
         );
     }
@@ -143,7 +143,7 @@ mod tests {
     fn plan_id_maps_inbox_stem() {
         assert_eq!(
             plan_id_from_path(Path::new(
-                "/tmp/project/.codeterm/plans/active/_inbox/plan.json"
+                "/tmp/project/.domios/plans/active/_inbox/plan.json"
             )),
             Some(crate::plan::INBOX_PLAN_ID.into())
         );
@@ -151,13 +151,13 @@ mod tests {
 
     #[test]
     fn burst_coalesces_many_events_to_distinct_plans() {
-        let base = "/tmp/project/.codeterm/plans/active";
+        let base = "/tmp/project/.domios/plans/active";
         let paths = [
             format!("{base}/pl_1/plan.json"),
             format!("{base}/pl_1/sections/sec_1.md"),
             format!("{base}/pl_1/tasks/task_1/strides.jsonl"),
             format!("{base}/pl_2/plan.json"),
-            "/tmp/project/.codeterm/plans/active".to_string(),
+            "/tmp/project/.domios/plans/active".to_string(),
         ];
         let bufs: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
         let ids = coalesce_plan_ids(bufs.iter().map(PathBuf::as_path));
@@ -169,11 +169,11 @@ mod tests {
     #[test]
     fn plan_id_none_above_stem() {
         assert_eq!(
-            plan_id_from_path(Path::new("/tmp/project/.codeterm/plans/active")),
+            plan_id_from_path(Path::new("/tmp/project/.domios/plans/active")),
             None
         );
         assert_eq!(
-            plan_id_from_path(Path::new("/tmp/project/.codeterm/plans")),
+            plan_id_from_path(Path::new("/tmp/project/.domios/plans")),
             None
         );
     }

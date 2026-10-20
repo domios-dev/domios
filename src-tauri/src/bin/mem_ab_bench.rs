@@ -5,7 +5,7 @@
 //! vectors already in the store are reused.
 //!
 //! Usage:
-//!   cargo run --release --features dev-tools --bin mem_ab_bench -- --db ~/.codeterm-dev/mem/knowledge.db
+//!   cargo run --release --features dev-tools --bin mem_ab_bench -- --db ~/.domios-dev/mem/knowledge.db
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -185,7 +185,7 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             let home = std::env::var("HOME").unwrap_or_default();
-            PathBuf::from(home).join(".codeterm-dev/mem")
+            PathBuf::from(home).join(".domios-dev/mem")
         });
 
     println!("Loading mem from: {}", data_dir.display());

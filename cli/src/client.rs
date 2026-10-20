@@ -196,8 +196,8 @@ impl std::fmt::Display for SocketCallError {
 impl SocketClient {
     /// Connect to the CodeTerm socket at the given path.
     ///
-    /// On Windows, `socket_path` should be the namespaced name (e.g. `codeterm-1234`),
-    /// NOT the full `\\.\pipe\codeterm-1234` path.
+    /// On Windows, `socket_path` should be the namespaced name (e.g. `domios-1234`),
+    /// NOT the full `\\.\pipe\domios-1234` path.
     /// Tries both with and without `.sock` suffix for compatibility across versions.
     pub fn connect(socket_path: &str) -> Result<Self, String> {
         let mut candidates = vec![socket_path.to_string()];
@@ -548,14 +548,14 @@ impl RpcClient for SocketClient {
 ///    is actually live before trusting it. This is the explicit escape hatch.
 /// 2. Derive named dev sockets from `CODETERM_INSTANCE`, or default DEV from
 ///    `CODETERM_API_PORT=7686`. Custom ports need an instance or explicit socket.
-/// 3. On Windows, scan `\\.\pipe\` for pipes matching `codeterm-*`.
-/// 4. On Unix, scan `/tmp/` for `codeterm-*.sock`.
+/// 3. On Windows, scan `\\.\pipe\` for pipes matching `domios-*`.
+/// 4. On Unix, scan `/tmp/` for `domios-*.sock`.
 ///
 /// After a daemon update_apply
 ///    restart the parent's env var still points at the OLD pid's pipe; the
 ///    new daemon listens on a fresh pid-suffixed pipe, so any subprocess
 ///    that blindly trusts the env var ends up with `Failed to connect to
-///    'codeterm-{old-pid}.sock'` on every invocation.
+///    'domios-{old-pid}.sock'` on every invocation.
 pub fn discover_socket_resolution() -> Result<(SocketClient, ResolvedSocket), String> {
     let explicit_socket = std::env::var("CODETERM_SOCKET_PATH").ok();
     let instance = std::env::var("CODETERM_INSTANCE").ok();
@@ -668,7 +668,7 @@ fn deterministic_socket_resolution_for(
     }
     if api_port.map(str::trim) == Some("7686") {
         return Some(ResolvedSocket {
-            path: "codeterm-dev.sock".to_string(),
+            path: "domios-dev.sock".to_string(),
             source: ResolutionSource::CodeTermApiPort,
         });
     }
@@ -677,12 +677,12 @@ fn deterministic_socket_resolution_for(
 
 /// True when the socket name belongs to the dev daemon.
 ///
-/// dev pipes are exactly `codeterm-dev[.sock]`; prod pipes are pid-suffixed
-/// (`codeterm-12345.sock`). Match the literal `-dev` segment instead of a
+/// dev pipes are exactly `domios-dev[.sock]`; prod pipes are pid-suffixed
+/// (`domios-12345.sock`). Match the literal `-dev` segment instead of a
 /// loose `contains("dev")` so a custom instance whose pid path happens to
 /// have "dev" in it doesn't get misclassified.
 fn is_dev_socket(name: &str) -> bool {
-    name == "codeterm-dev" || name.starts_with("codeterm-dev.") || name.starts_with("codeterm-dev-")
+    name == "domios-dev" || name.starts_with("domios-dev.") || name.starts_with("domios-dev-")
 }
 
 /// True when the socket name matches the requested port preference.
@@ -695,7 +695,7 @@ fn socket_path_matches_port_pref(name: &str, prefer_dev: bool) -> bool {
     is_dev_socket(name) == prefer_dev
 }
 
-/// The named dev instance socket prefix, e.g. `codeterm-dev-exp`, or None.
+/// The named dev instance socket prefix, e.g. `domios-dev-exp`, or None.
 /// Sanitized to `[a-z0-9-]+` to mirror the daemon's path derivation.
 fn instance_socket_prefix() -> Option<String> {
     instance_socket_prefix_for(std::env::var("CODETERM_INSTANCE").ok().as_deref())
@@ -717,7 +717,7 @@ fn instance_socket_prefix_for(instance: Option<&str>) -> Option<String> {
                     }
                 })
                 .collect();
-            format!("codeterm-dev-{slug}")
+            format!("domios-dev-{slug}")
         })
 }
 
@@ -772,7 +772,7 @@ fn resolve_socket_selection(
                     ));
                 }
             }
-            if (normalized == "codeterm-dev.sock" || normalized == "codeterm-dev")
+            if (normalized == "domios-dev.sock" || normalized == "domios-dev")
                 && api_port != "7685"
                 && api_port != "7686"
             {
@@ -787,7 +787,7 @@ fn resolve_socket_selection(
             }
         }
         let socket_instance = instance_socket_name_from_path(&normalized);
-        if normalized.starts_with("codeterm-dev-") && socket_instance.is_none() {
+        if normalized.starts_with("domios-dev-") && socket_instance.is_none() {
             return Err(format!(
                 "CODETERM_SOCKET_PATH='{normalized}' is not a valid named development socket."
             ));
@@ -819,7 +819,7 @@ fn resolve_socket_selection(
 fn socket_dev_class(name: &str) -> Option<bool> {
     if is_dev_socket(name) {
         Some(true)
-    } else if name.starts_with("codeterm-") {
+    } else if name.starts_with("domios-") {
         Some(false)
     } else {
         None
@@ -830,7 +830,7 @@ pub(crate) fn instance_socket_name_from_path(path: &str) -> Option<String> {
     let name = path.rsplit(['/', '\\']).next()?;
     let normalized = normalize_socket_path(name);
     let without_suffix = normalized.strip_suffix(".sock").unwrap_or(&normalized);
-    let instance = without_suffix.strip_prefix("codeterm-dev-")?;
+    let instance = without_suffix.strip_prefix("domios-dev-")?;
     (!instance.is_empty()
         && instance.chars().all(|character| {
             character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
@@ -879,7 +879,7 @@ fn discover_windows_pipe() -> Result<String, String> {
             let mut candidates: Vec<String> = entries
                 .flatten()
                 .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
-                .filter(|n| n.starts_with("codeterm-"))
+                .filter(|n| n.starts_with("domios-"))
                 .collect();
             candidates.sort();
             if let Some(name) = pick_preferred_socket(&candidates, prefers_dev_socket()) {
@@ -897,12 +897,10 @@ fn discover_windows_pipe() -> Result<String, String> {
 
 /// Whether a `/tmp` entry can name a CodeTerm daemon socket.
 ///
-/// `build.sh` leaves `codeterm-gateway-mutex-*.sock` behind for its cargo and
-/// rustc build locks. Those match the daemon prefix but never speak the CLI
-/// protocol, so a leftover one must never be offered as a candidate.
+/// `codeterm-gateway-mutex-*.sock` is a build-only lock namespace, not a daemon endpoint.
 #[cfg(not(target_os = "windows"))]
 fn is_daemon_socket_name(name: &str) -> bool {
-    name.starts_with("codeterm-")
+    name.starts_with("domios-")
         && name.ends_with(".sock")
         && !name.starts_with("codeterm-gateway-mutex-")
 }
@@ -936,7 +934,7 @@ fn pgrep_daemon_socket() -> Option<(SocketClient, String)> {
     stdout
         .lines()
         .filter_map(|line| line.trim().parse::<u32>().ok())
-        .map(|pid| format!("codeterm-{}.sock", pid))
+        .map(|pid| format!("domios-{}.sock", pid))
         .find_map(|name| {
             SocketClient::connect(&name)
                 .ok()

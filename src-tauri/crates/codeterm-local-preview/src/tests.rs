@@ -42,6 +42,8 @@ fn rejects_secret_directories_credential_files_and_configured_roots() {
     let configured = root.join("private");
     for relative in [
         ".ssh/key.txt",
+        ".domios-dev/log.txt",
+        ".domios/token.txt",
         ".codeterm-dev/log.txt",
         ".codeterm/token.txt",
         ".aws/config.json",
@@ -140,7 +142,7 @@ fn source_text_still_requires_its_own_tab_reference() {
 fn uploaded_artifacts_preview_before_send_without_exposing_private_files() {
     let temp = tempfile::tempdir().unwrap();
     let root = crate::html_preview::preview_test_root(temp.path());
-    let private = root.join(".codeterm-dev");
+    let private = root.join(".domios-dev");
     let uploads = private.join("uploads");
     std::fs::create_dir_all(&uploads).unwrap();
     let image = uploads.join("uploaded.png");

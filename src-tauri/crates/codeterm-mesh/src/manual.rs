@@ -175,15 +175,25 @@ pub async fn read_identity(
         .build()
         .map_err(|e| e.to_string())?
         .post(format!("http://{address}/api/mesh/pair/identity"))
+        .header(
+            crate::version::VERSION_HEADER,
+            crate::version::local_version(),
+        )
         .json(&challenge)
         .send()
         .await
         .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        return Err(format!(
-            "Peer identity read failed: HTTP {}",
-            response.status()
-        ));
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("Peer identity read failed: HTTP {status}: {body}"));
+    }
+    let peer_version = response
+        .headers()
+        .get(crate::version::VERSION_HEADER)
+        .and_then(|value| value.to_str().ok());
+    if let Some(error) = crate::version::peer_version_error(peer_version) {
+        return Err(error);
     }
     let proof: IdentityProof = response.json().await.map_err(|e| e.to_string())?;
     proof.verify(&challenge, target)?;

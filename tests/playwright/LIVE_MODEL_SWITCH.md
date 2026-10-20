@@ -88,7 +88,7 @@ The DOM observer records the actual visible Applying duration separately from
 runner timing, or its lower bound when the step fails while it remains visible.
 Before failure cleanup, own-tab PTY text, inspection, transcript and DEV log
 lines capture delivery events and `[agent-model/timing]` phases. Set
-`PW_SWITCH_DEV_LOG` if the DEV log differs from `~/.codeterm-dev/logs/codeterm.log`.
+`PW_SWITCH_DEV_LOG` if the DEV log differs from `~/.domios-dev/logs/domios.log`.
 Claude/Grok idle settling must finish under 3 seconds; next-turn pending must
 appear within 1 second and exact records confirm on the following ACK.
 

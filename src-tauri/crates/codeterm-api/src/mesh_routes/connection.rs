@@ -443,6 +443,10 @@ async fn connect_peer_at(
             );
             let response = client
                 .post(format!("http://{endpoint}/api/mesh/pair/request"))
+                .header(
+                    codeterm_service_core::mesh::version::VERSION_HEADER,
+                    codeterm_service_core::mesh::version::local_version(),
+                )
                 .json(&request)
                 .send()
                 .await
@@ -462,10 +466,21 @@ async fn connect_peer_at(
                     }
                 })?;
             if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
                 return Err(ConnectPeerError::Refused(format!(
-                    "Pair request rejected with HTTP {}",
-                    response.status()
+                    "Pair request rejected with HTTP {status}: {body}"
                 )));
+            }
+            let peer_version = response
+                .headers()
+                .get(codeterm_service_core::mesh::version::VERSION_HEADER)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            if let Some(error) =
+                codeterm_service_core::mesh::version::peer_version_error(peer_version.as_deref())
+            {
+                return Err(ConnectPeerError::Refused(error));
             }
             response
                 .json::<serde_json::Value>()

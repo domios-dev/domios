@@ -60,7 +60,7 @@ function configPort(configPath: string): string | null {
 function datadirForPort(port: string): string | null {
   const home = os.homedir();
   for (const entry of readdirSync(home)) {
-    if (entry !== ".codeterm-dev" && !entry.startsWith(".codeterm-dev-")) continue;
+    if (entry !== ".domios-dev" && !entry.startsWith(".domios-dev-")) continue;
     const configPath = path.join(home, entry, "config.toml");
     if (!existsSync(configPath)) continue;
     if (configPort(configPath) === port) return entry;
@@ -69,7 +69,7 @@ function datadirForPort(port: string): string | null {
 }
 
 export function devDataDirName(instance = currentDevInstance()): string {
-  if (isDevTarget()) return ".codeterm-dev";
+  if (isDevTarget()) return ".domios-dev";
   if (isNamedTarget()) {
     const resolved = process.env.CODETERM_DEV_DATA_DIR?.trim();
     if (!resolved || path.basename(resolved) !== instance.dataDirName) {
@@ -80,8 +80,8 @@ export function devDataDirName(instance = currentDevInstance()): string {
   if (process.env.CT_E2E_DATADIR) return process.env.CT_E2E_DATADIR;
   if (instance.name) return instance.dataDirName;
   const port = String(instance.apiPort);
-  if (port && port !== "7686") return datadirForPort(port) ?? ".codeterm-dev";
-  return ".codeterm-dev";
+  if (port && port !== "7686") return datadirForPort(port) ?? ".domios-dev";
+  return ".domios-dev";
 }
 
 // CT_E2E_DATADIR, or CT_E2E_PORT when its config.toml records that port.

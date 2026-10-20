@@ -138,7 +138,7 @@ fn load_source_plan(source_dir: &Path) -> Result<Plan, PlanError> {
 
 fn plan_dir_unchecked(project: &Path, status: &PlanStatus, plan_id: &str) -> PathBuf {
     project
-        .join(".codeterm")
+        .join(".domios")
         .join("plans")
         .join(paths::plan_bucket(status))
         .join(if plan_id == crate::plan::INBOX_PLAN_ID {

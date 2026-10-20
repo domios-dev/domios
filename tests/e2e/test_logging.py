@@ -3,7 +3,7 @@
 from pathlib import Path
 import pytest
 
-LOG_PATH = Path.home() / ".codeterm-dev" / "logs" / "codeterm.log"
+LOG_PATH = Path.home() / ".domios-dev" / "logs" / "domios.log"
 
 
 def _log_text() -> str:

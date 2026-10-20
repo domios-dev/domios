@@ -76,10 +76,20 @@ pub fn run(
     }
     crate::launch::install_selectors(&options)?;
     let identity = crate::launch::verify_identity(&options, ResolvedInstancePaths::current()?)?;
-    let owner = Box::leak(Box::new(PathOwnership::try_acquire(
-        identity.clone(),
-        &ownership_registry_for(&options, &identity)?,
-    )?));
+    let isolated = matches!(
+        &options.instance,
+        codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
+    );
+    let ownership_registry = ownership_registry_for(&options, &identity)?;
+    let (owner, relocation_notices) = if isolated {
+        (
+            PathOwnership::try_acquire(identity.clone(), &ownership_registry)?,
+            Vec::new(),
+        )
+    } else {
+        crate::upgrade_from_1_14_9::run(identity.clone(), &ownership_registry)?
+    };
+    let owner = Box::leak(Box::new(owner));
     let process = process::own()?;
     let provenance = process.provenance()?;
     let resources = options.resources.canonicalize()?;
@@ -161,6 +171,14 @@ pub fn run(
         )),
     )
     .map_err(io::Error::other)?;
+    for notice in relocation_notices {
+        log::warn!("[upgrade] {notice}");
+        running.service.log_system_notice(
+            "Project directory needs attention".into(),
+            Some(notice),
+            Some("warning"),
+        );
+    }
     let ready = runtime.block_on(async {
         let mut statuses = running.states.rest_api.subscribe_status();
         tokio::time::timeout(FAILURE_DEADLINE, async {

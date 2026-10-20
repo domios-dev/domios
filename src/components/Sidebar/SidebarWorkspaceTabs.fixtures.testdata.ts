@@ -57,7 +57,7 @@ export function planIndexEntry(
 ): PlanIndexEntry {
   return {
     plan_id: planId,
-    file_path: "/workspace/.codeterm/plans/active/plan-team/plan.json",
+    file_path: "/workspace/.domios/plans/active/plan-team/plan.json",
     canonical_project_path: "/workspace",
     owner: { tab_id: "orch", session_id: null, title: null },
     title: "Sidebar team effort",

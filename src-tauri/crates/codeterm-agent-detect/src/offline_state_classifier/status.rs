@@ -377,7 +377,7 @@ mod tests {
     fn braille_path_footer_is_not_status_line() {
         let screen = lines(&[
             "Tool output",
-            "⠂ /.codeterm-dev/general",
+            "⠂ /.domios-dev/general",
             "→ Working (ctrl+c to stop)",
         ]);
 

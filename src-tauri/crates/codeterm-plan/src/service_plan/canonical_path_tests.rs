@@ -44,7 +44,7 @@ fn git_worktree_pair() -> (tempfile::TempDir, PathBuf, PathBuf) {
 fn create_from_linked_worktree_persists_workspace_root_and_routes_sidecars() {
     let (_tmp, main, linked) = git_worktree_pair();
     let store = PlanStore::new_for_test(&linked);
-    std::fs::create_dir_all(linked.join(".codeterm/plans")).unwrap();
+    std::fs::create_dir_all(linked.join(".domios/plans")).unwrap();
 
     let plan = store
         .create_plan(
@@ -77,16 +77,16 @@ fn create_from_linked_worktree_persists_workspace_root_and_routes_sidecars() {
         linked_root.display().to_string()
     );
     assert!(linked_root
-        .join(format!(".codeterm/plans/active/{}/plan.yaml", plan.id))
+        .join(format!(".domios/plans/active/{}/plan.yaml", plan.id))
         .is_file());
     assert!(linked_root
         .join(format!(
-            ".codeterm/plans/active/{}/tasks/write-sidecar.yaml",
+            ".domios/plans/active/{}/tasks/write-sidecar.yaml",
             plan.id
         ))
         .is_file());
     assert!(!main
-        .join(format!(".codeterm/plans/active/{}/plan.yaml", plan.id))
+        .join(format!(".domios/plans/active/{}/plan.yaml", plan.id))
         .exists());
 }
 

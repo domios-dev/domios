@@ -22,17 +22,17 @@ function instance(name: string, dataDirName: string): DevInstance {
 test("apiReset only accepts known disposable Playwright data directories", async () => {
   const api = {} as ApiClient;
   for (const safe of [
-    instance("playwright", ".codeterm-dev-playwright"),
-    instance("pwserial", ".codeterm-dev-pwserial"),
-    instance("pw2", ".codeterm-dev-pw2"),
+    instance("playwright", ".domios-dev-playwright"),
+    instance("pwserial", ".domios-dev-pwserial"),
+    instance("pw2", ".domios-dev-pw2"),
   ]) {
     assert.doesNotThrow(() => assertApiResetAllowed(safe));
   }
 
   for (const unsafe of [
-    instance("", ".codeterm-dev"),
-    instance("coreqa", ".codeterm-dev-coreqa"),
-    instance("pwqa", ".codeterm-dev-pwqa"),
+    instance("", ".domios-dev"),
+    instance("coreqa", ".domios-dev-coreqa"),
+    instance("pwqa", ".domios-dev-pwqa"),
     instance("playwright", ".codeterm-dev-coreqa"),
   ]) {
     await assert.rejects(() => apiReset(api, unsafe), /apiReset refuses non-disposable data directory/);

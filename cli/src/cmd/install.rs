@@ -266,8 +266,8 @@ mod relaunch_env_tests {
             ("CODETERM_API_PORT", "7697"),
             ("CODETERM_API_URL", "http://127.0.0.1:7697"),
             ("CODETERM_API_TOKEN", "secret"),
-            ("CODETERM_SOCKET_PATH", "/tmp/codeterm-dev-aiderqa.sock"),
-            ("CODETERM_DATA_DIR", "/Users/andrey/.codeterm-dev-aiderqa"),
+            ("CODETERM_SOCKET_PATH", "/tmp/domios-dev-aiderqa.sock"),
+            ("CODETERM_DATA_DIR", "/Users/andrey/.domios-dev-aiderqa"),
             ("CODETERM_DEV_IDENTIFIER", "com.codeterm.dev.aiderqa"),
             ("CODETERM_TAB_ID", "tab-1"),
             ("CODETERM_VITE_PORT", "1519"),
@@ -294,8 +294,8 @@ mod relaunch_env_tests {
             ("CODETERM", "1"),
             ("CODETERM_INSTANCE", "aiderqa"),
             ("CODETERM_DEV_IDENTIFIER", "com.codeterm.dev.aiderqa"),
-            ("CODETERM_DATA_DIR", "/home/andrey/.codeterm-dev-aiderqa"),
-            ("CODETERM_SOCKET_PATH", "/tmp/codeterm-dev-aiderqa.sock"),
+            ("CODETERM_DATA_DIR", "/home/andrey/.domios-dev-aiderqa"),
+            ("CODETERM_SOCKET_PATH", "/tmp/domios-dev-aiderqa.sock"),
             ("CODETERM_API_PORT", "7697"),
         ]);
         let keys: Vec<&str> = filtered.iter().map(|(key, _)| *key).collect();

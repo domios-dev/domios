@@ -90,7 +90,7 @@ const currentPlan = plan(CURRENT_PLAN_ID, "Current active effort", [], 2);
 function indexEntry(value: Plan): PlanIndexEntry {
   return {
     plan_id: value.id,
-    file_path: `/workspace/.codeterm/plans/active/${value.id}/plan.json`,
+    file_path: `/workspace/.domios/plans/active/${value.id}/plan.json`,
     canonical_project_path: "/workspace",
     owner: value.owner,
     title: value.title,

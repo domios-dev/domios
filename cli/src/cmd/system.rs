@@ -907,11 +907,11 @@ mod tests {
     fn macos_plist_contains_label_and_binary_and_keepalive_and_runatload() {
         let plist = build_macos_plist(
             "com.codeterm.app",
-            "/Users/me/.codeterm/bin/codeterm",
+            "/Users/me/.domios/bin/codeterm",
             "/Applications/CodeTerm.app/Contents/MacOS/CodeTerm",
         );
         assert!(plist.contains("<string>com.codeterm.app</string>"));
-        assert!(plist.contains("<string>/Users/me/.codeterm/bin/codeterm</string>"));
+        assert!(plist.contains("<string>/Users/me/.domios/bin/codeterm</string>"));
         assert!(plist.contains("<string>system</string>"));
         assert!(plist.contains("<string>supervise</string>"));
         assert!(plist.contains("/Applications/CodeTerm.app/Contents/MacOS/CodeTerm"));
@@ -922,9 +922,9 @@ mod tests {
 
     #[test]
     fn linux_unit_runs_supervisor_and_user_target() {
-        let unit = build_linux_unit("/home/me/.codeterm/bin/codeterm", "/usr/local/bin/codeterm");
+        let unit = build_linux_unit("/home/me/.domios/bin/codeterm", "/usr/local/bin/codeterm");
         assert!(unit.contains(
-            "ExecStart=\"/home/me/.codeterm/bin/codeterm\" system supervise --binary \"/usr/local/bin/codeterm\""
+            "ExecStart=\"/home/me/.domios/bin/codeterm\" system supervise --binary \"/usr/local/bin/codeterm\""
         ));
         assert!(unit.contains("Restart=no"));
         assert!(unit.contains("WantedBy=default.target"));
@@ -954,13 +954,13 @@ mod tests {
     #[test]
     fn windows_task_runs_supervisor_not_app_directly() {
         let command = build_windows_task_command(
-            r"C:\Users\me\.codeterm\bin\codeterm.exe",
+            r"C:\Users\me\.domios\bin\codeterm.exe",
             r"C:\Users\me\AppData\Local\codeterm\codeterm.exe",
         );
         assert!(command.contains("system"));
         assert!(command.contains("supervise"));
         assert!(command.contains("--binary"));
-        assert!(command.contains(r"C:\Users\me\.codeterm\bin\codeterm.exe"));
+        assert!(command.contains(r"C:\Users\me\.domios\bin\codeterm.exe"));
         assert!(command.contains(r"C:\Users\me\AppData\Local\codeterm\codeterm.exe"));
     }
 

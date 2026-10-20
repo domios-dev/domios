@@ -27,7 +27,7 @@ if (Number(process.env.CODETERM_API_PORT) !== 7686 || !process.env.CODETERM_DEV_
   throw new Error('Use run.sh: requires dev_run connection pinned to 7686');
 const dev = { url: 'http://127.0.0.1:7686', port: 7686, token: process.env.CODETERM_API_TOKEN };
 const { api } = client(dev);
-const logPath = join(process.env.CODETERM_DEV_DATA_DIR, 'logs/codeterm.log');
+const logPath = join(process.env.CODETERM_DEV_DATA_DIR, 'logs/domios.log');
 mkdirSync(join(out, 'screenshots'), { recursive: true });
 const result = { schema: 1, phase: 'preflight', build: expected, started_at: Date.now(), tabs: [], coverage: [], health: [], preflights: [], failures: [] };
 const saveJson = (name, value) => writeFileSync(join(out, name), JSON.stringify(value, null, 2) + '\n');
@@ -39,7 +39,7 @@ let logOffset = statSync(logPath).size;
 const runLog = [];
 writeFileSync(join(out, 'dev.log'), '');
 const logWatcher = watch(dirname(logPath), (_event, file) => {
-  if (file && String(file) !== 'codeterm.log') return;
+  if (file && String(file) !== 'domios.log') return;
   try {
     const bytes = readFileSync(logPath);
     if (bytes.length < logOffset) logOffset = 0;

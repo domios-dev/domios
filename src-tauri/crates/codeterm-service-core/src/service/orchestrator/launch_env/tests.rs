@@ -267,14 +267,14 @@ fn configured_cli_directory_is_restored_after_shell_profile_loading() {
 #[test]
 fn dev_instance_agents_resolve_the_instance_cli_first() {
     let instance_cli_dir = if cfg!(windows) {
-        std::path::PathBuf::from(r"C:\Users\u\.codeterm-dev-worker-a\bin")
+        std::path::PathBuf::from(r"C:\Users\u\.domios-dev-worker-a\bin")
     } else {
-        std::path::PathBuf::from("/home/u/.codeterm-dev-worker-a/bin")
+        std::path::PathBuf::from("/home/u/.domios-dev-worker-a/bin")
     };
     let prod_cli_dir = if cfg!(windows) {
-        std::path::PathBuf::from(r"C:\Users\u\.codeterm\bin")
+        std::path::PathBuf::from(r"C:\Users\u\.domios\bin")
     } else {
-        std::path::PathBuf::from("/home/u/.codeterm/bin")
+        std::path::PathBuf::from("/home/u/.domios/bin")
     };
     let inherited = std::env::join_paths([prod_cli_dir.clone()]).unwrap();
 

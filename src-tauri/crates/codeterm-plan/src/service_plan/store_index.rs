@@ -301,7 +301,7 @@ impl PlanStore {
                 }
             }
         }
-        let specs_dir = project_root.join(".codeterm").join("specs");
+        let specs_dir = project_root.join(".domios").join("specs");
         if let Ok(entries) = std::fs::read_dir(&specs_dir) {
             for entry in entries {
                 let Ok(entry) = entry else {

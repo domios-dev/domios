@@ -724,7 +724,7 @@ async fn perform_relay_unredacted(
                 StatusCode::UPGRADE_REQUIRED.as_u16(),
                 codeterm_mesh::contract::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
                 Some(false),
-                "Incompatible Mesh relay protocol; update Domios".into(),
+                codeterm_mesh::version::peer_upgrade_message(),
             ));
         }
         let method = Method::from_bytes(cmd.method.as_bytes()).map_err(|_| {

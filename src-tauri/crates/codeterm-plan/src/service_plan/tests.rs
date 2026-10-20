@@ -1084,7 +1084,7 @@ fn public_inbox_mutation_cannot_create_active_teamless_plan() {
     assert_eq!(second.created_at, first.created_at);
     assert!(root
         .path()
-        .join(".codeterm/plans/archive/_inbox/plan.yaml")
+        .join(".domios/plans/archive/_inbox/plan.yaml")
         .exists());
 }
 
@@ -1140,7 +1140,7 @@ fn index_projection_keeps_canonical_ownership_separate_from_central_storage() {
         entry.canonical_project_path
     );
     assert!(!entry.file_path.starts_with(project.path()));
-    assert!(!project.path().join(".codeterm").join("plans").exists());
+    assert!(!project.path().join(".domios").join("plans").exists());
 }
 
 #[test]
@@ -1167,7 +1167,7 @@ fn index_projection_derives_legacy_ownership_from_the_record_project_path() {
     assert_eq!(entry.canonical_project_path, project_path);
     assert_eq!(entry.file_path, database_path);
     assert!(!entry.file_path.starts_with(project.path()));
-    assert!(!project.path().join(".codeterm").join("plans").exists());
+    assert!(!project.path().join(".domios").join("plans").exists());
 }
 
 mod group_close;

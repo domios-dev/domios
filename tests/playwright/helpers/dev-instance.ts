@@ -178,7 +178,7 @@ export function devInstanceForSlot(slot: number, workers = playwrightWorkerCount
     if (slot !== 0 || workers !== 1) {
       throw new Error("PW_TARGET=dev supports exactly one Playwright worker");
     }
-    return descriptor(slot, "", 7686, 1420, 9223, ".codeterm-dev", true);
+    return descriptor(slot, "", 7686, 1420, 9223, ".domios-dev", true);
   }
   if (isNamedTarget()) {
     if (slot !== 0 || workers !== 1) {
@@ -194,11 +194,11 @@ export function devInstanceForSlot(slot: number, workers = playwrightWorkerCount
     const apiPort = integerEnv("CODETERM_API_PORT", 0);
     const dataDir = process.env.CODETERM_DEV_DATA_DIR?.trim();
     const dataDirName = dataDir ? path.basename(dataDir) : "";
-    const expectedDataDir = `.codeterm-dev-${name}`;
+    const expectedDataDir = `.domios-dev-${name}`;
     if (dataDirName !== expectedDataDir) {
       throw new Error(`PW_TARGET=named requires CODETERM_DEV_DATA_DIR for ${expectedDataDir}`);
     }
-    const expectedSocket = `codeterm-dev-${name}.sock`;
+    const expectedSocket = `domios-dev-${name}.sock`;
     const socketName = (process.env.CODETERM_SOCKET_PATH ?? "").split(/[\\/]/).at(-1);
     if (socketName !== expectedSocket) {
       throw new Error(`PW_TARGET=named requires the resolved socket ${expectedSocket}`);
@@ -224,7 +224,7 @@ export function devInstanceForSlot(slot: number, workers = playwrightWorkerCount
     const offset = name ? slugOffset(name) : 0;
     const vitePort = integerEnv("CT_E2E_VITE_PORT", 1420 + offset);
     const cdpPort = integerEnv("CT_E2E_CDP_PORT", 9223 + offset);
-    const dataDirName = process.env.CT_E2E_DATADIR ?? (name ? `.codeterm-dev-${name}` : ".codeterm-dev");
+    const dataDirName = process.env.CT_E2E_DATADIR ?? (name ? `.domios-dev-${name}` : ".domios-dev");
     return descriptor(slot, name, apiPort, vitePort, cdpPort, dataDirName);
   }
 
@@ -237,13 +237,13 @@ export function devInstanceForSlot(slot: number, workers = playwrightWorkerCount
     apiPort,
     1420 + offset,
     9223 + offset,
-    `.codeterm-dev-${name}`,
+    `.domios-dev-${name}`,
   );
 }
 
 export function isDisposableQaInstance(instance: DevInstance): boolean {
   return (
-    instance.dataDirName === `.codeterm-dev-${instance.name}` &&
+    instance.dataDirName === `.domios-dev-${instance.name}` &&
     (instance.name === "playwright" || instance.name === "pwserial" || /^pw[1-9]\d*$/.test(instance.name))
   );
 }
@@ -265,7 +265,7 @@ function descriptor(
   if (name && !/^[a-z0-9-]+$/.test(name)) {
     throw new Error(`refusing unsafe Playwright instance name ${name}`);
   }
-  if (!/^\.codeterm-dev(?:-[a-z0-9-]+)?$/.test(dataDirName)) {
+  if (!/^\.domios-dev(?:-[a-z0-9-]+)?$/.test(dataDirName)) {
     throw new Error(`refusing unsafe Playwright data dir ${dataDirName}`);
   }
   const identifier = name ? `com.codeterm.dev.${name.replace(/-/g, ".")}` : "com.codeterm.dev";

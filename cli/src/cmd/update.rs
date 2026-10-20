@@ -206,7 +206,7 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
     let mut connect_failures: u32 = 0;
     loop {
         if started.elapsed() > timeout {
-            eprintln!("Timed out after {}s waiting for update to complete. Check ~/.codeterm/logs/codeterm.log for details.", timeout.as_secs());
+            eprintln!("Timed out after {}s waiting for update to complete. Check ~/.domios/logs/domios.log for details.", timeout.as_secs());
             std::process::exit(2);
         }
         std::thread::sleep(Duration::from_millis(500));

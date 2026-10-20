@@ -84,7 +84,7 @@ function WorkspaceItemInner({
   const { profiles, refresh: refreshShells, loading: shellsLoading, error: shellsError } = useShellProfiles();
   const { config } = useConfig();
   const agentsConfig = config.agents ?? {};
-  // plugins with a `src/index.ts` FE module, which left drop-in `~/.codeterm/plugins/<id>/plugin.js` plugins invisible in the workspace menu.
+  // plugins with a `src/index.ts` FE module, which left drop-in `~/.domios/plugins/<id>/plugin.js` plugins invisible in the workspace menu.
   const { providers } = useAgentProviders();
   const workspaceText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const workspaceTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
