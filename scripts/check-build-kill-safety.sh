@@ -96,8 +96,8 @@ cleanup_fixture() {
   rm -rf "$marker_fixture"
 }
 trap cleanup_fixture EXIT
-mkdir -p "$marker_fixture/home/.codeterm-dev-marker-test" "$marker_fixture/bin"
-printf '[api]\ntoken = "matching-instance-token"\n' > "$marker_fixture/home/.codeterm-dev-marker-test/config.toml"
+mkdir -p "$marker_fixture/home/.domios-dev-marker-test" "$marker_fixture/bin"
+printf '[api]\ntoken = "matching-instance-token"\n' > "$marker_fixture/home/.domios-dev-marker-test/config.toml"
 cat > "$marker_fixture/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" > "$CODETERM_TEST_CURL_LOG"

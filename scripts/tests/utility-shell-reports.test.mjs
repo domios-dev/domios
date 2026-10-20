@@ -569,7 +569,7 @@ test("build_sh_parses_notify_tab_before_path_change", () => {
     assert.equal(separated.status, 0, separated.stderr);
     assert.match(separated.stdout, /notify_tab=agent-tab/);
     assert.ok(separated.stdout.includes("parent_cli="));
-    assert.ok(!separated.stdout.includes(path.join(env.HOME, ".codeterm-dev", "bin")));
+    assert.ok(!separated.stdout.includes(path.join(env.HOME, ".domios-dev", "bin")));
     const equals = runBash([buildPath, "dev", "--notify-tab=agent-tab"], env);
     assert.equal(equals.status, 0, equals.stderr);
     assert.match(equals.stdout, /notify_tab=agent-tab/);
