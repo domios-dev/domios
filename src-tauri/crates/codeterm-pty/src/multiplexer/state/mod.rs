@@ -128,6 +128,10 @@ pub struct TeamResolution {
 /// Full state snapshot for frontend hydration.
 #[derive(Debug, Clone, Serialize)]
 pub struct MultiplexerSnapshot {
+    /// Monotonic generation; the reducer drops any snapshot whose value is
+    /// `<=` the one already applied. Serialized first so the publisher can
+    /// compare snapshot content without it.
+    pub generation: u64,
     pub workspaces: Vec<Workspace>,
     #[serde(serialize_with = "wire_snapshot::tabs")]
     pub tabs: HashMap<String, Tab>,
@@ -135,9 +139,6 @@ pub struct MultiplexerSnapshot {
     pub teams: Vec<Team>,
     pub active_workspace_id: Option<String>,
     pub focused_tab_id: Option<String>,
-    /// Monotonic generation; the reducer drops any snapshot whose value is
-    /// `<=` the one already applied.
-    pub generation: u64,
     /// Bounded newest-first view of the closed-tab history (across all
     /// workspaces) for the sidebar. Sourced live from the sqlite store, NOT the
     /// persisted session snapshot — keeps both lean.
@@ -150,7 +151,11 @@ pub struct MultiplexerSnapshot {
     /// live `tab-status-changed` event would have delivered. Only populated by
     /// [`MultiplexerState::snapshot_with_status`] — plain `snapshot()` leaves it
     /// empty since most internal callers don't need it.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "HashMap::is_empty",
+        serialize_with = "wire_snapshot::sorted"
+    )]
     pub tab_statuses: HashMap<String, codeterm_types::pty::TabStatus>,
 }
 

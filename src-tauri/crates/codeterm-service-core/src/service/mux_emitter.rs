@@ -145,17 +145,27 @@ fn emit_snapshot(service: &ServiceContext, causes: u64) {
         &service.agent_tracker,
         &service.agent_registry,
     );
-    match service
+    let unchanged = match service
         .ext::<Arc<PublishedMuxState>>()
         .publish(snapshot.generation, &snapshot)
     {
-        Ok(true) => service.events.publish_generic(
-            "mux-state-changed",
-            serde_json::json!({"generation": snapshot.generation}),
-        ),
-        Ok(false) => {}
-        Err(error) => log::error!("[mux-snapshot] publication failed: {error}"),
-    }
+        Ok(true) => {
+            let signal = serde_json::json!({"generation": snapshot.generation});
+            service
+                .events
+                .publish_generic("mux-state-changed", signal.clone());
+            service.events.broadcast("mux-state-changed", signal);
+            false
+        }
+        Ok(false) => {
+            stats.unchanged.fetch_add(1, Ordering::Relaxed);
+            true
+        }
+        Err(error) => {
+            log::error!("[mux-snapshot] publication failed: {error}");
+            false
+        }
+    };
     if let Err(error) = super::session_persist::submit_session_snapshot_with_intent(
         service,
         &service.mux,
@@ -163,7 +173,7 @@ fn emit_snapshot(service: &ServiceContext, causes: u64) {
     ) {
         log::warn!("[session-persist] coalesced desk submission failed: {error}");
     }
-    if !stats.frozen.load(Ordering::Acquire) {
+    if !unchanged && !stats.frozen.load(Ordering::Acquire) {
         stats.fires.fetch_add(1, Ordering::Relaxed);
         stats.causes.fire(causes);
         service.ui.emit_native(
