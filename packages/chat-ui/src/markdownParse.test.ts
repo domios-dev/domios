@@ -58,6 +58,7 @@ const STREAM_CORPUS = [
   "> quote\nlazy\n\n> ```\n> fenced in quote\n>\n> x\n> ```\n\n> second\n\n| A | B |\n| - | :-: |\n| 1 | 2 |\nrow without pipe\n\nparagraph\n| h |\n| - |\n| c |\n",
   "<div>\nhtml\n</div>\n\n<pre>\n\nkept\n\n</pre>\n\n<!--\n\ncomment\n\n-->\n\n<custom-tag>\ninline\n\n***\n\n\tTabbed\n\n  - indented list\n\n   ```\n   indented fence\n```\n",
   "para\n#x\n\n1. a\n\n2. b\n\n- c\n\nd\n- e\n\n> q\n>\n> r\n\n# h\n\n#\n\n| t |\n\n| u |\n| - |\n",
+  "    code\n\n2. b\n2\n\n1.\n\n     deep\n  -\n\n- a\n\n      code\n\n- b\n  - nested\n\n    lazy\n3) c\n\n10. x\n11. *y*\n",
   "Line one\r\nline two\r\n\r\n- crlf item\r\n\r\n```\r\ncode\r\n```\r\n\r\nhttps://example.com and www.example.org\n\nEnd *open emphasis\n\n```\nunclosed fence\n\nstill inside",
 ];
 
@@ -108,4 +109,18 @@ test("an unchanged source returns the same tree and separate streams stay indepe
   assert.deepEqual(parse("alpha\n\nbeta gamma"), full.parse("alpha\n\nbeta gamma"));
   assert.deepEqual(parse("other\n\nstream two"), full.parse("other\n\nstream two"));
   assert.notEqual(parse("other\n\nstream two"), b);
+});
+
+test("a long streamed list re-parses only its last item and keeps list semantics", () => {
+  const full = unified().use(remarkParse).use(remarkGfm);
+  const items = Array.from({ length: 300 }, (_, index) => `${index + 1}. fact ${index + 1} about computing${index === 150 ? "\n\n     with a second paragraph" : ""}`);
+  const document = `Intro\n\n${items.join("\n")}\n\nDone.`;
+  const parsed: number[] = [];
+  const parse = createIncrementalMarkdownParser((source) => { parsed.push(source.length); return full.parse(source); });
+  for (let end = 0; end < document.length; end = Math.min(document.length, end + 25)) {
+    const revision = document.slice(0, end + 25);
+    const tree = parse(revision);
+    if (end % 1000 < 25 || end + 25 >= document.length) assert.deepEqual(tree, full.parse(revision));
+  }
+  assert.ok(Math.max(...parsed.slice(parsed.length / 2)) < 120, `largest late re-parse ${Math.max(...parsed.slice(parsed.length / 2))} chars`);
 });

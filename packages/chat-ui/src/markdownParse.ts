@@ -27,7 +27,14 @@ export function createMarkdownParser<T>(parse: (source: string) => T, maxChars =
 }
 
 interface Point { line: number; column: number; offset?: number }
-interface SyntaxNode { position?: { start: Point; end: Point }; children?: SyntaxNode[] }
+interface SyntaxNode {
+  type?: string;
+  position?: { start: Point; end: Point };
+  children?: SyntaxNode[];
+  ordered?: boolean | null;
+  start?: number | null;
+  spread?: boolean | null;
+}
 interface SyntaxRoot extends SyntaxNode { type: "root"; children: SyntaxNode[] }
 
 function shiftPositions(node: SyntaxNode, lines: number, offset: number): void {
@@ -44,18 +51,39 @@ function lineStart(source: string, offset: number): number {
   return index;
 }
 
+function lineTerminated(source: string, offset: number): boolean {
+  for (let index = offset; index < source.length; index++) {
+    if (source[index] === "\n" || source[index] === "\r") return true;
+  }
+  return false;
+}
+
+function endsInCode(node: SyntaxNode): boolean {
+  let last = node;
+  while (last.children?.length) last = last.children[last.children.length - 1];
+  return last.type === "code";
+}
+
 /**
  * Index of the first block that later text can still change. A root block parses alone like in context only after a blank
- * line (block starts depend on the block above) and once its first line is terminated (`2` may still become `2.` and join a list).
+ * line that closed the block above and once its first line is terminated (`2` may become `2.`); code blocks carry flow state across blank lines.
  */
 function openBlockIndex(children: readonly SyntaxNode[], source: string): number {
   for (let index = children.length - 1; index > 0; index--) {
     const start = children[index].position?.start;
     const previousEnd = children[index - 1].position?.end;
     if (start?.offset === undefined || !previousEnd || start.line <= previousEnd.line + 1) continue;
-    for (let offset = start.offset; offset < source.length; offset++) {
-      if (source[offset] === "\n" || source[offset] === "\r") return index;
-    }
+    if (children[index].type === "code" || endsInCode(children[index - 1])) continue;
+    if (lineTerminated(source, start.offset)) return index;
+  }
+  return 0;
+}
+
+/** Index of the last list item whose marker line is terminated; the items before it are final. */
+function openItemIndex(items: readonly SyntaxNode[], source: string): number {
+  for (let index = items.length - 1; index > 0; index--) {
+    const start = items[index].position?.start;
+    if (start?.offset !== undefined && lineTerminated(source, start.offset)) return index;
   }
   return 0;
 }
@@ -87,14 +115,28 @@ export function createIncrementalMarkdownParser<T extends SyntaxRoot>(parse: (so
 
 function extend<T extends SyntaxRoot>({ source: previousSource, tree: previous }: { source: string; tree: T }, source: string, parse: (source: string) => T): T {
   const open = openBlockIndex(previous.children, previousSource);
-  const start = previous.children[open]?.position?.start;
-  if (open === 0 || start?.offset === undefined) return parse(source);
+  const block = previous.children[open];
+  const item = block?.type === "list" ? openItemIndex(block.children!, previousSource) : 0;
+  const start = (item > 0 ? block.children![item] : block)?.position?.start;
+  if ((open === 0 && item === 0) || start?.offset === undefined) return parse(source);
   const from = lineStart(source, start.offset);
   const tail = parse(source.slice(from));
   shiftPositions(tail, start.line - 1, from);
+  let children = tail.children;
+  if (item > 0) {
+    const list = tail.children[0];
+    if (list?.type !== "list" || list.ordered !== block.ordered || !list.children?.length) return parse(source);
+    const items = block.children!.slice(0, item);
+    // A list is spread when a blank line separates any two items; boundaries before the re-parsed item are final.
+    const gap = items.some((entry, index) => (items[index + 1] ?? list.children![0]).position!.start.line > entry.position!.end.line + 1);
+    children = [
+      { ...list, start: block.start, spread: gap || list.spread, children: [...items, ...list.children], position: { start: block.position!.start, end: list.position!.end } },
+      ...tail.children.slice(1),
+    ];
+  }
   return {
     ...tail,
-    children: [...previous.children.slice(0, open), ...tail.children],
+    children: [...previous.children.slice(0, open), ...children],
     position: { start: previous.position!.start, end: tail.position!.end },
   };
 }
