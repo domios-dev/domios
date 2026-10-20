@@ -6,7 +6,6 @@ import {
   currentModelId,
   effortAfterModelChange,
   effortChoices,
-  pickerAnchor,
   pickerModelGroups,
   pickerNeedsSearch,
   pickerHasPrimaryModels,
@@ -184,13 +183,6 @@ test("selection applies once, confirms on restart providers, and ignores no-ops"
   const plain = statusLineSwitchGate(provider({ model_switch: "unsupported" }), live);
   assert.deepEqual(planSelection(plain, current, { model: "fast" }), { action: "none" });
 });
-
-test("anchor opens upward and stays inside the viewport", () => {
-  assert.deepEqual(pickerAnchor({ left: 40, top: 500 }, { width: 1000, height: 800 }, 300), { left: 40, bottom: 306 });
-  assert.deepEqual(pickerAnchor({ left: 900, top: 500 }, { width: 1000, height: 800 }, 300), { left: 692, bottom: 306 });
-  assert.deepEqual(pickerAnchor({ left: -20, top: 900 }, { width: 320, height: 800 }, 300), { left: 8, bottom: 8 });
-});
-
 
 test("Fast mode is capability gated and a tier-only change applies for the next turn", () => {
   const capable = provider({ id: "arbitrary", agent_runtime: { serviceTiers: [{id:"priority",name:"Fast",description:""},{id:"ultrafast",name:"Ultrafast",description:"",unavailableReason:"Not available on your plan"}] } });

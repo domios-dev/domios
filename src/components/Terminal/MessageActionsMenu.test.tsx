@@ -33,8 +33,8 @@ describe("thread history message actions", () => {
           />,
         );
       });
-      const forkItem = host.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="Fork from here"]');
-      const revertItem = host.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="Revert to here"]');
+      const forkItem = document.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="Fork from here"]');
+      const revertItem = document.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="Revert to here"]');
       expect(forkItem?.getAttribute("role")).toBe("menuitem");
       expect(revertItem?.getAttribute("role")).toBe("menuitem");
       await act(async () => forkItem?.click());

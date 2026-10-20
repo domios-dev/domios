@@ -64,8 +64,8 @@ test("unchanged background snapshots do not render the composer and local edits 
       editor.dispatchEvent(new window.Event("input", { bubbles: true }));
     });
     assert.equal(editor.value, "/fi");
-    assert(host.querySelector('[role="listbox"][aria-label="Command suggestions"]'));
-    assert(host.querySelector('[role="option"][data-slash-command="/fixture"]'));
+    assert(document.querySelector('[role="listbox"][aria-label="Command suggestions"]'));
+    assert(document.querySelector('[role="option"][data-slash-command="/fixture"]'));
     const editedRenders = window.__composerPerf.renderCounts[tabId];
     await act(async () => {
       state = structuredClone(state);
@@ -80,7 +80,7 @@ test("unchanged background snapshots do not render the composer and local edits 
       store.notify();
     });
     assert.equal(editor.value, "/fi", "authoritative command changes preserve the immediate local edit");
-    assert(host.querySelector('[role="option"][data-slash-command="/final"]'));
+    assert(document.querySelector('[role="option"][data-slash-command="/final"]'));
     assert.equal(host.querySelector('[data-slash-command="/fixture"]'), null);
     assert.equal(calls.length, initialCalls, "background state and typing require no daemon commands");
   } finally {

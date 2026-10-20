@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { clampPortalCenter } from "./portalPosition";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { formatResetsAt } from "./format";
 
 function shortDesc(title: string): string {
@@ -113,7 +112,7 @@ interface MarkerProps {
 
 function Marker({ marker, variantDefault, introHint, showLabel = true }: MarkerProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const [tipPos, setTipPos] = useState<{ x: number; y: number } | null>(null);
+  const [tipOpen, setTipOpen] = useState(false);
   const [introVisible, setIntroVisible] = useState(Boolean(introHint));
   const isPinned = marker.posPct > 100;
   const left = Math.max(0, Math.min(100, marker.posPct));
@@ -127,14 +126,9 @@ function Marker({ marker, variantDefault, introHint, showLabel = true }: MarkerP
 
   const show = () => {
     setIntroVisible(false);
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const rawX = r.left + r.width / 2;
-    const x = clampPortalCenter(rawX, 240, window.innerWidth);
-    setTipPos({ x, y: r.top });
+    setTipOpen(true);
   };
-  const hide = () => setTipPos(null);
+  const hide = () => setTipOpen(false);
 
   return (
     <div
@@ -148,19 +142,18 @@ function Marker({ marker, variantDefault, introHint, showLabel = true }: MarkerP
       tabIndex={0}
     >
       <span className="dot" />
-      {showLabel && !introVisible && !tipPos && marker.posPct <= 100 && (
+      {showLabel && !introVisible && !tipOpen && marker.posPct <= 100 && (
         <span className="num" aria-hidden>
           {Math.round(marker.valuePct)}%
         </span>
       )}
-      {introVisible && introHint && !tipPos && (
+      {introVisible && introHint && !tipOpen && (
         <span className="intro-hint" aria-hidden>
           {introHint}
         </span>
       )}
-      {tipPos &&
-        createPortal(
-          <div className={`ct-usage-mark-tip ${variant} ${isPinned ? "pinned" : ""}`} style={{ left: tipPos.x, top: tipPos.y }} role="tooltip">
+      <AnchoredPopover open={tipOpen} anchor={ref} placement="top-center" gap={14} className="ct-usage" style={{ pointerEvents: "none" }}>
+          <div className={`ct-usage-mark-tip ${variant} ${isPinned ? "pinned" : ""}`} role="tooltip">
             <div className="t-title">{marker.title}</div>
             {!isPinned && (
               <div className="t-num">
@@ -169,9 +162,8 @@ function Marker({ marker, variantDefault, introHint, showLabel = true }: MarkerP
               </div>
             )}
             <div className="t-desc">{marker.desc}</div>
-          </div>,
-          document.body,
-        )}
+          </div>
+      </AnchoredPopover>
     </div>
   );
 }

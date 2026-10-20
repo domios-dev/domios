@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Check } from "lucide-react";
 import { flushSync } from "react-dom";
-import { createPortal } from "react-dom";
 import { listen } from "../../lib/bridge";
 import { resetWebEvents } from "../../lib/webEvents";
 import { resetOutputStream } from "../../lib/outputStream";
@@ -15,7 +14,7 @@ import {
   selfHost,
   invalidateWebRequestContext,
 } from "../../lib/webApi";
-import { clampFloatingPosition, type FloatingPosition } from "../shared/floatingPosition";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { menuKeyAction } from "./menuKeyboard";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 
@@ -56,7 +55,6 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const [menuPosition, setMenuPosition] = useState<FloatingPosition | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -88,40 +86,6 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node) && !menuRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [open]);
-
-  const placeMenu = useCallback(() => {
-    const rect = rootRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const width = Math.min(320, Math.max(220, window.innerWidth - 8));
-    const height = Math.min((peers.length + 1) * 44 + 8, window.innerHeight - 8);
-    const x = compact ? rect.right - width : rect.left;
-    setMenuPosition(clampFloatingPosition(x, rect.bottom + 4, width, height, window.innerWidth, window.innerHeight));
-  }, [compact, peers.length]);
-
-  useEffect(() => {
-    if (!open) {
-      setMenuPosition(null);
-      return;
-    }
-    placeMenu();
-    window.addEventListener("resize", placeMenu);
-    window.addEventListener("scroll", placeMenu, true);
-    return () => {
-      window.removeEventListener("resize", placeMenu);
-      window.removeEventListener("scroll", placeMenu, true);
-    };
-  }, [open, placeMenu]);
-
-  useEffect(() => {
     const ready = (event: Event) => {
       const detail = (event as CustomEvent<{ switchId: number; success: boolean }>).detail;
       if (detail.switchId !== nextPeerSwitchId) return;
@@ -142,12 +106,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     setOpen(false);
     triggerRef.current?.focus();
   }, []);
+  const dismissMenu = useCallback(() => setOpen(false), []);
 
   // An explicitly opened menu takes focus so arrows and Escape reach it.
   useEffect(() => {
-    if (!open || !menuPosition) return;
-    menuItems()[0]?.focus();
-  }, [open, menuPosition, menuItems]);
+    if (open) menuItems()[0]?.focus();
+  }, [open, menuItems]);
 
   const onMenuKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -206,20 +170,14 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         <span className="max-w-[104px] truncate sm:max-w-[120px]">{label}</span>
         <span className="opacity-60 text-[9px]">▾</span>
       </button>
-      {open && menuPosition && createPortal(
+      <AnchoredPopover open={open} anchor={rootRef} placement={compact ? "bottom-end" : "bottom-start"} onClose={dismissMenu}>
         <div
           ref={menuRef}
           data-testid="peer-picker-menu"
           role="menu"
           aria-label="Domios hosts"
           onKeyDown={onMenuKeyDown}
-          className="ct-menu ct-peer-menu fixed z-50 w-[min(320px,calc(100vw-0.5rem))] overflow-y-auto"
-          style={{
-            top: menuPosition.top,
-            left: menuPosition.left,
-            maxHeight: menuPosition.maxHeight,
-            ...({ "--ct-menu-origin": compact ? "top right" : "top left" } as CSSProperties),
-          }}
+          className="ct-menu ct-peer-menu w-[320px]"
         >
           <button
             type="button"
@@ -279,9 +237,8 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
               no paired peers
             </div>
           )}
-        </div>,
-        document.body,
-      )}
+        </div>
+      </AnchoredPopover>
     </div>
   );
 }

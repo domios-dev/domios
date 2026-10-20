@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { CompletionItem } from "../../lib/completions/types";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 
 interface CompletionPopupProps {
   items: CompletionItem[];
@@ -65,15 +66,11 @@ export function CompletionPopup({
   const visibleItems = items.slice(0, maxVisible);
 
   return (
+    <AnchoredPopover open anchor={{ x: anchorX, y: anchorY }} gap={0}>
     <div
       data-testid="terminal-completion-popup"
-      className="fixed z-50 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-xl overflow-hidden"
-      style={{
-        left: anchorX,
-        top: anchorY,
-        minWidth: 220,
-        maxWidth: 400,
-      }}
+      className="bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-xl overflow-hidden"
+      style={{ minWidth: 220, maxWidth: "min(400px, 100%)" }}
     >
       {visibleItems.map((item, i) => (
         <div
@@ -110,5 +107,6 @@ export function CompletionPopup({
         </div>
       )}
     </div>
+    </AnchoredPopover>
   );
 }

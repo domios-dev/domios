@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { sendTrackedChatMessage } from "../Terminal/chatSendStatus";
-import { clampFloatingPosition } from "./floatingPosition";
+import { AnchoredPopover } from "./AnchoredPopover";
 import { BusySpinner } from "./BusyState";
 
 export interface SelectionAskOwner {
@@ -113,16 +112,15 @@ export function SelectionAsk({ subject, owner, onJump, children, className }: {
     }
   };
 
-  const pos = anchor
-    ? clampFloatingPosition(anchor.left - (open ? POPOVER_WIDTH / 2 : 12), anchor.top, open ? POPOVER_WIDTH : 140, open ? 160 : 32, window.innerWidth, window.innerHeight)
-    : null;
+  const point = anchor ? { x: anchor.left - (open ? POPOVER_WIDTH / 2 : 12), y: anchor.top } : null;
 
   return (
     <div ref={rootRef} className={className} data-selection-ask="">
       {children}
-      {owner && anchor && pos && createPortal(
-        open ? (
-          <div ref={popRef} role="dialog" aria-label={`Ask ${owner.name}`} className="ct-portal-menu ct-menu ct-sel-ask__pop fixed" style={{ top: pos.top, left: pos.left, width: POPOVER_WIDTH }}>
+      {owner && anchor && point && (
+        <AnchoredPopover open anchor={point} gap={0}>
+        {open ? (
+          <div ref={popRef} role="dialog" aria-label={`Ask ${owner.name}`} className="ct-menu ct-sel-ask__pop" style={{ width: POPOVER_WIDTH }}>
             <blockquote className="ct-sel-ask__quote">{anchor.quote}</blockquote>
             <div className="ct-sel-ask__field">
               {/* biome-ignore lint/a11y/noAutofocus: the popover opens on an explicit click to type a question */}
@@ -134,12 +132,12 @@ export function SelectionAsk({ subject, owner, onJump, children, className }: {
             <p className="ct-sel-ask__hint">{failed ? `${owner.name} is not reachable right now.` : `Sends to ${owner.name} and opens the chat`}</p>
           </div>
         ) : (
-          <button type="button" className="ct-sel-ask fixed" style={{ top: pos.top, left: pos.left }} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen(true)} aria-label={`Ask ${owner.name} about the selection`}>
+          <button type="button" className="ct-sel-ask" onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen(true)} aria-label={`Ask ${owner.name} about the selection`}>
             <span className="ct-sel-ask__dot" aria-hidden="true" />
             <span className="ct-sel-ask__label">Ask {owner.name}</span>
           </button>
-        ),
-        document.body,
+        )}
+        </AnchoredPopover>
       )}
     </div>
   );

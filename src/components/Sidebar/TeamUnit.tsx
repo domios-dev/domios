@@ -1,6 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Pencil, UserPlus } from "lucide-react";
 import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
 import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
@@ -9,7 +8,7 @@ import { groupOptionsByLabel } from "../../lib/optionGroups";
 import { TaskStatus, type Plan } from "../Canvas/types";
 import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
-import { clampFloatingPosition } from "../shared/floatingPosition";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { ActivityDots } from "../shared/ActivityDots";
 import { KebabGlyph } from "../shared/RowMenuButton";
 import { PLAN_STATUS_COLORS, SegmentedDonut } from "../shared/SegmentedDonut";
@@ -152,32 +151,23 @@ function TeamMenu({
   const [actionError, setActionError] = useState<string | null>(null);
   const [addingMember, setAddingMember] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
-  const [position, setPosition] = useState({ top: 0, left: 0, maxHeight: 0 });
-  const rootRef = useRef<HTMLDivElement>(null);
+  const [contextPoint, setContextPoint] = useState<{ x: number; y: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const providerStepRefs = useRef(new Map<string, HTMLButtonElement>());
   const pendingProviderFocus = useRef<string | null>(null);
   const addingMemberRef = useRef(false);
-  const openPointRef = useRef({ x: 0, y: 0 });
   const spawnProviders = providers.filter(
     (provider) => provider.transport === "pty" || provider.transport === "chat_backend",
   );
   const modelUsage = useProviderModelUsage(selectedProvider?.id ?? null);
-  const positionMenu = useCallback((x: number, y: number) => {
-    const width = menuRef.current?.offsetWidth || 174;
-    const height = menuRef.current?.offsetHeight || 220;
-    const next = clampFloatingPosition(x, y, width, height, window.innerWidth, window.innerHeight);
-    setPosition(next);
-  }, []);
-
-  const openAt = useCallback((x: number, y: number) => {
-    openPointRef.current = { x, y };
+  const openAt = useCallback((point: { x: number; y: number } | null) => {
+    setContextPoint(point);
     setProviderRole(null);
     setSelectedProviderId(null);
     setActionError(null);
-    positionMenu(x, y);
     setOpen(true);
-  }, [positionMenu]);
+  }, []);
 
   useEffect(() => {
     const target = contextMenuTargetRef.current;
@@ -185,30 +175,17 @@ function TeamMenu({
     const handleContextMenu = (event: MouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      openAt(event.clientX, event.clientY);
+      openAt({ x: event.clientX, y: event.clientY });
     };
     target.addEventListener("contextmenu", handleContextMenu);
     return () => target.removeEventListener("contextmenu", handleContextMenu);
   }, [contextMenuTargetRef, openAt]);
 
-  useLayoutEffect(() => {
-    if (!open) return;
-    positionMenu(openPointRef.current.x, openPointRef.current.y);
-  }, [open, positionMenu, providerRole, selectedProvider]);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
-        setOpen(false);
-        setProviderRole(null);
-        setSelectedProviderId(null);
-      }
-    };
-    document.addEventListener("mousedown", close, true);
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [open]);
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    setProviderRole(null);
+    setSelectedProviderId(null);
+  }, []);
 
   useEffect(() => {
     const providerId = pendingProviderFocus.current;
@@ -243,8 +220,9 @@ function TeamMenu({
   };
 
   return (
-    <div ref={rootRef} className="sidebar-team-menu-root">
+    <div className="sidebar-team-menu-root">
       <button
+        ref={triggerRef}
         type="button"
         data-testid="team-menu-trigger"
         aria-label="Team actions"
@@ -257,27 +235,24 @@ function TeamMenu({
             setOpen(false);
             return;
           }
-          const rect = event.currentTarget.getBoundingClientRect();
-          openAt(rect.right - 174, rect.bottom + 2);
+          openAt(null);
         }}
       >
         <KebabGlyph />
       </button>
-      {open && createPortal(
+      <AnchoredPopover open={open} anchor={contextPoint ?? triggerRef} placement={contextPoint ? "bottom-start" : "bottom-end"} gap={contextPoint ? 0 : 2} onClose={closeMenu}>
         <div
           ref={menuRef}
           data-testid="team-menu"
           role="menu"
           aria-label="Team actions"
-          className="ct-portal-menu ct-menu sidebar-team-menu"
-          style={{ ...position, overflowY: "auto" }}
+          className="ct-menu sidebar-team-menu"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               event.preventDefault();
-              setOpen(false);
-              setProviderRole(null);
-              setSelectedProviderId(null);
+              closeMenu();
+              triggerRef.current?.focus({ preventScroll: true });
               return;
             }
             if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -417,9 +392,8 @@ function TeamMenu({
             </>
           )}
           {actionError && <div data-testid="team-menu-error"><InlineErrorNotice error={actionError} operation="updating this Team" blocking /></div>}
-        </div>,
-        document.body,
-      )}
+        </div>
+      </AnchoredPopover>
     </div>
   );
 }

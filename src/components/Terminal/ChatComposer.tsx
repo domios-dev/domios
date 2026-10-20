@@ -6,7 +6,7 @@ import { onResync } from "../../lib/resync";
 import { createDelayedMessageFeed } from "./delayedMessageFeed";
 import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
 import { cachedSlashCommands, slashCommandsEqual } from "../../lib/providerCapabilities";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { ComposerBubbleRow } from "./ComposerBubbles";
 import { ComposerUploadNotices } from "./ComposerUploadNotices";
 import { ComposerDock } from "./ComposerDock";
@@ -59,6 +59,7 @@ import { composerSendPlan, resolveComposerSend } from "./composerSendPlan";
 import { recordDroppedUploads } from "./DroppedUploadNotice";
 import { classifyAttachmentPaths } from "./composerFiles";
 import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
 import type { ComposerReply } from "./composerReply";
@@ -102,20 +103,18 @@ const SlashPicker = memo(function SlashPicker({
   highlighted,
   onHighlight,
   onPick,
+  triggerRef,
 }: {
   suggestions: SlashCommandSuggestion[];
   highlighted: number;
   onHighlight: (index: number) => void;
   onPick: (cmd: SlashCommandSuggestion) => void;
+  triggerRef: RefObject<HTMLElement | null>;
 }) {
   if (suggestions.length === 0) return null;
   return (
-    <div
-      role="listbox"
-      aria-label="Command suggestions"
-      className="ct-menu absolute bottom-full left-0 right-0 mb-1 max-h-56 overflow-y-auto"
-      style={SUGGESTION_MENU_STYLE}
-    >
+    <AnchoredPopover open anchor={triggerRef} placement="top-start" width="anchor">
+    <div role="listbox" aria-label="Command suggestions" className="ct-menu max-h-56 overflow-y-auto">
       {suggestions.map((c, i) => (
         <button
           key={c.name}
@@ -135,10 +134,9 @@ const SlashPicker = memo(function SlashPicker({
         </button>
       ))}
     </div>
+    </AnchoredPopover>
   );
 });
-
-const SUGGESTION_MENU_STYLE = { zIndex: 10, "--ct-menu-origin": "bottom left", "--ct-menu-shift": "6px" } as CSSProperties;
 
 function recordComposerRender(tabId: string): void {
   if (typeof window === "undefined") return;
@@ -585,12 +583,14 @@ function ChatComposerImpl({
           <SlashPicker
             suggestions={pickerOpen ? suggestions : NO_SUGGESTIONS}
             highlighted={pickerHighlight}
+            triggerRef={textareaRef}
             onHighlight={setPickerHighlight}
             onPick={pickSlashCommand}
           />
           <ComposerMentionPicker
             mentions={mentionPicker.mentions}
             highlighted={mentionPicker.highlighted}
+            triggerRef={textareaRef}
             onHighlight={mentionPicker.setHighlighted}
             onPick={mentionPicker.pick}
           />

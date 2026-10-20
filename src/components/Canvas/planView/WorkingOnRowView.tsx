@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AlertTriangle, Bot, Clock, GitBranch, MonitorSmartphone, Radio } from "lucide-react";
 import type { WorkingOnChip, WorkingOnChipKind, WorkingOnRowModel } from "./workingOnRow";
+import { AnchoredPopover } from "../../shared/AnchoredPopover";
 
 const TONE_CLASS: Record<WorkingOnChip["tone"], string> = {
   info: "working-on-chip-info",
@@ -78,14 +79,8 @@ function useChipOverflow(chipCount: number) {
     return () => ro.disconnect();
   }, [remeasure]);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, [open]);
-
-  return { rowRef, measureRef, visibleCount, open, setOpen };
+  const close = useCallback(() => setOpen(false), []);
+  return { rowRef, measureRef, visibleCount, open, setOpen, close };
 }
 
 export interface WorkingOnRowProps {
@@ -97,7 +92,8 @@ export function WorkingOnRow({ model, variant = "board" }: WorkingOnRowProps) {
   const chips = model.chips;
   if (!chips.length) return null;
 
-  const { rowRef, measureRef, visibleCount, open, setOpen } = useChipOverflow(chips.length);
+  const { rowRef, measureRef, visibleCount, open, setOpen, close } = useChipOverflow(chips.length);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const overflow = chips.length - visibleCount;
   const visible = overflow > 0 ? chips.slice(0, visibleCount) : chips;
   const hidden = overflow > 0 ? chips.slice(visibleCount) : [];
@@ -116,6 +112,7 @@ export function WorkingOnRow({ model, variant = "board" }: WorkingOnRowProps) {
         {overflow > 0 && (
           <span className="working-on-overflow-wrap">
             <button
+              ref={triggerRef}
               type="button"
               data-testid="working-on-overflow-trigger"
               className="working-on-overflow-trigger"
@@ -128,18 +125,13 @@ export function WorkingOnRow({ model, variant = "board" }: WorkingOnRowProps) {
             >
               +{overflow}
             </button>
-            {open && (
-              <div
-                data-testid="working-on-overflow-popover"
-                className="working-on-overflow-popover"
-                role="tooltip"
-                onPointerDown={(e) => e.stopPropagation()}
-              >
+            <AnchoredPopover open={open} anchor={triggerRef} placement="bottom-end" gap={3} onClose={close}>
+              <div data-testid="working-on-overflow-popover" className="working-on-overflow-popover" role="tooltip">
                 {hidden.map((c, i) => (
                   <WorkingOnChipView key={`h-${c.kind}-${i}`} chip={c} />
                 ))}
               </div>
-            )}
+            </AnchoredPopover>
           </span>
         )}
       </div>
