@@ -567,6 +567,9 @@ pub enum SleepReason {
 pub struct Tab {
     #[serde(default, skip_deserializing)]
     pub frozen: bool,
+    /// Mirrors the service checklist store: this tab's current checklist holds live items.
+    #[serde(default, skip_deserializing)]
+    pub has_checklist: bool,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub slept_at_ms: Option<u64>,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]

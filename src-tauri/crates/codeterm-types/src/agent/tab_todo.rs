@@ -1,10 +1,15 @@
 use serde::{Deserialize, Serialize};
 
 mod progress;
+mod write;
 
 pub use progress::{
     tab_todo_bound_refusal, validate_tab_todo_reason, TabTodoAttemptSpan, TabTodoCounters,
     TabTodoEventKind, TabTodoItemEvent, MAX_TAB_TODO_ITEM_EVENTS, MAX_TAB_TODO_REASON_BYTES,
+};
+pub use write::{
+    plan_tab_todo_write, TabTodoItemRef, TabTodoWriteBase, TabTodoWriteEntry, TabTodoWritePlan,
+    TabTodoWriteStateChange, TabTodoWriteTarget,
 };
 
 pub const MAX_TAB_TODO_ITEMS: usize = 12;
