@@ -53,7 +53,7 @@ import { onResync } from "../../lib/resync";
 import { EVENT_STREAM_READY } from "../../lib/eventStreamReady";
 import { createPeerRebindGate } from "./peerRebindGate";
 import type { Tab } from "../../lib/types";
-import { remoteTabsFromOrdinaryProjection, refreshAttachedRemoteAgentStates, shouldRefreshRemoteTabs } from "./remoteTabProjection";
+import { remoteControllerSignature, remoteTabsFromOrdinaryProjection, refreshAttachedRemoteAgentStates, shouldRefreshRemoteTabs } from "./remoteTabProjection";
 import {
   loadAttachedRemoteTabs,
   hydrateAttachedRemoteTabs,
@@ -352,7 +352,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         void refreshPeers();
       } else fn();
     });
-    void listen("mux-state-changed", () => {
+    void listen("remote-workers-changed", () => {
       void requestRemoteRefresh();
     }).then((fn) => {
       if (active) muxUnlisten = fn;
@@ -365,6 +365,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       muxUnlisten?.();
     };
   }, [requestRemoteRefresh]);
+
+  // Live telemetry leaves the controller signature unchanged, so a streaming snapshot never re-reads remote tabs.
+  const remoteControllers = useMemo(() => remoteControllerSignature(state.tabs), [state.tabs]);
+  const remoteControllersRef = useRef(remoteControllers);
+  useEffect(() => {
+    if (remoteControllersRef.current === remoteControllers) return;
+    remoteControllersRef.current = remoteControllers;
+    void requestRemoteRefresh();
+  }, [remoteControllers, requestRemoteRefresh]);
 
   const remotePeerSubscriptions = JSON.stringify(Object.values(state.tabs)
     .filter((tab) => tab.remote_peer_id)

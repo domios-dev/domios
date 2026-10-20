@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useMemo, useRef, type ComponentProps, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   type CollisionDetection,
   DndContext,
@@ -12,6 +12,7 @@ import {
 } from "@dnd-kit/core";
 import {
   arrayMove,
+  SortableContext as DndSortableContext,
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -237,4 +238,16 @@ export function commitSidebarDrag(event: DragEndEvent, handlers: ReorderHandlers
   }
 }
 
-export { SortableContext, rectSortingStrategy, verticalListSortingStrategy } from "@dnd-kit/sortable";
+/** dnd-kit publishes a new context for every new items array, waking each sortable row; equal ids keep the array. */
+export function SortableContext({ items, ...props }: ComponentProps<typeof DndSortableContext>) {
+  const stable = useRef(items);
+  if (stable.current.length !== items.length
+    || stable.current.some((item, index) => sortableId(item) !== sortableId(items[index]))) stable.current = items;
+  return <DndSortableContext items={stable.current} {...props} />;
+}
+
+function sortableId(item: UniqueIdentifier | { id: UniqueIdentifier }): UniqueIdentifier {
+  return typeof item === "object" ? item.id : item;
+}
+
+export { rectSortingStrategy, verticalListSortingStrategy } from "@dnd-kit/sortable";

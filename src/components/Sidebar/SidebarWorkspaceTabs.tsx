@@ -16,18 +16,19 @@ import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { SortableContext, SortableRow, verticalListSortingStrategy, TAB_PREFIX, TEAM_PREFIX } from "./sortable";
 import { buildSidebarDragModel, unitsInOrder, withSiblingOrder, workspaceTabOrder } from "./sidebarDragModel";
 import { isWorkspaceTabActive } from "./sidebarSelection";
-import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
+import { persistTabRename } from "./SidebarPlanPeerPair";
 import { CursorTooltip } from "../shared/CursorTooltip";
 import { TabItem } from "./TabItem";
 import { remoteTeamIdentity } from "./remoteOwnership";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
+import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TabAttention } from "./tabAttention";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
-import { surfaceAttachmentsByOwner, type OwnerRowContext } from "./surfaceAttachmentModel";
+import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { AgentChecklistDisclosure, type ChecklistToggle } from "./AgentChecklist";
 import { showsChecklist } from "./agentChecklistModel";
 
@@ -205,6 +206,13 @@ export function SidebarWorkspaceTabs({
     [plans, planIndex],
   );
 
+  // Memoized rows compare handlers by identity; these always reach the current props.
+  const activateRowTab = useLatestCallback(onActivateTab, []);
+  const closeRowTab = useLatestCallback(onCloseTab, []);
+  const renameRowTab = useLatestCallback((tabId: string, title: string) => {
+    onRenameTab(tabId, title);
+    persistTabRename(ws.id, tabId, title);
+  }, []);
   const sharedRow = {
     workspaceId: ws.id,
     activeTabId: wsActiveTabId,
@@ -215,27 +223,9 @@ export function SidebarWorkspaceTabs({
     orchestrators,
     touchMode,
     uiFontScale,
-    onActivateTab,
-    onCloseTab,
-    onRenameTab: (tabId: string, title: string) => {
-      onRenameTab(tabId, title);
-      persistTabRename(ws.id, tabId, title);
-    },
-  };
-
-  const renderOwnerWithAttachments = (
-    owner: Tab,
-    attachments: readonly Tab[],
-    context: OwnerRowContext,
-    renderOwner: Parameters<typeof SidebarOwnerTabRow>[0]["renderOwner"],
-  ): ReactNode => {
-    return <SidebarOwnerTabRow
-      tab={owner} index={0} attachments={attachments} context={context}
-      tabs={tabs} planIndex={planIndex}
-      closingTabIds={closingTabIds} appearingTabIds={appearingTabIds}
-      compact={compact} group="team" groupKey={owner.id} pinnedIds={[]}
-      toWorkspaceOrder={reorderSiblings} renderOwner={renderOwner} {...sharedRow}
-    />;
+    onActivateTab: activateRowTab,
+    onCloseTab: closeRowTab,
+    onRenameTab: renameRowTab,
   };
 
   const renderMemberShellRow = (
@@ -268,16 +258,14 @@ export function SidebarWorkspaceTabs({
   const rows: ReactNode[] = [];
   const workspaceTabIds = allSortedTabs.map((tab) => tab.id);
   const unitItems = dragModel.units.map((unit) => `${unit.kind === "team" ? TEAM_PREFIX : TAB_PREFIX}${unit.key}`);
-  const reorderUnits = (orderedKeys: string[]) => ({
+  const reorderUnits = useLatestCallback((orderedKeys: string[]) => ({
     workspaceId: ws.id,
     orderedTabIds: workspaceTabOrder(workspaceTabIds, unitsInOrder(dragModel.units, orderedKeys)),
-  });
-  function reorderSiblings(ordered: string[]) {
-    return {
-      workspaceId: ws.id,
-      orderedTabIds: workspaceTabOrder(workspaceTabIds, withSiblingOrder(dragModel.units, ordered, dragModel.blockOf)),
-    };
-  }
+  }), []);
+  const reorderSiblings = useLatestCallback((ordered: string[]) => ({
+    workspaceId: ws.id,
+    orderedTabIds: workspaceTabOrder(workspaceTabIds, withSiblingOrder(dragModel.units, ordered, dragModel.blockOf)),
+  }), []);
 
   const pinnedLooseItems = looseTabs
     .filter(
@@ -296,24 +284,15 @@ export function SidebarWorkspaceTabs({
     const children = looseTabs.filter((candidate) => candidate.parent_tab_id === tab.id);
     const childItems = children.map((child) => `${TAB_PREFIX}${child.id}`);
     const toWorkspaceOrder = group === "tab" ? reorderUnits : reorderSiblings;
-    const renderOwner = (checklistToggle?: ChecklistToggle) => renderOwnerWithAttachments(tab, attachmentsByOwner.get(tab.id) ?? [], "loose", (toggle) => (
-      <SidebarSingleTabRow
-        sortable={false}
-        tab={tab}
-        ownerTitle={surfaceOwnerTitle(tab, tabs)}
-        index={index}
-        activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
-        isClosing={closingTabIds.has(tab.id)}
-        isAppearing={appearingTabIds.has(tab.id)}
-        group={group}
-        groupKey={groupKey}
-        pinnedIds={pinnedIds}
-        toWorkspaceOrder={toWorkspaceOrder}
-        attachmentToggle={toggle}
-        checklistToggle={checklistToggle}
-        {...sharedRow}
+    const renderOwner = (checklistToggle?: ChecklistToggle) => (
+      <SidebarOwnerTabRow
+        tab={tab} index={index} attachments={attachmentsByOwner.get(tab.id) ?? []} context="loose"
+        tabs={tabs} planIndex={planIndex}
+        closingTabIds={closingTabIds} appearingTabIds={appearingTabIds}
+        compact={compact} group="team" groupKey={tab.id} pinnedIds={[]}
+        toWorkspaceOrder={reorderSiblings} ownerSortable={false} checklistToggle={checklistToggle} {...sharedRow}
       />
-    ));
+    );
     return (
       <SidebarSortableBlock key={tab.id} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
         toWorkspaceOrder={toWorkspaceOrder} className="sidebar-tab-tree-row">

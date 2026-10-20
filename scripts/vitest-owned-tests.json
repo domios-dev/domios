@@ -257,5 +257,7 @@
   "src/components/Jobs/useCronJobs.identity.test.tsx",
   "src/components/Sidebar/sortable.contextStability.test.tsx",
   "src/components/Terminal/useComposerBackgroundWork.identity.test.tsx",
-  "src/components/shared/deferredComponent.memo.test.tsx"
+  "src/components/shared/deferredComponent.memo.test.tsx",
+  "src/store/multiplexer/muxFanout.test.ts",
+  "src/components/Sidebar/sidebarRowMemo.test.tsx"
 ]

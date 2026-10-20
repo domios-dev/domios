@@ -9,7 +9,7 @@ const NO_SOURCES: readonly string[] = [];
 
 export function BlueprintChatCards({ tabId, workspaceId }: { tabId: string; workspaceId: string | null }) {
   const sources = useMemo(() => workspaceId ? [workspaceId] : NO_SOURCES, [workspaceId]);
-  const graphs = useWorkspaceGraphs(hostAutomationAdapter, `blueprint-chat:${tabId}`, sources);
+  const graphs = useWorkspaceGraphs(hostAutomationAdapter, "sidebar", sources);
   const blueprints = useMemo(() => graphs.flatMap((graph) => (graph.graph?.blueprints ?? [])
     .filter((blueprint) => blueprint.owner?.tab_id === tabId)
     .map((blueprint) => ({ blueprint, workspaceId: graph.attachment.workspace_id, pipeline: pipelineModel(blueprint) }))), [graphs, tabId]);

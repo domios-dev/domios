@@ -9,6 +9,18 @@ export function shouldRefreshRemoteTabs(
     || tabs.some((record) => Object.values(record).some((tab) => Boolean(tab.remote_peer_id)));
 }
 
+/** The local fields the ordinary projection copies into remote viewers: each controller's title, workspace and team. */
+export function remoteControllerSignature(tabs: Readonly<Record<string, Tab>>): string {
+  const controllers = new Set<string>();
+  for (const tab of Object.values(tabs)) {
+    if (tab.remote_peer_id && tab.parent_tab_id) controllers.add(tab.parent_tab_id);
+  }
+  return JSON.stringify([...controllers].sort().map((id) => {
+    const controller = tabs[id];
+    return [id, controller?.title ?? null, controller?.workspace_id ?? null, controller?.team_id ?? null];
+  }));
+}
+
 export function remoteTabsFromOrdinaryProjection(tabs: Tab[]): Record<string, Tab> {
   return Object.fromEntries(
     tabs.filter((tab) => Boolean(tab.remote_peer_id)).map((tab) => [tab.id, tab]),
