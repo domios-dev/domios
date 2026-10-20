@@ -476,7 +476,7 @@ fn derive_project_root_from_index_path(file_path: &FsPath, plan_id: &str) -> Opt
         return None;
     }
     let codeterm_dir = plans_dir.parent()?;
-    if codeterm_dir.file_name()?.to_str()? != ".codeterm" {
+    if codeterm_dir.file_name()?.to_str()? != ".domios" {
         return None;
     }
     codeterm_dir.parent().map(FsPath::to_path_buf)
@@ -567,7 +567,7 @@ mod tests {
     #[test]
     fn derive_project_root_accepts_canonical_sidecar_path() {
         let root = derive_project_root_from_index_path(
-            FsPath::new("/repo/.codeterm/plans/active/pl_test/plan.yaml"),
+            FsPath::new("/repo/.domios/plans/active/pl_test/plan.yaml"),
             "pl_test",
         );
         assert_eq!(root, Some(PathBuf::from("/repo")));
@@ -576,7 +576,7 @@ mod tests {
     #[test]
     fn derive_project_root_rejects_non_sidecar_path() {
         let root = derive_project_root_from_index_path(
-            FsPath::new("/repo/.codeterm/plans/active/pl_other/plan.yaml"),
+            FsPath::new("/repo/.domios/plans/active/pl_other/plan.yaml"),
             "pl_test",
         );
         assert!(root.is_none());
@@ -586,7 +586,7 @@ mod tests {
     fn load_plan_for_ref_hydrates_cross_project_index_hit() {
         let entry = mk_index_entry(
             "pl_test",
-            PathBuf::from("/project-b/.codeterm/plans/active/pl_test/plan.yaml"),
+            PathBuf::from("/project-b/.domios/plans/active/pl_test/plan.yaml"),
             PlanStatus::Active,
         );
         let loaded = std::cell::RefCell::new(None::<Plan>);
@@ -619,7 +619,7 @@ mod tests {
     fn load_plan_for_ref_reports_unreachable_from_loader() {
         let entry = mk_index_entry(
             "pl_test",
-            PathBuf::from("/project-b/.codeterm/plans/active/pl_test/plan.yaml"),
+            PathBuf::from("/project-b/.domios/plans/active/pl_test/plan.yaml"),
             PlanStatus::Active,
         );
         let (plan, state) =
@@ -641,7 +641,7 @@ mod tests {
         archived.status = PlanStatus::Archived;
         let archived_entry = mk_index_entry(
             "pl_archived",
-            PathBuf::from("/repo/.codeterm/plans/archive/pl_archived/plan.yaml"),
+            PathBuf::from("/repo/.domios/plans/archive/pl_archived/plan.yaml"),
             PlanStatus::Archived,
         );
         let (archived_plan, archived_state) = load_plan_for_ref(

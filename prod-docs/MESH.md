@@ -12,6 +12,8 @@
 
 Discovery (mDNS/UDP/Tailscale) finds peers on the network. Paired peers are shown in the mesh, unpaired peers appear in the "Discovered" list. UDP discovery broadcasts every 30 seconds.
 
+Mesh pairing and peer calls require both daemons to run Domios 1.15.0 or later. A 1.14.9 peer receives a version error explaining that both peers must be upgraded; update peers through the updater before pairing or using the mesh.
+
 Broadcast requires a live, health-proven remote listener. A loopback-only or unready instance refuses with `mesh_listener_not_remotely_ready` before enabling broadcast; it never advertises LAN access merely because that interface exists. Discovery records carry the development flag and only addresses served by the ready listener set. Named dev instances can opt into an additional authenticated tailnet listener while retaining loopback; see `codeterm docs CONFIG`. An empty discovery snapshot is not proof that asynchronous resolution has ended.
 
 When discovery cannot cross API ports, connect directly:
@@ -113,7 +115,7 @@ Every live announce carries `relay_protocol_version` and an optional typed `web_
 
 The default **Open** action never sends a remote daemon token to the browser. It opens the local Web UI entry origin with the local token in a URL fragment and a paired peer ID. The browser removes that fragment from history, resolves the peer name from the authenticated local peer list, and sends API traffic through the signed Mesh relay. Relay authorization uses the same policy as a direct signed peer request. REST config responses redact `api.token`, and `/api/secrets/*` cannot be relayed even with Full access.
 
-Mesh relay keeps wire protocol version `1` so older peers continue to exchange sends. Routed messages are framed by the receiving daemon: older peers emit the legacy marker form, while current peers emit Domios tags. Relay handlers accept protocol versions `1` and `2` during this rollout and refuse unknown versions. Relayed send bodies stay unwrapped until the receiving `/send` handler adds its local route frame, preventing double wrapping.
+Domios 1.15.0 uses mesh relay protocol version 2. Version 1 peers are refused with an upgrade message; both peers must run Domios 1.15.0 or later. Routed messages are framed by the receiving daemon, and relayed send bodies stay unwrapped until the receiving `/send` handler adds its local route frame, preventing double wrapping.
 
 Whole-peer Web views scope each terminal subscription to `mesh:<peer>/<tab>`, just like remote desktop tabs. The gateway requires that composite identity for output streams; an unscoped request returns 400 even when metadata reads succeed. Each subscription keeps its own peer-qualified replay cursor and uses only the serving gateway's credentials. The initial standalone boot frame establishes the cursor namespace before output arrives, so reconnects resume rather than discard the saved byte offset. A matching relay protocol does not by itself prove every feature is available on an older application version.
 
@@ -199,4 +201,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 53 -->
+<!-- revision: 54 -->

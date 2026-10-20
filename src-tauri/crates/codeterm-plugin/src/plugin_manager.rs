@@ -500,7 +500,7 @@ mod tests {
             hooks = ["mux-state-changed"]
 
             [permissions]
-            filesystem = ["~/.codeterm/plugins/memory/"]
+            filesystem = ["~/.domios/plugins/memory/"]
             network = false
 
             [activation]

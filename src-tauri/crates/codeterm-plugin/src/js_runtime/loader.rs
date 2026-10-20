@@ -168,7 +168,7 @@ pub(crate) fn load_one_with_installation(
 }
 
 /// FS/env policy for a plugin. Bundled/in-workspace plugins (anything NOT under
-/// the user plugins dir `~/.codeterm/plugins/`) and verified `System` plugins
+/// the user plugins dir `~/.domios/plugins/`) and verified `System` plugins
 /// get full host access. A user-dropped plugin is confined to its own dir + the
 /// session root it declares; `envGet` of secret-named vars is blocked. (Trust
 /// alone can't gate this: `CODETERM_DEV=1` forces every plugin to `ThirdParty`,
@@ -239,7 +239,7 @@ fn compute_sandbox(
         .with_settings(settings_json)
 }
 
-/// A bundle under the user plugins dir `~/.codeterm/plugins/`, as opposed to a
+/// A bundle under the user plugins dir `~/.domios/plugins/`, as opposed to a
 /// bundled or in-workspace one.
 fn is_user_dropin(bundle_dir: &Path) -> bool {
     let user_plugins = codeterm_paths::data_dir().join("plugins");

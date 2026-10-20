@@ -2,7 +2,9 @@
   if (window.top !== window) return;
   const bootstrap = __CODETERM_SHELL_BOOTSTRAP__;
   const fallbackOrigins = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"];
-  const fallback = fallbackOrigins.some(origin => window.location.href === origin + "/index.html");
+  // The shell appends its root generation query; packaged pages may report an opaque "null" origin.
+  const documentHref = window.location.href.split(/[?#]/)[0];
+  const fallback = fallbackOrigins.some(origin => documentHref === origin + "/index.html");
   if (window.location.origin !== (bootstrap.frontendOrigin ?? bootstrap.origin) && !fallback) return;
   if (__CODETERM_SHELL_DEBUG__) {
     const diagnostic = (stage, failure) => {

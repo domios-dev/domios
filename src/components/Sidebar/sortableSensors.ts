@@ -1,7 +1,8 @@
 import { KeyboardSensor, MouseSensor, TouchSensor } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 
-export const POINTER_DRAG_ACTIVATION_DISTANCE = 4;
+// A trackpad press drifts several pixels; once a drag starts, dnd-kit swallows the click.
+export const POINTER_DRAG_ACTIVATION_DISTANCE = 10;
 
 export function sortableSensorConfiguration(pointerType: "mouse" | "touch") {
   return {

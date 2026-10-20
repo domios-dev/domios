@@ -282,7 +282,7 @@ fn cartographer_map_revert_restores_the_recorded_map_and_stays_append_only() {
         history.is_file(),
         "superseded map is retained outside the project root"
     );
-    assert!(!root.join(".codeterm").exists());
+    assert!(!root.join(".domios").exists());
     assert!(!root.join("essences/map-history").exists());
 
     let outcome = journal::revert(&map, &decisions, "decision-0001", &history_root(root))

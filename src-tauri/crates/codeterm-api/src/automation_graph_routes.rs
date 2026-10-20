@@ -386,7 +386,7 @@ mod tests {
                     .file_name()
                     .unwrap()
                     .to_string_lossy()
-                    .starts_with(".codeterm-dev-sentinel-graph-test-"));
+                    .starts_with(".domios-dev-sentinel-graph-test-"));
                 let (mut mux, _) =
                     codeterm_service_core::multiplexer::state::MultiplexerState::new();
                 let workspace = mux.snapshot().active_workspace_id.unwrap();

@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn browser_profile_layout_places_clean_and_named_dirs_under_one_root() {
-        let layout = ProfileLayout::under_data_dir(Path::new("/home/u/.codeterm"));
+        let layout = ProfileLayout::under_data_dir(Path::new("/home/u/.domios"));
         let named = layout.dir_for(&ProfileKind::Named {
             name: "work".into(),
         });
@@ -209,11 +209,11 @@ mod tests {
         });
         assert_eq!(
             named,
-            PathBuf::from("/home/u/.codeterm/browsers/profiles/work")
+            PathBuf::from("/home/u/.domios/browsers/profiles/work")
         );
         assert_eq!(
             clean,
-            PathBuf::from("/home/u/.codeterm/browsers/sessions/abc")
+            PathBuf::from("/home/u/.domios/browsers/sessions/abc")
         );
     }
 

@@ -33,7 +33,7 @@ fn the_total_log_budget_stays_within_two_hundred_megabytes() {
 #[test]
 fn a_writer_past_the_cap_rotates_instead_of_growing() {
     let dir = tempfile::tempdir().unwrap();
-    let live = dir.path().join("codeterm.log");
+    let live = dir.path().join("domios.log");
     std::fs::write(&live, vec![b'x'; (MAX_LOG_BYTES + 1) as usize]).unwrap();
 
     let mut sink = RotatingLog::open(dir.path()).unwrap();
@@ -41,7 +41,7 @@ fn a_writer_past_the_cap_rotates_instead_of_growing() {
     sink.flush().unwrap();
 
     assert!(
-        dir.path().join("codeterm.log.1").exists(),
+        dir.path().join("domios.log.1").exists(),
         "the oversized generation must be kept as .1"
     );
     let live_len = std::fs::metadata(&live).unwrap().len();
@@ -54,10 +54,10 @@ fn a_writer_past_the_cap_rotates_instead_of_growing() {
 #[test]
 fn rotation_drops_the_oldest_generation_rather_than_accumulating() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("codeterm.log"), b"live").unwrap();
+    std::fs::write(dir.path().join("domios.log"), b"live").unwrap();
     for generation in 1..=LOG_GENERATIONS {
         std::fs::write(
-            dir.path().join(format!("codeterm.log.{generation}")),
+            dir.path().join(format!("domios.log.{generation}")),
             format!("gen{generation}"),
         )
         .unwrap();
@@ -67,10 +67,10 @@ fn rotation_drops_the_oldest_generation_rather_than_accumulating() {
 
     let extra = dir
         .path()
-        .join(format!("codeterm.log.{}", LOG_GENERATIONS + 1));
+        .join(format!("domios.log.{}", LOG_GENERATIONS + 1));
     assert!(!extra.exists(), "rotation must not create a new generation");
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("codeterm.log.1")).unwrap(),
+        std::fs::read_to_string(dir.path().join("domios.log.1")).unwrap(),
         "live",
         "the live log becomes the newest generation"
     );
@@ -82,7 +82,7 @@ fn a_writer_under_the_cap_never_rotates() {
     let mut sink = RotatingLog::open(dir.path()).unwrap();
     sink.write_all(b"one line\n").unwrap();
     sink.flush().unwrap();
-    assert!(!dir.path().join("codeterm.log.1").exists());
+    assert!(!dir.path().join("domios.log.1").exists());
 }
 
 #[test]

@@ -67,7 +67,7 @@ const workspace: Workspace = {
 function indexEntry(overrides: Partial<PlanIndexEntry> = {}): PlanIndexEntry {
   return {
     plan_id: FIXTURE_PLAN.id,
-    file_path: `/repo/hub/.codeterm/plans/active/${FIXTURE_PLAN.id}/plan.json`,
+    file_path: `/repo/hub/.domios/plans/active/${FIXTURE_PLAN.id}/plan.json`,
     canonical_project_path: "",
     owner: FIXTURE_PLAN.owner,
     title: FIXTURE_PLAN.title,
@@ -114,7 +114,7 @@ test("deriveWorkspacePlanEntries matches Windows verbatim canonical ownership", 
   const windowsWorkspace = { ...workspace, cwd: "D:\\Developer\\codeterm" };
   const entries = deriveWorkspacePlanEntries(
     [indexEntry({
-      file_path: "C:\\Users\\dev\\.codeterm\\plans.db",
+      file_path: "C:\\Users\\dev\\.domios\\plans.db",
       canonical_project_path: "\\\\?\\D:\\Developer\\codeterm",
     })],
     windowsWorkspace,
@@ -126,7 +126,7 @@ test("deriveWorkspacePlanEntries matches Windows verbatim canonical ownership", 
 test("deriveWorkspacePlanEntries matches Unix canonical ownership", () => {
   const entries = deriveWorkspacePlanEntries(
     [indexEntry({
-      file_path: "/home/user/.codeterm/plans.db",
+      file_path: "/home/user/.domios/plans.db",
       canonical_project_path: "/repo/hub",
     })],
     workspace,
@@ -137,7 +137,7 @@ test("deriveWorkspacePlanEntries matches Unix canonical ownership", () => {
 
 test("deriveWorkspacePlanEntries never treats a shared database path as ownership", () => {
   const centralDatabase = indexEntry({
-    file_path: "/repo/hub/.codeterm/plans.db",
+    file_path: "/repo/hub/.domios/plans.db",
     canonical_project_path: "",
   });
   const entries = deriveWorkspacePlanEntries([centralDatabase], workspace, tabs);
@@ -149,12 +149,12 @@ test("projected legacy centralized ownership resolves only in its current worksp
   const foreignWorkspace = { ...workspace, id: "ws-foreign", cwd: "/repo/foreign" };
   const currentEntry = indexEntry({
     plan_id: "pl-legacy-current",
-    file_path: "/home/user/.codeterm/plans.db",
+    file_path: "/home/user/.domios/plans.db",
     canonical_project_path: "/repo/hub",
   });
   const foreignEntry = indexEntry({
     plan_id: "pl-legacy-foreign",
-    file_path: "/home/user/.codeterm/plans.db",
+    file_path: "/home/user/.domios/plans.db",
     canonical_project_path: "/repo/foreign",
   });
 
@@ -175,7 +175,7 @@ test("projected legacy centralized ownership resolves only in its current worksp
 
 test("canonical ownership overrides a misleading legacy file path", () => {
   const foreign = indexEntry({
-    file_path: `/repo/hub/.codeterm/plans/active/${FIXTURE_PLAN.id}/plan.json`,
+    file_path: `/repo/hub/.domios/plans/active/${FIXTURE_PLAN.id}/plan.json`,
     canonical_project_path: "/repo/other",
   });
   const entries = deriveWorkspacePlanEntries([foreign], workspace, tabs);
@@ -185,7 +185,7 @@ test("canonical ownership overrides a misleading legacy file path", () => {
 test("deriveWorkspacePlanEntries ignores archived plans", () => {
   const archived = indexEntry({
     status: "archived",
-    file_path: "/home/user/.codeterm/plans.db",
+    file_path: "/home/user/.domios/plans.db",
     canonical_project_path: "/repo/hub",
   });
   const entries = deriveWorkspacePlanEntries([archived], workspace, tabs);
@@ -195,7 +195,7 @@ test("deriveWorkspacePlanEntries ignores archived plans", () => {
 test("deriveWorkspacePlanEntries ignores assigned plans from another project", () => {
   const assigned = indexEntry({
     plan_id: "plan-worker",
-    file_path: "/repo/other/.codeterm/plans/active/plan-worker/plan.json",
+    file_path: "/repo/other/.domios/plans/active/plan-worker/plan.json",
     owner: { tab_id: "other-orch", session_id: null, title: null },
     assigned_tab_ids: ["worker-1"],
   });
@@ -206,7 +206,7 @@ test("deriveWorkspacePlanEntries ignores assigned plans from another project", (
 test("deriveWorkspacePlanEntries does not leak foreign project plans through owner Tabs", () => {
   const foreign = indexEntry({
     plan_id: "plan-foreign",
-    file_path: "/repo/other/.codeterm/plans/active/plan-foreign/plan.json",
+    file_path: "/repo/other/.domios/plans/active/plan-foreign/plan.json",
     owner: { tab_id: "orch-1", session_id: null, title: null },
     assigned_tab_ids: [],
   });
@@ -217,7 +217,7 @@ test("deriveWorkspacePlanEntries does not leak foreign project plans through own
 test("deriveWorkspacePlanEntries matches project plans even when workspace has no Tabs", () => {
   const emptyWorkspace = { ...workspace, tabs: [] };
   const entries = deriveWorkspacePlanEntries(
-    [indexEntry({ file_path: `${workspace.cwd}/.codeterm/plans/active/${FIXTURE_PLAN.id}/plan.json` })],
+    [indexEntry({ file_path: `${workspace.cwd}/.domios/plans/active/${FIXTURE_PLAN.id}/plan.json` })],
     emptyWorkspace,
     {},
   );
@@ -229,7 +229,7 @@ test("deriveWorkspacePlanEntries hides empty project plans without Tab assignmen
   const entries = deriveWorkspacePlanEntries(
     [
       indexEntry({
-        file_path: `${workspace.cwd}/.codeterm/plans/active/empty/plan.json`,
+        file_path: `${workspace.cwd}/.domios/plans/active/empty/plan.json`,
         assigned_tab_ids: [],
         task_count: 0,
         section_count: 0,
@@ -246,7 +246,7 @@ test("deriveWorkspacePlanEntries hides empty project plans without Tab assignmen
 
 test("deriveWorkspacePlanEntries hides plans outside workspace project path", () => {
   const foreign = indexEntry({
-    file_path: "/other/repo/.codeterm/plans/active/plan/plan.json",
+    file_path: "/other/repo/.domios/plans/active/plan/plan.json",
     owner: { tab_id: "foreign-orch", session_id: null, title: null },
     assigned_tab_ids: [],
   });
@@ -361,7 +361,7 @@ test("resolveWorkspaceFocusNodeIds prefers the jumped-to task", () => {
 test("findPlanOwnerWorkspace reads canonical ownership over a shared database path", () => {
   const ownerWorkspace = { ...workspace, id: "ws-owner", cwd: "/repo/owner" };
   const foreignWorkspace = { ...workspace, id: "ws-current", cwd: "/repo/current" };
-  const entry = indexEntry({ file_path: "/home/user/.codeterm/plans.db", canonical_project_path: "/repo/owner" });
+  const entry = indexEntry({ file_path: "/home/user/.domios/plans.db", canonical_project_path: "/repo/owner" });
   const owner = findPlanOwnerWorkspace(FIXTURE_PLAN.id, [entry], [foreignWorkspace, ownerWorkspace]);
   assert(owner?.workspace.id === ownerWorkspace.id, "owner comes from canonical project ownership");
   const resolved = findPlanOwnerWorkspace(FIXTURE_PLAN.id, [], [workspace, ownerWorkspace], "/repo/owner");
@@ -412,12 +412,12 @@ test("deriveWorkspacePlanEntries cumulatively includes root and nested-root plan
   const mk = (planId: string, filePath: string, updatedAt: number) =>
     indexEntry({ plan_id: planId, file_path: filePath, updated_at: updatedAt });
   const index = [
-    mk("A1", "/repo/hub/.codeterm/plans/active/A1/plan.json", 40),
-    mk("A2", "/repo/hub/.codeterm/plans/active/A2/plan.json", 30),
-    mk("p1", "/repo/hub/packages/p1/.codeterm/plans/active/p1/plan.json", 20),
-    mk("p2", "/repo/hub/tools/p2/.codeterm/plans/active/p2/plan.json", 10),
-    mk("B1", "/repo/hub-worktree/.codeterm/plans/active/B1/plan.json", 99),
-    mk("C1", "/other/root/.codeterm/plans/active/C1/plan.json", 99),
+    mk("A1", "/repo/hub/.domios/plans/active/A1/plan.json", 40),
+    mk("A2", "/repo/hub/.domios/plans/active/A2/plan.json", 30),
+    mk("p1", "/repo/hub/packages/p1/.domios/plans/active/p1/plan.json", 20),
+    mk("p2", "/repo/hub/tools/p2/.domios/plans/active/p2/plan.json", 10),
+    mk("B1", "/repo/hub-worktree/.domios/plans/active/B1/plan.json", 99),
+    mk("C1", "/other/root/.domios/plans/active/C1/plan.json", 99),
   ];
   const ids = deriveWorkspacePlanEntries(index, ws, {}).map((e) => e.plan_id);
   assert(ids.join(",") === "A1,A2,p1,p2", `root + nested only, sibling/outside excluded (got ${ids.join(",")})`);
@@ -427,12 +427,12 @@ test("deriveWorkspacePlanEntries deduplicates a plan surfaced through root and n
   const ws = { ...workspace, cwd: "/repo/hub", tabs: [] };
   const rootAlias = indexEntry({
     plan_id: "dup",
-    file_path: "/repo/hub/.codeterm/plans/active/dup/plan.json",
+    file_path: "/repo/hub/.domios/plans/active/dup/plan.json",
     updated_at: 50,
   });
   const nestedAlias = indexEntry({
     plan_id: "dup",
-    file_path: "/repo/hub/nested/.codeterm/plans/active/dup/plan.json",
+    file_path: "/repo/hub/nested/.domios/plans/active/dup/plan.json",
     updated_at: 70,
   });
   const entries = deriveWorkspacePlanEntries([rootAlias, nestedAlias], ws, {});
@@ -445,7 +445,7 @@ test("deriveWorkspacePlanEntries orders stably and deterministically across relo
   const mk = (planId: string, updatedAt: number) =>
     indexEntry({
       plan_id: planId,
-      file_path: `/repo/hub/.codeterm/plans/active/${planId}/plan.json`,
+      file_path: `/repo/hub/.domios/plans/active/${planId}/plan.json`,
       updated_at: updatedAt,
     });
   // Equal updated_at must break ties deterministically by plan id, regardless of input order.
@@ -461,12 +461,12 @@ test("deriveWorkspacePlanEntries updates the same surface in place on a nested p
   const ws = { ...workspace, cwd: "/repo/hub", tabs: [] };
   const root = indexEntry({
     plan_id: "A1",
-    file_path: "/repo/hub/.codeterm/plans/active/A1/plan.json",
+    file_path: "/repo/hub/.domios/plans/active/A1/plan.json",
     updated_at: 10,
   });
   const nested = indexEntry({
     plan_id: "p1",
-    file_path: "/repo/hub/packages/p1/.codeterm/plans/active/p1/plan.json",
+    file_path: "/repo/hub/packages/p1/.domios/plans/active/p1/plan.json",
     updated_at: 5,
   });
   const before = deriveWorkspacePlanEntries([root, nested], ws, {}).map((e) => e.plan_id);

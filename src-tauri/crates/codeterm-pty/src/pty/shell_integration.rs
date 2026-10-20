@@ -499,12 +499,11 @@ mod tests {
 
     #[test]
     fn powershell_integration_loads_as_text_with_the_path_quoted() {
-        let command = powershell_integration_command(std::path::Path::new(
-            "C:/Users/o'neil/.codeterm/ps.ps1",
-        ));
+        let command =
+            powershell_integration_command(std::path::Path::new("C:/Users/o'neil/.domios/ps.ps1"));
         assert_eq!(
             command,
-            "Invoke-Expression ([System.IO.File]::ReadAllText('C:/Users/o''neil/.codeterm/ps.ps1'))"
+            "Invoke-Expression ([System.IO.File]::ReadAllText('C:/Users/o''neil/.domios/ps.ps1'))"
         );
     }
 

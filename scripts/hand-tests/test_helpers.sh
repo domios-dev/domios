@@ -7,7 +7,7 @@ set -euo pipefail
 
 # Auto-detect dev instance
 export CT_API="${CODETERM_API_URL:-http://127.0.0.1:7686}"
-export CT_TOKEN="${CODETERM_API_TOKEN:-$(grep 'token' "$USERPROFILE/.codeterm-dev/config.toml" 2>/dev/null | sed 's/.*"\(.*\)".*/\1/' || echo '')}"
+export CT_TOKEN="${CODETERM_API_TOKEN:-$(grep 'token' "$USERPROFILE/.domios-dev/config.toml" 2>/dev/null | sed 's/.*"\(.*\)".*/\1/' || echo '')}"
 
 _ct() { curl -s "$CT_API$1" -H "Authorization: Bearer $CT_TOKEN" "${@:2}"; }
 _ct_json() { _ct "$1" -H "Content-Type: application/json" "${@:2}"; }
@@ -155,16 +155,16 @@ ct_health() {
 
 ct_logs() {
   local n="${1:-20}"
-  tail -"$n" "$USERPROFILE/.codeterm-dev/logs/codeterm.log" 2>/dev/null | grep -v "idle-poll\|NewEvents\|RedrawEvents"
+  tail -"$n" "$USERPROFILE/.domios-dev/logs/domios.log" 2>/dev/null | grep -v "idle-poll\|NewEvents\|RedrawEvents"
 }
 
 ct_logs_agent() {
   grep -i "auto-detect\|agent exited\|ensure_agent\|\[hook\]\|\[resume\]" \
-    "$USERPROFILE/.codeterm-dev/logs/codeterm.log" 2>/dev/null | tail -"${1:-20}"
+    "$USERPROFILE/.domios-dev/logs/domios.log" 2>/dev/null | tail -"${1:-20}"
 }
 
 ct_clear_logs() {
-  echo "" > "$USERPROFILE/.codeterm-dev/logs/codeterm.log"
+  echo "" > "$USERPROFILE/.domios-dev/logs/domios.log"
   echo "Logs cleared"
 }
 

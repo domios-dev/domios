@@ -106,6 +106,7 @@ pub(crate) fn event_stats_snapshot(
         "emit_causes": st.causes.snapshot(),
         "emit_fires": st.fires.load(Ordering::Relaxed),
         "emit_suppressed": st.suppressed.load(Ordering::Relaxed),
+        "emit_unchanged": st.unchanged.load(Ordering::Relaxed),
         "pending": pending,
         "frozen": st.frozen.load(Ordering::Acquire),
         "pending_since_ms": if pending && since > 0 { now.saturating_sub(since) } else { 0 },

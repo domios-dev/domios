@@ -1,5 +1,39 @@
 use std::path::{Path, PathBuf};
 
+// Restart Manager keeps registrations in a size-limited registry key; foreign trees in the install folder overflow it.
+pub(super) const INSTALL_BINARY_DIRS: [&str; 5] =
+    ["", "cli", "domios-server", "conpty/x64", "conpty/arm64"];
+
+pub(super) fn install_binaries(
+    root: &Path,
+    listing: impl IntoIterator<Item = PathBuf>,
+) -> Vec<PathBuf> {
+    listing
+        .into_iter()
+        .filter(|path| {
+            path.strip_prefix(root)
+                .is_ok_and(|relative| is_install_binary(relative))
+        })
+        .collect()
+}
+
+fn is_install_binary(relative: &Path) -> bool {
+    let binary = relative.extension().is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("exe") || extension.eq_ignore_ascii_case("dll")
+    });
+    let directory = relative
+        .parent()
+        .map(|parent| {
+            parent
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy().to_ascii_lowercase())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .unwrap_or_default();
+    binary && INSTALL_BINARY_DIRS.contains(&directory.as_str())
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum HolderDisposition {
     UpdatingApp,

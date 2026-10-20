@@ -1,10 +1,7 @@
 // Opens a frontend (such as a lane's Vite server) as a web client of the DEV daemon, with the render hook
 // installed before React loads. The DEV token is read from the DEV config and never printed.
 //   node scripts/dev-perf/open.mjs <frontend-url> --port <browser-cdp-port> [--width 390 --height 844]
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { connectPage, sleep } from "./cdp.mjs";
+import { connectPage, devApiToken, sleep } from "./cdp.mjs";
 import { RENDER_HOOK_SOURCE } from "./renderHook.mjs";
 
 const args = process.argv.slice(2);
@@ -12,10 +9,7 @@ const option = (name) => { const index = args.indexOf(name); return index >= 0 ?
 const target = args.find((arg) => /^https?:/.test(arg));
 if (!target) throw new Error("usage: open.mjs <frontend-url> --port <cdp-port>");
 
-const config = readFileSync(join(homedir(), ".codeterm-dev", "config.toml"), "utf8");
-const apiSection = config.slice(config.indexOf("[api]"));
-const token = apiSection.match(/^token = "([^"]+)"/m)?.[1];
-if (!token) throw new Error("DEV config has no [api] token");
+const token = devApiToken();
 
 const origin = new URL(target).origin;
 // One page alternates between frontends so A/B runs never measure a throttled background tab.

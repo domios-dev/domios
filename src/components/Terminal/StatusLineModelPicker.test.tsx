@@ -354,7 +354,7 @@ test("a provider without live switching renders plain text with a reason", async
 
 test("refresh asks the provider's catalogue once and escape returns focus", async () => {
   const refreshed: string[] = [];
-  __setModelCatalogueRefreshApiForTest({ refresh: async (id) => { refreshed.push(id); return true; } });
+  __setModelCatalogueRefreshApiForTest({ refresh: async (id) => { refreshed.push(id); return { refreshed: true }; } });
   const view = await mount(descriptor("live"));
   try {
     await act(async () => view.trigger()!.click());
@@ -364,6 +364,19 @@ test("refresh asks the provider's catalogue once and escape returns focus", asyn
     await act(async () => view.picker()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })));
     assert.equal(view.picker(), null);
     assert.equal(document.activeElement, view.trigger());
+  } finally {
+    await view.unmount();
+    __setModelCatalogueRefreshApiForTest(null);
+  }
+});
+
+test("a failed refresh shows the daemon's reason", async () => {
+  __setModelCatalogueRefreshApiForTest({ refresh: async () => ({ refreshed: false, reason: "opaque-reason" }) });
+  const view = await mount(descriptor("live"));
+  try {
+    await act(async () => view.trigger()!.click());
+    await act(async () => document.body.querySelector<HTMLButtonElement>('button[aria-label="Refresh models"]')!.click());
+    assert.match(document.body.querySelector('[role="alert"]')?.textContent ?? "", /opaque-reason/);
   } finally {
     await view.unmount();
     __setModelCatalogueRefreshApiForTest(null);

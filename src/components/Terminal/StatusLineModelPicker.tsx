@@ -8,7 +8,7 @@ import { Check, ChevronDown, RotateCw } from "lucide-react";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
-import { getModelCatalogueRefreshApi } from "../../lib/modelCatalogueRefresh";
+import { getModelCatalogueRefreshApi, refreshFailureMessage } from "../../lib/modelCatalogueRefresh";
 import { getTabModelApi } from "../Sidebar/tabModelApi";
 import { modelSwitchFailure } from "../../lib/modelSwitchFailure";
 import { BusySpinner } from "../shared/BusyState";
@@ -260,7 +260,7 @@ export function ModelPickerPopover({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(failure?.message ?? null);
   const searchable = pickerNeedsSearch(descriptor);
-  const groups = pickerModelGroups(descriptor, staged?.model, query, showAll);
+  const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, currentModel);
   const efforts = showReasoning ? effortChoices(descriptor, staged?.model) : [];
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
   const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
@@ -301,9 +301,8 @@ export function ModelPickerPopover({
     setRefreshing(true);
     setError(null);
     try {
-      if (!(await getModelCatalogueRefreshApi().refresh(descriptor.id))) {
-        setError("The model list could not be refreshed. The current list stays in use.");
-      }
+      const outcome = await getModelCatalogueRefreshApi().refresh(descriptor.id);
+      if (!outcome.refreshed) setError(refreshFailureMessage(outcome.reason));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {

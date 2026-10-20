@@ -25,21 +25,21 @@ pub fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
 }
 
 /// Determine the CodeTerm data directory.
-/// Dev instances use `~/.codeterm-dev[-<slug>]/`, prod uses `~/.codeterm/`.
+/// Dev instances use `~/.domios-dev[-<slug>]/`, prod uses `~/.domios/`.
 /// A named dev socket also selects its matching data directory when
 /// CODETERM_INSTANCE is absent, keeping local commands on the socket's instance.
 pub fn data_dir_name() -> String {
     let is_dev = std::env::var("CODETERM_SOCKET_PATH")
-        .map(|sp| sp.contains("codeterm-dev"))
+        .map(|sp| sp.contains("domios-dev"))
         .unwrap_or(false)
         || std::env::var("CODETERM_API_PORT")
             .map(|port| !port.trim().is_empty() && port.trim() != "7685")
             .unwrap_or(false)
         || resolved_instance().value.is_some();
     if is_dev {
-        return format!(".codeterm-dev{}", instance_suffix());
+        return format!(".domios-dev{}", instance_suffix());
     }
-    ".codeterm".to_string()
+    ".domios".to_string()
 }
 
 /// Suffix for the resolved named dev instance.
@@ -636,7 +636,7 @@ fn main_impl() {
                                 }));
                             } else {
                                 eprintln!(
-                                    "[debug.crash] trigger dispatched (kind={}). For segv/abort the daemon will die; check ~/.codeterm[-dev]/crashes/ for the report.",
+                                    "[debug.crash] trigger dispatched (kind={}). For segv/abort the daemon will die; check ~/.domios[-dev]/crashes/ for the report.",
                                     kind.as_str()
                                 );
                             }

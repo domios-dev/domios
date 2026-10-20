@@ -104,7 +104,7 @@ fn acknowledge_dirty_skips_dirty_check() {
 #[test]
 fn tool_owned_plan_mirror_dirt_is_ignored() {
     let dir = repo();
-    let plans_dir = dir.path().join(".codeterm/plans");
+    let plans_dir = dir.path().join(".domios/plans");
     fs::create_dir_all(&plans_dir).unwrap();
     fs::write(plans_dir.join("mirror.md"), "tool state\n").unwrap();
 
@@ -125,7 +125,7 @@ fn tool_owned_plan_mirror_dirt_is_ignored() {
 #[test]
 fn mixed_tool_and_lane_dirt_refuses_only_lane_files() {
     let dir = repo();
-    let plans_dir = dir.path().join(".codeterm/plans");
+    let plans_dir = dir.path().join(".domios/plans");
     fs::create_dir_all(&plans_dir).unwrap();
     fs::write(plans_dir.join("mirror.md"), "tool state\n").unwrap();
     fs::write(dir.path().join("src.rs"), "lane dirt\n").unwrap();
@@ -142,7 +142,7 @@ fn mixed_tool_and_lane_dirt_refuses_only_lane_files() {
     .unwrap_err();
 
     assert_eq!(err.dirty_files, vec!["src.rs"]);
-    assert!(!err.message().contains(".codeterm/plans"));
+    assert!(!err.message().contains(".domios/plans"));
 }
 
 #[test]

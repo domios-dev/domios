@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,10 @@ import { parseRestartArgs } from "./restart.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const runSh = join(here, "run.sh");
+const bash = process.env.CORE_JOURNEY_BASH ?? (process.platform === "win32"
+  ? [join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "bin", "bash.exe"), "bash"]
+    .find((candidate) => candidate === "bash" || existsSync(candidate))
+  : "bash");
 
 test("parseArgs reads driver flags and refuses unknown or missing ones", () => {
   const options = parseArgs(["verify", "--out", "/tmp/x", "--providers", "claude, codex", "--history-kb", "8", "--all-tabs", "--expect-build-change"]);
@@ -38,14 +42,14 @@ test("parseRestartArgs defaults to a prebuilt restart and accepts the upgrade sh
   assert.throws(() => parseRestartArgs(["--out", "/tmp/r", "--start", "build"]), /--start/);
 });
 
-const connection = (extra) => ({ CODETERM_DEV_DATA_DIR: "/tmp/dev", CODETERM_API_TOKEN: "t", ...extra });
+const connection = (extra) => ({ CORE_JOURNEY_DATA_DIR: "/tmp/dev", CORE_JOURNEY_API_TOKEN: "t", ...extra });
 
 test("target refuses production, the shared DEV port and an unset instance", () => {
-  assert.equal(target(connection({ CODETERM_INSTANCE: "curated", CODETERM_API_PORT: "7697" })).port, 7697);
-  assert.throws(() => target(connection({ CODETERM_INSTANCE: "curated", CODETERM_API_PORT: "7685" })), /7685 is production/);
-  assert.throws(() => target(connection({ CODETERM_INSTANCE: "curated", CODETERM_API_PORT: "7686" })), /7686 is the shared DEV/);
-  assert.throws(() => target(connection({ CODETERM_API_PORT: "7697" })), /CODETERM_INSTANCE is unset/);
-  assert.throws(() => target(connection({ CODETERM_INSTANCE: "  ", CODETERM_API_PORT: "7697" })), /CODETERM_INSTANCE is unset/);
+  assert.equal(target(connection({ CORE_JOURNEY_INSTANCE: "curated", CORE_JOURNEY_API_PORT: "7697" })).port, 7697);
+  assert.throws(() => target(connection({ CORE_JOURNEY_INSTANCE: "curated", CORE_JOURNEY_API_PORT: "7685" })), /7685 is production/);
+  assert.throws(() => target(connection({ CORE_JOURNEY_INSTANCE: "curated", CORE_JOURNEY_API_PORT: "7686" })), /7686 is the shared DEV/);
+  assert.throws(() => target(connection({ CORE_JOURNEY_API_PORT: "7697" })), /named instance is unset/);
+  assert.throws(() => target(connection({ CORE_JOURNEY_INSTANCE: "  ", CORE_JOURNEY_API_PORT: "7697" })), /named instance is unset/);
   assert.throws(() => assertIsolated({ instance: "x", port: 7685 }), /production/);
 });
 
@@ -53,11 +57,11 @@ test("--plan prints the plan from the driver without an instance and still refus
   const written = [];
   const original = process.stdout.write.bind(process.stdout);
   const saved = { ...process.env };
-  Object.assign(process.env, { CODETERM_INSTANCE: "curated", CODETERM_API_PORT: "7697" });
+  Object.assign(process.env, { CORE_JOURNEY_INSTANCE: "curated", CORE_JOURNEY_API_PORT: "7697" });
   process.stdout.write = (chunk) => { written.push(String(chunk)); return true; };
   try {
     assert.equal(await main(["verify", "--out", join(here, "never-created"), "--plan"]), 0);
-    process.env.CODETERM_API_PORT = "7686";
+    process.env.CORE_JOURNEY_API_PORT = "7686";
     await assert.rejects(main(["setup", "--out", join(here, "never-created"), "--plan"]), /7686/);
   } finally {
     process.stdout.write = original;
@@ -94,12 +98,17 @@ test("every planned check name exists in the journey sources", () => {
 
 function runner(args, env) {
   const clean = { ...process.env };
-  for (const key of Object.keys(clean)) if (key.startsWith("CODETERM_")) delete clean[key];
-  return spawnSync("bash", [runSh, ...args], { encoding: "utf8", env: { ...clean, ...env }, timeout: 60_000 });
+  const previousProductPrefix = ["CODE", "TERM"].join("");
+  for (const key of Object.keys(clean)) if (key.startsWith(`${previousProductPrefix}_`)) delete clean[key];
+  return spawnSync(bash, [runSh, ...args], { encoding: "utf8", env: { ...clean, ...env }, timeout: 60_000 });
 }
 
+const previousInstanceEnv = `${["CODE", "TERM"].join("")}_INSTANCE`;
+const previousPortEnv = `${["CODE", "TERM"].join("")}_API_PORT`;
+const previousTarget = (instance, port) => ({ [previousInstanceEnv]: instance, [previousPortEnv]: port });
+
 test("run.sh --plan exits 0 on a named instance and prints steps and evidence paths", () => {
-  const result = runner(["all", "--plan"], { CODETERM_INSTANCE: "curated", CODETERM_API_PORT: "7697" });
+  const result = runner(["all", "--plan"], previousTarget("curated", "7697"));
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /PLAN all[^]*J1: [^]*spawn_ready[^]*results[.]json[^]*restart[.]json[^]*setup[.]png/);
 });
@@ -107,10 +116,10 @@ test("run.sh --plan exits 0 on a named instance and prints steps and evidence pa
 test("run.sh refuses ports 7685 and 7686 and an unset instance, in plan and live modes", () => {
   for (const mode of [["all", "--plan"], ["all"], ["setup"], ["upgrade"]]) {
     for (const [env, message] of [
-      [{ CODETERM_INSTANCE: "curated", CODETERM_API_PORT: "7685" }, /production port 7685/],
-      [{ CODETERM_INSTANCE: "curated", CODETERM_API_PORT: "7686" }, /shared DEV port 7686/],
-      [{ CODETERM_API_PORT: "7697" }, /CODETERM_INSTANCE is unset/],
-      [{}, /CODETERM_INSTANCE is unset/],
+      [previousTarget("curated", "7685"), /production port 7685/],
+      [previousTarget("curated", "7686"), /shared DEV port 7686/],
+      [{ [previousPortEnv]: "7697" }, /named instance is unset/],
+      [{}, /named instance is unset/],
     ]) {
       const result = runner(mode, env);
       assert.notEqual(result.status, 0, `${mode.join(" ")} ${JSON.stringify(env)} must be refused`);

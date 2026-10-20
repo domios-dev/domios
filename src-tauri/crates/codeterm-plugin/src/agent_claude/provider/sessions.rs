@@ -918,11 +918,11 @@ mod tests {
     fn encode_cwd_matches_real_claude_project_dirs() {
         let cases = [
             ("/Users/user", "-Users-user"),
-            // /Users/user/.codeterm-dev/general : the '/' before '.codeterm' AND the '.'
+            // /Users/user/.domios-dev/general : the '/' before '.domios' AND the '.'
             // each become a dash -> the `--codeterm` double-dash. Real dir on disk.
             (
-                "/Users/user/.codeterm-dev/general",
-                "-Users-user--codeterm-dev-general",
+                "/Users/user/.domios-dev/general",
+                "-Users-user--domios-dev-general",
             ),
             (
                 "/Users/user/Developer/wk-cb-p1",
@@ -1008,12 +1008,12 @@ mod tests {
     #[test]
     fn test_verbatim_cwd_encodes_like_plain_cwd() {
         // SAME claude project dir as the plain cwd — otherwise resume never matches.
-        let plain = encode_cwd(r"C:\Users\dev\.codeterm-dev\general");
+        let plain = encode_cwd(r"C:\Users\dev\.domios-dev\general");
         let verbatim = encode_cwd(&codeterm_paths::strip_verbatim_prefix(
-            r"\\?\C:\Users\dev\.codeterm-dev\general",
+            r"\\?\C:\Users\dev\.domios-dev\general",
         ));
         assert_eq!(plain, verbatim);
-        assert_eq!(plain, "C--Users-User--codeterm-dev-general");
+        assert_eq!(plain, "C--Users-User--domios-dev-general");
     }
 
     #[test]

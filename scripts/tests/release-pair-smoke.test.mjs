@@ -19,7 +19,7 @@ test('a failed smoke reports the isolated server log tail, or that none was writ
     await reportServerLogTail(data, { write: text => written.push(text) });
     assert.match(written[0], /wrote no log/);
     await mkdir(path.join(data, 'logs'));
-    await writeFile(path.join(data, 'logs', 'codeterm.log'), ['line-a', 'line-b', 'line-c', ''].join('\n'));
+    await writeFile(path.join(data, 'logs', 'domios.log'), ['line-a', 'line-b', 'line-c', ''].join('\n'));
     await reportServerLogTail(data, { lines: 2, write: text => written.push(text) });
     assert.equal(written[1], 'isolated server log tail:\nline-b\nline-c\n');
   } finally {

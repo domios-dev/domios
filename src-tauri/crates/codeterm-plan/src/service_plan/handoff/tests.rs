@@ -36,14 +36,12 @@ fn store_with_task() -> (tempfile::TempDir, PlanStore, String, String) {
 
 #[test]
 fn sidecar_status_lines_do_not_count_as_dirty() {
-    assert!(is_sidecar_status_line("?? .codeterm/plans/INDEX.md"));
+    assert!(is_sidecar_status_line("?? .domios/plans/INDEX.md"));
     assert!(is_sidecar_status_line(
-        "R  .codeterm/plans/a -> .codeterm/plans/b"
+        "R  .domios/plans/a -> .domios/plans/b"
     ));
     assert!(!is_sidecar_status_line(" M src-tauri/src/main.rs"));
-    assert!(!is_sidecar_status_line(
-        "R  .codeterm/plans/a -> src/main.rs"
-    ));
+    assert!(!is_sidecar_status_line("R  .domios/plans/a -> src/main.rs"));
 }
 
 #[test]

@@ -11,8 +11,8 @@ test("large restart log capture exceeds the former argument limit without overfl
   const directory = mkdtempSync(join(tmpdir(), "endure-logs-"));
   try {
     const count = 250_000;
-    writeFileSync(join(directory, "codeterm.log"), Array.from({ length: count }, (_, i) => `${i} [restore] tab=sample`).join("\n"));
-    writeFileSync(join(directory, "codeterm.log.1"), "old [agent-launch] tab=sample\n");
+    writeFileSync(join(directory, "domios.log"), Array.from({ length: count }, (_, i) => `${i} [restore] tab=sample`).join("\n"));
+    writeFileSync(join(directory, "domios.log.1"), "old [agent-launch] tab=sample\n");
     writeFileSync(join(directory, "unrelated.log"), "ignored\n");
     const lines = logLines(directory);
     assert.equal(lines.length, count + 1);

@@ -33,7 +33,7 @@ pub fn resolved_data_root() -> ResolvedValue<std::path::PathBuf> {
     let source = if instance.value.is_some() {
         instance.source
     } else if std::env::var("CODETERM_SOCKET_PATH")
-        .map(|path| path.contains("codeterm-dev"))
+        .map(|path| path.contains("domios-dev"))
         .unwrap_or(false)
     {
         ResolutionSource::CodeTermSocketPath
@@ -128,7 +128,7 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
         .map(|value| !value.trim().is_empty())
         .unwrap_or(false)
         || std::env::var("CODETERM_SOCKET_PATH")
-            .map(|path| path.contains("codeterm-dev"))
+            .map(|path| path.contains("domios-dev"))
             .unwrap_or(false)
         || std::env::var("CODETERM_API_PORT")
             .map(|value| !value.trim().is_empty() && value.trim() != "7685")
@@ -256,7 +256,7 @@ mod tests {
                 host_source: ResolutionSource::Config,
                 port: 7788,
                 port_source: ResolutionSource::CodeTermApiPort,
-                socket_path: "codeterm-dev-bench.sock".to_string(),
+                socket_path: "domios-dev-bench.sock".to_string(),
                 socket_source: ResolutionSource::CodeTermInstance,
                 instance: Some("bench".to_string()),
                 instance_source: ResolutionSource::CodeTermInstance,
@@ -273,7 +273,7 @@ mod tests {
                 "host_source": "config",
                 "port": 7788,
                 "port_source": "CODETERM_API_PORT",
-                "socket_path": "codeterm-dev-bench.sock",
+                "socket_path": "domios-dev-bench.sock",
                 "socket_source": "CODETERM_INSTANCE",
                 "instance": "bench",
                 "instance_source": "CODETERM_INSTANCE"
@@ -335,7 +335,7 @@ mod tests {
         std::env::set_var("CODETERM_API_PORT", "7691");
 
         let resolved = crate::resolved_data_root();
-        assert!(resolved.value.ends_with(".codeterm-dev-bench-lane"));
+        assert!(resolved.value.ends_with(".domios-dev-bench-lane"));
         assert_eq!(resolved.source, ResolutionSource::CodeTermInstance);
 
         restore_env("CODETERM_DATA_DIR", previous_data);
@@ -353,11 +353,11 @@ mod tests {
         std::env::remove_var("CODETERM_DATA_DIR");
         std::env::remove_var("CODETERM_INSTANCE");
         std::env::set_var("CODETERM_API_PORT", "7712");
-        std::env::set_var("CODETERM_SOCKET_PATH", "codeterm-dev-coreqa.sock");
+        std::env::set_var("CODETERM_SOCKET_PATH", "domios-dev-coreqa.sock");
 
         let data_dir = crate::resolved_data_root();
         let instance = resolved_instance();
-        assert!(data_dir.value.ends_with(".codeterm-dev-coreqa"));
+        assert!(data_dir.value.ends_with(".domios-dev-coreqa"));
         assert_eq!(data_dir.source, ResolutionSource::CodeTermSocketPath);
         assert_eq!(instance.value.as_deref(), Some("coreqa"));
         assert_eq!(instance.source, ResolutionSource::CodeTermSocketPath);
@@ -381,7 +381,7 @@ mod tests {
         std::env::remove_var("CODETERM_SOCKET_PATH");
 
         let data_dir = crate::resolved_data_root();
-        assert!(data_dir.value.ends_with(".codeterm-dev"));
+        assert!(data_dir.value.ends_with(".domios-dev"));
         assert_eq!(data_dir.source, ResolutionSource::CodeTermApiPort);
 
         restore_env("CODETERM_DATA_DIR", previous_data);
@@ -404,7 +404,7 @@ mod tests {
 
         let data_dir = crate::resolved_data_root();
         let instance = crate::resolved_instance();
-        assert!(data_dir.value.ends_with(".codeterm-dev"));
+        assert!(data_dir.value.ends_with(".domios-dev"));
         assert_eq!(data_dir.source, ResolutionSource::CodeTermApiPort);
         assert_eq!(instance.value, None);
         assert_eq!(instance.source, ResolutionSource::Absent);

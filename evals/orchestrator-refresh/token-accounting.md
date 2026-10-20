@@ -10,7 +10,7 @@ over many turns. Record real numbers here after a drill so the trade is honest.
 The driver logs the wall-clock cost per cycle:
 
 ```
-grep 'cycle_cost_wall_ms' ~/.codeterm-dev/logs/codeterm.log | tail -1
+grep 'cycle_cost_wall_ms' ~/.domios-dev/logs/domios.log | tail -1
 ```
 
 Token cost is read from the provider's own usage counters around the cycle.

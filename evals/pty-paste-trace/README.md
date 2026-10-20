@@ -36,12 +36,12 @@ Dev only, and dev must be up. Every CLI call goes through `dc`.
 
 ## Offline corpus analysis
 
-`analyze-submit-bursts.py` needs no daemon. It reads any `codeterm.log` and
+`analyze-submit-bursts.py` needs no daemon. It reads any `domios.log` and
 groups `submit-audit` lines into transactions, reporting payload size against
 submit-key count, the recovery verdict and the following turn transition.
 
 ```bash
-python3 evals/pty-paste-trace/analyze-submit-bursts.py ~/.codeterm/logs/codeterm.log
+python3 evals/pty-paste-trace/analyze-submit-bursts.py ~/.domios/logs/domios.log
 ```
 
 Use it first: it answers the size-vs-outcome question from production
