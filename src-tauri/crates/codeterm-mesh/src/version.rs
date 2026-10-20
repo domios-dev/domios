@@ -1,8 +1,6 @@
 pub const VERSION_HEADER: &str = "x-domios-version";
-const UNINITIALIZED_APP_VERSION: &str = "1.15.0";
-
 pub fn local_version() -> &'static str {
-    codeterm_build_info::installed_version().unwrap_or(UNINITIALIZED_APP_VERSION)
+    codeterm_build_info::version()
 }
 
 pub fn peer_upgrade_message() -> String {
