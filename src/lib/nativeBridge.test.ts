@@ -54,21 +54,40 @@ describe("nativeBridge", () => {
     mocks.invoke.mockResolvedValue("unexpected");
     expect(await bridge.notificationPermission?.state()).toBe("unknown");
   });
-  it("cleans a native resize subscription cancelled before registration completes", async () => {
-    let resolve!: (fn: () => void) => void;
-    const registration = new Promise<() => void>((done) => { resolve = done; });
-    mocks.listen.mockReturnValue(registration);
-    const handler = vi.fn();
-    const unsubscribe = createNativeBridge(true).resizeEvents!.onStart(handler);
-    unsubscribe();
+  it("registers each native resize event once while terminals join and leave", async () => {
     const cleanup = vi.fn();
-    resolve(cleanup);
-    await registration;
-    expect(cleanup).toHaveBeenCalledOnce();
+    mocks.listen.mockResolvedValue(cleanup);
+    const resize = createNativeBridge(true).resizeEvents!;
+    const first = vi.fn();
+    const second = vi.fn();
+    const leaveFirst = resize.onStart(first);
+    resize.onStart(second)();
+    const leaveAgain = resize.onStart(second);
+    leaveFirst();
+    expect(mocks.listen).toHaveBeenCalledOnce();
     const [event, callback] = mocks.listen.mock.calls[0];
     expect(event).toBe("terminal-window-resize-start");
     callback();
-    expect(handler).not.toHaveBeenCalled();
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledOnce();
+    leaveAgain();
+    callback();
+    expect(second).toHaveBeenCalledOnce();
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+  it("shares one native drag-drop registration between file drop targets", async () => {
+    mocks.drop.mockResolvedValue(vi.fn());
+    const fileDrop = createNativeBridge(true).fileDrop!;
+    const first = vi.fn();
+    const second = vi.fn();
+    const leave = await fileDrop.subscribe(first);
+    await fileDrop.subscribe(second);
+    leave();
+    expect(mocks.drop).toHaveBeenCalledOnce();
+    const payload = { type: "drop", paths: ["/tmp/a"], position: { x: 1, y: 2 } };
+    mocks.drop.mock.calls[0][0]({ payload });
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledWith(payload);
   });
   it("keeps the native updater response discriminant", async () => {
     mocks.invoke.mockResolvedValue({ status: "already_running" });

@@ -1,5 +1,10 @@
 import type { Tab, Workspace } from "../../lib/types";
 
+/** A terminal agent tab without a PTY is woken; one that owns a PTY already has its backend, so spawning again only reuses it. */
+export function needsBackendPrewarm(tab: Pick<Tab, "agent_type" | "backing" | "pty_id"> | undefined): boolean {
+  return Boolean(tab && tab.agent_type && tab.backing?.kind !== "chat_backend" && !tab.pty_id);
+}
+
 export function workspacePrewarmInput(
   workspace: Workspace | null | undefined,
   activeTabId: string | null,
