@@ -1,5 +1,5 @@
 import { PageDataContext } from "../../hooks/PageDataContext";
-import { useCallback, useEffect, useRef, useState, useContext } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useContext } from "react";
 import { orchestrationTransport, listenOrchestration as listen } from "../../lib/transport/orchestrationRuntime";
 import { DEV_BUILD } from "../../lib/devBuild";
 import type { CronJob } from "../../lib/types";
@@ -13,9 +13,14 @@ export interface CronJobsState {
 export function useCronJobs(workspaceId: string | null) {
   const page = useContext(PageDataContext);
   const local = useCronJobsLoader(workspaceId, !page);
-  if (!page) return local;
-  const { jobs, refresh, ready, failed } = page.crons;
-  return { jobs: !ready ? null : jobs.filter((job) => workspaceId === null || job.workspace_id === workspaceId), failed, refresh };
+  const crons = page?.crons;
+  // Consumers derive memoized job lists from this array, so it keeps its identity until the page data changes.
+  const pageJobs = useMemo(
+    () => crons?.ready ? crons.jobs.filter((job) => workspaceId === null || job.workspace_id === workspaceId) : null,
+    [crons?.ready, crons?.jobs, workspaceId],
+  );
+  if (!crons) return local;
+  return { jobs: pageJobs, failed: crons.failed, refresh: crons.refresh };
 }
 
 function useCronJobsLoader(workspaceId: string | null, enabled: boolean) {

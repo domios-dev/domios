@@ -1,12 +1,14 @@
 import { PageDataContext } from "./PageDataContext";
-import { useCallback, useEffect, useState, useContext, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useContext, useRef } from "react";
 import { invoke, listen } from "../lib/bridge";
 import type { CronJob } from "../lib/types";
 
 export function useWorkspaceCrons(workspaceId: string) {
   const page = useContext(PageDataContext);
   const local = useWorkspaceCronsLoader(workspaceId, !page);
-  if (page) return { jobs: page.crons.jobs.filter((job) => job.workspace_id === workspaceId), refresh: page.crons.refresh };
+  const pageJobs = page?.crons.jobs;
+  const jobs = useMemo(() => pageJobs?.filter((job) => job.workspace_id === workspaceId), [pageJobs, workspaceId]);
+  if (page && jobs) return { jobs, refresh: page.crons.refresh };
   return local;
 }
 

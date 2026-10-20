@@ -30,9 +30,6 @@ import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
-import {
-  type ActiveWorkSnapshot,
-} from "../Canvas/planView/activeWork";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { TabAttentionMark } from "./TabAttentionMark";
 import {
@@ -61,8 +58,6 @@ interface TabItemProps {
   uiFontScale?: number;
   /** Plan-membership glance (resolved from the cheap index gate by the Sidebar). */
   activity?: TabTabActivity | null;
-  /** Bound in-flight tasks — drives worker subline activity dots. */
-  activeWork?: ActiveWorkSnapshot | null;
   /** Agent report count badge (orchestration worker rows). */
   reportCount?: number;
   /** Group head with children — overlay collapse chevron in the left padding gutter. */
@@ -231,7 +226,6 @@ function TabItemInner({
   touchMode = false,
   uiFontScale,
   activity,
-  activeWork: _activeWork = null,
   reportCount = 0,
   groupCollapsible = false,
   collapsed = false,
@@ -580,8 +574,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.startedBy?.id !== next.startedBy?.id ||
     prev.startedBy?.label !== next.startedBy?.label ||
     prev.onToggleCollapse !== next.onToggleCollapse ||
-    prev.reportCount !== next.reportCount ||
-    prev.activeWork !== next.activeWork
+    prev.reportCount !== next.reportCount
   ) return false;
 
   // so a non-task tab (both null) and an unchanged indicator skip the re-render.

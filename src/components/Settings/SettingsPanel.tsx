@@ -2,7 +2,9 @@ import { DropdownSelect } from "../shared/DropdownMenu";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
-import type { AppConfig, Tab, Team } from "../../lib/types";
+import type { AppConfig } from "../../lib/types";
+import { useMuxSelector } from "../../store/multiplexer";
+import type { ExtendedState } from "../../store/multiplexer/tree";
 import {
   ChevronRight,
   ExternalLink,
@@ -31,7 +33,7 @@ import { PrivacyTab } from "./PrivacyTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { JobsView } from "../Jobs/JobsView";
-import { jobsEntryFilter, type JobsWorkspace } from "../Jobs/jobsLayout";
+import { jobsEntryFilter } from "../Jobs/jobsLayout";
 import { HelpPanel } from "../../help/HelpPanel";
 import type { HelpSectionId } from "../../help/types";
 import type { GuideRequest } from "../../help/guideNavigation";
@@ -52,12 +54,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   initialSection?: SettingsLinkId;
   guideRequest?: GuideRequest;
-  workspaces?: readonly JobsWorkspace[];
-  tabs?: Record<string, Tab>;
-  teams?: readonly Team[];
 }
-
-const NO_WORKSPACES: readonly JobsWorkspace[] = [];
 
 function initialStack(link: SettingsLinkId | undefined, guideRequest: GuideRequest | undefined): Route[] {
   const route = resolveSettingsLink(link);
@@ -65,7 +62,17 @@ function initialStack(link: SettingsLinkId | undefined, guideRequest: GuideReque
   const helpSection = route.section === "guide" ? guideRequest?.section : undefined;
   return [{ kind: "root" }, { kind: "section", id: route.section, helpSection, card: route.card }];
 }
-const NO_TEAMS: readonly Team[] = [];
+const selectWorkspaces = (state: ExtendedState) => state.workspaces;
+const selectTabs = (state: ExtendedState) => state.tabs;
+const selectTeams = (state: ExtendedState) => state.teams;
+
+/** The settings panel stays mounted while hidden; only its Jobs page follows workspace and tab changes. */
+function MachineJobsView({ onClose }: { onClose: () => void }) {
+  const workspaces = useMuxSelector(selectWorkspaces);
+  const tabs = useMuxSelector(selectTabs);
+  const teams = useMuxSelector(selectTeams);
+  return <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={onClose} />;
+}
 
 /** Names the settings dialog from its live header — one panel is mounted at a time. */
 const SETTINGS_TITLE_ID = "codeterm-settings-title";
@@ -81,9 +88,6 @@ export function SettingsPanel({
   onClose,
   initialSection,
   guideRequest,
-  workspaces = NO_WORKSPACES,
-  tabs = {},
-  teams = NO_TEAMS,
 }: SettingsPanelProps) {
   const [stack, setStack] = useState<Route[]>(() => initialStack(initialSection, guideRequest));
   const top = stack[stack.length - 1];
@@ -453,7 +457,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "jobs" && (
               <div className="-mx-5 -my-5 h-[calc(100%+2.5rem)] min-h-[420px]" data-settings-page="jobs">
-                <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={leaveJobs} />
+                <MachineJobsView onClose={leaveJobs} />
               </div>
             )}
 

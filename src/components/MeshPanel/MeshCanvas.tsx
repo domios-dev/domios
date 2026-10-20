@@ -1,6 +1,6 @@
 import { peerInventoryModel } from "./peerInventoryModel";
 import type { Service } from "./types";
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, Globe, Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
 import { meshEdgeModel } from "./meshEdgeModel";
@@ -63,7 +63,7 @@ const ZOOM_STEP = 0.06;
 const FIT_PADDING = 24;
 const CARD_HALF_WIDTH = MACHINE_CARD_WIDTH / 2;
 
-export function MeshCanvas({
+export const MeshCanvas = memo(function MeshCanvas({
   webCard,
   onRefresh,
   onWebClick,
@@ -314,4 +314,4 @@ export function MeshCanvas({
       </div>
     </div>
   );
-}
+});

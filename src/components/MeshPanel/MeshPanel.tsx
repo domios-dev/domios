@@ -29,6 +29,8 @@ const WEB_ACTIONS = {
   qr: generateWebQr,
 };
 
+const openPeerWebUi = (url: string) => { void nativeBridge.openUrl(url); };
+
 const TABS: MeshTab[] = ["inventory", "activity", "network"];
 
 interface ServeResult {
@@ -136,6 +138,16 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const handlePeerClick = useCallback((name: string) => {
     setDrawerState({ kind: "peer", id: name });
   }, []);
+  const closeDrawer = useCallback(() => setDrawerState(null), []);
+  const showNetwork = useCallback(() => setActiveTab("network"), []);
+  const setupWebAccess = useCallback(async () => {
+    await startWebAccessSetupHelper(serve, buildWebUiTarget(config, network, serve).port, config.api);
+    onClose();
+  }, [serve, config, network, onClose]);
+  // The canvas and its QR card depend only on mesh data, so opening a drawer leaves them untouched.
+  const webCard = useCallback((qrSize: number) => <WebNodeCard qrSize={qrSize} config={config} network={network} serve={serve} loading={serveLoading}
+    actions={WEB_ACTIONS} onAction={runWebUiAction} onSetup={setupWebAccess} />, [config, network, serve, serveLoading, runWebUiAction, setupWebAccess]);
+  const webUiTarget = useMemo(() => buildWebUiTarget(config, network, serve), [config, network, serve]);
 
   useLayoutEffect(() => {
     const element = mapRef.current;
@@ -217,12 +229,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           <div ref={mapRef} className="absolute inset-0">
             <MeshCanvas
               onRefresh={triggerRefresh}
-              webCard={(qrSize) => <WebNodeCard qrSize={qrSize} config={config} network={network} serve={serve} loading={serveLoading}
-                actions={WEB_ACTIONS} onAction={runWebUiAction}
-                onSetup={async () => {
-                  await startWebAccessSetupHelper(serve, buildWebUiTarget(config, network, serve).port, config.api);
-                  onClose();
-                }} />}
+              webCard={webCard}
               webStatus={deriveWebUiView(serve?.snapshot, serveLoading).label}
               thisMachine={data.thisMachine}
               peers={data.peers}
@@ -233,11 +240,11 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               onPeerClick={handlePeerClick}
               width={mapSize.width}
               height={mapSize.height}
-              onAddPeerClick={() => setActiveTab("network")}
+              onAddPeerClick={showNetwork}
               meshEnabled={config.mesh.enabled}
               onGoOnline={goOnline}
-              onOpenPeerWebUi={(url) => void nativeBridge.openUrl(url)}
-              webUiBaseUrl={displayedWebUrl(buildWebUiTarget(config, network, serve).link)}
+              onOpenPeerWebUi={openPeerWebUi}
+              webUiBaseUrl={displayedWebUrl(webUiTarget.link)}
               webUiToken={config.api.token}
             />
           </div>
@@ -254,7 +261,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           peers={data.peers}
           thisMachineName={data.thisMachine.name}
           thisMachineIp={data.thisMachine.ip}
-          onClose={() => setDrawerState(null)}
+          onClose={closeDrawer}
           onActionDone={() => setRefreshKey((k) => k + 1)}
           onAnnouncement={setMeshAnnouncement}
         />

@@ -158,7 +158,6 @@ export async function renderSidebar({
           teams={[TEAM]}
           planIndex={nextPlanIndex}
           plans={nextPlans}
-          activeWork={null}
           providers={providers}
           closingTabIds={new Set()}
           appearingTabIds={new Set()}
