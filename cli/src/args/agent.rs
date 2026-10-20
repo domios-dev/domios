@@ -341,7 +341,7 @@ pub enum AgentAction {
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
-        /// Worker prompt kind/profile, with or without a task: qa or release_manager.
+        /// Worker prompt kind/profile, with or without a task: qa, release_manager or reviewer (read-only by default).
         #[arg(long, alias = "role-profile")]
         kind: Option<String>,
         /// Parent tab ID. Required for Workers; for a Planner, resolved

@@ -402,6 +402,12 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     }
     surfaces.wait();
     sidecars.wait();
+    let stopped_git = codeterm_plugins::stop_live_git_children();
+    if stopped_git > 0 {
+        log::info!(
+            "[shutdown] stopped {stopped_git} plugin git child(ren) still writing the data dir"
+        );
+    }
     if let Err(error) = startup::shutdown_bounded(&running.states.storage) {
         errors.push(error.to_string());
     }

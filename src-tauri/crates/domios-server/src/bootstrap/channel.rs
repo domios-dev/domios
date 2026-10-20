@@ -66,7 +66,11 @@ pub(crate) fn classify_connect_error(
 
 pub fn address(identity: &super::protocol::ServerIdentity) -> io::Result<String> {
     let bytes = serde_json::to_vec(identity).map_err(io::Error::other)?;
-    Ok(format!("domios-bootstrap-{:x}.sock", Sha256::digest(bytes)))
+    let digest = format!("{:x}", Sha256::digest(bytes));
+    Ok(format!(
+        "domios-bootstrap-{}.sock",
+        &digest[..codeterm_types::native_host::BOOTSTRAP_IDENTITY_HEX_LEN]
+    ))
 }
 
 pub fn bind(identity: &super::protocol::ServerIdentity) -> io::Result<Listener> {
