@@ -18,12 +18,17 @@ const token = apiSection.match(/^token = "([^"]+)"/m)?.[1];
 if (!token) throw new Error("DEV config has no [api] token");
 
 const origin = new URL(target).origin;
+// One page alternates between frontends so A/B runs never measure a throttled background tab.
 let page;
-try {
-  page = await connectPage(Number(option("--port")), origin);
-} catch {
-  page = await connectPage(Number(option("--port")), "about:blank");
+for (const match of [origin, "http://127.0.0.1:", "about:blank"]) {
+  try {
+    page = await connectPage(Number(option("--port")), match);
+    break;
+  } catch {
+    // Try the next candidate page.
+  }
 }
+if (!page) throw new Error("no page to open the frontend in");
 await page.call("Page.enable");
 const width = Number(option("--width") ?? 0);
 if (width) {

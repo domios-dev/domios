@@ -148,11 +148,17 @@ const SCENARIOS = {
       await settle(400);
       return { peers: peers.length, framesToDrawer: frames };
     });
-    if (!args.includes("--keep")) await closeDrawer();
+    // The drawer's own close button; Escape would also leave the Mesh view.
+    if (!args.includes("--keep")) await clickSelector(`[data-testid=mesh-peer-drawer] button[title^="Close"]`);
+    await settle(300);
     return result;
   },
   "mesh-refresh": async () => {
     await openView(`[data-testid=nav-mesh]`, "[data-peer-card]");
+    // The graph toolbar fades in under the pointer.
+    const canvas = await need("[data-peer-card]");
+    await mouse("mouseMoved", canvas.x, canvas.y);
+    await settle(400);
     return measure("press Refresh, wait 3s for the refresh cycle", async () => {
       await clickSelector(`[aria-label="Mesh graph controls"] [aria-label="Refresh"]`);
       await settle(3000);
