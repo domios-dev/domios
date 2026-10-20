@@ -48,7 +48,8 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
   const version = JSON.parse(await readFile(path.join(repo, 'package.json'), 'utf8')).version;
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('invalid macOS package version');
   const targetArgs = target === 'x86_64-apple-darwin' ? ['--target', target] : [];
-  const release = path.join(repo, 'src-tauri', 'target', ...targetArgs.slice(1), 'release');
+  const cargoTarget = env.CARGO_TARGET_DIR ? path.resolve(repo, env.CARGO_TARGET_DIR) : path.join(repo, 'src-tauri', 'target');
+  const release = path.join(cargoTarget, ...targetArgs.slice(1), 'release');
   const bundleRoot = path.join(release, 'bundle');
   const app = path.join(bundleRoot, 'macos', 'CodeTerm.app');
   const stage = path.join(repo, 'target', 'domios-package');

@@ -638,8 +638,9 @@ Canonical shell policy verification: `bash scripts/check-build-gateway-policy.sh
 
 ## Local production build and self-install
 
-Use this only when testing a production-mode build on this Windows machine. It
-does not publish a release or alter GitHub assets.
+Use this only when testing a production-mode build on this machine. It does
+not publish a release or alter GitHub assets. Steps 1-4 describe Windows; step
+5 covers macOS.
 
 A build handed to the owner to install (an owner hotfix build such as
 `X.Y.Z-bs.N`) first needs a green core-journeys run on its exact SHA; the
@@ -720,6 +721,27 @@ gates skill's Release section owns that step.
    (`CODETERM_RUST_CACHE_ROOT`, else `%LOCALAPPDATA%\domios-build-gateway`). It remains
    intentionally slower and isolated. The updater helper stops only the
    current-user installed Domios, runs NSIS, and restarts it.
+
+   `build` packages through `bundle_common_stage`, the same shared stage the
+   release workflows use (`CODETERM_RELEASE_COMMON_STAGE=1`): one native client
+   compile, `release-stage.mjs stage-full` with the signed CLI and server, then
+   NSIS on Windows, deb and AppImage on Linux, or the signed app and DMG from
+   `release-macos-bundle.mjs` on macOS. It prints each `Local package ready:`
+   path. Focused proof: `node --test scripts/tests/package-stage.test.mjs`.
+
+5. macOS uses the same route, from the canonical checkout on the Mac:
+
+   ```bash
+   ./build.sh build                 # or: ./build.sh build --no-notarize
+   codeterm update install --from-file "<printed-dmg-path>"
+   ```
+
+   Signing uses the login keychain's single Developer ID Application identity
+   and its team; `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID` or `RELEASE_KEYCHAIN`
+   override it. Notarization uses the notarytool keychain profile `codeterm`
+   (`APPLE_KEYCHAIN_PROFILE` overrides) and is checked before compiling; a
+   missing profile refuses the build unless `--no-notarize` is passed. No CI job
+   keychain or updater key is needed: the local app carries no updater bundle.
 
 ### Build gateway location (Windows)
 
