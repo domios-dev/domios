@@ -3,7 +3,14 @@ import test from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { earlyExitMessage, executionPlan, parseApiToken, recordSmokeReceipt, refusalCapture, reportServerLogTail, resolveExecution, targetCommand, validateReady } from '../release-pair-smoke.mjs';
+import { earlyExitMessage, executionPlan, parseApiToken, recordSmokeReceipt, refusalCapture, reportServerLogTail, resolveExecution, scratchResidueMessage, targetCommand, validateReady } from '../release-pair-smoke.mjs';
+
+test('a busy scratch directory after a clean exit names the leftover writer', () => {
+  const error = Object.assign(new Error('ENOTEMPTY: directory not empty'), { code: 'ENOTEMPTY', path: '/tmp/smoke/isolated-data/channels/x/plugins' });
+  assert.equal(scratchResidueMessage(error),
+    'isolated server left a writer behind in its scratch directory at /tmp/smoke/isolated-data/channels/x/plugins: ENOTEMPTY');
+  assert.match(scratchResidueMessage(new Error('boom')), /scratch directory: boom$/);
+});
 
 test('a failed smoke reports the isolated server log tail, or that none was written', async () => {
   const data = await mkdtemp(path.join(os.tmpdir(), 'pair-smoke-log-'));

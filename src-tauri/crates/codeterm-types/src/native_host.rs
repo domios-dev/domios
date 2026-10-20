@@ -7,11 +7,15 @@ pub const MAX_NATIVE_HOST_FRAME_BYTES: usize = 32 * 1024;
 pub const MAX_PENDING_NATIVE_HOST_REQUESTS: usize = 64;
 pub const NATIVE_HOST_REQUEST_DEADLINE: Duration = Duration::from_secs(10);
 
+/// Hex length of the identity digest inside local socket names. Unix socket paths are
+/// capped at 104 bytes on macOS, where namespaced names land under a long `$TMPDIR`.
+pub const BOOTSTRAP_IDENTITY_HEX_LEN: usize = 16;
+
 pub fn native_host_socket_address(bootstrap_address: &str) -> Option<String> {
     let identity = bootstrap_address
         .strip_prefix("domios-bootstrap-")?
         .strip_suffix(".sock")?;
-    if identity.len() != 64
+    if identity.len() != BOOTSTRAP_IDENTITY_HEX_LEN
         || !identity
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
@@ -562,7 +566,7 @@ mod tests {
 
     #[test]
     fn native_host_socket_address_reuses_the_exact_bootstrap_identity() {
-        let identity = "a".repeat(64);
+        let identity = "a".repeat(BOOTSTRAP_IDENTITY_HEX_LEN);
         assert_eq!(
             native_host_socket_address(&format!("domios-bootstrap-{identity}.sock")),
             Some(format!("domios-native-host-{identity}.sock"))
@@ -571,5 +575,25 @@ mod tests {
             native_host_socket_address("domios-bootstrap-not-a-digest.sock"),
             None
         );
+        assert_eq!(
+            native_host_socket_address(&format!("domios-bootstrap-{}.sock", "a".repeat(64))),
+            None
+        );
+    }
+
+    #[test]
+    fn local_socket_names_fit_sun_path_under_a_long_macos_tmpdir() {
+        let macos_tmpdir = "/var/folders/zz/zyxvpxvq6csfxvn_n0000000000000/T/";
+        let bootstrap = format!(
+            "domios-bootstrap-{}.sock",
+            "f".repeat(BOOTSTRAP_IDENTITY_HEX_LEN)
+        );
+        let native_host = native_host_socket_address(&bootstrap).expect("derived");
+        for name in [bootstrap, native_host] {
+            assert!(
+                macos_tmpdir.len() + name.len() < 104,
+                "{name} overflows sun_path"
+            );
+        }
     }
 }

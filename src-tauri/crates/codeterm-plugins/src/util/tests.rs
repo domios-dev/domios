@@ -83,6 +83,32 @@ mod git_never_prompts {
     }
 
     #[test]
+    fn shutdown_stops_a_git_child_that_is_still_running() {
+        let mut env = TestEnvGuard::lock();
+        let directory = tempfile::tempdir().expect("tempdir");
+        let started = directory.path().join("started");
+        let git = install_fake_git(
+            directory.path(),
+            ": > \"$CODETERM_TEST_GIT_STARTED\"; sleep 30",
+        );
+        env.set("CODETERM_TEST_GIT_BIN", git.as_os_str());
+        env.set("CODETERM_TEST_GIT_STARTED", started.as_os_str());
+
+        let runner = std::thread::spawn(|| run_git(vec!["clone".into()]));
+        while !started.exists() {
+            std::thread::yield_now();
+        }
+
+        assert_eq!(stop_live_git_children(), 1);
+        let result = runner.join().expect("runner thread");
+        assert_eq!(
+            result,
+            Err("Plugin updates are unavailable right now. Domios will retry.".to_string())
+        );
+        assert_eq!(stop_live_git_children(), 0);
+    }
+
+    #[test]
     fn git_failure_returns_a_short_actionable_error() {
         let mut env = TestEnvGuard::lock();
         let directory = tempfile::tempdir().expect("tempdir");

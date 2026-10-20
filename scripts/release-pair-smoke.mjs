@@ -185,6 +185,9 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'domios-pair-smoke-'));
   const data = path.join(scratch, 'isolated-data');
   let child;
+  let outcome;
+  let failure = null;
+  let residue = null;
   try {
     for (const file of stage.files) {
       const packed = archive.get(file.path);
@@ -228,17 +231,29 @@ export async function smokePackagedPair({ target, tag, version, sourceSha, stage
     }
     child.stdin.end();
     if (await waitForExit(child, deadline) !== 0) fail('isolated packaged server did not exit cleanly');
-    return { ...receipt, status: 'passed', port, health: 'passed', authenticatedCli: 'passed', shutdown: 'clean' };
+    outcome = { ...receipt, status: 'passed', port, health: 'passed', authenticatedCli: 'passed', shutdown: 'clean' };
   } catch (error) {
     await reportServerLogTail(data);
-    throw error;
+    failure = error;
   } finally {
     if (child && child.exitCode === null) {
       child.kill();
       await waitForExit(child, deadlineSignal(5000)).catch(() => {});
     }
-    await rm(scratch, { recursive: true, force: true });
+    residue = await rm(scratch, { recursive: true, force: true }).then(() => null, error => error);
   }
+  if (failure) throw failure;
+  if (residue) {
+    await reportServerLogTail(data);
+    throw new Error(scratchResidueMessage(residue));
+  }
+  return outcome;
+}
+
+// A clean server exit followed by a busy scratch directory means a child it started is still writing there.
+export function scratchResidueMessage(error) {
+  const where = error?.path ? ' at ' + error.path : '';
+  return `isolated server left a writer behind in its scratch directory${where}: ${error?.code ?? error?.message ?? error}`;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

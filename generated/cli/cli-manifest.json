@@ -925,7 +925,7 @@
               "value_name": "KIND",
               "possible_values": [],
               "default": null,
-              "help": "Worker prompt kind/profile, with or without a task: qa or release_manager",
+              "help": "Worker prompt kind/profile, with or without a task: qa, release_manager or reviewer (read-only by default)",
               "aliases": []
             },
             {

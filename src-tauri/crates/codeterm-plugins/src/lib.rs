@@ -35,6 +35,7 @@ mod types;
 mod update;
 mod user_config;
 mod util;
+pub use util::stop_live_git_children;
 mod version;
 
 #[cfg(test)]
