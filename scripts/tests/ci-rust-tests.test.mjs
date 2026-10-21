@@ -180,12 +180,14 @@ test('classification joins compiled names and inherited platform gates', async (
   assert.equal(platformFilter(explained), 'none()', 'an ignored test never counts as executed platform coverage');
 });
 
-test('CI Rust selection drops stale and this OS platform-red binary markers, like release-rust', () => {
+test('CI Rust selection drops stale and this OS platform-red binary markers of the lane packages only', () => {
   const marker = (test, platforms) => ({ runner: 'opaque-runner', target: { binary: 'opaque-crate', test }, ...(platforms ? { platforms } : {}) });
   const overlay = { stale: [marker('m::stale')], flaky: [], platform_red: [marker('m::mac_red', ['macos']), { runner: 'node-scripts', target: { spec: 'a.mjs', title: 't' }, platforms: ['macos'] }] };
-  assert.equal(withOverlayExclusions('all()', overlay, 'macOS'),
+  const lane = { targets: ['--no-default-features', '-p', 'other-crate', '-p', 'opaque-crate'] };
+  assert.equal(withOverlayExclusions('all()', overlay, 'macOS', lane),
     '(all()) & not (binary_id(=opaque-crate) & test(=m::stale)) & not (binary_id(=opaque-crate) & test(=m::mac_red))');
-  assert.equal(withOverlayExclusions('all()', overlay, 'Linux'), '(all()) & not (binary_id(=opaque-crate) & test(=m::stale))');
-  assert.equal(withOverlayExclusions('all()', { stale: [], flaky: [], platform_red: [] }, 'Windows'), 'all()');
-  assert.throws(() => withOverlayExclusions('all()', overlay, 'Plan9'), /Unknown runner OS/);
+  assert.equal(withOverlayExclusions('all()', overlay, 'Linux', lane), '(all()) & not (binary_id(=opaque-crate) & test(=m::stale))');
+  assert.equal(withOverlayExclusions('all()', overlay, 'macOS', { targets: ['-p', 'other-crate', '--all-targets'] }), 'all()');
+  assert.equal(withOverlayExclusions('all()', { stale: [], flaky: [], platform_red: [] }, 'Windows', lane), 'all()');
+  assert.throws(() => withOverlayExclusions('all()', overlay, 'Plan9', lane), /Unknown runner OS/);
 });
