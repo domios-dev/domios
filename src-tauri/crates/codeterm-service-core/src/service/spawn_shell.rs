@@ -126,11 +126,13 @@ impl ServiceContext {
             }
             self.restart_shell_tab(tab_id, resolved_cwd.clone())?;
         }
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
             let result = match &reused {
                 Some(id) => id.clone(),
                 None => {
+                    super::billing::admit_new_tab(&gate, &mux)?;
                     let tab_id = mux.create_tab(&ws_id)?;
                     crate::startup::boot_timing::bind_request(&tab_id);
                     tab_id
@@ -264,8 +266,10 @@ impl ServiceContext {
             resolved_cwd
         };
 
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
+            super::billing::admit_new_tab(&gate, &mux)?;
             let result = mux.create_tab(&ws_id)?;
             crate::startup::boot_timing::bind_request(&result);
             if let Some(tab) = mux.get_tab_mut(&result) {

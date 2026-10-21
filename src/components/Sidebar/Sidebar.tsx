@@ -1,5 +1,6 @@
 import { useTeamClose } from "./useTeamClose";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
+import { freeLimitToast, upgradeToPro } from "../../store/multiplexer/freeLimitRefusal";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { nativeFolderDialog as open } from "../../lib/nativeBridge";
@@ -182,6 +183,11 @@ export const Sidebar = memo(function Sidebar({
     if (state.workspaces.find((workspace) => workspace.id === workspaceId)?.cwd_missing) return;
     const reportFailure = (error: unknown) => {
       if (isWorkspaceCwdRefusal(error)) return;
+      const limit = freeLimitToast(error, workspaceId, upgradeToPro);
+      if (limit) {
+        upsertToast(limit);
+        return;
+      }
       upsertToast({
         id: `spawn:${workspaceId}`, tab_id: null, workspace_id: workspaceId,
         title: "Session start failed", body: spawnErrorMessage(error), severity: "Error", level: "failure", sticky: true,

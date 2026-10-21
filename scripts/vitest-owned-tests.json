@@ -263,5 +263,6 @@
   "src/components/Terminal/useComposerBackgroundWork.identity.test.tsx",
   "src/components/shared/deferredComponent.memo.test.tsx",
   "src/store/multiplexer/muxFanout.test.ts",
-  "src/components/Sidebar/sidebarRowMemo.test.tsx"
+  "src/components/Sidebar/sidebarRowMemo.test.tsx",
+  "src/store/multiplexer/freeLimitRefusal.test.ts"
 ]

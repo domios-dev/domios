@@ -1,6 +1,6 @@
 use crate::*;
 use codeterm_entitlements::{
-    Phase, Policy, Refusal, TimeState, Verdict, VerifiedGrant, ACTIVATION,
+    LimitGate, Phase, Policy, Refusal, TimeState, Verdict, VerifiedGrant, ACTIVATION,
 };
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -45,6 +45,7 @@ pub struct Billing {
 #[derive(Clone)]
 struct Grants {
     phase: Phase,
+    enforcing: bool,
     policy: Policy,
     installation_id: String,
     store: Arc<dyn GrantStore>,
@@ -72,6 +73,7 @@ impl Billing {
         if let Some(activation) = ACTIVATION {
             self.grants = Some(Grants {
                 phase: activation.phase,
+                enforcing: codeterm_entitlements::enforcing(Some(&activation)),
                 policy: activation
                     .policy()
                     .map_err(|error| format!("Invalid compiled grant policy: {error:?}"))?,
@@ -91,6 +93,7 @@ impl Billing {
     ) -> Self {
         self.grants = Some(Grants {
             phase: activation.phase,
+            enforcing: codeterm_entitlements::enforcing(Some(&activation)),
             policy: activation.policy().unwrap(),
             installation_id: installation_id.into(),
             store,
@@ -146,6 +149,22 @@ impl Billing {
         let mut cache = self.cache.lock();
         self.bind(&mut cache, session);
         self.recompute(&cache)
+    }
+    /// Free-tier limits bind only through a Phase B verdict, or compiled free without one.
+    pub fn limit_gate(&self) -> LimitGate {
+        if !self.grants.as_ref().is_some_and(|grants| grants.enforcing) {
+            return LimitGate::dormant();
+        }
+        let verdict = self
+            .cache
+            .lock()
+            .verified
+            .as_ref()
+            .map(|grant| grant.verdict((self.clock)()));
+        let access = verdict
+            .as_ref()
+            .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
+        LimitGate::new(access, true)
     }
     pub fn entitlement_allows(
         &self,
