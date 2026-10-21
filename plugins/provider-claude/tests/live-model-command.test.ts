@@ -63,3 +63,8 @@ for (const output of [
 assert.equal(pattern(commands.effort.confirmation, "opus", "high")
   .test(fixture("effort-direct-confirmation.txt").split("\n").find(line => line.startsWith("Set effort level to medium"))!), false);
 console.log("Live declarations preserve session-only model selection and direct target effort.");
+
+const busyPicker = fixture("model-picker-with-composer.txt");
+assert.ok(pattern(modelPicker.screenRegex, "sonnet").test(busyPicker));
+assert.equal(pattern(modelPicker.selectedRegex, "sonnet").exec(busyPicker)?.groups?.position, "5");
+assert.equal(pattern(modelPicker.targetRegex, "sonnet").exec(busyPicker)?.groups?.position, "4");
