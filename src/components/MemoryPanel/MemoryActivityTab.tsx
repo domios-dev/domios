@@ -1,389 +1,337 @@
-import { daemonFetch } from "../../lib/webApi";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listen } from "../../lib/bridge";
-import {
-  Activity as ActivityIcon,
-  PlusCircle,
-  Cpu,
-  RefreshCw,
-} from "lucide-react";
-import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
+import { memo, useState } from "react";
+import { ChevronRight, Moon, Network, Plus, RefreshCw } from "lucide-react";
+import type { ApiConfig, AppConfig, GraphWorkerInfo } from "../../lib/types";
+import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
 import type { MemNode } from "./types";
-import { colorForKind } from "./nodeKind";
-import type { MemActivityEvent } from "./useActivityPulses";
-import { authHeaders } from "./memoryApi";
 import { useGraphWorkers } from "./useGraphWorkers";
+import { useMemoryActivity } from "./useMemoryActivity";
 import { MemorySpawnWorkerDialog } from "./MemorySpawnWorkerDialog";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
-import { AgentIcon } from "../AgentIcon";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
-import { groupRecentWorkers, workerFailureReason, workerTimeLabels } from "./workerActivityModel";
+import {
+  agentActivity,
+  workerAgentKind,
+  workerFailureReason,
+  workerNeedsAttention,
+  workerOutcome,
+  workerTaskLabel,
+  workerTimeLabels,
+  type MemoryAgentKind,
+} from "./workerActivityModel";
+import { MemoryActivityServices } from "./MemoryActivityServices";
 
 interface Props {
   api: ApiConfig;
+  config?: AppConfig;
   nodes: Map<string, MemNode>;
   onNavigateToItem: (id: string) => void;
 }
 
-const OP_COLORS: Record<string, string> = {
-  write: "#34d399",
-  read: "#60a5fa",
-  search: "#a78bfa",
-  update: "#fbbf24",
-  delete: "#f87171",
-  recall: "#22d3ee",
-  dream: "#c084fc",
-};
+export const activityButton =
+  "inline-flex items-center justify-center gap-2 rounded px-3 py-1.5 text-xs border border-[var(--ct-border)] bg-transparent text-[var(--ct-fg)] cursor-pointer hover:bg-[var(--ct-surface)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]";
+const muted = "text-xs text-[var(--ct-muted-fg)]";
+const agents = [
+  {
+    kind: "dreaming",
+    title: "Dreaming",
+    description: "Consolidates memories and writes a dream diary.",
+    Icon: Moon,
+  },
+  {
+    kind: "extraction",
+    title: "Extraction",
+    description: "Turns saved memories into connected knowledge.",
+    Icon: Network,
+  },
+] as const;
 
-const MAX_EVENTS = 500;
-
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function dayLabel(ts: number): string {
-  const now = new Date();
-  const d = new Date(ts);
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const eventDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diff = (today.getTime() - eventDay.getTime()) / 86400000;
-  if (diff < 1) return "TODAY";
-  if (diff < 2) return "YESTERDAY";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
-  const [events, setEvents] = useState<MemActivityEvent[]>([]);
-  const [opFilter, setOpFilter] = useState<string>("");
-  const [autoScroll, setAutoScroll] = useState(true);
-  const eventsScrollRef = useRef<HTMLDivElement>(null);
-  const newCountRef = useRef(0);
-  const [newCount, setNewCount] = useState(0);
-
-  const mountedRef = useRef(true);
-
-  const { workers, loading: workersLoading, spawn, kill, refresh: refreshWorkers } = useGraphWorkers(api);
+function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) {
+  const { workers, loading, error, spawn, kill, refresh } = useGraphWorkers(api);
+  const [revision, setRevision] = useState(0);
+  const activity = useMemoryActivity(api, revision);
+  const [tab, setTab] = useState<"workers" | "services">("workers");
+  const [selected, setSelected] = useState<MemoryAgentKind | null>(null);
   const [spawnOpen, setSpawnOpen] = useState(false);
   const [logWorker, setLogWorker] = useState<GraphWorkerInfo | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const providers = useAgentDescriptors();
+  const dreamCron = activity.crons.data?.find((cron) => cron.name === "mem-dreaming-auto");
+  const selectedWorkers = workers.filter((worker) => workerAgentKind(worker) === selected);
+  const history = agentActivity(selectedWorkers).history;
+  const taskLabel = (worker: GraphWorkerInfo) =>
+    workerTaskLabel(worker, nodes.get(worker.intent.replace(/^extract:/, ""))?.title);
 
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    daemonFetch(api, `/api/mem/activity/recent?since_ms=0`, { headers: authHeaders(api) })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!active) return;
-        const evts = (data.events || []) as MemActivityEvent[];
-        evts.sort((a, b) => b.ts_ms - a.ts_ms);
-        setEvents(evts.slice(0, MAX_EVENTS));
-      })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [api.host, api.port, api.token]);
-
-  useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | null = null;
-    listen<MemActivityEvent>("mem-activity", (ev) => {
-      if (!active) return;
-      setEvents((prev) => {
-        const next = [ev.payload, ...prev];
-        if (next.length > MAX_EVENTS) next.length = MAX_EVENTS;
-        return next;
-      });
-      if (!autoScroll) {
-        newCountRef.current++;
-        setNewCount(newCountRef.current);
-      }
-    })
-      .then((fn) => {
-        if (!active) { fn(); return; }
-        unlisten = fn;
-      })
-      .catch(() => {});
-    return () => { active = false; if (unlisten) unlisten(); };
-  }, [api.host, api.port, api.token, autoScroll]);
-
-  const filtered = opFilter ? events.filter((e) => e.op === opFilter) : events;
-
-  const scrollToTop = useCallback(() => {
-    eventsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-    setAutoScroll(true);
-    newCountRef.current = 0;
-    setNewCount(0);
-  }, []);
-
-  const handleScroll = useCallback(() => {
-    const el = eventsScrollRef.current;
-    if (!el) return;
-    if (el.scrollTop > 50 && autoScroll) setAutoScroll(false);
-    if (el.scrollTop < 10 && !autoScroll) {
-      setAutoScroll(true);
-      newCountRef.current = 0;
-      setNewCount(0);
+  async function stopWorker(workerId: string) {
+    setActionError(null);
+    try {
+      await kill(workerId);
+      await refresh();
+    } catch (failure) {
+      setActionError(String(failure));
     }
-  }, [autoScroll]);
-
-  const live = useMemo(() => workers.filter((w) => !isTerminalWorkerStatus(w.status)), [workers]);
-  const recent = useMemo(() => groupRecentWorkers(workers).slice(0, 20), [workers]);
-
-  const handleKill = useCallback(
-    async (workerId: string) => {
-      try {
-        await kill(workerId);
-        await refreshWorkers();
-      } catch (e) {
-        window.alert(`Failed to kill: ${e instanceof Error ? e.message : e}`);
-      }
-    },
-    [kill, refreshWorkers],
-  );
-
-  let lastDay = "";
+  }
 
   return (
-    <div className="absolute inset-0 flex flex-col" data-testid="memory-activity-tab">
-      {/* Header / global filters */}
-      <div className="ct-jobs-header flex items-center gap-3 px-4 py-2">
-        <ActivityIcon size={14} className="text-[var(--ct-muted-fg)]" />
-        <span className="text-xs font-semibold text-[var(--ct-fg)]">Activity</span>
-        <span className="text-[10px] text-[var(--ct-muted-fg)]">
-          live signals from memory + workers
-        </span>
-      </div>
-
-      {/* 2-column body: events | workers (each scrolls independently) */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2">
-        {/* Events column */}
-        <div className="flex flex-col min-h-0">
-          <div className="ct-jobs-header flex items-center gap-2 px-3 py-1.5">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">Stream</span>
-            <select
-              data-testid="memory-activity-op-filter"
-              className="bg-transparent border border-[var(--ct-border)] rounded px-2 py-0.5 text-[10px] text-[var(--ct-fg)] cursor-pointer ml-2"
-              value={opFilter}
-              onChange={(e) => setOpFilter(e.target.value)}
+    <div
+      className="absolute inset-0 flex flex-col text-[var(--ct-fg)]"
+      data-testid="memory-activity-tab"
+    >
+      <div className="flex items-center gap-2 border-b border-[var(--ct-border)] px-4 py-3">
+        <div role="tablist" aria-label="Memory activity" className="flex gap-1">
+          {(["workers", "services"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              id={`activity-${value}`}
+              aria-selected={tab === value}
+              aria-controls={`activity-${value}-panel`}
+              className={`${activityButton} ${tab === value ? "bg-[var(--ct-surface)] font-semibold" : "border-transparent"}`}
+              onClick={() => setTab(value)}
             >
-              <option value="">All ops</option>
-              {Object.keys(OP_COLORS).map((op) => (
-                <option key={op} value={op}>
-                  {op}
-                </option>
-              ))}
-            </select>
-            {opFilter && (
-              <button
-                data-testid="memory-activity-clear-filter"
-                onClick={() => setOpFilter("")}
-                className="text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-pointer bg-transparent border-0"
-              >
-                clear
-              </button>
-            )}
-            <span className="ml-auto text-[10px] text-[var(--ct-muted-fg)] tabular-nums">
-              {filtered.length}
-            </span>
-            <label className="flex items-center gap-1 cursor-pointer text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]">
-              <input
-                data-testid="memory-activity-follow"
-                type="checkbox"
-                checked={autoScroll}
-                onChange={(e) => setAutoScroll(e.target.checked)}
-                className="w-3 h-3"
-              />
-              follow
-            </label>
-          </div>
-
-          <div ref={eventsScrollRef} className="ct-rows flex-1 overflow-y-auto" onScroll={handleScroll} data-testid="memory-activity-stream">
-            {newCount > 0 && !autoScroll && (
-              <div className="sticky top-0 z-10 flex justify-center py-1">
-                <button
-                  data-testid="memory-activity-new-events"
-                  onClick={scrollToTop}
-                  className="px-3 py-1 rounded-full bg-[var(--ct-accent)] text-white text-[10px] cursor-pointer shadow-lg border-0"
-                >
-                  {newCount} new
-                </button>
+              {value === "workers" ? "Workers" : "Services"}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className={`${activityButton} ml-auto`}
+          aria-label="Refresh activity"
+          onClick={() => {
+            void refresh();
+            setRevision((value) => value + 1);
+          }}
+        >
+          <RefreshCw size={13} />
+        </button>
+        {tab === "workers" && (
+          <button type="button" className={activityButton} onClick={() => setSpawnOpen(true)}>
+            <Plus size={13} />
+            New worker
+          </button>
+        )}
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
+        <div className="max-w-4xl mx-auto space-y-5">
+          {tab === "workers" ? (
+            <section
+              role="tabpanel"
+              id="activity-workers-panel"
+              aria-labelledby="activity-workers"
+              className="space-y-5"
+            >
+              <div>
+                <h2 className="text-sm font-semibold mb-1">Memory agents</h2>
+                <p className={muted}>
+                  Configured here, working in the background. Open an agent to see its runs.
+                </p>
               </div>
-            )}
-            {filtered.length === 0 && (
-              <div className="text-xs text-[var(--ct-muted-fg)] text-center py-8" data-testid="memory-activity-empty">
-                No activity yet
-              </div>
-            )}
-            {filtered.map((ev, i) => {
-              const day = dayLabel(ev.ts_ms);
-              const showDay = day !== lastDay;
-              lastDay = day;
-              const opColor = OP_COLORS[ev.op] || "#888";
-              return (
-                <div key={`${ev.ts_ms}-${i}`}>
-                  {showDay && (
-                    <div className="flex items-center gap-2 px-3 py-1.5">
-                      <span className="text-[9px] font-semibold uppercase tracking-[0.25em] text-[var(--ct-muted-fg)]">
-                        {day}
+              {error && (
+                <details className="text-xs text-red-400">
+                  <summary className="cursor-pointer">
+                    Worker status unavailable. Refresh to try again.
+                  </summary>
+                  <pre className="whitespace-pre-wrap break-words mt-2">{error}</pre>
+                </details>
+              )}
+              <div className="rounded-lg border border-[var(--ct-border)] overflow-hidden divide-y divide-[var(--ct-border)]">
+                {agents.map(({ kind, title, description, Icon }) => {
+                  const current = agentActivity(
+                    workers.filter((worker) => workerAgentKind(worker) === kind),
+                  );
+                  const providerId =
+                    config?.memory?.[kind === "dreaming" ? "dreaming_agent" : "extraction_agent"] ||
+                    config?.general_agent?.agent_provider;
+                  const provider = providers.find((item) => item.id === providerId);
+                  const model =
+                    config?.memory?.[kind === "dreaming" ? "dreaming_model" : "extraction_model"] ||
+                    config?.memory?.worker_model;
+                  const modelLabel =
+                    provider?.available_models.find((item) => item.id === model)?.display_name ||
+                    model ||
+                    "Provider default";
+                  const disabled =
+                    kind === "extraction"
+                      ? config?.memory?.auto_extract === false
+                      : dreamCron?.enabled === false;
+                  const failed =
+                    (current.latest && workerNeedsAttention(current.latest)) ||
+                    (kind === "dreaming" && dreamCron?.last_run?.status === "Failed");
+                  const state = error
+                    ? "Status unavailable"
+                    : loading
+                      ? "Loading"
+                      : current.live.length
+                        ? `${current.live.length} running${current.parked.length ? ` / ${current.parked.length} parked` : ""}`
+                        : current.parked.length
+                          ? `${current.parked.length} parked`
+                          : failed
+                            ? "Last run failed"
+                            : disabled
+                              ? "Automatic runs off"
+                              : current.latest
+                                ? `Last run ${workerOutcome(current.latest).toLowerCase()}`
+                                : "Idle";
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      aria-expanded={selected === kind}
+                      aria-controls="memory-agent-details"
+                      className="w-full text-left bg-transparent px-4 py-4 flex gap-3 items-start cursor-pointer hover:bg-[var(--ct-surface)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]"
+                      onClick={() => setSelected(selected === kind ? null : kind)}
+                    >
+                      <Icon size={18} className="mt-0.5 shrink-0 text-[var(--ct-muted-fg)]" />
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-medium">{title}</span>
+                        <span className={`${muted} block mt-1`}>{description}</span>
+                        <span className={`${muted} block mt-2`}>
+                          {config
+                            ? `${provider?.display_name || providerId || "Provider not configured"} / ${modelLabel}`
+                            : "Configuration unavailable"}
+                        </span>
+                        {current.live[0] && (
+                          <span className="block text-xs mt-2 truncate">
+                            {current.live[0].progress_text || taskLabel(current.live[0])}
+                          </span>
+                        )}
                       </span>
-                      <span className="flex-1 h-px bg-[var(--ct-border)]" />
+                      <span
+                        className={`text-xs shrink-0 ${failed || current.parked.length ? "text-red-400" : "text-[var(--ct-muted-fg)]"}`}
+                      >
+                        {state}
+                      </span>
+                      <ChevronRight size={14} className="shrink-0 mt-0.5" />
+                    </button>
+                  );
+                })}
+                {workers.some((worker) => workerAgentKind(worker) === "custom") && (
+                  <button
+                    type="button"
+                    className="w-full bg-transparent text-left p-4 text-sm cursor-pointer hover:bg-[var(--ct-surface)]"
+                    aria-expanded={selected === "custom"}
+                    onClick={() => setSelected(selected === "custom" ? null : "custom")}
+                  >
+                    Other memory workers
+                    <span className="ml-3 text-xs text-[var(--ct-muted-fg)]">
+                      {
+                        workers.filter(
+                          (worker) =>
+                            workerAgentKind(worker) === "custom" &&
+                            !isTerminalWorkerStatus(worker.status),
+                        ).length
+                      }{" "}
+                      running
+                      {agentActivity(
+                        workers.filter((worker) => workerAgentKind(worker) === "custom"),
+                      ).latest &&
+                      workers
+                        .filter((worker) => workerAgentKind(worker) === "custom")
+                        .some(workerNeedsAttention)
+                        ? " / failures in history"
+                        : ""}
+                    </span>
+                    <ChevronRight size={14} className="inline ml-2" />
+                  </button>
+                )}
+              </div>
+              {selected && (
+                <section
+                  id="memory-agent-details"
+                  aria-label={`${selected} details`}
+                  className="border border-[var(--ct-border)] rounded-lg p-4 space-y-4"
+                >
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-sm font-semibold">
+                      {agents.find((agent) => agent.kind === selected)?.title || "Other workers"}{" "}
+                      history
+                    </h3>
+                    <button
+                      type="button"
+                      className={activityButton}
+                      onClick={() => setSelected(null)}
+                    >
+                      Close details
+                    </button>
+                  </div>
+                  {selected === "dreaming" && dreamCron?.last_run && (
+                    <p className={muted}>
+                      Latest scheduled attempt: {dreamCron.last_run.status} /{" "}
+                      {new Date(dreamCron.last_run.started_at).toLocaleString()}
+                    </p>
+                  )}
+                  {selected === "dreaming" && (
+                    <div className={muted}>
+                      {activity.crons.loading
+                        ? "Loading schedule…"
+                        : activity.crons.error
+                          ? "Schedule unavailable"
+                          : dreamCron?.enabled
+                            ? `Next scheduled run: ${dreamCron.next_run ? new Date(dreamCron.next_run).toLocaleString() : "not yet determined"}`
+                            : "No automatic run scheduled"}
+                      {activity.crons.error && (
+                        <details>
+                          <summary>Schedule error</summary>
+                          {activity.crons.error}
+                        </details>
+                      )}
                     </div>
                   )}
-                  <div
-                    className="ct-row flex items-start gap-2.5 px-2 py-1.5"
-                    data-testid="memory-activity-event"
-                    data-memory-op={ev.op}
-                  >
-                    <span className="w-[56px] shrink-0 text-[10px] font-mono tabular-nums text-[var(--ct-muted-fg)]">
-                      {formatTime(ev.ts_ms)}
-                    </span>
-                    <span
-                      className="px-1.5 py-px rounded-[3px] text-[9px] font-semibold uppercase tracking-[0.3px] shrink-0 w-[52px] text-center"
-                      style={{ background: `${opColor}22`, color: opColor }}
-                    >
-                      {ev.op}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      {ev.mem_ids.slice(0, 3).map((id) => {
-                        const node = nodes.get(id);
-                        const kind = node?.kind;
-                        const kColor = kind ? colorForKind(kind) : undefined;
-                        return (
-                          <div key={id} className="flex items-center gap-1.5">
-                            {kColor && (
-                              <span
-                                className="px-1 py-px rounded-[2px] text-[9px]"
-                                style={{ background: `${kColor}22`, color: kColor }}
-                              >
-                                {kind}
-                              </span>
-                            )}
-                            <span
-                              data-testid="memory-activity-item-link"
-                              data-memory-id={id}
-                              className="text-[11px] text-[var(--ct-fg)] truncate cursor-pointer hover:underline hover:decoration-[var(--ct-accent)]"
-                              onClick={() => onNavigateToItem(id)}
-                            >
-                              {node?.title || id.slice(0, 20)}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {ev.mem_ids.length > 3 && (
-                        <span className="text-[10px] text-[var(--ct-muted-fg)]">
-                          +{ev.mem_ids.length - 3} more
-                        </span>
-                      )}
-                      {ev.mem_ids.length === 0 && ev.op === "search" && (
-                        <span className="text-[11px] text-[var(--ct-fg)] italic">search query</span>
-                      )}
-                      <div className="text-[9px] text-[var(--ct-muted-fg)] mt-0.5 flex items-center gap-1.5">
-                        <span>
-                          src: {ev.source.worker_id || ev.source.tab_id?.slice(0, 8) || ev.source.kind}
-                        </span>
-                        {ev.source.agent_provider && <span>({ev.source.agent_provider})</span>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Workers column */}
-        <div className="flex flex-col min-h-0">
-          <div className="ct-jobs-header flex items-center gap-2 px-3 py-1.5">
-            <Cpu size={12} className="text-[var(--ct-muted-fg)]" />
-            <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">Workers</span>
-            <button
-              data-testid="memory-worker-spawn-open"
-              onClick={() => setSpawnOpen(true)}
-              className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] border border-[var(--ct-border)] hover:border-[var(--ct-fg)] bg-transparent cursor-pointer"
-              title="Spawn worker"
-            >
-              <PlusCircle size={11} />
-              spawn
-            </button>
-            <button
-              data-testid="memory-workers-refresh"
-              onClick={() => refreshWorkers()}
-              className="px-1.5 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] bg-transparent border-0 cursor-pointer"
-              title="Refresh"
-            >
-              <RefreshCw size={11} />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3" data-testid="memory-workers-list">
-            {workersLoading && (
-              <div className="text-[11px] text-[var(--ct-muted-fg)]" data-testid="memory-workers-loading">loading…</div>
-            )}
-            {!workersLoading && live.length === 0 && recent.length === 0 && (
-              <div className="text-[11px] text-[var(--ct-muted-fg)] text-center py-6" data-testid="memory-workers-empty">
-                No workers running. Spawn one or wait for the next dreaming session.
-              </div>
-            )}
-            {live.length > 0 && (
-              <div>
-                <div className="text-[9px] uppercase tracking-[0.25em] text-[var(--ct-muted-fg)] mb-1.5">
-                  In flight
-                </div>
-                <div className="space-y-1">
-                  {live.map((w) => (
-                    <WorkerCard
-                      key={w.worker_id}
-                      worker={w}
-                      onOpen={() => setLogWorker(w)}
-                      onKill={() => handleKill(w.worker_id)}
+                  {loading && (
+                    <p role="status" className={muted}>
+                      Loading worker history…
+                    </p>
+                  )}
+                  {!loading && history.length === 0 && (
+                    <p className={muted}>
+                      {error
+                        ? "History could not be loaded."
+                        : "No recorded runs. Future runs will appear here."}
+                    </p>
+                  )}
+                  {history.map((worker) => (
+                    <WorkerHistory
+                      key={worker.worker_id}
+                      worker={worker}
+                      label={taskLabel(worker)}
+                      onOpen={() => setLogWorker(worker)}
+                      onKill={() => void stopWorker(worker.worker_id)}
+                      onNavigateToItem={onNavigateToItem}
                     />
                   ))}
-                </div>
-              </div>
-            )}
-            {recent.length > 0 && (
-              <div>
-                <div className="text-[9px] uppercase tracking-[0.25em] text-[var(--ct-muted-fg)] mb-1.5">
-                  Recent
-                </div>
-                <div className="space-y-1">
-                  {recent.map(({ worker: w, count }) => (
-                    <WorkerCard
-                      key={w.worker_id}
-                      worker={w}
-                      count={count}
-                      onOpen={() => setLogWorker(w)}
-                      onKill={null}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-          </div>
+                  {actionError && (
+                    <details open className="text-xs text-red-400">
+                      <summary>Could not stop worker</summary>
+                      <pre className="whitespace-pre-wrap break-words">{actionError}</pre>
+                    </details>
+                  )}
+                </section>
+              )}
+            </section>
+          ) : (
+            <MemoryActivityServices
+              config={config}
+              activity={activity}
+              nodes={nodes}
+              onNavigateToItem={onNavigateToItem}
+            />
+          )}
         </div>
       </div>
-
       {spawnOpen && (
         <MemorySpawnWorkerDialog
-          onSpawn={async (req) => { await spawn(req); }}
+          onSpawn={async (request) => {
+            await spawn(request);
+          }}
           onClose={() => setSpawnOpen(false)}
         />
       )}
       {logWorker &&
         (logWorker.session_id ? (
           <RunChatPopup
-            title={logWorker.intent.replace(/^extract:/, "")}
+            title={taskLabel(logWorker)}
             subtitle={[logWorker.agent_provider, logWorker.model].filter(Boolean).join(" / ")}
             status={logWorker.status}
             report={logWorker.report}
@@ -400,69 +348,89 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   );
 }
 
-interface WorkerCardProps {
+export function WorkerHistory({
+  worker,
+  label,
+  onOpen,
+  onKill,
+  onNavigateToItem,
+}: {
   worker: GraphWorkerInfo;
+  label: string;
   onOpen: () => void;
-  onKill: (() => void) | null;
-  count?: number;
-}
-
-export function WorkerCard({ worker, onOpen, onKill, count = 1 }: WorkerCardProps) {
-  const isDone = isTerminalWorkerStatus(worker.status);
-  const time = workerTimeLabels(worker, Date.now());
+  onKill: () => void;
+  onNavigateToItem: (id: string) => void;
+}) {
   const reason = workerFailureReason(worker);
-  const intent = worker.intent.replace(/^extract:/, "").replace(/^dreaming:/, "REM:");
   return (
-    <div
-      onClick={onOpen}
-      role="button"
-      tabIndex={0}
-      aria-label={`Open ${worker.intent} · ${worker.status}`}
-      onKeyDown={(event) => {
-        if (event.target === event.currentTarget && (event.code === "Enter" || event.code === "Space")) {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-      data-testid="memory-worker-card"
-      data-worker-id={worker.worker_id}
-      data-worker-status={worker.status}
-      className="flex flex-wrap items-center gap-2 px-2.5 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/60 hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
-      title={isDone ? "View log" : "View live output"}
-    >
-      <span className="flex-1 text-[11px] truncate text-[var(--ct-fg)]">{intent}</span>
-      {worker.agent_provider && (
-        <AgentIcon
-          providerId={worker.agent_provider}
-          className="text-[12px] shrink-0"
-          title={`Executed by ${worker.agent_provider}`}
-          ariaLabel={`Executed by ${worker.agent_provider}`}
-        />
-      )}
-      {worker.model && (
-        <span className="text-[9px] text-[var(--ct-muted-fg)] shrink-0 truncate max-w-[80px]">
-          {worker.model}
+    <details className="border-t border-[var(--ct-border)] pt-3 text-xs">
+      <summary className="cursor-pointer">
+        <span className="font-medium">{label}</span>
+        <span className="ml-3 text-[var(--ct-muted-fg)]">
+          {workerOutcome(worker)} · {new Date(worker.spawned_at).toLocaleString()}
         </span>
-      )}
-      <span className="text-[9px] text-[var(--ct-muted-fg)]">{worker.status}{count > 1 ? ` ×${count}` : ""}</span>
-      {worker.extraction_retry?.parked && <span className="text-[9px] text-red-400">Failed · parked after {worker.extraction_retry.attempt} attempts</span>}
-      {worker.extraction_retry?.retry_after != null && <span className="text-[9px] text-[var(--ct-muted-fg)]">Retry eligible {new Date(worker.extraction_retry.retry_after).toLocaleString()}</span>}
-      {reason && <span className="w-full text-[9px] truncate text-red-400" title={reason}>{reason}</span>}
-      <span className="text-[9px] tabular-nums text-[var(--ct-muted-fg)] shrink-0">{time.age} · {time.duration}</span>
-      {onKill && (
-        <button
-          data-testid="memory-worker-kill"
-          onClick={(e) => {
-            e.stopPropagation();
-            onKill();
-          }}
-          className="text-[10px] px-1 text-[var(--ct-muted-fg)] hover:text-[#f87171] bg-transparent border-0 cursor-pointer"
-          title="Kill"
-        >
-          ✕
-        </button>
-      )}
-    </div>
+      </summary>
+      <div className="pt-3 space-y-3">
+        <p className={muted}>
+          {[worker.agent_provider, worker.model].filter(Boolean).join(" / ") || "Executor unknown"}{" "}
+          · {workerTimeLabels(worker, Date.now()).duration}
+        </p>
+        {worker.progress_text && <p>{worker.progress_text}</p>}
+        {reason && <p className="text-red-400 whitespace-pre-wrap break-words">{reason}</p>}
+        {worker.finalization &&
+          worker.finalization.state !== "succeeded" &&
+          "reason" in worker.finalization && (
+            <p className="text-red-400">{worker.finalization.reason}</p>
+          )}
+        {worker.report && worker.report !== reason && (
+          <p className="whitespace-pre-wrap break-words">{worker.report}</p>
+        )}
+        {worker.extraction_retry && (
+          <p>
+            {worker.extraction_retry.parked
+              ? `Parked after ${worker.extraction_retry.attempt} attempts. Use mem extract-pending to retry.`
+              : worker.extraction_retry.retry_after
+                ? `Retry eligible ${new Date(worker.extraction_retry.retry_after).toLocaleString()}`
+                : `Attempt ${worker.extraction_retry.attempt}`}
+          </p>
+        )}
+        {worker.touched_nodes.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {worker.touched_nodes.map((id) => (
+              <button
+                key={id}
+                type="button"
+                className={activityButton}
+                onClick={() => onNavigateToItem(id)}
+              >
+                Open affected memory
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <button type="button" className={activityButton} onClick={onOpen}>
+            View output
+          </button>
+          {!isTerminalWorkerStatus(worker.status) && (
+            <button type="button" className={activityButton} onClick={onKill}>
+              Stop worker
+            </button>
+          )}
+        </div>
+        <details className={muted}>
+          <summary className="cursor-pointer">Technical details</summary>
+          <dl className="mt-2 break-all">
+            <dt>Intent</dt>
+            <dd>{worker.intent}</dd>
+            <dt>Worker</dt>
+            <dd>{worker.worker_id}</dd>
+            <dt>Started by</dt>
+            <dd>{worker.spawned_by}</dd>
+          </dl>
+        </details>
+      </div>
+    </details>
   );
 }
 
