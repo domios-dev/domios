@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { act } from "react";
+import { it } from "vitest";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { configureDaemonTransport } from "../../lib/daemonBootstrap";
 import { setFrontendCacheStorageForTests, type FrontendCacheChanges, type FrontendCacheCommit, type FrontendCacheManifest, type FrontendCacheRecord, type FrontendCacheSnapshot, type FrontendCacheStorage } from "../../lib/frontendCacheRecords";
@@ -59,7 +60,7 @@ class FakeStorage implements FrontendCacheStorage {
   }
 }
 
-async function main() {
+it("refreshes Mesh inventory from events and keeps known rows across failures", async () => {
   installDom();
   configureDaemonTransport({ origin: "http://localhost", token: "mesh-cache-fixture" });
   const cache = new FakeStorage();
@@ -126,5 +127,4 @@ async function main() {
     __setInvokeForTest(null);
     __setListenForTest(null);
   }
-}
-void main().catch((error) => { console.error(error); process.exitCode = 1; });
+});
