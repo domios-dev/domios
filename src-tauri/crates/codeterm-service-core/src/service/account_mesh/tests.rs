@@ -198,3 +198,11 @@ fn account_mesh_unchanged_lifecycle_pushes_do_not_wake_the_gate() {
     );
     assert!(publish_mesh_state(&sender, mesh_state(&signed_in(2))));
 }
+
+#[test]
+fn account_mesh_not_before_skew_matches_across_account_and_mesh() {
+    assert_eq!(
+        codeterm_account::account_mesh::NOT_BEFORE_SKEW_SECONDS,
+        codeterm_mesh::account_mesh::ports::NOT_BEFORE_SKEW_SECONDS
+    );
+}
