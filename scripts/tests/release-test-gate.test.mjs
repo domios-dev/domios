@@ -41,8 +41,6 @@ test("warning summary stores reports in MinIO without GitHub artifact quota", ()
   assert.match(store.run, /ci-artifact\.sh put "\$GITHUB_RUN_ID\/\$WARNING_REPORT_NAME\//);
 });
 
-const overlapped = ["macos-arm64", "macos-x64", "linux-arm64", "windows-x64", "windows-arm64"];
-const afterFast = ["linux-x86_64", "tests"];
 const app = { result: "success", outputs: { kind: "app", published: "false", dry_run: "false", run_tests: "true", promote_run_id: "" } };
 const frontend = { "frontend-dist": { result: "success" } };
 const results = ["success", "failure", "cancelled", "skipped"];
@@ -59,21 +57,26 @@ test("one fast-check caller runs, and it cancels the run when a check fails", ()
   for (const id of [...builds, "tests", "quick-checks"]) assert.notEqual(release.jobs[id]["continue-on-error"], true);
 });
 
-test("builds on machines no fast check uses start at once; the rest wait for the fast checks", () => {
-  for (const id of overlapped) {
+test("builds start at once; tests open once every fast check is claimed or finished", () => {
+  const gate = release.jobs["tests-tier"];
+  assert.deepEqual(dependencies(gate), ["prepare"]);
+  assert.equal(gate.env.TIER_PREFIX, "Fast checks / ");
+  assert.equal(gate.env.TIER_ANCHOR, "Fast checks / guards");
+  assert.ok(gate.steps.some(step => step.run === 'node scripts/release-tier-gate.mjs "$TIER_PREFIX" "$TIER_ANCHOR" 45'));
+  assert.ok(gate["timeout-minutes"] > 45, "the gate outlives its own deadline");
+  assert.equal(release.jobs["builds-tier"], undefined);
+  assert.deepEqual(dependencies(release.jobs.tests), ["prepare", "tests-tier"]);
+  for (const result of results) {
+    assert.equal(condition(release.jobs.tests.if, { needs: { prepare: app, "tests-tier": { result } } }), result === "success", result);
+  }
+  assert.deepEqual(dependencies(release.jobs["frontend-dist"]), ["prepare"]);
+  assert.equal(condition(release.jobs["frontend-dist"].if, { needs: { prepare: app } }), true);
+  for (const id of builds) {
     const job = release.jobs[id];
-    assert.deepEqual(dependencies(job), ["prepare", "frontend-dist"]);
+    assert.deepEqual(dependencies(job), ["prepare", "frontend-dist"], id);
     assert.equal(condition(job.if, { needs: { prepare: app, ...frontend } }), true, id);
     assert.equal(condition(job.if, { needs: { prepare: app, ...frontend }, cancelled: true }), false);
     assert.equal(condition(job.if, { needs: { prepare: app, "frontend-dist": { result: "failure" } } }), false, id);
-  }
-  for (const id of afterFast) {
-    const job = release.jobs[id];
-    assert.deepEqual(dependencies(job), id === "tests" ? ["prepare", "quick-checks"] : ["prepare", "quick-checks", "frontend-dist"]);
-    for (const fast of results) {
-      const needs = { prepare: app, ...frontend, "quick-checks": { result: fast } };
-      assert.equal(condition(job.if, { needs, inputs: {} }), fast === "success", `${id}: ${fast}`);
-    }
   }
   assert.equal(release.jobs.tests.with.phase, "long");
   assert.deepEqual(new Set(dependencies(release.jobs["release-manifest"])), new Set(["prepare", "quick-checks", "tests", "promote-evidence", ...builds]));

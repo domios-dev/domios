@@ -202,12 +202,12 @@ test('Mac jobs provision secret material before building and always clean up', (
   assert.match(read('scripts/release-macos-x86_64.sh'), /CODETERM_RELEASE_COMMON_STAGE=1/);
 });
 
-test('builds on machines no fast check uses overlap the fast checks; the rest wait for them', () => {
-  for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'windows-x64', 'windows-arm64']) {
+test('builds start at once; tests wait only for the tests tier', () => {
+  for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']) {
     assert.deepEqual(release.jobs[build].needs, ['prepare', 'frontend-dist']);
   }
-  assert.deepEqual(release.jobs['linux-x86_64'].needs, ['prepare', 'quick-checks', 'frontend-dist']);
-  assert.deepEqual(release.jobs.tests.needs, ['prepare', 'quick-checks']);
+  assert.deepEqual(release.jobs.tests.needs, ['prepare', 'tests-tier']);
+  assert.equal(release.jobs['builds-tier'], undefined);
   assert.equal(release.jobs['frontend-dist'].needs, 'prepare');
   assert.equal(release.jobs.tests.with.phase, 'long');
   assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
