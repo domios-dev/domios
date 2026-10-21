@@ -122,7 +122,7 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
         const visible = entry.presence === "hover";
         const card = <UploadCard {...entry} onRetry={onRetry} onRemove={(span) => { onRemove(span); setHover(null); }} />;
         return visible && hover ? <AnchoredPopover key={entry.upload.id} open anchor={{ x: hover.x, y: hover.y }} floatingRef={cardRef} placement="top-start" gap={0} onClose={() => setHover(null)} style={{ overflow: "auto" }}>
-          <button type="button" aria-label="Close attachment preview" onClick={() => setHover(null)} style={{ minWidth: 44, minHeight: 44 }}><X size={18} aria-hidden /></button>
+          {window.matchMedia?.("(hover: none)").matches && <button type="button" aria-label="Close attachment preview" onClick={() => setHover(null)} style={{ minWidth: 44, minHeight: 44 }}><X size={18} aria-hidden /></button>}
           {card}
         </AnchoredPopover> : <div key={entry.upload.id} className="sr-only focus-within:not-sr-only focus-within:absolute focus-within:bottom-full focus-within:z-30">{card}</div>;
       })}

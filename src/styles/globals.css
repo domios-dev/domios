@@ -3355,7 +3355,7 @@ button,
 /* Composer plan/activity chip — same h-7 baseline as attachment/model bubbles. */
 /* Inline attachment capsule: plate and icon sit out of flow inside the line box, so a capsule painted over composer text keeps its exact width. */
 .ct-capsule { position: relative; z-index: 0; }
-.ct-capsule--padded { padding-inline: 1.35em 0.27em; }
+.ct-capsule--padded { display: inline-flex; align-items: center; height: 1.2em; line-height: 1; vertical-align: -0.2em; padding-inline: 1.35em 0.5em; }
 .ct-capsule__plate {
   position: absolute;
   inset-inline: 0;

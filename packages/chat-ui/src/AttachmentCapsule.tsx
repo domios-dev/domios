@@ -61,6 +61,7 @@ export function CapsulePreview({ kind, path, label, actions, onClose, closeLabel
   const image = suppliedImage ?? localImage;
   const snippet = useLocalTextPreview(attachmentPreviewKind({ kind, path }) === "document" ? path : undefined);
   const Icon = CAPSULE_ICONS[kind];
+  const touchClose = onClose && typeof window !== "undefined" && window.matchMedia?.("(hover: none)").matches ? onClose : undefined;
   return (
     <div role="region" aria-label={`Preview ${label}`} data-copy-skip
       className="select-none flex w-max max-w-[min(24rem,80vw)] flex-col gap-1.5 overflow-hidden rounded-xl border p-1.5 text-xs shadow-lg backdrop-blur-md"
@@ -70,7 +71,7 @@ export function CapsulePreview({ kind, path, label, actions, onClose, closeLabel
         color: "var(--ct-fg)",
       }}
     >
-      {(actions || onClose) && <div role="group" aria-label="Preview actions" className="flex shrink-0 items-center justify-end gap-1">{actions}{onClose && <Button variant="icon" aria-label={closeLabel} onClick={onClose} style={{ minWidth: 44, minHeight: 44 }}><X size={18} aria-hidden /></Button>}</div>}
+      {(actions || touchClose) && <div role="group" aria-label="Preview actions" className="flex shrink-0 items-center justify-end gap-1">{actions}{touchClose && <Button variant="icon" aria-label={closeLabel} onClick={touchClose} style={{ minWidth: 44, minHeight: 44 }}><X size={18} aria-hidden /></Button>}</div>}
       {kind === "image" && (
         <div className="flex min-h-16 min-w-24 items-center justify-center overflow-hidden rounded-lg" style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 75%, transparent)" }}>
           {image.src
