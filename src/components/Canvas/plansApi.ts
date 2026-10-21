@@ -239,11 +239,12 @@ export async function fetchPlanControlLoop(api: ApiConfig, planId: string, signa
   return res.json();
 }
 
-export async function setPlanControlLoop(api: ApiConfig, planId: string, update: ControlLoopUpdate): Promise<void> {
+export async function setPlanControlLoop(api: ApiConfig, planId: string, update: ControlLoopUpdate): Promise<PlanControlLoop> {
   const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/control-loop`, {
     method: "POST", headers: confirmedHeaders(api, planId), body: JSON.stringify(update),
   });
   if (!res.ok) throw new Error(`plan control loop update failed: ${res.status} ${await res.text()}`);
+  return res.json();
 }
 
 export async function unarchivePlan(api: ApiConfig, planId: string): Promise<void> {

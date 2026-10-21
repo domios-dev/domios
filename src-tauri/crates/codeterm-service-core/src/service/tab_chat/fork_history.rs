@@ -111,7 +111,7 @@ pub(super) fn messages(
                     provider_id,
                     &path,
                     &format!("tab:{tab_id}"),
-                )
+                )?
                 .0
         }
         HistorySource::Unavailable => Vec::new(),
@@ -125,7 +125,7 @@ pub(super) fn messages(
                     provider_id,
                     &path,
                     &format!("tab:{tab_id}/inherited:{source}"),
-                )
+                )?
                 .0,
             &source,
         ),

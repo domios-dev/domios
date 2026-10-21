@@ -152,6 +152,16 @@ pub enum TabTodoState {
 }
 
 impl TabTodoState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Open => "pending",
+            Self::InProgress => "in progress",
+            Self::Done => "complete",
+            Self::Blocked => "blocked",
+            Self::Skipped => "skipped",
+        }
+    }
+
     /// Done and skipped items close the checklist; blocked items keep it open.
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Done | Self::Skipped)
@@ -206,6 +216,16 @@ pub struct TabTodoItem {
     /// Newest `MAX_TAB_TODO_ITEM_EVENTS` events, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub history: Vec<TabTodoItemEvent>,
+}
+
+impl TabTodoItem {
+    pub fn validate_amendment_title(&self, title: &str) -> Result<(), String> {
+        validate_label(title)?;
+        if self.locked && self.title != title {
+            return Err("seeded criteria stay locked".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
