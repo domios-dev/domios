@@ -124,7 +124,7 @@ export function releaseRustPlan(runners, overlay, platform = HOST_PLATFORM, only
 
 // Stale and this platform's platform-red binary markers as a nextest filterset; empty when none apply.
 export function overlayExclusions(overlay, platform = HOST_PLATFORM, owns = () => true) {
-  const skips = [...overlay.stale, ...overlay.platform_red].filter((m) => owns(m) && 'binary' in m.target && (!m.platforms || m.platforms.includes(platform)));
+  const skips = [...overlay.stale, ...overlay.platform_red].filter((m) => 'binary' in m.target && owns(m) && (!m.platforms || m.platforms.includes(platform)));
   for (const m of skips) if (!SAFE_NAME.test(m.target.binary) || !SAFE_NAME.test(m.target.test)) throw new Error('Unsafe overlay target for ' + m.runner);
   return skips.map((m) => 'not (binary_id(=' + m.target.binary + ') & test(=' + m.target.test + '))').join(' & ');
 }

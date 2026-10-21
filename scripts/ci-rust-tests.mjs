@@ -18,10 +18,12 @@ export const MODES = { full: [WORKSPACE, CLI], platform: [WORKSPACE, CLI, INPUT]
 const CI_PLATFORM = { Linux: 'linux', macOS: 'macos', Windows: 'windows' };
 
 // The catalogue overlay's stale and platform-red binary markers apply to CI exactly as to release-rust.
-export function withOverlayExclusions(scope, overlay, os) {
+// Only markers whose package the lane builds apply: nextest refuses a binary_id that matches nothing.
+export function withOverlayExclusions(scope, overlay, os, lane) {
   const platform = CI_PLATFORM[os];
   if (!platform) throw new Error(`Unknown runner OS ${os}`);
-  const exclusions = overlayExclusions(overlay, platform);
+  const packages = new Set(lane.targets.flatMap((arg, index) => (lane.targets[index - 1] === '-p' ? [arg] : [])));
+  const exclusions = overlayExclusions(overlay, platform, (m) => packages.has(m.target.binary.split('::')[0]));
   return exclusions ? `(${scope}) & ${exclusions}` : scope;
 }
 const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
@@ -206,7 +208,7 @@ async function run(mode) {
         scope = platformFilter(rows);
         if (scope === 'none()') continue;
       }
-      scope = withOverlayExclusions(scope, OVERLAY, os);
+      scope = withOverlayExclusions(scope, OVERLAY, os, lane);
       fs.writeFileSync(config, tomlConfig(scope, false));
       const listed = jsonCommand(['nextest', 'list', '--manifest-path', lane.manifest, ...lane.targets, '--locked', '--config-file', config, '--message-format', 'json']);
       const selected = Object.values(listed['rust-suites']).flatMap((suite) => Object.entries(suite.testcases)
