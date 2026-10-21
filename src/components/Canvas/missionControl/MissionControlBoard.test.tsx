@@ -362,7 +362,7 @@ describe("mission control board panels", () => {
     expect(goalLine.getAttribute("title")).toBe("Ship a readable Snake game");
     expect(text(host, "mc-board-plan-meta")).toBe("16 tasks");
     expect(text(host, "mc-board-bounces-amount")).toBe("1");
-    expect(text(host, "mc-board-quality")).toBe("bounced1first try10 of 12");
+    expect(text(host, "mc-board-progress-stats")).toBe("done67%10 of 15blocked1of 5 openfirst try83%1 bounced");
     const plan = text(host, "mc-board-plan");
     for (const banned of ["5.3M", "1.4B", "65M", "output", "total", "bytes", "·", "Quality", "new input"]) {
       expect(plan).not.toContain(banned);
@@ -470,7 +470,7 @@ describe("mission control board panels", () => {
   it("shows only the statuses holding tasks and says nothing about the empty ones", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
-    expect(statusItems(host)).toEqual(["1pending", "2in review", "1blocked", "1paused", "10done", "1cancelled"]);
+    expect(statusItems(host)).toEqual(["10done", "2in review", "1blocked", "1paused", "1pending", "1cancelled"]);
     expect(text(host, "mc-board-task-statuses")).not.toContain("nothing");
     expect(text(host, "mc-board-plan-meta")).toBe("16 tasks");
     await unmount();
@@ -626,7 +626,7 @@ describe("mission control board panels", () => {
       "mc-board-plan",
     ]);
     expect(text(host, "mc-board-plan-empty")).toBe("No active plan");
-    for (const absent of ["mc-board-task-statuses", "mc-board-quality", "mc-board-tasks-amount", "mc-board-spend-gauge"]) {
+    for (const absent of ["mc-board-task-statuses", "mc-board-progress-stats", "mc-board-tasks-amount", "mc-board-spend-gauge"]) {
       expect(host.querySelector(`[data-testid="${absent}"]`)).toBeNull();
     }
     expect(text(host, "mc-board-spend-empty")).toBe("no data");

@@ -247,7 +247,9 @@ describe("mission control board visual system", () => {
     expect(plan.querySelector('[data-testid="mc-board-tasks-amount"]')?.textContent).toBe("4");
     const statuses = Array.from(plan.querySelectorAll('[data-testid="mc-board-task-statuses"] li')) as HTMLElement[];
     expect(statuses.map((status) => status.getAttribute("data-testid"))).toEqual(["mc-board-task-status-paused"]);
-    expect(plan.querySelector('[data-testid="mc-board-quality"]')?.textContent).toBe("bounced1first try0 of 2");
+    expect(plan.querySelector('[data-testid="mc-board-progress-stats"]')?.textContent).toBe(
+      "done0/4just startedblocked0of 4 openfirst try0/21 bounced",
+    );
     expect(host.querySelector('[data-testid="mc-board-needs-you"]')).toBeNull();
     await unmount();
   });
