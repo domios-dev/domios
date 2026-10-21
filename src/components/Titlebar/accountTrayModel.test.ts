@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { accountTrayModel } from "./accountTrayModel";
+import { accountAvatarUrl, accountTrayModel } from "./accountTrayModel";
 const out = accountTrayModel({kind:"signed_out"}, null);
 assert.equal(out.name, "Account");
 assert.equal(out.disabled, false);
@@ -18,4 +18,12 @@ for (const authority of ["admin", "billing", "free"] as const) {
     assert.equal(result.plan, `${authority === "admin" ? "Admin · " : ""}free (active)${stale ? " · stale" : ""}`);
   }
 }
-console.log("14 model assertions passed");
+const photo = "https://lh3.googleusercontent.com/a/fixture=s96-c";
+assert.equal(accountAvatarUrl(photo), photo);
+assert.equal(accountTrayModel({kind:"signed_in",identity:{...identity,photo_url:photo}}, null).avatarUrl, photo);
+assert.equal(signedIn.avatarUrl, null);
+for (const rejected of [null, undefined, "", "http://lh3.googleusercontent.com/a", "javascript:alert(1)", "data:image/png;base64,AAAA",
+  "https://user:pass@lh3.googleusercontent.com/a", "not a url", `https://lh3.googleusercontent.com/${"a".repeat(2048)}`]) {
+  assert.equal(accountAvatarUrl(rejected), null);
+}
+console.log("26 model assertions passed");

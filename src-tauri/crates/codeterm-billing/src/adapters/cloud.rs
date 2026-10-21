@@ -153,6 +153,7 @@ mod tests {
                 email: None,
                 display_name: None,
                 provider: "local".into(),
+                photo_url: None,
             },
             id_token: codeterm_account::Secret::new("test-token"),
         };

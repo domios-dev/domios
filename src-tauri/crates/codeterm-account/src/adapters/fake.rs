@@ -15,6 +15,7 @@ impl Fake {
                     email: None,
                     display_name: None,
                     provider: "fake".into(),
+                    photo_url: None,
                 },
                 id_token: Secret::new(format!("fake-id-{n}")),
             },
