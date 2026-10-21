@@ -1,3 +1,6 @@
+// The Blueprint JSON schema is one json! literal deeper than the default macro recursion limit.
+#![recursion_limit = "256"]
+
 pub mod automation_name;
 pub mod blueprint_catalog;
 pub mod blueprint_journal;
