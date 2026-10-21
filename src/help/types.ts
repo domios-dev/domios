@@ -5,6 +5,7 @@ export type HelpSectionId =
   | "workspaces"
   | "agents"
   | "plans"
+  | "curator"
   | "blueprints"
   | "memory"
   | "supporter-agent"
@@ -36,6 +37,7 @@ export type HelpAppShortcutId =
   | "toggle_sidebar";
 
 export type HelpBlock =
+  | { type: "guide-link"; label: string; section: HelpSectionId }
   | { type: "paragraph"; text: string }
   | { type: "heading"; text: string }
   | { type: "list"; items: string[]; ordered?: boolean }

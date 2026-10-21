@@ -11,7 +11,7 @@ export {
 } from "./timelineMarkers";
 export { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
 export { RichMarkdown, parseVoiceMessage } from "./MarkdownBody";
-export { GuideNavigationProvider } from "./GuideDirective";
+export { GuideNavigationProvider, useGuideNavigation } from "./GuideDirective";
 export { HtmlPreviewBlock, buildHtmlPreviewDocument } from "./HtmlPreviewBlock";
 export { configureHtmlFileLoader } from "./htmlFileLoader";
 export type { HtmlFileLoader } from "./htmlFileLoader";

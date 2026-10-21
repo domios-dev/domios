@@ -52,7 +52,7 @@ export function mergeJobs(filter: JobsFilter, crons: readonly CronJob[], sentine
     ...crons.filter((job) => matchesJobsFilter(filter, job.workspace_id, job.team_id)).map((cron): MergedJob => ({
       kind: "cron",
       cron,
-      title: cron.name,
+      title: cron.role === "curator" ? "Curator rounds" : cron.name,
       active: cron.enabled || cronState(cron) === "Running",
       state: cronState(cron),
     })),
@@ -74,7 +74,7 @@ export function mergeJobs(filter: JobsFilter, crons: readonly CronJob[], sentine
 
 export function clearableJobs(jobs: readonly MergedJob[]): MergedJob[] {
   return jobs.filter((job) => job.kind === "cron"
-    ? !job.cron.enabled && cronState(job.cron) !== "Running"
+    ? !job.cron.protected && !job.cron.enabled && cronState(job.cron) !== "Running"
     : ["stopped", "expired", "finished"].includes(job.state.toLowerCase()));
 }
 
