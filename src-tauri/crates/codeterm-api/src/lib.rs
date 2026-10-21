@@ -1,3 +1,4 @@
+pub mod account_mesh_routes;
 pub mod account_routes;
 pub mod analytics_routes;
 mod attachment_upload;
