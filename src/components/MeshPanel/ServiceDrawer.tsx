@@ -9,6 +9,7 @@ import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { CronDrawerSection } from "./CronDrawerSection";
 import { AddServiceWizard } from "./AddServiceWizard";
 import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
+import { useEscapeDismissal } from "../shared/useEscapeDismissal";
 import {
   capabilityFor,
   capabilitySummary,
@@ -52,13 +53,7 @@ const CLOSE_BUTTON_CLASS =
 const defaultResourceActionAdapter = createMeshResourceActionAdapter();
 
 function DrawerBackdrop({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeDismissal(onClose);
 
   return (
     <div
