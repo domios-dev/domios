@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   createTranscriptState,
+  expandTranscriptGap,
   matchesMatchedRow,
   reduceTranscript,
+  type NormalizedChatMessage,
   type TranscriptBatch,
   type TranscriptOutcome,
   type TranscriptState,
@@ -90,6 +92,17 @@ export function commitTranscriptBatch(key: string, batch: TranscriptBatch): Tran
   const current = readTranscriptWindow(key);
   const { state, outcome } = reduceTranscript(current.transcript, batch);
   if (state !== current.transcript) publish(key, { ...current, transcript: state }, batch.kind === "delta");
+  return outcome;
+}
+
+export function expandTranscriptWindowGap(
+  key: string,
+  gapId: string,
+  page: readonly NormalizedChatMessage[],
+): TranscriptOutcome {
+  const current = readTranscriptWindow(key);
+  const { state, outcome } = expandTranscriptGap(current.transcript, gapId, page);
+  if (state !== current.transcript) publish(key, { ...current, transcript: state });
   return outcome;
 }
 

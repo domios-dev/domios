@@ -24,6 +24,8 @@ export interface TranscriptSegment {
   range: TranscriptRange | null;
   /** Unranged archived provider rows belong before the current session windows. */
   placement?: "oldest";
+  /** Holds history the user paged in behind a gap; the retention bound never trims it. */
+  pinned?: boolean;
   rows: NormalizedChatMessage[];
 }
 
@@ -32,6 +34,8 @@ export interface TranscriptState {
   segments: TranscriptSegment[];
   /** Rows dropped off the top by the retention bound. */
   evictedOlder: number;
+  /** History-gap rows already replaced by their older page; a re-sent copy stays hidden. */
+  expandedGaps?: readonly string[];
 }
 
 export function transcriptOffsetKind(state: TranscriptState): "bytes" | "items" {
@@ -126,7 +130,7 @@ function orderedSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
 export function transcriptRows(state: TranscriptState): NormalizedChatMessage[] {
   const rows: NormalizedChatMessage[] = [];
   for (const segment of orderedSegments(state.segments)) rows.push(...segment.rows);
-  const seen = new Set<string>();
+  const seen = new Set<string>(state.expandedGaps);
   const out: NormalizedChatMessage[] = [];
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index];
@@ -141,11 +145,16 @@ export function transcriptRowCount(state: TranscriptState): number {
   return state.segments.reduce((total, segment) => total + segment.rows.length, 0);
 }
 
-/** Ranged segments stay whole so the paging cursor cannot skip evicted rows. */
+function holdsHistoryGap(segment: TranscriptSegment): boolean {
+  return segment.pinned === true || segment.rows.some((row) => row.timelineMarker?.kind === "history_gap");
+}
+
+/** Ranged segments stay whole so the paging cursor cannot skip evicted rows;
+ *  gap-paged segments stay whole so their gap row stays reachable. */
 function withRetentionBound(state: TranscriptState, limit: number): TranscriptState {
   let evicted = 0;
   let kept = orderedSegments(state.segments).map((segment) => {
-    if (segment.range != null || segment.rows.length <= limit) return segment;
+    if (segment.range != null || segment.rows.length <= limit || holdsHistoryGap(segment)) return segment;
     const overflow = segment.rows.length - limit;
     evicted += overflow;
     return { ...segment, rows: segment.rows.slice(overflow) };
@@ -153,7 +162,7 @@ function withRetentionBound(state: TranscriptState, limit: number): TranscriptSt
   let total = kept.reduce((count, segment) => count + segment.rows.length, 0);
   while (kept.length > 1 && total > limit) {
     const oldest = kept[0];
-    if (total - oldest.rows.length < limit) break;
+    if (holdsHistoryGap(oldest) || total - oldest.rows.length < limit) break;
     total -= oldest.rows.length;
     evicted += oldest.rows.length;
     kept = kept.slice(1);
@@ -191,9 +200,11 @@ function withUnrangedRows(
   rows: NormalizedChatMessage[],
   placement?: TranscriptSegment["placement"],
 ): TranscriptSegment[] {
+  const pinned = state.segments.some((segment) =>
+    segment.range == null && segment.placement === placement && segment.pinned === true);
   return [
     ...state.segments.filter((segment) => segment.range != null || segment.placement !== placement),
-    { kind, range: null, placement, rows },
+    { kind, range: null, placement, rows, ...(pinned ? { pinned } : {}) },
   ];
 }
 
@@ -328,6 +339,26 @@ function reduceBackfill(state: TranscriptState, batch: TranscriptBatch): Transcr
       ]),
       evictedOlder: Math.max(0, state.evictedOlder - batch.rows.length),
     },
+    outcome: "adopted",
+  };
+}
+
+/** Put the older page behind a history-gap row where that row stood. */
+export function expandTranscriptGap(
+  state: TranscriptState,
+  gapId: string,
+  page: readonly NormalizedChatMessage[],
+): TranscriptResult {
+  const index = state.segments.findIndex((segment) => segment.rows.some((row) => row.id === gapId));
+  if (index < 0 || state.expandedGaps?.includes(gapId)) return { state, outcome: "ignored_stale" };
+  const rows = state.authority ? ownedRows(state.authority, page) : [...page];
+  const segments = state.segments.map((segment, at) => {
+    if (at !== index) return segment;
+    const gap = segment.rows.findIndex((row) => row.id === gapId);
+    return { ...segment, pinned: true, rows: [...segment.rows.slice(0, gap), ...rows, ...segment.rows.slice(gap + 1)] };
+  });
+  return {
+    state: { ...state, segments, expandedGaps: [...(state.expandedGaps ?? []), gapId] },
     outcome: "adopted",
   };
 }

@@ -136,7 +136,8 @@ export interface InteractiveQuestion {
 export type ChatTimelineMarker =
   | { kind: "queued" }
   | { kind: "external_edit"; path: string }
-  | { kind: "context_compaction" };
+  | { kind: "context_compaction" }
+  | { kind: "history_gap"; source: "provider_session" | "chat_backend"; session_id: string; before_offset: number };
 
 export interface ChatSessionIntent {
   title?: string;

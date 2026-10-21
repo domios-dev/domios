@@ -130,6 +130,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       ...(args.knownWindow != null ? { knownWindow: args.knownWindow } : {}) });
     case "chat_stop": return call("POST", "/chat-raw/stop", { subscriptionId: args.subscriptionId });
     case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes, offset_kind: args.offsetKind });
+    case "chat_history_page": return call("POST", "/chat-raw/history", { source: args.source, session_id: args.sessionId, before_offset: args.beforeOffset });
     case "chat_send_text": return call("POST", "/chat-send", {
       text: args.text,
       client_token: args.clientToken,

@@ -719,27 +719,13 @@ fn lane_commits(task: &Task, attempt: &TaskExecutionAttempt) -> Result<Vec<Strin
 }
 
 fn bounded_host_history(path: &std::path::Path) -> std::io::Result<Vec<ChatMsg>> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut file = std::fs::File::open(path)?;
-    let len = file.metadata()?.len();
-    let from = len.saturating_sub(codeterm_plugin::jsonl_window::DELTA_CHUNK_BYTES);
-    file.seek(SeekFrom::Start(from))?;
-    let mut bytes = Vec::new();
-    file.take(codeterm_plugin::jsonl_window::DELTA_CHUNK_BYTES)
-        .read_to_end(&mut bytes)?;
-    let start = if from == 0 {
-        0
-    } else {
-        bytes
-            .iter()
-            .position(|b| *b == b'\n')
-            .map(|i| i + 1)
-            .unwrap_or(bytes.len())
-    };
-    Ok(bytes[start..]
-        .split(|b| *b == b'\n')
-        .filter_map(|line| serde_json::from_slice(line).ok())
-        .collect())
+    let length = std::fs::metadata(path)?.len();
+    crate::service::tab_chat::chatbackend_history::read_window(
+        path,
+        length,
+        codeterm_plugin::jsonl_window::DELTA_CHUNK_BYTES,
+    )
+    .map(|window| window.messages)
 }
 
 pub(super) fn is_owner_turn(message: &ChatMsg) -> bool {

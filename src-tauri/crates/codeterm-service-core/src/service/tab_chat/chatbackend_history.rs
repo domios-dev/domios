@@ -1,20 +1,29 @@
 //! Durable host-side history for chatBackend tabs — otherwise the transcript
 //! lives only in the plugin VM's in-memory map and is lost on reload/restart.
-//! Persisted as JSONL (one line per message, UPSERT by id, so a streaming
-//! message rewrites its own line). The optional `{"_meta": <openSessionConfig>}`
+//! An append-only JSONL log: a message record supersedes earlier records with
+//! its id, `{"_removed": id}` retires one, and the optional `{"_meta": <config>}`
 //! first line lets a restored tab lazily re-open its session.
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use parking_lot::Mutex;
 
 use crate::agent::chat_types::ChatMsg;
-use crate::persisted_state::{Loaded, StateFile};
 
 const SESSIONS_SUBDIR: &str = "chatbackend-sessions";
 const META_KEY: &str = "_meta";
+const REMOVED_KEY: &str = "_removed";
+const META_PREFIX: &str = "{\"_meta\":";
+const REMOVED_PREFIX: &str = "{\"_removed\":";
+const MAX_META_BYTES: u64 = 1024 * 1024;
+/// Trailing bytes a snapshot or context read folds; older records page on demand.
+pub const TAIL_BYTES: u64 = 4 * 1024 * 1024;
+/// Soft byte limit for one older-history page.
+pub const PAGE_BYTES: u64 = 1024 * 1024;
 
 /// Filesystem-safe path component: keep `[A-Za-z0-9._-]`, map anything else to
 /// `_` so a plugin-chosen id with slashes/colons can't escape the sessions dir.
@@ -49,9 +58,60 @@ pub fn context_sidecar_path(plugin_id: &str, session_id: &str) -> PathBuf {
     session_dir(plugin_id).join(format!("{}.context.jsonl", sanitize(session_id)))
 }
 
-/// Read the persisted transcript (durable truth), skipping the `_meta` header.
-/// Missing / unreadable file ⇒ empty. Unparseable lines are skipped here; the
-/// next flush preserves such a file as a corrupt copy before replacing it.
+/// Complete records of one byte range, folded to their latest versions.
+#[derive(Debug, Default)]
+pub struct HistoryWindow {
+    pub messages: Vec<ChatMsg>,
+    /// First-record offset of each message, parallel to `messages`.
+    pub record_starts: Vec<u64>,
+    pub start_offset: u64,
+    pub end_offset: u64,
+}
+
+impl HistoryWindow {
+    pub fn truncated(&self) -> bool {
+        self.start_offset > 0
+    }
+
+    /// Keep the newest `limit` messages; the window then starts at the first kept record.
+    pub fn keep_last(mut self, limit: usize) -> Self {
+        let excess = self.messages.len().saturating_sub(limit);
+        if excess > 0 {
+            self.messages.drain(..excess);
+            self.record_starts.drain(..excess);
+            self.start_offset = self
+                .record_starts
+                .first()
+                .copied()
+                .unwrap_or(self.end_offset);
+        }
+        self
+    }
+}
+
+/// The trailing [`TAIL_BYTES`] of the transcript. Missing file ⇒ `NotFound`.
+pub fn read_tail(path: &Path) -> std::io::Result<HistoryWindow> {
+    let length = std::fs::metadata(path)?.len();
+    read_window(path, length, TAIL_BYTES)
+}
+
+/// One complete-record window ending at or below `until`.
+pub fn read_window(path: &Path, until: u64, budget: u64) -> std::io::Result<HistoryWindow> {
+    let page = codeterm_plugin::jsonl_window::page_before(path, until, budget)?;
+    let mut file = std::fs::File::open(path)?;
+    file.seek(SeekFrom::Start(page.start))?;
+    let mut bytes = Vec::with_capacity((page.end - page.start) as usize);
+    file.take(page.end - page.start).read_to_end(&mut bytes)?;
+    let (messages, record_starts) = fold(&bytes, page.start);
+    Ok(HistoryWindow {
+        messages,
+        record_starts,
+        start_offset: page.start,
+        end_offset: page.start + bytes.len() as u64,
+    })
+}
+
+/// Messages of the trailing window; missing or unreadable ⇒ empty.
 pub fn read_messages(path: &Path) -> Vec<ChatMsg> {
     try_read_messages(path).unwrap_or_default()
 }
@@ -59,63 +119,69 @@ pub fn read_messages(path: &Path) -> Vec<ChatMsg> {
 /// Like [`read_messages`], but keeps the read error so a caller that must not
 /// degrade silently can tell "no transcript yet" from "transcript unreadable".
 pub fn try_read_messages(path: &Path) -> std::io::Result<Vec<ChatMsg>> {
-    Ok(parse_messages(&std::fs::read_to_string(path)?))
+    read_tail(path).map(|window| window.messages)
 }
 
-fn parse_messages(content: &str) -> Vec<ChatMsg> {
-    content
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() || is_meta_line(line) {
-                return None;
-            }
-            serde_json::from_str::<ChatMsg>(line)
-                .ok()
-                .map(ChatMsg::with_segments)
-        })
-        .collect()
-}
-
-/// Read the persisted openSession config from the `_meta` header line.
-pub fn read_meta(path: &Path) -> Option<serde_json::Value> {
-    parse_meta(&std::fs::read_to_string(path).ok()?)
-}
-
-fn parse_meta(content: &str) -> Option<serde_json::Value> {
-    let first = content.lines().next()?.trim();
-    let v: serde_json::Value = serde_json::from_str(first).ok()?;
-    v.get(META_KEY).cloned()
-}
-
-/// Transcripts rewrite on every streamed chunk, so they keep no rotating backups.
-fn transcript_file(path: &Path) -> StateFile {
-    StateFile::new(path)
-        .without_backups()
-        .with_validator(validate_transcript)
-}
-
-fn validate_transcript(content: &str) -> Result<(), String> {
-    for (index, line) in content.lines().enumerate() {
+/// Latest version of each record in first-seen order, with each message's
+/// first-record offset; retired ids drop out.
+fn fold(bytes: &[u8], base: u64) -> (Vec<ChatMsg>, Vec<u64>) {
+    let mut order: Vec<(String, u64)> = Vec::new();
+    let mut by_id: HashMap<String, ChatMsg> = HashMap::new();
+    let mut offset = base;
+    for raw in bytes.split_inclusive(|byte| *byte == b'\n') {
+        let start = offset;
+        offset += raw.len() as u64;
+        let Ok(line) = std::str::from_utf8(raw) else {
+            continue;
+        };
         let line = line.trim();
-        if line.is_empty() {
+        if line.is_empty() || line.starts_with(META_PREFIX) {
             continue;
         }
-        let value: serde_json::Value =
-            serde_json::from_str(line).map_err(|e| format!("line {}: {e}", index + 1))?;
-        if value.get(META_KEY).is_none() {
-            serde_json::from_value::<ChatMsg>(value)
-                .map_err(|e| format!("line {}: {e}", index + 1))?;
+        if line.starts_with(REMOVED_PREFIX) {
+            if let Some(id) = removed_id(line) {
+                by_id.remove(&id);
+                order.retain(|(kept, _)| *kept != id);
+            }
+            continue;
         }
+        let Ok(message) = serde_json::from_str::<ChatMsg>(line) else {
+            continue;
+        };
+        if !by_id.contains_key(&message.id) {
+            order.push((message.id.clone(), start));
+        }
+        by_id.insert(message.id.clone(), message);
     }
-    Ok(())
+    order
+        .into_iter()
+        .filter_map(|(id, start)| Some((by_id.remove(&id)?.with_segments(), start)))
+        .unzip()
 }
 
-fn is_meta_line(line: &str) -> bool {
+fn removed_id(line: &str) -> Option<String> {
     serde_json::from_str::<serde_json::Value>(line)
-        .ok()
-        .and_then(|v| v.get(META_KEY).cloned())
-        .is_some()
+        .ok()?
+        .get(REMOVED_KEY)?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// The openSession config from the `_meta` first line.
+pub fn read_meta(path: &Path) -> Option<serde_json::Value> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut first = Vec::new();
+    BufReader::new(file.take(MAX_META_BYTES))
+        .read_until(b'\n', &mut first)
+        .ok()?;
+    let line = std::str::from_utf8(&first).ok()?.trim();
+    if !line.starts_with(META_PREFIX) {
+        return None;
+    }
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()?
+        .get(META_KEY)
+        .cloned()
 }
 
 /// Move a session's JSONL to a new id (best-effort), so a re-opened session keeps
@@ -134,22 +200,35 @@ pub fn migrate(plugin_id: &str, from_session: &str, to_session: &str) {
     }
 }
 
-/// A process-shared, lock-guarded history mirror. See [`ChatBackendHistory::shared`].
+/// A process-shared, lock-guarded history writer. See [`ChatBackendHistory::shared`].
 pub type SharedHistory = Arc<Mutex<ChatBackendHistory>>;
 
-/// Registry of the single shared mirror per `(plugin_id, session_id)`. Lives for
-/// the daemon's lifetime; the per-session footprint is one transcript in memory.
+/// Registry of the single shared writer per `(plugin_id, session_id)`. Lives for
+/// the daemon's lifetime; the per-session footprint is one digest per message id.
 static SHARED: LazyLock<Mutex<HashMap<(String, String), SharedHistory>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// In-memory mirror of one session's JSONL. UPSERTs messages by id and rewrites
-/// the file only when content actually changed (the poll-loop dedup means this
-/// is rare). Best-effort, no fsync on the hot path.
+struct Live {
+    digest: u64,
+}
+
+/// Single writer of one session log. Holds only id digests, so an unchanged
+/// upsert is a no-op and a changed one appends one record (or rewrites the
+/// final record in place when it is the same message, as streaming does).
 pub struct ChatBackendHistory {
     path: PathBuf,
-    meta: Option<serde_json::Value>,
-    order: Vec<String>,
-    by_id: HashMap<String, ChatMsg>,
+    meta: bool,
+    live: HashMap<String, Live>,
+    /// Id and start of the final record when it is a message record.
+    last: Option<(String, u64)>,
+    /// End of the last complete record; bytes past it are a torn write.
+    length: u64,
+}
+
+fn digest(line: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    line.hash(&mut hasher);
+    hasher.finish()
 }
 
 impl ChatBackendHistory {
@@ -158,31 +237,89 @@ impl ChatBackendHistory {
     }
 
     pub fn open_at(path: PathBuf) -> Self {
-        let parsed = transcript_file(&path)
-            .load(|content| Ok::<_, String>((parse_meta(content), parse_messages(content))));
-        let (meta, messages) = match parsed {
-            Loaded::Parsed(loaded) | Loaded::Recovered { value: loaded, .. } => loaded,
-            Loaded::Missing | Loaded::Unrecoverable { .. } => (None, Vec::new()),
-        };
-        let mut order = Vec::new();
-        let mut by_id = HashMap::new();
-        for m in messages {
-            if !by_id.contains_key(&m.id) {
-                order.push(m.id.clone());
-            }
-            by_id.insert(m.id.clone(), m);
-        }
-        Self {
+        let mut history = Self {
             path,
-            meta,
-            order,
-            by_id,
+            meta: false,
+            live: HashMap::new(),
+            last: None,
+            length: 0,
+        };
+        if let Err(error) = history.index() {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("[chatbackend] transcript index failed: {error}");
+            }
+        }
+        history
+    }
+
+    fn index(&mut self) -> std::io::Result<()> {
+        let file = std::fs::File::open(&self.path)?;
+        let total = file.metadata()?.len();
+        let mut reader = BufReader::new(file);
+        let mut line = Vec::new();
+        let mut offset = 0;
+        loop {
+            line.clear();
+            let count = reader.read_until(b'\n', &mut line)?;
+            if count == 0 || line.last() != Some(&b'\n') {
+                break;
+            }
+            self.observe(
+                std::str::from_utf8(&line).unwrap_or_default().trim(),
+                offset,
+            );
+            offset += count as u64;
+        }
+        self.length = offset;
+        if total > offset {
+            self.preserve_torn_tail(offset);
+        }
+        Ok(())
+    }
+
+    fn observe(&mut self, line: &str, offset: u64) {
+        self.last = None;
+        if line.starts_with(META_PREFIX) {
+            self.meta = true;
+        } else if line.starts_with(REMOVED_PREFIX) {
+            if let Some(id) = removed_id(line) {
+                self.live.remove(&id);
+            }
+        } else if let Ok(head) = serde_json::from_str::<RecordId>(line) {
+            self.live.insert(
+                head.id.clone(),
+                Live {
+                    digest: digest(line),
+                },
+            );
+            self.last = Some((head.id, offset));
         }
     }
 
-    /// The single shared mirror for `(plugin_id, session_id)`. Both the poll-loop
-    /// sink and the host-side gateway upsert through this instance, so a flush can't
-    /// clobber a row it didn't author (single-writer invariant).
+    fn preserve_torn_tail(&self, complete: u64) {
+        let copy = || -> std::io::Result<()> {
+            let mut file = std::fs::File::open(&self.path)?;
+            file.seek(SeekFrom::Start(complete))?;
+            let mut torn = Vec::new();
+            file.read_to_end(&mut torn)?;
+            let name = self.path.file_name().unwrap_or_default().to_string_lossy();
+            let millis = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_millis());
+            std::fs::write(
+                self.path
+                    .with_file_name(format!("{name}.corrupt-{millis:013}")),
+                torn,
+            )
+        };
+        if let Err(error) = copy() {
+            log::warn!("[chatbackend] torn transcript tail not preserved: {error}");
+        }
+    }
+
+    /// The single shared writer for `(plugin_id, session_id)`. Both the poll-loop
+    /// sink and the host-side gateway upsert through this instance, so a write
+    /// can't clobber a row it didn't author (single-writer invariant).
     pub fn shared(plugin_id: &str, session_id: &str) -> SharedHistory {
         let key = (plugin_id.to_string(), session_id.to_string());
         if let Some(h) = SHARED.lock().get(&key) {
@@ -193,317 +330,131 @@ impl ChatBackendHistory {
         SHARED.lock().entry(key).or_insert(built).clone()
     }
 
-    /// Seed the openSession config as the `_meta` header if not already present.
+    /// Seed the openSession config as the `_meta` first line if not already present.
     pub fn ensure_meta(&mut self, config: &serde_json::Value) {
-        if self.meta.is_none() && !config.is_null() {
-            self.meta = Some(config.clone());
-            self.flush();
+        if self.meta || config.is_null() {
+            return;
+        }
+        let Ok(line) = serde_json::to_string(&serde_json::json!({ META_KEY: config })) else {
+            return;
+        };
+        let result = if self.length == 0 {
+            self.write_at(0, &line)
+        } else {
+            self.prepend(&line)
+        };
+        match result {
+            Ok(()) => self.meta = true,
+            Err(error) => log::warn!("[chatbackend] transcript meta not saved: {error}"),
         }
     }
 
-    /// UPSERT messages by id. Returns whether anything changed (and was flushed).
+    /// UPSERT messages by id. Returns whether anything changed (and was written).
     pub fn upsert(&mut self, messages: &[ChatMsg]) -> bool {
         let mut changed = false;
-        for m in messages {
-            match self.by_id.get(&m.id) {
-                Some(existing) if existing == m => continue,
-                Some(_) => {}
-                None => self.order.push(m.id.clone()),
+        for message in messages {
+            let Ok(line) = serde_json::to_string(message) else {
+                continue;
+            };
+            let digest = digest(&line);
+            if self
+                .live
+                .get(&message.id)
+                .is_some_and(|live| live.digest == digest)
+            {
+                continue;
             }
-            self.by_id.insert(m.id.clone(), m.clone());
+            let at = match &self.last {
+                Some((id, start)) if *id == message.id => *start,
+                _ => self.length,
+            };
+            if let Err(error) = self.write_at(at, &line) {
+                log::warn!("[chatbackend] transcript not saved: {error}");
+                continue;
+            }
+            self.live.insert(message.id.clone(), Live { digest });
+            self.last = Some((message.id.clone(), at));
             changed = true;
-        }
-        if changed {
-            self.flush();
         }
         changed
     }
 
     pub fn remove(&mut self, message_id: &str) -> bool {
-        if self.by_id.remove(message_id).is_none() {
+        if self.live.remove(message_id).is_none() {
             return false;
         }
-        self.order.retain(|id| id != message_id);
-        self.flush();
+        let result = match self.last.take() {
+            Some((id, start)) if id == message_id => self.truncate(start),
+            _ => serde_json::to_string(&serde_json::json!({ REMOVED_KEY: message_id }))
+                .map_err(std::io::Error::other)
+                .and_then(|line| {
+                    let end = self.length;
+                    self.write_at(end, &line)
+                }),
+        };
+        if let Err(error) = result {
+            log::warn!("[chatbackend] transcript removal not saved: {error}");
+        }
         true
     }
 
-    fn flush(&self) {
-        let mut out = String::new();
-        if let Some(meta) = &self.meta {
-            if let Ok(line) = serde_json::to_string(&serde_json::json!({ META_KEY: meta })) {
-                out.push_str(&line);
-                out.push('\n');
-            }
+    fn open_for_write(&self) -> std::io::Result<std::fs::File> {
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
-        for id in &self.order {
-            if let Some(m) = self.by_id.get(id) {
-                if let Ok(line) = serde_json::to_string(m) {
-                    out.push_str(&line);
-                    out.push('\n');
-                }
-            }
-        }
-        let file = transcript_file(&self.path);
-        if let Err(error) = file.save(&out) {
-            if file.held().is_none() {
-                log::warn!("[chatbackend] transcript not saved: {error}");
-            }
-        }
+        std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&self.path)
     }
+
+    fn write_at(&mut self, start: u64, line: &str) -> std::io::Result<()> {
+        let mut file = self.open_for_write()?;
+        file.seek(SeekFrom::Start(start))?;
+        let mut record = Vec::with_capacity(line.len() + 1);
+        record.extend_from_slice(line.as_bytes());
+        record.push(b'\n');
+        file.write_all(&record)?;
+        let end = start + record.len() as u64;
+        if file.metadata()?.len() != end {
+            file.set_len(end)?;
+        }
+        self.length = end;
+        Ok(())
+    }
+
+    fn truncate(&mut self, start: u64) -> std::io::Result<()> {
+        self.open_for_write()?.set_len(start)?;
+        self.length = start;
+        Ok(())
+    }
+
+    /// One-time rewrite that puts `line` first when the log already has records.
+    fn prepend(&mut self, line: &str) -> std::io::Result<()> {
+        let staged = self.path.with_extension("jsonl.meta-staging");
+        {
+            let mut out = std::io::BufWriter::new(std::fs::File::create(&staged)?);
+            out.write_all(line.as_bytes())?;
+            out.write_all(b"\n")?;
+            let source = std::fs::File::open(&self.path)?;
+            std::io::copy(&mut source.take(self.length), &mut out)?;
+            out.flush()?;
+        }
+        std::fs::rename(&staged, &self.path)?;
+        let shift = line.len() as u64 + 1;
+        self.length += shift;
+        if let Some((_, start)) = self.last.as_mut() {
+            *start += shift;
+        }
+        Ok(())
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct RecordId {
+    id: String,
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn msg(id: &str, content: &str) -> ChatMsg {
-        ChatMsg {
-            id: id.into(),
-            kind: "assistant".into(),
-            content: content.into(),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn writing_a_message_lands_in_jsonl() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        let mut h = ChatBackendHistory::open_at(path.clone());
-        assert!(h.upsert(&[msg("1", "hello")]), "first write changes file");
-
-        let read = read_messages(&path);
-        assert_eq!(read.len(), 1);
-        assert_eq!(read[0].id, "1");
-        assert_eq!(read[0].content, "hello");
-    }
-
-    #[test]
-    fn inbound_sender_metadata_roundtrips() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        let mut h = ChatBackendHistory::open_at(path.clone());
-        h.upsert(&[ChatMsg {
-            id: "inbound-1".into(),
-            kind: "user".into(),
-            content: "hello".into(),
-            from_label: Some("Edison".into()),
-            from_tab: Some("e8a0ac20".into()),
-            from_model: Some("opus".into()),
-            inbound_kind: Some("tab".into()),
-            ..Default::default()
-        }]);
-
-        let read = read_messages(&path);
-        assert_eq!(read.len(), 1);
-        assert_eq!(read[0].content, "hello");
-        assert_eq!(read[0].from_label.as_deref(), Some("Edison"));
-        assert_eq!(read[0].from_tab.as_deref(), Some("e8a0ac20"));
-        assert_eq!(read[0].from_model.as_deref(), Some("opus"));
-        assert_eq!(read[0].inbound_kind.as_deref(), Some("tab"));
-        assert!(!read[0].content.contains("-=-codeterm"));
-    }
-
-    #[test]
-    fn streaming_message_yields_one_final_line_not_n() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        let mut h = ChatBackendHistory::open_at(path.clone());
-        // Same id grows across ticks (streaming tokens).
-        h.upsert(&[msg("live", "He")]);
-        h.upsert(&[msg("live", "Hello")]);
-        h.upsert(&[msg("live", "Hello world")]);
-
-        // final content — not three appended snapshots.
-        let raw = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
-        assert_eq!(lines.len(), 1, "one line per message id, not per tick");
-        let read = read_messages(&path);
-        assert_eq!(read.len(), 1);
-        assert_eq!(read[0].content, "Hello world");
-    }
-
-    #[test]
-    fn unchanged_upsert_does_not_rewrite() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        let mut h = ChatBackendHistory::open_at(path);
-        assert!(h.upsert(&[msg("1", "a")]));
-        assert!(
-            !h.upsert(&[msg("1", "a")]),
-            "byte-identical upsert is a no-op"
-        );
-    }
-
-    #[test]
-    fn remove_allows_a_failed_delivery_to_retry() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        let mut h = ChatBackendHistory::open_at(path.clone());
-        h.upsert(&[msg("request-1", "payload")]);
-        assert!(h.remove("request-1"));
-        assert!(read_messages(&path).is_empty());
-        assert!(h.upsert(&[msg("request-1", "payload")]));
-    }
-
-    #[test]
-    fn multiple_messages_keep_insertion_order() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        let mut h = ChatBackendHistory::open_at(path.clone());
-        h.upsert(&[msg("a", "first"), msg("b", "second")]);
-        h.upsert(&[msg("a", "first-edited")]);
-        h.upsert(&[msg("c", "third")]);
-
-        let read = read_messages(&path);
-        let ids: Vec<&str> = read.iter().map(|m| m.id.as_str()).collect();
-        assert_eq!(ids, ["a", "b", "c"], "stable order, edit in place");
-        assert_eq!(read[0].content, "first-edited");
-    }
-
-    #[test]
-    fn reopen_loads_existing_transcript() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        {
-            let mut h = ChatBackendHistory::open_at(path.clone());
-            h.upsert(&[msg("1", "a"), msg("2", "b")]);
-        }
-        // Fresh instance must see prior content and append, not clobber.
-        let mut h2 = ChatBackendHistory::open_at(path.clone());
-        h2.upsert(&[msg("3", "c")]);
-        let read = read_messages(&path);
-        assert_eq!(read.len(), 3);
-    }
-
-    #[test]
-    fn meta_header_is_first_line_and_excluded_from_messages() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        let mut h = ChatBackendHistory::open_at(path.clone());
-        h.ensure_meta(&json!({ "systemPrompt": "You are X", "preset": "p" }));
-        h.upsert(&[msg("1", "hi")]);
-
-        let read = read_messages(&path);
-        assert_eq!(read.len(), 1, "meta line is not a message");
-        let meta = read_meta(&path).expect("meta persisted");
-        assert_eq!(meta["systemPrompt"], "You are X");
-        assert_eq!(meta["preset"], "p");
-
-        // First physical line is the meta header.
-        let raw = std::fs::read_to_string(&path).unwrap();
-        let first = raw.lines().next().unwrap();
-        assert!(first.contains("_meta"));
-    }
-
-    #[test]
-    fn ensure_meta_is_idempotent() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        let mut h = ChatBackendHistory::open_at(path.clone());
-        h.ensure_meta(&json!({ "preset": "first" }));
-        h.ensure_meta(&json!({ "preset": "second" }));
-        let meta = read_meta(&path).unwrap();
-        assert_eq!(meta["preset"], "first", "first meta wins, not overwritten");
-    }
-
-    #[test]
-    fn sanitize_blocks_path_escape() {
-        let p = session_path("plug/in", "../../etc/passwd");
-        // sessions dir — every component sits directly under it.
-        assert!(
-            p.starts_with(crate::paths::data_dir().join(SESSIONS_SUBDIR)),
-            "stays under sessions dir: {}",
-            p.display()
-        );
-        assert!(
-            p.components()
-                .all(|c| c.as_os_str() != std::ffi::OsStr::new("..")),
-            "no parent-dir component: {}",
-            p.display()
-        );
-        assert!(p.to_string_lossy().ends_with(".jsonl"));
-    }
-
-    #[test]
-    fn migrate_renames_session_file() {
-        // rename helper on data_dir-rooted paths through a unique plugin id.
-        let plugin = "test-migrate-plugin-unique";
-        let from = session_path(plugin, "old-sid");
-        let to = session_path(plugin, "new-sid");
-        let _ = std::fs::remove_file(&from);
-        let _ = std::fs::remove_file(&to);
-
-        let mut h = ChatBackendHistory::open_at(from.clone());
-        h.upsert(&[msg("1", "carry me")]);
-        assert!(from.exists());
-
-        migrate(plugin, "old-sid", "new-sid");
-        assert!(!from.exists(), "source moved");
-        assert!(to.exists(), "dest created");
-        assert_eq!(read_messages(&to)[0].content, "carry me");
-
-        let _ = std::fs::remove_file(&to);
-    }
-
-    #[test]
-    fn shared_returns_one_instance_per_session() {
-        let plugin = "test-shared-registry-unique";
-        let session = "shared-sid";
-        let _ = std::fs::remove_file(session_path(plugin, session));
-
-        let a = ChatBackendHistory::shared(plugin, session);
-        let b = ChatBackendHistory::shared(plugin, session);
-        assert!(
-            Arc::ptr_eq(&a, &b),
-            "same (plugin, session) ⇒ the same shared instance"
-        );
-
-        // A different session is a distinct instance.
-        let c = ChatBackendHistory::shared(plugin, "other-sid");
-        assert!(!Arc::ptr_eq(&a, &c));
-
-        // Upserts through one handle are visible to the other (shared by_id).
-        a.lock().upsert(&[msg("1", "via a")]);
-        let read = read_messages(&session_path(plugin, session));
-        assert_eq!(read.len(), 1);
-        assert_eq!(read[0].content, "via a");
-
-        let _ = std::fs::remove_file(session_path(plugin, session));
-        let _ = std::fs::remove_file(session_path(plugin, "other-sid"));
-    }
-
-    #[test]
-    fn unparseable_trailing_line_is_skipped() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        std::fs::write(
-            &path,
-            "{\"id\":\"1\",\"type\":\"assistant\",\"content\":\"ok\"}\n{half-written",
-        )
-        .unwrap();
-        let read = read_messages(&path);
-        assert_eq!(read.len(), 1, "corrupt last line skipped, not fatal");
-        assert_eq!(read[0].content, "ok");
-    }
-
-    #[test]
-    fn flush_preserves_a_transcript_with_an_unparseable_line() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("s.jsonl");
-        let original = "{\"id\":\"1\",\"type\":\"assistant\",\"content\":\"ok\"}
-{half-written";
-        std::fs::write(&path, original).unwrap();
-
-        let mut h = ChatBackendHistory::open_at(path.clone());
-        assert!(h.upsert(&[msg("2", "b")]));
-
-        let copies = transcript_file(&path).corrupt_copies();
-        assert_eq!(copies.len(), 1);
-        assert_eq!(std::fs::read_to_string(&copies[0]).unwrap(), original);
-        let ids: Vec<String> = read_messages(&path).into_iter().map(|m| m.id).collect();
-        assert_eq!(ids, vec!["1".to_string(), "2".to_string()]);
-    }
-}
+mod tests;
