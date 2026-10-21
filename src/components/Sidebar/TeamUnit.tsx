@@ -6,7 +6,6 @@ import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 import { TaskStatus, type Plan } from "../Canvas/types";
-import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { ActivityDots } from "../shared/ActivityDots";
@@ -716,19 +715,21 @@ export function TeamUnit({
                 expanded={workersExpanded}
                 className="sidebar-team-workers-toggle"
                 onClick={toggleWorkersExpanded}
-              >WORKERS {workerCount}</SidebarDisclosure>
+              >
+                <span>WORKERS {workerCount}</span>
+                <span className="sidebar-team-workers-state">
+                  <span aria-hidden>·</span>
+                  <span>{workingWorkerCount} working</span>
+                  {workingWorkerCount > 0 && <ActivityDots size="small" tone="muted" active />}
+                </span>
+              </SidebarDisclosure>
               {workersExpanded ? (
                 <div className="sidebar-team-member-list">{workers}</div>
-              ) : (
+              ) : closing ? (
                 <div data-testid="workers-collapse-summary" className="sidebar-team-workers-summary">
-                  {summarizeWorkers(workerCount, workingWorkerCount)}
                   {closing && <span role="status" aria-label={`Closing ${displayTitle}`} aria-busy="true">Closing…</span>}
-          {workingWorkerCount > 0 && (
-                    <ActivityDots size="small" tone="muted" active />
-                  )}
-                  <span className="sidebar-team-summary-kebab"><KebabGlyph /></span>
                 </div>
-              )}
+              ) : null}
             </div>
           )}
           {agentCount > 0 && (
