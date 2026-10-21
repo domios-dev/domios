@@ -11,6 +11,8 @@ pub struct PreviewPolicy {
     upload_denied: Vec<String>,
     referenced_uploads: Vec<PathBuf>,
     referenced_upload_denied: Vec<String>,
+    own_pad: Option<String>,
+    pad_denied: Vec<String>,
 }
 
 impl PreviewPolicy {
@@ -30,6 +32,8 @@ impl PreviewPolicy {
             upload_denied: Vec::new(),
             referenced_uploads: Vec::new(),
             referenced_upload_denied: Vec::new(),
+            own_pad: None,
+            pad_denied: Vec::new(),
         })
     }
 
@@ -55,7 +59,37 @@ impl PreviewPolicy {
         Ok(self)
     }
 
+    pub fn with_own_pad(
+        mut self,
+        canonical_root: &Path,
+        denied: &[PathBuf],
+    ) -> Result<Self, String> {
+        self.own_pad = Some(denial_key(canonical_root));
+        self.pad_denied = Self::new(HashSet::new(), denied)?.denied;
+        Ok(self)
+    }
+
     pub fn authorize(&self, requested: &Path, canonical: Option<&Path>) -> Result<(), String> {
+        if self.references.contains(&path_key(requested)) {
+            if let Some(root) = &self.own_pad {
+                let safe = std::iter::once(requested).chain(canonical).all(|path| {
+                    let key = denial_key(path);
+                    let Some(relative) = key
+                        .strip_prefix(root)
+                        .and_then(|rest| rest.strip_prefix('/'))
+                    else {
+                        return false;
+                    };
+                    !relative
+                        .split('/')
+                        .any(|part| part == "." || part == ".." || secret_component(part))
+                        && !self.pad_denied.iter().any(|denied| within(&key, denied))
+                });
+                if safe {
+                    return Ok(());
+                }
+            }
+        }
         if self.references.contains(&path_key(requested)) {
             for uploads in &self.referenced_uploads {
                 let direct_child = requested
@@ -119,6 +153,13 @@ impl PreviewPolicy {
         }
         Ok(())
     }
+}
+
+fn within(key: &str, root: &str) -> bool {
+    key == root
+        || key
+            .strip_prefix(root)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 fn denial_key(path: &Path) -> String {

@@ -10,6 +10,34 @@ const DOCUMENT_PREVIEW_FILE_LIMIT: u64 = 1_000_000;
 const IMAGE_PREVIEW_FILE_LIMIT: u64 = 10 * 1024 * 1024;
 const VIDEO_PREVIEW_FILE_LIMIT: u64 = 48 * 1024 * 1024;
 
+pub fn refusal_reason(error: &str) -> &'static str {
+    match error {
+        "Preview path is not referenced" => "unreferenced",
+        "Preview path is private" => "private_path",
+        "Tab not found" => "tab_missing",
+        "Preview session changed" => "session_changed",
+        value if value.starts_with("Unable to resolve preview file:") => "resolve_failed",
+        value if value.starts_with("Unable to open preview file:") => "secure_open_failed",
+        value if value.starts_with("Local preview source exceeds") => "size_limit",
+        value
+            if value.starts_with("Local preview path")
+                || value.starts_with("Local preview device") =>
+        {
+            "invalid_path"
+        }
+        value if value.contains("UTF-8") || value.starts_with("Binary file:") => "binary_document",
+        value
+            if value.contains("extension")
+                || value.contains("kind must")
+                || value.contains("must use") =>
+        {
+            "unsupported_kind"
+        }
+        "Local preview source is not a regular single-link file" => "unsafe_file",
+        _ => "preview_failed",
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct LocalPreviewFile {
     pub data: String,
@@ -94,17 +122,29 @@ pub fn check_local_preview_files_guarded(
     let paths = paths
         .into_iter()
         .filter(|path| {
-            let Ok(mut source) = PreviewSource::open(path, &guard) else {
-                log::debug!("[local-preview] inspection refused");
-                return false;
+            let mut source = match PreviewSource::open(path, &guard) {
+                Ok(source) => source,
+                Err(error) => {
+                    log::debug!(
+                        "[local-preview] inspection refused: {}",
+                        refusal_reason(&error)
+                    );
+                    return false;
+                }
             };
             if media(&source.path, "image").is_ok_and(|(_, limit)| source.size <= limit) {
                 return true;
             }
-            source
+            let result = source
                 .read(DOCUMENT_PREVIEW_FILE_LIMIT)
-                .and_then(preview_text)
-                .is_ok()
+                .and_then(preview_text);
+            if let Err(error) = &result {
+                log::debug!(
+                    "[local-preview] inspection refused: {}",
+                    refusal_reason(error)
+                );
+            }
+            result.is_ok()
         })
         .collect();
     LocalPreviewFiles {

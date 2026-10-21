@@ -76,7 +76,8 @@ it("sends the scoped batch check and refuses a missing tab before network access
 
 it("shows REST refusals without rendering unavailable document contents", async () => {
   await act(async () => root?.render(<LocalArtifactScope tabId="owned-tab"><LocalArtifactBlock directive={{ kind: "document", path: "/work/forbidden.md" }} renderMarkdown={(text) => <RichMarkdown text={text} />} /></LocalArtifactScope>));
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain("404");
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("This file cannot be previewed");
+  expect(host.querySelector('[role="alert"]')?.textContent).not.toContain("HTTP");
   expect(host.querySelector("h1")).toBeNull();
 });
 
