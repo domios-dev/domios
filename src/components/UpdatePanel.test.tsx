@@ -6,7 +6,7 @@ import type { UpdateAvailabilitySnapshot } from "../lib/updateAvailability";
 const fake = vi.hoisted(() => ({ check: vi.fn(), plugin: vi.fn(), changed: null as ((event: { payload: UpdateAvailabilitySnapshot }) => void) | null }));
 vi.mock("../lib/updateAvailability", () => ({ checkUpdateAvailability: fake.check }));
 vi.mock("../hooks/useUpdate", () => ({ useUpdate: () => ({ installing: false, error: null, currentVersion: "1.0.0" }) }));
-vi.mock("../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin }));
+vi.mock("../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin, ensurePluginSnapshot: async () => ({}), usePluginSnapshotStore: () => ({ snapshot: { plugins: [], marketplace: [] } }) }));
 vi.mock("../lib/frontendUpdate/browser", () => ({ acceptFrontendUpdate: vi.fn(), setFrontendUpdateHeld: vi.fn(), frontendUpdateOffer: () => null, subscribeFrontendUpdateOffer: () => () => {} }));
 vi.mock("../lib/bridge", () => ({ listen: async (_event: string, handler: typeof fake.changed) => { fake.changed = handler; return () => {}; } }));
 import { UpdatePanelProvider } from "../hooks/useUpdatePanel";
@@ -60,3 +60,43 @@ for (const outcome of ["success", "failure", "external"] as const) {
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 }
+
+it("retains failed diagnostics after checking and never offers an update for the removed install", async () => {
+  fake.check.mockResolvedValue(available);
+  fake.plugin.mockRejectedValueOnce(new Error("opaque final rename refusal"));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdatePanel /></UpdatePanelProvider>));
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Apply git update"]')!.click());
+    expect(host.querySelector('[role="alert"]')?.getAttribute("aria-label")).toContain("git");
+    expect(host.querySelector("details")?.open).toBe(false);
+    fake.check.mockResolvedValue({ items: [], errors: {} });
+    await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === "Check again")!.click());
+    expect(host.querySelector('[aria-label="git update failed"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label^="Apply"]')).toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('[aria-label="Update all"]')?.disabled).toBe(true);
+    expect(host.querySelector("pre")?.textContent).toContain("opaque final rename refusal");
+    expect(fake.plugin).toHaveBeenCalledTimes(1);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("shows a channel failure once, keeps its rows non-actionable, and reports the failed status", async () => {
+  const message = "opaque channel diagnostic";
+  fake.check.mockResolvedValue({ ...available, errors: { official: message } });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdatePanel /></UpdatePanelProvider>));
+    expect(host.querySelector('[role="status"][aria-label="Update sources or actions failed"]')).not.toBeNull();
+    expect(host.querySelectorAll('section[aria-label="official updates unavailable"]')).toHaveLength(1);
+    expect([...host.querySelectorAll("pre")].filter(pre => pre.textContent === message)).toHaveLength(1);
+    expect(host.querySelector("details")?.open).toBe(false);
+    expect(host.querySelector('button[aria-label^="Apply"]')).toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('[aria-label="Update all"]')?.disabled).toBe(true);
+    for (const id of ["git", "grok"]) expect(host.querySelector(`[aria-label="${id} update failed"]`)).not.toBeNull();
+    await act(async () => host.querySelector("summary")!.click());
+    expect(host.querySelector("details")?.open).toBe(true);
+    expect(fake.plugin).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});

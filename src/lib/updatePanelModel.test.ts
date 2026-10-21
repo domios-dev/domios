@@ -65,9 +65,22 @@ assert.equal(targetInstalled(offered[0], external), true);
 assert.deepEqual(updateRunRows(offered, [], external, bulk, "plugin", {}).map(row => [row.state, row.alreadyCurrent]), [["completed", true], ["completed", true]]);
 assert.deepEqual(nextUpdateStep(bulk, "1.0.0", panelItems(external)), { kind: "complete" });
 assert.deepEqual(updateRunRows(offered, [], external, null, null, {}).map(row => row.state), ["completed", "completed"]);
-assert.deepEqual(updateRunRows(offered, offered, [plugin], bulk, "plugin", {}).map(row => row.state), ["active", "queued"]);
+assert.deepEqual(updateRunRows(offered, offered, [plugin, { ...plugin, id: "second" }], bulk, "plugin", {}).map(row => row.state), ["active", "queued"]);
 console.log("concurrent external updates reach terminal states: 5 assertions passed");
 
 const newerOffer = [{ ...offered[0], currentVersion: "2.0.0", targetVersion: "3.0.0" }];
 assert.equal(updateRunRows([offered[0]], newerOffer, external, null, null, { plugin: "completed" })[0].state, "available");
 console.log("later offers remain actionable after a completed run: 1 assertion passed");
+
+{
+  const row = { id: "git", name: "git", group: "Plugins" as const, currentVersion: "0.1.6", targetVersion: "0.1.7" };
+  assert.deepEqual(updateRunRows([row], [], [], null, null, {}), []);
+  const history = updateRunRows([row], [], [], null, null, { git: "failed" });
+  assert.equal(history[0].state, "failed");
+}
+
+{
+  const unavailable = panelItems([plugin], { official: "opaque channel error" });
+  const installed = [{ ...plugin, installed: plugin.latest }];
+  assert.equal(updateRunRows(unavailable, unavailable, installed, null, null, {})[0].state, "failed");
+}
