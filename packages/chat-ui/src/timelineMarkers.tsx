@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import type {
   ChatSessionIntent,
   ChatTimelineMarker,
@@ -24,7 +24,59 @@ export function normalizedTimelineMarker(message: ChatMessage): ChatTimelineMark
     const path = cleanIntentText(marker.path);
     return path ? { kind: "external_edit", path } : null;
   }
+  if (marker.kind === "history_gap") {
+    const sessionId = cleanIntentText(marker.session_id);
+    const source = marker.source === "provider_session" || marker.source === "chat_backend" ? marker.source : null;
+    const before = marker.before_offset;
+    if (!sessionId || !source || typeof before !== "number" || !Number.isSafeInteger(before) || before <= 0) return null;
+    return { kind: "history_gap", source, session_id: sessionId, before_offset: before };
+  }
   return null;
+}
+
+type HistoryGapLoader = (message: ChatMessage) => Promise<void>;
+
+const HistoryGapContext = createContext<HistoryGapLoader | undefined>(undefined);
+
+/** Supplies the loader a history-gap row calls to page the older history behind it. */
+export function HistoryGapProvider({ onLoad, children }: { onLoad?: HistoryGapLoader; children: ReactNode }) {
+  return <HistoryGapContext.Provider value={onLoad}>{children}</HistoryGapContext.Provider>;
+}
+
+function HistoryGapRow({ message }: { message: ChatMessage }): ReactNode {
+  const load = useContext(HistoryGapContext);
+  const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
+  const loadEarlier = () => {
+    if (!load || state === "loading") return;
+    setState("loading");
+    load(message).catch(() => setState("failed"));
+  };
+  return (
+    <div
+      role="group"
+      aria-label="Earlier history not loaded"
+      data-testid="chat-history-gap"
+      className="mb-3 flex w-full max-w-4xl min-w-0 items-center gap-3 mx-auto"
+      style={{ color: "var(--ct-muted-fg)" }}
+    >
+      <span className="h-px flex-1" style={{ background: "var(--ct-border)" }} />
+      <span className="text-center text-[11px]">
+        {state === "failed" ? "Earlier history could not be loaded." : message.content}
+      </span>
+      {load ? (
+        <button
+          type="button"
+          onClick={loadEarlier}
+          disabled={state === "loading"}
+          className="rounded px-2 py-0.5 text-[11px]"
+          style={{ border: "1px solid var(--ct-border)", color: "var(--ct-fg)" }}
+        >
+          {state === "loading" ? "Loading…" : state === "failed" ? "Retry" : "Load earlier"}
+        </button>
+      ) : null}
+      <span className="h-px flex-1" style={{ background: "var(--ct-border)" }} />
+    </div>
+  );
 }
 
 export function sessionIntentFromMessages(
@@ -61,6 +113,7 @@ export function isSessionIntentOnlyMessage(message: ChatMessage): boolean {
 export function TimelineMarkerRow({ message }: { message: ChatMessage }): ReactNode {
   const marker = normalizedTimelineMarker(message);
   if (!marker || marker.kind === "queued") return null;
+  if (marker.kind === "history_gap") return <HistoryGapRow message={message} />;
   if (marker.kind === "context_compaction") {
     return (
       <div

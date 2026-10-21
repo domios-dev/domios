@@ -24,8 +24,7 @@ pub(crate) fn project_timeline(segments: Vec<TimelineSegment>) -> Vec<ChatMsg> {
         }
         for mut message in segment.messages {
             if segment.read_only {
-                scope_historical_message(&mut message, &segment.session_id);
-                message.interactive.clear();
+                scope_archived(&mut message, &segment.session_id);
             }
             message.seq = sequence(output.len());
             output.push(message);
@@ -89,14 +88,17 @@ fn archived_segments(
 
 fn archived_session_messages(svc: &ServiceContext, archive: &ContextEpochArchive) -> Vec<ChatMsg> {
     let result = match archive.transport {
-        ContextEpochTransport::AgentProvider => super::session_chat_snapshot(
-            svc,
-            &archive.provider,
-            &archive.cwd,
-            &archive.session_id,
-            0,
-        )
-        .map(|(messages, _)| messages),
+        ContextEpochTransport::AgentProvider => {
+            super::session_chat_window(svc, &archive.provider, &archive.cwd, &archive.session_id)
+                .map(|(messages, start)| {
+                    super::history_gap::bounded(
+                        crate::agent::chat_types::ChatHistorySource::ProviderSession,
+                        &archive.session_id,
+                        start,
+                        messages.into_iter().map(ChatMsg::with_segments).collect(),
+                    )
+                })
+        }
         ContextEpochTransport::ChatBackend => super::runtime_stored::archived_messages(
             svc,
             &archive.provider,
@@ -137,6 +139,12 @@ fn archived_session_messages(svc: &ServiceContext, archive: &ContextEpochArchive
             }]
         }
     }
+}
+
+/// Read-only identity of a row from an archived session.
+pub(crate) fn scope_archived(message: &mut ChatMsg, session_id: &str) {
+    scope_historical_message(message, session_id);
+    message.interactive.clear();
 }
 
 fn scope_historical_message(message: &mut ChatMsg, session_id: &str) {

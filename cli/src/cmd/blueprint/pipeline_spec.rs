@@ -1,3 +1,4 @@
+#[cfg(test)]
 use codeterm_blueprint_types::blueprint_recipe::substitute;
 use serde_json::Value;
 use std::path::Path;
@@ -17,11 +18,7 @@ pub(super) fn load(
             }
             parse_spec(&read_spec(path)?)?
         }
-        (None, Some(name)) => {
-            let mut value = recipe_spec(name)?;
-            substitute(&mut value, assignments)?;
-            value
-        }
+        (None, Some(name)) => super::recipes::bound_pipeline_spec(name, assignments)?,
         _ => return Err("choose exactly one of --spec or --recipe".into()),
     };
     if let Some(owner) = owner {
@@ -66,40 +63,5 @@ fn parse_spec(raw: &str) -> Result<Value, String> {
     }
 }
 
-fn recipe_spec(name: &str) -> Result<Value, String> {
-    super::recipes::pipeline_spec(name)
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blueprint_spec_reader_parses_json_and_yaml_and_applies_owner() {
-        let dir = tempfile::tempdir().unwrap();
-        for (name, source) in [
-            (
-                "spec.json",
-                r#"{"name":"echo","trigger":{"type":"schedule","every":"20s"},"steps":[]}"#,
-            ),
-            (
-                "spec.yaml",
-                "name: echo\ntrigger:\n  type: schedule\n  every: 20s\nsteps: []\n",
-            ),
-        ] {
-            let path = dir.path().join(name);
-            std::fs::write(&path, source).unwrap();
-            let value = load(Some(&path), None, &[], Some("team")).unwrap();
-            assert_eq!(value["name"], "echo");
-            assert_eq!(value["owner"], "team");
-        }
-    }
-
-    #[test]
-    fn blueprint_recipe_set_replaces_declared_placeholders_once() {
-        let mut value = serde_json::json!({"command": "printf '{{message}}'"});
-        substitute(&mut value, &["message=ready".into()]).unwrap();
-        assert_eq!(value["command"], "printf 'ready'");
-        assert!(substitute(&mut value, &["missing=x".into()]).is_err());
-    }
-}
+mod tests;

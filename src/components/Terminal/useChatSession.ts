@@ -44,6 +44,7 @@ import {
 } from "./chatSessionDiagnostics";
 import {
   commitTranscriptBatch,
+  expandTranscriptWindowGap,
   forgetTranscriptWindowCursor,
   readTranscriptWindow,
   readTranscriptMemo,
@@ -436,6 +437,17 @@ export function useChatSession({
     }
   }, [agentSessionId, commitBatch, sessionBindingNonce, tabId]);
 
+  const loadHistoryGap = useCallback(async (message: ChatMessage) => {
+    const marker = message.timelineMarker;
+    if (marker?.kind !== "history_gap") return;
+    const generationAtRequest = attachmentRef.current.generation;
+    const res = await invoke<{ messages?: ChatMessage[] }>("chat_history_page", {
+      tabId, source: marker.source, sessionId: marker.session_id, beforeOffset: marker.before_offset,
+    });
+    if (!attachmentRef.current.isCurrent(generationAtRequest)) return;
+    expandTranscriptWindowGap(windowKeyRef.current, message.id, res.messages ?? []);
+  }, [tabId]);
+
   const view = useChatWindowView({
     tabId,
     windowKey,
@@ -806,6 +818,7 @@ export function useChatSession({
     backfillLoading: view.backfillLoading || historyLoading,
     backfillNotice: view.backfillNotice,
     loadOlder: view.loadOlder,
+    loadHistoryGap,
     showLatest: view.showLatest,
     prepareMessage: view.prepareMessage,
     setHistoryReading: view.setHistoryReading,

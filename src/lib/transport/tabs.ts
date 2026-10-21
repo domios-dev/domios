@@ -118,6 +118,7 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         },
         shell_command_snapshot: (a: Args) => clientFor(a).json<ShellCommandSnapshot>("GET", `/api/tabs/${enc(s(a, "tabId"))}/shell-commands`),
         tab_todo_list: (a: Args) => clientFor(a).json("GET", `/api/tabs/${enc(s(a, "tabId"))}/todos`),
+        tab_todo_review: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/todos/review`, a.request),
         chat_start: (a: Args) => clientFor(a).json<ChatStartResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/start`, {
             subscriptionId: s(a, "subscriptionId"),
             ...(a.knownWindow != null ? { knownWindow: a.knownWindow } : {}),
@@ -128,6 +129,11 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
         chat_backfill: (a: Args) => clientFor(a).json<ChatBackfillResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/backfill`, {
             before_offset: a.beforeOffset,
             offset_kind: a.offsetKind,
+        }),
+        chat_history_page: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/history`, {
+            source: s(a, "source"),
+            session_id: s(a, "sessionId"),
+            before_offset: a.beforeOffset,
         }),
         chat_resume: (a: Args) => clientFor(a).json<ChatResumeResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/resume`, {
             cursor: s(a, "cursor"),

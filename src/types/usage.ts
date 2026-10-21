@@ -1,6 +1,13 @@
 import type {ResetCredits, RuntimeAccountCredits} from "@codeterm/plugin-sdk";
 
+export interface UsageDetails {
+  limits: {kind: "session" | "weekly_all" | "weekly_scoped"; label: string; percent: number; resets_at: number | null; is_active: boolean; critical: boolean}[];
+  dollar_credits: {remaining_dollars: number; resets_at: number | null}[];
+  extra_usage: {enabled: boolean; spend_limit_reached: boolean; used: number | null; limit: number | null; currency: string; settings_url: string} | null;
+}
+
 export interface UsageSnapshot {
+  usage_details?: UsageDetails | null;
   resets?: ResetCredits | null;
   runtime_usage?: RuntimeUsageProjection[];
   billing_mode: "subscription" | "api" | "unknown";

@@ -45,6 +45,7 @@ fn definition(job: &Sentinel) -> Value {
         }
         json!({"create": {
             "name": job.name,
+            "note": job.note,
             "terminal": job.terminal().cloned(),
             "session": job.session,
             "probe": if job.probe().is_empty() { None } else { Some(job.probe()) },

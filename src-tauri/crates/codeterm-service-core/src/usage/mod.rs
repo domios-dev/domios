@@ -38,6 +38,7 @@ mod allowance_tests {
 
     fn snapshot() -> UsageSnapshotRow {
         UsageSnapshotRow {
+            usage_details: None,
             billing_mode: Default::default(),
             limits_reported: false,
             id: 0,

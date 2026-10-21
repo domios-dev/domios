@@ -7,19 +7,16 @@ import { useMuxSelector } from "../../store/multiplexer";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import {
   ChevronRight,
-  ExternalLink,
   Palette,
   MousePointer,
   Power,
   Keyboard,
-  Info,
 } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
 
-import logoUrl from "../../assets/logo.png";
-import { Toggle, InfoRow, AboutLink, SettingsPage, SettingsCard } from "./shared";
+import { Toggle, SettingsPage, SettingsCard } from "./shared";
 import { KeybindGroup } from "./KeybindGroup";
-import { UpdateSection } from "./UpdateSection";
+import { AboutPage } from "./AboutPage";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { ShellProfilesCard } from "./ShellProfilesCard";
@@ -487,31 +484,7 @@ export function SettingsPanel({
               </div>
             )}
 
-            {top.kind === "section" && top.id === "about" && (
-              <SettingsPage title="Check for updates">
-                <div className="text-center py-4">
-                  <img src={logoUrl} alt="Domios" width="64" height="64" className="rounded-xl mb-3 mx-auto" data-testid="settings-about-logo" />
-                  <div className="text-xl font-bold text-[var(--ct-fg)]">Domios</div>
-                  <div className="text-xs text-[var(--ct-muted-fg)] mt-1">AI-first terminal multiplexer</div>
-                </div>
-
-                <SettingsCard icon={<Info size={16} />} title="Info">
-                  <InfoRow label="Version" value={__APP_VERSION__} />
-                </SettingsCard>
-
-                <UpdateSection config={localConfig} onUpdate={update} />
-
-                <SettingsCard icon={<ExternalLink size={16} />} title="Created by">
-                  <div className="text-xs text-[var(--ct-fg)]">Andrey Kovalev</div>
-                  <div className="flex flex-wrap gap-3">
-                    <AboutLink href="https://github.com/rollacode" label="GitHub" Icon={ExternalLink} />
-                    <AboutLink href="https://rollacode.org" label="Website" Icon={ExternalLink} />
-                    <AboutLink href="https://www.linkedin.com/in/rollacode" label="LinkedIn" Icon={ExternalLink} />
-                  </div>
-                </SettingsCard>
-
-              </SettingsPage>
-            )}
+            {top.kind === "section" && top.id === "about" && <AboutPage config={localConfig} onUpdate={update} />}
           </div>
         </div>
 

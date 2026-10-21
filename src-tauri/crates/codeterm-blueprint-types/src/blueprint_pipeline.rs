@@ -13,6 +13,8 @@ pub const MAX_RESULT_SUMMARY_CHARS: usize = 200;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlueprintSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
     pub name: String,
     #[serde(default)]
     pub owner: BlueprintOwner,
@@ -121,6 +123,9 @@ pub struct Step {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepKind {
+    Http {
+        probe: crate::blueprint_http::HttpProbe,
+    },
     Github {
         probe: crate::blueprint_github::GithubProbe,
     },
@@ -160,6 +165,7 @@ impl StepKind {
             Self::Convert { .. } => 3,
             Self::Agent { .. } => 4,
             Self::Github { .. } => 5,
+            Self::Http { .. } => 6,
         }]
         .name
     }
@@ -167,7 +173,8 @@ impl StepKind {
     pub fn output_type(&self) -> IoType {
         match self {
             Self::Convert { to, .. } => IoType::from(*to),
-            Self::Github { .. }
+            Self::Http { .. }
+            | Self::Github { .. }
             | Self::Command { .. }
             | Self::Ask { .. }
             | Self::Filter { .. }
@@ -177,6 +184,17 @@ impl StepKind {
 
     pub fn outcomes(&self) -> Result<BTreeSet<String>, String> {
         match self {
+            Self::Http { .. } => Ok(["up".into(), "down".into(), "failed".into()].into()),
+            Self::Github { probe }
+                if probe.resource == crate::blueprint_github::GithubResource::Runners =>
+            {
+                Ok(["online".into(), "offline".into(), "failed".into()].into())
+            }
+            Self::Github { probe }
+                if probe.resource != crate::blueprint_github::GithubResource::PrChecks =>
+            {
+                Ok(["done".into(), "failed".into(), "failing".into()].into())
+            }
             Self::Github { .. }
             | Self::Command { .. }
             | Self::Convert { .. }
@@ -241,6 +259,12 @@ pub fn validate(
     converters: &[ConverterEdge],
 ) -> Result<(), Vec<ValidationError>> {
     let mut errors = Vec::new();
+    if let Err(reason) = crate::automation_name::validate_note(spec.note.as_deref()) {
+        errors.push(ValidationError {
+            field: "note".into(),
+            reason,
+        });
+    }
     if spec.name.trim().is_empty() || spec.name.len() > 128 || has_control(&spec.name) {
         error(
             &mut errors,
@@ -317,6 +341,18 @@ pub fn validate(
             );
         }
         match &step.kind {
+            StepKind::Http { probe } => {
+                if step.input != IoType::Text {
+                    error(
+                        &mut errors,
+                        &format!("{field}.input"),
+                        "HTTP requires text input",
+                    );
+                }
+                if let Err(reason) = probe.validate() {
+                    error(&mut errors, &format!("{field}.http"), &reason);
+                }
+            }
             StepKind::Github { probe } => {
                 if step.input != IoType::Text {
                     error(

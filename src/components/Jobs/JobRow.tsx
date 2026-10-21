@@ -1,3 +1,4 @@
+import { blueprintMeta } from "../Automation/blueprintMeta";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { probeStateLabel } from "../Automation/probeProgress";
 import { useState, type CSSProperties, type ReactNode } from "react";
@@ -68,7 +69,7 @@ export function cronMeta(job: CronJob): string {
 }
 
 /** A Blueprint row's secondary line describes what it does; ids live only in the hover hint. */
-export function sentinelRowText(job: BlueprintScenarioJob, title: string): { meta: string; idHint: string } {
+export function sentinelRowText(job: BlueprintScenarioJob, title: string, now = Date.now()): { meta: string; idHint: string } {
   const { root, scenario } = job;
   const purpose = root?.purpose?.trim();
   const schedule = root?.schedule?.trim();
@@ -76,7 +77,7 @@ export function sentinelRowText(job: BlueprintScenarioJob, title: string): { met
     : schedule ? describeSchedule(schedule)
     : root?.cadence_ms ? `Every ${formatDuration(root.cadence_ms)}`
     : "No description";
-  return { meta, idHint: `Blueprint ${scenario.id}` };
+  return { meta: blueprintMeta(root?.note || meta, root?.state, root?.deletes_at, now), idHint: `Blueprint ${scenario.id}` };
 }
 
 export function sentinelStateLabel(job: BlueprintScenarioJob): string {

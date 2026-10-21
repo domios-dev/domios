@@ -22,7 +22,7 @@ vi.mock("../../lib/bridge", () => ({ listen: async (_event: string, handler: typ
 } }));
 import { UpdatePanelProvider } from "../../hooks/useUpdatePanel";
 import { UpdateTray } from "./UpdateTray";
-import { UpdatePanelContents } from "../UpdatePanel";
+import { UpdatePanel } from "../UpdatePanel";
 import { classifyUpdateStatus } from "../../lib/updateStatusModel";
 
 const testActions = { upsertToast: vi.fn() } as unknown as MultiplexerActionsContextType;
@@ -51,9 +51,9 @@ it("keeps an unreachable core channel silent and names its cause as a diagnostic
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanelContents /></UpdatePanelProvider>));
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
-    expect(host.querySelector('button[aria-label^="Apply"]')).toBeNull();
+    expect(host.querySelector('button[aria-label^="Update "]:not([aria-label="Update all"])')).toBeNull();
     expect(host.querySelector('[aria-label="Installed plugin ahead of channel"]')).toBeNull();
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.querySelector('[aria-label="codeterm-core channel diagnostics"] pre')?.textContent).toBe(coreUnavailable);
@@ -68,7 +68,7 @@ it("wires local-ahead information for a non-core plugin without a failure badge"
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanelContents /></UpdatePanelProvider>));
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     expect(host.querySelector('[role="status"][aria-label="Installed plugin ahead of channel"]')?.textContent)
       .toBe(classifyUpdateStatus(ahead).information[0]);
     expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
@@ -110,10 +110,10 @@ it("keeps a failed channel on its own row while Update all applies the healthy c
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanelContents /></UpdatePanelProvider>));
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     expect(host.querySelector('[aria-label="community updates unavailable"] pre')?.textContent).toBe(communityUnavailable);
-    const failedApply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply lark update"]')!;
-    const healthyApply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply teams-client update"]')!;
+    const failedApply = host.querySelector<HTMLButtonElement>('button[aria-label="Update lark"]')!;
+    const healthyApply = host.querySelector<HTMLButtonElement>('button[aria-label="Update teams-client"]')!;
     expect(failedApply).toBeNull();
     expect(healthyApply.disabled).toBe(false);
     const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
@@ -127,7 +127,7 @@ it("keeps a failed channel on its own row while Update all applies the healthy c
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-it("allows Apply from a healthy channel while another channel is unavailable", async () => {
+it("allows Update from a healthy channel while another channel is unavailable", async () => {
   const mixed: UpdateAvailabilitySnapshot = { items: [
     { ...snapshot.items[0], latest: "1.0.0", state: "up_to_date" },
     { ...snapshot.items[1], id: "lark", channel: "community" },
@@ -138,11 +138,11 @@ it("allows Apply from a healthy channel while another channel is unavailable", a
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanelContents /></UpdatePanelProvider>));
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
     await act(async () => trigger.click());
     const panel = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
-    const healthyApply = panel.querySelector<HTMLButtonElement>('button[aria-label="Apply teams-client update"]')!;
+    const healthyApply = panel.querySelector<HTMLButtonElement>('button[aria-label="Update teams-client"]')!;
     await act(async () => healthyApply.click());
     expect(fake.plugin).toHaveBeenCalledExactlyOnceWith({ kind: "update", pluginId: "teams-client" });
     expect(panel.querySelector('[role="alert"]')).toBeNull();
@@ -165,7 +165,7 @@ it("reconnects persisted intent to plugin actions after the new host is observed
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-for (const actionName of ["Apply Interface update", "Update all"]) {
+for (const actionName of ["Update Interface", "Update all"]) {
   it(`offers a staged Interface and consents once through ${actionName}`, async () => {
     fake.offer = { releaseId: "frontend-v2.0.0", version: "2.0.0" };
     const staged: UpdateAvailabilitySnapshot = { errors: {}, items: [
@@ -232,7 +232,7 @@ for (const origin of ["startup", "event"] as const) {
     const host = document.createElement("div"); document.body.append(host);
     const root = createRoot(host);
     try {
-      await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanelContents /></UpdatePanelProvider>));
+      await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
       if (origin === "event") await act(async () => fake.availabilityChanged!({ payload: { items: [], errors: { app: "offline" } } }));
       expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
       expect(host.querySelector('[role="alert"]')).toBeNull();
@@ -286,7 +286,7 @@ for (const kind of ["app", "plugin"] as const) {
       await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
       await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!.click());
       const dialog = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
-      const apply = dialog.querySelector<HTMLButtonElement>(`button[aria-label="Apply ${kind === "app" ? "Domios" : "plugin"} update"]`)!;
+      const apply = dialog.querySelector<HTMLButtonElement>(`button[aria-label="Update ${kind === "app" ? "Domios" : "plugin"}"]`)!;
       expect(apply).not.toBeNull();
       await act(async () => apply.click());
       expect(kind === "app" ? fake.install : fake.plugin).toHaveBeenCalledTimes(1);

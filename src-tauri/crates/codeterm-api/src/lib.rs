@@ -67,6 +67,7 @@ pub(crate) mod stream_diagnostics;
 pub(crate) mod surface_routes;
 pub(crate) mod tab_adopt_routes;
 pub mod tab_agent_routes;
+pub mod chat_history_routes;
 pub mod tab_chat_routes;
 pub(crate) mod tab_repair_routes;
 pub mod tab_routes;

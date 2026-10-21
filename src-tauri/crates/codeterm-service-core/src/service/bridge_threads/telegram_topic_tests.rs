@@ -393,18 +393,15 @@ async fn telegram_topic_first_tab_send_creates_one_topic_and_routes_it_back() {
     let post = topic_post(&transport);
     let thread = post.thread.expect("thread");
     assert_eq!(post.message, placed, "the topic post is the placement");
-    let pointer = transport
-        .sends()
-        .into_iter()
-        .find(|sent| sent.thread.is_none())
-        .expect("a main-chat pointer");
-    let header = tabs.header(PLANCK);
-    assert!(post.html.contains(&header), "topic post names its sender");
-    assert!(pointer.html.contains(&header), "pointer names its sender");
+    assert_eq!(transport.sends(), vec![post.clone()], "one topic post only");
+    assert!(post.html.contains(&tabs.header(PLANCK)));
     assert_eq!(topic_link(CHAT, thread), None);
-    assert!(
-        !pointer.html.contains("href"),
-        "a private-chat pointer carries no link that cannot open the topic"
+    assert_eq!(
+        threads.resolve_inbound(&tabs, CHAT, None, Some(placed)),
+        InboundRoute::Tab {
+            tab_id: PLANCK.to_string(),
+            thread_id: None,
+        }
     );
 
     assert_eq!(
@@ -442,7 +439,7 @@ async fn telegram_topic_repeated_sends_reuse_one_binding() {
     let topic_threads: Vec<_> = sends.iter().filter_map(|sent| sent.thread).collect();
     assert_eq!(topic_threads.len(), 3);
     assert!(topic_threads.windows(2).all(|pair| pair[0] == pair[1]));
-    assert_eq!(sends.iter().filter(|sent| sent.thread.is_none()).count(), 3);
+    assert_eq!(sends.iter().filter(|sent| sent.thread.is_none()).count(), 0);
 }
 
 #[tokio::test]
@@ -468,11 +465,7 @@ async fn telegram_topic_choice_buttons_ride_the_topic_post() {
         post.message, placed,
         "the receipt names the message with buttons"
     );
-    assert!(transport
-        .sends()
-        .iter()
-        .filter(|sent| sent.thread.is_none())
-        .all(|pointer| !pointer.buttons));
+    assert_eq!(transport.sends(), vec![post]);
 }
 
 struct RecordingHost(Mutex<Vec<OutboundMessage>>);
@@ -488,9 +481,6 @@ impl ChannelHost for RecordingHost {
     }
 }
 
-/// A push is an alert, so it goes into the chat whole. Routed through the tab it
-/// speaks for, it would arrive as a truncated pointer to a topic — attribution at
-/// the cost of the message itself.
 #[test]
 fn telegram_topic_notification_from_a_tab_still_reaches_the_chat_whole() {
     let host = RecordingHost(Mutex::new(Vec::new()));
@@ -678,6 +668,7 @@ async fn telegram_topic_disabled_falls_back_to_main_chat_with_one_notice() {
     );
     assert_eq!(transport.notices(), 1, "the owner is told once");
     let sends = transport.sends();
+    assert_eq!(sends.len(), 3, "two posts plus the one-time notice");
     assert!(sends.iter().all(|sent| sent.thread.is_none()));
     let carried = sends
         .iter()

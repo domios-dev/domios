@@ -104,7 +104,7 @@ fn worker_cleanup_persists_removal_and_preserves_recurring_and_foreign_jobs() {
             .iter()
             .map(|job| job.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["recurring", "team-blueprint"]
+        vec!["foreign", "recurring", "team-blueprint"]
     );
 }
 
@@ -120,6 +120,7 @@ fn stopped_watch_waits_for_cancelled_lease_release() {
         .unwrap();
     let lease = current.due().unwrap().remove(0);
     current.stop("root", "stopped_by_creator").unwrap();
+    current.clock = codeterm_cron::clock::MockClock::starting_at(1_801_000);
     assert!(lease.is_cancelled());
     let store = Arc::new(Mutex::new(current));
     remove_terminal(&store).unwrap();
@@ -204,4 +205,30 @@ fn insertion_at_capacity_refuses_when_all_blueprints_are_live() {
 
     assert!(error.contains("blueprint capacity reached"));
     assert_eq!(store.list().len(), super::super::store::MAX_SENTINELS);
+}
+
+#[test]
+fn stopped_cleanup_deadline_waits_for_the_whole_graph_and_keeps_team_scope() {
+    let mut root = job("cleanup-root", "creator", true, None);
+    root.cleanup.sync(true, 1_000);
+    let mut child = job("cleanup-child", "creator", true, None);
+    child.scenario_id = Some(root.id.clone());
+    child.cleanup.sync(true, 2_000);
+    let mut foreign = job("foreign-child", "foreign", false, None);
+    foreign.scenario_id = Some(root.id.clone());
+    foreign.team_id = Some("other-team".into());
+    let mut jobs = vec![root.clone(), child, foreign];
+    assert_eq!(
+        deletion_deadline(&jobs, &root, &BTreeSet::new()),
+        Some(1_802_000)
+    );
+    assert!(expired_roots(&jobs, &BTreeSet::new(), 1_801_000).is_empty());
+    assert_eq!(
+        expired_roots(&jobs, &BTreeSet::new(), 1_802_000)[0].id,
+        root.id
+    );
+    assert!(expired_roots(&jobs, &BTreeSet::from(["cleanup-child".into()]), 1_802_000).is_empty());
+    jobs[1].machine.stopped = false;
+    jobs[1].cleanup.sync(false, 1_802_000);
+    assert!(expired_roots(&jobs, &BTreeSet::new(), 1_802_000).is_empty());
 }

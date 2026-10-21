@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Circle, CircleAlert, CircleCheck, CircleDot, CircleMinus, ListChecks } from "lucide-react";
-import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { ChecklistItemDetail } from "./ChecklistItemDetail";
+import type { Plan } from "../Canvas/types";
+import { useAgentChecklist } from "./useAgentChecklists";
 import {
-  boundedChecklist,
   checklistStateLabel,
-  eventNeedsReread,
-  isTabTodoChanged,
-  TAB_TODO_CHANGED_EVENT,
-  type AgentChecklist,
+  type AgentChecklistItem,
   type AgentChecklistState,
 } from "./agentChecklistModel";
 
@@ -15,49 +14,6 @@ export interface ChecklistToggle {
   expanded: boolean;
   controlsId: string;
   onToggle: () => void;
-}
-
-type ChecklistView =
-  | { status: "loading" }
-  | { status: "error" }
-  | { status: "ready"; checklist: AgentChecklist | null };
-
-/** Mounted only while the detail is open, so the subscription never outlives the disclosure. */
-function useAgentChecklist(tabId: string): ChecklistView {
-  const [view, setView] = useState<ChecklistView>({ status: "loading" });
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: UnlistenFn | null = null;
-    let shown: AgentChecklist | null = null;
-    let issued = 0;
-    let applied = 0;
-    const reread = () => {
-      const request = ++issued;
-      invoke<unknown>("tab_todo_list", { tabId }).then((raw) => {
-        if (disposed || request < applied) return;
-        applied = request;
-        shown = boundedChecklist(raw);
-        setView({ status: "ready", checklist: shown });
-      }, () => {
-        if (!disposed && request === issued) setView({ status: "error" });
-      });
-    };
-    listen<unknown>(TAB_TODO_CHANGED_EVENT, ({ payload }) => {
-      if (!disposed && isTabTodoChanged(payload) && eventNeedsReread(tabId, shown, payload)) reread();
-    }).then((stop) => {
-      if (disposed) stop();
-      else unlisten = stop;
-      // Read after subscribing so a change landing in between still triggers a reread.
-      if (!disposed) reread();
-    }, () => {
-      if (!disposed) reread();
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [tabId]);
-  return view;
 }
 
 function StateGlyph({ state }: { state: AgentChecklistState }) {
@@ -69,11 +25,34 @@ function StateGlyph({ state }: { state: AgentChecklistState }) {
   return <Icon size={10} strokeWidth={1.75} aria-hidden="true" className="sidebar-agent-checklist__glyph" />;
 }
 
-function AgentChecklistRegion({ id, tabId, title }: { id: string; tabId: string; title: string }) {
+function SidebarAgentChecklist({ item, plans, tabId }: { item: AgentChecklistItem; plans: readonly Plan[]; tabId: string }) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLLIElement>(null);
+  const detailId = useId();
+  return <li ref={anchor} data-state={item.state} className="sidebar-agent-checklist__item cursor-pointer"
+    role="button" tabIndex={0} aria-expanded={open} aria-controls={open ? detailId : undefined}
+    onClick={(event) => { event.stopPropagation(); setOpen((value) => !value); }}
+    onKeyDown={(event) => {
+      if (event.target !== event.currentTarget) return;
+      if (event.code === "Enter" || event.code === "Space") {
+        event.preventDefault(); event.stopPropagation(); setOpen(true);
+      }
+    }}>
+    <StateGlyph state={item.state} />
+    <span className="sidebar-agent-checklist__title" title={item.reason ? `${item.title} — ${item.reason}` : item.title}>{item.title}</span>
+    <span className="sidebar-agent-checklist__state">{checklistStateLabel(item.state)}</span>
+    <AnchoredPopover open={open} anchor={anchor} placement="bottom-start" width={300} onClose={() => setOpen(false)}>
+      <ChecklistItemDetail id={detailId} item={item} plans={plans} tabId={tabId} onClose={() => setOpen(false)} />
+    </AnchoredPopover>
+  </li>;
+}
+
+function AgentChecklistRegion({ id, tabId, title, plans }: { id: string; tabId: string; title: string; plans: readonly Plan[] }) {
   const view = useAgentChecklist(tabId);
   const items = view.status === "ready" ? view.checklist?.items ?? [] : [];
   return (
     <section id={id} role="region" aria-label={`Checklist of ${title}`} className="sidebar-agent-checklist">
+      {view.status === "ready" && view.checklist?.proposal?.state === "proposed" && <p role="status" className="sidebar-agent-checklist__note">Not reviewed yet</p>}
       {view.status === "loading" ? (
         <p className="sidebar-agent-checklist__note">Loading checklist</p>
       ) : view.status === "error" ? (
@@ -83,11 +62,7 @@ function AgentChecklistRegion({ id, tabId, title }: { id: string; tabId: string;
       ) : (
         <ol className="sidebar-agent-checklist__items">
           {items.map((item) => (
-            <li key={item.id} data-state={item.state} className="sidebar-agent-checklist__item">
-              <StateGlyph state={item.state} />
-              <span className="sidebar-agent-checklist__title" title={item.reason ? `${item.title} — ${item.reason}` : item.title}>{item.title}</span>
-              <span className="sidebar-agent-checklist__state">{checklistStateLabel(item.state)}</span>
-            </li>
+            <SidebarAgentChecklist key={item.id} item={item} plans={plans} tabId={tabId} />
           ))}
         </ol>
       )}
@@ -95,16 +70,17 @@ function AgentChecklistRegion({ id, tabId, title }: { id: string; tabId: string;
   );
 }
 
-export function AgentChecklistDisclosure({ tabId, title, children }: {
+export function AgentChecklistDisclosure({ tabId, title, children, plans = [] }: {
   tabId: string;
   title: string;
+  plans?: readonly Plan[];
   children: (toggle: ChecklistToggle, detail: ReactNode) => ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const controlsId = useId();
   const onToggle = useCallback(() => setExpanded((open) => !open), []);
   const toggle = useMemo(() => ({ expanded, controlsId, onToggle }), [expanded, controlsId, onToggle]);
-  const detail = expanded ? <AgentChecklistRegion key={tabId} id={controlsId} tabId={tabId} title={title} /> : null;
+  const detail = expanded ? <AgentChecklistRegion key={tabId} id={controlsId} tabId={tabId} title={title} plans={plans} /> : null;
   return <>{children(toggle, detail)}</>;
 }
 

@@ -90,7 +90,7 @@ Resolution clears the observation hash and re-evaluates once. An escalation clai
 Update a definition from JSON with the current version. Definitions require a meaningful `name`. Add `--cause TRANSITION_ID` when the amendment addresses an escalation. Any caller in the same Team and workspace may amend it; each accepted update records version lineage:
 
 ```bash
-codeterm blueprint update BLUEPRINT_ID --expect-version VERSION --from-file definition.json
+codeterm blueprint update BLUEPRINT_ID --expect-version VERSION --from-file definition.json --note "Watches the dry run and reports failed jobs"
 codeterm blueprint update BLUEPRINT_ID --expect-version VERSION --from-file definition.json --cause TRANSITION_ID
 codeterm blueprint history BLUEPRINT_ID
 ```
@@ -117,7 +117,7 @@ codeterm blueprint delete --stopped
 
 `delete` removes a whole Blueprint with every stage and its history; naming a stage deletes the Blueprint it belongs to. Only the creator tab or the Team owner may delete, and only inside the caller's Team and workspace. A running Blueprint is refused unless `--stop` is passed. `--stopped` deletes every stopped Blueprint the caller may delete and prints the removed ids; deletion cannot be undone.
 
-These commands show or manage only the calling tab's blueprints in its creation scope and workspace. A solo graph remains visible to its creator after that tab joins a Team; it is not shared with the new Team. `show` includes the probe, accepted bucket, hash, next run, expiry, and last decision reason. `runs_since_transition` counts completed repeats after the current state began (zero on a transition); `last_probe_at` is the last completed probe time in Unix milliseconds. Jobs and the human output show the current probe state with `×N`, including `error` and unmatched `other`. The declared cadence remains fixed; missed ticks are skipped rather than replayed. Stopped watches remain inspectable. Closing a Team stops and removes its Team-owned blueprints, including in-flight route claims. A removed creator stops the watch. The store admits at most 64 active and 256 total blueprints; dormant stages count toward the total. Watches are local to the creator's machine; `--mesh` is refused.
+These commands show or manage only the calling tab's blueprints in its creation scope and workspace. A solo graph remains visible to its creator after that tab joins a Team; it is not shared with the new Team. `--note` on create or update stores up to 200 plain-text characters describing what the Blueprint does and why; notes are included in recipes, list/show and the graph. Stopped JSON records include `stopped_at` and `deletes_at` in Unix milliseconds. `show` includes the probe, accepted bucket, hash, next run, expiry, and last decision reason. `runs_since_transition` counts completed repeats after the current state began (zero on a transition); `last_probe_at` is the last completed probe time in Unix milliseconds. Jobs and the human output show the current probe state with `×N`, including `error` and unmatched `other`. The declared cadence remains fixed; missed ticks are skipped rather than replayed. Stopped Blueprints remain inspectable for 30 minutes, then the scheduler deletes the whole Blueprint and its history; a stopped Blueprint updated at its expected version starts a fresh run and cancels cleanup. Retarget a watcher with `blueprint update` instead of creating one for every run. Closing a Team stops and removes its Team-owned blueprints, including in-flight route claims. A removed creator stops the watch. The store admits at most 64 active and 256 total blueprints; dormant stages count toward the total. Watches are local to the creator's machine; `--mesh` is refused.
 
 Legacy single-route definitions or corrupt stores make Blueprints unavailable; other subsystems still start. Original bytes remain, and reads and mutations return a load/format error. Preserve the definitions and recreate them through current authoring: no automatic migration, reset or discard. Demonstrate with fresh isolated dev data.
 
@@ -144,21 +144,54 @@ codeterm blueprint log BLUEPRINT_ID
 
 `github` queries `run`, `jobs` or `pr_checks` via `gh`. Errors route `failed`; its 60-second budget is capped by expiry.
 
-```yaml
-name: Inspect jobs
-trigger: {type: input, kind: text, source: {text: inspect}}
-steps:
-  - name: jobs
-    input: text
-    kind: {kind: github, probe: {repo: owner/repo, resource: jobs, id: 456}}
-result: {to: owner}
+Create a typed source directly from the built-in recipe:
+
+```bash
+codeterm blueprint create --recipe github --set repo=cli/cli --set resource=run --set id=39652641013
 ```
 
-Save as `github.yaml`:
+Use `resource=jobs` for job details, or `resource=pr_checks` with a PR number as `id`. The recipe queries every minute and delivers the JSON to its owner. Add `--dry-run` to validate first; stop with `codeterm blueprint stop BLUEPRINT_ID`. `show --json` retains `pipeline.steps[].kind.kind` as `github` and the declared `probe` scope. The card shows that scope and the last query status; query success does not mean CI passed. Classify CI conclusions separately. Inspect the editable spec with `codeterm blueprint recipe github`; use `command` for custom queries.
+
+### Failing before a CI run finishes
+
+The run and jobs resources include job conclusions. While the run is unfinished, a failed or timed-out job produces `source_state=failing` with `failed_jobs` names. Existing status, conclusion, jobs and URL fields remain in the JSON. Completed runs retain the existing query `done`/`failed` behavior; PR checks retain their original response. A `failing` route is optional: without one, existing `done` routing still applies.
+
 ```bash
-codeterm blueprint create --spec github.yaml --dry-run
+codeterm blueprint create --recipe github-failing --set repo=cli/cli --set id=39652641013 --set interval=20s
 ```
-Remove `--dry-run` to create. Classify CI conclusions separately. Edit the spec to fork; use `command` for custom queries.
+
+### Labelled self-hosted runners
+
+`resource=runners` queries every page in repository or organization scope using the current `gh` authentication. It reports `online` when at least one runner with the label is online, otherwise `offline`, with `online_count`. Busy runners still count as online. Labels match without case sensitivity; `label=*` matches all. An API/authentication error is `failed`, never a fabricated offline result. Repository runner administration or organization self-hosted-runner read permissions may be required.
+
+```bash
+codeterm blueprint create --recipe github-runners --set repo=cli/cli --set label=linux-build
+```
+
+Use `--recipe github-org-runners --set org=github --set label=linux-build` for organization scope. In a spec, provide exactly one `repo` or `org` and omit `id` for runners.
+
+## HTTP health source
+
+The `http` source makes one GET with a short total timeout and no redirect following. Default success is any 2xx code; override `expected_status` with an exact code. It reports `up`/`down` with `code` (null on transport error or timeout). It does not read or forward response bodies. Credentials in URLs are refused; query strings are omitted from the card. A failed health check still produces a health reading and can route `down`.
+
+```bash
+codeterm blueprint create --recipe http-health --set url=https://example.com/health --set expected_status=204 --set timeout_ms=3000
+```
+
+## Customise and reuse source recipes
+
+`blueprint recipe <name>` prints its editable spec, defaults and example; `--json` includes the defaults. Override any declared input with `--set key=value` without changing the node kind. Repo/org/id/URL are required inputs, never machine-specific defaults.
+
+| Recipe inputs | Defaults |
+|---|---|
+| All source recipes: `name`, `interval`, `timeout_ms`, `result` | Purpose-based name, 60s GitHub / 20s HTTP, 60000ms GitHub / 3000ms HTTP, owner |
+| `github`, `github-failing`: `resource`, `done`, `failed`, `failing` | run, next, stop, next (`failing` applies only to run/jobs) |
+| `github-runners`, `github-org-runners`: `label`, `online`, `offline`, `failed` | self-hosted, next, next, stop |
+| `http-health`: `expected_status`, `up`, `down`, `failed` | 2xx, next, next, stop |
+
+Intervals must be at least 10s. Request timeouts may be 1–60000ms for GitHub and 1–10000ms for HTTP, capped by the graph's remaining lifetime. State routes accept `next`, `stop` or a later named step; `result` accepts `owner`, `notify`, `team` or `tab:<id>`. For a longer branch, edit the printed spec and add later steps with `--spec`. `stop` ends the current pipeline run; use `blueprint stop` to end the recurring watch.
+
+Export any created blueprint with `codeterm blueprint export BLUEPRINT_ID --out source.blueprint.json`. Edit its definition or bind its printed placeholders during import. Numeric knobs remain editable numbers; kind and routes remain intact. A customised or exported-then-edited `github`/`http` step retains its icon, state colour and key facts because styling follows the node kind, never the recipe name.
 
 ## Bounded Agent steps
 
@@ -166,4 +199,4 @@ A typed pipeline may include `{"kind":"agent","provider":"<capable-provider>","p
 
 The task and preceding output reach the provider unchanged, with token, turn and deadline ceilings. The provider returns structured JSON `{status, output, error?}`, with status `done`, `failed`, `cancelled` or `deadline_exceeded`. The step routes `done` or `failed`. A graph stop aborts the active task; its step log closes as failed. Results, including abort status, persist in `blueprint-agent-results/` and the step log exposes their `body_ref`. Claimed steps never replay after restart, and an unfinished tool effect remains unconfirmed. Agent steps do not turn model output into a shell command.
 
-<!-- revision: 31 -->
+<!-- revision: 34 -->
