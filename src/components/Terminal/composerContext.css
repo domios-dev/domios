@@ -224,12 +224,13 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 .ct-ctx[data-phone] .ct-ctx__kinds { flex-wrap: wrap; margin-left: auto; margin-right: 8px; }
 
 .ct-ctx[data-phone] .ct-ctx-kind {
-  gap: 6px;
-  padding: 0 10px 0 8px;
+  gap: 4px;
+  padding: 0 8px;
   font-weight: 500;
 }
 
 .ct-ctx-kind__label { color: var(--ct-fg); }
+@media (max-width: 760px) { .ct-ctx-kind__label { display: none; } }
 
 .ct-ctx[data-phone] .ct-ctx__strip[data-kind="delayed"] .ct-ctx-bubble:not(.ct-ctx-bubble--add) {
   width: 100%;
@@ -504,13 +505,27 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   padding: 0 20px;
 }
 
+.ct-system-heartbeat__cadence {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ct-hover);
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .ct-system-heartbeat__content {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 45vh;
+  max-height: 40vh;
   overflow-y: auto;
-  font: inherit;
   margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ct-border-default);
+  border-radius: 14px;
+  background: var(--ct-delayed-field-bg);
+  color: var(--ct-fg);
+  font: 12px/1.55 var(--ct-font-mono);
 }
 
 .ct-delayed-modal__body textarea {
@@ -641,6 +656,7 @@ input.ct-delayed-modal__field { color: var(--ct-fg); }
 }
 
 .ct-delayed-modal__spacer { flex: 1; }
+.ct-delayed-modal__foot > .plan-mode-controls { flex: 1 1 auto; margin-right: 8px; }
 
 .ct-delayed-modal__btn {
   height: 34px;

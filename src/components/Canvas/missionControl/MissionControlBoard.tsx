@@ -99,13 +99,12 @@ export function MissionControlBoard({
             <ModelsCard spend={mc.spend} teamSpend={teamSpend} />
             <PlanCard
               plan={plan}
+              api={api}
               counts={boardState.task_counts}
               bounces={mc.bounces}
               previousPlans={previousPlans}
               onOpenPlan={onOpenPlan}
-              onOpenPlanView={onOpenView && (() => onOpenView("plan"))}
-              onOpenTasksView={onOpenView && (() => onOpenView("tasks"))}
-            />
+              onOpenPlanView={onOpenView && (() => onOpenView("plan"))}            />
           </div>
           <NeedsYouPanel refs={refs} deepLinks={deepLinks} />
         </>

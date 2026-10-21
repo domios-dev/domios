@@ -2152,8 +2152,7 @@ button,
   stroke-linecap: round;
   stroke-linejoin: round;
   color: color-mix(in srgb, var(--ct-muted-fg) 38%, transparent);
-  opacity: 0;
-  transition: color 160ms ease, opacity 160ms ease;
+  transition: color 160ms ease;
 }
 
 .sidebar-team-disclosure-glyph path {
@@ -2190,7 +2189,6 @@ button,
 
 .sidebar-team-disclosure-bar:hover .sidebar-team-disclosure-glyph,
 .sidebar-team-disclosure-bar:focus-visible .sidebar-team-disclosure-glyph {
-  opacity: 1;
   color: var(--ct-muted-fg);
 }
 
@@ -4473,6 +4471,12 @@ button,
 .plan-mode-button:disabled {
   cursor: default;
   opacity: 0.55;
+}
+.plan-mode-hint {
+  min-width: 0;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  line-height: 1.35;
 }
 .plan-mode-error {
   max-width: 14rem;

@@ -265,6 +265,10 @@ button.ct-status-identity:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  background: inherit;
 }
 
 .ct-model-picker__effort {

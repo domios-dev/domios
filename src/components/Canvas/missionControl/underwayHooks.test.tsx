@@ -51,20 +51,19 @@ test("one checklist subscription updates only the changed working agent and deta
   assert.equal(stopped, true);
 });
 
-test("resize controls persist the changed size across viewer remount", async () => {
-  dom.localStorage.clear();
+test("resize controls clamp to the minimum and start from the default on remount", async () => {
   function Harness() {
     const { size, handle } = useUnderwayResize();
-    return <div className="mc-underway-frame"><output>{JSON.stringify(size)}</output><button type="button" {...handle}>Resize</button></div>;
+    return <div className="mc-board-live-row"><div className="mc-underway-frame"><output>{JSON.stringify(size)}</output><button type="button" {...handle}>Resize</button></div></div>;
   }
   const host = document.createElement("div");
   let root = createRoot(host);
   await act(async () => root.render(<Harness />));
-  await act(async () => host.querySelector("button")?.dispatchEvent(new dom.KeyboardEvent("keydown", { bubbles: true, code: "ArrowLeft" }) as unknown as Event));
-  assert.equal(host.querySelector("output")?.textContent, '{"width":552,"height":292}');
+  await act(async () => host.querySelector("button")?.dispatchEvent(new dom.KeyboardEvent("keydown", { bubbles: true, code: "ArrowUp" }) as unknown as Event));
+  assert.equal(host.querySelector("output")?.textContent, '{"width":320,"height":200}');
   await act(async () => root.unmount());
   root = createRoot(host);
   await act(async () => root.render(<Harness />));
-  assert.equal(host.querySelector("output")?.textContent, '{"width":552,"height":292}');
+  assert.equal(host.querySelector("output")?.textContent, "null");
   await act(async () => root.unmount());
 });
