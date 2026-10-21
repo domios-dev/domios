@@ -117,6 +117,26 @@ fn validate_initiating_tab(
 }
 
 pub async fn install_update(
+    state: AxumState<AppState>,
+    headers: HeaderMap,
+    query: Query<InstallUpdateQuery>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    match install_update_inner(state, headers, query).await {
+        Ok(value) => value.into_response(),
+        Err((status, "native_capability_unavailable")) => (
+            status,
+            Json(serde_json::json!({
+                "code": "native_capability_unavailable",
+                "message": "Automatic installation requires a native application host attached to this server. This server cannot perform automatic installation. On macOS or Windows, download the official installer and run codeterm update install --from-file <installer-path> on the machine being updated. On Linux, update with the package manager or install the official package."
+            })),
+        ).into_response(),
+        Err(error) => error.into_response(),
+    }
+}
+
+async fn install_update_inner(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Query(q): Query<InstallUpdateQuery>,
@@ -409,26 +429,7 @@ pub async fn set_channel(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{validate_after_update_enabled, validate_initiating_tab};
-
-    #[test]
-    fn after_update_request_is_refused_when_resume_is_disabled() {
-        assert_eq!(validate_after_update_enabled(true, false), Err("disabled"));
-        assert!(validate_after_update_enabled(false, false).is_ok());
-        assert!(validate_after_update_enabled(true, true).is_ok());
-    }
-
-    #[test]
-    fn auto_update_initiating_tab_must_match_authenticated_caller() {
-        assert_eq!(
-            validate_initiating_tab(Some("caller"), Some("other")),
-            Err("not_caller_tab")
-        );
-        assert!(validate_initiating_tab(Some("caller"), Some("caller")).is_ok());
-        assert!(validate_initiating_tab(None, None).is_ok());
-    }
-}
+mod tests;
 
 pub async fn availability(
     AxumState(state): AxumState<AppState>,
