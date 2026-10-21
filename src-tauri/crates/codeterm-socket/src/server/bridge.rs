@@ -40,85 +40,16 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("append"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let content_type = params
-                .as_ref()
-                .and_then(|p| p.get("type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("text")
-                .to_string();
-
-            let content = match content_type.as_str() {
-                "text" => {
-                    let text = get_string_param(params, "text")?;
-                    codeterm_service_core::bridge::traits::OutboundContent::Text { text }
-                }
-                "photo" | "document" | "voice" | "animation" | "video" | "sticker" => {
-                    let file = get_string_param(params, "file")?;
-                    if !std::path::Path::new(&file).exists() {
-                        return Err(JsonRpcError {
-                            code: -32602,
-                            message: format!("File not found: {}", file),
-                            data: None,
-                        });
-                    }
-                    let caption = params
-                        .as_ref()
-                        .and_then(|p| p.get("caption"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .or_else(|| {
-                            params
-                                .as_ref()
-                                .and_then(|p| p.get("text"))
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string())
-                        });
-                    let filename = params
-                        .as_ref()
-                        .and_then(|p| p.get("filename"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-
-                    match content_type.as_str() {
-                        "photo" => codeterm_service_core::bridge::traits::OutboundContent::Photo {
-                            file,
-                            caption,
-                        },
-                        "document" => {
-                            codeterm_service_core::bridge::traits::OutboundContent::Document {
-                                file,
-                                caption,
-                                filename,
-                            }
-                        }
-                        "voice" => codeterm_service_core::bridge::traits::OutboundContent::Voice {
-                            file,
-                            caption,
-                        },
-                        "animation" => {
-                            codeterm_service_core::bridge::traits::OutboundContent::Animation {
-                                file,
-                                caption,
-                            }
-                        }
-                        "video" => codeterm_service_core::bridge::traits::OutboundContent::Video {
-                            file,
-                            caption,
-                        },
-                        "sticker" => {
-                            codeterm_service_core::bridge::traits::OutboundContent::Sticker { file }
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-                _ => {
-                    return Err(JsonRpcError {
-                        code: -32602,
-                        message: format!("Unknown content type: {}", content_type),
-                        data: None,
-                    });
-                }
-            };
+            let content = codeterm_service_core::bridge::manager::outbound_content(params)
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
+            let is_media = !matches!(
+                content,
+                codeterm_service_core::bridge::traits::OutboundContent::Text { .. }
+            );
 
             let buttons: Option<codeterm_service_core::bridge::traits::InlineKeyboard> = params
                 .as_ref()
@@ -140,13 +71,16 @@ pub(super) fn dispatch(
                 .map(|tab_id| codeterm_service_core::bridge::manager::OutboundRoute::Tab { tab_id })
                 .unwrap_or_default();
 
-            if let Some(tx) = svc.bridge_outbound.lock().as_ref() {
+            let tx = svc.bridge_outbound.lock().clone();
+            if let Some(tx) = tx {
+                let (completion, delivered) = std::sync::mpsc::sync_channel(1);
                 let msg = codeterm_service_core::bridge::manager::OutboundMessage {
                     user_id: chat_id,
                     content,
                     append,
                     buttons,
                     edit: None,
+                    completion: is_media.then_some(completion),
                     receipt: None,
                     route,
                 };
@@ -155,6 +89,19 @@ pub(super) fn dispatch(
                     message: format!("Bridge send failed: {}", e),
                     data: None,
                 })?;
+                if is_media {
+                    delivered.recv_timeout(std::time::Duration::from_secs(70))
+                        .map_err(|error| JsonRpcError {
+                            code: -32603,
+                            message: format!("Telegram upload delivery unconfirmed: {error}; do not retry automatically"),
+                            data: None,
+                        })?
+                        .map_err(|cause| JsonRpcError {
+                            code: -32603,
+                            message: format!("Telegram upload failed: {cause}"),
+                            data: None,
+                        })?;
+                }
                 Ok(serde_json::json!({"ok": true}))
             } else {
                 Err(JsonRpcError {

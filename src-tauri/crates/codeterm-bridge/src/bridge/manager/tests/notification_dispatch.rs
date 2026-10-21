@@ -199,6 +199,7 @@ async fn failed_notification_does_not_fall_through_to_raw_chat_send() {
             url: None,
         }]]),
         edit: None,
+        completion: None,
         receipt: Some(receipt),
         route: OutboundRoute::TabNotification {
             tab_id: NOTIFICATION_TAB.to_string(),
@@ -256,6 +257,7 @@ async fn tab_notification_edits_use_the_regular_rewrite_route() {
         append: false,
         buttons: None,
         edit: Some(super::super::OutboundEdit { message_id: 55 }),
+        completion: None,
         receipt: None,
         route: OutboundRoute::TabNotification {
             tab_id: NOTIFICATION_TAB.to_string(),
@@ -283,3 +285,5 @@ async fn tab_notification_edits_use_the_regular_rewrite_route() {
     );
     assert!(transport.sends.lock().is_empty());
 }
+
+mod media_delivery;

@@ -11,6 +11,7 @@ fn parse_spawn_command(args: &[&str]) -> Commands {
         .command
 }
 
+mod bridge_file;
 mod delayed;
 #[path = "tests/mesh_worker.rs"]
 mod mesh_worker;
