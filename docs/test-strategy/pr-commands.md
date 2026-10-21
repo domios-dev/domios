@@ -114,6 +114,13 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
   },
   {
     "job": "guards",
+    "run": "bash scripts/check-build-gateway-serialization.sh\nbash scripts/check-build-gateway-policy.sh\nbash scripts/check-build-gateway-mutex-cleanup.sh",
+    "if": "${{ !cancelled() }}",
+    "reason": "POSIX-only build-gateway guards a Windows release-preflight cannot run",
+    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+  },
+  {
+    "job": "guards",
     "run": "node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs",
     "if": "${{ !cancelled() }}",
     "reason": "Explicit two-file plugin-metadata subset",
