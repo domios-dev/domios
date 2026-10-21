@@ -277,10 +277,9 @@ pub fn init_states() -> AppStates {
 
     let mesh_config = config_state.lock().mesh.clone();
     let api_port = config_state.lock().api.port;
-    let mesh_state: MeshStateHandle = Arc::new(Mutex::new(mesh::MeshManager::new(
-        mesh_config.instance_name.clone(),
-        api_port,
-    )));
+    let mut mesh_manager = mesh::MeshManager::new(mesh_config.instance_name.clone(), api_port);
+    mesh_manager.await_account_state();
+    let mesh_state: MeshStateHandle = Arc::new(Mutex::new(mesh_manager));
 
     let install_method = codeterm_update::update_state::detect_install_method();
     log::info!("Install method detected: {}", install_method);

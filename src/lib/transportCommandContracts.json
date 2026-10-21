@@ -62,10 +62,46 @@
     "answers": []
   },
   "commands": {
+    "account_mesh_acknowledge_limit": [
+      [
+        "POST",
+        "/api/account/mesh/limit-notice/ack"
+      ]
+    ],
+    "account_mesh_enroll": [
+      [
+        "POST",
+        "/api/account/mesh/enroll"
+      ]
+    ],
     "account_mesh_link": [
       [
         "POST",
         "/api/mesh/link"
+      ]
+    ],
+    "account_mesh_list": [
+      [
+        "POST",
+        "/api/account/mesh/list"
+      ]
+    ],
+    "account_mesh_rename_self": [
+      [
+        "POST",
+        "/api/account/mesh/rename"
+      ]
+    ],
+    "account_mesh_revoke": [
+      [
+        "POST",
+        "/api/account/mesh/revoke"
+      ]
+    ],
+    "account_mesh_state": [
+      [
+        "GET",
+        "/api/account/mesh"
       ]
     ],
     "agent_runtime_child_authority": [["GET", "/api/mux/state"]],
@@ -234,6 +270,12 @@
       [
         "GET",
         "/api/tabs/tab/text?formatted=false"
+      ]
+    ],
+    "system_heartbeat_list": [
+      [
+        "GET",
+        "/api/tabs/tab/system-heartbeats"
       ]
     ],
     "tab_todo_list": [

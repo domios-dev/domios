@@ -530,6 +530,7 @@ pub(crate) fn start_servers(
             mesh::discovery::detect_local_ip(&mesh);
         }
     }
+    service_state.start_account_mesh_transport();
 
     let integrations = states.config.lock().integrations.clone();
     if integrations.telegram_enabled {

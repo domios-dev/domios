@@ -3,6 +3,7 @@ use super::ports::{AccountMeshState, AccountPresence};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockReason {
+    AccountPending,
     SignedOut,
     NotSignedIn,
     OtherAccount,
@@ -49,8 +50,8 @@ pub fn decide(
     }
     match &record.admission {
         LinkAdmission::Legacy { .. } => match (&state.presence, owner_account) {
-            (AccountPresence::NeverSignedIn, None) => TrafficDecision::Open,
-            (AccountPresence::NeverSignedIn, Some(_)) => Blocked(NotSignedIn),
+            // Not yet restored is not a sign-out: legacy needs no account until one signs in.
+            (AccountPresence::NeverSignedIn, _) => TrafficDecision::Open,
             (AccountPresence::SignedIn { account_id }, owner) => {
                 if owner.is_some_and(|owner| owner != account_id.as_str()) {
                     Blocked(OtherAccount)

@@ -51,6 +51,13 @@ export type AccountMeshFailure =
 
 export type AccountMeshOutcome = { ok: true } | { ok: false; failure: AccountMeshFailure };
 
+/** A genuine free machine-slot refusal from automatic enrollment, held until acknowledged. */
+export interface AccountMeshLimitNotice {
+  request_id: string;
+  refusal: unknown;
+  trigger: string;
+}
+
 export interface AccountMeshSnapshot {
   binding: "none" | "current" | "other";
   traffic: "open" | "blocked_signed_out";
@@ -59,6 +66,7 @@ export interface AccountMeshSnapshot {
   registry: { observed_at: number; rows: AccountMachineRow[] } | null;
   registry_failure: AccountMeshFailure | null;
   pairs: LocalPairFact[];
+  limit_notice?: AccountMeshLimitNotice | null;
 }
 
 type LinkResult = { ok: true } | { ok: false; request_id: string; failure: AccountMeshFailure };
@@ -71,14 +79,15 @@ export interface AccountMeshClient {
   renameSelf(expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
   revoke(target: MeshTarget): Promise<AccountMeshOutcome>;
   unpair(instanceId: string): Promise<void>;
+  acknowledgeLimit(requestId: string): Promise<void>;
 }
 
-// Proposed facade names; the account lifecycle owner confirms the exact DTO names at integration.
 const COMMANDS = {
   state: "account_mesh_state",
   link: "account_mesh_link",
   renameSelf: "account_mesh_rename_self",
   revoke: "account_mesh_revoke",
+  acknowledgeLimit: "account_mesh_acknowledge_limit",
 } as const;
 const CHANGE_EVENTS = ["account-mesh-changed", "mesh-state-changed"] as const;
 
@@ -100,13 +109,14 @@ export const bridgeAccountMeshClient: AccountMeshClient = {
     };
   },
   async link(target) {
-    const result = await invoke<LinkResult>(COMMANDS.link, { target });
+    const result = await invoke<LinkResult>(COMMANDS.link, { installationId: target.installation_id });
     if (!result.ok) throw new AccountMeshRefusalError({ requestId: result.request_id, refusal: result.failure });
   },
   renameSelf: (expectedMetadataRevision, displayName) =>
     invoke<AccountMeshOutcome>(COMMANDS.renameSelf, { expectedMetadataRevision, displayName }),
   revoke: (target) => invoke<AccountMeshOutcome>(COMMANDS.revoke, { target }),
   unpair: async (instanceId) => { await invoke("mesh_disconnect", { instanceId }); },
+  acknowledgeLimit: async (requestId) => { await invoke(COMMANDS.acknowledgeLimit, { requestId }); },
 };
 
 const AccountMeshClientContext = createContext<AccountMeshClient>(bridgeAccountMeshClient);

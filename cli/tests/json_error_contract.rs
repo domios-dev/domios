@@ -270,7 +270,7 @@ fn stub_reply(request: &Value) -> Value {
             } else if path == "/api/mesh/link" {
                 (
                     409,
-                    r#"{"ok":false,"refusal":{"reason":"cancelled"}}"#.to_string(),
+                    r#"{"ok":false,"failure":{"reason":"cancelled"}}"#.to_string(),
                 )
             } else if path == "/api/mesh/disconnect" {
                 (

@@ -122,4 +122,10 @@ export class FakeAccountMeshClient implements AccountMeshClient {
     this.unpairCalls.push(instanceId);
     if (this.unpairFailure) throw this.unpairFailure;
   }
+
+  acknowledgedLimits: string[] = [];
+
+  async acknowledgeLimit(requestId: string): Promise<void> {
+    this.acknowledgedLimits.push(requestId);
+  }
 }

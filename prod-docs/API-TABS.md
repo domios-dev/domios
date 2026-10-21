@@ -164,7 +164,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | GET | `/api/mesh/debug/sign` | — | Mint a signed mesh auth token for diagnostics |
 | GET | `/api/mesh/status` | — | Mesh identity and paired count |
 | GET | `/api/mesh/peers` | — | List paired peers |
-| POST | `/api/mesh/link` | `{installation_id, request_id?}` | Local only. Link a same-account machine from the registry; resolves after the bilateral handshake with `{ok, request_id, pair}` or `{ok:false, request_id, refusal}` (`refusal.reason` such as `mesh.machines`, `signed-out`, `offline`, `peer-unreachable`, `handshake-failed`) |
+| POST | `/api/mesh/link` | `{installation_id, request_id?}` | Local only. Link a same-account machine from the registry; resolves after the bilateral handshake with `{ok, request_id, pair}` or `{ok:false, request_id, failure}` (`failure.reason` such as `mesh.machines`, `signed-out`, `offline`, `peer-unreachable`, `handshake-failed`) |
 | POST | `/api/mesh/link/hello` | `LinkHello` | Inbound handshake step 1: verifies the caller's signed membership and answers with this side's membership, nonce and transcript proofs; stores nothing durable |
 | POST | `/api/mesh/link/confirm` | `LinkConfirm` | Inbound handshake step 2: verifies the caller's proofs and online permit, obtains this side's own permit, then records the pair and returns that permit |
 | POST | `/api/mesh/adopt/offer` | `AdoptOffer` | Signed by an open legacy edge: begins in-place account adoption |
@@ -200,4 +200,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->

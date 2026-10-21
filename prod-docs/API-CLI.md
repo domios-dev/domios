@@ -87,7 +87,7 @@ The CLI uses the local named pipe or Unix socket first. If that transport cannot
 
 ### Mesh CLI failures
 
-`codeterm mesh link <installation-id>` checks the HTTP result before printing success. A refusal exits non-zero and carries the typed `refusal.reason`; `mesh.machines` means the account's free machine slots are used.
+`codeterm mesh link <installation-id>` checks the HTTP result before printing success. A refusal exits non-zero and carries the typed `failure.reason`; `mesh.machines` means the account's free machine slots are used.
 
 `codeterm tab list --mesh <peer>` exits non-zero when the peer has no online mesh route; `(no tabs)` is reserved for a successful response from an online peer. `codeterm tab get-text --mesh <peer>` requires a PTY-backed remote tab. If the tab has no PTY, the CLI reports that condition and suggests choosing a PTY-backed tab.
 
@@ -199,4 +199,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 55 -->
+<!-- revision: 56 -->
