@@ -16,7 +16,7 @@ pub use lifecycle::{AccountMesh, AccountMeshConfig, AccountMeshPorts};
 pub use membership::{
     account_id, membership_token, parse_membership_token, verify_link_permit, verify_membership,
     LinkPermitExpectation, MembershipExpectation, MembershipRefusal, MembershipTrust,
-    VerifiedMembership,
+    VerifiedMembership, NOT_BEFORE_SKEW_SECONDS,
 };
 pub use operations::{LinkAuthorization, LinkTarget};
 pub use ports::{

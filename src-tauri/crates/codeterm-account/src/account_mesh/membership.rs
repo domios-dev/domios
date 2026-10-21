@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 pub const MEMBERSHIP_ISSUER: &str = "domios-mesh-membership";
 pub const MAX_MEMBERSHIP_SECONDS: u64 = 3600;
 pub const RENEW_AFTER_SECONDS: u64 = 1800;
+/// Not-before leeway for a desktop clock behind the issuer; expiry is never extended. It stays
+/// within one link-permit lifetime and far inside the renewal window.
+pub const NOT_BEFORE_SKEW_SECONDS: u64 = 120;
 const MAX_PAYLOAD_BYTES: usize = 2048;
 const MAX_TOKEN_BYTES: usize = 4096;
 const ACCOUNT_DOMAIN: &str = "domios.account-mesh.account.v1\0";
@@ -90,7 +93,7 @@ pub struct VerifiedMembership {
 impl VerifiedMembership {
     /// Expiry is exclusive: at `expires_at` the membership no longer admits traffic.
     pub fn is_current(&self, now: u64) -> bool {
-        self.issued_at <= now && now < self.expires_at
+        self.issued_at <= now.saturating_add(NOT_BEFORE_SKEW_SECONDS) && now < self.expires_at
     }
     pub fn refresh_after(&self) -> u64 {
         self.expires_at
@@ -232,7 +235,7 @@ fn window(issued_at: u64, expires_at: u64, max: u64, now: u64) -> Result<(), Mem
     if expires_at <= issued_at || expires_at - issued_at > max {
         return Err(MembershipRefusal::Window);
     }
-    if now < issued_at {
+    if now.saturating_add(NOT_BEFORE_SKEW_SECONDS) < issued_at {
         return Err(MembershipRefusal::NotYetValid);
     }
     if now >= expires_at {

@@ -304,6 +304,7 @@ impl ServiceContext {
             .state()
             .limit_notice
             .as_ref()
+            .filter(|notice| result == Err(notice.refusal))
             .map(|notice| notice.request_id.clone());
         Ok(AccountMeshOutcome::of(result, request_id))
     }
