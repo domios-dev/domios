@@ -126,3 +126,9 @@ test('a promotion run publishes without building, testing or a second warning re
   assert.equal(manifest({ prepare: built, ...builds('success'), 'promote-evidence': skipped }, vars), true);
   assert.equal(manifest({ prepare: built, ...builds('success'), 'windows-arm64': { result: 'failure' }, 'promote-evidence': skipped }, vars), false);
 });
+
+test('the promotion CLI calls only gh flags every runner build has', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../release-promote.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /'--slurp'/);
+});
