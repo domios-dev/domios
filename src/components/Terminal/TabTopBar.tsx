@@ -237,7 +237,7 @@ export function TabTopBar({
     const row = bubblesRef.current;
     if (!row) return;
     const check = () => setHiddenBubbles(Array.from(row.children)
-      .filter((child) => child instanceof HTMLElement && child.offsetWidth > 0 && child.offsetTop - row.offsetTop >= TAB_BAR_CONTROL_H).length);
+      .filter((child) => child instanceof HTMLElement && !child.dataset.bubblesToggle && child.offsetWidth > 0 && child.offsetTop - row.offsetTop >= TAB_BAR_CONTROL_H).length);
     check();
     const observer = new ResizeObserver(check);
     observer.observe(row);
@@ -273,9 +273,15 @@ export function TabTopBar({
         )}
       </div>
       <div className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1 sm:gap-1.5">
+      <div
+        ref={bubblesRef}
+        className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 overflow-hidden sm:gap-1.5"
+        style={bubblesOpen ? undefined : { maxHeight: TAB_BAR_CONTROL_H }}
+      >
         {(hiddenBubbles > 0 || bubblesOpen) && (
           <button
             type="button"
+            data-bubbles-toggle="true"
             className="ct-bar-pill inline-flex shrink-0 items-center justify-center gap-0.5 px-2 text-xs"
             style={{ height: TAB_BAR_CONTROL_H }}
             aria-expanded={bubblesOpen}
@@ -286,11 +292,6 @@ export function TabTopBar({
             {bubblesOpen ? <ChevronDown size={14} aria-hidden style={{ transform: "rotate(180deg)" }} /> : <>+{hiddenBubbles}<ChevronDown size={12} aria-hidden /></>}
           </button>
         )}
-      <div
-        ref={bubblesRef}
-        className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 overflow-hidden sm:gap-1.5"
-        style={bubblesOpen ? undefined : { maxHeight: TAB_BAR_CONTROL_H }}
-      >
         {shellTab && isUtilityShell(shellTab) && <>
           <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
           <ShellStatus tab={shellTab} />
