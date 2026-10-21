@@ -3379,6 +3379,9 @@ button,
   transition: color 120ms ease;
 }
 .ct-capsule__detail { color: var(--ct-muted-fg, #8b949e); }
+/* The kind label is painted, not text, so the mirror's text stays identical to the textarea's. */
+.ct-capsule__kind { position: relative; }
+.ct-capsule__kind::after { content: attr(data-kind); position: absolute; left: 0; font-size: 0.75rem; line-height: 1rem; }
 .ct-capsule[data-hovered="true"] > .ct-capsule__plate,
 .ct-capsule-button:not(:disabled):hover .ct-capsule__plate {
   background: color-mix(in srgb, var(--ct-fg, #c9d1d9) 11%, transparent);

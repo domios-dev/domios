@@ -235,6 +235,12 @@
         "/api/tabs/tab/todos"
       ]
     ],
+    "system_heartbeat_list": [
+      [
+        "GET",
+        "/api/tabs/tab/system-heartbeats"
+      ]
+    ],
     "shell_command_snapshot": [
       [
         "GET",
