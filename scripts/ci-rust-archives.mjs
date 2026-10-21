@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { classifyTarget } from './ci-classifier-cache.mjs';
 import { classifyInventory } from './ci-rust-classification.mjs';
 import { PATHS, discoverRunner, makeContext, selectRunners } from './test-catalogue.mjs';
 
@@ -159,7 +160,7 @@ function build() {
         const pkg = metadata.packages.find((p) => p.id === suite['package-id']);
         const target = pkg?.targets.find((t) => t.name === suite['binary-name'] && (suite.kind === 'lib' ? t.kind.some((k) => ['lib', 'rlib', 'cdylib', 'staticlib'].includes(k)) : t.kind.includes(suite.kind)));
         if (!target) throw new Error('No source root for ' + suite['binary-id']);
-        sources[suite['binary-id']] = commandJson('cargo', ['run', '--quiet', '--locked', '--manifest-path', 'scripts/ci-test-classifier/Cargo.toml', '--', target.src_path, ...(generated[pkg.id] ? [generated[pkg.id]] : [])]);
+        sources[suite['binary-id']] = classifyTarget(target.src_path, generated[pkg.id]);
       }
       fs.writeFileSync(path.resolve('ci-rust-archives', lane + '.suite.json'), JSON.stringify({ os, arch, sha, rows: classifyInventory(inventory, sources) }));
     }
