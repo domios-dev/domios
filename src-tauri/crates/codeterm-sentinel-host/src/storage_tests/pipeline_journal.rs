@@ -11,6 +11,7 @@ fn create_pipeline(store: &Mutex<Store>, owner: Owner) -> Sentinel {
 
 fn create_pipeline_with_steps(store: &Mutex<Store>, owner: Owner, count: usize) -> Sentinel {
     let mut spec = BlueprintSpec {
+        note: None,
         name: "journal pipeline".into(),
         owner: BlueprintOwner::Tab,
         trigger: Trigger::Schedule {

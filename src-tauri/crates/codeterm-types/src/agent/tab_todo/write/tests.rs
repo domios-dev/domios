@@ -30,6 +30,7 @@ fn item(id: &str, title: &str, state: TabTodoState, locked: bool) -> TabTodoItem
 
 fn checklist(items: Vec<TabTodoItem>) -> TabTodoChecklist {
     TabTodoChecklist {
+        proposal: None,
         tab_id: "tab".into(),
         generation: 2,
         started_at: 1,

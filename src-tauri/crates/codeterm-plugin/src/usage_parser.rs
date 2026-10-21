@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageSnapshot {
+    #[serde(default)]
+    pub usage_details: Option<serde_json::Value>,
     pub provider: String,
     #[serde(default)]
     pub billing_mode: codeterm_usage::contract::BillingMode,
@@ -66,6 +68,7 @@ pub trait UsageParser: Send + Sync {
 impl UsageSnapshot {
     pub fn empty(provider: &str, raw_text: &str, captured_at_ms: i64) -> Self {
         Self {
+            usage_details: None,
             provider: provider.to_string(),
             billing_mode: Default::default(),
             limits_reported: false,

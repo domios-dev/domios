@@ -78,6 +78,7 @@ fn attempt_spans_derive_each_attempt_duration_from_retained_history() {
 #[test]
 fn recitation_order_lists_blocked_first_and_remaining_excludes_terminal_items() {
     let checklist = TabTodoChecklist {
+        proposal: None,
         tab_id: "tab".into(),
         generation: 1,
         started_at: 0,

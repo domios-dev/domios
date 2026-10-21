@@ -213,7 +213,7 @@ export function NotificationToastContainer({
   if (toasts.length === 0) return null;
   const visibleToasts = toasts.slice(-MAX_VISIBLE_TOASTS).reverse();
   return (
-    <div ref={hostRef} data-testid="toast-host" aria-label="Notifications" className="absolute right-0 top-full z-[65] mt-1.5 flex w-[min(420px,calc(100vw-16px))] flex-col gap-1.5 pointer-events-none">
+    <div ref={hostRef} data-testid="toast-host" aria-label="Notifications" className="absolute right-0 top-full z-[65] mt-1.5 flex w-[min(420px,calc(100vw-16px))] flex-col gap-1.5 pointer-events-none max-sm:fixed max-sm:right-auto max-sm:left-1/2 max-sm:-translate-x-1/2 max-sm:top-[calc(44px+var(--ct-safe-top,0px)+6px)] max-sm:mt-0">
       {visibleToasts.map((toast) => <div key={toast.id} className="pointer-events-auto">
         <ToastItem notification={toast} onDismiss={onDismiss} onMarkRead={onMarkRead} onNavigate={onNavigate} />
       </div>)}

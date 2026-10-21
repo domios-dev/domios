@@ -124,6 +124,7 @@ pub struct BucketDefinition {
 /// Authored configuration of one stage; runtime state never lives here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageDefinition {
+    pub note: Option<String>,
     pub model_classification: bool,
     pub session: bool,
     pub name: Option<String>,
@@ -186,6 +187,9 @@ pub struct RunRecord {
 /// definition version and from the Storage commit revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageRuntime {
+    pub transition_offset: usize,
+    pub action_offset: usize,
+    pub stopped_at: Option<u64>,
     pub runs_since_transition: u64,
     pub last_probe_at: Option<u64>,
     pub probe_state: Option<String>,
@@ -330,6 +334,7 @@ pub struct BatchFence {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeOutcome {
+    pub stopped_at: Option<u64>,
     pub runs_since_transition: u64,
     pub last_probe_at: Option<u64>,
     pub probe_state: Option<String>,
@@ -354,8 +359,15 @@ pub struct NewTransition {
 /// Operational scheduling changes; never a new authored definition version.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScheduleUpdate {
-    Advance { id: SentinelId, next_run: u64 },
-    Stop { id: SentinelId, reason: String },
+    Advance {
+        id: SentinelId,
+        next_run: u64,
+    },
+    Stop {
+        id: SentinelId,
+        reason: String,
+        stopped_at: u64,
+    },
 }
 
 /// Why a fenced operation wrote nothing.
@@ -570,6 +582,8 @@ impl StageDefinition {
                 ));
             }
         }
+        codeterm_blueprint_types::automation_name::validate_note(self.note.as_deref())
+            .map_err(|error| StorageError::invalid("blueprint note", error))?;
         optional_text("blueprint name", &self.name)?;
         match &self.source {
             StageSource::Probe(command) => text("blueprint probe", command)?,
@@ -675,6 +689,7 @@ impl StageDefinition {
             .sum();
         RECORD_OVERHEAD
             + optional_len(&self.name)
+            + optional_len(&self.note)
             + match &self.source {
                 StageSource::Probe(command) => command.len(),
                 StageSource::Observe(observe) => observe.reference.len(),
@@ -1001,7 +1016,7 @@ impl ScheduleUpdate {
         RECORD_OVERHEAD
             + match self {
                 ScheduleUpdate::Advance { id, .. } => id.0.len(),
-                ScheduleUpdate::Stop { id, reason } => id.0.len() + reason.len(),
+                ScheduleUpdate::Stop { id, reason, .. } => id.0.len() + reason.len(),
             }
     }
 }

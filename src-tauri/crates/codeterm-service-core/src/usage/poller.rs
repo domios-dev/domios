@@ -25,6 +25,7 @@ const RESET_PROBE_MIN_INTERVAL: Duration = Duration::from_secs(120);
 
 fn usage_sample(snapshot: &UsageSnapshot) -> UsageSample {
     UsageSample {
+        usage_details: snapshot.usage_details.clone(),
         provider: snapshot.provider.clone(),
         billing_mode: snapshot.billing_mode,
         limits_reported: snapshot.limits_reported,
@@ -839,6 +840,7 @@ mod tests {
 
     fn row(session: Option<i64>, weekly: Option<i64>) -> UsageSnapshotRow {
         UsageSnapshotRow {
+            usage_details: None,
             billing_mode: Default::default(),
             limits_reported: false,
             id: 1,
@@ -863,6 +865,7 @@ mod tests {
 
     fn row_with_spend(spend: Option<i64>) -> UsageSnapshotRow {
         UsageSnapshotRow {
+            usage_details: None,
             spend_resets_at: spend,
             ..row(None, None)
         }

@@ -23,7 +23,7 @@ import { MissionControlTeamBoard } from "./MissionControlTeamBoard";
 import { MissionControlControls } from "./MissionControlControls";
 import { usePlanBoardState } from "./usePlanBoardState";
 import { useTeamMissionControl } from "./useTeamMissionControl";
-import { useTeamSpend } from "./teamSpend";
+import { useTeamSpendRead } from "./teamSpend";
 import { planForDetail } from "./planDetailTarget";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 
@@ -110,6 +110,7 @@ export function MissionControlPlanSurface({
   }, []);
 
   const [actionError, setActionError] = useState<string | null>(null);
+  const [teamError, setTeamError] = useState<string | null>(null);
   const [boardEvents, setBoardEvents] = useState(0);
   const boardTeamId = teamId ?? listedPlan?.team_id ?? null;
   const plansRevision = useMemo(
@@ -117,7 +118,7 @@ export function MissionControlPlanSurface({
     [effectivePlans],
   );
   const teamRevision = `${plansRevision}:${boardEvents}`;
-  const team = useTeamMissionControl(api, boardTeamId, teamRevision);
+  const team = useTeamMissionControl(api, boardTeamId, teamRevision, setTeamError);
   // The daemon's team projection owns the active slot, so a draft absent from the plan feed still fills it.
   const selectedPlan = useMemo(() => {
     if (listedPlan || !teamId) return listedPlan;
@@ -136,12 +137,10 @@ export function MissionControlPlanSurface({
   const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0);
   const recordedEvents = boardState.state?.mission_control?.event_log.recorded_events ?? 0;
   useEffect(() => setBoardEvents(recordedEvents), [recordedEvents]);
-  const teamSpend = useTeamSpend(api, boardTeamId, teamRevision);
+  const spendRead = useTeamSpendRead(api, boardTeamId, teamRevision);
+  const teamSpend = spendRead.spend;
   const boardPreviousPlans = team?.archivedPlans ?? previousPlans;
-  const refPlans = useMemo(
-    () => (team ? [...orderedPlans, ...team.archivedPlans] : orderedPlans),
-    [orderedPlans, team],
-  );
+  const refPlans = effectivePlans;
 
   const openTask = useCallback(
     (taskId: string) => {
@@ -257,17 +256,21 @@ export function MissionControlPlanSurface({
           testId="mission-control"
           className="p-4"
         />
-        {showsData && !selectedPlan && team && (
+        {(loading && plans.length === 0 || showsData && !selectedPlan && (team || boardTeamId)) && (
           <MissionControlTeamBoard
             teamId={boardTeamId}
             api={api}
             team={team}
+            error={teamError}
+            plans={effectivePlans}
             teamSpend={teamSpend}
+            spendLoading={spendRead.loading}
+            spendError={spendRead.error}
             deepLinks={deepLinks}
             onOpenPlan={openPlanDetail}
           />
         )}
-        {showsData && !selectedPlan && !team && (
+        {showsData && !selectedPlan && !team && !boardTeamId && (
           <div
             data-testid="mission-control-empty"
             className="flex h-full items-center justify-center p-8"
@@ -292,6 +295,8 @@ export function MissionControlPlanSurface({
             deepLinks={deepLinks}
             eventPager={team?.events}
             teamSpend={teamSpend}
+            spendLoading={spendRead.loading}
+            spendError={spendRead.error}
           />
         )}
       </div>

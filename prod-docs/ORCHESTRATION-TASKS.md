@@ -125,6 +125,22 @@ checklist, including rows of paired peers that report one.
 `codeterm todo list` reads your own list; an Orchestrator reads a child's with
 `codeterm tab todo list --tab <child-id>`.
 
+Workers share the checklist with `codeterm todo submit` and continue work.
+The parent receives its criteria and plan items together, plus an Approve/Edit
+card in its tab. `Not reviewed yet` in the sidebar and Underway is informational.
+Only the Worker's parent or Plan owner may review through the CLI:
+
+```bash
+codeterm todo approve --tab <child-id> --note-from-pad note.md
+codeterm todo amend --tab <child-id> --from-pad todos.json --note-from-pad note.md
+```
+
+The note is optional. Amendment uses the same array as `todo write`; `id` keeps
+an existing item and `content` may reword an unlocked item. Omitted own items
+are removed; omitted locked criteria stay. Approval clears the unreviewed
+marker; amendment updates the checklist and sends the Worker its changes and
+note. Sharing, review and checklist reminders never gate work or reporting.
+
 ## Plan recipes
 
 - Too big once started: `plan task split <plan> <task> --child "<name>"` (repeat); dispatch each child into its own lane. The parent closes when every child is done or cancelled.
@@ -146,4 +162,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

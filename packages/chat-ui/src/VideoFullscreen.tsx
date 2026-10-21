@@ -17,7 +17,7 @@ export function VideoFullscreen({ label, path, anchorRef, onClose }: {
   const panelRef = useRef<HTMLDivElement>(null);
   const video = useLocalVideo(path, true);
   return (
-    <FullscreenOverlay panelRef={panelRef} label={`Video ${label}`} onClose={onClose} returnFocusRef={anchorRef}>
+    <FullscreenOverlay panelRef={panelRef} closeButton={false} label={`Video ${label}`} onClose={onClose} returnFocusRef={anchorRef}>
       <header className="flex min-w-0 items-center gap-2 px-1.5 pb-2 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
         <Film size={14} aria-hidden className="shrink-0" />
         <span className="shrink-0 font-medium" style={{ color: "var(--ct-fg)" }}>{label}</span>

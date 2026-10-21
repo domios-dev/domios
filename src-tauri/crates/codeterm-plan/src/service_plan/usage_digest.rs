@@ -167,6 +167,7 @@ mod tests {
 
     fn row(provider: &str, weekly: f32, captured_at: i64) -> UsageSnapshotRow {
         UsageSnapshotRow {
+            usage_details: None,
             billing_mode: Default::default(),
             limits_reported: false,
             id: 1,

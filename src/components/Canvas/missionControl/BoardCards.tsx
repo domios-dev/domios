@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { AnchoredPopover } from "../../shared/AnchoredPopover";
-import type { Plan } from "../types";
+import type { TeamPlanSummary } from "./missionControlState";
+import type { ApiConfig } from "../../../lib/types";
+import { PlanModeControls } from "../planView/PlanModeControls";
 import { PLANNING_STATE_LABEL, planDraftState } from "../planView/boardModel";
 import {
   formatCount,
@@ -10,6 +12,7 @@ import {
 } from "./missionControlBoardModel";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { BoardPanel, BoardPanelSection, ShowAll } from "./BoardPanel";
+import { PlanGoal, PlanProgressBar, PlanProgressStats } from "./BoardPlanProgress";
 import type { BoardRefs } from "./BoardRefText";
 import {
   NeedsYouNotificationRow,
@@ -20,8 +23,6 @@ import type { BounceSummary, PlanTaskCounts } from "./missionControlState";
 
 export { ModelsCard } from "./BoardModelsCard";
 export { SpendCard } from "./BoardSpendCard";
-
-const WARN_STATUSES = new Set(["blocked", "paused"]);
 
 const NEEDS_YOU_PREVIEW = 3;
 
@@ -85,39 +86,13 @@ export function NeedsYouPanel({
   );
 }
 
-function Pair({
-  label,
-  testId,
-  warn = false,
-  unit,
-  children,
-}: {
-  label: string;
-  testId: string;
-  warn?: boolean;
-  unit?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="mc-board-pair">
-      <dt>{label}</dt>
-      <dd>
-        <b data-testid={testId} className={warn ? "mc-board-warn" : undefined}>
-          {children}
-        </b>
-        {unit && ` ${unit}`}
-      </dd>
-    </div>
-  );
-}
-
 function PreviousPlanList({
   id,
   plans,
   onOpenPlan,
 }: {
   id: string;
-  plans: readonly Plan[];
+  plans: readonly TeamPlanSummary[];
   onOpenPlan?: (planId: string) => void;
 }) {
   return (
@@ -150,7 +125,7 @@ function PreviousPlansMenu({
   plans,
   onOpenPlan,
 }: {
-  plans: readonly Plan[];
+  plans: readonly TeamPlanSummary[];
   onOpenPlan?: (planId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -254,7 +229,7 @@ export function NoActivePlanCard({
   previousPlans,
   onOpenPlan,
 }: {
-  previousPlans: readonly Plan[];
+  previousPlans: readonly TeamPlanSummary[];
   onOpenPlan?: (planId: string) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
@@ -292,47 +267,25 @@ export function PlanCard({
   previousPlans = [],
   onOpenPlan,
   onOpenPlanView,
-  onOpenTasksView,
+  api,
 }: {
-  plan: Plan;
+  plan: TeamPlanSummary;
+  api?: ApiConfig;
   counts: PlanTaskCounts;
   bounces: BounceSummary;
-  previousPlans?: readonly Plan[];
+  previousPlans?: readonly TeamPlanSummary[];
   onOpenPlan?: (planId: string) => void;
   onOpenPlanView?: () => void;
-  onOpenTasksView?: () => void;
 }) {
   const progress = progressReading(counts);
-  const bounced = bounces.tasks_on_second_attempt;
   const heading = plan.title;
   const goal = planGoal(plan);
   const draft = planDraftState(plan);
-  const taskCount = (
-    <>
-      <span data-testid="mc-board-tasks-amount" className="mc-board-num">
-        <AnimatedNumber value={progress.total} format={formatCount} />
-      </span>
-      {progress.total === 1 ? " task" : " tasks"}
-    </>
-  );
   return (
     <BoardPanel
       testId="mc-board-plan"
       title="Plan"
-      meta={
-        onOpenTasksView ? (
-          <button
-            type="button"
-            data-testid="mc-board-plan-tasks-link"
-            className="mc-board-meta-link"
-            onClick={onOpenTasksView}
-          >
-            {taskCount}
-          </button>
-        ) : (
-          taskCount
-        )
-      }
+      meta={<PlanModeControls plan={plan} api={api} reason="Paused from Mission Control" />}
     >
       <BoardPanelSection>
         {onOpenPlanView ? (
@@ -357,42 +310,13 @@ export function PlanCard({
             </span>
           </p>
         )}
-        {goal && (
-          <p data-testid="mc-board-plan-goal" className="mc-board-plan-goal" title={goal}>
-            {goal}
-          </p>
-        )}
-        <div data-testid="mc-board-task-statuses">
-          {progress.active.length === 0 ? (
-            <p className="mc-board-note">No tasks yet.</p>
-          ) : (
-            <ul className="mc-board-statuses" role="list">
-              {progress.active.map((status) => (
-                <li key={status.key} data-testid={`mc-board-task-status-${status.key}`} className="mc-board-status">
-                  <b
-                    data-testid={`mc-board-task-status-${status.key}-count`}
-                    className={`mc-board-figure${WARN_STATUSES.has(status.key) ? " mc-board-warn" : ""}`}
-                  >
-                    <AnimatedNumber value={status.count} format={formatCount} />
-                  </b>
-                  <span>{status.label}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <dl data-testid="mc-board-quality" className="mc-board-pairs">
-          <Pair label="bounced" testId="mc-board-bounces-amount" warn={bounced > 0}>
-            <AnimatedNumber value={bounced} format={formatCount} />
-          </Pair>
-          <Pair
-            label="first try"
-            testId="mc-board-done-first-try-amount"
-            unit={`of ${formatCount(bounces.total_attempts)}`}
-          >
-            <AnimatedNumber value={bounces.first_try_done} format={formatCount} />
-          </Pair>
-        </dl>
+        {goal && <PlanGoal goal={goal} onOpen={onOpenPlanView} />}
+      </BoardPanelSection>
+      <BoardPanelSection>
+        <PlanProgressStats progress={progress} bounces={bounces} />
+      </BoardPanelSection>
+      <BoardPanelSection>
+        <PlanProgressBar progress={progress} />
       </BoardPanelSection>
       {previousPlans.length > 0 && <PreviousPlansMenu plans={previousPlans} onOpenPlan={onOpenPlan} />}
     </BoardPanel>

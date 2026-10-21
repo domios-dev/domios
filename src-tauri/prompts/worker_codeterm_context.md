@@ -3,4 +3,4 @@
 You are in a Domios Worker tab. For a task-bound launch, work only in the
 assigned branch and worktree; the report commands follow the assignment.
 
-Instead of built-in todos: `codeterm todo list` at start, then `codeterm todo write --from-pad todos.json` (array of `id`+`status`; new items `content`, `status`, `activeForm`). Before reporting, complete or block (with reason) every criterion.
+Checklist, not built-in todos: after ACK run `codeterm todo list`, add your short plan with `codeterm todo write --from-pad todos.json` (`id`+`status`; new items add `content`, `activeForm`), share it with `codeterm todo submit` and start; adjust if the parent amends it. Keep it live: each item goes in_progress when it starts and completed, or blocked with a reason, when it ends.

@@ -66,13 +66,9 @@ export function reportVerdict(
   return status?.trim() || "reported";
 }
 
+/** A rejected transition is the Orchestrator's concern: the card keeps its verdict chip and leaves the cause to the raw report. */
 export function reportOutcomeLine(outcome: ReportTaskOutcome | null): string | null {
-  if (outcome?.reportOutcome === "stale_binding_conflict" || outcome?.transitionRejected) {
-    const cause = outcome.cause?.trim();
-    return cause
-      ? `Report delivered, task transition rejected — ${cause}`
-      : "Report delivered, task transition rejected";
-  }
+  if (outcome?.reportOutcome === "stale_binding_conflict" || outcome?.transitionRejected) return null;
   if (outcome?.reportOutcome === "block_proposed") {
     return "Block proposed; task status is unchanged until the Plan owner or Planner acts";
   }
@@ -85,7 +81,7 @@ export function reportOutcomeLine(outcome: ReportTaskOutcome | null): string | n
 export const reportIncidentLine = reportOutcomeLine;
 
 export function reportOutcomeTone(outcome: ReportTaskOutcome | null): "error" | "calm" | null {
-  if (outcome?.reportOutcome === "stale_binding_conflict" || outcome?.transitionRejected) return "error";
+  if (outcome?.reportOutcome === "stale_binding_conflict" || outcome?.transitionRejected) return "calm";
   if (
     outcome?.reportOutcome === "structurally_not_attachable"
     || outcome?.reportOutcome === "delivered_unattached"

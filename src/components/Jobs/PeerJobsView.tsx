@@ -1,3 +1,4 @@
+import { blueprintMeta } from "../Automation/blueprintMeta";
 import { useState } from "react";
 import { Clock3, Network, RefreshCw, Workflow } from "lucide-react";
 import type { TransportClient } from "../../lib/transportClient";
@@ -51,7 +52,7 @@ export function PeerJobsView({ peerId, peers, onMachineChange, onClose, clientFo
         <ul aria-label="Jobs" className="mx-auto flex max-w-3xl flex-col gap-2">
           {jobs.map((job) => <JobRow key={`${job.kind}:${mergedJobId(job)}`} jobKey={`${job.kind}:${mergedJobId(job)}`}
             icon={job.kind === "cron" ? <Clock3 size={15} /> : <Network size={15} />} name={job.title}
-            meta={job.kind === "cron" ? cronMeta(job.cron) : job.kind === "blueprint" ? job.blueprint.pipeline.nodes[0]?.summary ?? "" : sentinelRowText(job.sentinel, job.title).meta}
+            meta={job.kind === "cron" ? cronMeta(job.cron) : job.kind === "blueprint" ? blueprintMeta(job.blueprint.pipeline.note || job.blueprint.pipeline.nodes[0]?.summary || "", job.state, job.blueprint.pipeline.deletesAt) : sentinelRowText(job.sentinel, job.title).meta}
             type={job.kind === "cron" ? "Cron" : "Blueprint"} tone={job.kind === "cron" ? "cron" : "blueprint"}
             state={jobStateLabel(job.state)} actionItems={[]} onOpen={() => setSelected(`${job.kind}:${mergedJobId(job)}`)} onTriggerRef={() => {}} error={null} />)}
         </ul>

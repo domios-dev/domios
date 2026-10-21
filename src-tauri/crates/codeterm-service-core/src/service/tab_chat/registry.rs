@@ -293,6 +293,7 @@ pub struct ChatRegistry {
     sources: Mutex<HashMap<String, Arc<JsonlSource>>>,
     pub snapshot_flights: super::snapshot_flight::SnapshotFlights,
     pub row_cache: super::row_cache::RowCache,
+    pub tail_cache: super::tail_cache::TailCache,
 }
 
 impl ChatRegistry {

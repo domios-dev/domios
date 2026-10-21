@@ -2,6 +2,13 @@ import type { HttpMethod, TransportClient } from "../transportClient";
 import { describe, expect, it } from "vitest";
 import { createTabsTransport, type TabsTransportClient } from "./tabs";
 
+it("sends checklist review snapshot and amendment through the authenticated tab transport", async () => {
+  const { transport, calls } = fixture();
+  const request = { generation: 2, revision: 8, items: [], note: "Simplify" };
+  await transport.tab_todo_review({ tabId: "worker", callerTabId: "parent", request });
+  expect(calls[0]).toMatchObject({ method: "POST", path: "/api/tabs/worker/todos/review", body: request, opts: { callerTabId: "parent" } });
+});
+
 it("carries the client's known window to chat attach", async () => {
   const { transport, calls } = fixture();
   const knownWindow = { source_session_id: "own", session_binding_nonce: "nonce", end_offset: 123, file_length: 125, cursor: "opaque" };

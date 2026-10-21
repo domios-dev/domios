@@ -752,7 +752,7 @@ export function CodeBlock({
         )}
       </div>
       {isFullscreen && (
-        <FullscreenOverlay panelRef={fullscreenRef} onClose={dismissFullscreen} label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"}>
+        <FullscreenOverlay panelRef={fullscreenRef} closeButton={false} onClose={dismissFullscreen} label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"}>
             <div
               className="flex select-none items-center gap-1.5 px-2 py-1.5 text-xs"
               style={{

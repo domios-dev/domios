@@ -617,6 +617,10 @@ pub(super) fn create_router_with_preview_admission(
             post(web_routes::chat_raw_backfill),
         )
         .route(
+            "/api/tabs/{id}/chat-raw/history",
+            post(crate::chat_history_routes::chat_raw_history),
+        )
+        .route(
             "/api/tabs/{id}/chat-raw/resume",
             post(web_routes::chat_raw_resume),
         )

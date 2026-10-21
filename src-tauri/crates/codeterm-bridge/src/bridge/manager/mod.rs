@@ -50,7 +50,7 @@ pub enum OutboundRoute {
     Chat,
     /// A whole notification stays in chat while its visible tab gets a topic.
     TabNotification { tab_id: String },
-    /// A tab's own voice: its topic thread, sender header and main-chat pointer.
+    /// A tab's own voice: its topic thread and sender header.
     Tab { tab_id: String },
 }
 

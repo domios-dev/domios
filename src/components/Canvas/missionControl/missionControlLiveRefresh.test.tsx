@@ -179,6 +179,11 @@ function text(host: HTMLElement, testId: string): string {
   return host.querySelector(`[data-testid="${testId}"]`)?.textContent?.trim() ?? "";
 }
 
+function taskTotal(host: HTMLElement): string {
+  const label = host.querySelector('[data-testid="mc-board-task-statuses"] [role="img"]')?.getAttribute("aria-label") ?? "";
+  return /^([\d,]+) tasks/.exec(label)?.[1] ?? "";
+}
+
 function Probe({ revision, capture }: { revision: number; capture: { current: PlanBoardStateResult | null } }) {
   const result = usePlanBoardState(API, PLAN_ID, revision);
   useEffect(() => {
@@ -293,7 +298,7 @@ describe("Mission Control live refresh", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(rendered.host.querySelector('[data-testid="mc-board-row"]')).not.toBeNull();
     expect(rendered.host.querySelector('[data-testid="mc-board-pending"]')).toBeNull();
-    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("100");
+    expect(taskTotal(rendered.host)).toBe("100");
     expect(capture.current?.loading).toBe(true);
 
     nextRead.resolve(response(boardState({ tasks: 200, eventCount: 2 })));
@@ -302,7 +307,7 @@ describe("Mission Control live refresh", () => {
       advanceFrames(0);
       advanceFrames(360);
     });
-    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("200");
+    expect(taskTotal(rendered.host)).toBe("200");
     expect(capture.current?.state?.mission_control.event_log.recorded_events).toBe(2);
     await rendered.unmount();
   });
@@ -321,7 +326,7 @@ describe("Mission Control live refresh", () => {
     });
 
     expect(rendered.host.querySelector('[data-testid="mc-board-row"]')).not.toBeNull();
-    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("100");
+    expect(taskTotal(rendered.host)).toBe("100");
     expect(rendered.host.querySelector('[role="alert"]')).toBeNull();
     expect(capture.current?.state?.task_counts.total).toBe(100);
     await rendered.unmount();
@@ -331,7 +336,8 @@ describe("Mission Control live refresh", () => {
     const rendered = await render(
         <MissionControlBoard plan={PLAN} state={boardState({ output: 100, turns: 10, allowance: 20, tasks: 1 })} now={NOW} />,
     );
-    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("1");
+    const working = () => text(rendered.host, "mc-board-task-status-in_progress-count");
+    expect(working()).toBe("1");
 
     await act(async () => {
       rendered.root.render(
@@ -339,15 +345,15 @@ describe("Mission Control live refresh", () => {
       );
       await flush();
     });
-    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("1");
+    expect(working()).toBe("1");
 
     await act(async () => advanceFrames(0));
     await act(async () => advanceFrames(180));
-    expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("1");
-    expect(text(rendered.host, "mc-board-tasks-amount")).not.toBe("10");
+    expect(working()).not.toBe("1");
+    expect(working()).not.toBe("10");
 
     await act(async () => advanceFrames(1000));
-    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("10");
+    expect(working()).toBe("10");
     await rendered.unmount();
   });
 
@@ -367,7 +373,7 @@ describe("Mission Control live refresh", () => {
       );
       await flush();
     });
-    expect(text(rendered.host, "mc-board-tasks-amount")).toBe("3");
+    expect(taskTotal(rendered.host)).toBe("3");
     expect(frames.size).toBe(0);
     await rendered.unmount();
   });
