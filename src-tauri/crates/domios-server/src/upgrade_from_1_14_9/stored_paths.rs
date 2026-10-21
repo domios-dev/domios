@@ -110,21 +110,11 @@ impl PathRebase {
     }
 
     fn with_platform(legacy: &Path, current: &Path, windows: bool) -> Option<Self> {
-        let replacement = current.file_name()?.to_str()?.to_string();
-        let mut spelled = legacy.to_str()?.to_string();
-        if windows {
-            spelled = if let Some(unc) = spelled.strip_prefix(r"\\?\UNC\") {
-                format!(r"\\{unc}")
-            } else if let Some(local) = spelled.strip_prefix(r"\\?\") {
-                local.to_string()
-            } else {
-                spelled
-            }
-            .replace('\\', "/");
-        }
-        let pattern: Vec<char> = spelled.trim_end_matches('/').chars().collect();
+        let current = normalized_spelling(current, windows)?;
+        let replacement = current.rsplit('/').next()?.to_string();
+        let pattern: Vec<char> = normalized_spelling(legacy, windows)?.chars().collect();
         let name_offset = pattern.iter().rposition(|&character| character == '/')? + 1;
-        (name_offset < pattern.len()).then(|| Self {
+        (name_offset < pattern.len() && !replacement.is_empty()).then(|| Self {
             legacy: legacy.to_path_buf(),
             pattern,
             name_offset,
@@ -259,6 +249,21 @@ impl PathRebase {
     fn same_char(&self, actual: char, expected: char) -> bool {
         actual == expected || (self.windows && actual.to_lowercase().eq(expected.to_lowercase()))
     }
+}
+
+fn normalized_spelling(path: &Path, windows: bool) -> Option<String> {
+    let mut spelled = path.to_str()?.to_string();
+    if windows {
+        spelled = if let Some(unc) = spelled.strip_prefix(r"\\?\UNC\") {
+            format!(r"\\{unc}")
+        } else if let Some(local) = spelled.strip_prefix(r"\\?\") {
+            local.to_string()
+        } else {
+            spelled
+        }
+        .replace('\\', "/");
+    }
+    Some(spelled.trim_end_matches('/').to_string())
 }
 
 #[derive(Debug, Default)]
