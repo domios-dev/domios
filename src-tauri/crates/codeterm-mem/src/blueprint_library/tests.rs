@@ -178,3 +178,25 @@ fn blueprint_dreamer_only_merges_existing_solutions_and_preserves_stats() {
     assert_eq!(mem.recall_blueprints("project", "", 5).unwrap().len(), 1);
     assert_eq!(mem.dream_blueprints().unwrap(), 0);
 }
+
+#[test]
+fn owner_list_does_not_count_recall_and_archive_is_project_scoped() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let id = mem
+        .save_blueprint("project-a", document("done"), "Watch CI", evidence())
+        .unwrap()
+        .unwrap();
+    let before = mem.list_blueprint_solutions("project-a").unwrap();
+    assert_eq!(before.len(), 1);
+    assert_eq!(
+        mem.list_blueprint_solutions("project-a").unwrap()[0].uses,
+        before[0].uses
+    );
+    assert!(mem.archive_blueprint_solution("project-b", &id).is_err());
+    assert_eq!(mem.list_blueprint_solutions("project-a").unwrap().len(), 1);
+    mem.archive_blueprint_solution("project-a", &id).unwrap();
+    assert!(mem
+        .list_blueprint_solutions("project-a")
+        .unwrap()
+        .is_empty());
+}

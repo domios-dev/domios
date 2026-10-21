@@ -1,3 +1,6 @@
+import { SavedSolutions } from "./SavedSolutions";
+import { SaveSolutionForm } from "./SaveSolutionForm";
+import { successfulSolutionScope, type SolutionScope } from "./blueprintSolutions";
 import { blueprintMeta } from "../Automation/blueprintMeta";
 import type { TransportClient } from "../../lib/transportClient";
 import { JobsMachineFilter } from "./JobsMachineFilter";
@@ -91,6 +94,9 @@ interface SurfaceProps {
 
 function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef, onExit, onReturn, onDetailChange }: SurfaceProps) {
   const graphs = useWorkspaceGraphs(adapter, connectionId, sources);
+  const [saveScope, setSaveScope] = useState<SolutionScope | null>(null);
+  const [solutionRevision, setSolutionRevision] = useState(0);
+  const [solutionSaved, setSolutionSaved] = useState(false);
   const crons = useCronJobs(cronWorkspace);
   const [selection, setSelection] = useState<Selection>(initialBlueprintId ? { kind: "blueprint", id: initialBlueprintId } : initialScenarioId ? { kind: "scenario", id: initialScenarioId } : initialCronId ? { kind: "cron", id: initialCronId } : null);
   useEffect(() => {
@@ -256,6 +262,8 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   const reading = (crons.jobs === null && !crons.failed) || graphs.some((graph) => graph.loading);
   const empty = jobs.length === 0 && crons.jobs !== null && graphsRead && !crons.failed && !graphsFailed;
   return <div ref={list} className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-4 sm:px-6">
+    {saveScope && <SaveSolutionForm scope={saveScope} onCancel={() => setSaveScope(null)} onSaved={() => { setSaveScope(null); setSolutionSaved(true); setSolutionRevision((revision) => revision + 1); }} />}
+    {solutionSaved && <p role="status">Solution saved.</p>}
     {missing && <div ref={removed} tabIndex={-1} role="status" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2 outline-none"><InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /></div>}
     {crons.failed && crons.jobs === null && <p role="status" aria-label="Jobs unavailable" className="ct-job-note">Jobs are unavailable.</p>}
     <AutomationNotices state={notices} noun="Blueprints" />
@@ -267,7 +275,9 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
       {jobs.map((job: MergedJob) => {
         const key = jobKey(job);
         const canStop = canStopJob(job);
+        const solutionScope = successfulSolutionScope(job);
         const actionItems = [
+          ...(solutionScope ? [{ label: "Save as solution", onClick: () => { setSolutionSaved(false); setSaveScope(solutionScope); } }] : []),
           ...(canStop ? [{ label: "Stop", icon: <Square size={12} aria-hidden="true" />, disabled: stoppingJob === key, onClick: () => void stopJob(job) }] : []),
           { label: "Delete", icon: <Trash2 size={12} aria-hidden="true" />, danger: true, onClick: () => beginDelete(job) },
         ];
@@ -278,6 +288,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
           : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} {...sentinelRowText(job.sentinel, job.title)} type={job.sentinel.type} tone="blueprint" state={sentinelStateLabel(job.sentinel)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
       })}
     </ul>}
+    <SavedSolutions sources={sources} revision={solutionRevision} />
     {confirmation && <JobConfirmationDialog
       title={confirmation.kind === "delete" ? deleteJobConfirmation(confirmation.job).title : "Clear stopped jobs?"}
       description={confirmation.kind === "delete"
