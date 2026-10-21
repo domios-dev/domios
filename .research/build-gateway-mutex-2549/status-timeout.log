@@ -1,0 +1,5 @@
+Timed out acquiring build gateway state mutex (ownership incomplete or busy).
+[build-gateway] mutex refusal caller_job=unknown evidence={"owner":{"pid":"2579","start_token":"342233309","job_id":"unknown","age_ms":40525,"age_source":"directory-mtime"},"waiters":[]}
+If ownership is unreadable, stop gateway callers and verify no owner remains, ask the owner to resolve 'C:\Developer\codeterm\codeterm-worktrees\ci-simplify\.research\build-gateway-mutex-2549\state\state.lock'; do not delete unknown shared ownership
+Timed out acquiring build gateway state mutex.
+Run './build.sh gateway-status' to inspect ownership, then './build.sh gateway-cancel <job-id>' for a stale job.

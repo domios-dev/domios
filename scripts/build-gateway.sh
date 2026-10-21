@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Caller: build.sh dev|dev-prebuilt|kill|e2e|e2e:llm; CI build-gateway.yml; scripts build-gateway-mutex.mjs, build-gateway-mutex.test.mjs, build-gateway-reader-deadline.mjs
+# Caller: build.sh dev|dev-prebuilt|kill|e2e|e2e:llm; scripts build-gateway-mutex.mjs, build-gateway-mutex.test.mjs, build-gateway-reader-deadline.mjs
 
 CT_GATEWAY_SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 

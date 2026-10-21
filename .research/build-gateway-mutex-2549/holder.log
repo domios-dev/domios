@@ -1,0 +1,5 @@
+[build-gateway] sccache server at job start: unavailable (fixture)
+Build gateway job mutex-holder log: /c/Developer/codeterm/codeterm-worktrees/ci-simplify/.research/build-gateway-mutex-2549/state/jobs/mutex-holder.log
+[cache-policy] reclaimed 0 exceptional bytes
+Build gateway job mutex-holder exit: UNKNOWN
+[build-gateway] sccache server at job end: unavailable (fixture)

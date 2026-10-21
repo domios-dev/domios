@@ -1,0 +1,61 @@
+{
+  "schema": 3,
+  "job_id": "mutex-holder",
+  "job": "gateway-fake",
+  "command": "gateway-fake holder wait:/c/Developer/codeterm/codeterm-worktrees/ci-simplify/.research/build-gateway-mutex-2549/release success",
+  "owner": "afdaa8de",
+  "owner_pid": 2579,
+  "owner_start_token": "342233309",
+  "owner_pid_namespace": "msys",
+  "owner_native_pid": 20940,
+  "owner_native_start_token": "639281801483020602",
+  "owner_process_command": "bash ./build.sh gateway-fake holder wait:/c/Developer/codeterm/codeterm-worktrees/ci-simplify/.research/build-gateway-mutex-2549/release success ",
+  "worktree": "unrelated-worktree",
+  "source_sha": "08de5736eb06f7d2a251d49c6d1833a479b45641",
+  "state": "running",
+  "queue_key": "1792583367942-0000002579-mutex-holder",
+  "queue_position": null,
+  "queued_at": "2026-10-21T11:49:28Z",
+  "started_at": "2026-10-21T11:49:54Z",
+  "ended_at": null,
+  "exit_code": null,
+  "command_exit_code": null,
+  "outcome": null,
+  "log_path": "C:/Developer/codeterm/codeterm-worktrees/ci-simplify/.research/build-gateway-mutex-2549/state/jobs/mutex-holder.log",
+  "crates": null,
+  "touched_files_count": null,
+  "sccache": {
+    "start": {
+      "available": false,
+      "reason": "fixture"
+    },
+    "end": {
+      "available": false,
+      "reason": "fixture"
+    },
+    "delta": null,
+    "server_process": {
+      "start": {
+        "available": false,
+        "reason": "fixture"
+      },
+      "end": {
+        "available": false,
+        "reason": "fixture"
+      }
+    },
+    "restart_reason": null
+  },
+  "sccache_log_cursor": {
+    "file": "C:\\Developer\\codeterm\\codeterm-worktrees\\ci-simplify\\.research\\build-gateway-mutex-2549\\state\\sccache-server.log",
+    "offset": 0,
+    "ino": null
+  },
+  "fingerprint_log_path": "C:\\Developer\\codeterm\\codeterm-worktrees\\ci-simplify\\.research\\build-gateway-mutex-2549\\state\\jobs\\mutex-holder.fingerprint.log",
+  "diagnostics": {
+    "rebuilt_units": [],
+    "non_cacheable_units": [],
+    "sccache_log_path": "C:\\Developer\\codeterm\\codeterm-worktrees\\ci-simplify\\.research\\build-gateway-mutex-2549\\state\\jobs\\mutex-holder.sccache.log",
+    "per_unit_sccache_available": false
+  }
+}
