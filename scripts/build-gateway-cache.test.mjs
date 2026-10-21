@@ -28,9 +28,16 @@ function shell(directory, body, id = 'fixture') {
   child.stdout.on('data', c => output += c);
   child.stderr.on('data', c => errors += c);
   const lines = readline.createInterface({ input: child.stdout });
-  const ready = new Promise(resolve => lines.once('line', resolve));
+  const firstLine = new Promise(resolve => lines.once('line', resolve));
   const exited = once(child, 'close').then(([code]) => ({ code, output, errors }));
-  return { child, ready, exited, id, snapshot: () => ({ output, errors }) };
+  return {
+    child, exited, id, snapshot: () => ({ output, errors }),
+    get ready() {
+      return Promise.race([firstLine, exited.then(result => {
+        throw new Error(`fixture exited before ready (${result.code}): ${result.output}${result.errors}`);
+      })]);
+    },
+  };
 }
 async function cleanup(directory, clients) {
   for (const c of clients) if (c.child.exitCode === null) {
@@ -42,6 +49,15 @@ async function cleanup(directory, clients) {
   fs.rmSync(directory, { recursive: true, force: true });
 }
 const statusBody = 'source scripts/build-gateway.sh; ct_gateway_set_fixture_dir "$1/state"; ct_gateway_status';
+
+test('an awaited readiness event rejects when its fixture exits without output', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-ready-exit-'));
+  const client = shell(directory, 'exit 17');
+  try {
+    await assert.rejects(client.ready, /fixture exited before ready \(17\)/);
+  } finally { await cleanup(directory, [client]); }
+});
+
 
 test('four concurrent cache clients start the server exactly once and leave gateway metadata free', { timeout: 60000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-sccache-'));
@@ -176,7 +192,7 @@ test('cache reset metadata failure stops server restart before compile', { timeo
 test('mixed build verbs share one cache startup and persist four completed history rows', { timeout: 60000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-mixed-verbs-'));
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
-  const dispatch = '\ncase "$CMD" in\n  lane-wrapper-check|';
+  const dispatch = '\ncase "$CMD" in\n  process-probe|';
   assert.equal(source.split('ct_configure_sccache\n').length - 1, 1);
   assert.ok(source.includes(dispatch));
   const fixture = `
@@ -246,11 +262,11 @@ test('mixed build verbs share one cache startup and persist four completed histo
     syncBuiltinESMExports();
   `);
   const fixtureScript = path.join(directory, 'build.sh');
-  fs.writeFileSync(fixtureScript, source.replace('*) setup_env ;;', '*) : ;;').replace(dispatch, fixture + dispatch));
+  fs.writeFileSync(fixtureScript, source.replace('source scripts/lane-rust-guard.sh', 'require_canonical_rust_tests() { :; }').replace('*) setup_env ;;', '*) : ;;').replace(dispatch, fixture + dispatch));
   const verbs = [['test-one', 'plan', 'fixture'], ['test-one', 'cli', 'fixture'], ['nextest', 'plan'], ['check-queue', '--all']];
   const clients = verbs.map((args, i) => shell(directory, `
     export NODE_OPTIONS="--import=${pathToFileURL(identityPreload).href}"
-    export MIXED_FIXTURE_DIR="$1" CT_BUILD_JOB_ID="$2" CT_BUILD_GATEWAY_NO_TEE=1 CODETERM_BUILD_GATEWAY_MODE=queue
+    export BUILD_NOTIFY_CHILD=1 MIXED_FIXTURE_DIR="$1" CT_BUILD_JOB_ID="$2" CT_BUILD_GATEWAY_NO_TEE=1 CODETERM_BUILD_GATEWAY_MODE=queue
     unset CODETERM_BUILD_GATEWAY_FIXTURE_DIR CT_BUILD_GATEWAY_SCOPE BUILD_NOTIFY_TAB
     source "$1/build.sh" ${args.join(' ')}
   `, `mixed-${i}`));
