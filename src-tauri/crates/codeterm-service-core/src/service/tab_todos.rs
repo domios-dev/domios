@@ -54,12 +54,15 @@ struct TabIdentity {
 }
 
 impl ServiceContext {
-    fn todo_store(&self) -> Result<TabTodoStore, String> {
-        let storage = self
-            .try_ext::<StorageAuthority>()
+    fn optional_todo_store(&self) -> Option<TabTodoStore> {
+        self.try_ext::<StorageAuthority>()
             .and_then(StorageAuthority::storage)
-            .ok_or_else(|| "shared Storage is unavailable".to_string())?;
-        Ok(TabTodoStore::new(storage.tab_todos()))
+            .map(|storage| TabTodoStore::new(storage.tab_todos()))
+    }
+
+    fn todo_store(&self) -> Result<TabTodoStore, String> {
+        self.optional_todo_store()
+            .ok_or_else(|| "shared Storage is unavailable".to_string())
     }
 
     /// Every committed checklist mutation announces its new revision to the UI.
