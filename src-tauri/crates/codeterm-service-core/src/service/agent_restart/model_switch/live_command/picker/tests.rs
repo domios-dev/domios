@@ -231,7 +231,7 @@ fn direct_effort_declaration_renders_target_and_confirms_captured_stdout() {
         "/effort high"
     );
     assert!(plan[0].0.picker.is_none());
-    assert!(plan[0].0.prompt.is_none());
+    assert!(plan[0].0.prompt.is_some());
     let pattern =
         confirmation_pattern(&plan[0].0.confirmation, "haiku", "Haiku 5.5", plan[0].1).unwrap();
     let captured = include_str!(concat!(
