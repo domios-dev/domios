@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { Button } from "./Button";
 import { AnchoredPopover } from "./AnchoredPopover";
-import { X, Mic, Diff, Film, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
+import { X, Maximize2, Mic, Diff, Film, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
 import { attachmentFileName, attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
 import { LocalArtifactBlock } from "./LocalArtifactBlock";
@@ -175,7 +175,7 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
       </button>
       <AnchoredPopover open={previewing && !open && !playing} anchor={triggerRef} floatingRef={previewRef} placement="top-start" gap={0} onClose={closePreview} style={{ overflow: "auto" }} onPointerEnter={() => setPreviewing(true)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setPreviewing(false); }}>
           <CapsulePreview kind={kind} path={path} label={label} image={image} onClose={closePreview} closeLabel={`Close preview ${label}`} actions={<>{actions}
-            {(opensImage || kind === "video") && <Button size="compact" aria-label={`Expand ${kind} ${label}`} onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: fileName(path), src: image.src, path }); }} style={{ minHeight: 44 }}>Expand</Button>}
+            {(opensImage || kind === "video") && <Button variant="icon" aria-label={`Expand ${kind} ${label}`} title="Expand" onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: fileName(path), src: image.src, path }); }} style={{ minWidth: 44, minHeight: 44 }}><Maximize2 size={16} aria-hidden /></Button>}
           </>} />
       </AnchoredPopover>
       {open && <ImageFullscreen image={open} anchorRef={anchorRef} onClose={close} />}
