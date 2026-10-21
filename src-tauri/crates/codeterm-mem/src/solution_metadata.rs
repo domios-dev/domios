@@ -1,0 +1,251 @@
+use crate::{store, MemManager, NewMemItem};
+use codeterm_blueprint_types::blueprint_memory::{CuratorEvidence, Entry, Evidence};
+use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Confidence {
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CuratorMetadata {
+    pub confidence: Confidence,
+    pub observed_at: i64,
+    pub rounds: BTreeMap<String, u64>,
+    pub episodes: BTreeSet<String>,
+    pub grants: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlueprintMetadata {
+    pub when_to_use: String,
+    pub successes: u64,
+    pub failures: u64,
+    pub uses: u64,
+    pub last_used: i64,
+    pub explicitly_kept: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutcomeCounts {
+    pub successes: u64,
+    pub failures: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SolutionMetadata {
+    pub content_fingerprint: Option<String>,
+    pub blueprint: Option<BlueprintMetadata>,
+    pub curator: Option<CuratorMetadata>,
+    pub evidence: BTreeMap<String, OutcomeCounts>,
+}
+
+pub(crate) fn initialize(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS solution_metadata (item_id TEXT PRIMARY KEY REFERENCES mem_items(id) ON DELETE CASCADE, metadata_json TEXT NOT NULL);").map_err(|error| error.to_string())?;
+    let ids = {
+        let mut statement = conn.prepare("SELECT id FROM mem_items WHERE kind IN ('skill','archived') AND (source='blueprint-library' OR (EXISTS (SELECT 1 FROM json_each(tags_json) WHERE value='curator') AND EXISTS (SELECT 1 FROM json_each(tags_json) WHERE value LIKE 'confidence:%'))) AND NOT EXISTS (SELECT 1 FROM solution_metadata WHERE item_id=mem_items.id)").map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
+    for id in ids {
+        store::delete_with_reason(conn, &id, Some("obsolete solution metadata shape"))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn read(conn: &Connection, id: &str) -> Result<Option<SolutionMetadata>, String> {
+    let json = conn
+        .query_row(
+            "SELECT metadata_json FROM solution_metadata WHERE item_id=?1",
+            [id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    json.map(|json| {
+        serde_json::from_str(&json)
+            .map_err(|error| format!("invalid solution metadata for {id}: {error}"))
+    })
+    .transpose()
+}
+
+pub(crate) fn write(
+    conn: &Connection,
+    id: &str,
+    metadata: &SolutionMetadata,
+) -> Result<(), String> {
+    conn.execute("INSERT INTO solution_metadata(item_id,metadata_json) VALUES (?1,?2) ON CONFLICT(item_id) DO UPDATE SET metadata_json=excluded.metadata_json",params![id,serde_json::to_string(metadata).map_err(|error| error.to_string())?]).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+impl SolutionMetadata {
+    pub(crate) fn set_entry(&mut self, entry: &Entry) {
+        self.blueprint = Some(BlueprintMetadata {
+            when_to_use: entry.when_to_use.clone(),
+            successes: entry.successes,
+            failures: entry.failures,
+            uses: entry.uses,
+            last_used: entry.last_used,
+            explicitly_kept: entry.kept,
+        });
+    }
+
+    pub(crate) fn prior(&self, origin: Option<&str>) -> OutcomeCounts {
+        origin
+            .and_then(|origin| self.evidence.get(origin))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn observe(&mut self, evidence: &Evidence, now: i64) {
+        if let Some(origin) = &evidence.origin {
+            let counts = self.evidence.entry(origin.clone()).or_default();
+            counts.successes = counts.successes.max(evidence.successes);
+            counts.failures = counts.failures.max(evidence.failures);
+        }
+        if let Some(proof) = &evidence.curator {
+            self.observe_curator(proof, now);
+        }
+    }
+
+    fn observe_curator(&mut self, proof: &CuratorEvidence, now: i64) {
+        let curator = self.curator.get_or_insert_with(|| CuratorMetadata {
+            confidence: Confidence::Low,
+            observed_at: now,
+            rounds: BTreeMap::new(),
+            episodes: BTreeSet::new(),
+            grants: BTreeSet::new(),
+        });
+        if curator
+            .rounds
+            .get(&proof.plan)
+            .is_some_and(|round| *round < proof.round)
+        {
+            curator.confidence = match curator.confidence {
+                Confidence::Low => Confidence::Medium,
+                Confidence::Medium | Confidence::High => Confidence::High,
+            };
+        }
+        curator.rounds.insert(proof.plan.clone(), proof.round);
+        curator.observed_at = now;
+        curator.episodes.extend(proof.episodes.iter().cloned());
+        if proof.granted {
+            curator
+                .grants
+                .insert(format!("{}:{}", proof.plan, proof.round));
+        }
+    }
+
+    pub(crate) fn merge(&mut self, other: Self) {
+        for (origin, counts) in other.evidence {
+            let own = self.evidence.entry(origin).or_default();
+            own.successes = own.successes.max(counts.successes);
+            own.failures = own.failures.max(counts.failures);
+        }
+        if let Some(other) = other.curator {
+            match &mut self.curator {
+                None => self.curator = Some(other),
+                Some(own) => {
+                    own.confidence = match (own.confidence, other.confidence) {
+                        (Confidence::High, _) | (_, Confidence::High) => Confidence::High,
+                        (Confidence::Medium, _) | (_, Confidence::Medium) => Confidence::Medium,
+                        _ => Confidence::Low,
+                    };
+                    own.observed_at = own.observed_at.max(other.observed_at);
+                    for (plan, round) in other.rounds {
+                        let own_round = own.rounds.entry(plan).or_default();
+                        *own_round = (*own_round).max(round);
+                    }
+                    own.episodes.extend(other.episodes);
+                    own.grants.extend(other.grants);
+                }
+            }
+        }
+    }
+}
+
+impl MemManager {
+    pub fn solution_metadata(&self, id: &str) -> Result<Option<SolutionMetadata>, String> {
+        read(&self.conn.lock(), id)
+    }
+
+    pub fn curator_skill_covers(&self, id: &str, body: &str) -> Result<bool, String> {
+        let record = self.solution_metadata(id)?;
+        Ok(record
+            .and_then(|record| record.content_fingerprint)
+            .is_some_and(|fingerprint| {
+                fingerprint
+                    == codeterm_blueprint_types::blueprint_memory::curator::fingerprint(body)
+            }))
+    }
+
+    pub fn save_curator_skill(
+        &self,
+        mut item: NewMemItem,
+        improve: Option<&str>,
+        proof: CuratorEvidence,
+        now: i64,
+    ) -> Result<String, String> {
+        self.guard_commit()?;
+        let conn = self.conn.lock();
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+        let mut metadata = match improve {
+            Some(id) => read(&tx, id)?.unwrap_or_default(),
+            None => SolutionMetadata::default(),
+        };
+        metadata.content_fingerprint =
+            Some(codeterm_blueprint_types::blueprint_memory::curator::fingerprint(&item.body));
+        metadata.observe_curator(&proof, now);
+        item.body.push_str(&format!(
+            "\n\nCurator evidence: {}{}",
+            proof.episodes.join(" "),
+            if proof.granted {
+                format!(" grant:{}:{}", proof.plan, proof.round)
+            } else {
+                String::new()
+            }
+        ));
+        item.tags
+            .retain(|tag| !tag.starts_with("curator:candidate:"));
+        item.tags.extend(["curator".into(), proof.plan]);
+        let id = if let Some(id) = improve {
+            if !store::update(
+                &tx,
+                id,
+                &store::MemUpdate {
+                    body: Some(item.body),
+                    tags: Some(item.tags),
+                    ..Default::default()
+                },
+                &self.blobs_dir,
+            )? {
+                return Err("covered skill disappeared".into());
+            }
+            id.to_owned()
+        } else {
+            store::insert(&tx, &item, &self.blobs_dir)?
+        };
+        write(&tx, &id, &metadata)?;
+        tx.commit().map_err(|error| error.to_string())?;
+        drop(conn);
+        self.refresh_embedding(&id);
+        Ok(id)
+    }
+}
+
+#[cfg(test)]
+mod tests;
