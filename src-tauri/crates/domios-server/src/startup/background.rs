@@ -130,15 +130,8 @@ pub(crate) fn start_background_tasks(
                             };
                             log::debug!("[mesh] Peer {} {} — syncing", peer.instance_name, reason);
                             let Some(client) = client else { continue };
-                            if let Ok(their_payload) = client.send_sync(&sync_payload).await {
+                            if client.send_sync(&sync_payload).await.is_ok() {
                                 last_sync_secs.insert(peer.instance_id.clone(), now_secs);
-                                let mut m = mesh.lock();
-                                m.apply_gossip_snapshot(
-                                    &peer.instance_id,
-                                    their_payload.generation,
-                                    &their_payload.peers,
-                                    now_secs,
-                                );
                                 changed = true;
                             }
                         }
