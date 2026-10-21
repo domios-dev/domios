@@ -1,3 +1,5 @@
+mod timing;
+
 use codeterm_service_core::service::MuxEmitCause;
 use codeterm_service_core::service::{boot_stage::BootStage, ServiceState};
 use codeterm_service_core::service::{
@@ -15,9 +17,10 @@ pub async fn spawn_pty_core(
     predicted_id: Option<String>,
     tab_id: Option<String>,
 ) -> Result<String, String> {
+    let mut timing = timing::Route::new();
     let owner = svc.clone();
     let requested_tab = tab_id.clone();
-    tokio::task::spawn_blocking(move || {
+    timing::blocking("capability", move || {
         let svc = &owner;
         let tab_id = requested_tab;
         if let Some(id) = tab_id.as_deref() {
@@ -30,13 +33,18 @@ pub async fn spawn_pty_core(
     })
     .await
     .map_err(|error| format!("spawn preflight task failed: {error}"))??;
+    let ownership_started = std::time::Instant::now();
     let mut pty_claim = match tab_id.clone() {
         Some(id) => Some(svc.pty_ownership.acquire_async(id).await?),
         None => None,
     };
     let owner = svc.clone();
     let requested_tab = tab_id.clone();
-    let preflight = tokio::task::spawn_blocking(move || {
+    log::debug!(
+        "[pty.ownership] elapsed_us={}",
+        ownership_started.elapsed().as_micros()
+    );
+    let preflight = timing::blocking("live_preflight", move || {
         let Some(pid) = requested_tab.as_deref() else {
             return Ok((false, None));
         };
@@ -71,6 +79,7 @@ pub async fn spawn_pty_core(
     .map_err(|error| format!("spawn preflight task failed: {error}"))??;
     if let Some(ref pid) = tab_id {
         if let Some((existing, restored)) = preflight.1 {
+            timing.branch = "reuse";
             let link_service = svc.clone();
             let link_tab = pid.clone();
             let restore_service = svc.clone();
@@ -86,6 +95,7 @@ pub async fn spawn_pty_core(
             .await;
         }
         if preflight.0 {
+            timing.branch = "protected_relink";
             drop(pty_claim.take());
             let owner = svc.clone();
             let target = pid.clone();
@@ -93,7 +103,7 @@ pub async fn spawn_pty_core(
                 let owner = owner.clone();
                 let target = target.clone();
                 async move {
-                    tokio::task::spawn_blocking(move || {
+                    timing::blocking("protected_relink", move || {
                         let existing = {
                             let mux = owner.mux.read();
                             let Some(tab) = mux.get_tab(&target) else {
@@ -117,16 +127,18 @@ pub async fn spawn_pty_core(
     }
     // One stamper for every launch path: a restored tab must not come back
     // identity-poorer than the same record launched by the daemon.
+    timing.branch = "create";
     let env_svc = svc.clone();
     let env_tab_id = tab_id.clone();
-    let env_vars =
-        tokio::task::spawn_blocking(move || env_svc.frontend_pty_env(env_tab_id.as_deref()))
-            .await
-            .map_err(|error| format!("spawn_pty env join error: {error}"))?;
+    let env_vars = timing::blocking("environment", move || {
+        env_svc.frontend_pty_env(env_tab_id.as_deref())
+    })
+    .await
+    .map_err(|error| format!("spawn_pty env join error: {error}"))?;
 
     let owner = svc.clone();
     let requested_tab = tab_id.clone();
-    let (profile, spawn_gate) = tokio::task::spawn_blocking(move || {
+    let (profile, spawn_gate) = timing::blocking("profile", move || {
         let profile = requested_tab.as_deref().and_then(|id| {
             let mux = owner.mux.read();
             mux.get_tab(id)
@@ -139,7 +151,7 @@ pub async fn spawn_pty_core(
     .await
     .map_err(|error| format!("spawn profile task failed: {error}"))?;
     let t0 = std::time::Instant::now();
-    let built = tokio::task::spawn_blocking(move || {
+    let built = timing::blocking("build", move || {
         codeterm_service_core::pty::manager::build_session_with_profile(
             spawn_gate,
             command,
@@ -156,7 +168,7 @@ pub async fn spawn_pty_core(
 
     let owner = svc.clone();
     let requested_tab = tab_id.clone();
-    let (pty_id, mut pty_claim) = tokio::task::spawn_blocking(move || {
+    let (pty_id, mut pty_claim) = timing::blocking("registration_link", move || {
         let svc = &owner;
         let tab_id = requested_tab;
         let (mut pty_id, _session) = svc.pty.lock().register_session(predicted_id, built);
@@ -201,7 +213,7 @@ pub async fn spawn_pty_core(
     if let Some(ref pid) = tab_id {
         let recovery_service = svc.clone();
         let recovery_tab = pid.clone();
-        let recovery = tokio::task::spawn_blocking(move || {
+        let recovery = timing::blocking("provider_recovery", move || {
             recovery_service.recover_missing_restored_provider(&recovery_tab)
         })
         .await
@@ -215,7 +227,7 @@ pub async fn spawn_pty_core(
         }
         let owner = svc.clone();
         let target = pid.clone();
-        let exact_restore = tokio::task::spawn_blocking(move || {
+        let exact_restore = timing::blocking("restore_snapshot", move || {
             let exact_restore = owner.mux.read().get_tab(&target).is_some_and(|tab| {
                 tab.restored_from_snapshot
                     && tab
@@ -238,7 +250,7 @@ pub async fn spawn_pty_core(
         }
         let owner = svc.clone();
         let pid = pid.clone();
-        return tokio::task::spawn_blocking(move || {
+        return timing::blocking("restore_launch", move || {
             let svc = &owner;
             let mux_state = &svc.mux;
             let pid = &pid;
@@ -407,7 +419,7 @@ async fn reuse_live_pty_with_claim(
         + 'static,
 ) -> Result<String, String> {
     let tab_id = claim.tab_id().to_string();
-    let (claim, selected) = tokio::task::spawn_blocking(move || {
+    let (claim, selected) = timing::blocking("reuse_link", move || {
         let selected = link(&claim, existing);
         (claim, selected)
     })
@@ -436,7 +448,7 @@ async fn materialize_restored_pty_with_claim(
         + Send
         + 'static,
 ) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || materialize(&claim))
+    timing::blocking("restore_materialize", move || materialize(&claim))
         .await
         .map_err(|error| format!("restore materialization task failed: {error}"))?
 }

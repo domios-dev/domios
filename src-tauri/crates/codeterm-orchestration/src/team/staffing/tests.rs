@@ -284,6 +284,7 @@ fn team_plan(store: &PlanStore, team_id: &str, owner: &str, planner: &str, cwd: 
         OrchestratorRef::from_tab(owner),
     );
     plan.team_id = Some(team_id.to_string());
+    plan.control_loop.mode = codeterm_service_core::plan::ControlLoopMode::Heartbeat;
     plan.mode = codeterm_service_core::plan::PlanMode::Execution;
     plan.planner = Some(PlannerRef::Tab {
         tab_id: planner.to_string(),

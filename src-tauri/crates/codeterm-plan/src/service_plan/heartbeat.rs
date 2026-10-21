@@ -403,7 +403,18 @@ pub(super) fn prepend_plan_heartbeat_with_digests(
     if matches!(plan.mode, PlanMode::Paused | PlanMode::Complete) || is_plan_complete(plan) {
         return text.to_string();
     }
-    let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops, digest_lines);
+    let mut lines = digest_lines.to_vec();
+    lines.push(format!(
+        "control loop: {:?}, next {:?}{}",
+        plan.control_loop.mode,
+        plan.control_loop.next_at,
+        plan.control_loop
+            .fallback_reason
+            .as_ref()
+            .map(|r| format!(", fallback: heartbeat ({r})"))
+            .unwrap_or_default()
+    ));
+    let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops, &lines);
     if text.trim().is_empty() {
         block
     } else {

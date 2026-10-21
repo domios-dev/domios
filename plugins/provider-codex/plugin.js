@@ -1214,89 +1214,6 @@ ${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
   return render(normalized, 0);
 }
 
-// plugins/provider-codex/src/runtimeDiffs.ts
-function runtimeFileDiffs(changes) {
-  return list(changes).map(object).flatMap((change) => {
-    const path = text2(change.path);
-    const kind = object(change.kind);
-    const diff = text2(change.diff);
-    if (!path || diff === void 0) return [];
-    const selected = kind.type === "update" ? "modify" : kind.type === "add" ? "add" : kind.type === "delete" ? "delete" : void 0;
-    if (!selected) return [];
-    let rows2;
-    if (/^Binary files|^GIT binary patch/m.test(diff)) rows2 = [{ path, kind: selected, binary: true, additions: 0, deletions: 0, hunks: [] }];
-    else if (selected === "add" || selected === "delete") {
-      const lines = diff.replace(/\n$/, "").split("\n");
-      const add = selected === "add";
-      rows2 = [{
-        path,
-        kind: selected,
-        additions: add ? lines.length : 0,
-        deletions: add ? 0 : lines.length,
-        hunks: [{ oldStart: add ? 0 : 1, oldLines: add ? 0 : lines.length, newStart: add ? 1 : 0, newLines: add ? lines.length : 0, lines: lines.map((line) => (add ? "+" : "-") + line) }]
-      }];
-    } else rows2 = recordedPatchDiff(path, diff, "modify");
-    const movePath = text2(kind.move_path);
-    return rows2.map((row3) => ({ ...row3, ...movePath ? { kind: "rename", movePath } : {} }));
-  });
-}
-
-// plugins/provider-codex/src/runtimeQuestions.ts
-function nativeOption(value) {
-  if (typeof value === "string") return { value, label: value };
-  const option = object(value);
-  const label = text2(option.label) ?? text2(option.title);
-  const id = text2(option.value) ?? text2(option.id) ?? label;
-  return label && id ? { value: id, label } : void 0;
-}
-function runtimeQuestions(value) {
-  return list(value).map(object).map((question, index) => ({
-    id: text2(question.id) ?? String(index),
-    text: text2(question.title) ?? text2(question.question) ?? "Choose an answer",
-    options: list(question.options).flatMap((option) => {
-      const parsed = nativeOption(option);
-      return parsed ? [parsed] : [];
-    }),
-    ...typeof question.multiSelect === "boolean" ? { multiSelect: question.multiSelect } : {},
-    ...typeof question.allowFreeText === "boolean" ? { allowFreeText: question.allowFreeText } : {}
-  }));
-}
-function questionAnswerInput(itemId, answers) {
-  return { text: canonicalJson({ itemId, answers: answers.map((answer) => ({ questionId: answer.questionId, values: [...answer.values], ...answer.text !== void 0 ? { text: answer.text } : {} })) }), attachments: [] };
-}
-function answersMatch(questions, raw) {
-  const answers = list(raw).map(object);
-  if (answers.length !== questions.length || new Set(answers.map((answer) => answer.questionId)).size !== answers.length) return false;
-  return questions.every((question) => {
-    const answer = answers.find((answer2) => answer2.questionId === question.id);
-    if (!answer || !Array.isArray(answer.values)) return false;
-    const values = answer.values;
-    if (new Set(values).size !== values.length || values.some((value) => typeof value !== "string" || !question.options.some((option) => option.value === value))) return false;
-    if (!question.multiSelect && values.length > 1) return false;
-    const freeText = text2(answer.text);
-    if (answer.text !== void 0 && (!freeText || question.allowFreeText === false)) return false;
-    return values.length > 0 || !!freeText;
-  });
-}
-function reconcileHistoryQuestions(threadId, raw, previous) {
-  const item = object(raw);
-  const itemId = text2(item.id);
-  if (item.type === "agentMessage" && item.delivery === "async" && itemId && list(item.questions).length) {
-    const old = previous.find((question2) => question2.itemId === itemId);
-    const question = { threadId, itemId, questions: runtimeQuestions(item.questions), response: "message", ...old?.resolved ? { resolved: true } : {} };
-    return [...previous.filter((existing) => existing.itemId !== itemId), question];
-  }
-  if (item.type !== "userMessage") return [...previous];
-  const content = list(item.content).map(object).filter((part) => part.type === "text").map((part) => part.text).join("\n");
-  let answer;
-  try {
-    answer = object(JSON.parse(content));
-  } catch {
-    return [...previous];
-  }
-  return previous.map((question) => answer.itemId === question.itemId && answersMatch(question.questions, answer.answers) ? { ...question, resolved: true } : question);
-}
-
 // plugins/provider-codex/src/fileDiffs.ts
 var LINE_MARKERS = " +-\\";
 var HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
@@ -1390,6 +1307,90 @@ function diffEdits(diffs) {
   return edits;
 }
 
+// plugins/provider-codex/src/runtimeDiffs.ts
+function runtimeFileDiffs(changes) {
+  if (changes && typeof changes === "object" && !Array.isArray(changes)) return codexFileDiffs(changes);
+  return list(changes).map(object).flatMap((change) => {
+    const path = text2(change.path);
+    const kind = object(change.kind);
+    const diff = text2(change.diff);
+    if (!path || diff === void 0) return [];
+    const selected = kind.type === "update" ? "modify" : kind.type === "add" ? "add" : kind.type === "delete" ? "delete" : void 0;
+    if (!selected) return [];
+    let rows2;
+    if (/^Binary files|^GIT binary patch/m.test(diff)) rows2 = [{ path, kind: selected, binary: true, additions: 0, deletions: 0, hunks: [] }];
+    else if (selected === "add" || selected === "delete") {
+      const lines = diff.replace(/\n$/, "").split("\n");
+      const add = selected === "add";
+      rows2 = [{
+        path,
+        kind: selected,
+        additions: add ? lines.length : 0,
+        deletions: add ? 0 : lines.length,
+        hunks: [{ oldStart: add ? 0 : 1, oldLines: add ? 0 : lines.length, newStart: add ? 1 : 0, newLines: add ? lines.length : 0, lines: lines.map((line) => (add ? "+" : "-") + line) }]
+      }];
+    } else rows2 = recordedPatchDiff(path, diff, "modify");
+    const movePath = text2(kind.move_path);
+    return rows2.map((row3) => ({ ...row3, ...movePath ? { kind: "rename", movePath } : {} }));
+  });
+}
+
+// plugins/provider-codex/src/runtimeQuestions.ts
+function nativeOption(value) {
+  if (typeof value === "string") return { value, label: value };
+  const option = object(value);
+  const label = text2(option.label) ?? text2(option.title);
+  const id = text2(option.value) ?? text2(option.id) ?? label;
+  return label && id ? { value: id, label } : void 0;
+}
+function runtimeQuestions(value) {
+  return list(value).map(object).map((question, index) => ({
+    id: text2(question.id) ?? String(index),
+    text: text2(question.title) ?? text2(question.question) ?? "Choose an answer",
+    options: list(question.options).flatMap((option) => {
+      const parsed = nativeOption(option);
+      return parsed ? [parsed] : [];
+    }),
+    ...typeof question.multiSelect === "boolean" ? { multiSelect: question.multiSelect } : {},
+    ...typeof question.allowFreeText === "boolean" ? { allowFreeText: question.allowFreeText } : {}
+  }));
+}
+function questionAnswerInput(itemId, answers) {
+  return { text: canonicalJson({ itemId, answers: answers.map((answer) => ({ questionId: answer.questionId, values: [...answer.values], ...answer.text !== void 0 ? { text: answer.text } : {} })) }), attachments: [] };
+}
+function answersMatch(questions, raw) {
+  const answers = list(raw).map(object);
+  if (answers.length !== questions.length || new Set(answers.map((answer) => answer.questionId)).size !== answers.length) return false;
+  return questions.every((question) => {
+    const answer = answers.find((answer2) => answer2.questionId === question.id);
+    if (!answer || !Array.isArray(answer.values)) return false;
+    const values = answer.values;
+    if (new Set(values).size !== values.length || values.some((value) => typeof value !== "string" || !question.options.some((option) => option.value === value))) return false;
+    if (!question.multiSelect && values.length > 1) return false;
+    const freeText = text2(answer.text);
+    if (answer.text !== void 0 && (!freeText || question.allowFreeText === false)) return false;
+    return values.length > 0 || !!freeText;
+  });
+}
+function reconcileHistoryQuestions(threadId, raw, previous) {
+  const item = object(raw);
+  const itemId = text2(item.id);
+  if (item.type === "agentMessage" && item.delivery === "async" && itemId && list(item.questions).length) {
+    const old = previous.find((question2) => question2.itemId === itemId);
+    const question = { threadId, itemId, questions: runtimeQuestions(item.questions), response: "message", ...old?.resolved ? { resolved: true } : {} };
+    return [...previous.filter((existing) => existing.itemId !== itemId), question];
+  }
+  if (item.type !== "userMessage") return [...previous];
+  const content = list(item.content).map(object).filter((part) => part.type === "text").map((part) => part.text).join("\n");
+  let answer;
+  try {
+    answer = object(JSON.parse(content));
+  } catch {
+    return [...previous];
+  }
+  return previous.map((question) => answer.itemId === question.itemId && answersMatch(question.questions, answer.answers) ? { ...question, resolved: true } : question);
+}
+
 // plugins/provider-codex/src/runtimeMessages.ts
 function json(value) {
   return JSON.parse(JSON.stringify(value));
@@ -1470,13 +1471,15 @@ function runtimeItem(raw, seq, previous) {
       if (typeof item.exitCode === "number") row3.toolExitCode = item.exitCode;
       if (item.status === "interrupted") row3.toolInterrupted = true;
       break;
-    case "fileChange":
+    case "fileChange": {
+      const diffs = runtimeFileDiffs(item.changes);
       row3.toolKind = "edit";
-      row3.fileDiffs = runtimeFileDiffs(item.changes);
-      row3.toolEdits = diffEdits(row3.fileDiffs);
-      row3.toolSummary = list(item.changes).map(object).map((p) => p.path).join("\n");
-      row3.toolDetail = row3.toolSummary;
+      row3.fileDiffs = diffs;
+      row3.toolEdits = diffEdits(diffs);
+      row3.toolSummary = diffs.map((diff) => diff.path).join("\n") || "File change";
+      row3.toolDetail = display(item);
       break;
+    }
     case "mcpToolCall":
     case "dynamicToolCall": {
       const prefix = text2(item.server) ?? text2(item.namespace);

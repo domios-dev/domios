@@ -208,6 +208,8 @@ pub enum ModelSwitchMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSwitchCommands {
+    #[serde(default)]
+    pub during_turn: bool,
     pub model: ModelSwitchCommand,
     pub effort: Option<ModelSwitchCommand>,
     #[serde(default)]

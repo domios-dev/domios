@@ -127,6 +127,7 @@ mod tests {
             provider: "claude".into(),
             planned_model: None,
             model: None,
+            speed: None,
             reasoning_effort: None,
             parent_tab_id: None,
             workspace_id: Some("ws".into()),

@@ -1,14 +1,15 @@
+import { blueprintSteps } from "./blueprintKinds";
 import { useId, useState, type CSSProperties } from "react";
 import { CanvasToolbar } from "../Canvas/CanvasToolbar";
-import { Bell, GitPullRequest, List, Play, Workflow } from "lucide-react";
+import { Bell, List, Play, Workflow } from "lucide-react";
 import { AUTOMATION_LABEL, AUTOMATION_TONE, AUTOMATION_TOOL } from "./styles";
 import type { PipelineView, PipelineViewNode } from "./pipelineModel";
 import { layoutPipelineChain, PIPELINE_CANVAS_HEIGHT, PIPELINE_CARD_HEIGHT, PIPELINE_CARD_WIDTH } from "./pipelineLayout";
 
 function stateTone(state: string, current = false): string {
   if (current || state === "running" || state === "delivering") return "var(--ct-accent)";
-  if (state === "failed") return "var(--ct-red)";
-  if (state === "done" || state === "delivered") return "var(--ct-green)";
+  if (["failed", "failing", "offline", "down"].includes(state)) return "var(--ct-red)";
+  if (["done", "delivered", "online", "up"].includes(state)) return "var(--ct-green)";
   return "var(--ct-muted)";
 }
 
@@ -16,7 +17,7 @@ const KIND_LABEL: Record<PipelineViewNode["kind"], string> = { trigger: "Trigger
 
 function stateSurface(state: string, current: boolean): string {
   if (current) return "shadow-[inset_0_0_16px_color-mix(in_srgb,var(--ct-accent)_7%,transparent)]";
-  if (state === "failed") return "ct-card--error";
+  if (["failed", "failing", "offline", "down"].includes(state)) return "ct-card--error";
   return "";
 }
 
@@ -25,17 +26,19 @@ function eventTime(value: number | null): string {
 }
 
 function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
-  const Icon = node.kind === "trigger" ? Play : node.kind === "result" ? Bell : node.capability === "github" ? GitPullRequest : Workflow;
+  const source = node.capability && Object.prototype.hasOwnProperty.call(blueprintSteps, node.capability) ? blueprintSteps[node.capability as keyof typeof blueprintSteps] : null;
+  const Icon = node.kind === "trigger" ? Play : node.kind === "result" ? Bell : source?.icon ?? Workflow;
+  const state = node.sourceState ?? node.state;
   return <article
     aria-current={node.kind === "step" && node.current ? "step" : undefined}
-    className={`ct-card flex h-full flex-col gap-1 px-3 py-2.5 ${stateSurface(node.state, node.current)}`}
+    className={`ct-card flex h-full flex-col gap-1 px-3 py-2.5 ${stateSurface(state, node.current)}`}
     style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties}
   >
     <div className={`flex items-center gap-1.5 ${AUTOMATION_LABEL}`}>
       <Icon size={12} className="text-[var(--ct-card-tone)]" aria-hidden="true" />
-      <span>{node.capability === "github" ? "GitHub source" : KIND_LABEL[node.kind]}</span>
-      <span className="ml-auto flex items-center gap-1.5 font-medium" style={{ "--ct-detail-tone": stateTone(node.state, node.current) } as CSSProperties}>
-        <span className="ct-detail__dot" aria-hidden="true" />{node.state}
+      <span>{node.capability === "github" ? "GitHub source" : node.capability === "http" ? "HTTP health" : KIND_LABEL[node.kind]}</span>
+      <span className="ml-auto flex items-center gap-1.5 font-medium" style={{ "--ct-detail-tone": stateTone(state, node.current) } as CSSProperties}>
+        <span className="ct-detail__dot" aria-hidden="true" />{state}
       </span>
     </div>
     <h4 className="truncate text-[length:var(--ct-font-size-sm)] font-semibold text-[var(--ct-fg)]" title={node.title}>{node.title}</h4>
@@ -75,6 +78,7 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId }: { pipeline: 
         <span className="ct-run-row__meta">{run.state}</span>
       </button>)}
     </div>}
+    {pipeline.note && <p className="ct-meta-muted">{pipeline.note}</p>}
     <PipelineChain pipeline={selected} />
   </div>;
 }

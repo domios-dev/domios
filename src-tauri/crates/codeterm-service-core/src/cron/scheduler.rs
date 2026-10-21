@@ -58,6 +58,7 @@ pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) 
     });
 }
 
+#[derive(Clone)]
 struct FireSpec {
     job_id: String,
     agent: String,
@@ -101,6 +102,8 @@ enum TickWait {
 }
 
 fn tick(cron_state: &CronState, service: &ServiceState) -> TickWait {
+    let now = cron_state.lock().now_ms();
+    service.reconcile_curators(now);
     tick_with(cron_state, |spec| fire_job(cron_state, service, spec))
 }
 
@@ -228,7 +231,58 @@ impl std::ops::Not for FireStart {
 }
 
 fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> FireStart {
-    fire_job_with_spawn(cron_state, service, spec, |spec| service.spawn_tab(spec))
+    if spec.role.as_deref() != Some("curator") {
+        return fire_job_with_spawn(cron_state, service, spec, |spec| service.spawn_tab(spec));
+    }
+    let job = { cron_state.lock().get(&spec.job_id).cloned() };
+    let Some(job) = job else {
+        return FireStart::Refused;
+    };
+    let now = cron_state.lock().now_ms();
+    match service.prepare_curator_fire(&job, now) {
+        Ok(Some((mirror, task))) => {
+            let mut resolved = spec.clone();
+            resolved.agent = mirror.provider;
+            resolved.model = Some(mirror.model);
+            resolved.reasoning_effort = mirror.effort;
+            resolved.task = task;
+            fire_job_with_spawn(cron_state, service, &resolved, |spec| {
+                service.spawn_tab(spec)
+            })
+        }
+        Ok(None) => {
+            let mut job = job;
+            job.enabled = false;
+            job.next_run = None;
+            match commit(cron_state, |_| {
+                Ok(super::store::Prepared::new(
+                    super::store::CronChange::Patch(job.clone()),
+                    (),
+                ))
+            }) {
+                Ok(_) => FireStart::Recorded,
+                Err(_) => FireStart::Refused,
+            }
+        }
+        Err(error) => {
+            log::debug!("[curator] fire refused: {error}");
+            if let Err(error) = service.curator_fire_failed(&job.task, &error, now) {
+                log::debug!("[curator] failure record: {error}");
+            }
+            let mut job = job;
+            job.enabled = false;
+            job.next_run = None;
+            match commit(cron_state, |_| {
+                Ok(super::store::Prepared::new(
+                    super::store::CronChange::Patch(job.clone()),
+                    (),
+                ))
+            }) {
+                Ok(_) => FireStart::Recorded,
+                Err(_) => FireStart::Refused,
+            }
+        }
+    }
 }
 
 fn fire_job_with_spawn(
@@ -263,12 +317,16 @@ fn fire_job_with_spawn(
         .skill
         .as_deref()
         .map(crate::cron::skill_block::cron_skill_block);
-    let task_text = crate::cron::task_text::build_cron_task_text(
-        task,
-        skill_block.as_deref(),
-        report_target_tab_id,
-        &run_id,
-    );
+    let task_text = if spec.role.as_deref() == Some("curator") {
+        task.to_string()
+    } else {
+        crate::cron::task_text::build_cron_task_text(
+            task,
+            skill_block.as_deref(),
+            report_target_tab_id,
+            &run_id,
+        )
+    };
     let resume_system_prompt = crate::service::provider_launch_task(
         &service.agent_registry,
         agent,
@@ -376,6 +434,15 @@ fn fire_job_with_spawn(
                 );
             }
 
+            if spec.role.as_deref() == Some("curator") {
+                let plan_id = { cron_state.lock().get(job_id).map(|j| j.task.clone()) };
+                let now = cron_state.lock().now_ms();
+                if let Some(plan_id) = plan_id {
+                    if let Err(error) = service.curator_spawned(&plan_id, &handle.tab_id, now) {
+                        log::debug!("[curator] spawn notice: {error}");
+                    }
+                }
+            }
             crate::service::cron::emit_cron_fired(service, job_id, &run_id, &handle.tab_id);
         }
         Err(e) => {

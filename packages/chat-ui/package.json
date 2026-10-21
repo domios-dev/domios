@@ -1,7 +1,7 @@
 {
   "license": "AGPL-3.0-only",
   "name": "@codeterm/chat-ui",
-  "version": "1.15.0",
+  "version": "1.15.1",
   "private": true,
   "type": "module",
   "description": "Shared React chat rendering primitives for CodeTerm providers.",
@@ -9,6 +9,7 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./Button": "./src/Button.tsx",
     "./MessageBubble": "./src/MessageBubble.tsx",
     "./renderability": "./src/renderability.ts",
     "./dsTasksBlock": "./src/codeterm/dsTasksBlock.ts"

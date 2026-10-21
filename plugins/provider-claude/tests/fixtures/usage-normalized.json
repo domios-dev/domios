@@ -1,0 +1,52 @@
+{
+  "kind": "codeterm_usage_v1",
+  "session_pct": 17,
+  "session_resets_at_ms": 1793534400000,
+  "weekly_pct": 60,
+  "weekly_resets_at_ms": 1793836800000,
+  "usage_details": {
+    "limits": [
+      {
+        "kind": "session",
+        "label": "Session",
+        "percent": 17,
+        "resets_at": 1793534400000,
+        "is_active": true,
+        "critical": false
+      },
+      {
+        "kind": "weekly_all",
+        "label": "Weekly",
+        "percent": 60,
+        "resets_at": 1793836800000,
+        "is_active": false,
+        "critical": false
+      },
+      {
+        "kind": "weekly_scoped",
+        "label": "Weekly \u00b7 Fable",
+        "percent": 47,
+        "resets_at": 1793836800000,
+        "is_active": true,
+        "critical": true
+      }
+    ],
+    "dollar_credits": [
+      {
+        "remaining_dollars": 250,
+        "resets_at": 1793836800000
+      }
+    ],
+    "extra_usage": {
+      "enabled": false,
+      "spend_limit_reached": false,
+      "used": 12,
+      "limit": 100,
+      "currency": "USD",
+      "settings_url": "https://claude.ai/settings/usage",
+      "effective_enabled": false,
+      "disabled_reason": null,
+      "decimal_places": 2
+    }
+  }
+}

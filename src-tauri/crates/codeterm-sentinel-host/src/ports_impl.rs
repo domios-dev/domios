@@ -20,6 +20,14 @@ pub(super) fn ports(handle: &Handle) -> SentinelPorts {
 }
 
 impl BlueprintStore for HandlePorts {
+    fn save_candidates(
+        &self,
+    ) -> std::collections::BTreeMap<
+        String,
+        codeterm_blueprint_types::blueprint_memory::curator::Candidate,
+    > {
+        crate::blueprint_memory::curator::candidates(&self.0)
+    }
     fn records(&self) -> Vec<BlueprintRecord> {
         self.0
             .store

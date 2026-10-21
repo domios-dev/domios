@@ -733,8 +733,18 @@ pub async fn chat_raw_start(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
+    let queued = std::time::Instant::now();
     let result = tokio::task::spawn_blocking(move || {
-        commands::chat_start_core(&svc, tab_id, body.subscription_id, body.known_window)
+        let queue_us = queued.elapsed().as_micros();
+        let result =
+            commands::chat_start_core(&svc, tab_id, body.subscription_id, body.known_window);
+        log::debug!(
+            "[chat_start.route] queue_us={} total_us={} ok={}",
+            queue_us,
+            queued.elapsed().as_micros(),
+            result.is_ok()
+        );
+        result
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

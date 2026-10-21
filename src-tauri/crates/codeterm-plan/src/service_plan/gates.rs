@@ -541,6 +541,7 @@ mod tests {
             personality: None,
             personality_provenance: None,
             model: None,
+            speed: None,
             model_rationale: None,
             acceptance_criteria: vec![],
             external_refs: vec![],

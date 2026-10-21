@@ -272,16 +272,17 @@
         "/api/tabs/tab/text?formatted=false"
       ]
     ],
-    "system_heartbeat_list": [
-      [
-        "GET",
-        "/api/tabs/tab/system-heartbeats"
-      ]
-    ],
+    "tab_todo_review": [["POST", "/api/tabs/tab/todos/review"]],
     "tab_todo_list": [
       [
         "GET",
         "/api/tabs/tab/todos"
+      ]
+    ],
+    "system_heartbeat_list": [
+      [
+        "GET",
+        "/api/tabs/tab/system-heartbeats"
       ]
     ],
     "shell_command_snapshot": [
@@ -303,6 +304,7 @@
       ]
     ],
     "chat_resume": [["POST", "/api/tabs/tab/chat-raw/resume"]],
+    "chat_history_page": [["POST", "/api/tabs/tab/chat-raw/history"]],
     "chat_backfill": [
       [
         "POST",

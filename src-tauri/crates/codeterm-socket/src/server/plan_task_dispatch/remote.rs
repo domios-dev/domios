@@ -253,6 +253,7 @@ pub(super) fn dispatch(
         "provider": model.provider_id,
         "model": model.model,
         "reasoning_effort": owned_str(p, "reasoning_effort"),
+        "speed": owned_str(p, "speed").or_else(|| detail.task.speed.clone()),
         "description": description,
         "task_description_managed": description_override.is_none(),
         "brief": brief,
@@ -397,6 +398,11 @@ pub(super) fn dispatch(
     });
     if let Some(warning) = regression_warning {
         result["warnings"] = json!([warning]);
+    }
+    if let Some(speed) = request.get("speed").and_then(Value::as_str) {
+        svc.plan_store
+            .update_task_speed(&plan_id, &task_id, Some(speed), now)
+            .map_err(super::super::plan::plan_rpc_err)?;
     }
     Ok(result)
 }
@@ -622,6 +628,7 @@ pub(crate) fn merge_lane(
         )
         .map_err(super::super::plan::plan_rpc_err)?;
     super::emit_plan_changed(svc, &plan_id);
+    svc.settle_lane(&plan_id, &task_id);
     Ok(json!({
         "integrated": true,
         "idempotent": false,

@@ -84,6 +84,59 @@ fn stored_protocol_refusal(method: &Method, path: &str, stored_version: u16) -> 
     peer_protocol_refusal(stored_version)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum StoredProtocolAnswer {
+    Proceed,
+    EmptyGossip,
+    UpgradeRequired(String),
+}
+
+// A v1.14 peer retries a failed sync on every 15s health tick and only backs off to its
+// periodic interval after a successful one, so an empty gossip snapshot is its sole backoff.
+fn stored_protocol_answer(
+    method: &Method,
+    path: &str,
+    stored_version: u16,
+) -> StoredProtocolAnswer {
+    match stored_protocol_refusal(method, path, stored_version) {
+        None => StoredProtocolAnswer::Proceed,
+        Some(_) if method == Method::POST && path == "/api/mesh/sync" => {
+            StoredProtocolAnswer::EmptyGossip
+        }
+        Some(message) => StoredProtocolAnswer::UpgradeRequired(message),
+    }
+}
+
+fn empty_gossip_snapshot() -> codeterm_service_core::mesh::types::MeshSyncPayload {
+    codeterm_service_core::mesh::types::MeshSyncPayload {
+        peers: Vec::new(),
+        generation: 0,
+    }
+}
+
+fn record_peer_protocol(state: &AppState, instance_id: &str, stored_version: u16) {
+    use codeterm_service_core::mesh::protocol_refusals::ProtocolRefusalTransition;
+    let refused = peer_protocol_refusal(stored_version).is_some();
+    let transition = state
+        .mesh
+        .lock()
+        .protocol_refusals
+        .observe(instance_id, refused);
+    match transition {
+        Some(ProtocolRefusalTransition::Refused) => log::warn!(
+            "[auth] Refusing peer {} on relay protocol {} until it upgrades; later requests are answered silently",
+            instance_id,
+            stored_version
+        ),
+        Some(ProtocolRefusalTransition::Accepted) => log::info!(
+            "[auth] Peer {} now uses relay protocol {}; refusal cleared",
+            instance_id,
+            stored_version
+        ),
+        None => {}
+    }
+}
+
 fn requires_mesh_network(method: &Method, path: &str) -> bool {
     path.starts_with("/api/mesh/")
         && path != "/api/mesh/ping"
@@ -179,20 +232,18 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     if let Some(pk) = self_pubkey {
         known_keys.insert(own_id.clone(), pk);
     }
-    let paired_peers = mesh.paired_peers.clone();
     drop(mesh);
 
     match codeterm_service_core::mesh::crown::verify_signed_request(token, &known_keys) {
         Ok(sender_id) if sender_id == own_id => Ok(CallerIdentity::Local),
         Ok(sender_id) => {
-            let access_level = paired_peers
+            let (access_level, relay_protocol_version) = state
+                .mesh
+                .lock()
+                .paired_peers
                 .get(&sender_id)
-                .map(|p| p.access_level.clone())
-                .unwrap_or(AccessLevel::ReadOnly);
-            let relay_protocol_version = paired_peers
-                .get(&sender_id)
-                .map(|peer| peer.relay_protocol_version)
-                .unwrap_or(0);
+                .map(|peer| (peer.access_level.clone(), peer.relay_protocol_version))
+                .unwrap_or((AccessLevel::ReadOnly, 0));
             Ok(CallerIdentity::Peer {
                 instance_id: sender_id,
                 access_level,
@@ -461,17 +512,17 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                     .into_response()
                     .into();
             }
-            if let Some(message) = stored_protocol_refusal(&method, &path, relay_protocol_version) {
-                log::warn!(
-                    "[auth] Rejecting peer {} with relay protocol {} on {} {}",
-                    instance_id,
-                    relay_protocol_version,
-                    method,
-                    path
-                );
-                return (StatusCode::UPGRADE_REQUIRED, message)
-                    .into_response()
-                    .into();
+            record_peer_protocol(&state, instance_id, relay_protocol_version);
+            match stored_protocol_answer(&method, &path, relay_protocol_version) {
+                StoredProtocolAnswer::Proceed => {}
+                StoredProtocolAnswer::EmptyGossip => {
+                    return axum::Json(empty_gossip_snapshot()).into_response().into();
+                }
+                StoredProtocolAnswer::UpgradeRequired(message) => {
+                    return (StatusCode::UPGRADE_REQUIRED, message)
+                        .into_response()
+                        .into();
+                }
             }
             if authorize_peer_request(&state, access_level, instance_id, &method, &path) {
                 AuthOutcome::Allowed(req, true)
@@ -675,6 +726,43 @@ mod tests {
             assert!(peer_protocol_allowed(version, "/api/events/stream"));
             assert!(peer_protocol_allowed(version, "/api/tabs/abc/send"));
         }
+    }
+
+    #[test]
+    fn v1_14_peer_gets_empty_gossip_on_sync_and_upgrade_required_elsewhere() {
+        crate::test_support::install_app_version();
+        let ancient = codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1;
+        let current = codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION;
+
+        assert_eq!(
+            stored_protocol_answer(&Method::POST, "/api/mesh/sync", ancient),
+            StoredProtocolAnswer::EmptyGossip
+        );
+        assert!(matches!(
+            stored_protocol_answer(&Method::GET, "/api/mesh/inventory", ancient),
+            StoredProtocolAnswer::UpgradeRequired(_)
+        ));
+        assert!(matches!(
+            stored_protocol_answer(&Method::GET, "/api/mesh/sync", ancient),
+            StoredProtocolAnswer::UpgradeRequired(_)
+        ));
+        assert_eq!(
+            stored_protocol_answer(&Method::POST, "/api/mesh/announce", ancient),
+            StoredProtocolAnswer::Proceed
+        );
+        for (method, path) in [
+            (Method::POST, "/api/mesh/sync"),
+            (Method::GET, "/api/mesh/inventory"),
+        ] {
+            assert_eq!(
+                stored_protocol_answer(&method, path, current),
+                StoredProtocolAnswer::Proceed
+            );
+        }
+        assert_eq!(
+            serde_json::to_value(empty_gossip_snapshot()).unwrap(),
+            serde_json::json!({ "peers": [], "generation": 0 })
+        );
     }
 
     #[test]

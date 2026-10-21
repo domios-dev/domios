@@ -151,19 +151,41 @@ pub(super) async fn check(
     if body.paths.len() > MAX_BATCH {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
+    let started = Instant::now();
     let permit = match admission.admit((admission.clock)()).await {
         Ok(permit) => permit,
-        Err(status) => return status.into_response(),
+        Err(status) => {
+            log::debug!(
+                "[preview.check] phase=admission refused=true elapsed_us={}",
+                started.elapsed().as_micros()
+            );
+            return status.into_response();
+        }
     };
+    let admission_us = started.elapsed().as_micros();
+    let config_started = Instant::now();
     let configured = state.config.lock().api.preview_secret_paths.clone();
+    let config_us = config_started.elapsed().as_micros();
+    let queued = Instant::now();
     let result = tokio::task::spawn_blocking(move || {
+        let queue_us = queued.elapsed().as_micros();
         let _permit = permit;
-        codeterm_service_core::service::local_preview::check(
+        let result = codeterm_service_core::service::local_preview::check(
             &state.svc,
             &tab,
             &configured,
             body.paths,
-        )
+        );
+        log::debug!(
+            "[preview.check] tab={} admission_us={} config_us={} queue_us={} total_us={} ok={}",
+            tab,
+            admission_us,
+            config_us,
+            queue_us,
+            started.elapsed().as_micros(),
+            result.is_ok()
+        );
+        result
     })
     .await;
     match result {

@@ -66,6 +66,11 @@ pub struct Cli {
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum Commands {
+    /// Finish the current Team Curator round
+    Curator {
+        #[command(subcommand)]
+        action: super::curator::CuratorAction,
+    },
     /// Control the exact local native application and server lifecycle
     App {
         #[command(subcommand)]

@@ -117,8 +117,10 @@ fn owner(team: Option<&str>) -> Owner {
 }
 
 fn params(paused: bool, handlers: Value) -> Create {
+    static NEXT_NAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let index = NEXT_NAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     serde_json::from_value(json!({
-        "name": "storage-state-watch",
+        "name": format!("storage-state-watch-{index}"),
         "probe": "status", "question": "state?", "buckets": ["done", "failed"], "every": "10s",
         "timeout": "1h", "matches": {"done": "^done$"}, "paused": paused, "handlers": handlers
     }))
@@ -393,7 +395,7 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
         },
     ));
     assert_eq!(accepted.value.outcome, MutationOutcome::Applied);
-    let stopped = done(repo.stop(id.clone(), "explicit".into()));
+    let stopped = done(repo.stop(id.clone(), "explicit".into(), 1000));
     assert_eq!(stopped.value.outcome, MutationOutcome::Applied);
     let last = stored(&storage, &job.id).record;
     assert_eq!(last.transitions[0].definition_version, Some(2));

@@ -25,6 +25,7 @@ const RESET_PROBE_MIN_INTERVAL: Duration = Duration::from_secs(120);
 
 fn usage_sample(snapshot: &UsageSnapshot) -> UsageSample {
     UsageSample {
+        usage_details: snapshot.usage_details.clone(),
         provider: snapshot.provider.clone(),
         billing_mode: snapshot.billing_mode,
         limits_reported: snapshot.limits_reported,
@@ -683,6 +684,7 @@ mod tests {
         let data_dir = tempfile::tempdir().unwrap();
         let store = crate::usage::UsageStore::open(data_dir.path()).unwrap();
         let snapshot = UsageSnapshot {
+            usage_details: None,
             provider: "fixture".into(),
             billing_mode: codeterm_usage::contract::BillingMode::Subscription,
             limits_reported: true,
@@ -839,6 +841,7 @@ mod tests {
 
     fn row(session: Option<i64>, weekly: Option<i64>) -> UsageSnapshotRow {
         UsageSnapshotRow {
+            usage_details: None,
             billing_mode: Default::default(),
             limits_reported: false,
             id: 1,
@@ -863,6 +866,7 @@ mod tests {
 
     fn row_with_spend(spend: Option<i64>) -> UsageSnapshotRow {
         UsageSnapshotRow {
+            usage_details: None,
             spend_resets_at: spend,
             ..row(None, None)
         }

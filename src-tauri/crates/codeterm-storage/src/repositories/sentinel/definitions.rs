@@ -322,6 +322,17 @@ pub(super) fn insert_version(
         ));
     }
     let sql_version = to_sql_u64("definition version", version)?;
+    if let Some(name) = &definition.name {
+        let conflict:bool=cx.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM blueprints candidate JOIN blueprint_heads h ON h.blueprint_id=candidate.id JOIN blueprint_definitions d ON d.blueprint_id=h.blueprint_id AND d.version=h.version JOIN blueprints own ON own.id=?1 WHERE candidate.id<>?1 AND candidate.workspace_id=own.workspace_id AND candidate.team_id IS own.team_id AND d.name=?2)",
+            params![id,name],|row|row.get(0)).map_err(|error|sqlite_error("check Blueprint name",error))?;
+        if conflict {
+            return Err(StorageError::invalid(
+                "name",
+                "Blueprint name already exists in this Team and workspace; use apply",
+            ));
+        }
+    }
     let created = to_sql_u64("revision", cx.revision.0)?;
     let source = source_columns(&definition.source)?;
     let pipeline_spec = definition
@@ -343,9 +354,9 @@ pub(super) fn insert_version(
         "INSERT INTO blueprint_definitions (blueprint_id, version, provenance, name, source_kind, \
          source_spec, pipeline_spec, probe, observe_kind, observe_ref, question, interval_ms, until_bucket, \
          escalation_timeout_ms, max_transitions, max_actions, replaced_version, author_tab_id, \
-         cause_transition_id, authored_at, created_revision, terminal_spec, session, model_classification) \
+         cause_transition_id, authored_at, created_revision, terminal_spec, session, model_classification, note) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-         ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+         ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
         params![
             id,
             sql_version,
@@ -370,7 +381,8 @@ pub(super) fn insert_version(
             created,
             definition.terminal().map(serde_json::to_string).transpose().map_err(|_| StorageError::invalid("terminal", "cannot be encoded"))?,
             definition.session,
-            definition.model_classification
+            definition.model_classification,
+            definition.note
         ],
     )?;
     for (ordinal, bucket) in (0_i64..).zip(&definition.buckets) {
@@ -544,6 +556,7 @@ pub(super) fn head_handler(
 }
 
 struct Header {
+    note: Option<String>,
     model_classification: bool,
     terminal_spec: Option<String>,
     session: bool,
@@ -579,7 +592,7 @@ pub(super) fn load_version(
             "SELECT provenance, name, source_kind, source_spec, pipeline_spec, probe, observe_kind, \
              observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms, \
              max_transitions, max_actions, replaced_version, author_tab_id, \
-             cause_transition_id, authored_at, created_revision, terminal_spec, session, model_classification \
+             cause_transition_id, authored_at, created_revision, terminal_spec, session, model_classification, note \
              FROM blueprint_definitions WHERE blueprint_id = ?1 AND version = ?2",
         )
         .and_then(|mut statement| {
@@ -608,6 +621,7 @@ pub(super) fn load_version(
                         terminal_spec: row.get(19)?,
                         session: row.get(20)?,
                         model_classification: row.get(21)?,
+                        note: row.get(22)?,
                     })
                 })
                 .optional()
@@ -641,6 +655,7 @@ pub(super) fn load_version(
             header.authored_at,
         )?,
         definition: StageDefinition {
+            note: header.note,
             model_classification: header.model_classification,
             session: header.session,
             name: header.name,

@@ -363,6 +363,7 @@ pub(super) fn dispatch(
                 }
             }
             emit_plan_changed(svc, &plan_id);
+            svc.settle_lane(&plan_id, &task_id);
             svc.record_kpi_review_verdict(
                 from.tab_id.as_deref().unwrap_or("unknown"),
                 &plan_id,

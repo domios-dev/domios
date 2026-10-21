@@ -257,6 +257,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
+- `--speed` — Provider-declared service tier for this launch
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
@@ -375,6 +376,7 @@ Classify a bounded probe or same-Team agent observation
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
 - `--model-classification` — Opt in to Supporter model classification when no patterns are declared
 - `--name` — Short meaningful name describing what is watched and what happens
+- `--note` — Plain-text Blueprint note, at most 200 characters
 - `--observe` — Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
 - `--output-settled` — Fire when terminal output settles for this many milliseconds (10..60000)
 - `--owner` — Assign the pipeline to its creator tab or Team
@@ -482,6 +484,7 @@ Replace one definition at the expected version
 - `--expect-version`
 - `--from-file`
 - `<id>`
+- `--note` — Replace the Blueprint note (at most 200 plain-text characters)
 
 #### `codeterm bridge`
 
@@ -2780,6 +2783,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
+- `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--workspace`
 
@@ -2855,6 +2859,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--parent`
 - `<plan_id>`
 - `--provider`
+- `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--title`
 - `--workspace`
@@ -2933,6 +2938,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--role-guidance` — Replace initial worker conditioning. Cannot be emptied; presence alone is the machine contract
 - `--role-guidance-file`
 - `--sections`
+- `--speed` — Provider-declared service tier for this launch
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 - `--status-label`
 - `--tab`
@@ -3842,9 +3848,28 @@ Save a custom theme from a TOML file
 
 Read or update the current agent tab's bounded checklist
 
+#### `codeterm todo amend`
+
+Review and amend a child's checklist; seeded criteria stay locked
+
+- `--from-pad`
+- `--note-from-pad`
+- `--tab`
+
+#### `codeterm todo approve`
+
+Mark a child's shared checklist reviewed
+
+- `--note-from-pad`
+- `--tab`
+
 #### `codeterm todo list`
 
 Read this agent tab's current bounded checklist
+
+#### `codeterm todo submit`
+
+Share this tab's checklist with its parent; work may continue immediately
 
 #### `codeterm todo write`
 

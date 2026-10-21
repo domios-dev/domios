@@ -1,24 +1,31 @@
 # Blueprints for recurring actions
 
-Before you repeat a check or wait on an external, agent or cron status, build a
-meaningfully named Blueprint graph: what is watched → what happens. Start with
-`codeterm blueprint recipe [<name>]` or the patterns in `codeterm docs BLUEPRINT-RECIPES`,
-validate create or update with `--dry-run`, and read `codeterm docs BLUEPRINTS` for
-sources, buckets, handlers, escalation, versioned updates and limits.
-`codeterm blueprint create --help` has the flags.
+Before you repeat a check or wait on an external, agent or cron status, apply a
+Blueprint: what is watched → what happens. One verb covers built-ins and files:
+
+```bash
+codeterm blueprint recipe                                   # built-in and saved solutions
+codeterm blueprint new --like "watch CI and report failure"
+codeterm blueprint keep <id> --when "Watch CI and report failure"
+codeterm blueprint apply github --set repo=owner/repo --set id=42 --note "Report CI failures"
+codeterm blueprint new watch > watch.yaml                   # commented scaffold for a custom graph
+codeterm blueprint check watch.yaml --set ...               # offline, errors at file:line:column
+codeterm blueprint apply watch.yaml --set ... --dry-run     # then without --dry-run
+```
+
+Apply updates the Blueprint with the same name in your Team instead of creating a
+duplicate, and reactivates a stopped one; retarget an existing watcher by applying
+again with new inputs. Give every Blueprint a short `--note`. Stopped Blueprints
+are deleted after 30 minutes. `codeterm docs BLUEPRINTS` has the file format
+(inputs, `watch` or `pipeline`, `uses:`/`with:` built-in nodes, `run:` commands,
+routes) and `codeterm docs BLUEPRINT-RECIPES` the patterns.
 
 Creation is admission, not proof of monitoring. Run the read-only probe once and
-check its exit status and exact output, including LF/CRLF. After creation, use
+check its exit status and exact output, including LF/CRLF. After applying, use
 `blueprint show` to verify an actual source execution and the expected recognized
 bucket; when a route fires, verify its retained transition and handler result.
-An unclassified watch needs repair before reporting success. Distinguish probe
-watches from pipelines: an empty Runs view alone proves neither failure nor a
-UI bug. Continue through events or routed results, never a sleep or polling loop.
-For a GitHub PR, start from the `github-pr-ci-watch` recipe in
-`codeterm docs BLUEPRINT-RECIPES`; patterns need `(?m)` line anchors.
+An unclassified watch needs repair before reporting success. Continue through
+events or routed results, never a sleep or polling loop. For a GitHub run use the
+`github` recipe, for PR checks `github-pr-checks`; patterns need `(?m)` line anchors.
 
-An input stage watches data instead of a probe: `--input <text|audio|video|image>`
-with `--input-file`, `--input-url` or `--input-text`, and optional `--convert-to <text|audio>`.
-See `codeterm docs BLUEPRINTS` for the full input stage reference.
-
-<!-- revision: 9 -->
+<!-- revision: 10 -->

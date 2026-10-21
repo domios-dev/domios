@@ -6,22 +6,16 @@ use super::*;
 use crate::machine::regex_verdict;
 use codeterm_service_core::multiplexer::types::{PendingPrompt, PromptOption};
 
-const RECIPES_DOC: &str = include_str!("../../../../prod-docs/BLUEPRINT-RECIPES.md");
+const RECIPE: &str = include_str!("../../../../resources/blueprints/launch-prompt-gate.yaml");
 
 fn recipe_matches() -> BTreeMap<String, String> {
-    let (_, block) = RECIPES_DOC
-        .split_once("<!-- blueprint-recipe:launch-prompt-gate -->")
-        .expect("launch-prompt-gate recipe");
-    let (block, _) = block.split_once("<!-- /blueprint-recipe -->").unwrap();
-    block
-        .split("--match '")
-        .skip(1)
-        .map(|tail| {
-            let (spec, _) = tail.split_once('\'').unwrap();
-            let (bucket, pattern) = spec.split_once('=').unwrap();
-            (bucket.to_string(), pattern.to_string())
-        })
-        .collect()
+    let checked = codeterm_blueprint_types::blueprint_document::check(
+        "launch-prompt-gate",
+        RECIPE,
+        &["cron_name_or_id=nightly".into()],
+    );
+    assert!(checked.ok, "{:?}", checked.diagnostics);
+    serde_json::from_value(checked.definition.unwrap()["create"]["matches"].clone()).unwrap()
 }
 
 fn prompt(question: &str) -> PendingPrompt {

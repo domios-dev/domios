@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 mod progress;
+mod proposal;
 mod write;
+pub use proposal::{can_review_tab_todo, TabTodoProposal, TabTodoProposalState};
 
 pub use progress::{
     tab_todo_bound_refusal, validate_tab_todo_reason, TabTodoAttemptSpan, TabTodoCounters,
@@ -150,6 +152,16 @@ pub enum TabTodoState {
 }
 
 impl TabTodoState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Open => "pending",
+            Self::InProgress => "in progress",
+            Self::Done => "complete",
+            Self::Blocked => "blocked",
+            Self::Skipped => "skipped",
+        }
+    }
+
     /// Done and skipped items close the checklist; blocked items keep it open.
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Done | Self::Skipped)
@@ -206,8 +218,20 @@ pub struct TabTodoItem {
     pub history: Vec<TabTodoItemEvent>,
 }
 
+impl TabTodoItem {
+    pub fn validate_amendment_title(&self, title: &str) -> Result<(), String> {
+        validate_label(title)?;
+        if self.locked && self.title != title {
+            return Err("seeded criteria stay locked".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabTodoChecklist {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposal: Option<TabTodoProposal>,
     pub tab_id: String,
     pub generation: u64,
     pub started_at: u64,

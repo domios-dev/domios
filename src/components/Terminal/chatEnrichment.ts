@@ -15,7 +15,9 @@ export type EnrichmentCache = WeakMap<ChatMessage, EnrichedChatEntry[]>;
 function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedChatEntry[] {
   if (raw.segments) {
     const hasFrames = raw.segments.some((segment) => segment.type === "frame");
-    const rows = envelopeRows(raw.segments);
+    // With no closed frame and one correlation there is nothing to split: the message keeps its exact text, partial frames included.
+    const single = !hasFrames && new Set(raw.segments.map((segment) => segment.correlationId)).size <= 1;
+    const rows = single ? [{ content: raw.content, segments: raw.segments }] : envelopeRows(raw.segments);
     if (!rows.length && raw.attachments?.length) rows.push({ content: raw.content, segments: raw.segments });
     return rows.map((row, index) => {
       const prefix = row.frame ? framePrefix({ ...row.frame.attrs, from: row.frame.from }, row.content) : detectChatPrefix(row.content);

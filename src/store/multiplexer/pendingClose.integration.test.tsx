@@ -141,7 +141,7 @@ async function renderHarness(
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { MultiplexerProvider, useMultiplexer, useMuxState } = await import("./index");
 
-  __setInvokeForTest(invokeMock as never);
+  __setInvokeForTest((async <T,>(command: string, args?: Record<string, unknown>) => command === "ordinary_tabs_list" ? [] as T : invokeMock<T>(command, args)) as never);
   const listeners: Record<string, (e: { payload: unknown }) => void> = {};
   __setListenForTest(async <T,>(event: string, handler: (e: { payload: T }) => void) => {
     listeners[event] = handler as (e: { payload: unknown }) => void;
@@ -390,16 +390,15 @@ test("workspace close bookkeeping rejection after removal produces no failure", 
   h.clear();
 });
 
-test("workspace preserved lane event displays an info note", async () => {
+test("background preserved lane event stays out of the toast stack and bell", async () => {
   let gen = 10;
   const h = await renderHarness(async <T,>(cmd: string): Promise<T> => {
     if (cmd === "mux_get_state") return makeSnapshot([], ++gen) as T;
     return [] as T;
   });
   await h.act(async () => { h.emit("close-lanes-preserved", { workspace_id: "w1", paths: ["C:/lanes/work"] }); });
-  const note = h.state().toasts.find(toast => toast.body === "C:/lanes/work");
-  assert(note?.severity === "Info", "preserved lane note uses info severity");
-  assert(note.level === "verbose", "preserved lane note does not demand attention");
+  assert(!h.state().toasts.some(toast => toast.body === "C:/lanes/work"), "background lane preservation creates no toast");
+  assert(h.state().notifications.length === 0, "diagnostics do not enter the bell");
   await h.act(async () => h.root.unmount());
   h.clear();
 });

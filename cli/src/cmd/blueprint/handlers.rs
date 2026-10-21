@@ -1,5 +1,5 @@
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::Path;
 
 const HANDLER_TYPES: &[&str] = &[
@@ -12,60 +12,6 @@ const HANDLER_TYPES: &[&str] = &[
     "escalate",
     "command",
 ];
-
-pub(super) fn declared_outputs(
-    routes: Vec<String>,
-    path: Option<&Path>,
-    buckets: &[String],
-) -> Result<(BTreeMap<String, String>, Option<Value>), String> {
-    if path.is_some() && !routes.is_empty() {
-        return Err("--route and --handlers-file cannot be combined".into());
-    }
-    if let Some(path) = path {
-        let raw = read_bounded(path, "handlers file")?;
-        let value: Value = serde_json::from_str(&raw)
-            .map_err(|error| format!("invalid handlers file JSON: {error}"))?;
-        let definitions = validate_handler_file(value, buckets)?;
-        return Ok((BTreeMap::new(), Some(definitions)));
-    }
-
-    let mut grouped: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-    let mut single = BTreeMap::new();
-    let mut silent = BTreeSet::new();
-    let mut repeated = false;
-    let mut ids = BTreeSet::new();
-    for route in routes {
-        let (bucket, action) = route.split_once('=').ok_or("use bucket=action")?;
-        if !buckets.iter().any(|declared| declared == bucket) {
-            return Err(format!("--route names undeclared bucket `{bucket}`"));
-        }
-        repeated |= single
-            .insert(bucket.to_string(), action.to_string())
-            .is_some();
-        if super::map_none_route(bucket, action, &mut grouped, &mut silent)? {
-            continue;
-        }
-        let (kind, target) = action
-            .split_once(':')
-            .map(|(kind, target)| (kind, Some(target)))
-            .unwrap_or((action, None));
-        let id = unique_id(kind, target, None, bucket, &ids);
-        ids.insert(id.clone());
-        grouped.entry(bucket.to_string()).or_default().push(json!({
-            "id": id,
-            "type": kind,
-            "parameters": target.map(|target| json!({"target": target})).unwrap_or_else(|| json!({}))
-        }));
-    }
-    if repeated {
-        Ok((
-            BTreeMap::new(),
-            Some(serde_json::to_value(grouped).map_err(|error| error.to_string())?),
-        ))
-    } else {
-        Ok((single, None))
-    }
-}
 
 pub(super) fn read_bounded(path: &Path, label: &str) -> Result<String, String> {
     use std::io::Read;
@@ -475,33 +421,6 @@ fn generated_id(
         .expect("generated handler ids are unbounded by ordinal")
 }
 
-fn unique_id(
-    kind: &str,
-    target: Option<&str>,
-    label: Option<&str>,
-    bucket: &str,
-    ids: &BTreeSet<String>,
-) -> String {
-    let mut ordinal = 1;
-    loop {
-        let id = codeterm_blueprint_types::automation_name::generated_handler_id(
-            if kind == "blueprint" {
-                "sentinel"
-            } else {
-                kind
-            },
-            target,
-            label,
-            bucket,
-            ordinal,
-        );
-        if !ids.contains(&id) {
-            return id;
-        }
-        ordinal += 1;
-    }
-}
-
 fn is_generic_id(id: &str) -> bool {
     let (prefix, suffix) = id.split_once('_').unwrap_or(("", ""));
     matches!(prefix.to_ascii_lowercase().as_str(), "default" | "handler")
@@ -527,43 +446,4 @@ fn minimal_example(bucket: &str, kind: &str, parameters: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parse(raw: &str) -> Result<Value, String> {
-        let value = serde_json::from_str(raw).map_err(|error| error.to_string())?;
-        validate_handler_file(value, &["passed".into(), "waiting".into()])
-    }
-
-    #[test]
-    fn missing_ids_are_generated_from_type_and_bucket() {
-        let handlers = parse(r#"{"passed":[{"type":"notify","parameters":{}}]}"#).unwrap();
-        assert_eq!(handlers["passed"][0]["id"], "notify-on-passed");
-    }
-
-    #[test]
-    fn precise_pointer_errors_describe_expected_allowed_values_and_correction() {
-        let error = parse(r#"{"passed":[{"type":"notify","parameters":{}},{"type":"send","parameters":{"tab":"tab_1"}}]}"#).unwrap_err();
-        assert!(error.contains("/passed/1/parameters/tab"));
-        assert!(error.contains("expected a supported field"));
-        assert!(error.contains("allowed values: target"));
-        assert!(error.contains("\"parameters\":{\"target\":\"target_id\"}"));
-    }
-
-    #[test]
-    fn refuses_generic_ids_and_unknown_keys_by_name() {
-        for id in ["default_1", "handler_2"] {
-            let generic = parse(&format!(
-                r#"{{"passed":[{{"id":"{id}","type":"notify","parameters":{{}}}}]}}"#
-            ))
-            .unwrap_err();
-            assert!(generic.contains("omit id to generate a type-and-bucket name"));
-        }
-        let unknown = parse(
-            r#"{"passed":[{"id":"review","type":"notify","parameters":{},"unexpected":true}]}"#,
-        )
-        .unwrap_err();
-        assert!(unknown.contains("/passed/0/unexpected"));
-        assert!(unknown.contains("unexpected"));
-    }
-}
+mod tests;

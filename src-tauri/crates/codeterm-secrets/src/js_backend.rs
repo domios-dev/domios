@@ -8,19 +8,36 @@ use crate::{
     CollectionRef, ListFilter, OrganizationRef, SaveRequest, SecretError, SecretRef, SecretStore,
     SecretString, SecretValue, StoreCapabilities, StoreStatus, UnlockCredentials,
 };
-use codeterm_plugin::js_runtime::{call_json, has_method, PluginVm};
+use codeterm_plugin::js_runtime::{call_json, has_method, PluginVm, VmError};
+
+/// The plugin entry points a secret backend calls. A call may block for as long
+/// as the vault CLI takes, so it never runs on an async worker.
+pub trait PluginCalls: Send + Sync + 'static {
+    fn has_method(&self, method: &str) -> bool;
+    fn call(&self, method: &str, args: &[serde_json::Value]) -> Result<serde_json::Value, VmError>;
+}
+
+impl PluginCalls for PluginVm {
+    fn has_method(&self, method: &str) -> bool {
+        has_method(self, method)
+    }
+
+    fn call(&self, method: &str, args: &[serde_json::Value]) -> Result<serde_json::Value, VmError> {
+        call_json(self, method, args)
+    }
+}
 
 pub struct JsSecretBackend {
-    vm: Arc<PluginVm>,
+    plugin: Arc<dyn PluginCalls>,
     id: &'static str,
     capabilities: StoreCapabilities,
 }
 
 impl JsSecretBackend {
-    pub fn new(vm: Arc<PluginVm>, id: &str, declares_auto_unlock: bool) -> Self {
+    pub fn new(plugin: Arc<dyn PluginCalls>, id: &str, declares_auto_unlock: bool) -> Self {
         // once at construction (bounded: one small leak per plugin load).
         Self {
-            vm,
+            plugin,
             id: Box::leak(id.to_string().into_boxed_str()),
             capabilities: StoreCapabilities {
                 auto_unlock: declares_auto_unlock,
@@ -28,21 +45,43 @@ impl JsSecretBackend {
         }
     }
 
-    fn call<R: serde::de::DeserializeOwned>(
+    async fn call_raw(
         &self,
-        method: &str,
-        args: &[serde_json::Value],
-    ) -> Result<R, SecretError> {
-        match call_json::<Envelope<R>>(&self.vm, method, args) {
-            Ok(env) => env.into_result(),
-            Err(e) => Err(SecretError::Backend {
+        method: &'static str,
+        args: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value, SecretError> {
+        let plugin = self.plugin.clone();
+        tokio::task::spawn_blocking(move || plugin.call(method, &args))
+            .await
+            .map_err(|e| SecretError::Backend {
+                message: format!("plugin {method} worker failed: {e}"),
+            })?
+            .map_err(|e| SecretError::Backend {
                 message: format!("plugin {method} failed: {e:?}"),
-            }),
-        }
+            })
     }
 
-    fn call_unit(&self, method: &str, args: &[serde_json::Value]) -> Result<(), SecretError> {
-        self.call::<serde_json::Value>(method, args).map(|_| ())
+    async fn call<R: serde::de::DeserializeOwned>(
+        &self,
+        method: &'static str,
+        args: Vec<serde_json::Value>,
+    ) -> Result<R, SecretError> {
+        let value = self.call_raw(method, args).await?;
+        serde_json::from_value::<Envelope<R>>(value)
+            .map_err(|e| SecretError::Backend {
+                message: format!("plugin {method} failed: {e}"),
+            })?
+            .into_result()
+    }
+
+    async fn call_unit(
+        &self,
+        method: &'static str,
+        args: Vec<serde_json::Value>,
+    ) -> Result<(), SecretError> {
+        self.call::<serde_json::Value>(method, args)
+            .await
+            .map(|_| ())
     }
 }
 
@@ -102,28 +141,30 @@ impl SecretStore for JsSecretBackend {
     }
 
     async fn status(&self) -> StoreStatus {
-        match call_json::<StoreStatus>(&self.vm, "secretStatus", &[]) {
-            Ok(s) => s,
-            Err(e) => StoreStatus::Unavailable {
-                reason: format!("status failed: {e:?}"),
-            },
-        }
+        let status = match self.call_raw("secretStatus", Vec::new()).await {
+            Ok(value) => serde_json::from_value::<StoreStatus>(value).map_err(|e| e.to_string()),
+            Err(e) => Err(format!("{e:?}")),
+        };
+        status.unwrap_or_else(|e| StoreStatus::Unavailable {
+            reason: format!("status failed: {e}"),
+        })
     }
 
     async fn unlock(&self, creds: UnlockCredentials) -> Result<(), SecretError> {
-        self.call_unit("secretUnlock", &[unlock_args(&creds)])
+        self.call_unit("secretUnlock", vec![unlock_args(&creds)])
+            .await
     }
 
     async fn lock(&self) -> Result<(), SecretError> {
-        self.call_unit("secretLock", &[])
+        self.call_unit("secretLock", Vec::new()).await
     }
 
     async fn logout(&self) -> Result<(), SecretError> {
-        self.call_unit("secretLogout", &[])
+        self.call_unit("secretLogout", Vec::new()).await
     }
 
     async fn save(&self, req: SaveRequest) -> Result<SecretRef, SecretError> {
-        let args = [json!({
+        let args = vec![json!({
             "name": req.name,
             "value": req.value.expose_secret(),
             "notes": req.notes,
@@ -132,11 +173,13 @@ impl SecretStore for JsSecretBackend {
             "collection": req.collection,
             "overwrite": req.overwrite,
         })];
-        self.call::<SecretRef>("secretSave", &args)
+        self.call::<SecretRef>("secretSave", args).await
     }
 
     async fn get(&self, name_or_id: &str) -> Result<SecretValue, SecretError> {
-        let out = self.call::<GetOut>("secretGetItem", &[json!(name_or_id)])?;
+        let out = self
+            .call::<GetOut>("secretGetItem", vec![json!(name_or_id)])
+            .await?;
         Ok(SecretValue {
             item_id: out.item_id,
             name: out.name,
@@ -148,47 +191,52 @@ impl SecretStore for JsSecretBackend {
     async fn list(&self, filter: ListFilter) -> Result<Vec<SecretRef>, SecretError> {
         self.call::<Vec<SecretRef>>(
             "secretList",
-            &[serde_json::to_value(&filter).unwrap_or(json!({}))],
+            vec![serde_json::to_value(&filter).unwrap_or(json!({}))],
         )
+        .await
     }
 
     async fn search(&self, query: &str) -> Result<Vec<SecretRef>, SecretError> {
-        self.call::<Vec<SecretRef>>("secretSearch", &[json!(query)])
+        self.call::<Vec<SecretRef>>("secretSearch", vec![json!(query)])
+            .await
     }
 
     async fn delete(&self, name_or_id: &str) -> Result<(), SecretError> {
-        self.call_unit("secretDelete", &[json!(name_or_id)])
+        self.call_unit("secretDelete", vec![json!(name_or_id)])
+            .await
     }
 
     async fn organizations(&self) -> Result<Vec<OrganizationRef>, SecretError> {
-        if !has_method(&self.vm, "secretOrganizations") {
+        if !self.plugin.has_method("secretOrganizations") {
             return Ok(Vec::new());
         }
-        self.call::<Vec<OrganizationRef>>("secretOrganizations", &[])
+        self.call::<Vec<OrganizationRef>>("secretOrganizations", Vec::new())
+            .await
     }
 
     async fn collections(
         &self,
         organization_id: Option<&str>,
     ) -> Result<Vec<CollectionRef>, SecretError> {
-        if !has_method(&self.vm, "secretCollections") {
+        if !self.plugin.has_method("secretCollections") {
             return Ok(Vec::new());
         }
-        self.call::<Vec<CollectionRef>>("secretCollections", &[json!(organization_id)])
+        self.call::<Vec<CollectionRef>>("secretCollections", vec![json!(organization_id)])
+            .await
     }
 
     async fn sync(&self) -> Result<(), SecretError> {
-        if !has_method(&self.vm, "secretSync") {
+        if !self.plugin.has_method("secretSync") {
             return Ok(());
         }
-        self.call_unit("secretSync", &[])
+        self.call_unit("secretSync", Vec::new()).await
     }
 
     async fn init(&self) -> Result<(), SecretError> {
-        if !has_method(&self.vm, "secretInit") {
+        if !self.plugin.has_method("secretInit") {
             return Ok(());
         }
-        self.call_unit("secretInit", &[])
+        self.call_unit("secretInit", Vec::new()).await
     }
 }
 
@@ -219,3 +267,6 @@ impl codeterm_plugin::SecretBackendRegistrar for AppSecretBackendRegistrar {
         self.registry.unregister(plugin_id);
     }
 }
+
+#[cfg(test)]
+mod tests;

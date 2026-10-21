@@ -198,7 +198,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   }, [persistKey]);
 
   const timelineMarker = normalizedTimelineMarker(message);
-  if (timelineMarker?.kind === "context_compaction" || timelineMarker?.kind === "external_edit") {
+  if (timelineMarker != null && timelineMarker.kind !== "queued") {
     return <TimelineMarkerRow message={message} />;
   }
 

@@ -1,0 +1,31 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: '{{name}}'
+note: Watch one PR until all checks pass; notify on a failing check.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  pr_verdict_probe:
+    type: string
+    description: Read-only command printing waiting, passed or failed for one PR.
+watch:
+  probe: '{{pr_verdict_probe}}'
+  question: classify-pr-checks
+  buckets:
+  - waiting
+  - passed
+  - failed
+  matches:
+    waiting: (?m)^waiting\r?$
+    passed: (?m)^passed\r?$
+    failed: (?m)^failed\r?$
+  until: passed
+  rearm_on_change:
+  - failed
+  every: 60s
+  timeout: 3h
+  routes:
+    waiting: none
+    passed: notify
+    failed: notify

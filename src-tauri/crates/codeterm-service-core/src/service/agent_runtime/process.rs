@@ -116,6 +116,10 @@ pub fn spawn(
     env: HashMap<String, String>,
     tab: &str,
 ) -> Result<Process, RuntimeFailure> {
+    #[cfg(test)]
+    if let Some(factory) = test_ports::factory(tab) {
+        return Ok(factory());
+    }
     if cap.runtime != codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc {
         return Err(RuntimeFailure::SpawnFailed {
             reason: format!(
@@ -325,3 +329,6 @@ fn append_stderr(output: &mut Vec<u8>, bytes: &[u8]) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod test_ports;

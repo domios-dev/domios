@@ -76,7 +76,7 @@ test("HTML fullscreen uses the shared viewport viewer and restores its trigger",
   const dialog = document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]')!;
   assert.equal(dialog.parentElement, document.body);
   assert(dialog.querySelector("iframe"));
-  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Close fullscreen viewer"]')!.click());
+  await act(async () => dialog.querySelector<HTMLButtonElement>('button[title="Close fullscreen"]')!.click());
   assert.equal(document.activeElement, opener);
 });
 test("closing nested viewers restores page scrolling and the original opener", async () => {
@@ -99,35 +99,20 @@ test("closing nested viewers restores page scrolling and the original opener", a
   assert.equal(document.activeElement, opener);
   document.body.style.overflow = "";
 });
-test("supported document fullscreen enters and native exit closes the shared viewer", async () => {
-  const enabled = Object.getOwnPropertyDescriptor(document, "fullscreenEnabled");
-  const element = Object.getOwnPropertyDescriptor(document, "fullscreenElement");
+test("the viewer covers the Domios window and never requests document fullscreen", async () => {
   const request = HTMLElement.prototype.requestFullscreen;
-  const exit = document.exitFullscreen;
-  let current: Element | null = null;
   let requests = 0;
-  Object.defineProperty(document, "fullscreenEnabled", { configurable: true, value: true });
-  Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => current });
-  HTMLElement.prototype.requestFullscreen = async function () {
-    requests += 1;
-    current = this;
-    document.dispatchEvent(new window.Event("fullscreenchange"));
-  };
-  document.exitFullscreen = async () => { current = null; document.dispatchEvent(new window.Event("fullscreenchange")); };
+  HTMLElement.prototype.requestFullscreen = async function () { requests += 1; };
   try {
     await mount(<Harness />);
     const { opener, dialog } = await open();
-    assert.equal(requests, 1);
-    assert.equal(current, dialog);
+    assert.equal(requests, 0);
     await act(async () => root.render(<Harness />));
     assert.equal(document.querySelector('[role="dialog"]'), dialog);
-    await act(async () => document.exitFullscreen());
+    await act(async () => window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", code: "Escape", cancelable: true })));
     assert.equal(document.querySelector('[role="dialog"]'), null);
     assert.equal(document.activeElement, opener);
   } finally {
     HTMLElement.prototype.requestFullscreen = request;
-    document.exitFullscreen = exit;
-    if (enabled) Object.defineProperty(document, "fullscreenEnabled", enabled); else Reflect.deleteProperty(document, "fullscreenEnabled");
-    if (element) Object.defineProperty(document, "fullscreenElement", element); else Reflect.deleteProperty(document, "fullscreenElement");
   }
 });

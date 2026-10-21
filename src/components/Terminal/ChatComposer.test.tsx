@@ -80,7 +80,7 @@ test("late listener binding is released after disposal without fetching", async 
   assert.equal(calls, 0);
 });
 
-test("wake discards stale stash immediately and converges to the daemon after missed delivery", async () => {
+test("wake keeps the last list until the daemon answers, then converges after a missed delivery", async () => {
   const next = deferred<DelayedMessage[]>();
   const published: DelayedMessage[][] = [];
   let calls = 0;
@@ -91,7 +91,7 @@ test("wake discards stale stash immediately and converges to the daemon after mi
   });
   await feed.ready;
   const wake = feed.wake();
-  assert.deepEqual(published[published.length - 1], []);
+  assert.deepEqual(published[published.length - 1], [{ id: "fired", state: "queued" }], "no flash to empty while the daemon is asked");
   next.resolve([]);
   await wake;
   assert.deepEqual(published[published.length - 1], []);

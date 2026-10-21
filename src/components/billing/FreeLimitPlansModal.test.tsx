@@ -63,7 +63,7 @@ describe("plans modal", () => {
     await render(async () => { throw new Error("opaque-billing-failure"); });
     await act(async () => freeLimitGate.open("teams"));
     await click("Upgrade");
-    expect(dialog()?.querySelector("[role=alert]")?.textContent).toBe("opaque-billing-failure");
+    expect(dialog()?.querySelector("[role=alert]")?.textContent).toContain("opaque-billing-failure");
   });
 
   it("Not now and Escape close it and return focus to where the user was", async () => {

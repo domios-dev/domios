@@ -291,12 +291,14 @@ export function teamTokensChart(spend: TeamSpend, byModel: boolean): SpendChartD
 }
 
 /** Reads one team spend metric for the last week and re-reads on KPI commits; null until read, or when the team has no reading. */
-export function useTeamSpend(
+export function useTeamSpendRead(
   api: ApiConfig | undefined,
   teamId: string | null | undefined,
   revision: string,
   metric: TeamSpendMetric = "tokens",
-): TeamSpend | null {
+): { spend: TeamSpend | null; loading: boolean; error: string | null } {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(Boolean(api && teamId));
   const [spend, setSpend] = useState<TeamSpend | null>(null);
   const [commits, setCommits] = useState(0);
   const gate = useRef<RefreshGate | null>(null);
@@ -324,18 +326,25 @@ export function useTeamSpend(
   useEffect(() => {
     if (!api || !teamId) {
       setSpend(null);
+      setLoading(false);
       return;
     }
     const controller = new AbortController();
+    setLoading(true);
+    setError(null);
     void fetchTeamSpend(api, teamId, { metric, ...teamSpendRange() }, controller.signal)
-      .then(setSpend)
-      .catch(() => {
-        if (!controller.signal.aborted) setSpend(null);
+      .then((next) => { if (!controller.signal.aborted) setSpend(next); })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) { setSpend(null); setError(String(reason)); }
       })
       .finally(() => {
-        if (!controller.signal.aborted) gate.current?.settled();
+        if (!controller.signal.aborted) { setLoading(false); gate.current?.settled(); }
       });
     return () => controller.abort();
   }, [api?.host, api?.port, api?.token, teamId, revision, metric, commits]);
-  return spend;
+  return { spend: spend && spend.team_id === teamId && spend.metric === metric ? spend : null, loading, error };
+}
+
+export function useTeamSpend(api: ApiConfig | undefined, teamId: string | null | undefined, revision: string, metric: TeamSpendMetric = "tokens"): TeamSpend | null {
+  return useTeamSpendRead(api, teamId, revision, metric).spend;
 }

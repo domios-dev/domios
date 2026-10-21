@@ -362,6 +362,7 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         })
         .collect();
     Ok(StageDefinition {
+        note: job.note.clone(),
         model_classification: job.model_classification,
         session: job.session,
         name: job.name.clone(),
@@ -439,6 +440,7 @@ pub fn history_version(stored: StoredDefinition) -> DefinitionVersion {
             terminal,
             session: definition.session,
             name: definition.name,
+            note: definition.note,
             pipeline,
             probe,
             observe,
@@ -465,6 +467,9 @@ pub fn history_version(stored: StoredDefinition) -> DefinitionVersion {
 
 fn runtime(job: &Sentinel) -> StageRuntime {
     StageRuntime {
+        transition_offset: job.cleanup.transition_offset,
+        action_offset: job.cleanup.action_offset,
+        stopped_at: job.cleanup.stopped_at,
         runs_since_transition: job.progress.runs_since_transition,
         last_probe_at: job.progress.last_probe_at,
         probe_state: job.progress.probe_state.clone(),
@@ -501,6 +506,7 @@ fn head_amendment(job: &Sentinel) -> Result<Option<AmendmentRecord>, String> {
 
 fn stage_identity(job: &Sentinel) -> Result<SentinelIdentity, String> {
     Ok(SentinelIdentity {
+        creation_options: job.creation_options.clone(),
         id: id(&job.id)?,
         scope: SentinelScope {
             creator_tab_id: job.creator_tab_id.clone(),
@@ -550,6 +556,7 @@ pub fn import(job: &Sentinel) -> Result<SentinelImport, String> {
 
 pub fn outcome(job: &Sentinel) -> RuntimeOutcome {
     RuntimeOutcome {
+        stopped_at: job.cleanup.stopped_at,
         runs_since_transition: job.progress.runs_since_transition,
         last_probe_at: job.progress.last_probe_at,
         probe_state: job.progress.probe_state.clone(),
@@ -604,6 +611,7 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
     }
     let runtime = record.runtime;
     Sentinel {
+        creation_options: record.identity.creation_options,
         source: super::super::stage_source::StageSource::from_parts(
             probe, observe, input, terminal, pipeline,
         )
@@ -628,6 +636,11 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
         until: definition.until,
         expires_at: runtime.expires_at,
         next_run: runtime.next_run,
+        cleanup: crate::retention::Retention {
+            transition_offset: runtime.transition_offset,
+            action_offset: runtime.action_offset,
+            ..crate::retention::Retention::from_stopped_at(runtime.stopped_at)
+        },
         machine: Machine {
             last_hash: runtime.last_hash,
             last_bucket: runtime.last_bucket,
@@ -645,6 +658,7 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
         revision: runtime.generation,
         agent_authored: record.identity.agent_authored,
         name: definition.name,
+        note: definition.note,
         scenario_id: record.scenario_id.map(|id| id.as_str().to_string()),
         max_transitions: definition.max_transitions,
         max_actions: definition.max_actions,

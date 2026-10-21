@@ -1,3 +1,4 @@
+import type { BlueprintSolutionsApi } from "./blueprintSolutions";
 import { configureOrchestrationTransport } from "../../lib/transport/orchestrationRuntime";
 import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Jobs/JobsView.test.tsx
@@ -66,6 +67,12 @@ async function main() {
   });
   __setListenForTest(async () => () => undefined);
 
+  let solutionReads = 0;
+  const solutionsApi: BlueprintSolutionsApi = {
+    list: async () => { solutionReads++; return []; },
+    save: async () => { throw new Error("Unexpected solution save"); },
+    archive: async () => { throw new Error("Unexpected solution archive"); },
+  };
   const cronCalls: string[] = [];
   const cronActions: MeshResourceActionAdapter = {
     get: async () => { cronCalls.push("get"); return teamCron; },
@@ -111,7 +118,7 @@ async function main() {
   }
 
   function jobsView(transport: FixtureTransport, initialScenarioId?: string, teamId: string | null = attachment.team_id, initialRunId?: string) {
-    return <JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId }} adapter={transport} initialScenarioId={initialScenarioId} initialRunId={initialRunId} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />;
+    return <JobsView solutionsApi={solutionsApi} workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId }} adapter={transport} initialScenarioId={initialScenarioId} initialRunId={initialRunId} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />;
   }
 
   function entry(host: HTMLElement, key: string) {
@@ -126,6 +133,26 @@ async function main() {
 
   const tests: Array<[string, () => Promise<void>]> = [];
   function test(name: string, run: () => Promise<void>) { tests.push([name, run]); }
+
+  test("protected Curator jobs have a readable row and no manual Delete action", async () => {
+    const originalRole = teamCron.role;
+    const originalProtected = teamCron.protected;
+    teamCron.role = "curator";
+    teamCron.protected = true;
+    const view = await mount(jobsView(workspaceTransport()));
+    try {
+      const row = entry(view.host, `cron:${teamCron.id}`);
+      assert.ok(row, "Curator job is visible");
+      assert.ok(row.getAttribute("aria-label")?.includes("Curator"));
+      assert.ok(row.textContent?.includes("Curator rounds"));
+      const menu = row.closest("li")?.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]');
+      assert.equal(menu, null, "an idle protected job exposes no delete menu");
+    } finally {
+      await view.close();
+      teamCron.role = originalRole;
+      teamCron.protected = originalProtected;
+    }
+  });
 
   test("Jobs import entry opens the placeholder form and cancel restores the list", async () => {
     const view = await mount(jobsView(workspaceTransport()));
@@ -359,7 +386,7 @@ async function main() {
     const transport = workspaceTransport();
     const scenario = transport.graph.scenarios[0];
     let exits = 0;
-    const view = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId: attachment.team_id }} adapter={transport} initialScenarioId={scenario.id} cronActionAdapter={cronActions} jobActionAdapter={jobActions} onClose={() => exits++} />);
+    const view = await mount(<JobsView solutionsApi={solutionsApi} workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId: attachment.team_id }} adapter={transport} initialScenarioId={scenario.id} cronActionAdapter={cronActions} jobActionAdapter={jobActions} onClose={() => exits++} />);
     try {
       await settle(() => view.host.querySelector('button[aria-label^="Back to"]') !== null);
       await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label^="Back to"]')!.click());
@@ -385,7 +412,7 @@ async function main() {
   test("the Rust pipeline contract opens its real steps and retained run in the canvas", async () => {
     const golden = pipelineContractGolden();
     const transport = workspaceTransport(golden);
-    const view = await mount(<JobsView workspaces={[{ id: golden.workspace_id, name: "Contract workspace" }]} teams={[]} adapter={transport} />);
+    const view = await mount(<JobsView solutionsApi={solutionsApi} workspaces={[{ id: golden.workspace_id, name: "Contract workspace" }]} teams={[]} adapter={transport} />);
     try {
       await settle(() => entry(view.host, "blueprint:blueprint-echo") !== null);
       await act(async () => entry(view.host, "blueprint:blueprint-echo")!.click());
@@ -434,7 +461,7 @@ async function main() {
   test("a pipeline deep link opens detail and returns to its list row", async () => {
     const transport = workspaceTransport();
     transport.graph = { ...transport.graph, blueprints: [{ id: "deep-pipeline", name: "Deep pipeline", owner: { kind: "team", tab_id: null, team_id: attachment.team_id }, state: "stopped", run_id: null, current_step: null, last_event_at_ms: null }] };
-    const view = await mount(<JobsView workspaces={workspaces} teams={teams} adapter={transport} initialBlueprintId="deep-pipeline" />);
+    const view = await mount(<JobsView solutionsApi={solutionsApi} workspaces={workspaces} teams={teams} adapter={transport} initialBlueprintId="deep-pipeline" />);
     try {
       await settle(() => view.host.querySelector('[aria-label="Deep pipeline pipeline"]') !== null);
       await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Back to All jobs"]')!.click());
@@ -448,7 +475,7 @@ async function main() {
       transport.graph = { ...transport.graph, blueprints: [{ id: "return-pipeline", name: "Return pipeline", owner: { kind: "team", tab_id: null, team_id: attachment.team_id }, state: "stopped", run_id: null, current_step: null, last_event_at_ms: null }] };
       const activated: unknown[] = [];
       let exits = 0;
-      const view = await mount(<JobsView workspaces={workspaces} teams={teams} adapter={transport}
+      const view = await mount(<JobsView solutionsApi={solutionsApi} workspaces={workspaces} teams={teams} adapter={transport}
         initialCronId={kind === "cron" ? teamCron.id : undefined}
         initialBlueprintId={kind === "blueprint" ? "return-pipeline" : undefined}
         initialScenarioId={kind === "scenario" ? transport.graph.scenarios[0].id : undefined}
@@ -473,6 +500,17 @@ async function main() {
     });
   }
 
+  test("saved solutions read once when equivalent workspace props render again", async () => {
+    const transport = workspaceTransport();
+    const before = solutionReads;
+    const view = await mount(<JobsView solutionsApi={solutionsApi} workspaces={workspaces} teams={teams} adapter={transport} />);
+    try {
+      assert.equal(solutionReads - before, 1);
+      await act(async () => view.root.render(<JobsView solutionsApi={solutionsApi} workspaces={[...workspaces]} teams={teams} adapter={transport} />));
+      assert.equal(solutionReads - before, 1, "equivalent workspace scopes do not refetch");
+    } finally { await view.close(); }
+  });
+
   test("an unreadable Cron list is unavailable, never an empty scope", async () => {
     const transport = workspaceTransport();
     transport.graph = { ...transport.graph, scenarios: [] };
@@ -481,7 +519,7 @@ async function main() {
     try {
       await settle(() => failed.host.querySelector('[role="status"][aria-label]') !== null);
       assert.equal(failed.host.querySelector('[role="status"][aria-label="No jobs"]'), null);
-      assert.equal(failed.host.querySelector('[role="alert"]'), null);
+      assert.equal(Boolean(failed.host.querySelector('[role="alert"]')), false, failed.host.textContent ?? "");
     } finally { await failed.close(); }
     cronList = async () => [];
     const empty = await mount(jobsView(transport));

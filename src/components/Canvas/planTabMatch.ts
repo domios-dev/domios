@@ -125,7 +125,7 @@ export function findPlansForTab(
 }
 
 /** A Team's active plan is decided by PlanStatus alone; a draft in planning mode still occupies the slot. */
-export function isTeamActivePlan(plan: Plan, teamId: string | null | undefined): boolean {
+export function isTeamActivePlan<T extends Pick<Plan, "status" | "team_id">>(plan: T, teamId: string | null | undefined): boolean {
   return plan.status === "active" && (!teamId || plan.team_id === teamId);
 }
 

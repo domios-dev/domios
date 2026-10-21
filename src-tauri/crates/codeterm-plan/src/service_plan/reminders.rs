@@ -53,10 +53,17 @@ pub struct TimeReminderTelemetry {
     pub delivery_failure_retry_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentLiveness {
+    Lost,
+    Restored,
+}
+
 #[derive(Debug, Default)]
 pub struct TurnCounter {
     timed: Mutex<HashMap<String, u64>>,
     time_telemetry: Mutex<HashMap<String, TimeReminderTelemetry>>,
+    agent_lost: Mutex<HashSet<String>>,
     digest_rules: Mutex<HashMap<String, u64>>,
     complete_wrapup: Mutex<HashSet<String>>,
     reminder_content: Mutex<HashMap<String, (String, u64)>>,
@@ -117,6 +124,7 @@ impl TurnCounter {
         self.reset_activity(tab_id);
         self.timed.lock().remove(tab_id);
         self.time_telemetry.lock().remove(tab_id);
+        self.agent_lost.lock().remove(tab_id);
     }
 
     pub fn retain_time_reminders(&self, eligible_tabs: &HashSet<String>) {
@@ -126,11 +134,27 @@ impl TurnCounter {
         self.time_telemetry
             .lock()
             .retain(|tab_id, _| eligible_tabs.contains(tab_id));
+        self.agent_lost
+            .lock()
+            .retain(|tab_id| eligible_tabs.contains(tab_id));
     }
 
     pub fn clear_time_reminders(&self) {
         self.timed.lock().clear();
         self.time_telemetry.lock().clear();
+        self.agent_lost.lock().clear();
+    }
+
+    /// Reports only the edge between a live agent and a lost one, so a dead
+    /// target is announced once and stays silent until a session binds again.
+    pub fn observe_agent(&self, tab_id: &str, live: bool) -> Option<AgentLiveness> {
+        let mut lost = self.agent_lost.lock();
+        if live {
+            lost.remove(tab_id).then_some(AgentLiveness::Restored)
+        } else {
+            lost.insert(tab_id.to_string())
+                .then_some(AgentLiveness::Lost)
+        }
     }
 
     pub fn record_time_tick(&self, tab_id: &str, now_secs: u64) {
@@ -216,6 +240,31 @@ mod tests {
         counter.mark_digest_rule_fired("orch", "in_review_pressure", 1000);
         assert!(!counter.digest_rule_due("orch", "in_review_pressure", 2000, 3600));
         assert!(counter.digest_rule_due("orch", "in_review_pressure", 4601, 3600));
+    }
+
+    #[test]
+    fn agent_loss_is_reported_once_until_a_live_session_returns() {
+        let counter = TurnCounter::new();
+        assert_eq!(counter.observe_agent("w", true), None);
+        assert_eq!(counter.observe_agent("w", false), Some(AgentLiveness::Lost));
+        for _ in 0..100 {
+            assert_eq!(counter.observe_agent("w", false), None);
+        }
+        assert_eq!(
+            counter.observe_agent("w", true),
+            Some(AgentLiveness::Restored)
+        );
+        assert_eq!(counter.observe_agent("w", true), None);
+        assert_eq!(counter.observe_agent("w", false), Some(AgentLiveness::Lost));
+    }
+
+    #[test]
+    fn ineligible_tabs_drop_their_lost_agent_state() {
+        let counter = TurnCounter::new();
+        counter.observe_agent("w", false);
+        counter.retain_time_reminders(&HashSet::new());
+        assert_eq!(counter.observe_agent("w", true), None);
+        assert_eq!(counter.observe_agent("w", false), Some(AgentLiveness::Lost));
     }
 
     #[test]

@@ -383,6 +383,12 @@ pub enum AgentAction {
         /// see what's available.
         #[arg(long)]
         model: Option<String>,
+        #[arg(
+            long,
+            value_name = "TIER",
+            help = "Provider-declared service tier for this launch"
+        )]
+        speed: Option<String>,
         /// Reasoning-effort level supported by the selected model. The provider's
         /// list is used when that model publishes no per-model levels; unsupported
         /// values are rejected, never silently downgraded.

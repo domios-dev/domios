@@ -179,16 +179,19 @@ export interface MissionControlState {
 }
 
 export interface PlanBoardState {
+  control_loop?: import("../planControlLoop").PlanControlLoop;
   plan_id: string;
   task_counts: PlanTaskCounts;
   mission_control: MissionControlState;
 }
 
+export type TeamPlanSummary = Pick<Plan, "id" | "title" | "team_id" | "status" | "mode" | "planning_state" | "goal" | "updated_at" | "control_loop" | "pause_operations"> & { task_counts?: PlanTaskCounts };
+
 export interface TeamMissionControlState {
   team_id: string;
   team: Team;
-  active_plan: Plan | null;
-  archived_plans: Plan[];
+  active_plan: TeamPlanSummary | null;
+  archived_plans: TeamPlanSummary[];
   events: TeamMissionControlEvent[];
   next_cursor: string | null;
 }

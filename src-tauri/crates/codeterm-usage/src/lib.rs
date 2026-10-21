@@ -5,4 +5,6 @@ pub mod store;
 pub mod suspicious;
 
 pub use sample::UsageSample;
+#[cfg(test)]
+mod usage_details_tests;
 pub use store::{DailyRollup, UsageFailureKind, UsageSnapshotRow, UsageStore, UsageStoreHandle};

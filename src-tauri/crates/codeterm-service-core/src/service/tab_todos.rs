@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod lifecycle;
 mod own_write;
+mod proposal;
 mod recitation;
 mod review;
 
@@ -49,17 +50,21 @@ struct TabIdentity {
     parent_tab_id: Option<String>,
     role: Option<AgentRole>,
     role_profile: Option<String>,
+    plan_id: Option<String>,
     workspace_id: String,
     restored_from_snapshot: bool,
 }
 
 impl ServiceContext {
-    fn todo_store(&self) -> Result<TabTodoStore, String> {
-        let storage = self
-            .try_ext::<StorageAuthority>()
+    fn optional_todo_store(&self) -> Option<TabTodoStore> {
+        self.try_ext::<StorageAuthority>()
             .and_then(StorageAuthority::storage)
-            .ok_or_else(|| "shared Storage is unavailable".to_string())?;
-        Ok(TabTodoStore::new(storage.tab_todos()))
+            .map(|storage| TabTodoStore::new(storage.tab_todos()))
+    }
+
+    fn todo_store(&self) -> Result<TabTodoStore, String> {
+        self.optional_todo_store()
+            .ok_or_else(|| "shared Storage is unavailable".to_string())
     }
 
     /// Every committed checklist mutation announces its new revision to the UI.
@@ -104,6 +109,10 @@ impl ServiceContext {
             parent_tab_id: tab.parent_tab_id.clone(),
             role: tab.role,
             role_profile: tab.role_profile.clone(),
+            plan_id: tab
+                .task_binding
+                .as_ref()
+                .and_then(|binding| binding.plan_id.clone()),
             workspace_id,
             restored_from_snapshot: tab.restored_from_snapshot,
         })
@@ -273,6 +282,14 @@ impl ServiceContext {
         let target = self.todo_tab(target_tab_id)?;
         self.require_parent_orchestrator(&target, actor_tab_id)?;
         draft.validate()?;
+        if let Some(item) = self
+            .todo_store()?
+            .get(target.id.clone())
+            .await?
+            .and_then(|list| list.items.into_iter().find(|item| item.id == item_id))
+        {
+            item.validate_amendment_title(&draft.title)?;
+        }
         let item = self.resolve_draft(item_id, draft).await?;
         let checklist = self
             .todo_store()?
@@ -376,14 +393,14 @@ impl ServiceContext {
         parent_tab_id: &str,
     ) -> Result<Option<TabTodoSummary>, String> {
         let target = self.todo_tab(target_tab_id)?;
-        self.require_parent_orchestrator(&target, parent_tab_id)?;
+        self.require_checklist_reviewer(&target, Some(parent_tab_id))?;
         let Some(checklist) = self.todo_store()?.get(target.id.clone()).await? else {
             return Ok(None);
         };
         Ok(Some(summary(&checklist)))
     }
 
-    /// Full bounded checklist inspection for the target's same-Team Orchestrator.
+    /// Full bounded checklist inspection for its parent or Plan owner.
     /// The store caps current-generation checklists at `MAX_TAB_TODO_ITEMS`.
     pub async fn tab_todo_parent_list(
         &self,
@@ -391,7 +408,7 @@ impl ServiceContext {
         parent_tab_id: &str,
     ) -> Result<Option<TabTodoChecklist>, String> {
         let target = self.todo_tab(target_tab_id)?;
-        self.require_parent_orchestrator(&target, parent_tab_id)?;
+        self.require_checklist_reviewer(&target, Some(parent_tab_id))?;
         self.todo_store()?.get(target.id).await
     }
 

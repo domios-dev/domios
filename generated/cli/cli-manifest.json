@@ -1091,6 +1091,16 @@
               "aliases": []
             },
             {
+              "name": "speed",
+              "positional": false,
+              "required": false,
+              "value_name": "TIER",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider-declared service tier for this launch",
+              "aliases": []
+            },
+            {
               "name": "system",
               "positional": false,
               "required": false,
@@ -1633,6 +1643,16 @@
               "aliases": []
             },
             {
+              "name": "note",
+              "positional": false,
+              "required": false,
+              "value_name": "NOTE",
+              "possible_values": [],
+              "default": null,
+              "help": "Plain-text Blueprint note, at most 200 characters",
+              "aliases": []
+            },
+            {
               "name": "observe",
               "positional": false,
               "required": false,
@@ -2143,6 +2163,16 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "note",
+              "positional": false,
+              "required": false,
+              "value_name": "NOTE",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace the Blueprint note (at most 200 plain-text characters)",
               "aliases": []
             }
           ],
@@ -12846,6 +12876,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "speed",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TIER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Provider-declared service tier for this launch",
+                  "aliases": []
+                },
+                {
                   "name": "task_id",
                   "positional": true,
                   "required": false,
@@ -13257,6 +13297,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "speed",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TIER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Provider-declared service tier for this launch",
                   "aliases": []
                 },
                 {
@@ -13827,6 +13877,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "speed",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TIER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Provider-declared service tier for this launch",
                   "aliases": []
                 },
                 {
@@ -17778,8 +17838,81 @@
       "args": [],
       "subcommands": [
         {
+          "name": "amend",
+          "about": "Review and amend a child's checklist; seeded criteria stay locked",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "note-from-pad",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "approve",
+          "about": "Mark a child's shared checklist reviewed",
+          "aliases": [],
+          "args": [
+            {
+              "name": "note-from-pad",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "list",
           "about": "Read this agent tab's current bounded checklist",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "submit",
+          "about": "Share this tab's checklist with its parent; work may continue immediately",
           "aliases": [],
           "args": [],
           "subcommands": []

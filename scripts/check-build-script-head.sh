@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="${1:-$(git rev-parse --show-toplevel)}"
 cd "$ROOT"
 
-ROOT_PACKAGES='^(src-tauri|cli)/build\.rs$'
+ROOT_PACKAGES='^(src-tauri|cli|src-tauri/crates/domios-server)/build\.rs$'
 GIT_TRACKING='git-path|logs/HEAD|\.git/|Command::new\("git"\)|rustc-env=BUILD_(SHA|HASH)'
 failed=0
 while IFS= read -r file; do

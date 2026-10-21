@@ -1,6 +1,7 @@
+use codeterm_blueprint_types::blueprint_contract::{FieldCheck, PipelinePreview};
 use codeterm_blueprint_types::blueprint_pipeline::{
-    ensure_trigger_available, BlueprintOwner, BlueprintSpec, ConverterEdge, ResultTarget, StepKind,
-    Trigger, ValidationError,
+    ensure_trigger_available, BlueprintOwner, BlueprintSpec, ConverterEdge, ResultTarget,
+    StepField, StepKind, Trigger, ValidationError, ValidationPath,
 };
 use serde_json::{json, Value};
 
@@ -18,7 +19,7 @@ pub trait BlueprintExt {
         &self,
         caller: &crate::service_adapter::SentinelCaller,
         spec: BlueprintSpec,
-    ) -> Result<Value, String>;
+    ) -> Result<PipelinePreview, String>;
     fn blueprint_pipeline_create(
         &self,
         caller: &crate::service_adapter::SentinelCaller,
@@ -36,7 +37,7 @@ pub trait BlueprintExt {
         id: &str,
         expect_version: u64,
         spec: BlueprintSpec,
-    ) -> Result<Value, String>;
+    ) -> Result<PipelinePreview, String>;
     fn blueprint_pipeline_update(
         &self,
         caller: &crate::service_adapter::SentinelCaller,
@@ -90,7 +91,7 @@ impl BlueprintExt for ServiceContext {
         &self,
         caller: &crate::service_adapter::SentinelCaller,
         spec: BlueprintSpec,
-    ) -> Result<Value, String> {
+    ) -> Result<PipelinePreview, String> {
         let errors = self.pipeline_validation_errors(&spec)?;
         let trigger_available = match &spec.trigger {
             Trigger::Event { kind, .. } => self
@@ -104,19 +105,20 @@ impl BlueprintExt for ServiceContext {
             field_check("trigger", &errors),
         ];
         checks.push(field_check("trigger.params", &errors));
-        let params_check = self.validate_event_trigger(&spec);
-        checks.push(json!({
-            "field":"trigger.params",
-            "passed":params_check.is_ok(),
-            "reason":params_check.err()
-        }));
+        checks.push(FieldCheck::new(
+            "trigger.params",
+            self.validate_event_trigger(&spec),
+        ));
         if !trigger_available {
-            checks[1]["passed"] = json!(false);
-            checks[1]["reason"] = json!(if matches!(&spec.trigger, Trigger::Event { .. }) {
-                "event_source_unavailable"
-            } else {
-                "trigger_unavailable"
-            });
+            checks[1] = FieldCheck::new(
+                "trigger",
+                Err(if matches!(&spec.trigger, Trigger::Event { .. }) {
+                    "event_source_unavailable"
+                } else {
+                    "trigger_unavailable"
+                }
+                .into()),
+            );
         }
         for (index, step) in spec.steps.iter().enumerate() {
             checks.push(field_check(&format!("steps[{index}].name"), &errors));
@@ -133,6 +135,9 @@ impl BlueprintExt for ServiceContext {
                 StepKind::Agent { .. } => {
                     checks.push(field_check(&format!("steps[{index}].agent"), &errors));
                 }
+                StepKind::Http { .. } => {
+                    checks.push(field_check(&format!("steps[{index}].http"), &errors));
+                }
                 StepKind::Github { .. } => {
                     checks.push(field_check(&format!("steps[{index}].github"), &errors));
                 }
@@ -141,11 +146,14 @@ impl BlueprintExt for ServiceContext {
         }
         checks.push(field_check("result.to", &errors));
         let owner_available = spec.owner != BlueprintOwner::Team || caller.team.is_some();
-        checks.push(json!({
-            "field":"owner",
-            "passed":owner_available,
-            "reason":if owner_available { Value::Null } else { json!("Team owner requires the creating tab to belong to a Team") }
-        }));
+        checks.push(FieldCheck::new(
+            "owner",
+            if owner_available {
+                Ok(())
+            } else {
+                Err("Team owner requires the creating tab to belong to a Team".into())
+            },
+        ));
         let (caller_live, result_scope) = {
             let mux = self.mux.read();
             let live = crate::service_adapter::caller_is_live(&mux, caller);
@@ -156,17 +164,22 @@ impl BlueprintExt for ServiceContext {
             };
             (live, target)
         };
-        checks.push(json!({"field":"scope", "passed":caller_live,
-            "reason":if caller_live { Value::Null } else { json!("blueprint caller scope changed") }}));
-        checks.push(
-            json!({"field":"result.scope", "passed":result_scope.is_ok(),
-            "reason":result_scope.err()}),
-        );
-        Ok(json!({
-            "normalized_spec": spec,
-            "chain": chain_summary(&spec),
-            "checks": checks
-        }))
+        checks.push(FieldCheck::new(
+            "scope",
+            if caller_live {
+                Ok(())
+            } else {
+                Err("blueprint caller scope changed".into())
+            },
+        ));
+        checks.push(FieldCheck::new("result.scope", result_scope));
+        Ok(PipelinePreview {
+            chain: chain_summary(&spec),
+            normalized_spec: spec,
+            checks,
+            id: None,
+            expect_version: None,
+        })
     }
 
     fn blueprint_pipeline_create(
@@ -183,6 +196,7 @@ impl BlueprintExt for ServiceContext {
         spec: BlueprintSpec,
         stopped: bool,
     ) -> Result<Value, String> {
+        self.authorize_curator_operation(&caller.tab, None, "create")?;
         self.validate_pipeline(&spec)?;
         self.validate_event_trigger(&spec)?;
         ensure_trigger_available(&spec.trigger)
@@ -221,7 +235,7 @@ impl BlueprintExt for ServiceContext {
         }
         job.machine.stopped = stopped;
         let staged = handle.store.lock().stage_insert(job.clone());
-        staged.settle(&handle.store)?;
+        let job = staged.settle(&handle.store)?;
         handle.notify();
         self.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
         let owner = match spec.owner {
@@ -242,22 +256,24 @@ impl BlueprintExt for ServiceContext {
         id: &str,
         expect_version: u64,
         spec: BlueprintSpec,
-    ) -> Result<Value, String> {
+    ) -> Result<PipelinePreview, String> {
         let current = self.pipeline_update_current(caller, id, expect_version)?;
         let mut preview = self.blueprint_pipeline_validate(caller, spec.clone())?;
-        if let Err(error) = self.validate_event_trigger(&spec) {
-            preview["checks"].as_array_mut().unwrap().push(json!({
-                "field":"trigger.params", "passed":false, "reason":error
-            }));
-        }
+        preview.checks.push(FieldCheck::new(
+            "trigger.params",
+            self.validate_event_trigger(&spec),
+        ));
         let owner_matches = current.pipeline().map(|pipeline| pipeline.owner) == Some(spec.owner);
-        preview["checks"].as_array_mut().unwrap().push(json!({
-            "field":"owner",
-            "passed":owner_matches,
-            "reason":if owner_matches { Value::Null } else { json!("pipeline owner is immutable") }
-        }));
-        preview["id"] = json!(id);
-        preview["expect_version"] = json!(expect_version);
+        preview.checks.push(FieldCheck::new(
+            "owner",
+            if owner_matches {
+                Ok(())
+            } else {
+                Err("pipeline owner is immutable".into())
+            },
+        ));
+        preview.id = Some(id.into());
+        preview.expect_version = Some(expect_version);
         Ok(preview)
     }
 
@@ -269,7 +285,16 @@ impl BlueprintExt for ServiceContext {
         spec: BlueprintSpec,
         cause: Option<String>,
     ) -> Result<crate::store::Sentinel, String> {
+        let curator = self.authorize_curator_operation(&caller.tab, Some(id), "apply")?;
         let current = self.pipeline_update_current(caller, id, expect_version)?;
+        if curator
+            && !crate::blueprint_apply::retarget_only(
+                &serde_json::to_value(current.pipeline()).map_err(|e| e.to_string())?,
+                &serde_json::to_value(&spec).map_err(|e| e.to_string())?,
+            )
+        {
+            return Err("Curator pipeline amendments may only retarget".into());
+        }
         self.validate_pipeline(&spec)?;
         self.validate_event_trigger(&spec)?;
         ensure_trigger_available(&spec.trigger)
@@ -286,6 +311,7 @@ impl BlueprintExt for ServiceContext {
         }
         let mut next = current.clone();
         next.name = Some(spec.name.clone());
+        next.note = spec.note.clone();
         if let codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule { every } =
             &spec.trigger
         {
@@ -340,13 +366,6 @@ impl BlueprintExt for ServiceContext {
         }
         if current.definition_version != expect_version {
             return Err(crate::amend::version_conflict(current.definition_version));
-        }
-        if current.machine.stopped
-            || current
-                .expires_at
-                .is_some_and(|at| store.clock.now_ms() >= at)
-        {
-            return Err("stopped blueprints cannot be amended".into());
         }
         Ok(current)
     }
@@ -436,10 +455,10 @@ impl BlueprintExt for ServiceContext {
     ) -> Result<Vec<ValidationError>, String> {
         let definition_bytes = serde_json::to_vec(spec).map_err(|error| error.to_string())?;
         if definition_bytes.len() > 65_536 {
-            return Ok(vec![ValidationError {
-                field: "spec".into(),
-                reason: "blueprint definition exceeds 64 KiB".into(),
-            }]);
+            return Ok(vec![ValidationError::new(
+                "spec",
+                "blueprint definition exceeds 64 KiB",
+            )]);
         }
         let converters = self
             .ext::<std::sync::Arc<codeterm_plugin::converter::ConverterRegistry>>()
@@ -460,10 +479,13 @@ impl BlueprintExt for ServiceContext {
                     .get(provider)
                     .is_some_and(|p| p.supports_agent_tasks())
                 {
-                    errors.push(ValidationError {
-                        field: format!("steps[{index}].agent"),
-                        reason: "provider does not support bounded agent tasks".into(),
-                    });
+                    errors.push(ValidationError::new(
+                        ValidationPath::Step {
+                            index,
+                            field: StepField::Parameters("agent".into()),
+                        },
+                        "provider does not support bounded agent tasks",
+                    ));
                 }
             }
             if let StepKind::Convert { from, to } = &step.kind {
@@ -474,10 +496,13 @@ impl BlueprintExt for ServiceContext {
                     .is_err()
                     && !errors.iter().any(|error| error.field == field)
                 {
-                    errors.push(ValidationError {
-                        field,
-                        reason: "no converter chain is available".into(),
-                    });
+                    errors.push(ValidationError::new(
+                        ValidationPath::Step {
+                            index,
+                            field: StepField::Parameters("convert".into()),
+                        },
+                        "no converter chain is available",
+                    ));
                 }
             }
         }
@@ -485,7 +510,7 @@ impl BlueprintExt for ServiceContext {
     }
 }
 
-pub fn field_check(field: &str, errors: &[ValidationError]) -> Value {
+pub fn field_check(field: &str, errors: &[ValidationError]) -> FieldCheck {
     let failures = errors
         .iter()
         .filter(|error| {
@@ -497,11 +522,14 @@ pub fn field_check(field: &str, errors: &[ValidationError]) -> Value {
         })
         .map(|error| format!("{}: {}", error.field, error.reason))
         .collect::<Vec<_>>();
-    json!({
-        "field":field,
-        "passed":failures.is_empty(),
-        "reason":if failures.is_empty() { Value::Null } else { json!(failures.join("; ")) }
-    })
+    FieldCheck::new(
+        field,
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
+        },
+    )
 }
 
 fn validate_pipeline_result_scope(
@@ -539,7 +567,7 @@ fn validate_pipeline_result_scope(
     }
 }
 
-fn validate_result_scope(
+pub(crate) fn validate_result_scope(
     mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
     job: &crate::store::Sentinel,
     target: &ResultTarget,
@@ -624,6 +652,7 @@ pub mod tests {
             nonce: None,
         };
         let spec = BlueprintSpec {
+            note: None,
             name: "create-target-refusal".into(),
             owner: BlueprintOwner::Tab,
             trigger: Trigger::Schedule {

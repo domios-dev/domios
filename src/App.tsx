@@ -41,7 +41,7 @@ import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
-import { StaleBuildBanner } from "./components/StaleBuildBanner";
+import { useAppNotices } from "./hooks/useAppNotices";
 import { StorageUnavailableToast } from "./components/StorageUnavailableToast";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
@@ -122,6 +122,7 @@ function useStableJsonValue<T>(value: T): T {
 const selectWholeState = (state: ExtendedState) => state;
 
 function AppInner() {
+  useAppNotices();
   useAgentProviderCachePublisher();
   usePluginProviderMetaSync();
   const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
@@ -717,7 +718,7 @@ function AppInner() {
       <Titlebar
         api={stableApiConfig}
         onToggleSidebar={sidebarRailCollapsed && sidebarOpen ? () => setSidebarExpandRequest((count) => count + 1) : toggleSidebar}
-        showSidebarToggle={!sidebarOpen || sidebarRailCollapsed}
+        showSidebarToggle={phoneViewport || !sidebarOpen || sidebarRailCollapsed}
         onNewTab={handleNewTab}
         theme={stableTheme}
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
@@ -983,7 +984,6 @@ function AppInner() {
 
       <CommandPalette commands={paletteCommands} />
 
-      <StaleBuildBanner />
 
       <StorageUnavailableToast active={state.storageUnavailable === true} />
 

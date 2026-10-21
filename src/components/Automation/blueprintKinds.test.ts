@@ -10,6 +10,8 @@ assert.deepEqual(Object.keys(blueprintSteps).sort(), catalogTypes("step"));
 assert.equal(blueprintSteps.agent.type, "agent");
 assert.equal(blueprintSteps.github.type, "source");
 assert.ok(blueprintSteps.github.icon);
+assert.equal(blueprintSteps.http.type, "source");
+assert.notEqual(blueprintSteps.http.icon, blueprintSteps.github.icon);
 assert.deepEqual(Object.keys(blueprintActions).sort(), catalogTypes("handler"));
 assert.deepEqual(Object.values(blueprintTriggers).map((kind) => kind.catalogType).sort(), catalogTypes("trigger"));
 assert.deepEqual(Object.values(blueprintSources).map((kind) => kind.catalogType).sort(), catalogTypes("source"));
