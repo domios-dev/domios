@@ -28,12 +28,16 @@ function shell(directory, body, id = 'fixture') {
   child.stdout.on('data', c => output += c);
   child.stderr.on('data', c => errors += c);
   const lines = readline.createInterface({ input: child.stdout });
-  const ready = new Promise((resolve, reject) => {
-    lines.once('line', resolve);
-    child.once('close', code => reject(new Error(`fixture exited before ready (${code}): ${output}${errors}`)));
-  });
+  const firstLine = new Promise(resolve => lines.once('line', resolve));
   const exited = once(child, 'close').then(([code]) => ({ code, output, errors }));
-  return { child, ready, exited, id, snapshot: () => ({ output, errors }) };
+  return {
+    child, exited, id, snapshot: () => ({ output, errors }),
+    get ready() {
+      return Promise.race([firstLine, exited.then(result => {
+        throw new Error(`fixture exited before ready (${result.code}): ${result.output}${result.errors}`);
+      })]);
+    },
+  };
 }
 async function cleanup(directory, clients) {
   for (const c of clients) if (c.child.exitCode === null) {
@@ -45,6 +49,15 @@ async function cleanup(directory, clients) {
   fs.rmSync(directory, { recursive: true, force: true });
 }
 const statusBody = 'source scripts/build-gateway.sh; ct_gateway_set_fixture_dir "$1/state"; ct_gateway_status';
+
+test('an awaited readiness event rejects when its fixture exits without output', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-ready-exit-'));
+  const client = shell(directory, 'exit 17');
+  try {
+    await assert.rejects(client.ready, /fixture exited before ready \(17\)/);
+  } finally { await cleanup(directory, [client]); }
+});
+
 
 test('four concurrent cache clients start the server exactly once and leave gateway metadata free', { timeout: 60000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-sccache-'));
