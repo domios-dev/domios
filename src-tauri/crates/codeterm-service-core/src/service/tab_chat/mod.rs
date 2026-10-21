@@ -35,6 +35,7 @@ pub mod store_watch;
 mod stored_snapshot;
 pub mod structured_poller;
 pub mod structured_sink;
+pub mod tail_cache;
 pub mod tailer;
 pub mod tauri_sink;
 mod timestamp;
@@ -881,9 +882,12 @@ pub fn session_chat_snapshot(
             .with_provider(provider_id, |p| p.session_file_path(cwd, session_id))
             .flatten()
             .ok_or("provider has no JSONL and no structured chat")?;
-        let snap = session_window::snapshot(&svc.agent_registry, provider_id, &path);
-        session_window::log_bounded_snapshot(&format!("session:{session_id}"), provider_id, &snap);
-        snap.messages
+        svc.chat_registry.tail_cache.jsonl_messages(
+            &svc.agent_registry,
+            provider_id,
+            &path,
+            &format!("session:{session_id}"),
+        )
     };
 
     let total = all.len();
