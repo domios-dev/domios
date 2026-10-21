@@ -9,28 +9,32 @@ pub enum TimeState {
     NotYetValid,
     Fresh,
     Stale,
-    Grace,
-    PastGrace,
+    Expired,
 }
 
 impl TimeState {
     pub fn of(payload: &GrantPayload, now: u64) -> Self {
         if now < payload.not_before {
             Self::NotYetValid
+        } else if now >= effective_end(payload) {
+            Self::Expired
         } else if now < payload.refresh_after {
             Self::Fresh
-        } else if now < payload.expires_at {
-            Self::Stale
-        } else if now < payload.grace_until {
-            Self::Grace
         } else {
-            Self::PastGrace
+            Self::Stale
         }
     }
 
     pub fn retains_grant(self) -> bool {
-        matches!(self, Self::Fresh | Self::Stale | Self::Grace)
+        matches!(self, Self::Fresh | Self::Stale)
     }
+}
+
+/// An earlier authoritative period end stops paid access before the signed expiry, with no tail.
+fn effective_end(payload: &GrantPayload) -> u64 {
+    payload
+        .period_end
+        .map_or(payload.expires_at, |end| end.min(payload.expires_at))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,7 +66,7 @@ impl Verdict {
             state: TimeState::of(payload, now),
             authority: payload.authority,
             label: payload.label,
-            limits: payload.limits,
+            limits: payload.effective_limits(),
             capabilities: payload.capabilities.clone(),
             perks: payload.perks,
             period_end: payload.period_end,

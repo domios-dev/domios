@@ -237,7 +237,7 @@ export function SettingsPanel({
               </div>
             )}
 
-            {top.kind === "section" && top.id === "account" && <AccountTab />}
+            {top.kind === "section" && top.id === "account" && <AccountTab focusCard={top.card} />}
 
             {top.kind === "section" && top.id === "general" && (
               <SettingsPage title="General">

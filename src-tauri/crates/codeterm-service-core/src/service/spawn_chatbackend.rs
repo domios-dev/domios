@@ -230,6 +230,7 @@ impl ServiceContext {
             &ws_id,
         )?;
 
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
             let result = match spec
@@ -239,6 +240,7 @@ impl ServiceContext {
             {
                 Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
                 None => {
+                    super::billing::admit_new_tab(&gate, &mux)?;
                     let tab_id = mux.create_tab(&ws_id)?;
                     crate::startup::boot_timing::bind_request(&tab_id);
                     tab_id

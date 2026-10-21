@@ -116,12 +116,26 @@ pub async fn logout(
     }
     Ok(Json(result.map_err(|e| unavailable(e.to_string()))?))
 }
+/// The plan snapshot plus the limits a client pre-checks creation against.
+#[derive(serde::Serialize)]
+pub struct PlanView {
+    #[serde(flatten)]
+    snapshot: codeterm_billing::Snapshot,
+    limits: codeterm_service_core::service::billing::LimitSummary,
+}
+fn plan_view(state: &AppState, snapshot: codeterm_billing::Snapshot) -> Json<PlanView> {
+    Json(PlanView {
+        snapshot,
+        limits: state.svc.limit_gate().summary(),
+    })
+}
 pub async fn plan(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
-) -> Result<Json<codeterm_billing::Snapshot>, Error> {
+) -> Result<Json<PlanView>, Error> {
     admit(caller.as_ref())?;
-    Ok(Json(state.svc.account_plan().await.map_err(unavailable)?))
+    let snapshot = state.svc.account_plan().await.map_err(unavailable)?;
+    Ok(plan_view(&state, snapshot))
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -152,15 +166,14 @@ pub async fn portal(
 pub async fn refresh_plan(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
-) -> Result<Json<codeterm_billing::Snapshot>, Error> {
+) -> Result<Json<PlanView>, Error> {
     admit(caller.as_ref())?;
-    Ok(Json(
-        state
-            .svc
-            .refresh_billing(codeterm_billing::RefreshEvent::Focus)
-            .await
-            .map_err(unavailable)?,
-    ))
+    let snapshot = state
+        .svc
+        .refresh_billing(codeterm_billing::RefreshEvent::Focus)
+        .await
+        .map_err(unavailable)?;
+    Ok(plan_view(&state, snapshot))
 }
 #[cfg(test)]
 mod tests;

@@ -332,8 +332,10 @@ fn unresolvable_launch_binary_is_refused_before_a_tab_exists() {
         "install missing-cli",
     ));
 
-    let refused = provider_launch_preflight(&registry, "missing-cli", false)
-        .map(|clearance| create_cleared_agent_tab(&mut mux, &workspace_id, &clearance));
+    let refused = provider_launch_preflight(&registry, "missing-cli", false).map(|clearance| {
+        let gate = crate::service::billing::LimitGate::dormant();
+        create_cleared_agent_tab(&mut mux, &workspace_id, &clearance, &gate)
+    });
 
     let err = refused.expect_err("an unresolvable binary must not launch");
     assert_eq!(err.code(), "provider_binary_unavailable");

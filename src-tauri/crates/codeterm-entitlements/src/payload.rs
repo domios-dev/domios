@@ -5,12 +5,8 @@ use std::collections::HashSet;
 pub const ISSUER: &str = "domios-entitlements";
 pub const MAX_PAYLOAD_BYTES: usize = 8192;
 pub const MAX_CAPABILITIES: usize = 64;
-pub const REFRESH_SECS: u64 = 86_400;
-pub const ADMIN_LEASE_SECS: u64 = 86_400;
-pub const ADMIN_GRACE_SECS: u64 = 259_200;
-pub const LEASE_SECS: u64 = 604_800;
-pub const GRACE_SECS: u64 = 1_209_600;
-pub const PERIOD_TAIL_SECS: u64 = 604_800;
+pub const REFRESH_SECS: u64 = 1_800;
+pub const LEASE_SECS: u64 = 3_600;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -75,14 +71,31 @@ pub struct ScopedLimit {
     pub scope: Scope,
 }
 
+/// Limits as signed. Policies older than `TAB_TEAM_LIMITS_POLICY_VERSION` sign only the first three keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Limits {
+pub struct SignedLimits {
     #[serde(rename = "mesh.machines")]
     pub mesh_machines: ScopedLimit,
     pub workspaces: ScopedLimit,
     #[serde(rename = "mem.items")]
     pub mem_items: ScopedLimit,
+    #[serde(default, deserialize_with = "present_limit")]
+    pub teams: Option<ScopedLimit>,
+    #[serde(default, rename = "agent.tabs", deserialize_with = "present_limit")]
+    pub agent_tabs: Option<ScopedLimit>,
+}
+
+/// The first producer policy version that signs `teams` and `agent.tabs`.
+pub const TAB_TEAM_LIMITS_POLICY_VERSION: u64 = 2;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    pub mesh_machines: ScopedLimit,
+    pub workspaces: ScopedLimit,
+    pub mem_items: ScopedLimit,
+    pub teams: ScopedLimit,
+    pub agent_tabs: ScopedLimit,
 }
 
 pub const COMPILED_FREE_LIMITS: Limits = Limits {
@@ -98,7 +111,40 @@ pub const COMPILED_FREE_LIMITS: Limits = Limits {
         max: Some(1000),
         scope: Scope::Installation,
     },
+    teams: ScopedLimit {
+        max: Some(6),
+        scope: Scope::Installation,
+    },
+    agent_tabs: ScopedLimit {
+        max: Some(35),
+        scope: Scope::Installation,
+    },
 };
+
+impl SignedLimits {
+    /// An unsigned key takes the producer catalog row for the signed authority: free is the
+    /// compiled baseline, paid and admin are unlimited.
+    pub fn resolve(&self, authority: Authority) -> Limits {
+        let catalog = |compiled: ScopedLimit| match authority {
+            Authority::Free => compiled,
+            Authority::Billing | Authority::Admin => ScopedLimit {
+                max: None,
+                scope: compiled.scope,
+            },
+        };
+        Limits {
+            mesh_machines: self.mesh_machines,
+            workspaces: self.workspaces,
+            mem_items: self.mem_items,
+            teams: self
+                .teams
+                .unwrap_or_else(|| catalog(COMPILED_FREE_LIMITS.teams)),
+            agent_tabs: self
+                .agent_tabs
+                .unwrap_or_else(|| catalog(COMPILED_FREE_LIMITS.agent_tabs)),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -126,7 +172,7 @@ pub struct GrantPayload {
     pub authority: Authority,
     pub label: Label,
     pub enforcement: Enforcement,
-    pub limits: Limits,
+    pub limits: SignedLimits,
     pub capabilities: Vec<String>,
     pub perks: Perks,
     #[serde(deserialize_with = "nullable")]
@@ -138,6 +184,10 @@ pub struct GrantPayload {
 // A `deserialize_with` Option keeps the key required: absent is refused, `null` is None.
 fn nullable<'de, D: Deserializer<'de>, T: Deserialize<'de>>(d: D) -> Result<Option<T>, D::Error> {
     Option::<T>::deserialize(d)
+}
+
+fn present_limit<'de, D: Deserializer<'de>>(d: D) -> Result<Option<ScopedLimit>, D::Error> {
+    ScopedLimit::deserialize(d).map(Some)
 }
 
 fn present<'de, D: Deserializer<'de>>(d: D) -> Result<Option<TransitionReason>, D::Error> {
@@ -165,6 +215,10 @@ pub enum PayloadDefect {
 }
 
 impl GrantPayload {
+    pub fn effective_limits(&self) -> Limits {
+        self.limits.resolve(self.authority)
+    }
+
     /// Producer `validatePayload` invariants that do not depend on the policy or on `now`.
     pub fn check_invariants(&self) -> Result<(), PayloadDefect> {
         use PayloadDefect as D;
@@ -212,29 +266,23 @@ impl GrantPayload {
             self.authority == Authority::Billing || self.period_end.is_none(),
             D::PeriodEnd,
         )?;
-        let tail = self.period_end.map(|end| end + PERIOD_TAIL_SECS);
-        let (expires, grace) = if self.authority == Authority::Admin {
-            (
-                self.issued_at + ADMIN_LEASE_SECS,
-                self.issued_at + ADMIN_GRACE_SECS,
-            )
-        } else {
-            let expires = min_opt(self.issued_at + LEASE_SECS, tail);
-            (expires, min_opt(expires + GRACE_SECS, tail))
-        };
-        ensure(self.expires_at == expires, D::Expiry)?;
-        ensure(self.grace_until == grace, D::Grace)?;
-        let limits = &self.limits;
+        ensure(self.expires_at == self.issued_at + LEASE_SECS, D::Expiry)?;
+        ensure(self.grace_until == self.expires_at, D::Grace)?;
+        let limits = self.effective_limits();
         ensure(
             limits.mesh_machines.scope == Scope::Account
                 && limits.workspaces.scope == Scope::Installation
-                && limits.mem_items.scope == Scope::Installation,
+                && limits.mem_items.scope == Scope::Installation
+                && limits.teams.scope == Scope::Installation
+                && limits.agent_tabs.scope == Scope::Installation,
             D::LimitScope,
         )?;
         let maxima = [
             limits.mesh_machines.max,
             limits.workspaces.max,
             limits.mem_items.max,
+            limits.teams.max,
+            limits.agent_tabs.max,
         ];
         ensure(maxima.into_iter().flatten().all(safe_integer), D::LimitMax)?;
         let unique: HashSet<&str> = self.capabilities.iter().map(String::as_str).collect();
@@ -249,18 +297,12 @@ impl GrantPayload {
                 !self.enforcement.rollback
                     && self.perks == Perks::default()
                     && self.capabilities.is_empty()
-                    && limits.mesh_machines.max == COMPILED_FREE_LIMITS.mesh_machines.max
-                    && limits.workspaces.max == COMPILED_FREE_LIMITS.workspaces.max
-                    && limits.mem_items.max == COMPILED_FREE_LIMITS.mem_items.max,
+                    && limits == COMPILED_FREE_LIMITS,
                 D::FreeGrant,
             )?;
         }
         Ok(())
     }
-}
-
-fn min_opt(value: u64, bound: Option<u64>) -> u64 {
-    bound.map_or(value, |bound| value.min(bound))
 }
 
 fn ensure(condition: bool, defect: PayloadDefect) -> Result<(), PayloadDefect> {

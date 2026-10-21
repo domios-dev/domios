@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
 import { getCachedConfig, loadConfig, setUiSettings } from "../../lib/clientSettings";
+import { DEV_BUILD } from "../../lib/devBuild";
 import { Power } from "lucide-react";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { UI_TRAY_BTN } from "../shared/design";
@@ -105,7 +106,7 @@ export function KeepAwakeTray() {
         display: displaySleep,
       });
     } catch (e) {
-      console.error("[keepawake]", e);
+      if (DEV_BUILD) console.debug("Keep awake start failed", e);
     }
   }, [displaySleep]);
 

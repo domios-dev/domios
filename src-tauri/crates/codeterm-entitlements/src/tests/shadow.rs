@@ -3,11 +3,17 @@ use crate::payload::Authority;
 use crate::shadow::{shadow, ApplicationAccess, Divergence};
 use serde_json::{json, Value};
 
-const PACKET: &str = include_str!("../../vectors/vectors.json");
+const PACKET: &str = include_str!("../../vectors/grant-vectors.json");
 
 fn access(fields: Value) -> ApplicationAccess {
     let packet: Value = serde_json::from_str(PACKET).unwrap();
-    let mut base = packet["unsigned_schema2_response"]["application_access"].clone();
+    let paid = packet["vectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|vector| vector["id"] == "valid-paid")
+        .unwrap();
+    let mut base = paid["response"]["application_access"].clone();
     super::support::patch(&mut base, fields);
     serde_json::from_value(base).unwrap()
 }
@@ -49,7 +55,7 @@ fn shadow_divergence_table() {
             ],
         ),
         (
-            paid_grant.verdict(paid_grant.payload().grace_until),
+            paid_grant.verdict(paid_grant.payload().expires_at),
             access(json!({"sponsor": true, "priority_support": true})),
             vec![
                 Divergence::Authority {
@@ -75,7 +81,7 @@ fn shadow_divergence_table() {
             ],
         ),
         (
-            paid_grant.verdict(paid_grant.payload().grace_until),
+            paid_grant.verdict(paid_grant.payload().expires_at),
             access(free_access),
             vec![],
         ),

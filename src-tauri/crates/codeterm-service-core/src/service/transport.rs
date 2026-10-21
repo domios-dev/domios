@@ -398,8 +398,10 @@ impl ServiceContext {
         self.validate_request_cwd(Some(&ws_id), None, params.cwd.as_deref())?;
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
 
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
+            super::billing::admit_new_tab(&gate, &mux)?;
             let tab_id = mux.create_tab(&ws_id)?;
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
                 tab.restorable_launch.execution_mode = params

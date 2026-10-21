@@ -178,22 +178,33 @@ fn producer_invariants_are_enforced() {
         ),
         (with(paid(), json!({"policy_epoch": ""})), D::PolicyEpoch),
         (with(paid(), json!({"not_before": T + 1})), D::Time),
-        (with(paid(), json!({"refresh_after": T + 86_401})), D::Time),
+        (with(paid(), json!({"refresh_after": T + 1_801})), D::Time),
+        (
+            with(
+                paid(),
+                json!({"refresh_after": T + 86_400, "expires_at": T + 604_800, "grace_until": T + 1_209_600}),
+            ),
+            D::Time,
+        ),
         (with(paid(), json!({"period_end": T})), D::PeriodEnd),
         (with(paid(), json!({"label": "admin"})), D::Label),
         (with(admin(), json!({"period_end": T + 10})), D::PeriodEnd),
         (
             with(
                 paid(),
-                json!({"expires_at": T + 604_801, "grace_until": T + 1_209_601}),
+                json!({"expires_at": T + 3_601, "grace_until": T + 3_601}),
             ),
             D::Expiry,
         ),
         (
-            with(paid(), json!({"grace_until": T + 1_209_599})),
-            D::Grace,
+            with(
+                paid(),
+                json!({"period_end": T + 900, "expires_at": T + 900, "grace_until": T + 900}),
+            ),
+            D::Expiry,
         ),
-        (with(admin(), json!({"grace_until": T + 259_201})), D::Grace),
+        (with(paid(), json!({"grace_until": T + 3_601})), D::Grace),
+        (with(admin(), json!({"grace_until": T + 3_601})), D::Grace),
         (
             with(
                 paid(),

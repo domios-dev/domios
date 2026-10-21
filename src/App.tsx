@@ -42,6 +42,7 @@ import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
+import { StorageUnavailableToast } from "./components/StorageUnavailableToast";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
@@ -81,6 +82,8 @@ import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { nativeFolderDialog as openDialog } from "./lib/nativeBridge";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
+import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
+import { precheckFreeLimit } from "./components/billing/freeLimitGate";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
 /** One stable empty list, so a config still loading does not hand the chime a
@@ -589,6 +592,7 @@ function AppInner() {
         newTab: handleNewTab,
         closeTab: handleCloseCurrentTab,
         newWorkspace: () => {
+          if (precheckFreeLimit(["workspaces"])) return;
           openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
             .then((folder) => {
               if (!folder) return;
@@ -601,7 +605,7 @@ function AppInner() {
         toggleSidebar,
         spawnClaude: async () => {
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
-          if (!wsId) return;
+          if (!wsId || precheckFreeLimit(["agent.tabs"])) return;
           if (config.agent.full_access === undefined) {
             const workspace = stateRef.current.workspaces.find((candidate) => candidate.id === wsId);
             openNewSessionPicker({
@@ -919,14 +923,7 @@ function AppInner() {
             </div>
           )}
           {state.storageUnavailable ? (
-            <div
-              className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm"
-              data-testid="storage-unavailable-empty"
-              role="alert"
-              style={{ color: "var(--ct-fg)" }}
-            >
-              Storage unavailable, your data is preserved, see the incident.
-            </div>
+            <div className="absolute inset-0" data-testid="storage-unavailable-empty" />
           ) : state.workspaces.length > 0 ? (
             state.workspaces.map((ws) => <WorkspacePaneState key={ws.id} workspace={ws} visible={mainView === "workspace" && !pluginViewId && ws.id === state.active_workspace_id}>
               {ws.tabs.map((tabId) => {
@@ -986,9 +983,12 @@ function AppInner() {
 
       <StaleBuildBanner />
 
+      <StorageUnavailableToast active={state.storageUnavailable === true} />
+
       <NavigationBackBar onBack={handleBackToMemory} />
 
       <UpdateProgressLayer />
+      <FreeLimitPlansModal />
     </div>
     </ChatBlockHostProvider>
     </GuideNavigationProvider>
