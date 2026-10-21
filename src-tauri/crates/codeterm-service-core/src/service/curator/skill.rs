@@ -18,6 +18,14 @@ impl ServiceContext {
             return self.mem.save_with_outcome(item, replace);
         }
         let identity = self.curator_identity(caller)?;
+        if [&item.title, &item.body]
+            .into_iter()
+            .chain(item.summary.iter())
+            .chain(item.tags.iter())
+            .any(|text| codeterm_blueprint_types::blueprint_memory::contains_credentials(text))
+        {
+            return Err("Curator solution contains credentials".into());
+        }
         if item.kind != MemKind::Skill {
             return Err("Curator global saves must be generalised skills".into());
         }
