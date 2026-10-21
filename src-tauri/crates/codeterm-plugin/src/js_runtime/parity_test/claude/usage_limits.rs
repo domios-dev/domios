@@ -6,10 +6,9 @@ fn usage_limits_native_js_parity() {
         return;
     }
     let (native, js) = pair();
-    let raw = std::fs::read_to_string(
-        plugin_fixture_root().join("tests/fixtures/usage-normalized.json"),
-    )
-    .unwrap();
+    let raw =
+        std::fs::read_to_string(plugin_fixture_root().join("tests/fixtures/usage-normalized.json"))
+            .unwrap();
     let expected: serde_json::Value = serde_json::from_str(&raw).unwrap();
     for details in [expected["usage_details"].clone(), serde_json::Value::Null] {
         let mut fixture = expected.clone();
