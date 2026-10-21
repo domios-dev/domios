@@ -444,8 +444,9 @@ test("workers_collapse_summary", async () => {
   const toggle = host.querySelector('[data-testid="workers-collapse-toggle"]') as HTMLElement | null;
   assert(toggle, "workers collapse toggle present");
   await act(async () => toggle.click());
-  const summary = host.querySelector('[data-testid="workers-collapse-summary"]');
-  assert(summary?.textContent?.includes("3 workers · 2 working"), `summary=${summary?.textContent}`);
+  assert(toggle.textContent?.includes("WORKERS 3·2 working"), `header=${toggle.textContent}`);
+  assert(toggle.getAttribute("aria-expanded") === "false", "worker section collapses");
+  assert(!host.querySelector('[data-testid="workers-collapse-summary"]'), "collapsed header has no duplicate summary or decorative menu");
   await act(async () => root.unmount());
 });
 

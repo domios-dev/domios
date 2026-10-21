@@ -2096,7 +2096,8 @@ button,
   stroke-linecap: round;
   stroke-linejoin: round;
   color: color-mix(in srgb, var(--ct-muted-fg) 38%, transparent);
-  transition: color 160ms ease;
+  opacity: 0;
+  transition: color 160ms ease, opacity 160ms ease;
 }
 
 .sidebar-team-disclosure-glyph path {
@@ -2133,6 +2134,7 @@ button,
 
 .sidebar-team-disclosure-bar:hover .sidebar-team-disclosure-glyph,
 .sidebar-team-disclosure-bar:focus-visible .sidebar-team-disclosure-glyph {
+  opacity: 1;
   color: var(--ct-muted-fg);
 }
 
@@ -2984,19 +2986,34 @@ button,
   padding-left: 12px;
 }
 
-.sidebar-team-workers-summary {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-  margin-left: 12px;
-  padding: 3px 8px;
-  color: var(--ct-muted-fg);
-  font-size: 11.5px;
+.sidebar-team-workers-toggle {
+  align-items: baseline;
+  line-height: 20px;
+  text-decoration: none;
 }
 
-.sidebar-team-workers-summary .activity-dots {
+.sidebar-team-workers-toggle .sidebar-disclosure-glyph {
   align-self: center;
+}
+
+.sidebar-team-workers-state {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font: inherit;
+  letter-spacing: normal;
+}
+
+.sidebar-team-workers-state .activity-dots {
+  align-self: center;
+  --activity-dot-jump: 0px;
+}
+
+.sidebar-team-workers-summary {
+  padding: 3px 8px;
+  margin-left: 12px;
+  color: var(--ct-muted-fg);
+  font-size: 11.5px;
 }
 
 .sidebar-team-summary-kebab {
