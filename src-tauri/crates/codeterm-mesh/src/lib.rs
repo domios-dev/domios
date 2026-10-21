@@ -14,6 +14,7 @@ pub mod pairing;
 pub mod peer_services;
 pub mod peers;
 pub mod ports;
+pub mod protocol_refusals;
 pub mod reachability;
 pub mod serve_setup;
 pub mod toggle;
