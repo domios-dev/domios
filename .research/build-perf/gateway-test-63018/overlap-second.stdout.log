@@ -1,6 +1,0 @@
-Build gateway queued: instance=named-qa job=overlap-second behind job=overlap-first owner=owner-a command=gateway-fake overlap-first wait:/c/Developer/codeterm/codeterm-worktrees/ci-simplify/.research/build-perf/gateway-test-63018/release-overlap success
-Timed out acquiring build gateway state mutex (ownership incomplete or busy).
-[build-gateway] mutex refusal caller_job=overlap-second evidence={"owner":{"pid":"63531","start_token":"341778696","job_id":"overlap-second","age_ms":37903,"age_source":"publication"},"waiters":[{"ticket":"1792582904092-0000063531-overlap-second","pid":"63531","start_token":"341778696","job_id":"overlap-second"}]}
-If ownership is unreadable, stop gateway callers and verify no owner remains, ask the owner to resolve 'C:\Developer\codeterm\codeterm-worktrees\ci-simplify\.research\build-perf\gateway-test-63018\state\state.lock'; do not delete unknown shared ownership
-Timed out acquiring build gateway state mutex.
-Run './build.sh gateway-status' to inspect ownership, then './build.sh gateway-cancel <job-id>' for a stale job.
