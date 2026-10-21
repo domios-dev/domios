@@ -522,7 +522,7 @@ impl ServiceContext {
             let job = store.get(job_id);
             (
                 job.and_then(|job| job.report_target_tab_id.clone()),
-                job.is_some_and(|job| job.oneshot),
+                job.is_some_and(|job| job.oneshot && job.role.as_deref() != Some("curator")),
                 job.map(|job| job.name.trim().to_string())
                     .filter(|name| !name.is_empty())
                     .unwrap_or_else(|| job_id.to_string()),
@@ -665,6 +665,9 @@ impl ServiceContext {
                 .ok_or_else(|| format!("Cron job not found: {}", id))?;
             if store.is_job_running(id) {
                 return Err(format!("Cron job '{}' is already running", job.name));
+            }
+            if job.role.as_deref() == Some("curator") {
+                return Err("system Curator rounds are fired only by the daemon".into());
             }
             (
                 job.agent.clone(),

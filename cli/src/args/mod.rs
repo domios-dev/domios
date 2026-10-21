@@ -5,6 +5,7 @@ pub mod analytics;
 pub mod blueprint;
 pub mod cli;
 pub mod cron;
+pub mod curator;
 pub mod debug;
 pub mod delayed;
 pub mod effort;

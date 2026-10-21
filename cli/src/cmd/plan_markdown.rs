@@ -11,6 +11,17 @@ pub(crate) fn render_plan_markdown(plan: &Value) -> String {
     out.push_str(&format!("# {title} (`{id}`)\n\n"));
     out.push_str("> Exported snapshot. Domios planner state is authoritative; update the plan with `codeterm plan ...`, not by editing this markdown.\n\n");
     out.push_str(&format!("**Status:** {status}\n\n"));
+    if let Some(state) = plan.get("control_loop") {
+        let mode = state["mode"].as_str().unwrap_or("curator");
+        let fallback = state["fallback_reason"]
+            .as_str()
+            .map(|reason| format!(" (fallback: heartbeat, {reason})"))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "**Control loop:** {mode}{fallback}; next: {}; interval: {} seconds\n\n",
+            state["next_at"], state["heartbeat_interval_secs"]
+        ));
+    }
     if let Some(path) = plan
         .get("canonical_project_path")
         .and_then(|v| v.as_str())

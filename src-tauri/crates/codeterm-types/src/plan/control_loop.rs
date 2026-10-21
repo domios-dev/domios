@@ -73,6 +73,12 @@ pub struct CuratorRun {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct CuratorAgentState {
+    pub state: String,
+    pub since: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct ControlLoop {
     pub mode: ControlLoopMode,
@@ -90,6 +96,8 @@ pub struct ControlLoop {
     pub owner_turn_cursor: Option<String>,
     pub owner_session_key: Option<String>,
     pub task_states: std::collections::BTreeMap<String, String>,
+    pub agent_states: std::collections::BTreeMap<String, CuratorAgentState>,
+    pub observed_owner_answers: std::collections::BTreeSet<String>,
     pub save_candidates: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
     pub save_candidate_shapes: std::collections::BTreeMap<String, String>,
 }

@@ -96,7 +96,7 @@ fn curator_digest_is_bounded_stable_and_does_not_treat_waiting_as_activity() {
 
 #[test]
 fn curator_note_validates_contract_and_drops_ungrounded_learnings() {
-    let input="NEXT: 2h | quiet window\nRETRO:\n+ useful [task_1]\n- no evidence\nLEARN: when retry fails -> inspect cause [task_1 task_2] (confidence low)\nNEXT-CHECK: verify result [task_1]\nASKED: none";
+    let input="NEXT: 2h | quiet window\nMOVE: inspect [task_1]\nRETRO:\n+ useful [task_1]\n- no evidence\nLEARN: when retry fails -> inspect cause [task_1 task_2] (confidence low)\nNEXT-CHECK: verify result [task_1]\nASKED: none";
     let parsed = note::parse(input, 7200).unwrap();
     assert_eq!(parsed.retro.len(), 1);
     assert_eq!(parsed.learnings.len(), 1);
@@ -105,7 +105,7 @@ fn curator_note_validates_contract_and_drops_ungrounded_learnings() {
     assert!(note::parse("NEXT: 2h | reason\nASKED: yes", 7200).is_err());
     assert!(note::parse(
         &format!(
-            "NEXT: 2h | reason\nRETRO:\n{}\nASKED: none",
+            "NEXT: 2h | reason\nMOVE: inspect [task_1]\nRETRO:\n{}\nASKED: none",
             (0..6)
                 .map(|n| format!("+ fact [task_{n}]"))
                 .collect::<Vec<_>>()
@@ -114,4 +114,47 @@ fn curator_note_validates_contract_and_drops_ungrounded_learnings() {
         7200
     )
     .is_err());
+}
+
+#[test]
+fn curator_movement_orders_oldest_tasks_without_creating_activity() {
+    let mut plan = Plan::new("fixture".into(), "/tmp".into(), Default::default());
+    for index in 0..14 {
+        let mut task: crate::plan::Task = serde_json::from_value(serde_json::json!({"id":format!("task_{index:02}"),"name":"opaque","type":"code","status":"in_review"})).unwrap();
+        task.status_changed_at = 100 + index;
+        plan.tasks.push(task);
+    }
+    let rows = movement::rows(&plan, 0, 1000);
+    assert_eq!(rows["review backlog"][0].state, "14");
+    assert_eq!(rows["review backlog"][0].summary, "900");
+    let digest = digest::build("header", &rows);
+    assert!(!digest.activity);
+    assert!(
+        digest.body.find("task_00 | task").unwrap() < digest.body.find("task_09 | task").unwrap()
+    );
+    assert!(!digest.body.contains("task_10 | task"));
+    assert!(digest.body.contains("+4 more"));
+    let mut rows = rows;
+    rows.insert(
+        "reports".into(),
+        vec![digest::Row {
+            id: "report_1".into(),
+            kind: "report".into(),
+            state: "recorded".into(),
+            summary: String::new(),
+        }],
+    );
+    assert!(digest::build_bounded(&"x".repeat(100), &rows, 32).activity);
+}
+
+#[test]
+fn curator_move_requires_cited_ids() {
+    assert!(note::parse("NEXT: 45m | reason\nASKED: none", 2700).is_err());
+    assert!(note::parse("NEXT: 45m | reason\nMOVE: inspect\nASKED: none", 2700).is_err());
+    let note = note::parse(
+        "NEXT: 45m | reason\nMOVE: inspect [task_1]\nASKED: none",
+        2700,
+    )
+    .unwrap();
+    assert_eq!(note.next_move, "inspect [task_1]");
 }

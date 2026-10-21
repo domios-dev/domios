@@ -280,6 +280,35 @@ impl ServiceContext {
         now_ms: u64,
     ) -> Result<crate::service::plan::heartbeat::HeartbeatLearnResult, OrchestratorLearningError>
     {
+        if caller
+            .tab_id
+            .as_deref()
+            .is_some_and(|tab| self.is_curator_tab(tab))
+        {
+            let identity = self
+                .curator_identity(caller)
+                .map_err(OrchestratorLearningError::Authority)?;
+            if identity.plan_id != plan_id || !matches!(tag, Some("curator" | "curator:next")) {
+                return Err(OrchestratorLearningError::Authority(
+                    "Curator learnings require this round's plan and curator tag".into(),
+                ));
+            }
+            let plan = self
+                .plan_store
+                .get(plan_id)
+                .ok_or_else(|| OrchestratorLearningError::Authority("plan absent".into()))?;
+            return self
+                .plan_store
+                .add_heartbeat_learning(
+                    Some(plan_id),
+                    plan.owner.tab_id.as_deref(),
+                    plan.owner.session_id.as_deref(),
+                    text,
+                    tag,
+                    now_ms,
+                )
+                .map_err(OrchestratorLearningError::Store);
+        }
         self.authorize_plan_orchestrator(plan_id, caller)
             .map_err(OrchestratorLearningError::Authority)?;
         self.plan_store

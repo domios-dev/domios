@@ -159,6 +159,7 @@ impl ServiceContext {
     /// provider log grew. Bound to the turn boundary itself and never to a tab
     /// status value: a tab whose status never flips still finishes turns.
     pub fn on_agent_turn_settled(&self, tab_id: &str) {
+        self.curator_turn_settled(tab_id);
         self.request_kpi_usage_ingest(tab_id);
         self.record_lane_turn_boundary(tab_id);
     }
