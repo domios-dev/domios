@@ -439,7 +439,7 @@ fn producer_vectors() -> Vec<ProducerVector> {
         vectors: Vec<ProducerVector>,
     }
     serde_json::from_str::<Packet>(include_str!(
-        "../../codeterm-entitlements/vectors/vectors.json"
+        "../../codeterm-entitlements/vectors/grant-vectors.json"
     ))
     .unwrap()
     .vectors
@@ -571,7 +571,7 @@ async fn verdict_recomputes_half_open_windows_and_offline_access() {
     let store = Arc::new(MemoryGrants::default());
     let (now, clock) = clock(1_700_000_060);
     let billing = Billing::new(provider).with_test_grants(
-        activation(Phase::B, "fixture-phase-b"),
+        activation(Phase::B, "fixture-online-v1"),
         "fixture-installation",
         store,
         clock,
@@ -582,12 +582,10 @@ async fn verdict_recomputes_half_open_windows_and_offline_access() {
     for (instant, state, paid) in [
         (1_699_999_999, TimeState::NotYetValid, false),
         (1_700_000_000, TimeState::Fresh, true),
-        (1_700_086_399, TimeState::Fresh, true),
-        (1_700_086_400, TimeState::Stale, true),
-        (1_700_604_799, TimeState::Stale, true),
-        (1_700_604_800, TimeState::Grace, true),
-        (1_701_209_599, TimeState::Grace, true),
-        (1_701_209_600, TimeState::PastGrace, false),
+        (1_700_001_799, TimeState::Fresh, true),
+        (1_700_001_800, TimeState::Stale, true),
+        (1_700_003_599, TimeState::Stale, true),
+        (1_700_003_600, TimeState::Expired, false),
     ] {
         now.store(instant, std::sync::atomic::Ordering::SeqCst);
         let snapshot = billing.snapshot(Some(&user));
@@ -604,12 +602,12 @@ async fn verdict_recomputes_half_open_windows_and_offline_access() {
 }
 
 #[tokio::test]
-async fn focus_bypasses_throttle_in_stale_and_grace_checkout_still_bypasses() {
+async fn focus_bypasses_throttle_while_stale_checkout_still_bypasses() {
     use codeterm_entitlements::Phase;
     let provider = GrantReplies::new(vec![Ok(paid_grant())]);
     let (now, clock) = clock(1_700_000_060);
     let billing = Billing::new(provider.clone()).with_test_grants(
-        activation(Phase::B, "fixture-phase-b"),
+        activation(Phase::B, "fixture-online-v1"),
         "fixture-installation",
         Arc::new(MemoryGrants::default()),
         clock,
@@ -623,7 +621,7 @@ async fn focus_bypasses_throttle_in_stale_and_grace_checkout_still_bypasses() {
         .refresh(Some(&user), RefreshEvent::Focus, focus)
         .await;
     assert_eq!(provider.count(), 1);
-    for instant in [1_700_086_400, 1_700_604_800] {
+    for instant in [1_700_001_800, 1_700_003_599] {
         now.store(instant, std::sync::atomic::Ordering::SeqCst);
         let snapshot = billing
             .refresh(Some(&user), RefreshEvent::Focus, focus)
@@ -656,7 +654,7 @@ async fn grant_reload_reverifies_and_signout_epoch_and_refusal_remove_it() {
             injected_clock.clone(),
         )
     };
-    let billing = make("fixture-phase-b");
+    let billing = make("fixture-online-v1");
     let snapshot = billing
         .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
         .await;
@@ -675,7 +673,7 @@ async fn grant_reload_reverifies_and_signout_epoch_and_refusal_remove_it() {
     let mut corrupted = raw;
     corrupted["signature"] = "invalid".into();
     store.save(&corrupted).unwrap();
-    let reloaded = make("fixture-phase-b");
+    let reloaded = make("fixture-online-v1");
     assert!(reloaded
         .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
         .await
@@ -690,7 +688,7 @@ async fn phase_b_no_grant_is_compiled_free_even_with_paid_envelope() {
     let mut unsigned = paid_grant();
     unsigned.grant = None;
     let billing = Billing::new(GrantReplies::new(vec![Ok(unsigned)])).with_test_grants(
-        activation(codeterm_entitlements::Phase::B, "fixture-phase-b"),
+        activation(codeterm_entitlements::Phase::B, "fixture-online-v1"),
         "fixture-installation",
         Arc::new(MemoryGrants::default()),
         clock,
@@ -769,15 +767,10 @@ async fn producer_vectors_replay_exact_response_bytes_through_cloud_and_cache() 
         let requested_inst = vector.request["installation_id"].as_str().unwrap();
         let id = codeterm_account::InstallationId::parse(requested_inst.into()).unwrap();
         let provider = Arc::new(adapters::cloud::Cloud::fixture(&address, id));
-        let epoch = if vector.id == "valid-admin" {
-            "fixture-phase-a"
-        } else {
-            "fixture-phase-b"
-        };
         let (_, clock) = clock(vector.caller_context["now"].as_u64().unwrap());
         let store = Arc::new(MemoryGrants::default());
         let billing = Billing::new(provider).with_test_grants(
-            activation(Phase::B, epoch),
+            activation(Phase::B, "fixture-online-v1"),
             inst,
             store.clone(),
             clock,
@@ -795,9 +788,8 @@ async fn producer_vectors_replay_exact_response_bytes_through_cloud_and_cache() 
             "signed-free-downgrade" => {
                 assert_eq!(snapshot.access.as_ref().unwrap().authority, Authority::Free)
             }
-            "expired-lease" => assert_eq!(snapshot.grant.as_ref().unwrap().state, TimeState::Grace),
-            "past-grace" => {
-                assert_eq!(snapshot.grant.as_ref().unwrap().state, TimeState::PastGrace)
+            "expired-lease" | "period-ended" => {
+                assert_eq!(snapshot.grant.as_ref().unwrap().state, TimeState::Expired)
             }
             _ => assert!(snapshot.grant.is_none(), "{}", vector.id),
         }
@@ -840,7 +832,7 @@ async fn phase_a_keeps_envelope_and_logs_shadow_divergence() {
     let provider = GrantReplies::new(vec![Ok(mismatch)]);
     let (_, clock) = clock(1_700_000_060);
     let billing = Billing::new(provider).with_test_grants(
-        activation(codeterm_entitlements::Phase::A, "fixture-phase-b"),
+        activation(codeterm_entitlements::Phase::A, "fixture-online-v1"),
         "fixture-installation",
         Arc::new(MemoryGrants::default()),
         clock,
@@ -873,7 +865,7 @@ async fn policy_refusal_refetches_once_then_uses_envelope() {
     let (_, clock) = clock(1_700_000_060);
     let store = Arc::new(MemoryGrants::default());
     let billing = Billing::new(provider.clone()).with_test_grants(
-        activation(codeterm_entitlements::Phase::A, "fixture-phase-b"),
+        activation(codeterm_entitlements::Phase::A, "fixture-online-v1"),
         "fixture-installation",
         store.clone(),
         clock,
@@ -909,7 +901,7 @@ fn file_grant_store_persists_detached_bytes_only() {
     );
     let reload = FileGrantStore::new(root.clone());
     assert_eq!(reload.load().unwrap(), Some(raw.clone()));
-    let policy = activation(codeterm_entitlements::Phase::B, "fixture-phase-b")
+    let policy = activation(codeterm_entitlements::Phase::B, "fixture-online-v1")
         .policy()
         .unwrap();
     let verified = crate::grant_store::authenticate(
@@ -922,8 +914,8 @@ fn file_grant_store_persists_detached_bytes_only() {
     )
     .unwrap();
     assert_eq!(
-        verified.verdict(1_700_604_800).state,
-        codeterm_entitlements::TimeState::Grace
+        verified.verdict(1_700_003_600).state,
+        codeterm_entitlements::TimeState::Expired
     );
     let changed = activation(codeterm_entitlements::Phase::B, "new-epoch")
         .policy()
@@ -956,7 +948,7 @@ async fn revision_refusal_refetches_once_and_never_reinstates_paid() {
     let (_, first_clock) = clock(1_700_000_060);
     let store = Arc::new(MemoryGrants::default());
     let billing = Billing::new(provider.clone()).with_test_grants(
-        activation(codeterm_entitlements::Phase::B, "fixture-phase-b"),
+        activation(codeterm_entitlements::Phase::B, "fixture-online-v1"),
         "fixture-installation",
         store.clone(),
         first_clock,
@@ -1008,7 +1000,7 @@ async fn revision_refusal_refetches_once_and_never_reinstates_paid() {
 #[test]
 fn single_grant_verification_timing() {
     let raw = paid_grant().grant.unwrap();
-    let policy = activation(codeterm_entitlements::Phase::B, "fixture-phase-b")
+    let policy = activation(codeterm_entitlements::Phase::B, "fixture-online-v1")
         .policy()
         .unwrap();
     let started = Instant::now();
@@ -1051,7 +1043,7 @@ fn signed_paid_revisions() -> (codeterm_entitlements::Activation, Reading, Readi
         0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
     ];
     spki.extend_from_slice(key.verifying_key().as_bytes());
-    let mut activation = activation(codeterm_entitlements::Phase::B, "fixture-phase-b");
+    let mut activation = activation(codeterm_entitlements::Phase::B, "fixture-online-v1");
     activation.keys = Box::leak(
         vec![codeterm_entitlements::CompiledKey {
             key_id: "ephemeral-replay-test",
@@ -1087,7 +1079,7 @@ async fn assert_reply_retains_cached_grant(reply: Reading) {
     let provider = GrantReplies::new(vec![Ok(paid_grant()), Ok(reply)]);
     let (_, injected_clock) = clock(1_700_000_060);
     let billing = Billing::new(provider).with_test_grants(
-        activation(codeterm_entitlements::Phase::B, "fixture-phase-b"),
+        activation(codeterm_entitlements::Phase::B, "fixture-online-v1"),
         "fixture-installation",
         store.clone(),
         injected_clock,
