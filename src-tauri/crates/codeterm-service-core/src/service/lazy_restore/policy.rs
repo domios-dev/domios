@@ -52,7 +52,11 @@ pub(super) fn decision(tab: &Tab, continuing: bool, shell: RestoreDecision) -> R
             .get("active_turn_started_at_ms")
             .is_some_and(|value| value.is_u64())
     });
-    if continuing || busy {
+    let interrupted = tab
+        .turn_resume
+        .as_ref()
+        .is_some_and(|mark| mark.settled.is_none());
+    if continuing || busy || interrupted {
         RestoreDecision::Start
     } else {
         RestoreDecision::Freeze
