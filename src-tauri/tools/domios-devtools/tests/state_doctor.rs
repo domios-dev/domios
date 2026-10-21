@@ -4,6 +4,8 @@ mod test_support;
 #[path = "../../../../testbench/rust/state_doctor.rs"]
 mod state_doctor;
 
+extern crate domios_service_core as codeterm_service_core; // rename-bridge
+
 #[test]
 #[ignore = "state-dump quality gate is run explicitly by testbench/state-doctor.sh"]
 fn state_dump_quality_gate() {

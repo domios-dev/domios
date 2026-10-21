@@ -1,6 +1,8 @@
 use codeterm_service_core::pty::manager::PtyManager;
 use std::collections::HashMap;
 
+extern crate domios_service_core as codeterm_service_core; // rename-bridge
+
 #[test]
 fn test_pty_spawn() {
     let mut manager = PtyManager::new();

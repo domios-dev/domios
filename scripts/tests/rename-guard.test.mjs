@@ -187,6 +187,35 @@ test('lane checker defaults to the recorded dispatch base', (t) => {
   }
 });
 
+test('lane checker excludes cleanly merged upstream changes and includes uncommitted paths', (t) => {
+  const root = fixture(t);
+  write(root, 'src/owned.txt', 'baseline\n');
+  write(root, 'docs/release.txt', 'baseline\n');
+  commit(root, 'lane base');
+  const baseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+
+  execFileSync('git', ['checkout', '-b', 'worker'], { cwd: root, stdio: 'ignore' });
+  write(root, 'src/owned.txt', 'lane edit\n');
+  commit(root, 'lane-owned edit');
+
+  execFileSync('git', ['checkout', '-b', 'release', baseRef], { cwd: root, stdio: 'ignore' });
+  write(root, 'docs/release.txt', 'release edit\n');
+  commit(root, 'release-owned edit');
+  execFileSync('git', ['checkout', 'worker'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['merge', '--no-ff', 'release', '-m', 'merge release'], { cwd: root, stdio: 'ignore' });
+  write(root, 'docs/local.txt', 'uncommitted local edit\n');
+
+  const manifest = path.join(root, 'ownership.json');
+  writeFileSync(manifest, JSON.stringify({ phases: { '2': [
+    { phase: '2', key: 'COD-HERALD', id: 'owner', handle: 'worker', paths: ['src'] },
+  ] } }));
+  const result = checkLane({ root, ownership: manifest, taskKey: 'COD-HERALD', baseRef });
+
+  assert.ok(result.changed.includes('src/owned.txt'));
+  assert.ok(!result.changed.includes('docs/release.txt'));
+  assert.deepEqual(result.pathFailures, ['docs/local.txt']);
+});
+
 test('a narrow phase owner excludes transferred files from a broad later owner', (t) => {
   const root = fixture(t);
   const transferred = 'plugins/provider-claude/tests/plugin.test.ts';
@@ -231,9 +260,10 @@ test('lane checker accepts crate paths projected through the rename', (t) => {
 
 test('only Herald bridge additions and Closer bridge removals are admitted', (t) => {
   for (const [handle, baseline, body, failures] of [
-    ['backend-1-15-0-4', 'base\n', 'base\nrename-bridge\n', 0],
-    ['infra-1-15-0-4', 'base\nrename-bridge\n', 'base\n', 0],
-    ['docs-1-15-0', 'base\n', 'base\nrename-bridge\n', 1],
+    ['backend-1-15-0-4', 'base\n', 'base\n// rename-bridge\n', 0],
+    ['infra-1-15-0-4', 'base\n// rename-bridge\n', 'base\n', 0],
+    ['docs-1-15-0', 'base\n', 'base\n// rename-bridge\n', 1],
+    ['docs-1-15-0', 'base\n', "base\nconst marker = 'rename-bridge';\n", 0],
   ]) {
     const root = fixture(t);
     write(root, 'build.sh', baseline);
@@ -256,7 +286,7 @@ test('lane checker filters large unrelated hunks while checking bridge lines', (
   commit(root, 'large lane base');
   const baseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
   execFileSync('git', ['checkout', '-b', 'worker'], { cwd: root, stdio: 'ignore' });
-  write(root, 'build.sh', 'baseline\nrename-bridge\n');
+  write(root, 'build.sh', 'baseline\n# rename-bridge\n');
   write(root, 'large.txt', 'y'.repeat(1_500_000) + '\n');
   commit(root, 'large unrelated edit plus bridge');
   const manifest = path.join(root, 'ownership.json');

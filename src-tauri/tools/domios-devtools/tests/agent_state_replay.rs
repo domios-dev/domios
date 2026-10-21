@@ -22,6 +22,8 @@ use codeterm_service_core::plugin::js_runtime::{load_one, JsProvider};
 use serde::Deserialize;
 use serde_json::Value;
 
+extern crate domios_service_core as codeterm_service_core; // rename-bridge
+
 // lifecycle state — it stands in for today's coarse "is the turn done / parked"
 const TICK_MS: u64 = 250; // sample cadence injected into idle gaps to surface stalls
 const WAIT_MS: u64 = 800; // byte-idle past this with no settle => "Waiting"

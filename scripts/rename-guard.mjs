@@ -184,6 +184,42 @@ function runGit(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30_000 }).trim();
 }
 
+function runGitBytes(root, args) {
+  return execFileSync('git', args, { cwd: root, encoding: 'buffer', timeout: 30_000 });
+}
+
+function pathsFromNameStatus(output) {
+  const rows = output.toString('utf8').split('\0');
+  const paths = [];
+  for (let index = 0; index < rows.length;) {
+    const status = rows[index++];
+    if (!status) continue;
+    if (status.startsWith('R') || status.startsWith('C')) paths.push(rows[index++], rows[index++]);
+    else paths.push(rows[index++]);
+  }
+  return paths.filter(Boolean).map(normalize);
+}
+
+function laneChangedPaths(root, base, ownership) {
+  const commits = runGit(root, ['rev-list', '--first-parent', `${base}..HEAD`]).split('\n').filter(Boolean);
+  const paths = [];
+  for (const commit of commits) {
+    const parents = runGit(root, ['rev-list', '--parents', '-n', '1', commit]).split(' ').filter(Boolean);
+    if (parents.length > 2) {
+      paths.push(...runGitBytes(root, ['diff-tree', '--cc', '--no-commit-id', '--name-only', '-r', '-z', commit])
+        .toString('utf8').split('\0').filter(Boolean).map(normalize));
+    } else {
+      paths.push(...pathsFromNameStatus(runGitBytes(root, ['diff-tree', '--no-commit-id', '--name-status', '-r', '-z', commit])));
+    }
+  }
+  paths.push(...pathsFromNameStatus(runGitBytes(root, ['diff', '--name-status', '-z', 'HEAD'])));
+  paths.push(...pathsFromNameStatus(runGitBytes(root, ['diff', '--cached', '--name-status', '-z', 'HEAD'])));
+  const ownershipFile = normalize(path.relative(root, path.resolve(root, ownership)));
+  paths.push(...runGitBytes(root, ['ls-files', '--others', '--exclude-standard', '-z'])
+    .toString('utf8').split('\0').filter(Boolean).map(normalize).filter((file) => file !== ownershipFile));
+  return [...new Set(paths)];
+}
+
 function projectedBridgePath(file) {
   return normalize(file).split('/').map((segment) => {
     const lowered = segment.toLowerCase();
@@ -220,15 +256,7 @@ export function checkLane({ root = REPO, ownership = DEFAULT_OWNERSHIP, taskKey,
   if (!owner) throw new Error(`task key not found in ownership manifest: ${taskKey}`);
   const comparisonRef = baseRef ?? process.env.CODETERM_LANE_BASE ?? 'origin/rename/domios';
   const base = runGit(root, ['merge-base', 'HEAD', comparisonRef]);
-  const rows = runGit(root, ['diff', '--name-status', '-z', `${base}...HEAD`]).split('\0');
-  const changed = [];
-  for (let index = 0; index < rows.length;) {
-    const status = rows[index++];
-    if (!status) continue;
-    if (status.startsWith('R') || status.startsWith('C')) { changed.push(rows[index++], rows[index++]); }
-    else changed.push(rows[index++]);
-  }
-  const changedPaths = [...new Set(changed.filter(Boolean).map(normalize))];
+  const changedPaths = laneChangedPaths(root, base, ownership);
   const pathFailures = changedPaths.filter((file) => !ownedBy(file, owner));
   const occurrencesByOwner = trackedFiles(root).flatMap((file) => {
     if (!ownedBy(file, owner)) return [];
@@ -238,8 +266,14 @@ export function checkLane({ root = REPO, ownership = DEFAULT_OWNERSHIP, taskKey,
     const found = sources.flatMap((source) => occurrences(source.text.toLowerCase()).map(() => source.kind));
     return found.length ? [{ file, occurrences: found.length, sources: [...new Set(found)] }] : [];
   });
-  const patch = runGit(root, ['diff', '--unified=0', '-G', 'rename-bridge', `${base}...HEAD`, '--']);
-  const bridgeLines = patch.split(/\r?\n/).filter((line) => /^[+-](?![+-]).*rename-bridge/i.test(line));
+  const laneCommits = runGit(root, ['rev-list', '--first-parent', '--reverse', '--no-merges', `${base}..HEAD`])
+    .split('\n').filter(Boolean);
+  const patches = laneCommits.map((commit) => runGit(root,
+    ['diff', '--unified=0', '-G', 'rename-bridge', `${commit}^`, commit, '--']));
+  patches.push(runGit(root, ['diff', '--unified=0', '-G', 'rename-bridge', 'HEAD', '--']));
+  patches.push(runGit(root, ['diff', '--cached', '--unified=0', '-G', 'rename-bridge', 'HEAD', '--']));
+  const bridgeLines = patches.join('\n').split(/\r?\n/)
+    .filter((line) => /^[+-](?![+-]).*(?:\/\/|#)\s*rename-bridge\s*$/i.test(line));
   const bridgeMode = owner.handle === 'backend-1-15-0-4' ? 'add' : owner.handle === 'infra-1-15-0-4' ? 'remove' : 'none';
   const bridgeFailures = bridgeLines.filter((line) => bridgeMode === 'none'
     || (bridgeMode === 'add' && !line.startsWith('+')) || (bridgeMode === 'remove' && !line.startsWith('-')));

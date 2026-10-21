@@ -9,7 +9,7 @@ use crate::agent::provider::{
     TaskDelivery,
 };
 use crate::agent::registry::AgentRegistry;
-use codeterm_plugin::agent_claude::provider::hook_ownership::is_codeterm_hook;
+use codeterm_plugin::agent_claude::provider::hook_ownership::is_domios_hook;
 use codeterm_plugin::agent_claude::provider::integration::install_integration_at;
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -780,7 +780,7 @@ fn hooks_legacy_pane_fingerprint_is_owned_and_repaired() {
     });
     let status = serde_json::json!({
         "hooks_installed": false,
-        "integration_owned": is_codeterm_hook(&legacy_entry),
+        "integration_owned": is_domios_hook(&legacy_entry),
         "hook_contract_current": false
     });
     assert_eq!(status["integration_owned"], true);
@@ -807,7 +807,7 @@ fn hooks_similar_foreign_route_is_not_claimed() {
     });
     let status = serde_json::json!({
         "hooks_installed": false,
-        "integration_owned": is_codeterm_hook(&foreign_entry),
+        "integration_owned": is_domios_hook(&foreign_entry),
         "hook_contract_current": false
     });
     assert_eq!(status["integration_owned"], false);
