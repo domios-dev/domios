@@ -328,7 +328,8 @@ fn review_warns_accept_closes_and_bounce_reopens_locked_criteria() {
     assert!(
         block_on(team.fixture.service.tab_todo_report_warning(&team.worker))
             .unwrap()
-            .is_none()
+            .unwrap()
+            .contains("never shared")
     );
     block_on(team.fixture.service.tab_todo_apply_review(
         &team.worker,
@@ -365,3 +366,5 @@ fn review_without_checklist_storage_does_not_interrupt_task_review() {
         .unwrap();
     }
 }
+
+mod proposal;

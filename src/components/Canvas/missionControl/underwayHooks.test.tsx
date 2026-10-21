@@ -6,12 +6,33 @@ import { createRoot } from "react-dom/client";
 import { __setInvokeForTest, __setListenForTest } from "../../../lib/bridge";
 import { useAgentChecklists } from "../../Sidebar/useAgentChecklists";
 import { useUnderwayResize } from "./useUnderwayResize";
+import { UnderwayBoardRow } from "./UnderwayPanel";
+import type { Tab } from "../../../lib/types";
 
 const dom = new Window({ url: "http://localhost" });
 Object.defineProperty(globalThis, "window", { value: dom, configurable: true });
 Object.defineProperty(globalThis, "document", { value: dom.document, configurable: true });
 Object.defineProperty(globalThis, "localStorage", { value: dom.localStorage, configurable: true });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+test("Underway keeps work visible while awaiting review and clears its marker on amendment", async () => {
+  let state = "proposed";
+  let revision = 1;
+  let listener: ((event: { payload: unknown }) => void) | undefined;
+  __setInvokeForTest((async () => ({ tab_id: "worker", generation: 1, revision, proposal: { state }, items: [{ id: "item", title: "Inspect", state: "in_progress" }] })) as never);
+  __setListenForTest((async (_event: string, handler: (event: { payload: unknown }) => void) => { listener = handler; return () => {}; }) as never);
+  const host = document.createElement("div"); const root = createRoot(host);
+  const worker = { id: "worker", title: "Mica", role: "Worker", team_id: "team", has_checklist: true } as Tab;
+  try {
+    await act(async () => root.render(<UnderwayBoardRow teamId="team" plans={[]} refs={new Map()} deepLinks={{ notifications: [], tabs: { worker }, workspaces: [], scope: {}, onSelectTab: () => {} }} />));
+    assert.ok(host.querySelector('[role="status"]'));
+    assert.ok(host.querySelector('button[aria-label="1 of 1: Inspect, In progress"]'));
+    state = "amended"; revision = 2;
+    await act(async () => listener?.({ payload: { tab_id: "worker", generation: 1, revision } }));
+    assert.equal(host.querySelector('[role="status"]'), null);
+    assert.ok(host.querySelector('button[aria-label="1 of 1: Inspect, In progress"]'));
+  } finally { await act(async () => root.unmount()); __setInvokeForTest(null); __setListenForTest(null); }
+});
 
 test("one checklist subscription updates only the changed working agent and detaches on unmount", async () => {
   const reads: string[] = [];
