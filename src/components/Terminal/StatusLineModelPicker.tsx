@@ -358,6 +358,7 @@ export function ModelPickerPopover({
             className="ct-model-picker__refresh"
             aria-label="Search models"
             title="Search models"
+            style={{ marginLeft: "auto" }}
             onClick={() => setSearchOpen(true)}
           >
             <Search size={13} aria-hidden />

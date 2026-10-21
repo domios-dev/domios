@@ -351,7 +351,8 @@ function TabItemInner({
         if (open) telegramThread.refresh();
       }}
       contextMenuTargetRef={tabRef}
-      className={touchMode ? "flex h-11 w-11 items-center justify-center" : "sidebar-tab-kebab"}
+      // Touch rows open this menu by long press, so the trigger stays for assistive tech only.
+      className={touchMode ? "sr-only" : "sidebar-tab-kebab"}
       identity={{ icon: menuIcon, title: isGeneralAgent ? "General Agent" : displayTitle, subtitle: menuSubtitle }}
       trigger={<RowMenuButton label="Tab actions" touchMode={touchMode} />}
     />
