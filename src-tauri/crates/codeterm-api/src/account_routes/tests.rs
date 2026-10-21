@@ -129,6 +129,8 @@ async fn account_plan_routes_local_journey() {
         if !expected_plan.is_empty() {
             assert_eq!(value["entitlements"]["plan"], expected_plan);
             assert_eq!(value["stale"], stale);
+            assert_eq!(value["limits"]["enforcing"], false);
+            assert_eq!(value["limits"]["agent.tabs"], 35);
         }
     }
     assert!(!fixture

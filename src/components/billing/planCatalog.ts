@@ -32,6 +32,15 @@ export interface OfferPrice {
   planKey: string | null;
 }
 
+/** The compiled free baseline by entitlement limit key, copied for display; a test pins it to the signed vectors. */
+export const FREE_LIMITS = {
+  "mesh.machines": 2,
+  workspaces: 2,
+  "mem.items": 1000,
+  teams: 6,
+  "agent.tabs": 35,
+} as const;
+
 // Display only: entitlements come from the signed server record, never from this table.
 export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
   offers: [
@@ -39,14 +48,27 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
       id: "free",
       name: "Free",
       tagline: "Everything you need on one or two machines.",
-      features: ["2 machines in your mesh", "2 workspaces", "Agents, memory, teams and plans"],
+      features: [
+        `${FREE_LIMITS["mesh.machines"]} machines in your mesh`,
+        `${FREE_LIMITS.workspaces} workspaces`,
+        `${FREE_LIMITS["mem.items"]} memory items`,
+        `${FREE_LIMITS.teams} Teams across all workspaces`,
+        `${FREE_LIMITS["agent.tabs"]} tabs running at once`,
+      ],
       prices: {},
     },
     {
       id: "pro",
       name: "Pro",
       tagline: "No limits on machines or workspaces.",
-      features: ["Unlimited machines in your mesh", "Unlimited workspaces", "Everything in Free"],
+      features: [
+        "Unlimited machines in your mesh",
+        "Unlimited workspaces",
+        "Unlimited memory items",
+        "Unlimited Teams across all workspaces",
+        "Unlimited concurrent tabs",
+        "Everything in Free",
+      ],
       prices: {
         month: { planKey: "pro_monthly", amount: 5, currency: "USD" },
         year: { planKey: "pro_yearly", amount: 33.6, currency: "USD" },
@@ -59,7 +81,6 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
       tagline: "Pro, plus a direct line to the people building Domios.",
       features: ["Everything in Pro", "Sponsor role in Discord", "Priority support"],
       prices: {
-        month: { planKey: "sponsor_monthly", amount: 30, currency: "USD" },
         year: { planKey: "sponsor_yearly", amount: 200, currency: "USD" },
       },
     },

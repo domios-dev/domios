@@ -7,6 +7,7 @@ import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
 import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
+import { rawToolPayload } from "./toolParsing";
 
 interface ToolCardFrameProps {
   testId?: string;
@@ -124,7 +125,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         style={{ boxSizing: "border-box" }}
       >
         {expanded ? (
-          <RawCommandDisclosure raw={event.detail || event.summary || ""}>
+          <RawCommandDisclosure raw={event.detail || rawToolPayload(event)}>
             {children}
           </RawCommandDisclosure>
         ) : null}

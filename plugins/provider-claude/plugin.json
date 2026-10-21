@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.14",
-  "minCodeterm": "1.14.9",
+  "version": "1.14.15",
+  "minCodeterm": "1.15.1",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -189,6 +189,7 @@
     "stopKey": "\u001b",
     "modelSwitch": "live_command",
     "modelSwitchCommands": {
+      "duringTurn": true,
       "readyInputRegex": "^\\s*❯\\s*$",
       "transcript": {
         "recordType": "user",
@@ -217,11 +218,29 @@
           "responseKey": "s",
           "cancelKey": "\u001b"
         },
+        "prompt": {
+          "screenRegex": "(?im)^\\s*[^\\r\\n?]+\\?\\s*$[\\s\\S]*?^\\s*❯\\s*1\\.\\s+[^\\r\\n]*(?:{model}|{display_name})[^\\r\\n]*\\r?\\n\\s*2\\.\\s+[^\\r\\n]+\\s*\\z",
+          "responseKeys": [
+            "\r"
+          ],
+          "cancelKeys": [
+            "\u001b"
+          ]
+        },
         "confirmationPromptKind": "switch_confirmation"
       },
       "effort": {
         "command": "/effort {effort}",
         "confirmation": "(?i)^Set effort level to {effort} \\(",
+        "prompt": {
+          "screenRegex": "(?im)^\\s*[^\\r\\n?]+\\?\\s*$[\\s\\S]*?^\\s*❯\\s*1\\.\\s+[^\\r\\n]*{effort}[^\\r\\n]*\\r?\\n\\s*2\\.\\s+[^\\r\\n]+\\s*\\z",
+          "responseKeys": [
+            "\r"
+          ],
+          "cancelKeys": [
+            "\u001b"
+          ]
+        },
         "confirmationPromptKind": "switch_confirmation"
       }
     },

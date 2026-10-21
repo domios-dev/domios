@@ -991,6 +991,7 @@ fn first_plan_mints_team_enrolls_manager_and_binds() {
     let outcome = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
+        &crate::service::billing::LimitGate::dormant(),
         "First effort".into(),
         dir.path().display().to_string(),
         OrchestratorRef::from_tab(&owner_tab_id),
@@ -1031,6 +1032,7 @@ fn concurrent_first_plan_and_first_child_converge() {
         create_team_plan_for_orchestrator(
             &plan_mux,
             &plan_store,
+            &crate::service::billing::LimitGate::dormant(),
             "Concurrent effort".into(),
             plan_root,
             OrchestratorRef::from_tab(&plan_owner),
@@ -1081,6 +1083,7 @@ fn first_plan_failure_is_atomic() {
     let error = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
+        &crate::service::billing::LimitGate::dormant(),
         "Failure".into(),
         invalid_project.display().to_string(),
         OrchestratorRef::from_tab(&owner_tab_id),

@@ -1,0 +1,14 @@
+{
+  "changes": [
+    {
+      "diff": "import { DEV_BUILD } from \"./devBuild\";\nimport type { Notification } from \"./notificationTypes\";\nimport { uid } from \"./uid\";\n\nexport interface Notice {\n  kind: \"toast\" | \"debug\";\n  severity: Notification[\"severity\"];\n  title: string;\n  detail?: string;\n  actions?: Notification[\"local_actions\"];\n  id?: string;\n}\n\nexport type ToastInput = Omit<Notification, \"timestamp\" | \"read\">;\n\nexport interface NoticePorts {\n  upsertToast: (toast: ToastInput) => void;\n  debug?: (notice: Notice) => void;\n}\n\nfunction debugNotice(notice: Notice) {\n  console.debug(\"[notice]\", notice.severity, notice.title, notice.detail ?? \"\");\n}\n\nexport function createNoticePublisher({ upsertToast, debug = debugNotice }: NoticePorts) {\n  return (notice: Notice): void => {\n    if (notice.kind === \"debug\") {\n      if (DEV_BUILD) debug(notice);\n      return;\n    }\n    upsertToast({\n      id: notice.id ?? uid(),\n      severity: notice.severity,\n      level: notice.severity === \"Error\" ? \"failure\" : notice.severity === \"Warning\" ? \"action_needed\" : \"verbose\",\n      title: notice.title,\n      body: notice.detail ?? null,\n      local_actions: notice.actions,\n      tab_id: null,\n      workspace_id: null,\n    });\n  };\n}\n",
+      "kind": {
+        "type": "add"
+      },
+      "path": "C:/project/src\\lib\\notices.ts"
+    }
+  ],
+  "id": "exec-ae68326e-2d25-4dcd-8745-5a0fe2722fd3",
+  "status": "completed",
+  "type": "fileChange"
+}

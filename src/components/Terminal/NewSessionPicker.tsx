@@ -28,6 +28,7 @@ import { Button } from "../shared/Button";
 import { X } from "lucide-react";
 import { FolderPaneState } from "../shared/FolderPaneState";
 import { createPortal } from "react-dom";
+import { isFreeLimitRefusal } from "../billing/freeLimitModel";
 import {remoteProvider, remoteSpawnSelection, type ExecutionLocation} from "../../lib/remoteExecution";
 import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
 
@@ -200,6 +201,7 @@ export function NewSessionPicker({
         await selectTabByTab(created.workspaceId, created.tabId).catch(() => {});
       }
     } catch (e) {
+      if (isFreeLimitRefusal(e)) return;
       addNotification({ tab_id: null, workspace_id: workspaceId, title: "Session could not start",
         body: e instanceof Error ? e.message : String(e), severity: "Error", level: "failure", sticky: true });
     } finally {

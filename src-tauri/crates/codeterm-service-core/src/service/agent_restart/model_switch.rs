@@ -118,12 +118,18 @@ pub enum ModelSwitchError {
     LiveSwitchFailed(String),
     RuntimeControlRefused(String),
     LiveCommandFailed(String),
+    DuringTurnIncident {
+        stage: String,
+        screen: String,
+        reason: String,
+    },
     InputNotReady(String),
 }
 
 impl std::fmt::Display for ModelSwitchError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::DuringTurnIncident { stage, reason, .. } => write!(formatter, "mid-turn model switch incident at {stage}: {reason}"),
             Self::BackgroundWork {items}=>write!(formatter,"restart refused while background work is running: {}",items.join(", ")),
             Self::NotFound(message) | Self::NotSwitchable(message) => formatter.write_str(message),
             Self::Unsupported { provider } => write!(
@@ -580,10 +586,20 @@ impl ServiceContext {
                     .or_else(|| tab.agent_provider_resolved_model.clone())
             })
         };
+        let during_turn = declared_mode == ModelSwitchMode::LiveCommand
+            && self
+                .agent_registry
+                .with_provider(&provider, |provider| {
+                    provider
+                        .model_switch_commands()
+                        .is_some_and(|commands| commands.during_turn)
+                })
+                .unwrap_or(false);
+        let mid_turn = !self.tab_is_idle(&snap.tab_id);
         if let Some(request) = staged {
             request.require_snapshot(&snap)?;
             request.require_current(self)?;
-        } else if !self.tab_is_idle(&snap.tab_id) {
+        } else if mid_turn && !during_turn {
             return self.stage_model_switch(
                 &snap,
                 &session_id,
@@ -605,13 +621,21 @@ impl ServiceContext {
             self.cancel_staged_model_switch(&snap.tab_id);
         }
         if declared_mode == ModelSwitchMode::LiveCommand {
-            return self.switch_model_by_command(
-                &snap,
-                &session_id,
-                requested,
-                effort.as_deref(),
-                staged.is_some(),
-            );
+            return self
+                .switch_model_by_command(
+                    &snap,
+                    &session_id,
+                    requested,
+                    effort.as_deref(),
+                    staged.is_some(),
+                )
+                .map_err(|error| {
+                    if mid_turn && during_turn {
+                        self.during_turn_switch_incident(&snap, error)
+                    } else {
+                        error
+                    }
+                });
         }
         if declared_mode == ModelSwitchMode::NextTurn {
             return self.switch_model_on_next_turn(

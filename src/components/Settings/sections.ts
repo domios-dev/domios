@@ -63,7 +63,7 @@ export function sectionTitle(id: SectionId): string {
   return SETTINGS_SECTIONS.find((s) => s.id === id)?.label ?? id;
 }
 
-export type SettingsCardAnchorId = "supporter-agent" | "telegram-bridge";
+export type SettingsCardAnchorId = "supporter-agent" | "telegram-bridge" | "subscription-plans";
 
 export interface SettingsCardRoute {
   section: SectionId;
@@ -73,7 +73,7 @@ export interface SettingsCardRoute {
 /** Retired section ids that still arrive from old links. */
 export type LegacySectionId = "integrations";
 /** Links straight to one card inside a section. */
-export type CardLinkId = "messengers";
+export type CardLinkId = "messengers" | "plans";
 export type SettingsLinkId = SectionId | LegacySectionId | CardLinkId;
 
 export interface SettingsLinkRoute {
@@ -84,6 +84,7 @@ export interface SettingsLinkRoute {
 const CARD_ROUTES: Record<LegacySectionId | CardLinkId, SettingsLinkRoute> = {
   integrations: { section: "general", card: "telegram-bridge" },
   messengers: { section: "general", card: "telegram-bridge" },
+  plans: { section: "account", card: "subscription-plans" },
 };
 
 const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key);

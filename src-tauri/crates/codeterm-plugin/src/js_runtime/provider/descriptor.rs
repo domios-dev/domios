@@ -18,12 +18,17 @@ impl JsProvider {
         let Some(snapshot) = &self.descriptor_snapshot else {
             return crate::provider::descriptor::describe(self);
         };
+        let started = std::time::Instant::now();
         let mut descriptor = snapshot.descriptor.clone();
+        let clone_us = started.elapsed().as_micros();
+        let catalogue_started = std::time::Instant::now();
         descriptor.catalogue_version = crate::model_catalog::current_version(self.id());
         descriptor.available_models = self.available_models();
         descriptor.default_model = self.default_model();
         descriptor.reasoning_efforts = self.reasoning_efforts();
         descriptor.default_reasoning_effort = self.default_reasoning_effort();
+        let catalogue_us = catalogue_started.elapsed().as_micros();
+        let settings_started = std::time::Instant::now();
         if !self.has_custom_settings_schema {
             descriptor.settings_schema = manifest_settings_sections(&self.manifest);
             descriptor.settings_schema.extend(
@@ -32,6 +37,7 @@ impl JsProvider {
                     .cloned(),
             );
         }
+        log::debug!("[providers.descriptor] provider={} clone_us={} catalogue_us={} settings_us={} total_us={}", self.id(), clone_us, catalogue_us, settings_started.elapsed().as_micros(), started.elapsed().as_micros());
         descriptor
     }
 }

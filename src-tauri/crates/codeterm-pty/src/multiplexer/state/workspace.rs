@@ -278,6 +278,11 @@ impl MultiplexerState {
         self.workspaces.len()
     }
 
+    /// Workspaces that count toward the free limit; the protected General workspace is exempt.
+    pub fn limited_workspace_count(&self) -> usize {
+        self.workspaces.iter().filter(|w| !w.protected).count()
+    }
+
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
         self.workspaces
             .iter()

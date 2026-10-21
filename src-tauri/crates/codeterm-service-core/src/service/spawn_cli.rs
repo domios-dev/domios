@@ -187,7 +187,9 @@ pub fn create_cleared_agent_tab(
     mux: &mut MultiplexerState,
     workspace_id: &str,
     _clearance: &LaunchClearance,
+    gate: &super::billing::LimitGate,
 ) -> Result<String, String> {
+    super::billing::admit_new_tab(gate, mux)?;
     let tab_id = mux.create_tab(workspace_id)?;
     crate::startup::boot_timing::bind_request(&tab_id);
     Ok(tab_id)

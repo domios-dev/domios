@@ -82,26 +82,57 @@ fn runtime_resume_thread(
     }
 }
 
+/// What the first runtime turn carries: a system-prompt-capable provider already
+/// holds the brief in its instructions, so it only receives the assigned-task starter.
+#[derive(Debug, PartialEq, Eq)]
+enum RuntimeFirstTurn {
+    Starter(String),
+    Task(String),
+}
+
 fn runtime_pending_payload(
     existing: Option<&crate::multiplexer::types::PendingDeliveryRecord>,
     agent: &super::spawn::AgentSpawnSpec,
-) -> Option<String> {
+    provider: Option<&dyn crate::agent::provider::AgentProvider>,
+) -> Option<RuntimeFirstTurn> {
     if existing.is_some() {
         None
     } else {
-        runtime_initial_payload(agent)
+        runtime_initial_payload(agent, provider)
     }
 }
 
-fn runtime_initial_payload(agent: &super::spawn::AgentSpawnSpec) -> Option<String> {
+fn runtime_initial_payload(
+    agent: &super::spawn::AgentSpawnSpec,
+    provider: Option<&dyn crate::agent::provider::AgentProvider>,
+) -> Option<RuntimeFirstTurn> {
     let task = agent
         .task
         .as_deref()
         .filter(|task| !task.trim().is_empty())?;
-    Some(match agent.task_preamble.as_deref() {
-        Some(preamble) => format!("{preamble}{task}"),
-        None => task.into(),
-    })
+    let instructions_capable = provider.is_some_and(|provider| {
+        matches!(
+            super::launch_delivery::mode_for_descriptor(&provider.system_prompt_delivery()),
+            super::launch_delivery::LaunchDeliveryMode::SystemPrompt
+        )
+    });
+    if instructions_capable {
+        let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
+        let text = super::launch_delivery::assigned_task_starter(
+            provider
+                .and_then(|provider| provider.starter_prompt_text(prompt))
+                .as_deref(),
+        );
+        return Some(RuntimeFirstTurn::Starter(
+            super::launch_delivery::mark_starter_prompt(prompt, text),
+        ));
+    }
+    Some(RuntimeFirstTurn::Task(
+        match agent.task_preamble.as_deref() {
+            Some(preamble) => format!("{preamble}{task}"),
+            None => task.into(),
+        },
+    ))
 }
 
 impl ServiceContext {
@@ -199,6 +230,7 @@ impl ServiceContext {
             &ws_id,
         )?;
 
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
             let result = match spec
@@ -208,6 +240,7 @@ impl ServiceContext {
             {
                 Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
                 None => {
+                    super::billing::admit_new_tab(&gate, &mux)?;
                     let tab_id = mux.create_tab(&ws_id)?;
                     crate::startup::boot_timing::bind_request(&tab_id);
                     tab_id
@@ -427,13 +460,23 @@ impl ServiceContext {
         self.prepare_runtime_worker_binding(&params, tab_id)?;
         self.prepare_agent_runtime_launch_options(tab_id, &params)?;
         self.prepare_agent_runtime_launch_env(tab_id, &metadata.agent.extra_env)?;
+        let provider = self.agent_registry.provider_arc(&metadata.agent.provider);
         let payload = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("Runtime launch tab absent")?;
-            runtime_pending_payload(tab.pending_delivery.as_ref(), &metadata.agent)
+            runtime_pending_payload(
+                tab.pending_delivery.as_ref(),
+                &metadata.agent,
+                provider.as_deref(),
+            )
         };
         if let Some(payload) = payload {
-            let payload = self.spawn_task_message(tab_id, &payload).unwrap_or(payload);
+            let payload = match payload {
+                RuntimeFirstTurn::Starter(starter) => starter,
+                RuntimeFirstTurn::Task(task) => {
+                    self.spawn_task_message(tab_id, &task).unwrap_or(task)
+                }
+            };
             self.create_pending_delivery_with_send_id(
                 tab_id,
                 crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
