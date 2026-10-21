@@ -74,7 +74,7 @@ fn sentinel_observe_source_requires_agent_in_creator_team_workspace() {
     let job = store
         .prepare(
             Create {
-            note: None,
+                note: None,
                 terminal: None,
                 session: false,
                 name: Some("observed-state-watch".into()),
@@ -127,7 +127,7 @@ fn sentinel_direct_observation_survives_creator_joining_a_team() {
     let job = store
         .prepare(
             Create {
-            note: None,
+                note: None,
                 terminal: None,
                 session: false,
                 name: Some("creator-state-watch".into()),
@@ -176,7 +176,7 @@ fn sentinel_removed_observation_tab_stops_with_one_creator_notice() {
     let job = store
         .create(
             Create {
-            note: None,
+                note: None,
                 terminal: None,
                 session: false,
                 name: Some("removed-tab-watch".into()),
@@ -240,7 +240,7 @@ fn sentinel_cron_run_scope_accepts_only_its_verified_hidden_automation_tab() {
     let mut job = store
         .prepare(
             Create {
-            note: None,
+                note: None,
                 terminal: None,
                 session: false,
                 name: Some("cron-state-watch".into()),

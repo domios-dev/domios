@@ -11,7 +11,10 @@ pub struct GithubProbe {
     pub org: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    #[serde(default = "default_timeout", skip_serializing_if = "is_default_timeout")]
+    #[serde(
+        default = "default_timeout",
+        skip_serializing_if = "is_default_timeout"
+    )]
     pub timeout_ms: u64,
     pub resource: GithubResource,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -38,10 +41,16 @@ impl GithubProbe {
                 (None, false) if valid_repo(&self.repo) => format!("repos/{}", self.repo),
                 _ => return Err("GitHub runners require exactly one repo or org scope".into()),
             };
-            if self.id != 0 || self.label.as_ref().is_some_and(|label| label.is_empty() || label.len() > 256 || label.chars().any(char::is_control)) {
+            if self.id != 0
+                || self.label.as_ref().is_some_and(|label| {
+                    label.is_empty() || label.len() > 256 || label.chars().any(char::is_control)
+                })
+            {
                 return Err("GitHub runners require a bounded label and no run id".into());
             }
-            return Ok(format!("gh api --paginate --slurp '{scope}/actions/runners?per_page=100'"));
+            return Ok(format!(
+                "gh api --paginate --slurp '{scope}/actions/runners?per_page=100'"
+            ));
         }
         if !valid_repo(&self.repo) || self.id == 0 || self.org.is_some() || self.label.is_some() {
             return Err("GitHub requires owner/repo and a positive run or PR id".into());
@@ -60,11 +69,21 @@ impl GithubProbe {
     }
 }
 
-fn default_timeout() -> u64 { PROBE_RUNTIME_MS }
-fn is_default_timeout(value: &u64) -> bool { *value == PROBE_RUNTIME_MS }
-fn is_zero(value: &u64) -> bool { *value == 0 }
+fn default_timeout() -> u64 {
+    PROBE_RUNTIME_MS
+}
+fn is_default_timeout(value: &u64) -> bool {
+    *value == PROBE_RUNTIME_MS
+}
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
 fn valid_component(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 128 && value.bytes().all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
 }
 fn valid_repo(value: &str) -> bool {
     let parts: Vec<_> = value.split('/').collect();

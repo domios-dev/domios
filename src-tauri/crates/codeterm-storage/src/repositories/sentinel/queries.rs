@@ -115,7 +115,10 @@ pub(super) fn load_one(
     let runtime = StageRuntime {
         transition_offset: header.transition_offset,
         action_offset: header.action_offset,
-        stopped_at: header.stopped_at.map(|at| from_sql_u64("stop time", at)).transpose()?,
+        stopped_at: header
+            .stopped_at
+            .map(|at| from_sql_u64("stop time", at))
+            .transpose()?,
         runs_since_transition: from_sql_u64("probe count", header.runs_since_transition)?,
         last_probe_at: header
             .last_probe_at

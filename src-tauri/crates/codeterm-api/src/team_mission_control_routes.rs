@@ -82,7 +82,9 @@ impl From<&Plan> for TeamPlanSummary {
             status: plan.status.clone(),
             mode: plan.mode.clone(),
             planning_state: plan.planning_state,
-            goal: plan.goal.as_ref().map(|goal| TeamPlanGoal { vector: goal.vector.clone() }),
+            goal: plan.goal.as_ref().map(|goal| TeamPlanGoal {
+                vector: goal.vector.clone(),
+            }),
             updated_at: plan.updated_at,
             task_counts: codeterm_plan::service_plan::state::task_counts(plan),
         }

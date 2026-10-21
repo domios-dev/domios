@@ -102,7 +102,7 @@ fn team_storage_fixture() -> TeamStorageFixture {
         .lock()
         .prepare(
             Create {
-            note: None,
+                note: None,
                 terminal: None,
                 session: false,
                 name: Some("Team teardown sentinel".into()),

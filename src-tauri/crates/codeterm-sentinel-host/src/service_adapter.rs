@@ -1008,7 +1008,7 @@ pub mod tests {
         let mut pipeline = legacy;
         pipeline.set_pipeline(Some(
             codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec {
-            note: None,
+                note: None,
                 name: "owned-pipeline".into(),
                 owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team,
                 trigger: codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule {

@@ -66,7 +66,7 @@ fn insert_with_options(
         .lock()
         .prepare(
             Create {
-            note: None,
+                note: None,
                 terminal: None,
                 session: false,
                 name: Some("cron-run-watch".into()),

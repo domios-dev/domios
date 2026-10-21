@@ -256,7 +256,10 @@ impl Update {
         ) {
             usize::from(current.run_transitions)
         } else {
-            current.transitions.len().saturating_sub(current.cleanup.transition_offset)
+            current
+                .transitions
+                .len()
+                .saturating_sub(current.cleanup.transition_offset)
         };
         let max_transitions = self.max_transitions.unwrap_or(current.max_transitions);
         let max_actions = self.max_actions.unwrap_or(current.max_actions);
@@ -278,9 +281,11 @@ impl Update {
         {
             return Err("cause must be a bounded transition ID".into());
         }
-        if self.note.as_deref().is_some_and(|note| {
-            note.chars().count() > 200 || note.chars().any(char::is_control)
-        }) {
+        if self
+            .note
+            .as_deref()
+            .is_some_and(|note| note.chars().count() > 200 || note.chars().any(char::is_control))
+        {
             return Err("note must be bounded display text".into());
         }
         let routes = handlers::definitions(&self.buckets, self.routes, self.handlers)?;
@@ -366,7 +371,12 @@ impl Store {
             next.machine = Default::default();
             next.cleanup.sync(false, authored_at);
             next.cleanup.transition_offset = current.transitions.len();
-            next.cleanup.action_offset = current.transitions.iter().flat_map(|t| &t.handlers).filter(|h| h.claim_id.is_some()).count();
+            next.cleanup.action_offset = current
+                .transitions
+                .iter()
+                .flat_map(|t| &t.handlers)
+                .filter(|h| h.claim_id.is_some())
+                .count();
             next.progress = Default::default();
             next.run_transitions = 0;
             next.last_reason = None;
@@ -540,7 +550,8 @@ fn claimed_actions(job: &Sentinel) -> usize {
         .iter()
         .flat_map(|transition| &transition.handlers)
         .filter(|handler| handler.claim_id.is_some())
-        .count().saturating_sub(job.cleanup.action_offset)
+        .count()
+        .saturating_sub(job.cleanup.action_offset)
 }
 
 /// The input after one amendment: the kind is immutable, the data and conversion are not.

@@ -39,15 +39,31 @@ fn blueprint_recipe_bind_is_simultaneous_and_refuses_extra_fields() {
 #[test]
 fn portable_source_recipe_binding_keeps_kind_and_customized_knobs() {
     for (kind, probe, assignments) in [
-        ("github", serde_json::json!({"repo":"owner/project","resource":"runners","label":"{{label}}","timeout_ms":"{{timeout}}"}), vec!["label=linux-build".into(), "timeout=1000".into()]),
-        ("http", serde_json::json!({"url":"{{url}}","expected_status":"204","timeout_ms":2000}), vec!["url=https://example.com/health".into()]),
+        (
+            "github",
+            serde_json::json!({"repo":"owner/project","resource":"runners","label":"{{label}}","timeout_ms":"{{timeout}}"}),
+            vec!["label=linux-build".into(), "timeout=1000".into()],
+        ),
+        (
+            "http",
+            serde_json::json!({"url":"{{url}}","expected_status":"204","timeout_ms":2000}),
+            vec!["url=https://example.com/health".into()],
+        ),
     ] {
         let definition = serde_json::json!({"spec":{"name":"Custom source","trigger":{"type":"schedule","every":"20s"},"steps":[{"name":"check","input":"text","kind":{"kind":kind,"probe":probe}}]}});
         let names = placeholder_names(&definition).unwrap();
-        let recipe = Recipe { schema_version: SCHEMA_VERSION, definition, placeholders:names.into_iter().map(|name| (name, "Custom input".into())).collect() };
+        let recipe = Recipe {
+            schema_version: SCHEMA_VERSION,
+            definition,
+            placeholders: names
+                .into_iter()
+                .map(|name| (name, "Custom input".into()))
+                .collect(),
+        };
         let restored = Recipe::parse(&serde_json::to_string(&recipe).unwrap()).unwrap();
         let bound = restored.bind(&assignments).unwrap();
-        let parsed: crate::blueprint_pipeline::BlueprintSpec = serde_json::from_value(bound["spec"].clone()).unwrap();
+        let parsed: crate::blueprint_pipeline::BlueprintSpec =
+            serde_json::from_value(bound["spec"].clone()).unwrap();
         assert_eq!(parsed.steps[0].kind.name(), kind);
         assert!(crate::blueprint_pipeline::validate(&parsed, &[]).is_ok());
     }

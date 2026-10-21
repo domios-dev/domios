@@ -11,7 +11,9 @@ fn blueprint_catalog_equals_enum_names_and_shared_golden_fixture() {
                 repo: "owner/repo".into(),
                 resource: crate::blueprint_github::GithubResource::Run,
                 id: 42,
-            org: None, label: None, timeout_ms: 60000,
+                org: None,
+                label: None,
+                timeout_ms: 60000,
             },
         },
         StepKind::Command {
@@ -37,7 +39,10 @@ fn blueprint_catalog_equals_enum_names_and_shared_golden_fixture() {
             max_tokens: 1000,
             max_turns: 2,
         },
-        StepKind::Http { probe: serde_json::from_value(serde_json::json!({"url":"https://example.com/health"})).unwrap() },
+        StepKind::Http {
+            probe: serde_json::from_value(serde_json::json!({"url":"https://example.com/health"}))
+                .unwrap(),
+        },
     ];
     assert_eq!(
         steps.iter().map(StepKind::name).collect::<BTreeSet<_>>(),

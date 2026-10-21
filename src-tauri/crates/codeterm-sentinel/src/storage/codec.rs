@@ -440,7 +440,7 @@ pub fn history_version(stored: StoredDefinition) -> DefinitionVersion {
             terminal,
             session: definition.session,
             name: definition.name,
-        note: definition.note,
+            note: definition.note,
             pipeline,
             probe,
             observe,
@@ -634,7 +634,11 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
         until: definition.until,
         expires_at: runtime.expires_at,
         next_run: runtime.next_run,
-        cleanup: crate::retention::Retention { transition_offset: runtime.transition_offset, action_offset: runtime.action_offset, ..crate::retention::Retention::from_stopped_at(runtime.stopped_at) },
+        cleanup: crate::retention::Retention {
+            transition_offset: runtime.transition_offset,
+            action_offset: runtime.action_offset,
+            ..crate::retention::Retention::from_stopped_at(runtime.stopped_at)
+        },
         machine: Machine {
             last_hash: runtime.last_hash,
             last_bucket: runtime.last_bucket,

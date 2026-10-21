@@ -64,7 +64,8 @@ pub fn plan_due(
                     .iter()
                     .flat_map(|t| &t.handlers)
                     .filter(|r| r.claim_id.is_some())
-                    .count().saturating_sub(job.cleanup.action_offset)
+                    .count()
+                    .saturating_sub(job.cleanup.action_offset)
                     >= action_limit(job))
         {
             let reason = if job.session {
@@ -158,7 +159,10 @@ pub fn transition_budget_spent(job: &Sentinel) -> bool {
     if matches!(job.observe(), Some(TabBinding::CronRun(_))) {
         job.run.is_some() && job.run_transitions >= job.max_transitions
     } else {
-        job.transitions.len().saturating_sub(job.cleanup.transition_offset) >= usize::from(job.max_transitions)
+        job.transitions
+            .len()
+            .saturating_sub(job.cleanup.transition_offset)
+            >= usize::from(job.max_transitions)
     }
 }
 

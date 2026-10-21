@@ -12,7 +12,8 @@ fn probe_cadence_never_backs_off_on_unchanged_results() {
         "matches":{}, "until":null, "expires_at":null, "interval_ms":60000, "next_run":1000,
         "machine":{"stopped":false,"paused":false,"last_hash":"same","last_bucket":"waiting"},
         "last_reason":"unchanged"
-    })).unwrap();
+    }))
+    .unwrap();
     let mut jobs = vec![job];
     let mut active = HashMap::new();
     let mut wakes = BTreeSet::new();
@@ -36,7 +37,7 @@ fn blueprint_input_due_is_once_per_activation_and_amendment_without_interval_run
     let mut job = store
         .prepare_pipeline(
             BlueprintSpec {
-        note: None,
+                note: None,
                 name: "one-shot-input".into(),
                 owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab,
                 trigger: Trigger::Input {

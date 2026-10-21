@@ -201,7 +201,7 @@ fn blueprint_pipeline_definition_round_trips_through_versioned_storage() {
     let (_root, storage) = storage();
     let repo = storage.sentinels();
     let pipeline = BlueprintSpec {
-            note: None,
+        note: None,
         name: "echo pipeline".into(),
         owner: BlueprintOwner::Team,
         trigger: Trigger::Schedule {
@@ -434,7 +434,7 @@ fn sentinel_source_schema_migration_preserves_probe_and_observe_rows() {
 fn blueprint_stage_source_storage_codec_round_trips_all_variants() {
     let (_root, storage) = storage();
     let pipeline = BlueprintSpec {
-            note: None,
+        note: None,
         name: "codec pipeline".into(),
         owner: BlueprintOwner::Tab,
         trigger: Trigger::Schedule {

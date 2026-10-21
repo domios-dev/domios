@@ -290,5 +290,8 @@ fn team_board_summary_carries_only_the_displayed_goal() {
         postulates: vec!["postulate".repeat(1000)],
     });
     let json = serde_json::to_value(TeamPlanSummary::from(&record)).unwrap();
-    assert_eq!(json["goal"], serde_json::json!({ "vector": "Visible goal" }));
+    assert_eq!(
+        json["goal"],
+        serde_json::json!({ "vector": "Visible goal" })
+    );
 }

@@ -43,7 +43,9 @@ fn read_text_input_file(path: &std::path::Path) -> Result<String, String> {
 }
 
 fn render(job: &Value) {
-    if let Some(note) = job["note"].as_str().filter(|note| !note.is_empty()) { println!("Note: {note}"); }
+    if let Some(note) = job["note"].as_str().filter(|note| !note.is_empty()) {
+        println!("Note: {note}");
+    }
     if let Some(pipeline) = job.get("pipeline") {
         let current_step = job["current_step"]
             .as_u64()
@@ -538,7 +540,11 @@ fn request(
                     let recipe = codeterm_blueprint_types::blueprint_recipe::Recipe::parse(&raw)?;
                     let mut bound = recipe.bind(&set)?;
                     if let Some(note) = &note {
-                        let key = if bound.get("create").is_some() { "create" } else { "spec" };
+                        let key = if bound.get("create").is_some() {
+                            "create"
+                        } else {
+                            "spec"
+                        };
                         bound[key]["note"] = json!(note);
                     }
                     if dry_run {
@@ -553,8 +559,14 @@ fn request(
                         return Ok(("blueprint.pipeline.validate", params));
                     }
                     let mut recipe = recipe;
-                    let key = if recipe.definition.get("create").is_some() { "create" } else { "spec" };
-                    if let Some(note) = note { recipe.definition[key]["note"] = json!(note); }
+                    let key = if recipe.definition.get("create").is_some() {
+                        "create"
+                    } else {
+                        "spec"
+                    };
+                    if let Some(note) = note {
+                        recipe.definition[key]["note"] = json!(note);
+                    }
                     params["recipe"] =
                         serde_json::to_value(recipe).map_err(|error| error.to_string())?;
                     params["set"] = json!(set);
@@ -567,7 +579,9 @@ fn request(
                     &set,
                     owner.as_deref(),
                 )?;
-                if let Some(note) = note { params["spec"]["note"] = json!(note); }
+                if let Some(note) = note {
+                    params["spec"]["note"] = json!(note);
+                }
                 return Ok((
                     if dry_run {
                         "blueprint.pipeline.validate"
@@ -655,9 +669,13 @@ fn request(
             params["id"] = json!(id);
             params["expect_version"] = json!(expect_version);
             let mut update = read_update(&from_file, cause.as_deref())?;
-            if let Some(note) = &note { update["note"] = json!(note); }
+            if let Some(note) = &note {
+                update["note"] = json!(note);
+            }
             if let Some(mut spec) = pipeline_update_spec(&update)? {
-                if let Some(note) = note { spec["note"] = json!(note); }
+                if let Some(note) = note {
+                    spec["note"] = json!(note);
+                }
                 params["spec"] = spec;
                 if let Some(cause) = cause {
                     params["cause"] = json!(cause);

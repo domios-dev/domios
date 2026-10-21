@@ -881,7 +881,9 @@ impl Store {
             .iter()
             .flat_map(|job| {
                 if job.machine.stopped {
-                    return super::cleanup::deletion_deadline(&self.jobs, job, &leased).into_iter().collect::<Vec<_>>();
+                    return super::cleanup::deletion_deadline(&self.jobs, job, &leased)
+                        .into_iter()
+                        .collect::<Vec<_>>();
                 }
                 let active = self.active.contains_key(&job.id);
                 let waiting_for_run =
