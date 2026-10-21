@@ -37,21 +37,10 @@ declaration, for example:
 codeterm plan facets set <plan> --facets "area:Area:settings;work:Work:frontend|backend|design|qa|infra|docs"
 ```
 
-On a plan declaring `work`, each `plan task add` must include exactly one
-`--tag work:<value>` from that set. Missing, repeated (including identical),
-unsupported, empty, whitespace-padded, and nested values are rejected before
-the new task is persisted. Other tags and facets keep their existing behavior;
-a plain topic tag `work` does not count as a facet value. `--owner`,
-`--executor-role`, and task titles never supply it. Choose the value from
-verified ownership; when ownership is ambiguous, ask the Orchestrator to
-classify first. To repair a legacy violation, propose replacing every offending
-work entry with exactly one allowed value while keeping unrelated tags, or leave
-it pending that decision.
-
-`codeterm plan doctor <plan> --kind quality` reports each legacy task violating
-this contract, including its tags' defect and an explicit repair. It never
-backfills tasks. Plans without `work` are unaffected. Batch upsert cannot create
-an untagged task under this declaration; use task add with an explicit tag.
+On a plan declaring `work`, each `plan task add` carries exactly one
+`--tag work:<value>` from that set, chosen from verified ownership; when
+ownership is ambiguous, ask the Orchestrator to classify first. `plan doctor`
+reports legacy violations with a repair.
 
 ## Your toolset
 
@@ -113,9 +102,7 @@ Effort lineage links use `codeterm effort link --from <plan> --to <plan> --rel
 ## Milestones & validation
 
 Tasks are not a flat list — group them into **milestones** and keep later work
-parked until it reaches the frontier. Lanes run focused checks; merged waves
-get one canonical batch, and the broad regression suite runs once on the release
-SHA.
+parked until it reaches the frontier.
 
 ```bash
 codeterm plan kinds set <plan> --kinds "build,integration,release"   # milestone-kind columns
@@ -202,4 +189,4 @@ Never require a lane in a task; checkout placement is the Orchestrator's call.
 When blocked or unclear on intent, ask the Orchestrator with what you already
 tried; uncertainty routed early is planning working.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

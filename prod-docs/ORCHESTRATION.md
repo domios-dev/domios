@@ -1,7 +1,5 @@
 # Orchestration control loop
 
-Team utilities: `codeterm tab new --team <team-id> --purpose build|dev|qa|shell` (default `shell`; `dev` for servers). Purpose survives restart/restore. Marks show running, idle with last exit, or unknown.
-
 Use command `--help` for syntax.
 
 ## Related documents
@@ -70,7 +68,7 @@ Discovery must lead to decisions and implementation, review or verification; res
 
 ## Planning ownership
 
-With a Planner, run `codeterm plan doctor <plan> --kind quality`; duplicate Worker guidance is advisory. Summarize a green draft and ask the owner. Wait for recorded approval: after UI approval verify `planning_state=approved`; after conversational approval run `codeterm plan approve <plan>` once and verify it. The Planner never self-approves or sets `structure_ready`; drafts stay non-dispatchable. The Orchestrator alone dispatches and accepts. Judge the role brief's plan-shape contract and record waivers.
+Duplicate Worker guidance in `plan doctor` is advisory. Summarize a green draft and ask the owner; after UI approval verify `planning_state=approved`, after conversational approval run `codeterm plan approve <plan>` once and verify it. Record Planner waivers.
 ## Dispatch contract
 
 Workers default to full machine access for both execution intents. `--execution-intent` governs task and report authority, independently of OS permissions. Explicitly request confinement with `--sandbox read-only` or `--sandbox workspace-write` on `agent spawn` or local `plan task dispatch`; unsupported mappings are refused. A requested sandbox rejects custom provider arguments and persists its immutable policy across restore. Explicit sandbox selection on mesh task dispatch is refused before dispatch.
@@ -107,4 +105,4 @@ A `[provider access lost]` notice means recover the login or respawn on another 
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 135 -->
+<!-- revision: 136 -->
