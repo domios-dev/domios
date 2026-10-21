@@ -85,7 +85,8 @@ fn curator_digest_is_bounded_stable_and_does_not_treat_waiting_as_activity() {
     }
     let first = digest::build("header", &sections);
     assert!(first.body.len() <= digest::MAX_DIGEST_BYTES);
-    assert!(first.body.contains("+20 more"));
+    assert!(first.body.contains("\ndecisions:\n"));
+    assert!(first.body.contains("+30 more"));
     for rows in sections.values_mut() {
         rows.reverse();
     }
