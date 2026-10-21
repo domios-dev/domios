@@ -17,7 +17,7 @@ async function main() {
   };
   assert.deepEqual(await fetchPlanControlLoop(api, "plan/one"), stored);
   assert.equal(calls[0].url, "http://localhost:7686/api/plans/plan%2Fone/control-loop");
-  await setPlanControlLoop(api, "plan/one", { mode: "heartbeat", heartbeat_interval_secs: 1800 });
+  assert.deepEqual(await setPlanControlLoop(api, "plan/one", { mode: "heartbeat", heartbeat_interval_secs: 1800 }), stored);
   assert.equal(calls[1].init?.method, "POST");
   assert.equal(new Headers(calls[1].init?.headers).get("X-CodeTerm-Plan-Confirmation"), "plan/one");
   assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { mode: "heartbeat", heartbeat_interval_secs: 1800 });

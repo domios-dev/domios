@@ -843,11 +843,15 @@ fn chatbackend_snapshot_from(
     since: usize,
     history_path: &std::path::Path,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    let from_disk = chatbackend_history::read_tail(history_path)
-        .unwrap_or_default()
-        .keep_last(snapshot_rows::SNAPSHOT_ROW_LIMIT);
+    let from_disk = match chatbackend_history::read_tail(history_path) {
+        Ok(window) => window,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            chatbackend_history::HistoryWindow::default()
+        }
+        Err(error) => return Err(error.to_string()),
+    }
+    .keep_last(snapshot_rows::SNAPSHOT_ROW_LIMIT);
     let all = if from_disk.messages.is_empty() && !from_disk.truncated() {
-        // cumulative transcript), exactly like the agent path.
         provider
             .poll(session_id, None)
             .map_err(|e| e.to_string())?
@@ -916,12 +920,12 @@ pub(crate) fn session_chat_window(
         .with_provider(provider_id, |p| p.session_file_path(cwd, session_id))
         .flatten()
         .ok_or("provider has no JSONL and no structured chat")?;
-    Ok(svc.chat_registry.tail_cache.jsonl_tail(
+    svc.chat_registry.tail_cache.jsonl_tail(
         &svc.agent_registry,
         provider_id,
         &path,
         &format!("session:{session_id}"),
-    ))
+    )
 }
 
 #[cfg(test)]
