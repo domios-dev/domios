@@ -39,9 +39,10 @@ it("reports update failures in a retryable toast without titlebar error text", a
   const trigger = () => host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
   try {
     await render();
-    expect(trigger().textContent).toContain("Updates");
-    expect(trigger().textContent).not.toContain("failed");
+    expect(trigger().textContent).toBe("");
+    expect(trigger().getAttribute("aria-label")).toBe("Update");
     expect(trigger().title).not.toContain("failed");
+    expect(trigger().querySelector('[role="status"]')).toBeNull();
     expect(host.querySelector('[data-testid="notification-toast"]')?.getAttribute("role")).toBe("status");
     expect(host.querySelector('[role="alert"]')).toBeNull();
     const retry = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Retry");
