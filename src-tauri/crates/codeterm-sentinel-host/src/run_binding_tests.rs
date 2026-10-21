@@ -62,6 +62,7 @@ fn insert_with_options(
         .into_iter()
         .collect()
     });
+    let index = store.lock().list().len();
     let job = store
         .lock()
         .prepare(
@@ -69,7 +70,7 @@ fn insert_with_options(
                 note: None,
                 terminal: None,
                 session: false,
-                name: Some("cron-run-watch".into()),
+                name: Some(format!("cron-run-watch-{index}")),
                 probe: None,
                 observe: Some(TabBinding::CronRun("cron-nightly".into())),
                 input: None,
