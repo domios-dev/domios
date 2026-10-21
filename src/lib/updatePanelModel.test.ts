@@ -55,3 +55,19 @@ assert.equal(channelRows.find(item => item.id === "teams-client")?.channelError,
 assert.equal(channelRows.find(item => item.id === "claude"), undefined);
 assert.deepEqual(availabilityIntent(updateableItems([failingChannelItem, healthyChannelItem, coreItem], channelErrors)).pluginIds, ["teams-client"]);
 console.log("failed channel isolation with one healthy channel and a silent core channel: 4 assertions passed");
+
+
+import { targetInstalled, updateRunRows } from "./updatePanelModel";
+const offered = panelItems([plugin, { ...plugin, id: "second" }]);
+const bulk = createUpdateIntent(offered);
+const external = [plugin, { ...plugin, id: "second" }].map(item => ({ ...item, installed: "2.0.0", state: "up_to_date" as const, reason: "same_version" }));
+assert.equal(targetInstalled(offered[0], external), true);
+assert.deepEqual(updateRunRows(offered, [], external, bulk, "plugin", {}).map(row => [row.state, row.alreadyCurrent]), [["completed", true], ["completed", true]]);
+assert.deepEqual(nextUpdateStep(bulk, "1.0.0", panelItems(external)), { kind: "complete" });
+assert.deepEqual(updateRunRows(offered, [], external, null, null, {}).map(row => row.state), ["completed", "completed"]);
+assert.deepEqual(updateRunRows(offered, offered, [plugin], bulk, "plugin", {}).map(row => row.state), ["active", "queued"]);
+console.log("concurrent external updates reach terminal states: 5 assertions passed");
+
+const newerOffer = [{ ...offered[0], currentVersion: "2.0.0", targetVersion: "3.0.0" }];
+assert.equal(updateRunRows([offered[0]], newerOffer, external, null, null, { plugin: "completed" })[0].state, "available");
+console.log("later offers remain actionable after a completed run: 1 assertion passed");
