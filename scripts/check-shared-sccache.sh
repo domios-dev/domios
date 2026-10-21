@@ -3,6 +3,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/cache-policy.sh"
+# A machine may pin its own cache choice and a gateway job its identity; the fixtures decide both.
+unset CODETERM_SCCACHE_STORAGE CODETERM_SCCACHE_JOB_LOCAL CT_BUILD_JOB_ID CT_GATEWAY_ACTIVE CT_GATEWAY_OWNER_PID CT_GATEWAY_PROCESS_START
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 export CT_BUILD_GATEWAY_SCOPE=fixture CT_BUILD_GATEWAY_FIXTURE_DIR="$WORK/gateway"
