@@ -255,9 +255,12 @@ it("shows explicit transport and update failures through the model with collapse
     expect(dialog.querySelector('[role="alert"]')).not.toBeNull();
     expect(dialog.querySelector("details")?.open).toBe(false);
     expect(dialog.querySelector("pre")?.textContent).toBe(String(failure));
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("InvalidJsonResponseError");
     fake.check.mockResolvedValue(snapshot);
     await act(async () => button("Check again").click());
     expect(dialog.querySelector('[role="alert"]')).toBeNull();
+    expect(dialog.querySelector('[aria-label="Update check result"]')?.textContent).toContain("Check complete");
+    expect(fake.install).not.toHaveBeenCalled();
     fake.check.mockRejectedValue(failure);
     await act(async () => button("Update all").click());
     expect(dialog.querySelector('[role="alert"]')).not.toBeNull();

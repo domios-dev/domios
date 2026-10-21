@@ -32,14 +32,15 @@ export function UpdatePanelContents() {
             </div>)}
           </section>
         ))}
-        {update.error && <InlineErrorNotice error={update.errorDetails ?? update.error} operation="updating Domios" blocking />}
+        {(update.checking || update.checkResult) && <div role="status" aria-label="Update check result">{update.checking ? "Checking for updates..." : update.checkResult}</div>}
+        {update.error && <InlineErrorNotice description={{ title: "Update could not complete", cause: update.errorDetails ?? update.error, actions: ["retry"], raw: update.errorDetails ?? update.error }} blocking />}
         {update.information.map(message => <div role="status" aria-label="Installed plugin ahead of channel" key={message} className="text-xs text-[var(--ct-muted)]">{message}</div>)}
         {update.diagnostics.map(({ channel, message }) => <div role="status" aria-label={`${channel} channel diagnostics`} key={channel} className="text-xs text-[var(--ct-muted)]">
           {channel === CORE_PLUGIN_CHANNEL ? `Core plugins: ${message} Bundled core plugins stay installed.` : `${channel}: ${message}`}
         </div>)}
         <div className="flex gap-2">
           <Button size="sm" variant="accent" disabled={update.busy || !update.items.some(item => !item.channelError)} onClick={() => void update.updateAll()} loading={update.busy}>Update all</Button>
-          <Button size="sm" disabled={update.busy && !update.error} onClick={() => void update.retry()}>Check again</Button>
+          <Button size="sm" disabled={update.checking || (update.busy && !update.error)} onClick={() => void update.retry()}>Check again</Button>
         </div>
       </div>
   );

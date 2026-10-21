@@ -79,8 +79,17 @@ pub async fn install_app_update(
             initiating_tab_id: None,
         },
     )
-    .await?;
-    Ok(serde_json::json!({ "status": outcome.discriminant() }))
+    .await
+    .inspect_err(|error| {
+        update_state.lock().set_error(error.clone());
+    })?;
+    Ok(
+        serde_json::json!({ "status": outcome.discriminant(), "message": match outcome {
+        codeterm_update::single_flight::UpdateRequestOutcome::AlreadyInFlight => "An update is already being applied.",
+        codeterm_update::single_flight::UpdateRequestOutcome::Applied(codeterm_update::apply::ApplyResult::NoUpdate) => "No update is available.",
+        _ => "The verified installer has started.",
+    } }),
+    )
 }
 
 #[tauri::command]

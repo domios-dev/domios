@@ -129,7 +129,7 @@ export function UpdateSection({ config, onUpdate }: {
         )}
 
         {!unified && error && (
-          <InlineErrorNotice error={error} operation="checking for updates" blocking />
+          <InlineErrorNotice description={{ title: "Update could not complete", cause: error, actions: ["retry"], raw: error }} blocking />
         )}
 
         {updateAvailable && releaseNotes && releaseNotes.trim().length > 0 && (

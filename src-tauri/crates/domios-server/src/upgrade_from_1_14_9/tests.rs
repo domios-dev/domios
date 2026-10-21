@@ -565,3 +565,39 @@ fn secret_file_migration_moves_namespaces_and_legacy_service_files() {
     assert!(items.get(OLD_LOCAL_SERVICE, "api-token").unwrap().is_none());
     assert!(!legacy_directory.join("codeterm-secrets.json").exists());
 }
+
+#[test]
+fn upgrade_from_1_14_9_accepts_unlocked_provider_update_lock() {
+    let fixture = fixture(STORAGE_SCHEMA_VERSION);
+    std::fs::create_dir_all(&fixture.new).unwrap();
+    std::fs::write(fixture.new.join("provider-update.lock"), b"obsolete pid").unwrap();
+    let (owner, notices) = run(fixture.identity, &fixture.registry).unwrap();
+    assert!(fixture.new.join("sentinel.bin").exists());
+    assert!(!fixture.old.exists());
+    assert!(!fixture.new.join("provider-update.lock").exists());
+    assert!(notices.is_empty());
+    drop(owner);
+    let _ = std::fs::remove_dir_all(&fixture.registry);
+}
+
+#[test]
+fn upgrade_from_1_14_9_refuses_locked_provider_update_lock() {
+    let fixture = fixture(STORAGE_SCHEMA_VERSION);
+    std::fs::create_dir_all(&fixture.new).unwrap();
+    let path = fixture.new.join("provider-update.lock");
+    let lock = std::fs::OpenOptions::new()
+        .create_new(true)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    lock.lock().unwrap();
+    let error = run(fixture.identity, &fixture.registry)
+        .err()
+        .expect("active lock must refuse relocation");
+    assert!(error.to_string().contains("provider-update.lock"));
+    assert!(fixture.old.join("sentinel.bin").exists());
+    assert!(path.exists());
+    drop(lock);
+    let _ = std::fs::remove_dir_all(&fixture.registry);
+}

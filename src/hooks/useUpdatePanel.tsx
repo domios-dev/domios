@@ -37,6 +37,8 @@ function useUpdatePanelController() {
   const [error, setError] = useState<UpdateFailure | null>(null);
   const [starting, setStarting] = useState(false);
   const [ready, setReady] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<string | null>(null);
   const running = useRef(false);
   const offer = useSyncExternalStore(subscribeFrontendUpdateOffer, frontendUpdateOffer, () => null);
   const status = classifyUpdateStatus(snapshot);
@@ -136,9 +138,10 @@ function useUpdatePanelController() {
       save(next);
       if (next.appTarget) {
         const result = await app.applyUpdate({ failureSurface: "inline" });
-        if (!result) throw new Error("App update failed");
+        if (!result) throw new Error(app.error ?? "App update failed");
+        if (result.status !== "updating") save(null);
       }
-    } catch (failure) { setError(classifyUpdateFailure("update", failure)); }
+    } catch (failure) { save(null); setError(classifyUpdateFailure("update", failure)); }
     finally { running.current = false; setStarting(false); }
   };
 
@@ -152,23 +155,32 @@ function useUpdatePanelController() {
     setError(null);
     try {
       save(availabilityIntent([item]));
-      if (item.kind === "app" && !await app.applyUpdate({ failureSurface: "inline" })) throw new Error("App update failed");
-    } catch (failure) { setError(classifyUpdateFailure("update", failure)); }
+      if (item.kind === "app") {
+        const result = await app.applyUpdate({ failureSurface: "inline" });
+        if (!result) throw new Error(app.error ?? "App update failed");
+        if (result.status !== "updating") save(null);
+      }
+    } catch (failure) { save(null); setError(classifyUpdateFailure("update", failure)); }
     finally { running.current = false; setStarting(false); }
   };
 
   const retry = async () => {
+    if (checking) return;
+    setChecking(true);
+    setCheckResult(null);
     setError(null);
     try {
       const fresh = await refresh(true);
-      const host = fresh.items.find(item => item.kind === "app")?.installed;
-      if (intent?.stage === "app" && host !== intent.appTarget && !await app.applyUpdate({ failureSurface: "inline" })) {
-        throw new Error("App update failed");
-      }
+      const available = updateableItems(fresh.items, classifyUpdateStatus(fresh).errors);
+      const failures = Object.keys(fresh.errors).length;
+      setCheckResult(failures
+        ? `Check finished with ${failures} unavailable update source(s).`
+        : available.length ? `Check complete: ${available.length} update(s) available.` : "Check complete: everything is up to date.");
     } catch (failure) { setError(classifyUpdateFailure("check", failure)); }
+    finally { setChecking(false); }
   };
 
-  return { snapshot, items, information: status.information, diagnostics, busy: starting || intent !== null || app.installing, error: error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null),
+  return { snapshot, items, checking, checkResult, information: status.information, diagnostics, busy: starting || intent !== null || app.installing, error: error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null),
     errorDetails: error ? [error.details, app.error].filter(Boolean).join("\n") : app.error,
     updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id)) };
 }
