@@ -47,6 +47,7 @@ pub mod codex_rpc;
 mod command_port_impl;
 pub mod context_feed;
 pub mod cron;
+pub mod curator;
 pub mod delivery_error;
 pub mod general_agent;
 pub mod health;
