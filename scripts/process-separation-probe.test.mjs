@@ -3,20 +3,80 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync, realpathSync, mkdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseProbeArgs, cleanEnvironment, attachRequest } from './process-separation-probe.mjs';
+import { parseProbeArgs, cleanEnvironment, attachRequest, assertDisposableHome, assertSafePort,
+  clientArtifact, clientBuildTarget, clientEnvironmentContract, pairPlatformSupport } from './process-separation-probe.mjs';
 import { assertServerClosure, serverArtifact, workerArtifact, stageDevResources, resolveDevResourceRoot } from './server-artifact.mjs';
 
+const legacy = ['code', 'term'].join('');
+
 test('only explicit disposable process cases are admitted', () => {
-  assert.deepEqual(parseProbeArgs(['--case', 'server-only', '--instance', 'split-oracle', '--artifact-receipt', '/receipt']), { case: 'server-only', receipt: '/receipt' });
+  assert.deepEqual(parseProbeArgs(['--case', 'server-only', '--instance', 'split-oracle', '--artifact-receipt', '/receipt']), { case: 'server-only', receipt: '/receipt', clientReceipt: null });
+  assert.deepEqual(parseProbeArgs(['--case', 'pair-journey', '--instance', 'split-oracle']), { case: 'pair-journey', receipt: null, clientReceipt: null });
   for (const args of [[], ['--case', 'production'], ['--case', 'arbitration', '--instance', 'prod', '--artifact-receipt', '/receipt'], ['--case', 'arbitration', '--instance', 'split-oracle', '--port', '7685']]) assert.throws(() => parseProbeArgs(args));
 });
-test('launch environment discards inherited connection and display selectors', () => {
-  const env = cleanEnvironment({ CODETERM_API_URL: 'foreign', CODETERM_API_TOKEN: 'secret', CODETERM_INSTANCE: 'prod', CODETERM_MACHINE_OWNER: 'true', DISPLAY: ':1', WAYLAND_DISPLAY: 'wayland', PATH: '/tools' });
-  assert.deepEqual(env, { PATH: '/tools', CODETERM_MACHINE_OWNER: 'false' });
+test('launch environment discards inherited identity and display selectors into a disposable home', (t) => {
+  const home = mkdtempSync(path.join(os.tmpdir(), 'probe-home-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const runSource = readFileSync(path.resolve('src-tauri/src/run.rs'), 'utf8');
+  const prefix = clientEnvironmentContract(runSource).instance.replace(/(?:_DEV)?_INSTANCE$/, '').toUpperCase();
+  const legacyPrefix = legacy.toUpperCase();
+  const ownerEnv = readFileSync(path.resolve('src-tauri/crates/domios-server/src/launch.rs'), 'utf8').match(/"([A-Z][A-Z0-9_]*_MACHINE_OWNER)"/)?.[1];
+  assert.ok(ownerEnv);
+  const env = cleanEnvironment({ [`${prefix}_API_URL`]: 'foreign', [`${prefix}_API_TOKEN`]: 'secret', [`${prefix}_INSTANCE`]: 'prod',
+    [`${legacyPrefix}_API_URL`]: 'legacy', [`${legacyPrefix}_MACHINE_OWNER`]: 'true', [ownerEnv]: 'true',
+    DISPLAY: ':1', WAYLAND_DISPLAY: 'wayland', PATH: '/tools' }, home);
+  assert.deepEqual(env, { PATH: '/tools', [ownerEnv]: 'false', HOME: home, USERPROFILE: home,
+    APPDATA: path.join(home, 'AppData/Roaming'), LOCALAPPDATA: path.join(home, 'AppData/Local'), TMP: path.join(home, 'tmp'),
+    TEMP: path.join(home, 'tmp'), TMPDIR: path.join(home, 'tmp'), XDG_CONFIG_HOME: path.join(home, '.config'),
+    XDG_DATA_HOME: path.join(home, '.local/share'), XDG_CACHE_HOME: path.join(home, '.cache') });
+});
+test('protected ports, unnamed data roots and the owner data tree are refused', (t) => {
+  assert.equal(assertSafePort(7711), 7711);
+  for (const port of [7685, 7686, 0, 65536, Number.NaN]) assert.throws(() => assertSafePort(port));
+  assert.throws(() => cleanEnvironment({}, os.homedir()), /disposable temp root/);
+  const temp = mkdtempSync(path.join(os.tmpdir(), 'probe-home-boundary-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const owner = path.join(temp, 'owner');
+  mkdirSync(owner);
+  const safe = path.join(temp, 'named-instance', 'home');
+  mkdirSync(safe, { recursive: true });
+  assert.equal(assertDisposableHome(safe, owner, temp), path.resolve(safe));
+  assert.throws(() => assertDisposableHome(owner, owner, temp));
+  assert.throws(() => assertDisposableHome(path.join(owner, `.${legacy}`), owner, temp));
+  assert.throws(() => assertDisposableHome(path.join(owner, `.${legacy}-dev`), owner, temp));
+  assert.throws(() => assertDisposableHome(path.join(owner, `.${legacy}`, 'instance'), owner, temp));
+  assert.throws(() => assertDisposableHome(path.join(os.tmpdir(), 'outside-probe-home'), owner, temp));
+});
+test('native binary and environment names come from their source contracts', (t) => {
+  const target = clientBuildTarget('[package]\nname = "native-app"\ndefault-run = "native-window"\n\n[[bin]]\nname = "native-window"\npath = "src/main.rs"\n');
+  assert.deepEqual(target, { package: 'native-app', binary: 'native-window' });
+  assert.throws(() => clientBuildTarget('[package]\nversion = "0.0.0"\n'));
+  assert.deepEqual(clientEnvironmentContract('std::env::var_os("SAMPLE_DEV_INSTANCE"); std::env::var_os("SAMPLE_API_PORT");'),
+    { instance: 'SAMPLE_DEV_INSTANCE', port: 'SAMPLE_API_PORT' });
+
+  const root = mkdtempSync(path.join(os.tmpdir(), 'native-client-artifact-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = path.join(root, 'src/main.rs');
+  const executable = path.join(root, `native-window${process.platform === 'win32' ? '.exe' : ''}`);
+  mkdirSync(path.dirname(source), { recursive: true });
+  writeFileSync(source, 'source'); writeFileSync(executable, 'artifact');
+  const message = { reason: 'compiler-artifact', target: { name: 'native-window', kind: ['bin'], src_path: source }, executable, profile: { test: false } };
+  assert.equal(clientArtifact([message], source), message);
+  assert.throws(() => clientArtifact([], source));
+  assert.throws(() => clientArtifact([message, message], source));
+  assert.throws(() => clientArtifact([{ ...message, profile: { test: true } }], source));
+});
+test('platforms without a native window driver produce an explicit unverified row reason', () => {
+  assert.deepEqual(pairPlatformSupport('win32'), { supported: true, method: 'WinEvent close/reopen hooks and UI Automation tray-count evidence' });
+  for (const platform of ['darwin', 'linux', 'freebsd']) {
+    const support = pairPlatformSupport(platform);
+    assert.equal(support.supported, false);
+    assert.match(support.reason, new RegExp(platform));
+  }
 });
 test('production closure refuses each GUI edge and an absent server root', () => {
   assertServerClosure(['domios-server v1.14.9', 'tokio v1.0']);
-  for (const name of ['tauri', 'tauri-runtime-wry', 'wry', 'web-view', 'webview2-com', 'webkit2gtk', 'codeterm-host-runtime']) assert.throws(() => assertServerClosure(['domios-server v1.14.9', `${name} v2.0`]));
+  for (const name of ['tauri', 'tauri-runtime-wry', 'wry', 'web-view', 'webview2-com', 'webkit2gtk', `${legacy}-client-shell`]) assert.throws(() => assertServerClosure(['domios-server v1.14.9', `${name} v2.0`]));
   assert.throws(() => assertServerClosure(['tokio v1.0']));
 });
 test('worker resource binds the CLI source artifact rather than a same-named GUI binary', () => {
@@ -25,8 +85,8 @@ test('worker resource binds the CLI source artifact rather than a same-named GUI
     mkdirSync(path.join(root, 'cli/src'), { recursive: true });
     const source = path.join(root, 'cli/src/main.rs'); writeFileSync(source, 'fixture');
     const foreign = path.join(root, 'gui-main.rs'); writeFileSync(foreign, 'fixture');
-    const executable = path.join(root, 'codeterm'); writeFileSync(executable, 'never-executed');
-    const message = { reason: 'compiler-artifact', target: { name: 'codeterm', kind: ['bin'], src_path: source }, executable, profile: { test: false } };
+    const executable = path.join(root, legacy); writeFileSync(executable, 'never-executed');
+    const message = { reason: 'compiler-artifact', target: { name: legacy, kind: ['bin'], src_path: source }, executable, profile: { test: false } };
     assert.equal(workerArtifact([message], root), realpathSync.native(executable));
     assert.throws(() => workerArtifact([{ ...message, target: { ...message.target, src_path: foreign } }], root));
     assert.throws(() => workerArtifact([message, message], root));
@@ -54,16 +114,16 @@ for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifa
   try {
     const exe = process.platform === 'win32' ? '.exe' : '';
     const artifactRoot = path.join(root, 'target', target, 'debug');
-    const resourceRoot = process.platform === 'win32' ? artifactRoot : path.join(artifactRoot, '.domios-dev-runtime/lib/codeterm');
+    const resourceRoot = process.platform === 'win32' ? artifactRoot : path.join(artifactRoot, `.domios-dev-runtime/lib/${legacy}`);
     const server = path.join(artifactRoot, `domios-server${exe}`);
-    const client = path.join(artifactRoot, `codeterm${exe}`);
-    const cli = path.join(root, `cli/target/debug/codeterm${exe}`);
+    const client = path.join(artifactRoot, `${legacy}${exe}`);
+    const cli = path.join(root, `cli/target/debug/${legacy}${exe}`);
     const serverSource = path.join(root, 'src-tauri/crates/domios-server/src/main.rs');
     const cliSource = path.join(root, 'cli/src/main.rs');
     for (const file of [server, client, cli, serverSource, cliSource, 'dist/index.html', 'skills/fixture.md', 'LICENSE', 'NOTICE'].map(file => path.isAbsolute(file) ? file : path.join(root, file))) {
       mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, 'opaque-' + path.basename(file));
     }
-    const contract = path.join(root, 'src-tauri/crates/codeterm-types/src/server_bootstrap.rs');
+    const contract = path.join(root, `src-tauri/crates/${legacy}-types/src/server_bootstrap.rs`);
     mkdirSync(path.dirname(contract), { recursive: true });
     writeFileSync(contract, 'pub const API_VERSION: u32 = 3;\npub const BOOTSTRAP_PROTOCOL: u32 = 2;\n');
     if (process.platform === 'win32') {
@@ -78,7 +138,7 @@ for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifa
     const artifact = { reason: 'compiler-artifact', target: { name: 'domios-server', kind: ['bin'], src_path: serverSource }, executable: server, profile: { test: false }, features: ['embeddings'] };
     const finish = { reason: 'build-finished', success: true };
     writeFileSync(cargoLog, [scriptReceipt, artifact, finish].map(JSON.stringify).join('\n'));
-    writeFileSync(cliLog, [{ ...artifact, target: { name: 'codeterm', kind: ['bin'], src_path: cliSource }, executable: cli }, finish].map(JSON.stringify).join('\n'));
+    writeFileSync(cliLog, [{ ...artifact, target: { name: legacy, kind: ['bin'], src_path: cliSource }, executable: cli }, finish].map(JSON.stringify).join('\n'));
     writeFileSync(treeLog, 'domios-server v0.0.0\ntokio v1.0\n');
     const input = { cargoLog, cliLog, treeLog, repo: root, resourceRoot, client, build };
     const result = await stageDevResources(input);

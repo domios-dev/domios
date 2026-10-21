@@ -178,6 +178,9 @@ const HTML_REHYPE_PLUGINS = [
 
 const LINE_BREAK_REHYPE_PLUGINS = [rehypeMarkdownLineBreaks] as unknown as RehypePlugins;
 
+// Read by renderers instead of captured, so component identities survive streamed text and the DOM is reconciled, not remounted.
+const MarkdownSourceContext = React.createContext("");
+
 
 export function RichMarkdown({
   text,
@@ -224,11 +227,12 @@ export function RichMarkdown({
           <h6 className="text-xs font-semibold mt-1 mb-0.5" style={{ color: "var(--ct-muted-fg)" }} {...props} />
         ),
         p: ({ node, children, ...props }) => {
+          const source = useContext(MarkdownSourceContext);
           const textChild = React.Children.toArray(children).every((child) => typeof child === "string")
             ? React.Children.toArray(children).join("")
             : null;
-          const directiveSource = sourceForStandaloneLine(renderedText, node) ?? textChild;
-          const blockSource = localArtifacts ? sourceForStandaloneLine(renderedText, node) : null;
+          const directiveSource = sourceForStandaloneLine(source, node) ?? textChild;
+          const blockSource = localArtifacts ? sourceForStandaloneLine(source, node) : null;
           const blocks = blockSource ? parseChatBlocks(blockSource) : null;
           if (blocks) {
             return <>{blocks.map((block, index) => <React.Fragment key={`${index}:${block.source}`}>{block.render()}</React.Fragment>)}</>;
@@ -343,7 +347,7 @@ export function RichMarkdown({
           />
         ),
     }),
-    [fontScale, h1Text, h2Text, h3Text, localArtifacts, renderedText],
+    [fontScale, h1Text, h2Text, h3Text, localArtifacts],
   );
   const splitParts = parts && parts.length > 1 ? parts : null;
   const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, sourcePositions, splitParts ? partContext?.id ?? null : null]);
@@ -359,7 +363,7 @@ export function RichMarkdown({
       children: renderedText,
     }));
   }, [cacheKey, renderedText, rehypePlugins, splitParts, components]);
-  return rendered;
+  return <MarkdownSourceContext.Provider value={renderedText}>{rendered}</MarkdownSourceContext.Provider>;
 }
 
 const REMARK_PLUGINS = [remarkGfm, remarkCachedParse, remarkBareDomains, remarkCodeMetadata];

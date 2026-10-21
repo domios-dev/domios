@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 export function logLines(directory) {
   const lines = [];
-  for (const name of readdirSync(directory).filter((name) => /^codeterm.*\.log(?:\.\d+)?$/.test(name)).sort()) {
+  for (const name of readdirSync(directory).filter((name) => /^domios.*\.log(?:\.\d+)?$/.test(name)).sort()) {
     for (const line of readFileSync(join(directory, name), "utf8").split("\n")) {
       if (line) lines.push(line);
     }

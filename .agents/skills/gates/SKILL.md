@@ -5,7 +5,7 @@ description: Run Domios's verification gates without burning a session on them. 
 
 # Gates
 
-Workers never run or attempt Rust tests, `check-queue`, `nextest`, `test-one` or Clippy; list canonical selectors under GATES REQUESTED. One `./build.sh lane-check <package>... [--tests]` call type-checks all touched library crates; run changed TS/JS test files and `tsc` when TS changes in the lane. Full or reverse-dependency regressions run only in the Orchestrator's single release run. The build guard requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. It reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
+Workers run the focused `test-one` and Clippy commands their dispatch grants (`--authorized-gate`), queued with `--wait-build`, and report the results with their SHA; they never run `check-queue`, `nextest` or regressions. A Worker without a grant lists its selectors, and the Orchestrator runs them with the results sent straight to the Worker's tab. One `./build.sh lane-check <package>... [--tests]` call type-checks all touched library crates; run changed TS/JS test files and `tsc` when TS changes in the lane. Full or reverse-dependency regressions run only in the Orchestrator's single release run. The build guard requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. It reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
 
 For file-backed QA summaries and agent-tab delivery, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
 
@@ -56,6 +56,16 @@ node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a
 
 Run these from the PowerShell tool directly. They are short enough to read.
 
+`test-one app` runs only the server library `codeterm-service-core`. After the
+thin-client split, the client package `codeterm` (`src-tauri/src`, for example
+`run.rs` and `startup/`) runs through `test-one shell`, and each client crate
+through its package scope: `test-one codeterm-client-shell <filter>`,
+`test-one codeterm-frontend-shell <filter>`. A filtered `test-one` whose run
+passes no test (no match, every match ignored, or no summary) exits 97 in every
+scope, archived or compiled; rerun with the owning scope, never accept the zero.
+The app scope runs a cached test archive only when the checkout is clean and
+its tree equals the archive's `.source-tree` receipt; otherwise it compiles.
+
 In a Worker lane, run `./build.sh fmt` once per batch, then one verification pass: one multi-package `./build.sh lane-check <package>... [--tests]` call, changed TS/JS tests and `tsc` when TS changes, plus guards. On failure, fix all reported errors and recheck only what failed. The formatter scopes rustfmt and Biome safe fixes to changed files. The lane-check helper selects the shared cache only inside its subshell: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`); Cargo's lock serializes checks without a gateway slot. Canonical/gateway build directories and per-worktree targets remain separate. List canonical selectors under GATES REQUESTED.
 
 ## Check before tests
@@ -101,8 +111,8 @@ before cutting** — never per merge.
 
 The release Rust set is every `release`-tier Rust runner in
 `tests/catalogue.json` (`node scripts/test-catalogue.mjs select --tier release`):
-every src-tauri workspace member, the shell package as its lib plus
-`src-tauri/tests/main.rs`, `crates/mem-store` and the CLI.
+every src-tauri workspace member, the shell package as its lib, the
+`codeterm-devtools` `tests/main.rs` target, `crates/mem-store` and the CLI.
 `codeterm-paths` is a normal app workspace member. `pty-fork` stays `manual`. Preflight runs it
 through `./build.sh release-rust [runner-id...]`, which runs each runner's
 `./build.sh nextest <scope>` with its `budget_secs` as the cap, keeps going past

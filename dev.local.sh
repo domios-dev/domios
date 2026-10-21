@@ -42,7 +42,7 @@ start_dev() {
 }
 
 wait_for_api() {
-    local logfile="$USERPROFILE/.codeterm-dev/logs/codeterm.log"
+    local logfile="$USERPROFILE/.domios-dev/logs/domios.log"
     echo "Waiting for REST API..."
     for i in $(seq 1 90); do
         if [ -f "$logfile" ] && grep -q "REST API listening" "$logfile" 2>/dev/null; then

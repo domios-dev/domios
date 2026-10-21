@@ -5,8 +5,9 @@ import { test } from "node:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { TransportError } from "../../lib/transportClient";
-import type { ProviderDescriptor } from "../../lib/types";
+import type { Notification, ProviderDescriptor } from "../../lib/types";
 import { __setModelCatalogueRefreshApiForTest } from "../../lib/modelCatalogueRefresh";
+import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import { __setTabModelApiForTest } from "../Sidebar/tabModelApi";
 import { readPickerShowAll, writePickerShowAll } from "./statusLinePickerPreference";
 import { StatusLineModelPicker } from "./StatusLineModelPicker";
@@ -354,7 +355,7 @@ test("a provider without live switching renders plain text with a reason", async
 
 test("refresh asks the provider's catalogue once and escape returns focus", async () => {
   const refreshed: string[] = [];
-  __setModelCatalogueRefreshApiForTest({ refresh: async (id) => { refreshed.push(id); return true; } });
+  __setModelCatalogueRefreshApiForTest({ refresh: async (id) => { refreshed.push(id); return { refreshed: true }; } });
   const view = await mount(descriptor("live"));
   try {
     await act(async () => view.trigger()!.click());
@@ -367,6 +368,42 @@ test("refresh asks the provider's catalogue once and escape returns focus", asyn
   } finally {
     await view.unmount();
     __setModelCatalogueRefreshApiForTest(null);
+  }
+});
+
+test("a failed refresh raises a copyable toast and keeps the picker usable", async () => {
+  __setModelCatalogueRefreshApiForTest({ refresh: async () => ({ refreshed: false, reason: "opaque-reason" }) });
+  const copied: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { copied.push(text); } } });
+  toasts.length = 0;
+  const view = await mount(descriptor("live"));
+  try {
+    await act(async () => view.trigger()!.click());
+    await act(async () => document.body.querySelector<HTMLButtonElement>('button[aria-label="Refresh models"]')!.click());
+    assert.equal(document.body.querySelector('[role="alert"]'), null);
+    assert.ok(view.picker()!.querySelectorAll('[role="option"]').length > 0);
+    assert.equal(toasts.length, 1);
+    assert.equal(toasts[0].body, null);
+    assert.doesNotMatch(toasts[0].title, /opaque-reason/);
+    const toastHost = document.createElement("div");
+    document.body.append(toastHost);
+    const toastRoot = createRoot(toastHost);
+    await act(async () => toastRoot.render(
+      <NotificationToastContainer toasts={[{ ...(toasts[0] as unknown as Notification), timestamp: 0, read: false }]} onDismiss={() => undefined} />,
+    ));
+    const copy = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button")).filter((button) => button.textContent === "Copy");
+    assert.equal(copy.length, 1);
+    await act(async () => copy[0].click());
+    assert.deepEqual(copied, ["opaque-reason"]);
+    await act(async () => toastRoot.unmount());
+    toastHost.remove();
+  } finally {
+    await view.unmount();
+    __setModelCatalogueRefreshApiForTest(null);
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else delete (navigator as { clipboard?: unknown }).clipboard;
+    toasts.length = 0;
   }
 });
 

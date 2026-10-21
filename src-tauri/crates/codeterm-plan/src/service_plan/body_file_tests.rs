@@ -404,7 +404,7 @@ fn task_stride_log_hydrates_when_inline_milestones_are_missing() {
         .unwrap();
     let json_path = dir
         .path()
-        .join(format!(".codeterm/plans/active/{}/plan.json", plan.id));
+        .join(format!(".domios/plans/active/{}/plan.json", plan.id));
     let mut disk_plan: Plan =
         serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
     disk_plan.tasks[0].milestones.clear();
@@ -464,7 +464,7 @@ fn inline_and_stride_log_milestones_dedupe_deterministically() {
     other.text = "other sidecar stride".into();
     other.ts = 20;
     let stride_log_path = dir.path().join(format!(
-        ".codeterm/plans/active/{}/tasks/build/strides.jsonl",
+        ".domios/plans/active/{}/tasks/build/strides.jsonl",
         plan.id
     ));
     crate::service_plan::stride_log::append_milestone(&stride_log_path, &older).unwrap();
@@ -521,7 +521,7 @@ fn save_preserves_existing_sidecar_only_stride_entries() {
     sidecar_only.text = "manual sidecar-only stride".into();
     sidecar_only.ts = 4;
     let stride_log_path = dir.path().join(format!(
-        ".codeterm/plans/active/{}/tasks/build/strides.jsonl",
+        ".domios/plans/active/{}/tasks/build/strides.jsonl",
         plan.id
     ));
     crate::service_plan::stride_log::append_milestone(&stride_log_path, &sidecar_only).unwrap();
@@ -552,7 +552,7 @@ fn save_preserves_existing_sidecar_only_stride_entries() {
     let raw_plan: Plan = serde_json::from_str(
         &std::fs::read_to_string(
             dir.path()
-                .join(format!(".codeterm/plans/active/{}/plan.json", plan.id)),
+                .join(format!(".domios/plans/active/{}/plan.json", plan.id)),
         )
         .unwrap(),
     )
@@ -600,7 +600,7 @@ fn ordinary_save_preserves_external_stride_append_after_stale_snapshot() {
     external.text = "external append during save".into();
     external.ts = 4;
     let stride_log_path = dir.path().join(format!(
-        ".codeterm/plans/active/{}/tasks/build/strides.jsonl",
+        ".domios/plans/active/{}/tasks/build/strides.jsonl",
         plan.id
     ));
     crate::service_plan::stride_log::append_milestone(&stride_log_path, &external).unwrap();

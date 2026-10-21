@@ -265,11 +265,25 @@ fn is_user_codeterm_directory(path: &Path, home: &Path) -> bool {
     relative.components().any(|component| {
         let name = component.as_os_str().to_string_lossy();
         if cfg!(windows) {
-            name.to_ascii_lowercase().starts_with(".codeterm")
+            let name = name.to_ascii_lowercase();
+            name.starts_with(".domios") || name.starts_with(".codeterm")
         } else {
-            name.starts_with(".codeterm")
+            name.starts_with(".domios") || name.starts_with(".codeterm")
         }
     })
+}
+
+pub const DIAGNOSTIC_LINE_CHARS: usize = 480;
+
+/// A bootstrap child that refuses before its logger exists leaves its cause only on stderr.
+pub fn last_diagnostic_line(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes);
+    let line = text
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    Some(line.chars().take(DIAGNOSTIC_LINE_CHARS).collect())
 }
 
 #[cfg(test)]

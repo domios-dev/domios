@@ -31,6 +31,8 @@ codeterm-wire = { path = "../codeterm-wire" }
 codeterm-decision = { path = "../codeterm-decision" }
 codeterm-events = { path = "../codeterm-events" }
 codeterm-util = { path = "../codeterm-util" }
+codeterm-update = { path = "../codeterm-update" }
+codeterm-frontend-shell = { path = "../codeterm-frontend-shell" }
 codeterm-mesh = { path = "../codeterm-mesh" }
 codeterm-mem = { path = "../codeterm-mem", default-features = false }
 codeterm-plan = { path = "../codeterm-plan" }
@@ -55,7 +57,6 @@ futures-util = "0.3"
 http-body = "1"
 cron = "0.13"
 chrono = { version = "0.4", features = ["serde"] }
-semver = "1"
 url = "2"
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
 regex = "1"

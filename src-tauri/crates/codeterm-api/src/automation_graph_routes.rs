@@ -386,7 +386,7 @@ mod tests {
                     .file_name()
                     .unwrap()
                     .to_string_lossy()
-                    .starts_with(".codeterm-dev-sentinel-graph-test-"));
+                    .starts_with(".domios-dev-sentinel-graph-test-"));
                 let (mut mux, _) =
                     codeterm_service_core::multiplexer::state::MultiplexerState::new();
                 let workspace = mux.snapshot().active_workspace_id.unwrap();
@@ -424,19 +424,17 @@ mod tests {
                     )),
                     cron_wake: Arc::new(std::sync::Condvar::new()),
                     api_port: 0,
-                    update_state: Arc::new(parking_lot::Mutex::new(
-                        codeterm_commands::update::UpdateState {
-                            install_method: codeterm_commands::update::InstallMethod::Unknown,
-                            last_check: None,
-                            last_check_time: None,
-                            channel: config.updater.channel.clone(),
-                            phase: codeterm_commands::update::UpdatePhase::Idle,
-                            last_error: None,
-                            phase_changed_at: None,
-                            downloaded_bytes: 0,
-                            download_total_bytes: None,
-                        },
-                    )),
+                    update_state: Arc::new(parking_lot::Mutex::new(codeterm_update::UpdateState {
+                        install_method: codeterm_update::InstallMethod::Unknown,
+                        last_check: None,
+                        last_check_time: None,
+                        channel: config.updater.channel.clone(),
+                        phase: codeterm_update::UpdatePhase::Idle,
+                        last_error: None,
+                        phase_changed_at: None,
+                        downloaded_bytes: 0,
+                        download_total_bytes: None,
+                    })),
                     config: Arc::new(parking_lot::Mutex::new(config)),
                     mesh: Arc::new(parking_lot::Mutex::new(mesh)),
                     keepawake: Arc::new(parking_lot::Mutex::new(None)),

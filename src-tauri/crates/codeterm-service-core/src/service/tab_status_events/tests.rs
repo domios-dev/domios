@@ -158,7 +158,6 @@ fn service_completion_publishes_idle_without_duplicate_events() {
     assert!(status_payloads(&mut receiver, Some(service)).is_empty());
     assert_eq!(service.get_tab_status(&tab_id).unwrap().status, "idle");
     assert!(service.mark_agent_turn_complete(&tab_id));
-    wait_for_mux_snapshot(&mux_rx);
     assert!(status_payloads(&mut receiver, Some(service)).is_empty());
 }
 

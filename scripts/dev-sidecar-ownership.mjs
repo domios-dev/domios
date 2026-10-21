@@ -4,7 +4,7 @@ import path from 'node:path';
 export function ownedSidecar(command, dataDir, platform = process.platform) {
   const paths = platform === 'win32' ? path.win32 : path.posix;
   const root = paths.resolve(dataDir);
-  if (!/^\.codeterm-dev(?:-[a-zA-Z0-9_-]+)?$/.test(paths.basename(root))) return false;
+  if (!/^\.domios-dev(?:-[a-zA-Z0-9_-]+)?$/.test(paths.basename(root))) return false;
   if (!/(?:^|[\s/\\])codex(?:\.js|\.exe)?["']?\s+app-server(?:\s|$)/.test(command)) return false;
   const normalize = value => platform === 'win32' ? paths.normalize(value).replaceAll('\\', '/').toLowerCase() : paths.normalize(value);
   const tokenRoot = normalize(paths.join(root, 'codex-rpc')) + '/';

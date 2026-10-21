@@ -68,18 +68,30 @@ pub fn run(
     options: LaunchOptions,
     acknowledge: impl FnOnce(&ServerReady, Option<&str>) -> io::Result<()>,
 ) -> io::Result<()> {
-    if !matches!(
+    let job = if matches!(
         &options.instance,
         codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
     ) {
-        crate::launch::ensure_detached()?;
-    }
+        None
+    } else {
+        Some(crate::launch::ensure_detached()?)
+    };
     crate::launch::install_selectors(&options)?;
     let identity = crate::launch::verify_identity(&options, ResolvedInstancePaths::current()?)?;
-    let owner = Box::leak(Box::new(PathOwnership::try_acquire(
-        identity.clone(),
-        &ownership_registry_for(&options, &identity)?,
-    )?));
+    let isolated = matches!(
+        &options.instance,
+        codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
+    );
+    let ownership_registry = ownership_registry_for(&options, &identity)?;
+    let (owner, relocation_notices) = if isolated {
+        (
+            PathOwnership::try_acquire(identity.clone(), &ownership_registry)?,
+            Vec::new(),
+        )
+    } else {
+        crate::upgrade_from_1_14_9::run(identity.clone(), &ownership_registry)?
+    };
+    let owner = Box::leak(Box::new(owner));
     let process = process::own()?;
     let provenance = process.provenance()?;
     let resources = options.resources.canonicalize()?;
@@ -140,6 +152,9 @@ pub fn run(
     };
     codeterm_service_core::crash::install();
     crate::startup::setup_logging();
+    if job == Some(crate::launch::JobMembership::SurvivesLauncher) {
+        log::info!("[bootstrap] server runs inside a job object that survives its launcher");
+    }
     note(&mut audit, "crash")?;
     codeterm_service_core::crash::record_startup();
     note(&mut audit, "config-credential-hook-state")?;
@@ -161,6 +176,14 @@ pub fn run(
         )),
     )
     .map_err(io::Error::other)?;
+    for notice in relocation_notices {
+        log::warn!("[upgrade] {notice}");
+        running.service.log_system_notice(
+            "Project directory needs attention".into(),
+            Some(notice),
+            Some("warning"),
+        );
+    }
     let ready = runtime.block_on(async {
         let mut statuses = running.states.rest_api.subscribe_status();
         tokio::time::timeout(FAILURE_DEADLINE, async {
@@ -249,6 +272,11 @@ pub fn run(
         "[bootstrap] inherited ready acknowledgement completed: {}",
         acknowledgement.is_ok()
     );
+    if job.is_some() {
+        if let Err(error) = crate::launch::release_launch_stderr() {
+            log::warn!("[bootstrap] launcher stderr release failed: {error}");
+        }
+    }
     let control_result = continue_after_ack(acknowledgement, || {
         runtime.block_on(async {
             let control = channel::serve(listener, ready, token);
@@ -317,8 +345,7 @@ fn development_frontend_origin(
         return Ok(None);
     }
     let url = url::Url::parse(origin).map_err(io::Error::other)?;
-    codeterm_service_core::startup::frontend_shell_development_frontend(true, Some(&url))
-        .map_err(io::Error::other)
+    codeterm_frontend_shell::development_frontend(true, Some(&url)).map_err(io::Error::other)
 }
 
 fn optional_native_listener<T>(

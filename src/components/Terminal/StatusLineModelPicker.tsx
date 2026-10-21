@@ -8,7 +8,7 @@ import { Check, ChevronDown, RotateCw } from "lucide-react";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
-import { getModelCatalogueRefreshApi } from "../../lib/modelCatalogueRefresh";
+import { getModelCatalogueRefreshApi, refreshFailureToast } from "../../lib/modelCatalogueRefresh";
 import { getTabModelApi } from "../Sidebar/tabModelApi";
 import { modelSwitchFailure } from "../../lib/modelSwitchFailure";
 import { BusySpinner } from "../shared/BusyState";
@@ -248,6 +248,7 @@ export function ModelPickerPopover({
   onClose: () => void;
 }) {
   const titleId = useId();
+  const actions = useContext(MultiplexerActionsContext);
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -260,7 +261,7 @@ export function ModelPickerPopover({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(failure?.message ?? null);
   const searchable = pickerNeedsSearch(descriptor);
-  const groups = pickerModelGroups(descriptor, staged?.model, query, showAll);
+  const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, currentModel);
   const efforts = showReasoning ? effortChoices(descriptor, staged?.model) : [];
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
   const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
@@ -299,13 +300,14 @@ export function ModelPickerPopover({
 
   async function refresh() {
     setRefreshing(true);
-    setError(null);
+    const raise = (reason: string | undefined) => actions?.upsertToast(
+      refreshFailureToast(descriptor.id, reason, (text) => navigator.clipboard?.writeText(text)),
+    );
     try {
-      if (!(await getModelCatalogueRefreshApi().refresh(descriptor.id))) {
-        setError("The model list could not be refreshed. The current list stays in use.");
-      }
+      const outcome = await getModelCatalogueRefreshApi().refresh(descriptor.id);
+      if (!outcome.refreshed) raise(outcome.reason);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      raise(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setRefreshing(false);
     }

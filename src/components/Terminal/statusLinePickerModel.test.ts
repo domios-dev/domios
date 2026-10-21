@@ -127,6 +127,22 @@ test("flat catalogues lead with featured models and filter by query", () => {
   assert.deepEqual(pickerModelGroups(descriptor, undefined, "zzz"), []);
 });
 
+test("an empty catalogue still lists the model the session runs", () => {
+  const empty = provider({ available_models: [] });
+  assert.deepEqual(pickerModelGroups(empty, undefined, "", false, undefined), []);
+  const groups = pickerModelGroups(empty, "session-model", "", false, "session-model");
+  assert.deepEqual(groups.flatMap((group) => group.rows.map((row) => [row.id, row.current])), [["session-model", true]]);
+  const curated = provider({ available_models: [{ id: "lead", display_name: "Lead", primary: true }] });
+  assert.deepEqual(
+    pickerModelGroups(curated, "lead", "", false, "session-model").flatMap((group) => group.rows.map((row) => row.id)),
+    ["lead", "session-model"],
+  );
+  assert.deepEqual(
+    pickerModelGroups(provider(), "fast", "", false, "Fast").flatMap((group) => group.rows.map((row) => row.id)),
+    ["fast", "deep"],
+  );
+});
+
 test("search appears only for long catalogues", () => {
   const many = Array.from({ length: 9 }, (_, index) => ({ id: `m${index}`, display_name: `M${index}` }));
   assert.equal(pickerNeedsSearch(provider()), false);

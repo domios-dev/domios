@@ -416,7 +416,8 @@ run_nextest_scope() {
       targets=("${CT_APP_TEST_TARGET_ARGS[@]}")
       ;;
     domios-server) package="domios-server"; targets+=(--lib) ;;
-    shell) package="codeterm"; targets+=(--lib --test main) ;;
+    shell) package="codeterm"; targets+=(--lib) ;;
+    devtools|codeterm-devtools) package="codeterm-devtools"; targets+=(--test main) ;;
     mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets=(--lib) ;;
     paths|codeterm-paths) package="codeterm-paths"; targets=(--lib) ;;
     process-identity|codeterm-process-identity) package="codeterm-process-identity"; targets=(--lib) ;;
@@ -568,21 +569,21 @@ run_release_rust_tests() {
 }
 
 case "$CMD" in
-  gateway-*|help|gc|cache-status|cache-verify|cache-stats|build-history|frontend-build) ;;
+  gateway-*|help|gc|cache-status|cache-verify|cache-release|cache-stats|build-history|frontend-build) ;;
   *) setup_env ;;
 esac
 
 # --- Per-worktree dev instance isolation ---
 # CODETERM_DEV_INSTANCE names a dev instance so multiple worktrees can
 # run ./build.sh dev concurrently without colliding. Unset = canonical defaults
-# (.codeterm-dev / 7686 / 1420). See AGENTS.md "Process safety".
+# (.domios-dev / 7686 / 1420). See AGENTS.md "Process safety".
 CT_INSTANCE="${CODETERM_INSTANCE:-}"
 CT_PORT="${CODETERM_API_PORT:-7686}"
 CT_VITE_PORT="${CODETERM_VITE_PORT:-}"
 CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 CT_INSTANCE_HASH=""
 case "$CMD" in
-  dev|dev-prebuilt|dev-server|kill|e2e|e2e:llm)
+  dev|dev-prebuilt|dev-server|dev-front|kill|e2e|e2e:llm)
     CT_DEV_SELECTION="$(node scripts/dev-instance-policy.mjs)" || exit $?
     CT_INSTANCE="${CT_DEV_SELECTION%:*}"
     CT_PORT="${CT_DEV_SELECTION##*:}"
@@ -617,7 +618,7 @@ else
   CT_VITE_PORT="${CT_VITE_PORT:-1420}"
   CT_CDP_PORT="${CT_CDP_PORT:-9223}"
 fi
-CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
+CT_DATA_DIR="$HOME/.domios-dev${CT_SUFFIX}"
 DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
 export CODETERM_INSTANCE="$CT_INSTANCE"
@@ -1718,21 +1719,17 @@ configure_app_test_cargo() {
 
 configure_dev_cargo() {
   CT_DEV_CARGO_PROFILE=dev
-  CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" --guard src-tauri/Cargo.toml src-tauri/crates/codeterm-service-core/Cargo.toml)" || return $?
+  CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" --guard src-tauri/crates/domios-server/Cargo.toml src-tauri/crates/codeterm-service-core/Cargo.toml)" || return $?
+  # The native client carries no server features; CT_DEV_CARGO_FEATURES applies to server packages only.
   CT_DEV_CHECK_ARGS=(--manifest-path src-tauri/Cargo.toml -p codeterm --lib --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
-  CT_DEV_TAURI_ARGS=()
-  if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
-    CT_DEV_CHECK_ARGS+=(--features "$CT_DEV_CARGO_FEATURES")
-    CT_DEV_TAURI_ARGS+=(--features "$CT_DEV_CARGO_FEATURES")
-  fi
-  CT_DEV_TAURI_ARGS+=(-- --profile "$CT_DEV_CARGO_PROFILE")
+  CT_DEV_TAURI_ARGS=(-- --profile "$CT_DEV_CARGO_PROFILE")
 }
 
 configure_product_cargo() {
   local package feature features=()
   CT_PRODUCT_CARGO_ARGS=(--no-default-features)
   IFS=, read -r -a features <<< "$CT_DEV_CARGO_FEATURES"
-  for package in codeterm codeterm-service-core codeterm-mem; do
+  for package in domios-server codeterm-service-core codeterm-mem; do
     case " $* " in
       *" --workspace "*|*" -p $package "*)
         for feature in "${features[@]}"; do CT_PRODUCT_CARGO_ARGS+=(--features "$package/$feature"); done
@@ -2047,7 +2044,7 @@ swap_dev_server_keep_window() {
   listener="$(dev_listener_pid)"
   echo "DEV server swapped; native client/window retained."
   if [ -n "$DEV_NOTIFY_TAB" ]; then
-    dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$build_sha" "$listener" "$(pwd -P)"
+    dev_notify_ready_after_proof "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$build_sha" "$listener" "$(pwd -P)"
   fi
 }
 
@@ -2068,9 +2065,6 @@ build_and_launch_dev() {
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
   local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
-  if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
-    build_args+=(--features "$CT_DEV_CARGO_FEATURES")
-  fi
   build_dev_client "$conf" "${build_args[@]}"
   build_sha="$CODETERM_BUILD_SHA"
   build_dev_frontend
@@ -2387,7 +2381,7 @@ dev_notify_health_proof() {
   if [ "$role" = server ]; then
     node scripts/dev-prep.mjs --check-attachment --log "$DEV_NOTIFY_LOG" --api-port "$CT_PORT" --listener-pid "$listener" >/dev/null 2>&1 || return 1
   fi
-  dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$tab_id" "$CT_INSTANCE" "$CT_PORT" "$sha" "$listener" "$(pwd -P)"
+  dev_notify_ready_after_proof "$DEV_NOTIFY_SENT_MARKER" "$tab_id" "$CT_INSTANCE" "$CT_PORT" "$sha" "$listener" "$(pwd -P)"
 }
 
 # Auto-install node deps if lockfile is newer than node_modules
@@ -2413,7 +2407,12 @@ prepare_release_bundle_inputs() {
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     cargo_target_args=(--target "$CARGO_BUILD_TARGET")
   fi
-  pnpm build
+  # A release run builds the frontend once; its jobs install those bytes with a verified digest.
+  if [ -n "${CODETERM_FRONTEND_ARCHIVE:-}" ]; then
+    node scripts/release-frontend-dist.mjs install "$CODETERM_FRONTEND_ARCHIVE" "${CODETERM_FRONTEND_SHA256:-}" dist
+  else
+    pnpm build
+  fi
   if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
     node scripts/release-stage.mjs stage-build-resources --target "${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
   fi
@@ -2447,7 +2446,7 @@ prepare_release_bundle_inputs() {
   if [ "$mode" = "standalone" ]; then
     cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
       "${cargo_target_args[@]}" \
-      --features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol" \
+      --features "tauri/custom-protocol${CODETERM_RELEASE_FEATURES:+,$CODETERM_RELEASE_FEATURES}" \
       --bin codeterm
   fi
   if [ "$mode" = "bundle" ] && [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" != 1 ]; then
@@ -2460,22 +2459,91 @@ enter_cargo_gateway() {
   ct_configure_sccache
 }
 
-# Compiles the client once, replaces the compile stage with the final pair resources, then bundles NSIS.
-# Arguments, when given, prefix each Tauri command (the local install adds its build config).
-bundle_windows_common_stage() {
+package_platform() {
+  case "$1" in
+    *-pc-windows-*) echo windows ;;
+    *-apple-darwin) echo macos ;;
+    *-linux-*) echo linux ;;
+    *) echo "Unsupported package target: $1" >&2; return 2 ;;
+  esac
+}
+
+# Compiles the client once, replaces the compile stage with the final pair resources, then bundles from it.
+# Arguments, when given, prefix each Tauri command (local builds add their build config).
+bundle_common_stage() {
   local target="${CARGO_BUILD_TARGET:-$(ct_host_triple)}" client_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
-  local target_args=() run=("$@")
+  local platform client=domios target_args=() compile_config=() run=("$@")
+  platform="$(package_platform "$target")" || return
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     target_args=(--target "$CARGO_BUILD_TARGET")
     client_dir="$client_dir/$CARGO_BUILD_TARGET"
   fi
-  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}"
+  # The raw Cargo server and sidecar stub would occupy the staged pair paths during compilation.
+  case "$platform" in
+    windows) client=domios.exe ;;
+    macos) compile_config=(--config '{"bundle":{"externalBin":[]}}') ;;
+    linux) compile_config=(--config '{"bundle":{"resources":[],"externalBin":[]}}') ;;
+  esac
+  "${run[@]}" pnpm tauri build --no-bundle "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} "${compile_config[@]}"
   node scripts/release-stage.mjs stage-full --target "$target" \
     --source-sha "$(git rev-parse HEAD)" \
     --cargo-log "release-artifacts/build-logs/$target/server.jsonl" \
     --tree-log "release-artifacts/build-logs/$target/closure.txt" \
-    --client-file "$client_dir/release/domios.exe"
-  "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" --bundles nsis
+    --client-file "$client_dir/release/$client"
+  case "$platform" in
+    windows) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles nsis ;;
+    linux) "${run[@]}" pnpm tauri bundle --no-binary-patching "${target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} --bundles deb,appimage ;;
+    macos) "${run[@]}" node scripts/release-macos-bundle.mjs "$target" ;;
+  esac
+}
+
+# Local macOS packages sign from the login keychain unless the caller supplies its own identity.
+prepare_local_macos_signing() {
+  local notarize="$1" identities count
+  if [ -z "${RELEASE_KEYCHAIN:-}" ]; then
+    RELEASE_KEYCHAIN="$(security login-keychain | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//')"
+    [ -n "$RELEASE_KEYCHAIN" ] || { echo "ERROR: no login keychain found for local macOS signing" >&2; return 2; }
+    export RELEASE_KEYCHAIN
+  fi
+  if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+    identities="$(security find-identity -v -p codesigning "$RELEASE_KEYCHAIN" |
+      sed -n 's/^.*"\(Developer ID Application: .*\)"$/\1/p' | sort -u)"
+    count="$(printf '%s' "$identities" | grep -c . || true)"
+    if [ "$count" != 1 ]; then
+      echo "ERROR: expected one Developer ID Application identity in $RELEASE_KEYCHAIN, found $count; set APPLE_SIGNING_IDENTITY" >&2
+      return 2
+    fi
+    export APPLE_SIGNING_IDENTITY="$identities"
+  fi
+  if [ -z "${APPLE_TEAM_ID:-}" ]; then
+    APPLE_TEAM_ID="$(printf '%s' "$APPLE_SIGNING_IDENTITY" | sed -n 's/^.*(\([A-Z0-9]\{10\}\))$/\1/p')"
+    [ -n "$APPLE_TEAM_ID" ] || { echo "ERROR: signing identity names no team; set APPLE_TEAM_ID" >&2; return 2; }
+    export APPLE_TEAM_ID
+  fi
+  echo "macOS signing: $APPLE_SIGNING_IDENTITY ($RELEASE_KEYCHAIN)"
+  if [ "$notarize" = 0 ]; then
+    echo "macOS notarization: skipped by --no-notarize"
+    return 0
+  fi
+  export APPLE_KEYCHAIN_PROFILE="${APPLE_KEYCHAIN_PROFILE:-codeterm}"
+  if ! xcrun notarytool history --keychain-profile "$APPLE_KEYCHAIN_PROFILE" --keychain "$RELEASE_KEYCHAIN" >/dev/null 2>&1; then
+    echo "ERROR: notarytool keychain profile '$APPLE_KEYCHAIN_PROFILE' is unavailable in $RELEASE_KEYCHAIN" >&2
+    echo "Store it with 'xcrun notarytool store-credentials $APPLE_KEYCHAIN_PROFILE', or pass --no-notarize." >&2
+    return 2
+  fi
+  echo "macOS notarization: keychain profile $APPLE_KEYCHAIN_PROFILE"
+}
+
+notarize_local_macos_package() {
+  local bundle_root="$1" dmgs=()
+  [ -d "$bundle_root/dmg" ] && dmgs=("$bundle_root"/dmg/*.dmg)
+  if [ "${#dmgs[@]}" -ne 1 ] || [ ! -f "${dmgs[0]}" ]; then
+    echo "ERROR: expected one disk image under $bundle_root/dmg" >&2
+    return 1
+  fi
+  bash .agents/skills/github-release/scripts/notarize-dmg.sh "${dmgs[0]}"
+  xcrun stapler staple "$bundle_root/macos/CodeTerm.app"
+  spctl --assess --type execute "$bundle_root/macos/CodeTerm.app"
 }
 
 case "$CMD" in
@@ -2551,7 +2619,7 @@ CodeTerm build commands
   worktree-check              Isolated lane-safe Rust compile check
   test-one <input-macos|input-windows|billing|account|analytics|app|shell|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
                               Run one focused Rust test
-  process-probe --case server-only|arbitration --instance split-oracle  Build and prove isolated server ownership
+  process-probe --case server-only|arbitration|pair-journey --instance split-oracle  Build and prove isolated process ownership
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
   nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
   release-rust [runner-id...]  Run every release-tier Rust runner of tests/catalogue.json (or the named ones)
@@ -2571,9 +2639,11 @@ install-local, release-preflight, release-rust) send one success or failure rece
 inside Domios. --notify-tab <tab> or BUILD_NOTIFY_TAB overrides the recipient.
   build                       Build production artifacts
   cache-status                Show configured/server cache locations and endpoint health
-  cache-verify                Verify shared S3 storage; start the S3 server only when none is live
+  cache-verify                Verify shared S3 storage; in CI with the store down, start a job-local cache
+  cache-release               Stop and remove a job-local cache started by cache-verify
   cache-stats                 Show gateway cache deltas by job kind and live server counters
   gateway-status              Show the machine build owner
+  gateway-relocate            Windows: move idle gateway state out of the app install folder
   build-history [--last N] [--verb V] [--json]  Build durations, cache hits and rebuild reasons
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
 
@@ -2605,6 +2675,9 @@ EOF
   cache-verify)
     ct_sccache_verify
     ;;
+  cache-release)
+    ct_sccache_release_job_local
+    ;;
   cache-stats)
     node scripts/cache-stats.mjs --dir "$(ct_gateway_dir)"
     if ct_sccache_server_live; then
@@ -2616,6 +2689,9 @@ EOF
     ;;
   gateway-status)
     ct_gateway_status
+    ;;
+  gateway-relocate)
+    ct_gateway_relocate strict
     ;;
   build-history)
     node scripts/build-history.mjs "${@:2}" --dir "$(ct_gateway_dir)" \
@@ -2789,9 +2865,6 @@ EOF
     prepare_bundle_stubs
     measure_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
       --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --timings)
-    if [ -n "$CT_DEV_CARGO_FEATURES" ]; then
-      measure_args+=(--features "$CT_DEV_CARGO_FEATURES")
-    fi
     TAURI_CONFIG="$(cat "$(dev_conf_path)")" cargo build "${measure_args[@]}"
     ;;
   embedding-parity)
@@ -2858,9 +2931,9 @@ EOF
     [ -z "${CARGO_BUILD_TARGET:-}" ] || bundle_target_args=(--target "$CARGO_BUILD_TARGET")
     if [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" = 1 ]; then
       [ "${#bundle_args[@]}" -eq 0 ] || { echo "Shared-stage release-bundle takes no extra Tauri flags" >&2; exit 2; }
-      bundle_windows_common_stage
+      bundle_common_stage
     else
-      pnpm tauri build "${bundle_target_args[@]}" --features "${CODETERM_RELEASE_FEATURES:-embeddings}" "${bundle_args[@]}"
+      pnpm tauri build "${bundle_target_args[@]}" ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} "${bundle_args[@]}"
     fi
     ;;
   release-finalize)
@@ -2874,6 +2947,7 @@ EOF
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-provider-boundary.mjs
     bash scripts/check-tauri-reach.sh
+    bash scripts/check-crate-layering.sh
     bash scripts/check-empty-array-expansion.sh
     # esbuild cannot relativize a linked workspace package across the gateway's subst drive,
     # so the bundle diff runs from the real worktree where the committed bundles were built.
@@ -2912,6 +2986,15 @@ EOF
   process-probe)
     [ -z "$(git status --porcelain)" ] || { echo 'ERROR: process-probe requires the exact committed clean source' >&2; exit 2; }
     node scripts/process-separation-probe.mjs --validate "${@:2}"
+    process_probe_case=""
+    process_probe_args=("${@:2}")
+    for ((process_probe_arg=0; process_probe_arg<${#process_probe_args[@]}; process_probe_arg++)); do
+      if [ "${process_probe_args[$process_probe_arg]}" = --case ]; then
+        process_probe_value=$((process_probe_arg + 1))
+        process_probe_case="${process_probe_args[$process_probe_value]:-}"
+        break
+      fi
+    done
     process_probe_dir="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID-process-probe"
     mkdir -p "$process_probe_dir"
     process_probe_target="$(ct_host_triple)"
@@ -2928,7 +3011,17 @@ EOF
       --format '{p}' > "$process_probe_dir/closure.txt"
     node scripts/server-artifact.mjs "$process_probe_dir/cargo.jsonl" "$process_probe_dir/closure.txt" \
       "$(git rev-parse HEAD)" "$process_probe_target" "$process_probe_dir/resources" "$process_probe_dir/artifact.json"
-    node scripts/process-separation-probe.mjs "${@:2}" --artifact-receipt "$process_probe_dir/artifact.json"
+    client_receipt_args=()
+    if [ "$process_probe_case" = pair-journey ]; then
+      IFS=$'\t' read -r process_probe_client_package process_probe_client_binary \
+        < <(node scripts/process-separation-probe.mjs --client-build-target)
+      cargo build --manifest-path src-tauri/Cargo.toml -p "$process_probe_client_package" --bin "$process_probe_client_binary" \
+        --target "$process_probe_target" --message-format=json > "$process_probe_dir/client.jsonl"
+      node scripts/process-separation-probe.mjs --write-client-receipt "$process_probe_dir/client.jsonl" \
+        "$process_probe_dir/client-artifact.json" "$(git rev-parse HEAD)" "$process_probe_target"
+      client_receipt_args=(--client-receipt "$process_probe_dir/client-artifact.json")
+    fi
+    node scripts/process-separation-probe.mjs "${@:2}" --artifact-receipt "$process_probe_dir/artifact.json" "${client_receipt_args[@]}"
     ;;
   test-one)
     test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
@@ -2956,7 +3049,7 @@ EOF
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm --lib --test main "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
         ;;
       mem-store|codeterm-mem-store) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
       paths|codeterm-paths) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
@@ -3052,26 +3145,44 @@ EOF
     cargo check --manifest-path src-tauri/Cargo.toml --all-targets "${@:2}"
     ;;
   build)
+    build_notarize=1
+    for arg in "${@:2}"; do
+      case "$arg" in
+        --no-notarize) build_notarize=0 ;;
+        *) echo "Usage: ./build.sh build [--no-notarize]" >&2; exit 2 ;;
+      esac
+    done
     node scripts/check-release-locks.mjs
     require_release_source
-    ct_load_release_signing_key
+    build_platform="$(package_platform "$(ct_host_triple)")"
+    # The macOS app bundle never carries updater artifacts, so only the other bundlers need the updater key.
+    if [ "$build_platform" = macos ]; then
+      prepare_local_macos_signing "$build_notarize"
+    else
+      ct_load_release_signing_key
+    fi
     prepare_release_target
     ensure_deps
+    # Local packages stage the client/server pair exactly as release CI does.
+    export CODETERM_RELEASE_COMMON_STAGE=1
     prepare_release_bundle_inputs bundle
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
     ct_snapshot_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
-    pnpm tauri build
+    bundle_common_stage ct_with_firebase_build_config
     ct_check_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
-    # Release gate: /web is served from the exe-adjacent dist/ bundle that
-    # tauri.conf bundle.resources maps in (../dist -> dist). If Tauri's
-    # The release input step produced no dist/index.html, so /web would ship broken.
-    if [ ! -f dist/index.html ]; then
-      echo "❌ RELEASE GATE: dist/index.html missing after build — /web would 404. Run 'pnpm build'." >&2
-      exit 1
+    bundle_root="$CARGO_TARGET_DIR/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release/bundle"
+    if [ "$build_platform" = macos ] && [ "$build_notarize" = 1 ]; then
+      notarize_local_macos_package "$bundle_root"
     fi
-    echo "✅ web bundle present (dist/index.html) — packaged into installer via bundle.resources"
+    packages="$(find "$bundle_root" -maxdepth 2 -type f \( -name '*.dmg' -o -name '*-setup.exe' -o -name '*.deb' -o -name '*.AppImage' \))"
+    [ -n "$packages" ] || { echo "ERROR: no local package under $bundle_root" >&2; exit 1; }
+    while IFS= read -r package; do
+      command -v cygpath >/dev/null 2>&1 && package="$(cygpath -w "$package")"
+      echo "Local package ready: $package"
+    done <<< "$packages"
+    echo "Install with: codeterm update install --from-file <package>"
     ;;
   install-local)
     parse_local_install_continuation "${@:2}"
@@ -3104,7 +3215,7 @@ EOF
     ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     rm -rf "$CARGO_TARGET_DIR/release/bundle/nsis"
-    bundle_windows_common_stage ct_with_firebase_build_config
+    bundle_common_stage ct_with_firebase_build_config
     ct_check_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     VERSION="$(node -p "require('./package.json').version")"
@@ -3149,6 +3260,7 @@ EOF
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run node scripts/test-catalogue.mjs validate
+    sg_run node scripts/rename-guard.mjs --scope all --report
     sg_run bash scripts/check-crate-layering.sh
     sg_run node --test scripts/tests/crate-layering.test.mjs
     sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
@@ -3471,7 +3583,7 @@ LOCK_STORM_PY
       node scripts/dev-prep.mjs --check-attachment --log "$PREBUILT_LOG" --api-port "$CT_PORT" --listener-pid "$(dev_listener_pid)"
       echo "Prebuilt dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
       if [ -n "$DEV_NOTIFY_TAB" ]; then
-        dev_notify_ready_once "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
+        dev_notify_ready_after_proof "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
         dev_notify_exit_report 0
       fi
       trap - EXIT INT TERM

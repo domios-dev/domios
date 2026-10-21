@@ -125,6 +125,23 @@ class SigningMaterialTests(unittest.TestCase):
         self.assertEqual(commands[0], ('list-keychains', '-d', 'user', '-s', 'existing.keychain', 'parallel.keychain'))
         self.assertFalse(directory.exists())
 
+    def test_cleanup_finishes_every_step_names_the_failure_and_is_idempotent(self):
+        directory = self.root / 'release-signing-fixture'
+        (directory / 'notary-probe').mkdir(parents=True)
+        (directory / 'notary-probe' / 'leftover').write_text('opaque')
+        keychain = directory / 'signing.keychain-db'
+        keychain.touch()
+        def security(*args):
+            if args[0] == 'delete-keychain':
+                raise RuntimeError('security delete-keychain failed (exit 50): opaque status')
+        with patch.dict(os.environ, RELEASE_SIGNING_DIR=str(directory)), \
+                patch.object(signing, 'security', side_effect=security), \
+                patch.object(signing, 'search_list', return_value=[str(keychain)]):
+            with self.assertRaisesRegex(RuntimeError, 'delete job keychain: .*opaque status'):
+                signing.cleanup()
+            self.assertFalse(directory.exists())
+            signing.cleanup()
+
     @unittest.skipUnless(sys.platform == 'darwin', 'macOS keychain oracle')
     def test_native_keychain_and_notary_prompt_storage_without_network(self):
         directory = self.root / 'release-signing-native'

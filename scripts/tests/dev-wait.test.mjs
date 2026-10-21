@@ -62,7 +62,7 @@ test("release frontend preparation retains the default production build", async 
   const source = (await readFile(new URL("../../build.sh", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
   const release = source.match(/^prepare_release_bundle_inputs\(\) \{\n([\s\S]*?)^\}/m)?.[1];
   assert.ok(release, "release input preparation must exist");
-  assert.match(release, /^  pnpm build$/m);
+  assert.match(release, /^ {2}if \[ -n "\$\{CODETERM_FRONTEND_ARCHIVE:-\}" \]; then\n {4}node scripts\/release-frontend-dist\.mjs install [^\n]+\n {2}else\n {4}pnpm build\n {2}fi$/m);
   assert.doesNotMatch(release, /NODE_ENV|CODETERM_FRONTEND_DEV|--mode development/);
   const pkg = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
   assert.equal(pkg.scripts.build, "node scripts/frontend-build.mjs");
@@ -113,7 +113,7 @@ node() {
   [ "$*" = 'scripts/dev-prep.mjs --check-attachment --log owned.log --api-port 7786 --listener-pid 20' ] || return 91
   return ${admitted ? 0 : 42}
 }
-dev_notify_ready_once() { printf 'reported:%s:%s' "$5" "$6"; }
+dev_notify_ready_after_proof() { printf 'reported:%s:%s' "$5" "$6"; }
 dev_notify_health_proof parent
 `], { encoding: 'utf8' });
     assert.equal(result.status, admitted ? 0 : 1, result.stderr);

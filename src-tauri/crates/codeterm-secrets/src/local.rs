@@ -22,14 +22,14 @@ impl SecretBackendFactory for LocalFactory {
         "Local secret storage"
     }
     fn description(&self) -> &'static str {
-        "Plaintext JSON file in ~/.codeterm/.secrets with user-only permissions (not encrypted, not the OS keychain). Offline, no external service."
+        "Plaintext JSON file in ~/.domios/.secrets with user-only permissions (not encrypted, not the OS keychain). Offline, no external service."
     }
     fn build(&self, _cfg: &serde_json::Value) -> Box<dyn SecretStore> {
         Box::new(LocalStore::detect_and_build())
     }
 }
 
-const KEYCHAIN_SERVICE: &str = "codeterm-secrets";
+const KEYCHAIN_SERVICE: &str = "domios-secrets";
 
 /// What lives behind a single keychain entry. Stored JSON-encoded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,7 +272,7 @@ impl SecretStore for LocalStore {
                 reason: reason.clone(),
             };
         }
-        let endpoint = Some("file:~/.codeterm/.secrets".to_string());
+        let endpoint = Some("file:~/.domios/.secrets".to_string());
         match self.index.load() {
             Ok(_) => StoreStatus::Unlocked {
                 user: hostname_label(),

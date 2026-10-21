@@ -8,9 +8,10 @@
 # TEST_CAP_SECS defaults to 600; 0 disables it. A cap exits 124 on timeout.
 # Otherwise the wrapper passes through the test command's exit code.
 #
-# Fail-closed filtering: when the caller supplies a test-name filter, a run that
-# executed zero tests exits 97 instead of reporting cargo's success. A run with
-# no filter is never subject to that check.
+# Fail-closed filtering: when the caller supplies a test-name filter or a nextest
+# filterset, a successful run must show a passed test in a libtest or nextest
+# summary; otherwise it exits 97. An explicit --no-tests=pass|warn opts out, and
+# a run with no filter is never subject to that check.
 #
 # Usage:
 #   scripts/test-capped.sh [<cargo-test-args>...]
@@ -152,6 +153,7 @@ ZERO_MATCH_EXIT=97
 REQUESTED_FILTER=""
 FILTER_PACKAGE=""
 FILTER_MANIFEST=""
+NO_TESTS_MODE=""
 
 # Cargo test syntax is `cargo test [options] [TESTNAME] [-- harness-args]`, so the
 # filter is the first positional that no value-taking option already consumed.
@@ -163,7 +165,11 @@ detect_requested_filter() {
             --manifest-path) FILTER_MANIFEST="${2:-}"; shift 2 || return 0 ;;
             -p=*|--package=*) FILTER_PACKAGE="${1#*=}"; shift ;;
             --manifest-path=*) FILTER_MANIFEST="${1#*=}"; shift ;;
-            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|-Z|--color|--archive-file|--workspace-remap|--binaries-metadata|--cargo-metadata)
+            -E|--filter-expr|--filterset) REQUESTED_FILTER="${2:-}"; shift 2 || return 0 ;;
+            --filter-expr=*|--filterset=*) REQUESTED_FILTER="${1#*=}"; shift ;;
+            --no-tests) NO_TESTS_MODE="${2:-}"; shift 2 || return 0 ;;
+            --no-tests=*) NO_TESTS_MODE="${1#*=}"; shift ;;
+            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|-Z|--color|--archive-file|--workspace-remap|--binaries-metadata|--cargo-metadata|--cargo-profile|-P|--test-threads|--status-level|--final-status-level|--run-ignored|--retries|--max-fail|--partition)
                 shift 2 || return 0 ;;
             -*) shift ;;
             *) REQUESTED_FILTER="$1"; return 0 ;;
@@ -171,12 +177,23 @@ detect_requested_filter() {
     done
 }
 
-# Zero-match only when libtest actually reported, and every reported binary ran
-# nothing; a full run's own "running 0 tests" binaries never reach this check.
-filtered_run_matched_nothing() {
-    local log="$1"
-    grep -Eq '^running [0-9]+ tests?[[:space:]]*$' "$log" || return 1
-    ! grep -Eq '^running [1-9][0-9]* tests?[[:space:]]*$' "$log"
+# Sums passed tests across libtest result lines and nextest summaries; an
+# all-ignored or unmatched selection sums to zero.
+passed_test_count() {
+    awk '
+        /^[[:space:]]*test result: [A-Za-z]+\. [0-9]+ passed;/ {
+            line = $0; sub(/.*test result: [A-Za-z]+\. /, "", line); total += line + 0
+        }
+        /^[[:space:]]*Summary \[[^]]*\][[:space:]]+[0-9]+ tests? run: [0-9]+ passed/ {
+            line = $0; sub(/.* tests? run: /, "", line); total += line + 0
+        }
+        END { print total + 0 }
+    ' "$1"
+}
+
+filtered_run_ran_nothing() {
+    case "$NO_TESTS_MODE" in pass|warn) return 1 ;; esac
+    [ "$(passed_test_count "$1")" -eq 0 ]
 }
 
 report_zero_match() {
@@ -184,8 +201,9 @@ report_zero_match() {
     printf '\n'
     printf '══════════════════════════════════════════════════════════════════\n'
     printf '  ZERO MATCHES: filter %s selected no tests in %s.\n' "$REQUESTED_FILTER" "$context"
+    printf '  No test passed: nothing matched, every match was ignored, or no summary was printed.\n'
     printf '  A filtered run that executed nothing is not a pass.\n'
-    printf '  Fix the test name, or drop the filter to run the whole target.\n'
+    printf '  Fix the test name or pick the scope that owns the crate (./build.sh help), or drop the filter.\n'
     printf '══════════════════════════════════════════════════════════════════\n'
 }
 
@@ -280,7 +298,7 @@ capture_test() {
 }
 if capture_test "$@"; then
     if [ "$EXEC_MODE" -eq 0 ] && [ -n "$REQUESTED_FILTER" ]; then
-        if filtered_run_matched_nothing "$TEST_LOG"; then
+        if filtered_run_ran_nothing "$TEST_LOG"; then
             report_zero_match
             exit "$ZERO_MATCH_EXIT"
         fi

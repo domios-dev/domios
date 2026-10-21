@@ -262,6 +262,7 @@ pub fn spawn_reconciliation(
                     &id,
                     &status,
                     previously_consented,
+                    provider.observe_launch_binary().availability,
                     &outcome,
                 );
             }
@@ -380,13 +381,16 @@ fn log_reconciliation(
     }
 }
 
+// A missing launch binary is availability, which the provider picker owns.
 fn reconciliation_needs_owner_notice(
     status: &Json,
     consent_recorded: bool,
+    binary: crate::agent::provider::ProviderAvailability,
     outcome: &IntegrationRepairOutcome,
 ) -> bool {
     let owned = crate::service::integration_silence::read_integration_owned(status);
-    (owned || consent_recorded)
+    !binary.is_refusable()
+        && (owned || consent_recorded)
         && matches!(
             outcome,
             IntegrationRepairOutcome::ConsentMissing
@@ -402,9 +406,10 @@ fn notify_reconciliation_owner(
     provider_id: &str,
     status: &Json,
     consent_recorded: bool,
+    binary: crate::agent::provider::ProviderAvailability,
     outcome: &IntegrationRepairOutcome,
 ) {
-    if !reconciliation_needs_owner_notice(status, consent_recorded, outcome) {
+    if !reconciliation_needs_owner_notice(status, consent_recorded, binary, outcome) {
         return;
     }
     let detail = match outcome {

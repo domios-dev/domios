@@ -21,10 +21,10 @@ assert.deepEqual(plan, [
   { path: recordedVoice, transcribe: true },
 ]);
 
-const sourceImage = "C:\\Users\\blackstar\\.codeterm\\uploads\\5e6f7a8b-pasted-image-1.png";
-const sourceVoice = "C:\\Users\\blackstar\\.codeterm\\uploads\\1a2b3c4d-voice-note-1.webm";
-const peerImage = "/Users/air/.codeterm/uploads/0a1b2c3d-5e6f7a8b-pasted-image-1.png";
-const peerVoice = "/Users/air/.codeterm/uploads/9f8e7d6c-1a2b3c4d-voice-note-1.webm";
+const sourceImage = "C:\\Users\\blackstar\\.domios\\uploads\\5e6f7a8b-pasted-image-1.png";
+const sourceVoice = "C:\\Users\\blackstar\\.domios\\uploads\\1a2b3c4d-voice-note-1.webm";
+const peerImage = "/Users/air/.domios/uploads/0a1b2c3d-5e6f7a8b-pasted-image-1.png";
+const peerVoice = "/Users/air/.domios/uploads/9f8e7d6c-1a2b3c4d-voice-note-1.webm";
 
 type Event = { step: "transfer"; request: MeshAttachmentTransferRequest } | { step: "transcribe-local"; path: string };
 

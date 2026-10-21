@@ -7,9 +7,11 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use codeterm_util::windows_env::read_persisted_path;
 pub use codeterm_util::windows_env::EnvironmentValue;
 use parking_lot::Mutex;
+
+mod path_source;
+pub use path_source::{refresh_user_path, PathSource, SystemPathSource};
 
 static RESOLVED_BINS: LazyLock<Mutex<HashMap<ResolutionKey, BinResolution>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -32,13 +34,7 @@ pub struct BinSearchEnvironment {
 
 impl BinSearchEnvironment {
     pub fn current() -> Self {
-        let persisted = read_persisted_path();
-        Self {
-            inherited_path: std::env::var_os("PATH"),
-            machine_path: persisted.machine,
-            user_path: persisted.user,
-            pathext: std::env::var_os("PATHEXT"),
-        }
+        SystemPathSource.environment()
     }
 }
 
@@ -93,12 +89,11 @@ pub fn probe_bin_in(bin: &str, extra_dirs: &[PathBuf]) -> BinProbe {
 }
 
 fn probe_bin_current(bin: &str, extra_dirs: &[PathBuf]) -> BinProbe {
-    let environment = BinSearchEnvironment::current();
-    let context = search_context(bin, &environment, extra_dirs);
-    BinProbe {
-        resolution: resolve_bin_memoized_with_context(bin, &context),
-        searched: context.roots,
-    }
+    probe_bin_from(bin, extra_dirs, &SystemPathSource)
+}
+
+pub fn probe_bin_from(bin: &str, extra_dirs: &[PathBuf], source: &dyn PathSource) -> BinProbe {
+    probe_bin_with_environment(bin, extra_dirs, &source.environment())
 }
 
 pub fn probe_bin_with_environment(

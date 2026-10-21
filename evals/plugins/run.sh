@@ -4,7 +4,7 @@
 set -uo pipefail
 source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
 
-LOG="$HOME/.codeterm-dev/logs/codeterm.log"
+LOG="$HOME/.domios-dev/logs/domios.log"
 pass=0 fail=0
 ok()   { echo "  ✓ $1"; pass=$((pass+1)); }
 bad()  { echo "  ✗ $1"; fail=$((fail+1)); }

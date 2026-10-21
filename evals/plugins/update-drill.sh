@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Version-update drill: prove a published new plugin version is picked up, still works,
 # and an incompatible version is gated without breaking the daemon.
-# Touches ONLY ~/.codeterm-dev (dev), never prod. Restarts dev between versions.
+# Touches ONLY ~/.domios-dev (dev), never prod. Restarts dev between versions.
 set -uo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 source "$ROOT/evals/_lib/lib.sh"
 
-DEVPLUG="$HOME/.codeterm-dev/plugins/transcriber"
-LOG="$HOME/.codeterm-dev/logs/codeterm.log"
+DEVPLUG="$HOME/.domios-dev/plugins/transcriber"
+LOG="$HOME/.domios-dev/logs/domios.log"
 # Marketplace plugins live in the sibling codeterm-plugins repo now (not this
 # repo's plugins/). Allow an override; default to a checkout next to this one.
 SRC="${CODETERM_PLUGINS_REPO:-$ROOT/../codeterm-plugins}/transcriber"

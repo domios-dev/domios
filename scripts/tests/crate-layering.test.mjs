@@ -17,7 +17,8 @@ function fixture(t) {
   };
   for (const name of ["codeterm-events", "codeterm-keepawake", "codeterm-crash", "codeterm-surface"]) write(name, "Cargo.toml", '[package]\nname = "' + name + '"');
   write("codeterm-prompts", "Cargo.toml", '[package]\nname = "codeterm-prompts"');
-  return { write, run: () => spawnSync(bash, [script, root], { encoding: "utf8" }) };
+  const writeRoot = (text) => fs.writeFileSync(path.join(root, "src-tauri/Cargo.toml"), text);
+  return { write, writeRoot, run: () => spawnSync(bash, [script, root], { encoding: "utf8" }) };
 }
 
 test("allows lower dependencies and host adapters", (t) => {
@@ -120,16 +121,6 @@ for (const [name, dependency] of [
   });
 }
 
-for (const name of ["codeterm-service-core", "codeterm-events", "domios-server"]) {
-  test(`rejects host runtime dependency in ${name}`, (t) => {
-    const { write, run } = fixture(t);
-    write(name, "Cargo.toml", '[dependencies]\ncodeterm-host-runtime = { path = "../codeterm-host-runtime" }\n');
-    const result = run();
-    assert.equal(result.status, 1, result.stderr);
-    assert.match(result.stderr, /core or leaf crate depends on codeterm-host-runtime/);
-  });
-}
-
 test("server composition accepts core services and rejects GUI framework edges", (t) => {
   const { write, run } = fixture(t);
   write("domios-server", "Cargo.toml", '[dependencies]\ncodeterm-service-core = "0"\ncodeterm-api = "0"');
@@ -140,13 +131,64 @@ test("server composition accepts core services and rejects GUI framework edges",
   assert.match(result.stderr, /service core depends on tauri/);
 });
 
-test("allows the host runtime to own Tauri adapters", (t) => {
+test("allows the client shell to own Tauri adapters", (t) => {
   const { write, run } = fixture(t);
-  write("codeterm-host-runtime", "Cargo.toml", '[dependencies]\ntauri = "2"\ncodeterm-events = { path = "../codeterm-events" }\n');
-  write("codeterm-host-runtime", "src/lib.rs", 'pub type Runtime = tauri::Wry;');
+  write("codeterm-client-shell", "Cargo.toml", '[package]\nname = "codeterm-client-shell"\n[dependencies]\ntauri = "2"\ncodeterm-update = { path = "../codeterm-update" }\n');
+  write("codeterm-client-shell", "src/lib.rs", 'pub type Runtime = tauri::Wry;');
+  write("codeterm-update", "Cargo.toml", '[package]\nname = "codeterm-update"\n');
   const result = run();
   assert.equal(result.status, 0, result.stderr);
 });
+
+function client(t, dependencies) {
+  const harness = fixture(t);
+  harness.writeRoot(`[package]\nname = "codeterm"\n\n[dependencies]\n${dependencies}\n\n[dev-dependencies]\ncodeterm-service-core = { path = "crates/codeterm-service-core" }\n`);
+  harness.write("codeterm-service-core", "Cargo.toml", '[package]\nname = "codeterm-service-core"\n');
+  return harness;
+}
+
+test("process layers accept a client that links only client and shared crates", (t) => {
+  const { write, run } = client(t, 'codeterm-client-shell = { path = "crates/codeterm-client-shell" }');
+  write("codeterm-client-shell", "Cargo.toml", '[package]\nname = "codeterm-client-shell"\n[dependencies]\ncodeterm-update = { path = "../codeterm-update" }\n');
+  write("codeterm-update", "Cargo.toml", '[package]\nname = "codeterm-update"\n[dependencies]\ncodeterm-types = { path = "../codeterm-types" }\n[dev-dependencies]\ncodeterm-pty = { path = "../codeterm-pty" }\n');
+  write("codeterm-pty", "Cargo.toml", '[package]\nname = "codeterm-pty"\n');
+  write("codeterm-types", "Cargo.toml", '[package]\nname = "codeterm-types"\n');
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+});
+
+for (const declaration of [
+  'codeterm-service-core = { path = "crates/codeterm-service-core" }',
+  'renamed = { package = "domios-server", path = "crates/domios-server" }',
+]) {
+  test(`process layers reject a client linking the server: ${declaration}`, (t) => {
+    const { write, run } = client(t, declaration);
+    write("domios-server", "Cargo.toml", '[package]\nname = "domios-server"\n');
+    const result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /client crate codeterm links server crate (?:codeterm-service-core|domios-server)/);
+  });
+}
+
+test("process layers reject a server crate reached through a shared crate", (t) => {
+  const { write, run } = client(t, 'codeterm-update = { path = "crates/codeterm-update" }');
+  write("codeterm-update", "Cargo.toml", '[package]\nname = "codeterm-update"\n[target.\'cfg(windows)\'.dependencies]\ncodeterm-pty = { path = "../codeterm-pty" }\n');
+  write("codeterm-pty", "Cargo.toml", '[package]\nname = "codeterm-pty"\n');
+  const result = run();
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /shared crate codeterm-update links server crate codeterm-pty/);
+  assert.match(result.stderr, /codeterm -> codeterm-update -> codeterm-pty/);
+});
+
+for (const name of ["codeterm-service-core", "codeterm-update", "domios-server"]) {
+  test(`process layers reject a client dependency in ${name}`, (t) => {
+    const { write, run } = fixture(t);
+    write(name, "Cargo.toml", `[package]\nname = "${name}"\n[dev-dependencies]\ncodeterm-client-shell = { path = "../codeterm-client-shell" }\n`);
+    const result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, new RegExp(`crate ${name} depends on client crate codeterm-client-shell`));
+  });
+}
 
 for (const declaration of [
   '[dependencies]\ntauri = "2"',

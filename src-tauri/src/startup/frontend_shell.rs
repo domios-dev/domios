@@ -1,10 +1,10 @@
-use codeterm_host_runtime::app_runtime::WebviewWindow;
+use codeterm_client_shell::app_runtime::WebviewWindow;
 #[cfg(debug_assertions)]
 mod assets;
 
 pub fn application_context(
-    context: tauri::Context<codeterm_host_runtime::app_runtime::Runtime>,
-) -> tauri::Context<codeterm_host_runtime::app_runtime::Runtime> {
+    context: tauri::Context<codeterm_client_shell::app_runtime::Runtime>,
+) -> tauri::Context<codeterm_client_shell::app_runtime::Runtime> {
     #[cfg(debug_assertions)]
     {
         let mut context = context;
@@ -33,9 +33,8 @@ use crate::host_ports::{
     webview_diagnostics::{root_generation_from_url, with_root_generation},
     ClientRootRenderLatch, ClientRootRenderWait, ServerApiAttachment, ServerApiAttachmentSlot,
 };
-use codeterm_service_core::startup::{
-    frontend_shell_fallback_origin as fallback_origin,
-    frontend_shell_loopback_origin as loopback_origin,
+use codeterm_frontend_shell::{
+    brand_fallback_page, development_frontend, fallback_origin, loopback_origin, BrandFallback,
 };
 use serde::Serialize;
 use std::collections::HashSet;
@@ -44,9 +43,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use url::Url;
-
-#[cfg(test)]
-mod model;
 
 fn external_link(url: &Url, origin: Option<&str>) -> Option<Url> {
     if !matches!(url.scheme(), "http" | "https" | "mailto")
@@ -59,12 +55,6 @@ fn external_link(url: &Url, origin: Option<&str>) -> Option<Url> {
     }
     Some(url.clone())
 }
-
-#[cfg(test)]
-use std::net::SocketAddr;
-
-#[cfg(test)]
-use codeterm_service_core::startup::{RestApiPhase, RestApiStatus};
 
 struct ShellSupervisor {
     navigation: Arc<AtomicU64>,
@@ -90,39 +80,6 @@ struct ShellBootstrap {
     token: String,
     #[serde(rename = "frontendOrigin", skip_serializing_if = "Option::is_none")]
     frontend_origin: Option<String>,
-}
-
-#[cfg(test)]
-fn ready_origin(
-    status: &RestApiStatus,
-    address: Option<SocketAddr>,
-) -> Result<Option<String>, String> {
-    if status.phase != RestApiPhase::Listening {
-        return Ok(None);
-    }
-    let address = address.ok_or("Listening generation does not own a bound address")?;
-    loopback_origin(address).map(Some)
-}
-
-#[cfg(test)]
-fn bootstrap(
-    config: &codeterm_service_core::config::schema::ApiConfig,
-) -> Result<ShellBootstrap, String> {
-    if !config.enabled {
-        return Err("Daemon listener is disabled".into());
-    }
-    let token = config
-        .token
-        .clone()
-        .filter(|token| !token.trim().is_empty())
-        .ok_or("Desktop requires a daemon bearer token")?;
-    Ok(ShellBootstrap {
-        origin: loopback_origin(codeterm_service_core::config::canonical_api_bind_addr(
-            config,
-        )?)?,
-        token,
-        frontend_origin: None,
-    })
 }
 
 fn bootstrap_attachment(attachment: &ServerApiAttachment) -> Result<ShellBootstrap, String> {
@@ -151,15 +108,12 @@ fn bootstrap_script(bootstrap: &ShellBootstrap) -> Result<String, serde_json::Er
     ))
 }
 
-#[cfg(test)]
-use codeterm_service_core::startup::frontend_shell_declared_frontend_origins as declared_frontend_origins;
-
 fn fallback_url() -> Result<Url, url::ParseError> {
     Url::parse(&format!("{}/index.html", fallback_origin()))
 }
 
 /// Navigating to an absent packaged index paints the webview's raw "asset not found" text.
-fn packaged_fallback(app: &codeterm_host_runtime::app_runtime::AppHandle) -> Result<Url, String> {
+fn packaged_fallback(app: &codeterm_client_shell::app_runtime::AppHandle) -> Result<Url, String> {
     if app.asset_resolver().get("index.html".into()).is_none() {
         return Err("packaged fallback index is absent".into());
     }
@@ -167,27 +121,46 @@ fn packaged_fallback(app: &codeterm_host_runtime::app_runtime::AppHandle) -> Res
 }
 
 fn unavailable_url() -> Result<Url, url::ParseError> {
-    brand_page_url(codeterm_service_core::startup::BrandFallback::Reconnecting)
+    brand_page_url(BrandFallback::Reconnecting)
 }
 
 fn starting_url() -> Result<Url, url::ParseError> {
-    brand_page_url(codeterm_service_core::startup::BrandFallback::Starting)
+    brand_page_url(BrandFallback::Starting)
 }
 
-fn brand_page_url(
-    kind: codeterm_service_core::startup::BrandFallback,
-) -> Result<Url, url::ParseError> {
-    let html = codeterm_service_core::startup::brand_fallback_page(kind);
-    // Form encoding turns spaces into '+', which a data: URL keeps literally.
-    let encoded = url::form_urlencoded::byte_serialize(html.as_bytes())
+const START_FAILURE_DETAIL_CHARS: usize = 600;
+
+fn start_failure_url(detail: Option<&str>) -> Result<Url, url::ParseError> {
+    let mut url = brand_page_url(BrandFallback::StartFailed)?;
+    if let Some(detail) = detail {
+        let detail = detail
+            .chars()
+            .take(START_FAILURE_DETAIL_CHARS)
+            .collect::<String>();
+        url.set_fragment(Some(&component_encode(&detail)));
+    }
+    Ok(url)
+}
+
+fn brand_page_url(kind: BrandFallback) -> Result<Url, url::ParseError> {
+    let html = brand_fallback_page(kind);
+    Url::parse(&format!(
+        "data:text/html;charset=utf-8,{}",
+        component_encode(&html)
+    ))
+}
+
+/// Form encoding turns spaces into '+', which a data: URL and decodeURIComponent keep literally.
+fn component_encode(text: &str) -> String {
+    url::form_urlencoded::byte_serialize(text.as_bytes())
         .collect::<String>()
-        .replace('+', "%20");
-    Url::parse(&format!("data:text/html;charset=utf-8,{encoded}"))
+        .replace('+', "%20")
 }
 
 fn navigation_allowed(url: &Url, origin: Option<&str>, unavailable: &Url, fallback: &Url) -> bool {
     same_navigation_document(url, unavailable)
         || starting_url().is_ok_and(|starting| same_navigation_document(url, &starting))
+        || start_failure_url(None).is_ok_and(|failed| same_navigation_document(url, &failed))
         || same_navigation_document(url, fallback)
         || origin.is_some_and(|origin| {
             url.origin().ascii_serialization() == origin
@@ -205,7 +178,7 @@ fn open_external_link(url: &Url, origin: Option<&str>) {
         navigation_identity(&url)
     );
     tauri::async_runtime::spawn_blocking(move || {
-        if let Err(error) = codeterm_service_core::service::open_url_open_url(url.into()) {
+        if let Err(error) = codeterm_util::open_url::open_url(url.into()) {
             log::debug!("[frontend-shell] external link opener failed: {error}");
         }
     });
@@ -221,17 +194,15 @@ fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
 }
 
 pub fn initialize(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if app.try_state::<crate::ClientStartupOptions>().is_none()
         && !app.manage(crate::ClientStartupOptions::default())
     {
         return Err("Client startup options could not be installed".into());
     }
-    let development_frontend = codeterm_service_core::startup::frontend_shell_development_frontend(
-        cfg!(debug_assertions),
-        app.config().build.dev_url.as_ref(),
-    )?;
+    let development_frontend =
+        development_frontend(cfg!(debug_assertions), app.config().build.dev_url.as_ref())?;
     let root_render = ClientRootRenderLatch::default();
     if !app.manage(root_render.clone()) {
         return Err("Client root-render latch could not be installed".into());
@@ -251,30 +222,29 @@ pub fn initialize(
 }
 
 pub(crate) fn native_view_origins(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
     ready: &codeterm_types::server_bootstrap::ServerReady,
 ) -> HashSet<String> {
     let mut origins = HashSet::from([fallback_origin().to_string()]);
     if let Ok(origin) = loopback_origin(ready.api_address) {
         origins.insert(origin);
     }
-    if let Ok(Some(frontend)) = codeterm_service_core::startup::frontend_shell_development_frontend(
-        cfg!(debug_assertions),
-        app.config().build.dev_url.as_ref(),
-    ) {
+    if let Ok(Some(frontend)) =
+        development_frontend(cfg!(debug_assertions), app.config().build.dev_url.as_ref())
+    {
         origins.insert(frontend.origin().ascii_serialization());
     }
     origins
 }
 
-pub fn window_created(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+pub fn window_created(app: &codeterm_client_shell::app_runtime::AppHandle) {
     app.state::<ShellSupervisor>().windows.send_modify(|epoch| {
         epoch.generation += 1;
         epoch.available = true;
     });
 }
 
-pub fn window_destroying(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+pub fn window_destroying(app: &codeterm_client_shell::app_runtime::AppHandle) {
     if let Some(client) = app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
     {
         client.release_view();
@@ -296,7 +266,7 @@ pub fn window_destroying(app: &codeterm_host_runtime::app_runtime::AppHandle) {
 }
 
 pub fn create_window(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
 ) -> Result<WebviewWindow, Box<dyn std::error::Error>> {
     let supervisor = app.state::<ShellSupervisor>();
     let development_frontend = supervisor.development_frontend.clone();
@@ -447,6 +417,25 @@ fn same_navigation_document(url: &Url, expected: &Url) -> bool {
     url == *expected
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UnrenderedRoot {
+    KeepDocument,
+    PackagedFallback,
+    Unavailable,
+}
+
+/// Only a shell-prepared URL carries the generation an acknowledgement must match, so a
+/// document the page loaded itself (reload, update swap) can never be acknowledged.
+fn unrendered_root_action(url: &Url, fallback: &Url, prepared: bool) -> UnrenderedRoot {
+    if !prepared {
+        UnrenderedRoot::KeepDocument
+    } else if same_navigation_document(url, fallback) {
+        UnrenderedRoot::Unavailable
+    } else {
+        UnrenderedRoot::PackagedFallback
+    }
+}
+
 fn navigation_identity(url: &Url) -> String {
     if url.scheme() == "data" {
         return "native recovery document".into();
@@ -459,11 +448,13 @@ fn navigation_identity(url: &Url) -> String {
 
 /// WebView reports data: URLs inconsistently, so the recovery surface is tracked explicitly.
 static ON_RECOVERY_SURFACE: AtomicBool = AtomicBool::new(false);
+/// The start-failure page is a recovery surface the retrying page must still replace.
+static ON_START_FAILURE: AtomicBool = AtomicBool::new(false);
 
 /// Startup keeps the window hidden until something worth seeing is painted; this bounds that wait.
 const REVEAL_DEADLINE: Duration = Duration::from_secs(4);
 
-pub(crate) fn reveal_main(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+pub(crate) fn reveal_main(app: &codeterm_client_shell::app_runtime::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
@@ -479,7 +470,7 @@ pub(crate) fn reveal_main(app: &codeterm_host_runtime::app_runtime::AppHandle) {
     }
 }
 
-pub(crate) fn reveal_after_deadline(app: codeterm_host_runtime::app_runtime::AppHandle) {
+pub(crate) fn reveal_after_deadline(app: codeterm_client_shell::app_runtime::AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(REVEAL_DEADLINE).await;
         reveal_main(&app);
@@ -489,7 +480,8 @@ pub(crate) fn reveal_after_deadline(app: codeterm_host_runtime::app_runtime::App
 fn show_unavailable(window: &WebviewWindow) {
     reveal_main(window.app_handle());
     // Re-navigating would restart the page (and its retry ring) on every failed attempt.
-    if ON_RECOVERY_SURFACE.swap(true, Ordering::AcqRel) {
+    let on_recovery_surface = ON_RECOVERY_SURFACE.swap(true, Ordering::AcqRel);
+    if !ON_START_FAILURE.swap(false, Ordering::AcqRel) && on_recovery_surface {
         return;
     }
     match unavailable_url()
@@ -506,7 +498,25 @@ fn show_unavailable(window: &WebviewWindow) {
     }
 }
 
-pub(crate) fn server_disconnected(app: codeterm_host_runtime::app_runtime::AppHandle) {
+/// A fragment-only change keeps the document, so a repeated refusal just updates its reason.
+pub(crate) fn show_start_failure(window: &WebviewWindow, reason: &str) {
+    reveal_main(window.app_handle());
+    ON_RECOVERY_SURFACE.store(true, Ordering::Release);
+    ON_START_FAILURE.store(true, Ordering::Release);
+    match start_failure_url(Some(reason))
+        .map_err(|error| error.to_string())
+        .and_then(|url| window.navigate(url).map_err(|error| error.to_string()))
+    {
+        Ok(()) => log::debug!("[frontend-shell] start failure surface selected"),
+        Err(error) => {
+            ON_START_FAILURE.store(false, Ordering::Release);
+            ON_RECOVERY_SURFACE.store(false, Ordering::Release);
+            log::error!("[frontend-shell] start failure surface failed: {error}");
+        }
+    }
+}
+
+pub(crate) fn server_disconnected(app: codeterm_client_shell::app_runtime::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         show_unavailable(&window);
     }
@@ -515,7 +525,7 @@ pub(crate) fn server_disconnected(app: codeterm_host_runtime::app_runtime::AppHa
 const SHELL_ACTION_SCHEME: &str = "domios-shell";
 
 /// The recovery page has no IPC, so its titlebar and Retry button navigate to `domios-shell://<action>`.
-fn run_shell_action(app: &codeterm_host_runtime::app_runtime::AppHandle, url: &Url) {
+fn run_shell_action(app: &codeterm_client_shell::app_runtime::AppHandle, url: &Url) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
@@ -549,7 +559,7 @@ fn next_generation(generation: &AtomicU64) -> Option<u64> {
 }
 
 pub(crate) fn active_view_matches(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
     generation: u64,
 ) -> bool {
     app.try_state::<ShellSupervisor>()
@@ -559,7 +569,7 @@ pub(crate) fn active_view_matches(
 }
 
 fn prepare_root_navigation(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
     url: Url,
 ) -> Result<Url, String> {
     let supervisor = app.state::<ShellSupervisor>();
@@ -577,7 +587,7 @@ fn prepare_root_navigation(
 }
 
 fn navigate_frontend(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
     window: &WebviewWindow,
     url: Url,
 ) -> Result<(), String> {
@@ -616,16 +626,16 @@ fn observe_navigation(
         return;
     }
     let origin = url.origin().ascii_serialization();
-    let generation = root_generation_from_url(&url)
-        .filter(|generation| {
-            generation.view == view_generation && root_render.is_armed(*generation, &origin)
+    let prepared = root_generation_from_url(&url).filter(|generation| {
+        generation.view == view_generation && root_render.is_armed(*generation, &origin)
+    });
+    let unrendered = unrendered_root_action(&url, fallback, prepared.is_some());
+    let generation = prepared.or_else(|| {
+        next_generation(&supervisor.navigation).map(|navigation| ClientViewGeneration {
+            view: view_generation,
+            navigation,
         })
-        .or_else(|| {
-            next_generation(&supervisor.navigation).map(|navigation| ClientViewGeneration {
-                view: view_generation,
-                navigation,
-            })
-        });
+    });
     let Some(generation) = generation else {
         root_render.retire();
         log::error!("[frontend-shell] navigation generation space is exhausted");
@@ -658,9 +668,8 @@ fn observe_navigation(
         }
     }
     let current_navigation = generation.navigation;
-    let bundled_fallback = *fallback == url;
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    log::debug!("[frontend-shell] root observer armed: view={view_generation}, navigation={current_navigation}, server_epoch={server_epoch}, fallback={bundled_fallback}");
+    log::debug!("[frontend-shell] root observer armed: view={view_generation}, navigation={current_navigation}, server_epoch={server_epoch}, unrendered={unrendered:?}");
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         match root_render.wait_until(generation, deadline).await {
@@ -685,10 +694,17 @@ fn observe_navigation(
             log::debug!("[frontend-shell] stale boot failure ignored: navigation={current_navigation}, server_epoch={server_epoch}");
             return;
         }
-        if bundled_fallback {
-            log::warn!("[frontend-shell] packaged root render was not acknowledged");
-            show_unavailable(&window);
-            return;
+        match unrendered {
+            UnrenderedRoot::KeepDocument => {
+                log::debug!("[frontend-shell] page-initiated document kept: navigation={current_navigation}");
+                return;
+            }
+            UnrenderedRoot::Unavailable => {
+                log::warn!("[frontend-shell] packaged root render was not acknowledged");
+                show_unavailable(&window);
+                return;
+            }
+            UnrenderedRoot::PackagedFallback => {}
         }
         log::warn!(
             "[frontend-shell] root render was not acknowledged; selecting packaged fallback"
@@ -709,7 +725,7 @@ fn observe_navigation(
 }
 
 async fn frontend_url(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
     origin: &str,
 ) -> Result<Url, String> {
     if let Some(url) = &app.state::<ShellSupervisor>().development_frontend {
@@ -728,15 +744,8 @@ async fn frontend_url(
             .map_err(|error| format!("Development frontend unavailable: {error}"))?;
         return Ok(url.clone());
     }
-    let bundles = app
-        .try_state::<Arc<codeterm_frontend_bundle::FrontendBundles>>()
-        .map(|bundles| bundles.inner().clone());
-    let index = bundles
-        .as_deref()
-        .and_then(codeterm_frontend_bundle::FrontendBundles::active_index)
-        .unwrap_or_else(|| "/bundled/index.html".into());
     let target = Url::parse(origin)
-        .and_then(|origin| origin.join(&index))
+        .and_then(|origin| origin.join("/bundled/index.html"))
         .map_err(|error| error.to_string())?;
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -766,7 +775,7 @@ async fn frontend_url(
     }
 }
 
-pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle) {
+pub fn start(app: codeterm_client_shell::app_runtime::AppHandle) {
     if app
         .state::<ShellSupervisor>()
         .observer_started
@@ -823,7 +832,7 @@ pub fn start(app: codeterm_host_runtime::app_runtime::AppHandle) {
     });
 }
 
-async fn reinitialize_client(app: codeterm_host_runtime::app_runtime::AppHandle) {
+async fn reinitialize_client(app: codeterm_client_shell::app_runtime::AppHandle) {
     match crate::host_ports::native_client::retry_initialize_client(app.clone()).await {
         Ok(initialized) => {
             #[cfg(debug_assertions)]
@@ -847,13 +856,17 @@ async fn reinitialize_client(app: codeterm_host_runtime::app_runtime::AppHandle)
         Err(error) => {
             log::error!("[frontend-shell] client retry refused: {error}");
             if let Some(window) = app.get_webview_window("main") {
-                show_unavailable(&window);
+                if error.stated_refusal() {
+                    show_start_failure(&window, error.message());
+                } else {
+                    show_unavailable(&window);
+                }
             }
         }
     }
 }
 
-pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
+pub fn retry(app: &codeterm_client_shell::app_runtime::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let Some(attachment) = app
@@ -893,7 +906,7 @@ pub fn retry(app: &codeterm_host_runtime::app_runtime::AppHandle) {
 }
 
 pub(crate) async fn recover_for_attachment(
-    app: codeterm_host_runtime::app_runtime::AppHandle,
+    app: codeterm_client_shell::app_runtime::AppHandle,
     expected: &codeterm_types::server_bootstrap::ServerReady,
 ) -> Result<(), String> {
     ensure_server_attachment(&app, expected)?;
@@ -998,7 +1011,7 @@ pub(crate) async fn recover_for_attachment(
 }
 
 fn ensure_server_attachment(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
     expected: &codeterm_types::server_bootstrap::ServerReady,
 ) -> Result<(), String> {
     if app
@@ -1013,8 +1026,8 @@ fn ensure_server_attachment(
 }
 
 async fn run_on_main_thread<T: Send + 'static>(
-    app: codeterm_host_runtime::app_runtime::AppHandle,
-    action: impl FnOnce(codeterm_host_runtime::app_runtime::AppHandle) -> Result<T, String>
+    app: codeterm_client_shell::app_runtime::AppHandle,
+    action: impl FnOnce(codeterm_client_shell::app_runtime::AppHandle) -> Result<T, String>
         + Send
         + 'static,
 ) -> Result<T, String> {
@@ -1067,7 +1080,7 @@ async fn run_on_main_thread<T: Send + 'static>(
 }
 
 fn same_server_attachment(
-    app: &codeterm_host_runtime::app_runtime::AppHandle,
+    app: &codeterm_client_shell::app_runtime::AppHandle,
     identity: &codeterm_types::server_bootstrap::ServerIdentity,
     epoch: &str,
 ) -> bool {

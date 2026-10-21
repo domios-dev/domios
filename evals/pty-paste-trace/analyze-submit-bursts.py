@@ -5,7 +5,7 @@ Read-only. Groups submit-audit lines per pty into transactions and reports
 payload size against submit-key count, recovery verdict and the turn transition
 that followed, so the burst window can be compared with ingestion time.
 
-Usage: analyze-submit-bursts.py <codeterm.log> [more logs...]
+Usage: analyze-submit-bursts.py <domios.log> [more logs...]
 """
 import re
 import sys

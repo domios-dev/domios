@@ -176,7 +176,7 @@ A launcher in an unidentified Unix group fails cleanup rather than risking
 another instance. Inspect the scoped count with:
 
 ```bash
-node scripts/reap-dev-sidecars.mjs "$HOME/.codeterm-dev" --count
+node scripts/reap-dev-sidecars.mjs "$HOME/.domios-dev" --count
 ```
 
 For dev readiness reports routed to the calling agent tab, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
@@ -228,13 +228,13 @@ deadline. The build itself retains its bounded readiness failure deadline.
 
 ## Logs
 
-- **macOS/Linux:** `~/.codeterm-dev/logs/codeterm.log`
-- **Windows:**    `%USERPROFILE%\.codeterm-dev\logs\codeterm.log`
+- **macOS/Linux:** `~/.domios-dev/logs/domios.log`
+- **Windows:**    `%USERPROFILE%\.domios-dev\logs\domios.log`
 
 Tail live:
 
 ```bash
-tail -f ~/.codeterm-dev/logs/codeterm.log
+tail -f ~/.domios-dev/logs/domios.log
 ```
 
 The build.sh bg task's own output stream also contains the Rust compile log and Vite dev server output — check it when something goes wrong during startup, not after.
@@ -267,10 +267,10 @@ listener can serve the announcement. A configured host is not live evidence.
 Do not widen the default bind or repeatedly connect to a stale discovered
 address; verify the named instance's live listener set first.
 
-- `~/.codeterm-dev/` — config, mem DB, sessions, logs, mesh identity
-- `~/.codeterm-dev/config.toml` — themes, keybindings, api section
-- `~/.codeterm-dev/mem/` — mem SQLite + FTS + vectors
-- `~/.codeterm-dev/sessions/` — persisted workspaces/tabs
+- `~/.domios-dev/` — config, mem DB, sessions, logs, mesh identity
+- `~/.domios-dev/config.toml` — themes, keybindings, api section
+- `~/.domios-dev/mem/` — mem SQLite + FTS + vectors
+- `~/.domios-dev/sessions/` — persisted workspaces/tabs
 
 **Important:** the dev CLI config is separate from prod. Dev PTYs receive the
 active data-directory CLI first on `PATH`; production shells continue using
@@ -290,7 +290,7 @@ When dev state is corrupted (mem DB weirdness, stale workspaces, broken mesh ide
 
 ```bash
 ./build.sh kill
-mv ~/.codeterm-dev ~/.codeterm-dev.bak-$(date +%Y%m%d-%H%M%S)
+mv ~/.domios-dev ~/.domios-dev.bak-$(date +%Y%m%d-%H%M%S)
 ./build.sh dev
 ```
 
@@ -340,9 +340,9 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 ## Troubleshooting log (grow this as things break)
 
-- **2026-10-18: named DEV cannot find its executable, or a second instance cannot replace a running Windows executable.** Interactive named builds previously used the default checkout target while `dev-prebuilt` looked under the instance data directory. Every named `dev` now builds CLI and app under `<checkout>/src-tauri/target/dev-instances/<instance-key>`, for both foreground and `--wait`; `dev-prebuilt` resolves the same checkout target. Config, installed CLI and the provenance record remain under `~/.codeterm-dev-<instance-key>`. Run `dev` once with the same explicit instance and private port to create the new artifacts and provenance, then reuse them with `dev-prebuilt`. Separate instance targets keep a second instance from overwriting the default instance's running executable. Cleanup remains scoped to the selected instance; never stop production to unlock a file.
+- **2026-10-18: named DEV cannot find its executable, or a second instance cannot replace a running Windows executable.** Interactive named builds previously used the default checkout target while `dev-prebuilt` looked under the instance data directory. Every named `dev` now builds CLI and app under `<checkout>/src-tauri/target/dev-instances/<instance-key>`, for both foreground and `--wait`; `dev-prebuilt` resolves the same checkout target. Config, installed CLI and the provenance record remain under `~/.domios-dev-<instance-key>`. Run `dev` once with the same explicit instance and private port to create the new artifacts and provenance, then reuse them with `dev-prebuilt`. Separate instance targets keep a second instance from overwriting the default instance's running executable. Cleanup remains scoped to the selected instance; never stop production to unlock a file.
 
-- **2026-10-18: worktree DEV selected production port 7685.** The debug API default accepted inherited `CODETERM_API_PORT`, and a saved `[api].port` overrode that default. Startup refuses a saved production port even with a safe environment override, then selects the explicit dev launch port over safe saved config; TCP and mesh UDP binding also guard it. `dev`, `dev-prebuilt`, and scoped cleanup refuse non-canonical worktrees without an explicit instance and private port. In Git Bash use `CODETERM_DEV_INSTANCE=my-lane CODETERM_DEV_API_PORT=7799 ./build.sh dev`; in PowerShell set `$env:CODETERM_DEV_INSTANCE='my-lane'; $env:CODETERM_DEV_API_PORT='7799'` before `./build.ps1 dev`. Choose an unused port other than 7685/7686 and use the same settings for `kill`. If the refusal names the saved config, change `[api].port` in `~/.codeterm-dev[-<instance>]/config.toml` to that private port first. Canonical launch ignores parent connection variables and selects 7686. Explicit `CODETERM_DEV_API_PORT=7685` still refuses. Never stop production to resolve the refusal.
+- **2026-10-18: worktree DEV selected production port 7685.** The debug API default accepted inherited `CODETERM_API_PORT`, and a saved `[api].port` overrode that default. Startup refuses a saved production port even with a safe environment override, then selects the explicit dev launch port over safe saved config; TCP and mesh UDP binding also guard it. `dev`, `dev-prebuilt`, and scoped cleanup refuse non-canonical worktrees without an explicit instance and private port. In Git Bash use `CODETERM_DEV_INSTANCE=my-lane CODETERM_DEV_API_PORT=7799 ./build.sh dev`; in PowerShell set `$env:CODETERM_DEV_INSTANCE='my-lane'; $env:CODETERM_DEV_API_PORT='7799'` before `./build.ps1 dev`. Choose an unused port other than 7685/7686 and use the same settings for `kill`. If the refusal names the saved config, change `[api].port` in `~/.domios-dev[-<instance>]/config.toml` to that private port first. Canonical launch ignores parent connection variables and selects 7686. Explicit `CODETERM_DEV_API_PORT=7685` still refuses. Never stop production to resolve the refusal.
 
 - **2026-10-17: DEV retains an older installed system provider.** DEV skipped embedded bootstrap, leaving installed bundles stale; workspace priority also ignored a newer installed release. Startup now refreshes bundled system ids with the existing version/hash installer, and both initial loading and the watcher keep the newest system version (workspace wins equal versions). Check the final `[js-plugin] codex version=...` startup line or `daemon-reloaded` audit event; an earlier `loaded ...` line or installed manifest alone does not identify the active implementation. After integrating the host repair, the owner rebuilds DEV once with `./build.ps1 dev`. To refresh a running DEV from the official channel without rebuilding, run `source evals/_lib/lib.sh` then `dc plugin update-system codex` in Git Bash from canonical. This installs the channel release and acknowledges live registration; it does not publish unreleased checkout changes. Never copy plugin files manually or downgrade a newer installed release.
 
@@ -417,8 +417,8 @@ well as the immediate environment before declaring recovery complete.
 - **Health endpoint returns empty after `kill && dev`** — Rust is still linking. Poll the health endpoint for up to 40s before concluding the restart failed.
 - **`caffeinate` stays running after dev crashes** — if a session used `codeterm keepawake start`, the caffeinate child is owned by the dev process and should die with it. If it doesn't: `pkill -x caffeinate` (safe — targets only the literal binary name).
 - **Port 7686 already in use but no dev window** — stale process from a previous crash. `./build.sh kill` then start. If still occupied, `lsof -nP -iTCP:7686 -sTCP:LISTEN -t | xargs kill` and retry.
-- **2026-09-30: first named `dev --wait` exits 1 silently after bundle preparation** — `record_dev_target` ran `cd` into `<instance>/target/debug`, which a fresh named target does not have yet (only `release/`), and `set -e` aborted without a message. `record_dev_target` now creates the directory; on an older checkout, `mkdir -p ~/.codeterm-dev-<name>/target/debug` and rerun.
-- **`~/.codeterm-dev/mem/` corrupted / mem commands 500** — back it up and restart: `mv ~/.codeterm-dev ~/.codeterm-dev.bak-$(date +%s) && ./build.sh dev`.
+- **2026-09-30: first named `dev --wait` exits 1 silently after bundle preparation** — `record_dev_target` ran `cd` into `<instance>/target/debug`, which a fresh named target does not have yet (only `release/`), and `set -e` aborted without a message. `record_dev_target` now creates the directory; on an older checkout, `mkdir -p ~/.domios-dev-<name>/target/debug` and rerun.
+- **`~/.domios-dev/mem/` corrupted / mem commands 500** — back it up and restart: `mv ~/.domios-dev ~/.domios-dev.bak-$(date +%s) && ./build.sh dev`.
 
 ### Windows
 

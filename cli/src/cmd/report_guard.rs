@@ -473,7 +473,7 @@ fn unquote_git_path(path: &str) -> String {
 }
 
 fn is_tool_owned_path(path: &str) -> bool {
-    path == ".codeterm/plans" || path.starts_with(".codeterm/plans/")
+    path == ".domios/plans" || path.starts_with(".domios/plans/")
 }
 
 fn git_success(cwd: &Path, args: &[&str]) -> bool {

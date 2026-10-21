@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   createTranscriptState,
   matchesMatchedRow,
@@ -170,11 +170,16 @@ function subscribe(key: string, onChange: () => void): () => void {
   };
 }
 
-export function useTranscriptWindow(key: string): TranscriptWindow {
+const IGNORE_CHANGE = () => {};
+
+/** A held view keeps its subscription, so the window is never evicted, but
+ *  renders the window it last saw until it is live again. */
+export function useTranscriptWindow(key: string, live = true): TranscriptWindow {
+  const held = useMemo(() => live ? null : readTranscriptWindow(key), [key, live]);
   const subscribeToKey = useCallback(
-    (onChange: () => void) => subscribe(key, onChange),
-    [key],
+    (onChange: () => void) => subscribe(key, held ? IGNORE_CHANGE : onChange),
+    [key, held],
   );
-  const read = useCallback(() => readTranscriptWindow(key), [key]);
+  const read = useCallback(() => held ?? readTranscriptWindow(key), [key, held]);
   return useSyncExternalStore(subscribeToKey, read, read);
 }

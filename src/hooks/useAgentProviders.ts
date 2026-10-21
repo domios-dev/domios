@@ -9,6 +9,7 @@ import { shouldRefetch, type ProviderCatalogueRevision } from "../lib/providerCa
 import { persistProviderIcons } from "../lib/providerIconCache";
 import { createProviderCatalogueResource } from "../lib/providerCatalogueResource";
 import { WEB_BOOT_CHANGED_EVENT, type BootChangedDetail } from "../lib/buildDriftReload";
+import { PROVIDER_AVAILABILITY_CHANGED } from "../lib/providerAvailability";
 
 export function shouldRefreshAgentProviders(eventType: string): boolean {
   return eventType === "contributions-changed" || eventType === "model-catalogue-changed";
@@ -150,6 +151,10 @@ export function useAgentProviders(): {
     window.addEventListener("codeterm-peer-switch-rebind", rebind);
     window.addEventListener(WEB_BOOT_CHANGED_EVENT, serverChanged);
     const cleanupModels = attachModelCatalogueChangedRefresh(refetch);
+    let unlistenAvailability: UnlistenFn | undefined;
+    void listen(PROVIDER_AVAILABILITY_CHANGED, () => { if (!disposed) refetch(); })
+      .then((dispose) => { if (disposed) dispose(); else unlistenAvailability = dispose; })
+      .catch(() => {});
     void listen<{ kind: string }>("contributions-changed", ({ payload }) => {
       if (!disposed && payload.kind === "agent_provider") refetch();
     }).then((dispose) => {
@@ -163,6 +168,7 @@ export function useAgentProviders(): {
       active.current = false;
       generation.current++;
       unlisten?.();
+      unlistenAvailability?.();
       cleanupModels();
       window.removeEventListener("codeterm-peer-switch-reset", reset);
       window.removeEventListener("codeterm-peer-switch-rebind", rebind);

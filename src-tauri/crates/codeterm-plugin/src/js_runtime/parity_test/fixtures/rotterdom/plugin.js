@@ -449,7 +449,7 @@ function recover(history) {
 }
 function path(id) {
   if (!/^[A-Za-z0-9_-]{1,120}$/.test(id)) throw new Error("invalid session id");
-  const dir = host.fs.expandHome("~/.codeterm/rotterdom");
+  const dir = host.fs.expandHome("~/.domios/rotterdom");
   if (!dir || !host.makeDirs(dir)) throw new Error("history directory unavailable");
   return `${dir}/session-${id}.json`;
 }
@@ -468,7 +468,7 @@ function load(id) {
 // rotterdom/src/instanceCli.ts
 function instanceBinDir() {
   try {
-    const dir = host.fs && typeof host.fs.expandHome === "function" ? host.fs.expandHome("~/.codeterm/bin") : null;
+    const dir = host.fs && typeof host.fs.expandHome === "function" ? host.fs.expandHome("~/.domios/bin") : null;
     if (!dir) return null;
     return dir;
   } catch {

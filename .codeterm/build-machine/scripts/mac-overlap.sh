@@ -13,7 +13,6 @@ HELPERS="$REPO_ROOT/.agents/skills/github-release/scripts"
 cd "$REPO_ROOT"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO_ROOT/src-tauri/target}"
 export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
-export CODETERM_RELEASE_FEATURES="${CODETERM_RELEASE_FEATURES:-embeddings}"
 ARM_DMG="src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg"
 
 echo "=== build arm64 ===" >&2

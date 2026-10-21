@@ -36,7 +36,7 @@ pub fn generate_nonce() -> String {
 fn derive_aes_key(shared_secret: &[u8; 32]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(shared_secret);
-    hasher.update(b"codeterm-mesh-v1");
+    hasher.update(b"domios-mesh-v1");
     hasher.finalize().into()
 }
 

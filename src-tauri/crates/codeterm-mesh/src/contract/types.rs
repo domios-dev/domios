@@ -11,7 +11,7 @@ fn default_true() -> bool {
 
 // ── Identity ────────────────────────────────────────────────────────
 
-/// Persistent identity for this CodeTerm instance.
+/// Persistent identity for this Domios instance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshIdentity {
     pub instance_id: String,
@@ -150,7 +150,7 @@ pub fn should_proactive_sync(
 
 // ── Live address announce ───────────────────────────────────────────
 
-pub const RELAY_PROTOCOL_VERSION: u16 = 1;
+pub const RELAY_PROTOCOL_VERSION: u16 = 2;
 pub const MAX_SUPPORTED_RELAY_PROTOCOL_VERSION: u16 = 2;
 
 pub const fn is_supported_relay_protocol(version: u16) -> bool {
@@ -474,9 +474,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn relay_protocol_keeps_v1_wire_and_accepts_v1_and_v2_records() {
-        assert_eq!(RELAY_PROTOCOL_VERSION, 1);
-        assert!(is_supported_relay_protocol(1));
+    fn relay_protocol_refuses_v1_and_accepts_v2_records() {
+        assert_eq!(RELAY_PROTOCOL_VERSION, 2);
+        assert!(!is_supported_relay_protocol(1));
         assert!(is_supported_relay_protocol(2));
         assert!(!is_supported_relay_protocol(0));
         assert!(!is_supported_relay_protocol(3));

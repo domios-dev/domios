@@ -68,7 +68,7 @@ const LANE_BASE: &str = "release/1.10.0";
 
 fn instance_env() -> InstanceEnv {
     InstanceEnv {
-        socket_path: "/tmp/codeterm-test.sock".into(),
+        socket_path: "/tmp/domios-test.sock".into(),
         api_url: "http://127.0.0.1:7686".into(),
         api_port: "7686".into(),
         api_token: Some("test-token".into()),

@@ -75,7 +75,7 @@ fn plan_adopt_and_move_parse() {
         "codeterm",
         "plan",
         "adopt",
-        "/tmp/source/.codeterm/plans/active/pl_1",
+        "/tmp/source/.domios/plans/active/pl_1",
         "--project",
         "/tmp/repo",
         "--dry-run",
@@ -92,7 +92,7 @@ fn plan_adopt_and_move_parse() {
                     overwrite,
                 },
         } => {
-            assert_eq!(source, "/tmp/source/.codeterm/plans/active/pl_1");
+            assert_eq!(source, "/tmp/source/.domios/plans/active/pl_1");
             assert_eq!(project, "/tmp/repo");
             assert!(dry_run);
             assert!(overwrite);

@@ -10,6 +10,7 @@ pub mod native_update;
 mod runtime;
 pub use runtime::{ownership_registry, run};
 mod resources;
+pub(crate) mod upgrade_from_1_14_9;
 mod worker_observer;
 
 mod exact_quit;

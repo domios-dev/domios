@@ -17,29 +17,29 @@ pub use mesh_cli::{MeshAction, MeshPeerAction};
 
 /// Resolve tab ID: explicit arg > $CODETERM_TAB_ID env var > refuse.
 ///
-/// When running inside CodeTerm, $CODETERM_TAB_ID is set automatically by the PTY.
+/// When running inside Domios, $CODETERM_TAB_ID is set automatically by the PTY.
 /// There is no focused-tab fallback: a caller that can prove neither is refused,
 /// so a command can never act on a tab the caller does not own.
 pub fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
     cmd::local_io::resolve_tab(client, id)
 }
 
-/// Determine the CodeTerm data directory.
-/// Dev instances use `~/.codeterm-dev[-<slug>]/`, prod uses `~/.codeterm/`.
+/// Determine the Domios data directory.
+/// Dev instances use `~/.domios-dev[-<slug>]/`, prod uses `~/.domios/`.
 /// A named dev socket also selects its matching data directory when
 /// CODETERM_INSTANCE is absent, keeping local commands on the socket's instance.
 pub fn data_dir_name() -> String {
     let is_dev = std::env::var("CODETERM_SOCKET_PATH")
-        .map(|sp| sp.contains("codeterm-dev"))
+        .map(|sp| sp.contains("domios-dev"))
         .unwrap_or(false)
         || std::env::var("CODETERM_API_PORT")
             .map(|port| !port.trim().is_empty() && port.trim() != "7685")
             .unwrap_or(false)
         || resolved_instance().value.is_some();
     if is_dev {
-        return format!(".codeterm-dev{}", instance_suffix());
+        return format!(".domios-dev{}", instance_suffix());
     }
-    ".codeterm".to_string()
+    ".domios".to_string()
 }
 
 /// Suffix for the resolved named dev instance.
@@ -64,7 +64,7 @@ fn instance_suffix() -> String {
     }
 }
 
-/// Resolve the CodeTerm data root used by local filesystem commands.
+/// Resolve the Domios data root used by local filesystem commands.
 ///
 /// `CODETERM_DATA_DIR` is an explicit test/dev harness override. It must be
 /// absolute so a typo cannot silently route plugin operations into a relative
@@ -74,8 +74,8 @@ pub fn data_root() -> std::path::PathBuf {
 }
 
 /// Read API config (host, port, token).
-/// Priority: $CODETERM_API_PORT env var (set by CodeTerm PTY) > config.toml.
-/// This ensures CLI works in both dev (7686) and prod (7685) when called from inside CodeTerm.
+/// Priority: $CODETERM_API_PORT env var (set by the Domios PTY) > config.toml.
+/// This ensures CLI works in both dev (7686) and prod (7685) when called from inside Domios.
 pub fn read_api_config() -> (String, Option<String>) {
     let resolved = resolve_api_config();
     (
@@ -118,7 +118,7 @@ pub use args::team::TeamAction;
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
-#[path = "../../src-tauri/src/plugin_bundle.rs"]
+#[path = "../../src-tauri/crates/domios-server/src/bundle.rs"]
 mod plugin_bundle;
 
 fn main() {
@@ -636,7 +636,7 @@ fn main_impl() {
                                 }));
                             } else {
                                 eprintln!(
-                                    "[debug.crash] trigger dispatched (kind={}). For segv/abort the daemon will die; check ~/.codeterm[-dev]/crashes/ for the report.",
+                                    "[debug.crash] trigger dispatched (kind={}). For segv/abort the daemon will die; check ~/.domios[-dev]/crashes/ for the report.",
                                     kind.as_str()
                                 );
                             }

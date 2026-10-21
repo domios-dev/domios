@@ -106,6 +106,7 @@ export function useChatSession({
   allowUnboundAuthority = false,
   followTailRef: suppliedFollowTailRef,
   history,
+  live = true,
 }: {
   tabId: string;
   agentSessionId: string | null;
@@ -120,12 +121,14 @@ export function useChatSession({
   followTailRef?: MutableRefObject<boolean>;
   /** Runtime history replay state; its completion re-reads the transcript snapshot. */
   history?: RuntimeHistoryState;
+  /** Rows keep committing to the store; a held view renders them when live again. */
+  live?: boolean;
 }) {
   const activatedRef = useRef(false);
   if (active) activatedRef.current = true;
   const attachmentActive = active || (retainAttachment && activatedRef.current);
   const windowKey = transcriptWindowKey(tabId, agentSessionId);
-  const { transcript, anchorKey, snapshotBinding } = useTranscriptWindow(windowKey);
+  const { transcript, anchorKey, snapshotBinding } = useTranscriptWindow(windowKey, live);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [listenerReady, setListenerReady] = useState(false);

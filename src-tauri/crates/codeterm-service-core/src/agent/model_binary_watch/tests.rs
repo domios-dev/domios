@@ -3,6 +3,9 @@ use notify::event::{AccessKind, CreateKind, DataChange, RemoveKind};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+// Bounds a missing event only; macOS FSEvents coalesces for about a second and lags further under load.
+const WATCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
+
 #[test]
 fn scoped_data_events_trigger_once_with_preserved_size_and_mtime() {
     let dir = tempfile::tempdir().unwrap();
@@ -119,7 +122,7 @@ async fn native_config_and_auth_events_refresh_the_warm_authoritative_catalogue(
             Some(data) => std::fs::write(path, data).unwrap(),
             None => std::fs::remove_file(path).unwrap(),
         }
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tokio::time::timeout(WATCH_DEADLINE, async {
             loop {
                 let change = changes.recv().await.unwrap();
                 if change.provider == id {
@@ -133,6 +136,68 @@ async fn native_config_and_auth_events_refresh_the_warm_authoritative_catalogue(
         .await
         .unwrap();
     }
+    watchers().watchers.lock().remove(&format!("pty:{id}"));
+    model_catalog::unregister(id);
+}
+
+#[tokio::test]
+async fn a_provider_cli_update_republishes_the_catalogue_probed_against_it() {
+    use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    let dir = tempfile::tempdir().unwrap();
+    let cli = dir.path().join("fixture-cli");
+    std::fs::write(&cli, b"v1").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let id = "cli-update-catalogue-watch-fixture";
+    let manifest = serde_json::json!({
+        "id": id, "version":"0.1.0", "displayName":"Fixture", "cliBinary": cli,
+        "modelCatalogue":{"authority":"authoritative", "liveDiscoveryRequired":true},
+    })
+    .to_string();
+    let vm = PluginVm::from_source_with(
+        id,
+        r#"
+        module.exports.default = {
+            discoverModels: function(binaryFingerprint) {
+                if (binaryFingerprint === null) return null;
+                return [{id: "fixture/" + binaryFingerprint.slice(0, 16), displayName: "Fixture"}];
+            }
+        };
+    "#
+        .into(),
+        Some(manifest.clone()),
+    )
+    .unwrap();
+    let provider: Arc<dyn AgentProvider> = Arc::new(JsProvider::new(
+        PluginManifest::from_json_str(&manifest).unwrap(),
+        Arc::new(vm),
+    ));
+    model_catalog::refresh_models(provider.clone(), true)
+        .await
+        .expect("a probe that resolves its CLI publishes");
+    assert_eq!(model_catalog::last_refresh_failure(id), None);
+    let before = model_catalog::resolve_models(id)[0].id.clone();
+    install(provider.clone());
+    let mut changes = model_catalog::subscribe_changes();
+    std::fs::write(&cli, b"v2-updated-cli").unwrap();
+    tokio::time::timeout(WATCH_DEADLINE, async {
+        loop {
+            let change = changes.recv().await.unwrap();
+            if change.provider == id
+                && model_catalog::resolve_models(id)
+                    .first()
+                    .is_some_and(|model| model.id != before)
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("a rewritten provider CLI refreshes its catalogue");
+    assert!(!model_catalog::provider_binary_changed(id));
     watchers().watchers.lock().remove(&format!("pty:{id}"));
     model_catalog::unregister(id);
 }
@@ -164,7 +229,7 @@ fn a_declared_input_created_under_a_new_directory_is_observed() {
     );
     std::fs::create_dir(target.parent().unwrap()).unwrap();
     std::fs::write(&target, b"fixture").unwrap();
-    rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+    rx.recv_timeout(WATCH_DEADLINE).unwrap();
 }
 
 #[test]

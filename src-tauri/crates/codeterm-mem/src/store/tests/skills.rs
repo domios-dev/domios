@@ -55,20 +55,20 @@ fn source_key_normalizes_existing_skill_paths() {
 
 #[test]
 fn source_key_normalizes_verbatim_windows_paths() {
-    let verbatim = r"file:\\?\C:\Users\User\.codeterm\skills\qa-w4\SKILL.md";
-    let plain = r"file:C:\Users\USER\.codeterm\skills\qa-w4\SKILL.md";
+    let verbatim = r"file:\\?\C:\Users\User\.domios\skills\qa-w4\SKILL.md";
+    let plain = r"file:C:\Users\USER\.domios\skills\qa-w4\SKILL.md";
 
     assert_eq!(source_key(verbatim), source_key(plain));
     assert_eq!(
         normalize_file_source(verbatim),
-        "file:c:/users/user/.codeterm/skills/qa-w4/skill.md"
+        "file:c:/users/user/.domios/skills/qa-w4/skill.md"
     );
 }
 
 #[test]
 fn skill_write_normalizes_file_sources() {
     let (conn, blobs) = fresh();
-    let source = r"file:\\?\C:\Users\User\.codeterm\skills\qa-w4\SKILL.md";
+    let source = r"file:\\?\C:\Users\User\.domios\skills\qa-w4\SKILL.md";
     let id = insert(
         &conn,
         &skill_item("QA W4", source, vec!["folder-skill".into()]),
@@ -83,7 +83,7 @@ fn skill_write_normalizes_file_sources() {
         )
         .unwrap();
 
-    let expected = "file:c:/users/user/.codeterm/skills/qa-w4/skill.md";
+    let expected = "file:c:/users/user/.domios/skills/qa-w4/skill.md";
     assert_eq!(stored.0.as_deref(), Some(expected));
     assert_eq!(stored.1.as_deref(), Some(expected));
 }

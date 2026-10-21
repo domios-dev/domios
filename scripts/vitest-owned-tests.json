@@ -4,8 +4,11 @@
   "src/components/Terminal/useBodyPainted.test.tsx",
   "src/components/Terminal/childTranscriptViewModel.test.ts",
   "src/components/AgentPicker/FirstRunGeneralPicker.test.tsx",
+  "src/components/AgentPicker/AgentProviderPicker.test.tsx",
   "src/components/Sidebar/cronRowMenu.test.ts",
   "src/components/Sidebar/sortable.editing.test.tsx",
+  "src/components/Sidebar/sortable.clickDrift.test.tsx",
+  "src/components/Sidebar/sortable.pressFocus.test.tsx",
   "src/components/Sidebar/GeneralInventory.test.tsx",
   "src/components/MeshPanel/MeshPanel.web.wiring.test.tsx",
   "src/lib/interfaceReload.test.ts",
@@ -70,6 +73,7 @@
   "src/components/Terminal/ChatComposer.composition.test.tsx",
   "src/components/Terminal/chatSendStatus.test.ts",
   "src/components/Terminal/transcriptStore.correlation.test.ts",
+  "src/components/Terminal/transcriptStore.held.test.tsx",
   "src/components/Terminal/useChatSession.optimisticIdentity.test.ts",
   "src/components/Canvas/teamTaskSegment.test.tsx",
   "src/components/Snake/simulation.test.ts",
@@ -134,6 +138,7 @@
   "src/components/Terminal/ComposerCapsuleField.test.tsx",
   "src/components/Terminal/ChatComposer.uploads.test.tsx",
   "src/hooks/terminal/terminalScroll.test.ts",
+  "src/hooks/terminal/windowsBuildNumber.test.ts",
   "src/components/Notifications/attentionSurfaceModel.test.ts",
   "src/components/Terminal/TabContent.notifications.test.tsx",
   "src/components/Notifications/NotificationBell.choice.test.tsx",
@@ -254,5 +259,7 @@
   "src/components/Jobs/useCronJobs.identity.test.tsx",
   "src/components/Sidebar/sortable.contextStability.test.tsx",
   "src/components/Terminal/useComposerBackgroundWork.identity.test.tsx",
-  "src/components/shared/deferredComponent.memo.test.tsx"
+  "src/components/shared/deferredComponent.memo.test.tsx",
+  "src/store/multiplexer/muxFanout.test.ts",
+  "src/components/Sidebar/sidebarRowMemo.test.tsx"
 ]

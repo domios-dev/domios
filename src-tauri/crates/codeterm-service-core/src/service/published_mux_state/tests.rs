@@ -51,10 +51,86 @@ fn rebuild_does_not_block_readers_and_late_old_completion_cannot_roll_back() {
     });
     entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert_eq!(published.read(), r#"{"generation":1}"#);
-    assert!(published.publish(3, &json!({ "generation": 3 })).unwrap());
+    assert!(published
+        .publish(3, &json!({ "generation": 3, "title": "newest" }))
+        .unwrap());
     release_tx.send(()).unwrap();
     assert!(!worker.join().unwrap());
-    assert_eq!(published.read(), r#"{"generation":3}"#);
+    assert_eq!(published.read(), r#"{"generation":3,"title":"newest"}"#);
+}
+
+#[test]
+fn unchanged_snapshot_is_silent_and_changed_snapshot_publishes_at_once() {
+    let published =
+        PublishedMuxState::new(1, &json!({ "generation": 1, "title": "first" })).unwrap();
+    for generation in 2..=50 {
+        assert!(!published
+            .publish(
+                generation,
+                &json!({ "generation": generation, "title": "first" })
+            )
+            .unwrap());
+    }
+    assert_eq!(
+        published.read_versioned(),
+        (
+            1,
+            Bytes::from_static(br#"{"generation":1,"title":"first"}"#)
+        )
+    );
+    assert!(published
+        .publish(51, &json!({ "generation": 51, "title": "second" }))
+        .unwrap());
+    assert_eq!(
+        published.read_versioned(),
+        (
+            51,
+            Bytes::from_static(br#"{"generation":51,"title":"second"}"#)
+        )
+    );
+}
+
+#[test]
+fn silent_newer_generation_still_fences_an_older_late_publication() {
+    let published = PublishedMuxState::new(1, &json!({ "generation": 1, "title": "a" })).unwrap();
+    assert!(!published
+        .publish(3, &json!({ "generation": 3, "title": "a" }))
+        .unwrap());
+    assert!(!published
+        .publish(2, &json!({ "generation": 2, "title": "stale" }))
+        .unwrap());
+    assert_eq!(published.read(), r#"{"generation":1,"title":"a"}"#);
+}
+
+#[test]
+fn equal_multiplexer_snapshots_publish_once_whatever_their_map_order() {
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_types::pty::TabStatus;
+
+    let (mut state, first) = MultiplexerState::new();
+    let workspace = state.list_workspaces()[0].id.clone();
+    let mut tabs = vec![first];
+    for _ in 0..12 {
+        tabs.push(state.create_tab(&workspace).unwrap());
+    }
+    let snapshot = |state: &MultiplexerState| {
+        let mut snapshot = state.snapshot();
+        snapshot.tab_statuses = tabs
+            .iter()
+            .map(|tab| (tab.clone(), TabStatus::Working))
+            .collect();
+        snapshot
+    };
+    let initial = snapshot(&state);
+    let published = PublishedMuxState::new(initial.generation, &initial).unwrap();
+    for _ in 0..20 {
+        let unchanged = snapshot(&state);
+        assert!(!published.publish(unchanged.generation, &unchanged).unwrap());
+    }
+    state.rename_tab(&tabs[3], "Renamed").unwrap();
+    let renamed = snapshot(&state);
+    assert!(published.publish(renamed.generation, &renamed).unwrap());
+    assert_eq!(published.read_versioned().0, renamed.generation);
 }
 
 #[test]
@@ -79,7 +155,9 @@ fn versioned_read_pairs_generation_with_the_same_published_body() {
         serde_json::from_slice::<serde_json::Value>(&json).unwrap()["generation"],
         generation
     );
-    assert!(published.publish(5, &json!({"generation": 5})).unwrap());
+    assert!(published
+        .publish(5, &json!({"generation": 5, "title": "changed"}))
+        .unwrap());
     let (generation, json) = published.read_versioned();
     assert_eq!(generation, 5);
     assert_eq!(

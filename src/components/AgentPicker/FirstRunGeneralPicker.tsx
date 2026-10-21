@@ -1,14 +1,16 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
 import { AgentProviderPicker } from "./AgentProviderPicker";
 import { generalAgentProviders } from "./preselectProvider";
+import { usePickerNavigation, type TabRef } from "./pickerNavigation";
 
-export function FirstRunGeneralPicker({ providers }: { providers: ProviderDescriptor[] }) {
+export function FirstRunGeneralPicker({ providers, home }: { providers: ProviderDescriptor[]; home?: TabRef }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const eligibleProviders = generalAgentProviders(providers);
+  const eligibleProviders = useMemo(() => generalAgentProviders(providers), [providers]);
+  const navigation = usePickerNavigation();
 
   const onConfirm = async (providerId: string) => {
     setBusy(true);
@@ -30,6 +32,8 @@ export function FirstRunGeneralPicker({ providers }: { providers: ProviderDescri
         confirmLabel="Start General agent"
         busy={busy}
         onConfirm={onConfirm}
+        navigation={navigation}
+        home={home}
       />
       {error && (
         <div data-testid="first-run-error"><InlineErrorNotice error={error} operation="starting the General agent" /></div>

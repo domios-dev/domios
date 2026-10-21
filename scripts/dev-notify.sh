@@ -175,6 +175,13 @@ dev_notify_ready_once() {
   dev_notify_send_once "$marker" "$tab_id" "$body_file" verbose "Dev ready"
 }
 
+# The notice only reports readiness the caller already proved, so its failure never fails DEV.
+dev_notify_ready_after_proof() {
+  if ! dev_notify_ready_once "$@"; then
+    echo "WARNING: DEV is ready, but its readiness notice to tab $2 failed; DEV keeps running." >&2
+  fi
+}
+
 dev_notify_failure_once() {
   local marker="$1" tab_id="$2" stage="$3" instance="$4" api_port="$5" log_file="$6" rc="${7:-}"
   local body_file
@@ -305,15 +312,20 @@ dev_notify_stop_stream_waiter() {
   wait "$pid" 2>/dev/null || true
 }
 
+REPORT_FAILURE_PATTERN='error\[E[0-9]+\]|^(ERROR|Diff[[:space:]]in)[:[:space:]]|error: could not compile|(^|[[:space:]])FAIL[:[:space:]]|^[[:space:]]*not[[:space:]]ok[[:space:]]|(Tests|Test[[:space:]]Files)[[:space:]].*[1-9][0-9]*[[:space:]]failed|panicked at|test result: FAILED|✗ FAILED'
+
 report_failure_line() {
   local line="$1"
-  line="$(printf '%s' "$line" | sed $'s/\\033\\[[0-9;]*[mK]//g')"
-  [[ "$line" =~ error\[E[0-9]+\] ]] ||
-    [[ "$line" =~ ^(ERROR|Diff[[:space:]]in)[:[:space:]] ]] ||
-    [[ "$line" == *"error: could not compile"* ]] ||
-    [[ "$line" =~ (^|[[:space:]])FAIL[[:space:]] ]] ||
-    [[ "$line" =~ ^[[:space:]]*not[[:space:]]ok[[:space:]] ]] ||
-    [[ "$line" =~ (Tests|Test[[:space:]]Files)[[:space:]].*[1-9][0-9]*[[:space:]]failed ]]
+  line="$(printf '%s' "$line" | sed $'s/\033\\[[0-9;]*[mK]//g')"
+  [[ "$line" =~ $REPORT_FAILURE_PATTERN ]]
+}
+
+# Gateway bookkeeping printed after the failing command is never the cause.
+report_first_failure() {
+  local log="$1" clean
+  clean="$(sed $'s/\033\\[[0-9;]*[mK]//g' "$log" 2>/dev/null)" || return 0
+  printf '%s\n' "$clean" | grep -m 1 -E "$REPORT_FAILURE_PATTERN" ||
+    printf '%s\n' "$clean" | grep -v -E '^[[:space:]]*$|^\[build-gateway\]' | tail -n 1
 }
 
 report_alert_once() {
@@ -375,7 +387,7 @@ report_run_stream() {
     0) return 0 ;;
     75) reason="gateway refused (exit 75)" ;;
     124) reason="timeout cap (exit 124)" ;;
-    *) reason="step exited non-zero (exit $rc): $(grep -v '^[[:space:]]*$' "$log" 2>/dev/null | tail -n 1)" ;;
+    *) reason="step exited non-zero (exit $rc): $(report_first_failure "$log")" ;;
   esac
   report_alert_once "$marker" "$tab" "$label" "$step" "$reason" "$log" || true
   return "$rc"

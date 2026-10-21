@@ -130,19 +130,17 @@ fn start(
 }
 
 fn state_handle() -> UpdateStateHandle {
-    Arc::new(Mutex::new(
-        codeterm_service_core::update_state::UpdateState {
-            install_method: codeterm_service_core::update_state::InstallMethod::Unknown,
-            last_check: None,
-            last_check_time: None,
-            channel: Channel::Stable,
-            phase: UpdatePhase::Idle,
-            last_error: None,
-            phase_changed_at: None,
-            downloaded_bytes: 0,
-            download_total_bytes: None,
-        },
-    ))
+    Arc::new(Mutex::new(codeterm_update::update_state::UpdateState {
+        install_method: codeterm_update::update_state::InstallMethod::Unknown,
+        last_check: None,
+        last_check_time: None,
+        channel: Channel::Stable,
+        phase: UpdatePhase::Idle,
+        last_error: None,
+        phase_changed_at: None,
+        downloaded_bytes: 0,
+        download_total_bytes: None,
+    }))
 }
 
 fn result(

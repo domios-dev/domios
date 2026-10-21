@@ -60,7 +60,7 @@ fn make_source_plan(root: &Path) -> (PlanStore, String, String, PathBuf) {
         })
         .unwrap();
     let source_dir = root
-        .join(".codeterm")
+        .join(".domios")
         .join("plans")
         .join("active")
         .join("pl_adoptme");
@@ -126,7 +126,7 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
 
     let target_dir = target
         .path()
-        .join(".codeterm")
+        .join(".domios")
         .join("plans")
         .join("archive")
         .join(&plan_id);
@@ -172,7 +172,7 @@ fn adopt_plan_dry_run_reports_without_writing() {
     assert!(target_store.get(&plan_id).is_none());
     assert!(!target
         .path()
-        .join(".codeterm")
+        .join(".domios")
         .join("plans")
         .join("archive")
         .join(&plan_id)
@@ -220,7 +220,7 @@ fn adopt_plan_rejects_existing_destination_without_overwrite() {
     assert_eq!(target_store.get(&plan_id).unwrap().title, "Existing");
     assert!(!target
         .path()
-        .join(".codeterm")
+        .join(".domios")
         .join("plans")
         .join("archive")
         .join(&plan_id)

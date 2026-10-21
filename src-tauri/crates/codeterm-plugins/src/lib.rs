@@ -23,7 +23,9 @@ mod update_status;
 pub use availability::{update_availability, UpdateAvailability, UpdateOffer, UpdateSource};
 use update_status::*;
 mod agent_surface;
+mod archive_channel;
 mod channel;
+mod channel_failure;
 mod config;
 mod install;
 mod list;
@@ -121,7 +123,7 @@ fn enter_ctx(ctx: PluginCtx) -> CtxGuard {
 }
 
 /// Plugin data root: the active [`PluginCtx`], else `CODETERM_DATA_DIR` (absolute),
-/// else `~/.codeterm`. The env fallback is only for tests; real callers set a context first.
+/// else `~/.domios`. The env fallback is only for tests; real callers set a context first.
 pub(crate) fn data_root() -> PathBuf {
     if let Some(root) = CTX.with(|c| c.borrow().as_ref().map(|x| x.data_root.clone())) {
         return root;
@@ -134,7 +136,7 @@ pub(crate) fn data_root() -> PathBuf {
             }
         }
     }
-    dirs::home_dir().unwrap_or_default().join(".codeterm")
+    dirs::home_dir().unwrap_or_default().join(".domios")
 }
 
 /// Running CodeTerm version. Prefers the active [`PluginCtx`]; falls back to the

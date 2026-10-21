@@ -34,3 +34,13 @@ test("a label with no same-OS online runner refuses to pause", () => {
 test("an unknown machine refuses to pause", () => {
   assert.throws(() => planPause([runner(1, "ROG-windows-build", "Windows", [])], "BLACKSTAR"), /no runner/);
 });
+
+test("a host label is saved for resume but never lent to another machine", () => {
+  const runners = [
+    runner(1, "BLACKSTAR-windows-x64", "Windows", ["windows-ci", "host-blackstar"]),
+    runner(2, "ROG-windows-build", "Windows", ["windows-ci", "host-rog"]),
+  ];
+  const plan = planPause(runners, "BLACKSTAR");
+  assert.deepEqual(plan.runners[0].labels, ["windows-ci", "host-blackstar"]);
+  assert.deepEqual(plan.borrowed, {});
+});

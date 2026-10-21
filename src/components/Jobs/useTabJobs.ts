@@ -29,7 +29,7 @@ export function useTabJobs(
   jobActionAdapter: JobsActionAdapter = hostJobsActionAdapter,
 ) {
   const sources = useMemo(() => workspaceId ? [workspaceId] : NO_SOURCES, [workspaceId]);
-  const graphs = useWorkspaceGraphs(adapter, "composer", sources);
+  const graphs = useWorkspaceGraphs(adapter, "sidebar", sources);
   const crons = useCronJobs(null);
   const sentinels = useMemo(() => graphs.flatMap((graph) => graph.graph ? blueprintScenarioJobs(graph.graph, graph.attachment) : []), [graphs]);
   const blueprints = useMemo(() => graphs.flatMap((graph) => (graph.graph?.blueprints ?? [])
