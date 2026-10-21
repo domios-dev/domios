@@ -774,7 +774,7 @@ fn hook_contract_repair_leaves_unclassifiable_entry_and_reports_outcome() {
 }
 
 #[test]
-fn hooks_legacy_pane_fingerprint_is_owned_and_repaired() {
+fn hooks_markerless_legacy_pane_route_is_not_owned_or_repaired() {
     let legacy_entry = serde_json::json!({
         "hooks": [{ "type": "command", "command": LEGACY_PANE_SESSION_START }]
     });
@@ -783,21 +783,23 @@ fn hooks_legacy_pane_fingerprint_is_owned_and_repaired() {
         "integration_owned": is_domios_hook(&legacy_entry),
         "hook_contract_current": false
     });
-    assert_eq!(status["integration_owned"], true);
+    assert_eq!(status["integration_owned"], false);
 
     let mut config = crate::config::schema::AppConfig::default();
-    assert!(infer_consent_for_owned_install(
+    assert!(!infer_consent_for_owned_install(
         &mut config,
         "claude",
         &status,
         1_790_403_600,
     ));
     let provider = RepairProbeProvider::with_id("claude", status);
-    assert_eq!(reconcile_probe(&provider, true), repaired_with_grant());
-    assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
-    assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
-    assert_eq!(grants(&provider), 1);
-    assert_eq!(provider.check_integration()["hook_contract_current"], true);
+    assert_eq!(
+        reconcile_probe(&provider, false),
+        IntegrationRepairOutcome::ConsentMissing
+    );
+    assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert!(provider.repairs.lock().unwrap().is_empty());
+    assert_eq!(grants(&provider), 0);
 }
 
 #[test]

@@ -163,6 +163,7 @@
           "scripts/tests/test_check_blocking_in_async.py",
           "scripts/tests/test_release_workflow_contract.py",
           "tests/catalogue.json",
+          "tests/catalogue.overlay.json",
           "tests/README.md",
           "testbench/acceptance-suite.sh",
           "testbench/acceptance-gate.py",
@@ -687,6 +688,9 @@
           "shared",
           "playground/src",
           "prototypes"
+        ],
+        "exclude_paths": [
+          "tests/catalogue.overlay.json"
         ]
       },
       {
