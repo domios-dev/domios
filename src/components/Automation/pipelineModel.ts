@@ -4,6 +4,7 @@ export interface PipelineViewNode {
   key: string;
   kind: "trigger" | "step" | "result";
   title: string;
+  capability?: string;
   state: string;
   current: boolean;
   summary: string;
@@ -67,6 +68,7 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
     ...steps.map((step) => ({
       key: `step-${step.index}`,
       kind: "step" as const,
+      capability: step.kind,
       title: step.title || step.name,
       state: step.state,
       current: current === step.index,
