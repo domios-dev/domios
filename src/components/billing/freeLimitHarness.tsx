@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { MultiplexerState, Tab, Team, Workspace } from "../../lib/types";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
 import { freeLimitGate } from "./freeLimitGate";
-import { FREE_LIMIT_REACHED, type FreeLimitKey, type FreeLimits } from "./freeLimitModel";
+import { FREE_LIMIT_REACHED, type FreeLimits, type LocalLimitKey } from "./freeLimitModel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
@@ -14,7 +14,7 @@ type Actions = ReturnType<Store["useMultiplexer"]>;
 export const WORKSPACE = "ws-main";
 const GENERAL = "ws-general";
 
-const daemonRefusal = (key: FreeLimitKey) => `${FREE_LIMIT_REACHED}: opaque-refusal-body (limit: ${key})`;
+const daemonRefusal = (key: LocalLimitKey) => `${FREE_LIMIT_REACHED}: opaque-refusal-body (limit: ${key})`;
 
 /** Seeds a daemon snapshot: the protected General workspace plus `workspaces` ordinary ones, `teams`, `tabs`. */
 export function seedState({ workspaces = 1, teams = 0, tabs = 0 }: { workspaces?: number; teams?: number; tabs?: number }): MultiplexerState {
@@ -46,7 +46,7 @@ export function fakeDaemon(state: MultiplexerState, enforced: FreeLimits | null)
     teams: state.teams?.length ?? 0,
     "agent.tabs": Object.keys(state.tabs).length,
   });
-  const admit = (key: FreeLimitKey, extra = 0) => {
+  const admit = (key: LocalLimitKey, extra = 0) => {
     const max = enforced?.enforcing ? enforced.max[key] : null;
     if (max !== null && max !== undefined && counts()[key] + extra >= max) throw daemonRefusal(key);
   };
