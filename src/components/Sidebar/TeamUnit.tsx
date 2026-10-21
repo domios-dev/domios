@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../../lib/notices";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { describeError } from "../../lib/describeError";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
@@ -214,21 +215,23 @@ function TeamMenu({
       setSelectedProviderId(null);
     } catch (error) {
       const description = describeError(error, { operation: "adding a Team member" });
-      actions?.upsertToast({
-        id: `team-member-add-failure-${teamId}`,
+      actions && createNoticePublisher(actions)({ kind: "toast", id: `team-member-add-failure-${teamId}`,
         title: description.title,
-        body: description.cause,
+        detail: description.cause,
         severity: "Warning",
-        level: "action_needed",
-        tab_id: null,
-        workspace_id: null,
-        local_actions: [
+        tabId: null,
+        workspaceId: null,
+        actions: [
           ...(description.raw ? [{ label: "Copy details", run: async () => {
-            try { await navigator.clipboard.writeText(description.raw); } catch { return; }
-          } }] : []),
+                try {
+                  await navigator.clipboard.writeText(description.raw);
+                }
+                catch {
+                  return;
+                }
+              } }] : []),
           { label: "Retry", run: () => addMember(role, providerId, model) },
-        ],
-      });
+        ] });
     } finally {
       addingMemberRef.current = false;
       setAddingMember(false);

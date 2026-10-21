@@ -94,7 +94,6 @@ function muxActions(
     selectTabByTab: noopAsync,
     setFocusedTab: noop,
     setTabPty: noop,
-    addNotification: noop,
     upsertToast: noop,
     markRead: noop,
     markAllRead: noop,
@@ -155,6 +154,7 @@ async function renderTabSessionChat(
       };
     }
     if (cmd === "delayed_send_list") return [];
+    if (cmd === "system_heartbeat_list") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
@@ -582,6 +582,7 @@ test("Tab header reconnect control requests a hook-owned reattach", async () => 
   });
   __setInvokeForTest((async (cmd: string) => {
     commands.push(cmd);
+    if (cmd === "system_heartbeat_list") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
@@ -592,6 +593,7 @@ test("Tab header reconnect control requests a hook-owned reattach", async () => 
   await act(async () => {
     root.render(
       <MuxStateStoreContext.Provider value={headerStore()}>
+        <MultiplexerActionsContext.Provider value={muxActions()}>
         <TabTopBar
           tabId="header-tab"
           cwd={null}
@@ -599,6 +601,7 @@ test("Tab header reconnect control requests a hook-owned reattach", async () => 
           tabMenu={headerTabMenu({ id: "header-tab", pty_id: null, tab_type: "Terminal", title: "Header", cwd: null, agent_type: "claude" })}
           isActive={true}
         />
+      </MultiplexerActionsContext.Provider>
       </MuxStateStoreContext.Provider>,
     );
   });
@@ -631,6 +634,7 @@ test("Tab actions restart the agent session and copy its ID", async () => {
   let copied = "";
   __setInvokeForTest((async (cmd: string) => {
     commands.push(cmd);
+    if (cmd === "system_heartbeat_list") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
@@ -645,12 +649,14 @@ test("Tab actions restart the agent session and copy its ID", async () => {
   await act(async () => {
     root.render(
       <MuxStateStoreContext.Provider value={headerStore()}>
+        <MultiplexerActionsContext.Provider value={muxActions()}>
         <TabTopBar
           tabId="agent-tab"
           cwd={null}
           showSwitch={false}
           tabMenu={headerTabMenu({ id: "agent-tab", pty_id: "pty-agent", tab_type: "Terminal", title: "Agent", cwd: null, agent_type: "claude", agent_session_id: "session-123" })}
         />
+      </MultiplexerActionsContext.Provider>
       </MuxStateStoreContext.Provider>,
     );
   });
@@ -684,11 +690,13 @@ test("Tab header does not repeat the mobile top safe area", async () => {
   await act(async () => {
     root.render(
       <MuxStateStoreContext.Provider value={headerStore()}>
+        <MultiplexerActionsContext.Provider value={muxActions()}>
         <TabTopBar
           tabId="mobile-header-tab"
           cwd={null}
           showSwitch={false}
         />
+      </MultiplexerActionsContext.Provider>
       </MuxStateStoreContext.Provider>,
     );
   });

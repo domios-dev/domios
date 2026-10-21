@@ -4,7 +4,6 @@ import {
   apiHost,
   clearRelayTarget,
   currentToken,
-  GATEWAY_STATE_EVENT,
   IS_WEB,
   localJson,
   relayTarget,
@@ -15,7 +14,6 @@ import {
   WebApiError,
 } from "../../lib/webApi";
 import type { MeshPeersResponse } from "../../lib/types";
-import { PwaSetup } from "./PwaSetup";
 import { releaseBootCover } from "../../lib/bootCover";
 import { installWebHistoryGuard } from "./webHistoryGuard";
 
@@ -36,17 +34,6 @@ export function WebGate({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [gatewayUnavailable, setGatewayUnavailable] = useState(false);
-
-  useEffect(() => {
-    if (!IS_WEB) return;
-    const update = (event: Event) => {
-      const available = (event as CustomEvent<{ available: boolean }>).detail.available;
-      setGatewayUnavailable(!available);
-    };
-    window.addEventListener(GATEWAY_STATE_EVENT, update);
-    return () => window.removeEventListener(GATEWAY_STATE_EVENT, update);
-  }, []);
 
   const validate = useCallback(async () => {
     if (!currentToken()) {
@@ -140,22 +127,7 @@ export function WebGate({ children }: { children: ReactNode }) {
     }
   }, [draft]);
 
-  if (state === "ready")
-    return (
-      <>
-        {children}
-        {gatewayUnavailable && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="fixed bottom-4 left-1/2 z-[1000] -translate-x-1/2 rounded-md border border-[var(--ct-yellow,#d29922)] bg-[var(--ct-titlebar-bg,#161b22)] px-4 py-2 text-xs text-[var(--ct-fg,#e6edf3)] shadow-lg"
-          >
-            Browser gateway unavailable — the current view is preserved, but live data and peer switching are paused.
-          </div>
-        )}
-        {IS_WEB && <PwaSetup />}
-      </>
-    );
+  if (state === "ready") return children;
 
   return (
     <div className="flex items-center justify-center h-screen bg-[var(--ct-bg,#0d1117)] text-[var(--ct-fg,#e6edf3)]">

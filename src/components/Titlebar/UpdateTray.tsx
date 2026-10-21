@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../../lib/notices";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { ArrowDownToLine } from "lucide-react";
@@ -17,21 +18,23 @@ export function UpdateTray() {
     if (toastedError.current === update.error) return;
     toastedError.current = update.error;
     const description = describeError(update.error, { operation: "updating components" });
-    upsertToast({
-      id: "component-update-failure",
+    createNoticePublisher({ upsertToast })({ kind: "toast", id: "component-update-failure",
       title: description.title,
-      body: description.cause,
+      detail: description.cause,
       severity: "Warning",
-      level: "action_needed",
-      tab_id: null,
-      workspace_id: null,
-      local_actions: [
+      tabId: null,
+      workspaceId: null,
+      actions: [
         ...(description.raw ? [{ label: "Copy details", run: async () => {
-          try { await navigator.clipboard.writeText(description.raw); } catch { return; }
-        } }] : []),
+              try {
+                await navigator.clipboard.writeText(description.raw);
+              }
+              catch {
+                return;
+              }
+            } }] : []),
         { label: "Retry", run: () => update.retry() },
-      ],
-    });
+      ] });
   }, [update.error, update.retry, upsertToast]);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);

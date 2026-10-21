@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../lib/notices";
 import { useEffect, useRef } from "react";
 import { useMultiplexer } from "../store/multiplexer";
 
@@ -14,16 +15,12 @@ export function StorageUnavailableToast({ active }: { active: boolean }) {
       return;
     }
     wasActive.current = true;
-    upsertToast({
-      id: TOAST_ID,
+    createNoticePublisher({ upsertToast })({ kind: "toast", id: TOAST_ID,
       title: "Storage is unavailable",
-      body: "Your data is preserved. See the incident.",
+      detail: "Your data is preserved. See the incident.",
       severity: "Error",
-      level: "failure",
-      tab_id: null,
-      workspace_id: null,
-      sticky: true,
-    });
+      tabId: null,
+      workspaceId: null });
   }, [active, dismissToast, upsertToast]);
 
   return null;
