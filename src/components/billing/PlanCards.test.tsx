@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { siteLinks } from "../../../shared/siteLinks";
 import { PlanCards } from "./PlanCards";
 import { FREE_LIMITS } from "./planCatalog";
-import vectorPacket from "../../../src-tauri/crates/codeterm-entitlements/vectors/vectors.json";
+import vectorPacket from "../../../src-tauri/crates/codeterm-entitlements/vectors/grant-vectors.json";
 
 type SignedVector = { exact_payload?: { utf8: string } };
 type SignedLimits = Record<string, { max: number | null }>;
