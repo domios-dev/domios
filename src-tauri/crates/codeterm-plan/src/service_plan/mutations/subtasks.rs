@@ -58,6 +58,7 @@ impl PlanStore {
                     name: child.name,
                     kind: child.kind,
                     model: child.model,
+                    speed: None,
                     model_rationale: child.model_rationale,
                     acceptance_criteria: child.acceptance_criteria,
                     external_refs: vec![],

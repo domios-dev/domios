@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../../lib/notices";
 import { useEffect, useRef, useState } from "react";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { CreditCard, UserRound } from "lucide-react";
@@ -36,10 +37,10 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
     const key = `${model.failure.stage}:${model.failure.error}`;
     if (lastSignInFailure.current === key) return;
     lastSignInFailure.current = key;
-    upsertToast(signInFailureToast(model.failure, () => { void signIn(retryHint.current); }));
+    createNoticePublisher({ upsertToast })(signInFailureToast(model.failure, () => { void signIn(retryHint.current); }));
   }, [model, signIn, upsertToast]);
   const showBillingFailure = (error: unknown, operation: string, retry: () => void | Promise<void>) => {
-    upsertToast(billingFailureToast(error, operation, billing.plan?.status, retry));
+    createNoticePublisher({ upsertToast })(billingFailureToast(error, operation, billing.plan?.status, retry));
   };
   const revealPlans = () => setPlansRequest((count) => count + 1);
   const manageSubscription = async () => {

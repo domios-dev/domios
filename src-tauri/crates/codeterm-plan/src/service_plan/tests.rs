@@ -293,6 +293,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         name: "Task".into(),
         kind: "implement".into(),
         model: None,
+        speed: None,
         model_rationale: None,
         acceptance_criteria: vec![],
         external_refs: vec![],

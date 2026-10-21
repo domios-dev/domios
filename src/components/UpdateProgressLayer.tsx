@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../lib/notices";
 import { useEffect } from "react";
 import { useMultiplexer } from "../store/multiplexer";
 import { useUpdate, type UpdateStatus } from "../hooks/useUpdate";
@@ -25,9 +26,11 @@ export function UpdateProgressLayer() {
     if (!toastOpen || blocking || status !== "error") return;
     const copy = STATUS_COPY[status];
     const notice = updateNotice({ ...copy, latestVersion, error, failed: status === "error" });
-    upsertToast({ id: "app-update", tab_id: null, workspace_id: null, ...notice,
-      local_actions: notice.retry ? [{ label: "Retry", run: () => { void applyUpdate(); } }] : undefined,
-    });
+    createNoticePublisher({ upsertToast })({ kind: "toast", id: "app-update",
+      tabId: null,
+      workspaceId: null,
+      title: notice.title, detail: notice.body, severity: notice.severity,
+      actions: notice.retry ? [{ label: "Retry", run: () => { void applyUpdate(); } }] : undefined });
     dismissUpdateToast();
   }, [status, latestVersion, error, toastOpen, blocking, dismissUpdateToast, upsertToast, applyUpdate]);
   return blocking ? <UpdateBlockingOverlay /> : null;

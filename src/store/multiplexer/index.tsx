@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../../lib/notices";
 import { sendNotificationAnswer, type AnswerResult } from "../../lib/notificationAnswerSend";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
 import {
@@ -126,6 +127,21 @@ export function tabBootStageEventAction(payload: TabBootStageEvent): Action {
 
 export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
+  const upsertToast = useCallback(
+    (toast: Omit<Notification, "timestamp" | "read">) => {
+      dispatch({
+        type: "UPSERT_TOAST",
+        toast: {
+          ...toast,
+          timestamp: Date.now(),
+          read: false,
+        },
+      });
+    },
+    [],
+  );
+
+  const publishNotice = useMemo(() => createNoticePublisher({ upsertToast }), [upsertToast]);
   const stateRef = useRef(state);
   stateRef.current = state;
   const muxStateStoreRef = useRef(createMuxStateStore(() => stateRef.current));
@@ -408,11 +424,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
     listen<{ paths: string[]; workspace_id: string }>("close-lanes-preserved", ({ payload }) => {
       if (!payload.paths.length) return;
-      dispatch({ type: "UPSERT_TOAST", toast: {
-        id: uid(), tab_id: null, workspace_id: payload.workspace_id,
-        title: "Lanes preserved", body: payload.paths.join("\n"),
-        severity: "Info", level: "verbose", timestamp: Date.now(), read: false,
-      } });
+      publishNotice({ kind: "debug", id: uid(),
+        tabId: null,
+        workspaceId: payload.workspace_id,
+        title: "Lanes preserved",
+        detail: payload.paths.join("\n"),
+        severity: "Info" });
     }).then(unlisten => unlisteners.push(unlisten));
 
     listen<{
@@ -612,7 +629,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       for (const unlisten of unlisteners) unlisten();
       window.removeEventListener("beforeunload", beforeUnload);
     };
-  }, [acceptBackendState, refreshFromBackend]);
+  }, [acceptBackendState, refreshFromBackend, publishNotice]);
 
 
   // The mux-state-changed listener above owns the first authoritative read and
@@ -765,26 +782,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           applyBackendState(current);
           if (!remaining) return;
           const survivors = remaining.tabs.map(tabId => current.tabs[tabId]?.title || tabId);
-          dispatch({
-            type: "UPSERT_TOAST",
-            toast: {
-              id: uid(),
-              tab_id: null,
-              workspace_id: id,
-              title: "Workspace close failed",
-              body: survivors.length ? survivors.join("\n") : remaining.name,
-              severity: "Error",
-              level: "failure",
-              sticky: true,
-              local_actions: [{ label: "Retry", run: () => closeWorkspace(id, true) }],
-              timestamp: Date.now(),
-              read: false,
-            },
-          });
+          publishNotice({ kind: "toast", id: uid(),
+            tabId: null,
+            workspaceId: id,
+            title: "Workspace close failed",
+            detail: survivors.length ? survivors.join("\n") : remaining.name,
+            severity: "Error",
+            actions: [{ label: "Retry", run: () => closeWorkspace(id, true) }] });
           refreshFromBackend();
         });
     },
-    [guardedInvoke, refreshFromBackend, applyBackendState],
+    [guardedInvoke, refreshFromBackend, applyBackendState, publishNotice],
   );
 
   const renameWorkspace = useCallback((id: string, name: string) => {
@@ -801,9 +809,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const commitReorder = useCallback((command: string, args: Record<string, unknown>, workspaceId: string | null) => {
     guardedInvoke(command, args).catch((error: unknown) => {
       void refreshFromBackend();
-      dispatch({ type: "UPSERT_TOAST", toast: reorderFailureToast(workspaceId, error) });
+      publishNotice(reorderFailureToast(workspaceId, error));
     });
-  }, [guardedInvoke, refreshFromBackend]);
+  }, [guardedInvoke, refreshFromBackend, publishNotice]);
 
   const reorderTabs = useCallback(
     (args: { workspaceId?: string; parentTabId?: string; orderedTabIds: string[] }) => {
@@ -831,15 +839,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     const result = await guardedInvoke<{ warnings: string[] }>("mux_set_workspace_cwd", { workspaceId, cwd });
     const snapshot = await guardedInvoke<MultiplexerState>("mux_get_state");
     applyBackendState(snapshot);
-    if (result.warnings.length > 0) dispatch({
-      type: "UPSERT_TOAST", toast: {
-        id: uid(), tab_id: null, workspace_id: workspaceId,
-        title: "Workspace folder updated", body: result.warnings.join("\n"),
-        severity: "Warning", level: "verbose", timestamp: Date.now(), read: false, sticky: true,
-      },
-    });
+    if (result.warnings.length > 0) publishNotice({ kind: "toast", id: uid(),
+      tabId: null,
+      workspaceId: workspaceId,
+      title: "Workspace folder updated",
+      detail: result.warnings.join("\n"),
+      severity: "Warning" });
     return result;
-  }, [guardedInvoke, applyBackendState]);
+  }, [guardedInvoke, applyBackendState, publishNotice]);
 
   const spawnAgentTab = useCallback(async (
     workspaceId: string,
@@ -899,13 +906,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const spawnClaudeTab = useCallback(async (workspaceId: string, cwd?: string) => {
     void spawnAgentTab(workspaceId, defaultSpawnProviderId(), cwd).catch((error) => {
       if (isWorkspaceCwdRefusal(error) || isFreeLimitRefusal(error)) return;
-      dispatch({ type: "UPSERT_TOAST", toast: {
-        id: uid(), tab_id: null, workspace_id: workspaceId, title: "Session start failed",
-        body: spawnErrorMessage(error), severity: "Error", level: "failure",
-        timestamp: Date.now(), read: false, sticky: true,
-      } });
+      publishNotice({ kind: "toast", id: uid(),
+        tabId: null,
+        workspaceId: workspaceId,
+        title: "Session start failed",
+        detail: spawnErrorMessage(error),
+        severity: "Error" });
     });
-  }, [spawnAgentTab]);
+  }, [spawnAgentTab, publishNotice]);
 
   const createOrchestrationPair = useCallback(
     async (input: OrchestrationPairInput): Promise<OrchestrationPairResult> => {
@@ -1002,35 +1010,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_TAB_PTY", tabId, ptyId });
   }, []);
 
-  const addNotification = useCallback(
-    (notif: Omit<Notification, "id" | "timestamp" | "read">) => {
-      dispatch({
-        type: "UPSERT_TOAST",
-        toast: {
-          ...notif,
-          id: uid(),
-          timestamp: Date.now(),
-          read: false,
-        },
-      });
-    },
-    [],
-  );
-
-  const upsertToast = useCallback(
-    (toast: Omit<Notification, "timestamp" | "read">) => {
-      dispatch({
-        type: "UPSERT_TOAST",
-        toast: {
-          ...toast,
-          timestamp: Date.now(),
-          read: false,
-        },
-      });
-    },
-    [],
-  );
-
   const markRead = useCallback((id: string) => {
     dispatch({ type: "MARK_READ", id });
     void invoke("mark_notification_read", { id }).catch((err) => {
@@ -1119,7 +1098,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       selectTabByTab,
       setFocusedTab,
       setTabPty,
-      addNotification,
       upsertToast,
       markRead,
       markAllRead,
@@ -1154,7 +1132,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       selectTabByTab,
       setFocusedTab,
       setTabPty,
-      addNotification,
       upsertToast,
       markRead,
       markAllRead,

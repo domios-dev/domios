@@ -11,8 +11,7 @@
   background: transparent;
   color: var(--ct-muted);
   cursor: pointer;
-  transition: gap var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+  transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
@@ -73,7 +72,6 @@
 .ct-spinal-btn:hover,
 .ct-spinal-btn:focus-visible,
 .ct-spinal-btn[aria-expanded="true"] {
-  gap: 6px;
   border-color: color-mix(in srgb, var(--ct-accent) 26%, transparent);
   background: color-mix(in srgb, var(--ct-accent) 8%, var(--ct-bg));
   color: var(--ct-fg);
@@ -94,12 +92,8 @@
 
 .ct-spinal-btn:hover .ct-spinal-vertebrae rect,
 .ct-spinal-btn:focus-visible .ct-spinal-vertebrae rect {
-  animation: ct-spinal-bone-wave 900ms var(--ct-ease-liquid-settle) both;
   fill: var(--ct-accent);
 }
-
-.ct-spinal-btn:hover .ct-spinal-vertebrae rect:nth-child(2) { animation-delay: 90ms; }
-.ct-spinal-btn:hover .ct-spinal-vertebrae rect:nth-child(3) { animation-delay: 180ms; }
 
 .ct-spinal-btn__label {
   max-width: 0;
@@ -109,12 +103,9 @@
   letter-spacing: 0.02em;
   white-space: nowrap;
   opacity: 0;
-  transition: max-width var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
-    opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
-.ct-spinal-btn:hover .ct-spinal-btn__label,
-.ct-spinal-btn:focus-visible .ct-spinal-btn__label,
 .ct-spinal-btn[aria-expanded="true"] .ct-spinal-btn__label {
   max-width: 90px;
   opacity: 1;
@@ -175,20 +166,11 @@
     color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
-.ct-spinal-pop__settings > svg {
-  transition: transform var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
-}
-
 .ct-spinal-pop__settings:hover,
 .ct-spinal-pop__settings:focus-visible {
   background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
   color: var(--ct-fg);
   outline: none;
-}
-
-.ct-spinal-pop__settings:hover > svg,
-.ct-spinal-pop__settings:focus-visible > svg {
-  transform: rotate(60deg);
 }
 
 .ct-spinal-pop .ct-spend {
@@ -345,8 +327,7 @@
 }
 
 .ct-spinal-pop__ask:hover {
-  filter: brightness(1.08);
-  animation: ct-bar-pill-sway var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+  background: color-mix(in srgb, var(--ct-accent) 88%, white);
 }
 
 .ct-spinal-pop__ask:active {
@@ -357,12 +338,6 @@
 .ct-spinal-pop__ask[data-ask-state="sent"] {
   background: color-mix(in srgb, var(--ct-green) 22%, var(--ct-bg));
   color: var(--ct-fg);
-}
-
-@keyframes ct-spinal-bone-wave {
-  0% { transform: scale(1); }
-  40% { transform: scale(1.25, 1.1); }
-  100% { transform: scale(1); }
 }
 
 @keyframes ct-spinal-pulse {
@@ -378,7 +353,6 @@
 @media (prefers-reduced-motion: reduce) {
   .ct-spinal-btn,
   .ct-spinal-btn__label,
-  .ct-spinal-pop__settings > svg,
   .ct-spinal-pop__ask {
     transition: none;
   }
@@ -387,8 +361,7 @@
   .ct-spinal-vertebrae--reflex rect,
   .ct-spinal-pop__beat,
   .ct-spinal-graphic__pulse,
-  .ct-spinal-graphic__bone,
-  .ct-spinal-btn:hover .ct-spinal-vertebrae rect {
+  .ct-spinal-graphic__bone {
     animation: none;
   }
 }

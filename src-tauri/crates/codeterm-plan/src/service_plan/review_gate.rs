@@ -968,6 +968,7 @@ impl PlanStore {
                         name: format!("Follow-up hardening: {parent_name}"),
                         kind: "implement".into(),
                         model: None,
+                        speed: None,
                         model_rationale: None,
                         personality: None,
                         personality_provenance: None,

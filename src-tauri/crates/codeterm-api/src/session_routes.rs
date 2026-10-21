@@ -536,6 +536,7 @@ pub async fn resume_session_api(
         creator_tab_id: None,
         ownership: None,
         model: body.model.clone(),
+        speed: None,
         planned_model: None,
         planned_reasoning_effort: None,
         reasoning_effort: None,

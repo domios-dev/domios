@@ -23,6 +23,7 @@ pub struct MeshWorkerDispatchRequest {
     provider: String,
     model: Option<String>,
     reasoning_effort: Option<String>,
+    speed: Option<String>,
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
@@ -250,6 +251,7 @@ pub(crate) fn remote_worker_spawn_params(
             origin_peer_id,
         }),
         model: request.model,
+        speed: request.speed,
         reasoning_effort: request.reasoning_effort,
         ..Default::default()
     }
@@ -433,6 +435,7 @@ mod tests {
             provider: "provider".into(),
             model: None,
             reasoning_effort: None,
+            speed: None,
             description: None,
             task_description_managed: false,
             brief: String::new(),
@@ -560,6 +563,7 @@ mod tests {
             provider: "remote-mock".into(),
             model: None,
             reasoning_effort: None,
+            speed: None,
             description: Some("remote task summary".into()),
             task_description_managed: true,
             brief: "remote brief".into(),
