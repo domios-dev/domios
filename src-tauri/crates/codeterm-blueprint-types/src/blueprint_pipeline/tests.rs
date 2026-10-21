@@ -364,3 +364,25 @@ fn http_step_validates_defaults_and_declares_health_routes() {
         .iter()
         .any(|error| error.field == "steps[0].http"));
 }
+
+#[test]
+fn blueprint_route_defaults_and_runtime_agree() {
+    let step = command("first", IoType::Text);
+    assert_eq!(route_target(&step.on, "failed"), "stop");
+    assert_eq!(route_target(&step.on, "done"), "next");
+    let mut pipeline = spec(vec![step, command("second", IoType::Text)]);
+    assert_eq!(
+        advance(&RunnerState::start(&pipeline).unwrap(), StepOutcome::Failed)
+            .unwrap()
+            .status,
+        RunStatus::Failed
+    );
+    pipeline.steps[0].on.insert("failed".into(), "next".into());
+    assert_eq!(route_target(&pipeline.steps[0].on, "failed"), "next");
+    assert_eq!(
+        advance(&RunnerState::start(&pipeline).unwrap(), StepOutcome::Failed)
+            .unwrap()
+            .current_step,
+        Some(1)
+    );
+}

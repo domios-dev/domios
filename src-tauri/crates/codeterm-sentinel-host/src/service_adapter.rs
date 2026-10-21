@@ -267,7 +267,13 @@ impl SentinelExt for ServiceContext {
         let snapshot: DefinitionSnapshot = serde_json::from_value(definition)
             .map_err(|error| format!("invalid history definition: {error}"))?;
         if let Some(pipeline) = snapshot.pipeline.clone() {
-            return self.blueprint_pipeline_validate_update(caller, id, expect_version, pipeline);
+            return serde_json::to_value(self.blueprint_pipeline_validate_update(
+                caller,
+                id,
+                expect_version,
+                pipeline,
+            )?)
+            .map_err(|error| error.to_string());
         }
         let prepared =
             self.prepare_history_update(caller, id, expect_version, snapshot, history)?;
@@ -834,7 +840,7 @@ pub fn history_definition(
         .ok_or_else(|| "history current definition is missing".into())
 }
 
-fn validate_send_scope(
+pub(crate) fn validate_send_scope(
     mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
     job: &Sentinel,
 ) -> Result<(), String> {
