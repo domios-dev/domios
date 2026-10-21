@@ -445,19 +445,65 @@ export const TASK_STATUS_FIELDS = [
 
 export type TaskStatusKey = (typeof TASK_STATUS_FIELDS)[number]["key"];
 
+/** Done fills the bar from the left, the working frontier follows, waiting work and cancelled close it. */
+export const PROGRESS_BAR_ORDER: readonly TaskStatusKey[] = [
+  "done",
+  "in_review",
+  "in_progress",
+  "blocked",
+  "paused",
+  "pending",
+  "cancelled",
+];
+
+const OPEN_STATUSES: readonly TaskStatusKey[] = ["pending", "in_progress", "in_review", "blocked", "paused"];
+
+/** Below this many a percentage overstates, so the figure stays a plain fraction. */
+export const SMALL_SAMPLE_MAX = 10;
+
+export interface ProgressRatio {
+  part: number;
+  whole: number;
+  percent: number | null;
+}
+
+export function progressRatio(part: number, whole: number): ProgressRatio {
+  return { part, whole, percent: whole >= SMALL_SAMPLE_MAX ? Math.round((part / whole) * 100) : null };
+}
+
 export interface ProgressReading {
   total: number;
-  /** Statuses holding at least one task, in lifecycle order; empty statuses are not shown. */
-  active: Array<{ key: TaskStatusKey; label: string; count: number }>;
+  /** Statuses holding at least one task, in bar order; empty statuses are not shown. */
+  segments: Array<{ key: TaskStatusKey; label: string; count: number }>;
+  /** Done over every task that can still finish; cancelled tasks leave the whole. */
+  done: ProgressRatio;
+  open: number;
+  blocked: number;
 }
 
 export function progressReading(counts: PlanTaskCounts): ProgressReading {
+  const labels = new Map<TaskStatusKey, string>(TASK_STATUS_FIELDS.map((status) => [status.key, status.label]));
   return {
     total: counts.total,
-    active: TASK_STATUS_FIELDS.map((status) => ({ ...status, count: counts[status.key] })).filter(
+    segments: PROGRESS_BAR_ORDER.map((key) => ({ key, label: labels.get(key) ?? key, count: counts[key] })).filter(
       (status) => status.count > 0,
     ),
+    done: progressRatio(counts.done, Math.max(0, counts.total - counts.cancelled)),
+    open: OPEN_STATUSES.reduce((sum, key) => sum + counts[key], 0),
+    blocked: counts.blocked,
   };
+}
+
+export function doneCaption({ part, whole, percent }: ProgressRatio): string {
+  if (whole === 0) return "no tasks yet";
+  if (percent !== null) return `${formatCount(part)} of ${formatCount(whole)}`;
+  if (part === whole) return "all done";
+  if (part === 0) return "just started";
+  return `${formatCount(whole - part)} to go`;
+}
+
+export function openCaption(open: number): string {
+  return open === 0 ? "nothing open" : `of ${formatCount(open)} open`;
 }
 
 /** A plan's goal statement when it has one; the title always names the plan. */
