@@ -806,6 +806,7 @@ mod command_tests {
         std::fs::write(&path, serde_json::to_vec(&history).unwrap()).unwrap();
         let (method, params) = request(
             BlueprintAction::Update {
+                note: None,
                 id: "sentinel_echo".into(),
                 expect_version: 2,
                 from_file: path,
@@ -911,4 +912,22 @@ fn blueprint_watch_summary_exposes_explicit_classification_mode() {
     assert!(super::watch_summary(&job).contains("classification=model"));
     job["matches"] = serde_json::json!({"ready":"^ready$"});
     assert!(super::watch_summary(&job).contains("classification=pattern"));
+}
+
+#[test]
+fn blueprint_note_overrides_reach_create_and_update_definitions() {
+    use clap::Parser;
+    let cli = crate::args::cli::Cli::try_parse_from([
+        "codeterm", "blueprint", "create", "--recipe", "echo", "--set", "message=ready", "--note", "Reports failed jobs",
+    ]).unwrap();
+    let crate::args::cli::Commands::Blueprint { action } = cli.command else { panic!("expected Blueprint"); };
+    let (_, params) = request(action, Some("creator".into()), None).unwrap();
+    assert_eq!(params["spec"]["note"], "Reports failed jobs");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("definition.json");
+    std::fs::write(&path, r#"{"name":"updated","question":"Done?","buckets":["done"],"every":"1m"}"#).unwrap();
+    let (_, params) = request(BlueprintAction::Update {
+        id:"blueprint-a".into(), expect_version:1, from_file:path, cause:None, note:Some("Next release watcher".into()), dry_run:false,
+    }, Some("creator".into()), None).unwrap();
+    assert_eq!(params["update"]["note"], "Next release watcher");
 }

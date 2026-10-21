@@ -75,6 +75,7 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId }: { pipeline: 
         <span className="ct-run-row__meta">{run.state}</span>
       </button>)}
     </div>}
+    {pipeline.note && <p className="ct-meta-muted">{pipeline.note}</p>}
     <PipelineChain pipeline={selected} />
   </div>;
 }

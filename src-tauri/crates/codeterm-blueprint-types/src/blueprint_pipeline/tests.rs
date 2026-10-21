@@ -43,6 +43,7 @@ fn command(name: &str, input: IoType) -> Step {
 
 fn spec(steps: Vec<Step>) -> BlueprintSpec {
     BlueprintSpec {
+            note: None,
         name: "Echo chain".into(),
         owner: BlueprintOwner::Tab,
         trigger: Trigger::Schedule {
@@ -149,6 +150,7 @@ fn blueprint_pipeline_converter_chain_is_capability_ordered_and_bounded() {
         assert_eq!(converter_path(kind, kind, &[]), Some(vec![]));
     }
     let spec = BlueprintSpec {
+            note: None,
         name: "Voice".into(),
         owner: BlueprintOwner::Tab,
         trigger: Trigger::Input {

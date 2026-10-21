@@ -221,7 +221,7 @@ impl BlueprintExt for ServiceContext {
         }
         job.machine.stopped = stopped;
         let staged = handle.store.lock().stage_insert(job.clone());
-        staged.settle(&handle.store)?;
+        let job = staged.settle(&handle.store)?;
         handle.notify();
         self.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
         let owner = match spec.owner {
@@ -286,6 +286,7 @@ impl BlueprintExt for ServiceContext {
         }
         let mut next = current.clone();
         next.name = Some(spec.name.clone());
+        next.note = spec.note.clone();
         if let codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule { every } =
             &spec.trigger
         {
@@ -340,13 +341,6 @@ impl BlueprintExt for ServiceContext {
         }
         if current.definition_version != expect_version {
             return Err(crate::amend::version_conflict(current.definition_version));
-        }
-        if current.machine.stopped
-            || current
-                .expires_at
-                .is_some_and(|at| store.clock.now_ms() >= at)
-        {
-            return Err("stopped blueprints cannot be amended".into());
         }
         Ok(current)
     }
@@ -624,6 +618,7 @@ pub mod tests {
             nonce: None,
         };
         let spec = BlueprintSpec {
+            note: None,
             name: "create-target-refusal".into(),
             owner: BlueprintOwner::Tab,
             trigger: Trigger::Schedule {

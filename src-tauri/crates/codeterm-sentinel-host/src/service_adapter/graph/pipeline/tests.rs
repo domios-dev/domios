@@ -54,6 +54,7 @@ fn blueprint_pipeline_team_owner_defaults_result_target_to_team() {
         MockClock::starting_at(1000),
     );
     let spec = BlueprintSpec {
+            note: None,
         name: "team pipeline".into(),
         owner: BlueprintOwner::Team,
         trigger: Trigger::Schedule {
@@ -89,6 +90,7 @@ fn blueprint_pipeline_read_model_revision_tracks_journal_rows() {
         MockClock::starting_at(1000),
     );
     let spec = BlueprintSpec {
+            note: None,
         name: "revision pipeline".into(),
         owner: BlueprintOwner::Tab,
         trigger: Trigger::Schedule {
@@ -137,6 +139,7 @@ fn blueprint_delivery_read_model_projects_reason_and_body_reference() {
         MockClock::starting_at(1000),
     );
     let spec = BlueprintSpec {
+            note: None,
         name: "result delivery".into(),
         owner: BlueprintOwner::Tab,
         trigger: Trigger::Schedule {
@@ -186,6 +189,7 @@ fn contract_job() -> Sentinel {
     let mut job = store
         .prepare_pipeline(
             BlueprintSpec {
+            note: None,
                 name: "Echo pipeline".into(),
                 owner: BlueprintOwner::Tab,
                 trigger: Trigger::Schedule {

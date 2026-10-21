@@ -20,6 +20,8 @@ pub struct DefinitionSnapshot {
     pub terminal: Option<codeterm_blueprint_types::blueprint_terminal::Config>,
     #[serde(default)]
     pub session: bool,
+    #[serde(default)]
+    pub note: Option<String>,
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pipeline: Option<codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec>,
@@ -187,6 +189,7 @@ impl DefinitionSnapshot {
             terminal: job.terminal().cloned(),
             session: job.session,
             name: job.name.clone(),
+            note: job.note.clone(),
             pipeline: job.pipeline().cloned(),
             probe: job.probe().clone(),
             observe: job.observe().cloned(),
@@ -253,16 +256,16 @@ impl Update {
         ) {
             usize::from(current.run_transitions)
         } else {
-            current.transitions.len()
+            current.transitions.len().saturating_sub(current.cleanup.transition_offset)
         };
         let max_transitions = self.max_transitions.unwrap_or(current.max_transitions);
         let max_actions = self.max_actions.unwrap_or(current.max_actions);
         if max_transitions == 0
             || max_transitions > 256
-            || usize::from(max_transitions) < used_transitions
+            || (!current.machine.stopped && usize::from(max_transitions) < used_transitions)
             || max_actions == 0
             || max_actions > 1024
-            || usize::from(max_actions) < claimed_actions(current)
+            || (!current.machine.stopped && usize::from(max_actions) < claimed_actions(current))
         {
             return Err(
                 "blueprint budgets must stay within limits and cannot shrink below use".into(),
@@ -276,7 +279,7 @@ impl Update {
             return Err("cause must be a bounded transition ID".into());
         }
         if self.note.as_deref().is_some_and(|note| {
-            note.trim().is_empty() || note.len() > 4096 || note.chars().any(char::is_control)
+            note.chars().count() > 200 || note.chars().any(char::is_control)
         }) {
             return Err("note must be bounded display text".into());
         }
@@ -289,6 +292,7 @@ impl Update {
         let input = amended_input(&current.input().cloned(), self.input)?;
         let mut job = current.clone();
         job.name = self.name;
+        job.note = self.note.clone().or_else(|| current.note.clone());
         job.question = self.question;
         job.buckets = self.buckets;
         job.interval_ms = interval_ms;
@@ -340,13 +344,6 @@ impl Store {
         if current.definition_version != expect_version {
             return Staged::ready(Err(version_conflict(current.definition_version)));
         }
-        if current.machine.stopped
-            || current
-                .expires_at
-                .is_some_and(|at| self.clock.now_ms() >= at)
-        {
-            return Staged::ready(Err("stopped blueprints cannot be amended".into()));
-        }
         if current.creator_tab_id != update.job.creator_tab_id
             || current.workspace_id != update.job.workspace_id
             || current.team_id != update.job.team_id
@@ -365,7 +362,19 @@ impl Store {
             return Staged::ready(Err("blueprint generation exhausted".into()));
         };
         let mut next = current.clone();
+        if current.machine.stopped {
+            next.machine = Default::default();
+            next.cleanup.sync(false, authored_at);
+            next.cleanup.transition_offset = current.transitions.len();
+            next.cleanup.action_offset = current.transitions.iter().flat_map(|t| &t.handlers).filter(|h| h.claim_id.is_some()).count();
+            next.progress = Default::default();
+            next.run_transitions = 0;
+            next.last_reason = None;
+            next.expires_at = None;
+            next.next_run = authored_at;
+        }
         next.name = update.job.name;
+        next.note = update.job.note;
         next.source = update.job.source;
         next.question = update.job.question;
         next.buckets = update.job.buckets;
@@ -531,7 +540,7 @@ fn claimed_actions(job: &Sentinel) -> usize {
         .iter()
         .flat_map(|transition| &transition.handlers)
         .filter(|handler| handler.claim_id.is_some())
-        .count()
+        .count().saturating_sub(job.cleanup.action_offset)
 }
 
 /// The input after one amendment: the kind is immutable, the data and conversion are not.

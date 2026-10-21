@@ -198,8 +198,9 @@ impl Store {
         };
         let (id, reason) = (id.to_string(), reason.to_string());
         let stop_reason = reason.clone();
+        let stopped_at = self.clock.now_ms();
         self.submit(
-            move |repo| repo.stop(stored, stop_reason),
+            move |repo| repo.stop(stored, stop_reason, stopped_at),
             finishing(move |store, outcome| match outcome {
                 Ok(commit) => {
                     match commit.outcome {
@@ -294,6 +295,7 @@ impl Store {
             return Staged::ready(Ok(leases));
         }
         let mut updates = Vec::with_capacity(changes.len());
+        let stopped_at = self.clock.now_ms();
         for change in changes {
             let update = match change {
                 ScheduleChange::Advance { id, next_run } => {
@@ -303,6 +305,7 @@ impl Store {
                     codec::id(&id).map(|id| ScheduleUpdate::Stop {
                         id,
                         reason: reason.to_string(),
+                        stopped_at,
                     })
                 }
             };
