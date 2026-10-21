@@ -106,7 +106,7 @@
   color: var(--ct-muted-fg);
   cursor: pointer;
   transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+    transform var(--ct-duration-liquid-press) var(--ct-ease-liquid-settle);
 }
 
 .ct-compact-rail__tab:hover,
@@ -114,7 +114,6 @@
   background: color-mix(in srgb, var(--ct-fg) 7%, transparent);
   color: var(--ct-fg);
   outline: none;
-  transform: scale(1.06);
 }
 
 .ct-compact-rail__tab:active {
@@ -306,15 +305,13 @@
   background: var(--ct-scrollbar-thumb);
   content: "";
   opacity: 0;
-  transform: translate(-50%, -50%) scaleY(0.6);
-  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    transform var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+  transform: translate(-50%, -50%);
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
 .ct-sidebar-grip:hover::after,
 .ct-sidebar-grip:focus-visible::after {
   opacity: 1;
-  transform: translate(-50%, -50%) scaleY(1);
 }
 
 .ct-sidebar-grip:focus-visible {
