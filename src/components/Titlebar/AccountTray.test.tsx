@@ -3,21 +3,32 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Notification } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
+import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openPlans, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openPlans: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false, billingPending: false },
+  state: { signedIn: false, sessionOnly: false, billingPending: false, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false },
 }));
+const localFetch = vi.hoisted(() => vi.fn());
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
   ...await importOriginal<typeof import("../Settings/useAccount")>(),
   useAccount: () => ({model: state.signedIn
     ? {kind:"signed_in",sessionOnly:state.sessionOnly,identity:{uid:"user",display_name:"Ada",email:"ada@example.test",provider:"fake"}}
     : {kind:"signed_out"}, signIn, signOut}),
 }));
-vi.mock("../Settings/useAccountPlan", () => ({useAccountPlan: () => ({
-  plan:{authority:"billing",fullAccess:false,plan:"pro",status:"active",stale:false,periodEnd:null,cancelAtPeriodEnd:false},error:null,manage,
-  pending:state.billingPending,
-})}));
+vi.mock("../Settings/useAccountPlan", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../Settings/useAccountPlan")>();
+  return { ...actual, useAccountPlan: (identityKey: string | null) => state.useRealPlan
+    ? actual.useAccountPlan(identityKey)
+    : ({
+      plan:{authority:state.planAuthority,fullAccess:state.fullAccess,plan:"pro",status:state.planStatus,stale:false,periodEnd:null,cancelAtPeriodEnd:false},error:null,manage,
+      pending:state.billingPending,
+    }) };
+});
+vi.mock("../../lib/webApi", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../lib/webApi")>(),
+  localFetch,
+}));
 vi.mock("../../lib/nativeBridge", () => ({nativeBridge:{openUrl}}));
 import { siteLinks } from "../../../shared/siteLinks";
 import { AccountTray } from "./AccountTray";
@@ -38,11 +49,44 @@ function AccountTrayWithToasts() {
   </MultiplexerActionsContext.Provider>;
 }
 
+function AccountTrayWithActions() {
+  const actions = { upsertToast: vi.fn() } as unknown as MultiplexerActionsContextType;
+  return <MultiplexerActionsContext.Provider value={actions}><AccountTray onOpenPlans={openPlans} /></MultiplexerActionsContext.Provider>;
+}
+
+function RealProviderToastStack() {
+  const { toasts } = useMuxState();
+  const { dismissToast } = useMultiplexer();
+  return <NotificationToastContainer toasts={toasts} onDismiss={dismissToast} />;
+}
+
+function AccountTrayWithRealProvider() {
+  return <MultiplexerProvider><AccountTray onOpenPlans={openPlans} /><RealProviderToastStack /></MultiplexerProvider>;
+}
+
+async function configureMultiplexerBridge() {
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  localStorage.clear();
+  sessionStorage.clear();
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    if (command === "mesh_list_peers") return { paired: [] } as T;
+    if (command === "list_notifications") return [] as T;
+    return null as T;
+  });
+  __setListenForTest(async () => () => {});
+}
+
+async function resetMultiplexerBridge() {
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+}
+
 it("opens the existing account menu and starts login once from its sign-in item", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
+    await act(async () => root.render(<AccountTrayWithActions />));
     const button = host.querySelector("button");
     expect(button?.getAttribute("aria-label")).toBe("Account");
     await act(async () => button!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
@@ -75,12 +119,126 @@ it("shows a stage-named toast with a retry after sign-in fails", async () => {
     expect(signIn).toHaveBeenNthCalledWith(2, { mode: "signin" });
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+it("renders sign-in failures through the real multiplexer provider and toast stack", async () => {
+  signIn.mockResolvedValueOnce({ stage: "redemption", error: "provider" });
+  await configureMultiplexerBridge();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithRealProvider />));
+    const trigger = host.querySelector("button")!;
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const signin = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent === "Sign in");
+    await act(async () => signin!.click());
+    const toast = host.querySelector<HTMLElement>('[data-testid="notification-toast"]');
+    expect(toast?.getAttribute("data-notification-id")).toBe("account-sign-in-failure");
+    expect(toast?.getAttribute("role")).toBe("status");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    await resetMultiplexerBridge();
+  }
+});
+
+it("shows subscription failures in a retryable toast without a titlebar alert", async () => {
+  state.signedIn = true;
+  manage.mockResolvedValueOnce(new Error("billing_portal_failed"));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithToasts />));
+    const trigger = host.querySelector("button")!;
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
+    const manageItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.includes("Manage subscription"));
+    await act(async () => manageItem!.click());
+    expect(host.querySelector('[data-testid="notification-toast"]')?.getAttribute("role")).toBe("status");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    const retry = Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "Retry");
+    expect(retry).toBeDefined();
+    await act(async () => retry!.click());
+    expect(manage).toHaveBeenCalledTimes(2);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false;
+  }
+});
+
+it("renders billing portal failures through the real multiplexer provider and toast stack", async () => {
+  state.signedIn = true;
+  state.useRealPlan = true;
+  localFetch.mockImplementation(async (url: string) => url === "/api/account/plan"
+    ? { ok: true, json: async () => ({ entitlements: { plan: "pro", status: "active", current_period_end: 0, cancel_at_period_end: false }, access: { authority: "billing", full_access: false }, stale: false }) }
+    : { ok: false, text: async () => "No billing customer" });
+  await configureMultiplexerBridge();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithRealProvider />));
+    const trigger = host.querySelector("button")!;
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const manageItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.includes("Manage subscription"));
+    await act(async () => manageItem!.click());
+    expect(localFetch).toHaveBeenCalledWith("/api/account/portal", expect.objectContaining({ method: "POST" }));
+    const toast = host.querySelector<HTMLElement>('[data-testid="notification-toast"]');
+    expect(toast?.getAttribute("data-notification-id")).toBe("account-billing-action-failure");
+    expect(toast?.getAttribute("role")).toBe("status");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    await resetMultiplexerBridge();
+    state.signedIn = false;
+    state.useRealPlan = false;
+    localFetch.mockReset();
+  }
+});
+
+it("reports unavailable subscription management without offering a crashing retry", async () => {
+  state.signedIn = true;
+  state.planStatus = "unavailable";
+  manage.mockResolvedValueOnce(new Error("functions URL is unavailable"));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithToasts />));
+    const trigger = host.querySelector("button")!;
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
+    const manageItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.includes("Manage subscription"));
+    await act(async () => manageItem!.click());
+    const toast = host.querySelector('[data-testid="notification-toast"]');
+    expect(toast?.getAttribute("role")).toBe("status");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(Array.from(host.querySelectorAll("button")).some((button) => button.textContent === "Retry")).toBe(false);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.planStatus = "active";
+  }
+});
+
+it("shows the Admin plan line from server-authoritative billing state", async () => {
+  state.signedIn = true;
+  state.planAuthority = "admin";
+  state.fullAccess = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithActions />));
+    await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("Admin · pro (active)");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.planAuthority = "billing"; state.fullAccess = false;
+  }
+});
+
 it("shows identity and plan and wires subscription and sign out", async () => {
   state.signedIn = true;
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
+    await act(async () => root.render(<AccountTrayWithActions />));
     const button = host.querySelector("button");
     expect(button?.getAttribute("aria-label")).toBe("Account: Ada");
     await act(async () => button!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
@@ -103,7 +261,7 @@ it("marks the tray busy and disables Manage subscription while billing opens", a
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
+    await act(async () => root.render(<AccountTrayWithActions />));
     const button = host.querySelector("button")!;
     expect(button.getAttribute("aria-busy")).toBe("true");
     await act(async () => button.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
@@ -123,7 +281,7 @@ for (const [label, hint] of [
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
+    await act(async () => root.render(<AccountTrayWithActions />));
     await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true})));
     const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === label);
     await act(async () => item!.click());
@@ -135,7 +293,7 @@ for (const signedIn of [false,true]) it(`opens community links in the system bro
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
+    await act(async () => root.render(<AccountTrayWithActions />));
     for (const [label,url] of [["Telegram",siteLinks.telegram],["Discord",siteLinks.discord]]) {
       await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true})));
       const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === label);
@@ -152,7 +310,7 @@ it("exposes the session-only storage warning in the account menu", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
+    await act(async () => root.render(<AccountTrayWithActions />));
     await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
     const warning = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
       .find(item => item.textContent?.includes("Signed in for this session only"));

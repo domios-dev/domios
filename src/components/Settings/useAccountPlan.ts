@@ -16,7 +16,6 @@ async function openBilling(action: "upgrade" | "portal", planKey?: string) {
 
 export function useAccountPlan(identityKey: string | null) {
   const [plan, setPlan] = useState<PlanModel | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const busy = useRef(false);
   const loading = useRef<Promise<PlanModel | null>>(Promise.resolve(null));
@@ -25,7 +24,6 @@ export function useAccountPlan(identityKey: string | null) {
     const generation = ++active.current;
     const controller = new AbortController();
     setPlan(null);
-    setActionError(null);
     async function refresh(focus = false): Promise<PlanModel | null> {
       try {
         const current = await fetchPlan(focus, controller.signal);
@@ -55,12 +53,10 @@ export function useAccountPlan(identityKey: string | null) {
     if (busy.current) return null;
     busy.current = true;
     setPending(true);
-    setActionError(null);
     try {
       await action();
       return null;
     } catch (failure: unknown) {
-      setActionError(failure instanceof Error ? failure.message : "Billing unavailable");
       return failure;
     } finally {
       busy.current = false;
@@ -69,7 +65,6 @@ export function useAccountPlan(identityKey: string | null) {
   }
   return {
     plan,
-    actionError,
     pending,
     upgrade: (planKey: string) => run(() => openBilling("upgrade", planKey)),
     manage: (openPlans: () => void) => run(async () => {
