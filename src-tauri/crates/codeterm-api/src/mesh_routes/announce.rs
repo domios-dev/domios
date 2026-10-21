@@ -117,14 +117,10 @@ pub async fn mesh_announce_inbound(
     match mesh.apply_announce(&sender_id, &ann) {
         Ok(change) if change.changed() => {
             log::info!(
-                "[mesh/announce] sender={} old={:?} new={:?}",
+                "[mesh/announce] sender={} address counts changed from {} to {}",
                 sender_id,
-                change
-                    .previous_addresses
-                    .iter()
-                    .map(|a| &a.ip)
-                    .collect::<Vec<_>>(),
-                ann.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>()
+                change.previous_addresses.len(),
+                ann.addresses.len()
             );
             drop(mesh);
             state
@@ -180,11 +176,9 @@ pub async fn mesh_set_peer_addr(
         .set_peer_addr_override(&resolved_id, &body.ip, body.port)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     log::info!(
-        "[mesh/set-addr] peer={} override old={:?} new={}{}",
+        "[mesh/set-addr] peer={} address override changed; previous count={}",
         resolved_id,
-        prev.iter().map(|a| &a.ip).collect::<Vec<_>>(),
-        body.ip,
-        body.port.map(|p| format!(":{}", p)).unwrap_or_default()
+        prev.len()
     );
     drop(mesh);
     state

@@ -160,6 +160,20 @@ fn account_mesh_pair_without_provenance_is_blocked_everywhere() {
 }
 
 #[test]
+fn rate_limited_admission_refusal_serializes_its_retry_delay() {
+    assert_eq!(
+        serde_json::to_value(AdmissionRefusal::RateLimited {
+            retry_after_seconds: 60,
+        })
+        .unwrap(),
+        serde_json::json!({
+            "reason": "rate-limited",
+            "retry_after_seconds": 60
+        })
+    );
+}
+
+#[test]
 fn account_mesh_sign_out_blocks_but_keeps_records_and_same_account_restores() {
     let clock = clock();
     let (a, b) = (machine(1, &clock), machine(2, &clock));

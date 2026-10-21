@@ -125,7 +125,7 @@ async fn account_mesh_sign_out_blocks_durably_before_one_withdrawal_and_keeps_pa
     let blocked = position(&harness.log, "save:signed_out=true");
     let notified = position(&harness.log, "transport:signed_out");
     let withdrawn = position(&harness.log, "registry:withdraw:token-user-1");
-    assert!(blocked < notified && notified < withdrawn);
+    assert!(notified < blocked && blocked < withdrawn);
     assert_eq!(harness.calls("withdraw"), 1);
     assert_eq!(
         harness.calls("revoke"),
