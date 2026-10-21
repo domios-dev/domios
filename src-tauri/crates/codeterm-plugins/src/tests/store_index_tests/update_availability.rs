@@ -257,3 +257,22 @@ fn aggregate_refresh_preserves_other_channels_but_reports_failure() {
         );
     });
 }
+
+#[test]
+fn failed_final_install_rename_is_not_an_installed_update_offer() {
+    with_data_root(|root| {
+        let source = root.join("source");
+        write_channel(&source, "store", &[("demo", "demo")]);
+        add_channel(&source.to_string_lossy(), Some("store".into())).unwrap();
+        install_command(Some("demo".into()), None, None, Some("store".into())).unwrap();
+        let installed = plugin_dir(&PluginId::validated("demo"));
+        fs::rename(&installed, installed.with_extension("tmp-install")).unwrap();
+        let listed = list_installed().unwrap();
+        assert!(!listed["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == "demo"));
+        assert!(update_one("demo").unwrap_err().contains("not installed"));
+    });
+}

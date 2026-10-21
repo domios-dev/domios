@@ -34,6 +34,10 @@ pub async fn check(
             true,
         ));
     }
+    let plugins = tokio::task::spawn_blocking(local_plugins)
+        .await
+        .map_err(|error| error.to_string())??;
+    replace_plugins(&mut cached, plugins);
     let ui = ui.clone();
     let state = state.clone();
     cache::serve(
@@ -116,6 +120,10 @@ async fn refresh(
             replace_frontend(&mut result, local);
         }
     }
+    let plugins = tokio::task::spawn_blocking(local_plugins)
+        .await
+        .map_err(|error| error.to_string())??;
+    replace_plugins(&mut result, plugins);
     publish(ui, &result);
     if let Some(bundles) = stage_bundles {
         if let Some(item) = result
@@ -152,6 +160,25 @@ pub fn publish(
             serde_json::to_value(snapshot).unwrap_or(serde_json::Value::Null),
         );
     }
+}
+
+fn local_plugins() -> Result<Vec<AvailabilityItem>, String> {
+    let listed = codeterm_plugins::run(
+        PluginCtx {
+            data_root: codeterm_service_core::paths::data_dir(),
+            version: Some(codeterm_build_info::version().into()),
+        },
+        codeterm_plugins::PluginAction::List,
+    )?;
+    listed["plugins"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|plugin| {
+            serde_json::from_value(plugin["update"]["availability"].clone())
+                .map_err(|error| error.to_string())
+        })
+        .collect()
 }
 
 pub fn replace_plugins(snapshot: &mut AvailabilitySnapshot, items: Vec<AvailabilityItem>) {

@@ -34,7 +34,7 @@ fn git_stderr_names_the_concrete_cause() {
 }
 
 #[test]
-fn unknown_git_failures_keep_their_last_line() {
+fn unknown_git_failures_keep_the_diagnostic_block() {
     assert_eq!(
         git_failure_cause("Cloning into 'x'...\nfatal: bad object HEAD\n"),
         "git failed: fatal: bad object HEAD"
@@ -59,4 +59,15 @@ fn unavailable_message_names_cause_and_source_without_credentials() {
         source_label("git@github.com:rollacode/codeterm.git#main"),
         "github.com:rollacode/codeterm.git"
     );
+}
+
+#[test]
+fn git_recovery_hint_does_not_replace_the_error_head() {
+    let stderr = "Cloning into 'plugins'...\nerror: unable to create file plugin.js: Permission denied\nfatal: unable to checkout working tree\nwarning: Clone succeeded, but checkout failed.\nand retry with 'git restore --source=HEAD :/'";
+    let cause = git_failure_cause(stderr);
+    assert!(
+        cause.starts_with("git failed: error: unable to create file plugin.js: Permission denied")
+    );
+    assert!(cause.contains("fatal: unable to checkout working tree"));
+    assert!(cause.ends_with("and retry with 'git restore --source=HEAD :/'"));
 }

@@ -33,12 +33,29 @@ it("wires the supplied title, actions, collapsed raw disclosure and copy control
     expect(parentKey).not.toHaveBeenCalled();
     details.querySelector("summary")!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
     expect(parentKey).toHaveBeenCalledTimes(1);
-    await act(async () => root.render(<InlineErrorNotice description={description} />));
-    expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    await act(async () => root.render(<InlineErrorNotice description={description} blocking actions={[{ label: "fixture-action", onClick: run }]} />));
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(host.querySelector("details")?.open).toBe(false);
+    expect(host.querySelector("pre")?.textContent).toBe(description.raw);
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="fixture-action"]')!.click());
+    expect(run).toHaveBeenCalledTimes(2);
   } finally {
     await act(async () => root.unmount());
     host.remove();
     vi.unstubAllGlobals();
   }
+});
+
+it("keeps focus in the adjacent form when a blocking inline failure appears", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const form = (failed: boolean) => <><input aria-label="fixture input" />{failed && <InlineErrorNotice error="opaque refusal" operation="saving the form" blocking actions={[{ label: "Retry", onClick: vi.fn() }]} />}</>;
+  try {
+    await act(async () => root.render(form(false)));
+    const input = host.querySelector("input")!; input.focus();
+    await act(async () => root.render(form(true)));
+    expect(document.activeElement).toBe(input);
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(host.querySelector("details")?.open).toBe(false);
+  } finally { await act(async () => root.unmount()); host.remove(); }
 });
