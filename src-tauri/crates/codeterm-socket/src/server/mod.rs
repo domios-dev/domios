@@ -22,6 +22,7 @@ mod plan_attachments;
 #[cfg(test)]
 mod plan_batch_authority_tests;
 mod plan_competition;
+mod plan_curator;
 mod plan_elements;
 mod plan_fields;
 mod plan_gates;

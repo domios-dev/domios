@@ -36,6 +36,14 @@ beforeEach(() => {
 afterEach(async () => setup.cleanup());
 
 describe("Spinal Cord activity", () => {
+  it("renders one redacted line per Curator round", async () => {
+    entries = [0, 1].map((offset) => ({ ...entry("team_aabbccdd", 1700000000 + offset), kind: "curator", label: "done", action: "decision", asked: [{ name: "private", question: "opaque-question", answer: "opaque-answer" }] }));
+    const host = await setup.render(<ActivityFeed api={API} teamId="team_aabbccdd" />);
+    const rows = host.querySelectorAll('li[data-kind="curator"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).not.toContain("opaque-");
+    expect(rows[0].getAttribute("aria-label")).toContain("Curator");
+  });
   it("heartbeat_wakes_and_suppressions_render_in_the_feed", async () => {
     entries = [
       { ...entry("team_aabbccdd"), kind: "heartbeat", label: "action_needed", action: "wake", reason: "hard_wake" },
@@ -137,7 +145,8 @@ describe("Spinal Cord activity", () => {
   it("active_plan_board_feed_does_not_depend_on_plan_projection_readiness", async () => {
     const host = await setup.render(<MissionControlBoard api={API} plan={{ ...FIXTURE_PLAN, team_id: "team_aabbccdd" }} state={null} />);
     expect(host.querySelectorAll("ol > li")).toHaveLength(1);
-    expect(new URL(paths[0], "http://fixture").searchParams.get("team_id")).toBe("team_aabbccdd");
+    const activityPath = paths.find((path) => path.startsWith("/api/supporter/activity"));
+    expect(new URL(activityPath ?? "", "http://fixture").searchParams.get("team_id")).toBe("team_aabbccdd");
   });
 
   it("grouped_rows_render_once_with_count_and_full_accessible_outcome", async () => {

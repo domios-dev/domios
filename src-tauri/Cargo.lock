@@ -1605,6 +1605,7 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "chrono",
+ "codeterm-blueprint-types",
  "codeterm-decision",
  "codeterm-mem-store",
  "codeterm-paths",
