@@ -52,17 +52,16 @@ pub async fn broadcast_sync(mesh: &MeshState) {
                     Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
                     Ok(resp) => {
                         let status = resp.status();
-                        let body = resp.text().await.unwrap_or_default();
-                        transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
+                        transport::TryNext::Stop(format!("HTTP {}", status))
                     }
-                    Err(e) => transport::TryNext::Retry(e.to_string()),
+                    Err(_) => transport::TryNext::Retry("request failed".to_string()),
                 }
             }
         })
         .await;
         match result {
             Ok(()) => log::debug!("[mesh/broadcast] Synced to {}", peer_id),
-            Err(e) => log::warn!("[mesh/broadcast] Sync failed for {}: {}", peer_id, e),
+            Err(e) => log::warn!("[mesh/broadcast] Sync failed: {}", peer_request_error(peer_id, &e)),
         }
     }
 }
@@ -73,6 +72,10 @@ pub struct AnnounceReport {
     pub ok: usize,
     pub stale_peers: Vec<String>,
     pub errors: Vec<String>,
+}
+
+fn peer_request_error(peer_id: &str, _detail: &str) -> String {
+    format!("{peer_id}: request failed")
 }
 
 fn announce_gate() -> &'static tokio::sync::Mutex<()> {
@@ -164,10 +167,9 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                     }
                     Ok(resp) => {
                         let status = resp.status();
-                        let body = resp.text().await.unwrap_or_default();
-                        transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
+                        transport::TryNext::Stop(format!("HTTP {}", status))
                     }
-                    Err(e) => transport::TryNext::Retry(e.to_string()),
+                    Err(_) => transport::TryNext::Retry("request failed".to_string()),
                 }
             }
         })
@@ -177,10 +179,10 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                 report.ok += 1;
                 mesh.lock().record_announce_outcome(peer_id, true);
                 log::debug!(
-                    "[mesh/announce] sent to {} ({}) addrs={:?}",
+                    "[mesh/announce] sent to {} ({}) address_count={}",
                     peer_name,
                     peer_id,
-                    announce.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>()
+                    announce.addresses.len()
                 );
             }
             Err(_e) if *stale_marker.lock() => {
@@ -193,8 +195,9 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
             }
             Err(e) => {
                 mesh.lock().record_announce_outcome(peer_id, false);
-                log::warn!("[mesh/announce] {} send failed: {}", peer_id, e);
-                report.errors.push(format!("{}: {}", peer_id, e));
+                let error = peer_request_error(peer_id, &e);
+                log::warn!("[mesh/announce] send failed: {}", error);
+                report.errors.push(error);
             }
         }
     }
@@ -273,14 +276,18 @@ fn refresh_local_addresses_guarded(
     let changed = prev_ts != new_ts || prev_lan != new_lan || prev_web_ui != web_ui;
     // actually changed; the steady state is debug to keep the log readable.
     if changed {
-        log::info!(
-            "[mesh/refresh] local addrs CHANGED: tailscale {prev_ts:?} -> {new_ts:?}, lan {prev_lan:?} -> {new_lan:?}, web_ui {prev_web_ui:?} -> {web_ui:?}"
-        );
+        log::info!("[mesh/refresh] local address sets changed");
     } else {
         log::debug!(
-            "[mesh/refresh] local addrs: tailscale {new_ts:?}, lan {new_lan:?}, web_ui {web_ui:?}"
+            "[mesh/refresh] local address sets: tailscale={}, lan={}, web_ui={}",
+            new_ts.is_some(),
+            new_lan.is_some(),
+            web_ui.is_some()
         );
     }
     refresh_generation().fetch_add(1, Ordering::Release);
     changed
 }
+
+#[cfg(test)]
+mod tests;

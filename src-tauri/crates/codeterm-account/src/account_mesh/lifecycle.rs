@@ -368,8 +368,8 @@ impl AccountMesh {
         }) else {
             return self.state().cleanup;
         };
-        self.persist().await;
         self.push().await;
+        self.persist().await;
         let cleanup = if !published {
             Cleanup::Confirmed
         } else {

@@ -74,13 +74,17 @@ struct TransportBridge {
 #[async_trait]
 impl MeshTransport for TransportBridge {
     async fn apply(&self, state: &LifecycleState) {
-        publish_mesh_state(&self.mesh_state, mesh_state(state));
+        let projected = mesh_state(state);
         if let Some(service) = self.service.upgrade() {
+            if let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() {
+                mesh.lock().apply_account_state(projected.clone());
+            }
             service.ui.emit(
                 ACCOUNT_MESH_CHANGED,
                 serde_json::json!({ "account_epoch": state.account_epoch }),
             );
         }
+        publish_mesh_state(&self.mesh_state, projected);
     }
     // Revocations reach the gate through `revoked_installations` in the pushed state.
     async fn installation_revoked(&self, _installation_id: &str) {}
@@ -249,6 +253,14 @@ impl ServiceContext {
         })
     }
 
+    pub(super) async fn sign_out_without_account_mesh(&self) -> Result<(), String> {
+        let mesh = self.try_ext::<crate::MeshStateHandle>().cloned();
+        let store: Arc<dyn AccountMeshStore> = Arc::new(FileAccountMeshStore::new(
+            crate::paths::data_dir(),
+        ));
+        block_and_persist_sign_out(mesh, store).await
+    }
+
     /// Saved pairs with their admission, joined from the Mesh transport.
     fn account_mesh_pairs(&self) -> Vec<serde_json::Value> {
         let Some(mesh) = self.try_ext::<crate::MeshStateHandle>() else {
@@ -358,6 +370,30 @@ impl ServiceContext {
             .acknowledge_limit_notice(request_id)
             .await)
     }
+}
+
+async fn block_and_persist_sign_out(
+    mesh: Option<crate::MeshStateHandle>,
+    store: Arc<dyn AccountMeshStore>,
+) -> Result<(), String> {
+    if let Some(mesh) = mesh {
+        let mut manager = mesh.lock();
+        let account_epoch = manager
+            .account_state()
+            .account_epoch
+            .saturating_add(1);
+        manager.apply_account_state(codeterm_mesh::account_mesh::AccountMeshState {
+            account_epoch,
+            presence: codeterm_mesh::account_mesh::AccountPresence::SignedOut,
+            ..codeterm_mesh::account_mesh::AccountMeshState::default()
+        });
+    }
+    let mut record = store.load().await.unwrap_or_default();
+    record.signed_out = true;
+    store
+        .save(&record)
+        .await
+        .map_err(|_| "Account Mesh sign-out could not be persisted".to_string())
 }
 
 /// Wakes the gate only when the projection changes, so lifecycle pushes cannot storm announces.

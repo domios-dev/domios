@@ -499,7 +499,12 @@ pub async fn mesh_relay(
                 sender_id,
                 delivery_id
             );
-            return Ok(Json(entry.wait().await));
+            let response = entry.wait().await;
+            return Ok(Json(fence_relay_response(
+                &state,
+                &sender_id,
+                response,
+            )));
         }
         super::send_dedupe::Admission::AtCapacity => {
             log::warn!(
@@ -664,10 +669,28 @@ async fn perform_relay(
     cmd: &codeterm_service_core::mesh::types::RelayCommand,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     let mut response = perform_relay_unredacted(state, sender_id, cmd).await?;
+    response = fence_relay_response(state, sender_id, response);
     if let Some(data) = response.data.as_mut() {
         crate::peer_redaction::redact_for_peer(data);
     }
     Ok(response)
+}
+
+fn fence_relay_response(
+    state: &AppState,
+    sender_id: &str,
+    response: codeterm_service_core::mesh::types::RelayResponse,
+) -> codeterm_service_core::mesh::types::RelayResponse {
+    if sender_id == "local" || state.mesh.lock().traffic_open(sender_id) {
+        response
+    } else {
+        relay_failure(
+            StatusCode::FORBIDDEN.as_u16(),
+            codeterm_mesh::contract::delivery::PEER_RELAY_NOT_AUTHORIZED,
+            Some(false),
+            "peer access changed while the relay was running".into(),
+        )
+    }
 }
 
 async fn perform_relay_unredacted(

@@ -21,7 +21,7 @@ pub(crate) fn refusal_status(refusal: &AdmissionRefusal) -> StatusCode {
         AdmissionRefusal::MachineLimit { .. } => StatusCode::PAYMENT_REQUIRED,
         AdmissionRefusal::SignedOut | AdmissionRefusal::Unauthenticated => StatusCode::UNAUTHORIZED,
         AdmissionRefusal::Revoked => StatusCode::FORBIDDEN,
-        AdmissionRefusal::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+        AdmissionRefusal::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
         AdmissionRefusal::Offline | AdmissionRefusal::PeerUnreachable => {
             StatusCode::SERVICE_UNAVAILABLE
         }
