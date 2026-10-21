@@ -287,7 +287,11 @@ fn print_report_notices(json: bool, val: &serde_json::Value) {
     if let Some(arr) = val.get("notices").and_then(|v| v.as_array()) {
         for notice in arr {
             if let Some(s) = notice.as_str() {
-                eprintln!("notice: {}", s);
+                if s.starts_with("WARNING:") {
+                    eprintln!("{s}");
+                } else {
+                    eprintln!("notice: {s}");
+                }
             }
         }
     }
