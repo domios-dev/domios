@@ -49,6 +49,8 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       webJson("DELETE", `/api/delayed-messages/${enc(s(a, "id"))}`),
     delayed_send_list: (a) =>
       webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/delayed-messages`),
+    system_heartbeat_list: (a) =>
+      webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/system-heartbeats`),
     delayed_send_send_now: (a) =>
       webJson("POST", `/api/delayed-messages/${enc(s(a, "id"))}/send-now`),
     delayed_send_update: (a) =>
