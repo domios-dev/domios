@@ -46,7 +46,8 @@ module.exports = {
 struct RuntimeFixture {
     fixture: ServiceFixture,
     tab: String,
-    log: std::path::PathBuf,
+    requests: Arc<parking_lot::Mutex<Vec<Value>>>,
+    _process_ports: agent_runtime::process::test_ports::Registration,
     _storage: crate::storage::Storage,
 }
 impl std::ops::Deref for RuntimeFixture {
@@ -84,21 +85,32 @@ impl RuntimeFixture {
         let fixture = ServiceFixture::new(mux);
         fixture.set_agent_full_access(false);
         let storage = fixture.install_seeded_storage_desk();
-        let script = fixture.temp.path().join("peer.mjs");
-        let log = fixture.temp.path().join("requests.jsonl");
-        std::fs::write(
-            &script,
-            r#"
-import { createInterface } from 'node:readline';
-import { appendFileSync } from 'node:fs';
-createInterface({input:process.stdin}).on('line', line => {
-  const frame = JSON.parse(line);
-  appendFileSync(process.argv[2], line+'\n');
-  process.stdout.write(JSON.stringify({id:frame.id,result:{params:frame.params}})+'\n');
-});
-"#,
-        )
-        .unwrap();
+        let requests = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let captured = requests.clone();
+        let process_ports = agent_runtime::process::test_ports::register(&tab, move || {
+            crate::async_runtime::block_on(async {
+                use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+                let (process, peer) = agent_runtime::process::test_ports::connected();
+                let (peer_reader, mut peer_writer) = tokio::io::split(peer);
+                let captured = captured.clone();
+                crate::async_runtime::spawn(async move {
+                    let mut lines = BufReader::new(peer_reader).lines();
+                    while let Some(line) = lines.next_line().await.unwrap() {
+                        let frame: Value = serde_json::from_str(&line).unwrap();
+                        captured.lock().push(frame.clone());
+                        let reply = json!({"id":frame["id"],"result":{"params":frame["params"]}});
+                        if peer_writer
+                            .write_all(format!("{reply}\n").as_bytes())
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                });
+                process
+            })
+        });
         let methods = [
             "initialize",
             "openThread",
@@ -112,7 +124,7 @@ createInterface({input:process.stdin}).on('line', line => {
         let manifest = PluginManifest::from_json_str(&json!({
             "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-                "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[script,log]},"requestMethods":methods,"notificationMethods":[]}},
+                "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[]}},
             "permissions":{"subprocess":{"allow":["node"]}}
         }).to_string()).unwrap();
         fixture
@@ -132,16 +144,13 @@ createInterface({input:process.stdin}).on('line', line => {
         Self {
             fixture,
             tab,
-            log,
+            requests,
+            _process_ports: process_ports,
             _storage: storage,
         }
     }
     fn requests(&self) -> Vec<Value> {
-        std::fs::read_to_string(&self.log)
-            .unwrap()
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect()
+        self.requests.lock().clone()
     }
     fn prompt(&self) -> String {
         let mux = self.service.mux.read();
