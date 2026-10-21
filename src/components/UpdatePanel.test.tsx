@@ -60,3 +60,23 @@ for (const outcome of ["success", "failure", "external"] as const) {
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 }
+
+it("retains failed diagnostics after checking and never offers an update for the removed install", async () => {
+  fake.check.mockResolvedValue(available);
+  fake.plugin.mockRejectedValueOnce(new Error("opaque final rename refusal"));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdatePanel /></UpdatePanelProvider>));
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Apply git update"]')!.click());
+    expect(host.querySelector('[role="alert"]')?.getAttribute("aria-label")).toContain("git");
+    expect(host.querySelector("details")?.open).toBe(false);
+    fake.check.mockResolvedValue({ items: [], errors: {} });
+    await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === "Check again")!.click());
+    expect(host.querySelector('[aria-label="git update failed"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label^="Apply"]')).toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('[aria-label="Update all"]')?.disabled).toBe(true);
+    expect(host.querySelector("pre")?.textContent).toContain("opaque final rename refusal");
+    expect(fake.plugin).toHaveBeenCalledTimes(1);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});

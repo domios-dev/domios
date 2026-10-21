@@ -38,7 +38,7 @@ export function UpdatePanelContents() {
                     <div className="break-words text-sm font-medium text-[var(--ct-fg)]">{item.name}</div>
                     <div className="mt-1 break-words text-xs tabular-nums text-[var(--ct-muted-fg)]">{item.currentVersion} → {item.targetVersion}</div>
                   </div>
-                  {(row.state === "available" || Boolean(item.channelError)) ? <Button size="sm" disabled={update.busy || update.checking || Boolean(item.channelError)} aria-label={`Apply ${item.name} update`} onClick={() => void update.applyItem(item.id)}>Apply</Button>
+                  {(row.state === "available" || (row.state === "failed" && !update.error && !update.awaitingRetry && update.items.some(current => current.id === item.id)) || Boolean(item.channelError)) ? <Button size="sm" disabled={update.busy || update.checking || Boolean(item.channelError)} aria-label={`Apply ${item.name} update`} onClick={() => void update.applyItem(item.id)}>Apply</Button>
                     : <div role="status" aria-label={`${item.name} update ${row.state}`} className={`flex items-center gap-2 text-xs ${row.state === "failed" ? "text-[var(--ct-red)]" : row.state === "completed" ? "text-[var(--ct-green)]" : "text-[var(--ct-muted-fg)]"}`}>
                       {row.state === "active" ? <BusySpinner size={14} /> : row.state === "completed" ? <CheckCircle2 size={14} /> : row.state === "failed" ? <CircleAlert size={14} /> : null}
                       <span>{row.state === "active" ? "Updating" : row.state === "queued" ? "Queued" : row.state === "completed" ? row.alreadyCurrent ? "Already up to date" : "Updated" : "Failed"}</span>
@@ -51,13 +51,14 @@ export function UpdatePanelContents() {
           </section>
         ))}
         {(update.checking || update.checkResult) && <div role="status" aria-label="Update check result">{update.checking ? "Checking for updates..." : update.checkResult}</div>}
-        {update.error && <InlineErrorNotice description={{ title: "Update could not complete", cause: update.errorDetails ?? update.error, actions: ["retry"], raw: update.errorDetails ?? update.error }} blocking />}
+        {update.error && <InlineErrorNotice description={{ title: `${update.rows.filter(row => row.state === "failed").map(row => row.name).join(", ") || "Update"} could not complete`, cause: `${update.error} Check again, then apply the available update.`, actions: ["retry"], raw: update.errorDetails ?? update.error }} blocking />}
+        {update.history.length > 0 && <details><summary>Previous update failures</summary>{update.history.map((failure, index) => <InlineErrorNotice key={index} description={{ title: "Previous update failed", cause: failure.message, raw: failure.details, actions: [] }} />)}</details>}
         {update.information.map(message => <div role="status" aria-label="Installed plugin ahead of channel" key={message} className="text-xs text-[var(--ct-muted)]">{message}</div>)}
         {update.diagnostics.map(({ channel, message }) => <div role="status" aria-label={`${channel} channel diagnostics`} key={channel} className="text-xs text-[var(--ct-muted)]">
           {channel === CORE_PLUGIN_CHANNEL ? `Core plugins: ${message} Bundled core plugins stay installed.` : `${channel}: ${message}`}
         </div>)}
         <div className="flex flex-wrap items-center gap-3 border-t border-[var(--ct-border)] pt-3">
-          <Button size="sm" variant="accent" aria-label="Update all" disabled={update.busy || update.checking || update.awaitingRetry || !update.rows.some(item => !item.channelError && item.state !== "completed")} onClick={() => void update.updateAll()}><span className="inline-flex items-center gap-2">{update.busy && <BusySpinner size={14} />}{update.busy ? "Updating components" : "Update all"}</span></Button>
+          <Button size="sm" variant="accent" aria-label="Update all" disabled={update.busy || update.checking || update.awaitingRetry || !update.rows.some(item => !item.channelError && item.state !== "completed" && update.items.some(offer => offer.id === item.id))} onClick={() => void update.updateAll()}><span className="inline-flex items-center gap-2">{update.busy && <BusySpinner size={14} />}{update.busy ? "Updating components" : "Update all"}</span></Button>
           <Button size="sm" disabled={update.checking || (update.busy && !update.error)} onClick={() => void update.retry()}>Check again</Button>
         </div>
       </div>

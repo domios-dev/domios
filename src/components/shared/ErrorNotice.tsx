@@ -51,7 +51,5 @@ export function ErrorNotice({
 
 export function InlineErrorNotice(props: Omit<ErrorNoticeProps, "compact">) {
   const { blocking, ...noticeProps } = props;
-  return blocking
-    ? <PaneState error={props.error} context={{ operation: props.operation, cwd: props.cwd, description: props.description }} actions={props.actions} />
-    : <ErrorNotice {...noticeProps} compact blocking={false} />;
+  return <ErrorNotice {...noticeProps} compact blocking={false} role={props.role ?? (blocking ? "alert" : "status")} />;
 }

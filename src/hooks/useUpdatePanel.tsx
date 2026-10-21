@@ -20,6 +20,7 @@ function useUpdatePanelController() {
   const { snapshot, setSnapshot, ready, refresh } = useUpdateAvailability();
   const [intent, setIntent] = useState(savedIntent);
   const [error, setError] = useState<UpdateFailure | null>(null);
+  const [history, setHistory] = useState<UpdateFailure[]>([]);
   const [starting, setStarting] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<string | null>(null);
@@ -154,8 +155,10 @@ function useUpdatePanelController() {
     if (checking || ((starting || intent || app.installing) && !error && !app.error)) return;
     setChecking(true);
     setCheckResult(null);
+    const previousFailure = error ?? (app.error ? classifyUpdateFailure("update", app.error) : null);
+    if (previousFailure) setHistory(previous => [...previous, previousFailure].slice(-10));
+    save(null);
     setError(null);
-    setOutcomes(previous => Object.fromEntries(Object.entries(previous).filter(([, state]) => state !== "failed")));
     try {
       const fresh = await refresh(true);
       const available = updateableItems(fresh.items, classifyUpdateStatus(fresh).errors);
@@ -173,7 +176,7 @@ function useUpdatePanelController() {
   const failure = error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null);
   return { snapshot, items, rows, activeId, awaitingRetry: Boolean(intent && failure), appProgress: app.status === "downloading" && app.downloadTotalBytes && app.downloadTotalBytes > 0
     ? Math.min(100, Math.max(0, app.downloadedBytes / app.downloadTotalBytes * 100)) : null,
-    checking, checkResult, information: status.information, diagnostics, busy: starting || (!failure && intent !== null) || app.installing, error: failure,
+    history, checking, checkResult, information: status.information, diagnostics, busy: starting || (!failure && intent !== null) || app.installing, error: failure,
     errorDetails: error ? [error.details, app.error].filter(Boolean).join("\n") : app.error,
     updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id)) };
 }
