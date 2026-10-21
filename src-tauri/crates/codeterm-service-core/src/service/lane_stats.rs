@@ -52,7 +52,7 @@ impl ServiceContext {
                     .ext::<crate::repowatch::RepoWatchRegistryHandle>()
                     .retain_lane_watch(worktree_path, Path::new(canonical_path))
                 {
-                    log::warn!("[lane-watch] repository watch unavailable: {error}");
+                    log::debug!("[lane-watch] repository watch unavailable: {error}");
                 }
             }
         }
@@ -104,7 +104,7 @@ fn record_lane_turn(
     if let Err(error) =
         repo_watch.retain_lane_watch(&target.worktree_path, Path::new(&target.canonical_path))
     {
-        log::warn!("[lane-turn-stats] repository watch unavailable: {error}");
+        log::debug!("[lane-turn-stats] repository watch unavailable: {error}");
     }
 
     let deadline = Instant::now() + TURN_CAPTURE_DEADLINE;

@@ -7,6 +7,7 @@ const CANONICAL: &str = "/repo";
 struct FakeGit {
     ancestry: Ancestry,
     removal: Result<(), String>,
+    holder: Option<String>,
     ancestry_calls: Vec<(String, String)>,
     removals: Vec<LaneRemovalRequest>,
 }
@@ -16,6 +17,7 @@ impl FakeGit {
         Self {
             ancestry,
             removal: Ok(()),
+            holder: None,
             ancestry_calls: Vec::new(),
             removals: Vec::new(),
         }
@@ -33,12 +35,17 @@ impl LaneGit for FakeGit {
         self.removals.push(request.clone());
         self.removal.clone()
     }
+
+    fn holder(&mut self, _worktree: &str) -> Option<String> {
+        self.holder.clone()
+    }
 }
 
 fn finished_lane(task_id: &str) -> LaneRecord {
     LaneRecord {
         task_id: task_id.into(),
         terminal: true,
+        bound_tabs: vec!["worker-tab".into()],
         worktree: Some(format!("/lanes/{task_id}")),
         branch: Some(format!("lane/{task_id}")),
         destination: Some("master".into()),
@@ -67,6 +74,51 @@ fn lane_settle_accept_runs_one_ancestry_check_then_safe_removal() {
     assert_eq!(removal.worktree_path, "/lanes/a");
     assert_eq!(removal.branch.as_deref(), Some("lane/a"));
     assert_eq!(removal.canonical_cwd.as_deref(), Some(CANONICAL));
+}
+
+#[test]
+fn lane_settle_live_holder_defers_cleanup_until_its_tab_closes_once() {
+    let mut accepted = FakeGit::answering(Ancestry::Merged);
+    accepted.holder = Some("'Ember' (worker-tab)".into());
+
+    let at_accept = settle(&finished_lane("a"), CANONICAL, true, &mut accepted);
+
+    assert!(
+        accepted.removals.is_empty(),
+        "a held worktree is not touched"
+    );
+    let (status, hints) = recorded(&at_accept);
+    assert_eq!(status, CLEANUP_HELD);
+    assert!(hints[0].contains("worker-tab"));
+    let held = LaneRecord {
+        cleanup_status: Some(CLEANUP_HELD.into()),
+        ..finished_lane("a")
+    };
+    assert!(
+        !held.wants(SettleTrigger::Decided),
+        "no recheck before the close"
+    );
+    assert!(held.bound_to("worker-tab") && held.wants(SettleTrigger::HolderClosed));
+    assert!(!held.bound_to("other-tab"));
+
+    let mut closed = FakeGit::answering(Ancestry::Merged);
+    assert_eq!(
+        settle(&held, CANONICAL, true, &mut closed),
+        Settlement::Removed
+    );
+    assert_eq!(closed.ancestry_calls.len(), 1);
+    assert!(!closed.removals[0].force);
+
+    for status in [CLEANUP_DONE, CLEANUP_RETAINED, CLEANUP_OFFERED] {
+        let settled = LaneRecord {
+            cleanup_status: Some(status.into()),
+            ..finished_lane("a")
+        };
+        assert!(
+            !settled.wants(SettleTrigger::HolderClosed),
+            "{status} is not revisited on close"
+        );
+    }
 }
 
 #[test]
