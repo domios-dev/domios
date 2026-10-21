@@ -46,11 +46,14 @@ fn active_paid_subscription_is_unlimited() {
 }
 
 #[test]
-fn paid_subscription_in_grace_stays_unlimited() {
+fn paid_subscription_awaiting_renewal_stays_unlimited() {
     let grant = LocalSigner::new().accept(&paid(), T);
-    for now in [grant.payload().expires_at, grant.payload().grace_until - 1] {
+    for now in [
+        grant.payload().refresh_after,
+        grant.payload().expires_at - 1,
+    ] {
         let verdict = grant.verdict(now);
-        assert_eq!(verdict.state, TimeState::Grace);
+        assert_eq!(verdict.state, TimeState::Stale);
         assert_unlimited(&verdict.effective());
     }
 }
@@ -58,8 +61,8 @@ fn paid_subscription_in_grace_stays_unlimited() {
 #[test]
 fn expired_subscription_returns_to_the_free_limits() {
     let grant = LocalSigner::new().accept(&paid(), T);
-    let verdict = grant.verdict(grant.payload().grace_until);
-    assert_eq!(verdict.state, TimeState::PastGrace);
+    let verdict = grant.verdict(grant.payload().expires_at);
+    assert_eq!(verdict.state, TimeState::Expired);
     assert_eq!(verdict.effective(), compiled_free());
     assert_free_limits(&verdict.effective());
 }
@@ -70,7 +73,7 @@ fn cancelled_and_ended_subscription_returns_to_the_free_limits() {
     let cancelled = signer.accept(&with(paid(), json!({"transition_reason": "cancelled"})), T);
     assert_free_limits(
         &cancelled
-            .verdict(cancelled.payload().grace_until)
+            .verdict(cancelled.payload().expires_at)
             .effective(),
     );
     let reissued = signer.accept(&free(), T);
