@@ -1,5 +1,5 @@
 use crate::activation::{Activation, Phase, ACTIVATION};
-use crate::gate::{admit, enforcing, LimitKey, LimitRefusal, FREE_LIMIT_REACHED};
+use crate::gate::{admit, enforcing, LimitGate, LimitKey, LimitRefusal, FREE_LIMIT_REACHED};
 use crate::payload::{Authority, Enforcement, Mode, Perks, Scope, ScopedLimit};
 use crate::verdict::{compiled_free, EffectiveAccess};
 
@@ -107,5 +107,26 @@ fn refusal_leads_with_the_stable_code_and_names_count_and_max() {
     .to_string();
     assert!(tabs.contains("at most 35 "));
     assert!(tabs.contains("(you have 35)"));
+    assert!(tabs.ends_with("(limit: agent.tabs)"));
     assert_eq!(LimitKey::AgentTabs.key(), "agent.tabs");
+}
+
+#[test]
+fn summary_reports_enforcement_and_the_three_maxima() {
+    let dormant = LimitGate::dormant().summary();
+    assert!(!dormant.enforcing);
+    assert_eq!(
+        (dormant.workspaces, dormant.teams, dormant.agent_tabs),
+        (Some(2), Some(6), Some(35))
+    );
+    let paid = LimitGate::new(unlimited(), true).summary();
+    assert!(paid.enforcing);
+    assert_eq!(
+        (paid.workspaces, paid.teams, paid.agent_tabs),
+        (None, None, None)
+    );
+    assert_eq!(
+        serde_json::to_value(dormant).unwrap(),
+        serde_json::json!({"enforcing": false, "workspaces": 2, "teams": 6, "agent.tabs": 35})
+    );
 }

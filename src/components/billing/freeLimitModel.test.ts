@@ -1,0 +1,79 @@
+import { describe, expect, it } from "vitest";
+import type { MultiplexerState, Tab, Team, Workspace } from "../../lib/types";
+import {
+  FREE_LIMIT_REACHED,
+  freeLimitBlocked,
+  isFreeLimitRefusal,
+  limitCounts,
+  limitHeadline,
+  parseFreeLimits,
+  reachedLimit,
+  refusedLimit,
+  reusesWorkspace,
+  type FreeLimits,
+} from "./freeLimitModel";
+
+const enforcingFree: FreeLimits = { enforcing: true, max: { workspaces: 2, teams: 6, "agent.tabs": 35 } };
+const refusal = (key: string) => `${FREE_LIMIT_REACHED}: opaque-refusal-body (limit: ${key})`;
+
+describe("free-limit model", () => {
+  it("parses the plan payload limits and refuses malformed ones", () => {
+    expect(parseFreeLimits({ enforcing: true, workspaces: 2, teams: 6, "agent.tabs": 35 })).toEqual(enforcingFree);
+    expect(parseFreeLimits({ enforcing: true, workspaces: null, teams: null, "agent.tabs": null })?.max)
+      .toEqual({ workspaces: null, teams: null, "agent.tabs": null });
+    expect(parseFreeLimits(undefined)).toBeNull();
+    expect(parseFreeLimits({ workspaces: 2 })).toBeNull();
+    expect(parseFreeLimits({ enforcing: true, workspaces: -1 })).toBeNull();
+  });
+
+  it("counts local items only and exempts the protected General workspace", () => {
+    const state = {
+      workspaces: [
+        { id: "general", protected: true },
+        { id: "a" },
+        { id: "b" },
+      ] as Workspace[],
+      teams: [{ id: "t1" }, { id: "peer", remote_peer_name: "laptop" }] as Team[],
+      tabs: {
+        one: { id: "one" },
+        two: { id: "two" },
+        mirrored: { id: "mirrored", remote_peer_id: "peer" },
+      } as unknown as Record<string, Tab>,
+    } satisfies Pick<MultiplexerState, "workspaces" | "tabs" | "teams">;
+    expect(limitCounts(state)).toEqual({ workspaces: 2, teams: 1, "agent.tabs": 2 });
+  });
+
+  it("reports a full limit only while the daemon enforces", () => {
+    const counts = { workspaces: 2, teams: 0, "agent.tabs": 0 };
+    expect(reachedLimit(enforcingFree, counts, ["workspaces"])).toBe("workspaces");
+    expect(reachedLimit({ ...enforcingFree, enforcing: false }, counts, ["workspaces"])).toBeNull();
+    expect(reachedLimit(null, counts, ["workspaces"])).toBeNull();
+    expect(reachedLimit(enforcingFree, { ...counts, workspaces: 1 }, ["workspaces"])).toBeNull();
+    expect(reachedLimit({ enforcing: true, max: { workspaces: null, teams: null, "agent.tabs": null } }, counts, ["workspaces"])).toBeNull();
+    expect(reachedLimit(enforcingFree, { workspaces: 0, teams: 6, "agent.tabs": 35 }, ["teams", "agent.tabs"])).toBe("teams");
+  });
+
+  it("reads the refused limit from the daemon text, falling back to the trigger's key", () => {
+    expect(refusedLimit(refusal("teams"), "agent.tabs")).toBe("teams");
+    expect(refusedLimit(new Error(`Failed to spawn: ${refusal("agent.tabs")}`), "workspaces")).toBe("agent.tabs");
+    expect(refusedLimit(`${FREE_LIMIT_REACHED}: opaque-refusal-body`, "workspaces")).toBe("workspaces");
+    expect(refusedLimit("workspace name must not be empty", "workspaces")).toBeNull();
+    expect(refusedLimit(undefined, "workspaces")).toBeNull();
+    expect(isFreeLimitRefusal(freeLimitBlocked("teams"))).toBe(true);
+    expect(refusedLimit(freeLimitBlocked("teams"), "workspaces")).toBe("teams");
+  });
+
+  it("never blocks a folder the daemon would reuse", () => {
+    const workspaces = [{ id: "a", cwd: "C:\\Repo\\App\\" }] as Workspace[];
+    expect(reusesWorkspace(workspaces, "c:/repo/app")).toBe(true);
+    expect(reusesWorkspace(workspaces, "c:/repo/other")).toBe(false);
+    expect(reusesWorkspace(workspaces, undefined)).toBe(false);
+  });
+
+  it("names each limit with its maximum", () => {
+    expect(limitHeadline("workspaces")).toBe("The free version includes 2 workspaces.");
+    expect(limitHeadline("teams")).toBe("The free version includes 6 Teams across all workspaces.");
+    expect(limitHeadline("agent.tabs")).toBe("The free version allows 35 tabs running at once.");
+    expect(limitHeadline("workspaces", 3)).toBe("The free version includes 3 workspaces.");
+  });
+});

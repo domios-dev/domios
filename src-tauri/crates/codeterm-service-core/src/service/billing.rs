@@ -1,6 +1,8 @@
 use super::ServiceContext;
 use codeterm_billing::{adapters, Billing, Entitlements, RefreshEvent, Snapshot};
-pub use codeterm_entitlements::{LimitGate, LimitKey, LimitRefusal, FREE_LIMIT_REACHED};
+pub use codeterm_entitlements::{
+    LimitGate, LimitKey, LimitRefusal, LimitSummary, FREE_LIMIT_REACHED,
+};
 use std::{sync::Arc, time::Instant};
 
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
