@@ -150,8 +150,7 @@ impl ServiceContext {
         let team_tabs: Vec<_> = self
             .mux
             .read()
-            .tabs
-            .values()
+            .all_tabs()
             .filter(|tab| tab.team_id == plan.team_id)
             .map(|tab| tab.id.clone())
             .collect();
