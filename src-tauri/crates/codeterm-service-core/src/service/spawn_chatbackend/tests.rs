@@ -406,7 +406,7 @@ fn runtime_brief_rides_instructions_when_manifest_declares_system_prompt() {
     let prefix = crate::agent::provider::StarterPrompt::AssignedTask
         .system_prefix()
         .expect("assigned-task starter is system-framed");
-    assert!(turn.starts_with(prefix));
+    assert!(turn.starts_with(prefix.as_str()));
 }
 
 #[test]
@@ -516,11 +516,11 @@ fn runtime_pending_initial_claim_is_retained_without_replacement() {
         crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
     )
     .with_send_id("original-send".into());
-    assert!(super::runtime_pending_payload(Some(&record), &agent).is_none());
+    assert!(super::runtime_pending_payload(Some(&record), &agent, None).is_none());
     assert_eq!(record.send_id(), Some("original-send"));
     assert_eq!(record.content_digest, "original-digest");
     assert_eq!(
-        super::runtime_pending_payload(None, &agent).as_deref(),
-        Some("new-task")
+        super::runtime_pending_payload(None, &agent, None),
+        Some(super::RuntimeFirstTurn::Task("new-task".into()))
     );
 }
