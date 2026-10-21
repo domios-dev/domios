@@ -25,6 +25,7 @@ fn plan_task_dispatch_refuses_unknown_model_before_spawn() {
             &mut mux,
             &workspace_id,
             &clearance,
+            &codeterm_service_core::service::billing::LimitGate::dormant(),
         )
         .map_err(|error| error.to_string())
     });

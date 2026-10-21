@@ -23,22 +23,6 @@ pub struct MeshIdentity {
     pub public_key: Option<String>,
 }
 
-// ── Discovery ───────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum DiscoveryMethod {
-    Mdns,
-    Tailscale,
-    Udp,
-    Manual,
-    /// Learned about this peer via a gossip-sync push from another paired
-    /// peer (mesh_sync handler). Distinct from Mdns/Udp because the local
-    /// daemon never directly observed the announcement — diagnostically
-    /// important when tracking down poisoned-address propagation.
-    Gossip,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerAddress {
     pub ip: String,
@@ -118,17 +102,8 @@ pub fn sanitize_addresses(addresses: &[PeerAddress]) -> Vec<PeerAddress> {
         .collect()
 }
 
-/// Decide whether the periodic background loop should send_sync to a paired
-/// peer this iteration. We sync on every offline→online transition (so
-/// reconnects refresh the gossip view immediately) AND periodically while
-/// the peer stays online, so that gossip-discovered peers known only via
-/// this paired peer don't decay past PEER_TTL_SECS in cleanup_stale_peers.
-///
-/// Without periodic sync, a discovered peer's last_seen is only refreshed
-/// when its mediator pushes gossip to us (mesh_sync inbound), the cadence
-/// of which we don't control. Observed in the wild: paired peers sync at
-/// ~5–10 min intervals, but PEER_TTL_SECS = 300 — so any gossip-discovered
-/// peer falls out of `mesh peers` between pushes.
+/// Sync with a paired peer on every offline→online transition and periodically while it
+/// stays online, so peer metadata (liveness, names) stays fresh.
 pub fn should_proactive_sync(
     online: bool,
     was_online: bool,
@@ -186,29 +161,6 @@ pub struct PeerAnnounce {
     pub web_ui: Option<WebUiAnnouncement>,
     #[serde(default)]
     pub relay_protocol_version: u16,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiscoveredPeer {
-    pub instance_id: String,
-    pub instance_name: String,
-    pub addresses: Vec<PeerAddress>,
-    pub api_port: u16,
-    pub discovery_method: DiscoveryMethod,
-    /// Unix timestamp (seconds) when last seen via discovery.
-    pub last_seen: u64,
-    /// Whether this is a dev build.
-    #[serde(default)]
-    pub dev: bool,
-    /// Mesh ID this peer belongs to (if any).
-    #[serde(default)]
-    pub mesh_id: Option<String>,
-    /// Paired peers who told us about this peer via gossip
-    /// (instance_ids of vouchers, deduped, sorted). Empty for mDNS/UDP
-    /// direct discoveries. UI uses this to surface a "vouched by …, pair?"
-    /// affordance instead of a generic Add to Mesh on transitively-known peers.
-    #[serde(default)]
-    pub vouched_by: Vec<String>,
 }
 
 // ── Paired peers ───────────────────────────────────────────────────
@@ -273,73 +225,6 @@ pub enum Permission {
     Admin,
 }
 
-// Pairing protocol.
-// Ed25519-only pairing: exchange public keys, no DH/encrypted tokens.
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum PairingStatus {
-    Pending,
-    Accepted,
-    Rejected,
-    Expired,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PairingRequest {
-    pub request_id: String,
-    pub from_instance_id: String,
-    pub from_instance_name: String,
-    pub from_address: String,
-    pub from_port: u16,
-    /// All sender addresses (Tailscale + LAN). The approver walks these in
-    /// tier order for the accept callback instead of betting on the single
-    /// `from_address` (#126). Additive: absent from pre-1.3.3 peers, in
-    /// which case `from_address` is the only candidate.
-    #[serde(default)]
-    pub from_addresses: Vec<PeerAddress>,
-    /// Ed25519 public key (base64) — the ONLY auth credential exchanged.
-    pub public_key: String,
-    /// Unix timestamp (seconds). Reject if >60s old.
-    pub timestamp: u64,
-    #[serde(default = "default_pairing_status")]
-    pub status: PairingStatus,
-    /// Instance ID of the peer that introduced this request (via /api/mesh/introduce).
-    /// None for direct pair requests. Used by the UI to show "Introduced by X".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub introduced_by: Option<String>,
-}
-
-impl PairingRequest {
-    /// Sanitized candidate addresses for the accept callback, legacy
-    /// `from_address` included (deduped). Never empty unless every address
-    /// is unparseable.
-    pub fn callback_addresses(&self) -> Vec<PeerAddress> {
-        let mut addrs = sanitize_addresses(&self.from_addresses);
-        let legacy = sanitize_addresses(&[PeerAddress::from_ip(&self.from_address)]);
-        for a in legacy {
-            if !addrs.iter().any(|x| x.ip == a.ip) {
-                addrs.push(a);
-            }
-        }
-        addrs
-    }
-}
-
-fn default_pairing_status() -> PairingStatus {
-    PairingStatus::Pending
-}
-
-/// Accept response — approver sends their public key back.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PairingAccept {
-    pub request_id: String,
-    pub from_instance_id: String,
-    pub from_instance_name: String,
-    /// Approver's Ed25519 public key (base64).
-    pub public_key: String,
-}
-
 // ── Gossip sync ─────────────────────────────────────────────────────
 
 /// Peer info shared during gossip (no secrets — just addressing).
@@ -397,22 +282,6 @@ pub struct RelayResponse {
     pub error: Option<String>,
 }
 
-// ── Introduction (auto-pair via mediator) ───────────────────────────
-
-/// Peer introduction — sent by a paired mediator to create a pending pair request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PeerIntroduction {
-    /// The peer being introduced.
-    pub instance_id: String,
-    pub instance_name: String,
-    pub addresses: Vec<PeerAddress>,
-    pub api_port: u16,
-    /// Ed25519 public key for signing verification.
-    pub public_key: String,
-    /// Who introduced them (the mediator's instance_id).
-    pub introduced_by: String,
-}
-
 // ── Peer status ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -431,21 +300,15 @@ pub struct MeshStatus {
     pub instance_id: String,
     pub instance_name: String,
     pub build: String,
-    pub discovery_active: bool,
-    pub broadcast_active: bool,
-    pub broadcast_expires_at: Option<u64>,
     pub tailscale_ip: Option<String>,
     pub local_ip: Option<String>,
     pub api_port: u16,
     pub paired_count: usize,
-    pub discovered_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshPeersResponse {
     pub paired: Vec<PairedPeer>,
-    pub discovered: Vec<DiscoveredPeer>,
-    pub incoming_requests: Vec<PairingRequest>,
     pub local_instance_name: String,
     #[serde(default)]
     pub local_last_active_ms: Option<u64>,
@@ -459,7 +322,7 @@ pub struct MeshPeersResponse {
 pub struct RevocationList {
     /// Instance IDs whose mesh tokens have been revoked.
     pub revoked: Vec<String>,
-    /// Instance IDs blocked from sending pairing requests.
+    /// Instance IDs explicitly blocked from ever linking.
     pub blocked: Vec<String>,
     /// Locally-created tombstones. Their generation survives restart so stale
     /// gossip cannot recreate an explicitly removed peer.
@@ -652,60 +515,6 @@ mod tests {
         assert!(!should_proactive_sync(true, true, 1059, Some(1000), 60));
         assert!(!should_proactive_sync(true, true, 1001, Some(1000), 60));
         assert!(!should_proactive_sync(true, true, 1000, Some(1000), 60));
-    }
-
-    fn pairing_request_with(
-        from_address: &str,
-        from_addresses: Vec<PeerAddress>,
-    ) -> PairingRequest {
-        PairingRequest {
-            request_id: "r1".into(),
-            from_instance_id: "peer-a".into(),
-            from_instance_name: "A".into(),
-            from_address: from_address.into(),
-            from_port: 7685,
-            from_addresses,
-            public_key: "pk".into(),
-            timestamp: 0,
-            status: PairingStatus::Pending,
-            introduced_by: None,
-        }
-    }
-
-    /// #126 regression: pre-1.3.3 peers send only `from_address` — it must
-    /// remain the callback candidate.
-    #[test]
-    fn callback_addresses_falls_back_to_legacy_single_address() {
-        let req = pairing_request_with("192.168.1.124", vec![]);
-        let addrs = req.callback_addresses();
-        assert_eq!(addrs.len(), 1);
-        assert_eq!(addrs[0].ip, "192.168.1.124");
-    }
-
-    /// #126 regression: with `from_addresses` present, the approver gets all
-    /// candidates (Tailscale + LAN), so an unreachable LAN `from_address`
-    /// no longer kills the accept callback with a 502.
-    #[test]
-    fn callback_addresses_includes_all_candidates_deduped() {
-        let req = pairing_request_with(
-            "192.168.1.124",
-            vec![
-                PeerAddress::from_ip("100.65.0.30"),
-                PeerAddress::from_ip("192.168.1.124"),
-            ],
-        );
-        let addrs = req.callback_addresses();
-        let ips: Vec<&str> = addrs.iter().map(|a| a.ip.as_str()).collect();
-        assert_eq!(ips, vec!["100.65.0.30", "192.168.1.124"]);
-    }
-
-    #[test]
-    fn callback_addresses_sanitizes_poison() {
-        let req = pairing_request_with(
-            "not-an-ip",
-            vec![PeerAddress::from_ip("Tailscale daemon is not running.")],
-        );
-        assert!(req.callback_addresses().is_empty());
     }
 
     #[test]
