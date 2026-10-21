@@ -838,3 +838,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "workers/failure_tests.rs"]
+mod failure_tests;
