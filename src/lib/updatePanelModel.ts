@@ -111,7 +111,6 @@ export type UpdateRow = UpdateItem & { state: UpdateOutcome | "active" | "queued
 export interface UpdatePanelSummary {
   tone: "red" | "accent" | "green" | "muted";
   label: string;
-  chip: string;
   sentence: string;
 }
 
@@ -124,17 +123,17 @@ export function summarizeUpdatePanel(rows: readonly UpdateRow[], { busy, failed 
   const completed = rows.filter(row => row.state === "completed").length;
   if (busy) {
     const run = rows.filter(row => row.state === "active" || row.state === "queued").length + completed;
-    return { tone: "accent", label: "Updating components", chip: "updating",
+    return { tone: "accent", label: "Updating components",
       sentence: run > 0 ? `Updating ${Math.min(completed + 1, run)} of ${run}` : "Updating components" };
   }
   if (failed) {
     const attempted = rows.filter(row => row.state === "failed" && !row.channelError).length;
     const unreachable = rows.some(row => row.channelError);
-    return { tone: "red", label: "Update sources or actions failed", chip: "failed",
+    return { tone: "red", label: "Update sources or actions failed",
       sentence: attempted ? `${count(attempted, "update")} failed` : unreachable ? "An update source is unavailable" : "Update failed" };
   }
-  if (available) return { tone: "accent", label: "Updates available", chip: "updates available", sentence: `${count(available, "update")} available` };
-  return { tone: completed ? "green" : "muted", label: "No applicable updates", chip: completed ? "updated" : "up to date",
+  if (available) return { tone: "accent", label: "Updates available", sentence: `${count(available, "update")} available` };
+  return { tone: completed ? "green" : "muted", label: "No applicable updates",
     sentence: completed ? "Everything is updated" : "Everything is up to date" };
 }
 

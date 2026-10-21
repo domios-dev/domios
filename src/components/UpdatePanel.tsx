@@ -4,7 +4,8 @@ import { useUpdatePanel } from "../hooks/useUpdatePanel";
 import { groupUpdates, summarizeUpdatePanel, type UpdateRow } from "../lib/updatePanelModel";
 import { ComponentStatus } from "./shared/ComponentStatus";
 import { UpdateChannelNotice } from "./shared/UpdateChannelNotice";
-import { SettingsCard, SettingsPill } from "./Settings/shared";
+import { SettingsCard } from "./Settings/shared";
+import type { ReactNode } from "react";
 import { BusySpinner } from "./shared/BusyState";
 import { Button } from "./shared/Button";
 import { BrandMark } from "./brand/BrandMark";
@@ -28,31 +29,23 @@ const STATE_TONE: Record<UpdateRow["state"], string> = {
   failed: "text-[var(--ct-red)]",
 };
 
-function useUpdatePanelSummary() {
+function UpdatePanelSummaryLine() {
   const update = useUpdatePanel();
   const failed = Boolean(update.error) || update.rows.some(row => row.state === "failed") || update.diagnostics.some(item => item.channel !== "codeterm-core");
-  return summarizeUpdatePanel(update.rows, { busy: update.busy, failed });
-}
-
-export function UpdatePanelStatus() {
-  const summary = useUpdatePanelSummary();
-  return <span role="status" aria-label={summary.label}><SettingsPill tone={summary.tone}>{summary.chip}</SettingsPill></span>;
-}
-
-function UpdatePanelSummaryLine() {
-  const summary = useUpdatePanelSummary();
+  const summary = summarizeUpdatePanel(update.rows, { busy: update.busy, failed });
   return <span role="status" aria-label={summary.label} className={summary.tone === "red" ? "text-[var(--ct-red)]" : undefined}>{summary.sentence}</span>;
 }
 
-export function UpdatePanel() {
+/** The one Updates card: the titlebar popover and Settings both render it; `waves` off where the host page owns the dot stage. */
+export function UpdatePanel({ children, waves = true }: { children?: ReactNode; waves?: boolean }) {
   const { busy, error } = useUpdatePanel();
   const reducedMotion = usePrefersReducedMotion();
   const { matrix, emitWave } = useBusyWaves(busy, Boolean(error));
   return <SettingsCard
-    backdrop={<DotMatrixCanvas ref={matrix} mode="loading" reducedMotion={reducedMotion} intensity={0.35} />}
-    icon={<span data-dot-origin className="inline-flex">{busy ? <BrandMark motion="load" onRelease={emitWave} /> : <Download size={16} />}</span>}
+    backdrop={waves ? <DotMatrixCanvas ref={matrix} mode="loading" reducedMotion={reducedMotion} intensity={0.35} /> : undefined}
+    icon={waves && busy ? <span data-dot-origin className="inline-flex"><BrandMark motion="load" onRelease={emitWave} /></span> : <Download size={16} />}
     title="Updates" description={<UpdatePanelSummaryLine />}>
-    <UpdatePanelContents />
+    <UpdatePanelContents>{children}</UpdatePanelContents>
   </SettingsCard>;
 }
 
@@ -63,7 +56,7 @@ function RowState({ row }: { row: UpdateRow }) {
   </span>;
 }
 
-export function UpdatePanelContents() {
+function UpdatePanelContents({ children }: { children?: ReactNode }) {
   const update = useUpdatePanel();
   return (
       <div className="flex flex-col gap-3">
@@ -97,6 +90,7 @@ export function UpdatePanelContents() {
         {update.history.length > 0 && <details className="text-[11px] text-[var(--ct-muted-fg)]"><summary className="cursor-pointer hover:text-[var(--ct-fg)]">Previous update failures</summary>{update.history.map((failure, index) => <InlineErrorNotice key={index} description={{ title: "Previous update failed", cause: failure.message, raw: failure.details, actions: [] }} />)}</details>}
         {update.information.map(message => <div role="status" aria-label="Installed plugin ahead of channel" key={message} className="text-[11px] text-[var(--ct-muted-fg)]">{message}</div>)}
         {update.diagnostics.map(({ channel, message }) => <div key={channel} aria-label={`${channel} channel diagnostics`}><UpdateChannelNotice channel={channel} message={message} /></div>)}
+        {children}
         <div className="flex items-center justify-between gap-2 border-t border-[var(--ct-border)] pt-3">
           <Button variant="ghost" size="compact" className="-ml-3 gap-1.5" disabled={update.checking || (update.busy && !update.error)} onClick={() => void update.retry()}><RotateCw size={13} aria-hidden="true" />Check again</Button>
           <Button variant="primary" size="compact" className="gap-1.5" aria-label="Update all" disabled={update.busy || update.checking || update.awaitingRetry || !update.rows.some(item => !item.channelError && item.state !== "completed" && update.items.some(offer => offer.id === item.id))} onClick={() => void update.updateAll()}>{update.busy && <BusySpinner size={13} />}{update.busy ? "Updating components" : "Update all"}</Button>
