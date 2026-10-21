@@ -3,8 +3,9 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { AppConfig } from "../../lib/types";
 
+const runtime = vi.hoisted(() => ({ installing: false, status: "idle", downloadedBytes: 0, downloadTotalBytes: null as number | null }));
 vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({
-  currentVersion: "opaque-version", status: "idle", refresh: vi.fn(), applyUpdate: vi.fn(), installing: false,
+  currentVersion: "opaque-version", refresh: vi.fn(), applyUpdate: vi.fn(), ...runtime,
 }) }));
 import { UpdateSection } from "./UpdateSection";
 
@@ -27,4 +28,19 @@ it("defaults automatic provider updates on and persists the opt-out once", async
     await act(async () => root.unmount());
     host.remove();
   }
+});
+
+
+it("reports measured download progress and keeps installation indeterminate", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    Object.assign(runtime, { installing: true, status: "downloading", downloadedBytes: 25, downloadTotalBytes: 100 });
+    await act(async () => root.render(<UpdateSection config={{} as AppConfig} onUpdate={vi.fn()} />));
+    expect(host.querySelector('progress[aria-label="Domios update progress"]')?.getAttribute("value")).toBe("25");
+    Object.assign(runtime, { status: "applying" });
+    await act(async () => root.render(<UpdateSection config={{} as AppConfig} onUpdate={vi.fn()} />));
+    expect(host.querySelector("progress")?.hasAttribute("value")).toBe(false);
+    expect([...host.querySelectorAll("button")].find(button => button.textContent === "Check again")?.disabled).toBe(true);
+  } finally { Object.assign(runtime, { installing: false, status: "idle", downloadedBytes: 0, downloadTotalBytes: null }); await act(async () => root.unmount()); host.remove(); }
 });

@@ -52,9 +52,9 @@ export interface InstallResponse {
 }
 
 export function normalizeInstallResponse(v: unknown): InstallResponse {
-  if (typeof v !== "object" || v === null) return { status: "updating" };
+  if (typeof v !== "object" || v === null) throw new Error("Malformed install response");
   const o = v as Record<string, unknown>;
-  const status = o.status;
+  const status = o.status === "no_update" ? "up_to_date" : o.status;
   if (
     status !== "updating" &&
     status !== "up_to_date" &&
@@ -62,7 +62,7 @@ export function normalizeInstallResponse(v: unknown): InstallResponse {
     status !== "browser_opened" &&
     status !== "already_in_flight"
   ) {
-    return { status: "updating" };
+    throw new Error(typeof o.message === "string" ? o.message : `Update refused: ${String(status)}`);
   }
   return {
     status,
@@ -429,9 +429,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const response = normalizeInstallResponse(await installAppUpdate(channelRef.current ?? undefined));
-      if (response.status === "already_in_flight") userInstallRef.current = false;
-      if (response.status !== "already_in_flight") installCallReturnedRef.current = true;
-      if (response.status !== "already_in_flight") await fetchRuntimeStatus();
+      if (response.status === "already_in_flight") throw new Error(response.message ?? "An update is already being applied.");
+      installCallReturnedRef.current = true;
+      await fetchRuntimeStatus();
       return response;
     } catch (e) {
       installingRef.current = false;

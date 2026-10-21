@@ -1,4 +1,7 @@
-use crate::{Account, Callback, Error, Result};
+use crate::{
+    sign_in_diagnostic::{log_callback_rejection, SignInStage},
+    Account, Callback, Error, Result,
+};
 use std::{sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -46,6 +49,11 @@ impl Loopback {
             .await
             .unwrap_or(Err(Error::Timeout));
             let accepted = outcome.is_ok();
+            if let Err(error) = &outcome {
+                log_callback_rejection(*error);
+            } else {
+                log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} callback_validated=true", SignInStage::Callback.name());
+            }
             let (status, body) = if accepted {
                 ("200 OK", "<!doctype html><title>Domios</title><p>Callback received. You can close this tab and return to Domios.</p>")
             } else {

@@ -167,6 +167,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       const inField =
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement;

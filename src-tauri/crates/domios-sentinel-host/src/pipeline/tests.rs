@@ -318,3 +318,15 @@ fn blueprint_pipeline_uncertain_effect_closes_once_as_held_with_typed_reason() {
         vec![RunCompletion::held(JournalReason::UncertainEffect)]
     );
 }
+
+#[test]
+fn github_probe_budget_tolerates_slow_queries_and_respects_graph_expiry() {
+    let now = std::time::Instant::now();
+    let runtime =
+        Duration::from_millis(codeterm_blueprint_types::blueprint_github::PROBE_RUNTIME_MS);
+    let full = probe::process::Deadlines::at(Duration::from_secs(120), runtime, now).unwrap();
+    assert_eq!(full.hard.duration_since(now), Duration::from_secs(60));
+    assert!(full.operation.duration_since(now) > Duration::from_secs(10));
+    let expiring = probe::process::Deadlines::at(Duration::from_secs(5), runtime, now).unwrap();
+    assert_eq!(expiring.hard.duration_since(now), Duration::from_secs(5));
+}

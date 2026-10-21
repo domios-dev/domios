@@ -9,6 +9,7 @@ import { MultiplexerActionsContext, type MultiplexerActionsContextType, MuxState
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import type { Tab, TabStatus } from "../../lib/types";
+import { restoredBoundAgent } from "../../lib/tabActivity.restore.fixture";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 
 nativeBridge.fileDrop = undefined;
@@ -24,7 +25,7 @@ let stopped = 0;
 __setInvokeForTest(async (command) => {
   if (command === "interrupt_agent") stopped++;
   if (command === "chat_start") return {
-    source_session_id: "own-session", session_binding_nonce: "own-nonce",
+    source_session_id: state.tabs.grok.agent_session_id, session_binding_nonce: state.tabs.grok.session_binding_nonce,
     subscription_id: "activity-subscription", messages: [], offset: 0, text: "",
   } as never;
   if (command === "delayed_send_list" || command === "chat_send_status") return [] as never;
@@ -48,6 +49,9 @@ async function main() {
       [{ ...agent, agent_state: { state: "question", subtype: "permission" } }, "Waiting", false, false],
       [{ ...agent, boot_stage: "agent_launching" }, "Working", false, false],
       [{ ...agent, boot_stage: "agent_ready", agent_state: { state: "idle" } }, "Idle", false, false],
+      [{ ...restoredBoundAgent, id: agent.id }, "Working", true, true],
+      [{ ...restoredBoundAgent, id: agent.id, agent_state: { state: "idle" } }, "Idle", false, false],
+      [{ ...restoredBoundAgent, id: agent.id, agent_state: { state: "question", subtype: "permission" } }, "Waiting", false, false],
     ];
     for (const [tab, status, active, canStop] of cases) {
       state = { ...state, tabs: { grok: tab }, tabStatuses: status ? { grok: status } : {} };
@@ -67,6 +71,11 @@ async function main() {
         host.querySelector('[data-testid="agent-state"]')?.getAttribute("data-tab-activity"),
         "sidebar and real chat row render the same activity kind",
       );
+      if (tab.reported_session_binding_nonce) {
+        assert.equal(host.querySelector('[data-testid="agent-state"]')?.getAttribute("data-tab-activity"),
+          tab.agent_state?.state === "question" ? "waiting-on-user" : tab.agent_state?.state,
+          "restored composer follows its bound tab while chat attachment is independent");
+      }
       const stop = host.querySelector<HTMLButtonElement>('button[aria-label="Stop the agent"]');
       assert.equal(Boolean(stop && !stop.disabled), canStop, "Stop follows activity, including non-stoppable launch");
       if (canStop && stopped === 0) await act(async () => stop!.click());

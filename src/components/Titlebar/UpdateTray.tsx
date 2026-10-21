@@ -14,7 +14,7 @@ export function UpdateTray() {
   useEffect(() => {
     if (open) panel.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [open]);
-  const available = update.items.length > 0;
+  const available = update.items.length > 0 || update.rows.some(row => row.state === "completed" || row.state === "failed");
   if (!available && !update.busy && !update.error && !open) return null;
   return <>
     <button ref={trigger} type="button" data-testid="settings-update-action" aria-label="Update" aria-haspopup="dialog" aria-expanded={open}
@@ -24,7 +24,7 @@ export function UpdateTray() {
       <span role="status" className="max-[430px]:hidden">{update.error ? "Update failed" : update.busy ? "Updating" : "Update"}</span>
     </button>
     <AnchoredPopover open={open} anchor={trigger} placement="bottom-end" onClose={close}>
-      <div ref={panel} role="dialog" aria-label="Updates" className="w-[380px]">
+      <div ref={panel} role="dialog" aria-label="Updates" className="w-[400px] max-w-[calc(100vw-24px)] max-h-[min(640px,80vh)] overflow-y-auto">
         <UpdatePanel />
       </div>
     </AnchoredPopover>

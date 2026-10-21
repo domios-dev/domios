@@ -4,6 +4,7 @@ pub mod launch;
 pub mod locator;
 pub mod process;
 pub mod profile;
+mod resize;
 pub mod runtime;
 pub mod screencast;
 pub mod snapshot;
@@ -109,8 +110,9 @@ pub fn plan_open(current: Option<(&BrowserMode, bool)>, wanted: &ProfileKind) ->
 pub struct BrowserHost {
     config: BrowserHostConfig,
     lifecycle: tokio::sync::Mutex<()>,
-    runtime: Mutex<Option<Arc<Runtime>>>,
-    viewport: Mutex<ViewportModel>,
+    runtime: Arc<Mutex<Option<Arc<Runtime>>>>,
+    viewport: Arc<Mutex<ViewportModel>>,
+    resizes: Arc<tokio::sync::Mutex<resize::Coordinator>>,
     frames: Arc<FrameHub>,
 }
 
@@ -120,8 +122,9 @@ impl BrowserHost {
         Self {
             config,
             lifecycle: tokio::sync::Mutex::new(()),
-            runtime: Mutex::new(None),
-            viewport: Mutex::new(ViewportModel::new(ViewportMode::Owned, initial)),
+            runtime: Arc::new(Mutex::new(None)),
+            viewport: Arc::new(Mutex::new(ViewportModel::new(ViewportMode::Owned, initial))),
+            resizes: Arc::new(tokio::sync::Mutex::new(resize::Coordinator::default())),
             frames: FrameHub::new(ScreencastParams::new(initial)),
         }
     }
@@ -140,9 +143,9 @@ impl BrowserHost {
             *model = ViewportModel::new(mode, model.current());
             model.current()
         };
-        self.frames.set_params(ScreencastParams::new(viewport));
         let runtime = Arc::new(runtime);
         *self.runtime.lock() = Some(runtime.clone());
+        self.frames.set_params(ScreencastParams::new(viewport));
         runtime
     }
 
@@ -324,14 +327,22 @@ impl BrowserHost {
 
     async fn resize(
         &self,
-        runtime: &Runtime,
+        runtime: &Arc<Runtime>,
         request: ViewportRequest,
     ) -> Result<ViewportDecision, String> {
         let decision = self.viewport.lock().apply(request);
-        if let ViewportDecision::Resize(viewport) = decision {
-            runtime::apply_viewport(&runtime.client, &runtime.page, runtime.window_id, viewport)
-                .await?;
-            self.frames.set_params(ScreencastParams::new(viewport));
+        if matches!(
+            decision,
+            ViewportDecision::Resize(_) | ViewportDecision::Unchanged
+        ) {
+            resize::apply(
+                runtime.clone(),
+                self.runtime.clone(),
+                self.viewport.clone(),
+                self.frames.clone(),
+                self.resizes.clone(),
+            )
+            .await?;
         }
         Ok(decision)
     }
@@ -354,77 +365,5 @@ pub async fn sweep_orphans(layout: ProfileLayout) -> sweep::SweepReport {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn clean() -> ProfileKind {
-        ProfileKind::Clean {
-            session_id: "a".into(),
-        }
-    }
-
-    fn named(name: &str) -> ProfileKind {
-        ProfileKind::Named { name: name.into() }
-    }
-
-    #[test]
-    fn browser_host_open_plan_reuses_matching_live_browser() {
-        let running = BrowserMode::Launched {
-            profile: ProfileKind::Clean {
-                session_id: "b".into(),
-            },
-        };
-        assert_eq!(plan_open(Some((&running, true)), &clean()), OpenPlan::Reuse);
-        assert_eq!(
-            plan_open(Some((&running, true)), &named("work")),
-            OpenPlan::Relaunch
-        );
-        assert_eq!(
-            plan_open(Some((&running, false)), &clean()),
-            OpenPlan::Launch
-        );
-        assert_eq!(plan_open(None, &named("work")), OpenPlan::Launch);
-    }
-
-    #[test]
-    fn browser_host_open_plan_switches_between_named_profiles_and_off_attach() {
-        let work = BrowserMode::Launched {
-            profile: named("work"),
-        };
-        assert_eq!(
-            plan_open(Some((&work, true)), &named("work")),
-            OpenPlan::Reuse
-        );
-        assert_eq!(
-            plan_open(Some((&work, true)), &named("home")),
-            OpenPlan::Relaunch
-        );
-        let attached = BrowserMode::Attached {
-            http_base: "http://127.0.0.1:9223".into(),
-        };
-        assert_eq!(
-            plan_open(Some((&attached, true)), &clean()),
-            OpenPlan::Relaunch
-        );
-    }
-
-    #[tokio::test]
-    async fn browser_host_without_runtime_tracks_viewport_and_has_no_page() {
-        let root = tempfile::tempdir().unwrap();
-        let host = BrowserHost::new(BrowserHostConfig::under_data_dir(root.path()));
-        assert!(host.page().is_none());
-        assert!(host.endpoint().is_none());
-        assert!(host.close().await.is_none());
-        let decision = host
-            .set_viewport(ViewportRequest {
-                width: 1280.0,
-                height: 720.0,
-                dpr: 2.0,
-            })
-            .await
-            .unwrap();
-        assert!(matches!(decision, ViewportDecision::Resize(_)));
-        assert_eq!(host.viewport().dpr, 2.0);
-        assert!(host.profiles().await.is_empty());
-    }
-}
+#[path = "lib/tests.rs"]
+mod tests;

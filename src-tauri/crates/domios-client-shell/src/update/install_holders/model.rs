@@ -105,5 +105,13 @@ pub(super) fn same_process_identity(expected: (u32, u32), actual: (u32, u32)) ->
     expected == actual
 }
 
+pub(super) fn is_attached_server(
+    server: Option<&crate::application_host::AttachedServerIdentity>,
+    pid: u32,
+    created: u64,
+) -> bool {
+    server.is_some_and(|server| server.pid == pid && server.created == created.to_string())
+}
+
 #[cfg(test)]
 mod tests;

@@ -34,6 +34,28 @@ struct AttachedServerStop {
 
 #[async_trait::async_trait]
 impl ServerStop for AttachedServerStop {
+    fn install_identity(
+        &self,
+    ) -> Result<codeterm_client_shell::application_host::AttachedServerIdentity, String> {
+        let api = self
+            .app
+            .try_state::<ServerApiAttachmentSlot>()
+            .and_then(|slot| slot.current())
+            .ok_or("the server attachment is unavailable")?;
+        let expected = &api.ready().process;
+        let pinned = codeterm_process_identity::PinnedProcess::open(expected.pid)
+            .map_err(|e| e.to_string())?;
+        if pinned.provenance().map_err(|e| e.to_string())? != *expected {
+            return Err("the attached server process identity changed".into());
+        }
+        Ok(
+            codeterm_client_shell::application_host::AttachedServerIdentity {
+                pid: expected.pid,
+                created: expected.created.clone(),
+            },
+        )
+    }
+
     async fn stop_server(&self) -> Result<(), ServerStopError> {
         let refused = |reason: String| ServerStopError {
             dispatched: false,
