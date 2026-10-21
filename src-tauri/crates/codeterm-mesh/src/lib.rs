@@ -1,5 +1,6 @@
 //! Domios Mesh — peer-to-peer networking between Domios instances.
 
+pub mod account_mesh;
 pub mod broadcast;
 pub mod contract;
 pub mod crown;
