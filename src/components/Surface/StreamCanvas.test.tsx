@@ -6,6 +6,7 @@ import { createFrameFeed, type FrameDecoder } from "./frameFeed";
 import { StreamCanvas, type StreamCanvasProps } from "./StreamCanvas";
 import { canvasToPage, clickInput, layoutStream, viewportRequest, type PagePoint, type StreamInput, type StreamViewport } from "./streamModel";
 import { liveViewLabel, type PopoverAnchor } from "./surfaceChromeModel";
+import { acceptViewportFrame } from "./resizeFrameModel";
 import { flushAsync, getByRole, queryByRole, render, resizeStages, testSuite } from "./surfaceTestDom.testdata";
 
 const suite = testSuite("StreamCanvas");
@@ -70,6 +71,38 @@ suite.test("the stage size is reported once per distinct viewport", async () => 
   await resizeStages(500, 300);
   assert.equal(recorded.viewports.length, 2);
   await unmount();
+});
+
+suite.test("resizing retains the native backing store and drops a decode from an obsolete viewport", async () => {
+  let viewport: StreamViewport = { w: 400, h: 300, dpr: 1 };
+  const feed = createFrameFeed((next) => acceptViewportFrame(next.metadata, viewport));
+  let finishDecode: (() => void) | null = null;
+  let closed = 0;
+  const { host, unmount } = await renderCanvas({
+    frames: feed,
+    decode: async () => {
+      await new Promise<void>((resolve) => { finishDecode = resolve; });
+      return { width: 400, height: 300, image: {} as CanvasImageSource, close: () => { closed += 1; } };
+    },
+  });
+  const canvas = getByRole(host, "img") as HTMLCanvasElement;
+  feed.publish({ data: "", metadata: { deviceWidth: 400, deviceHeight: 300 } });
+  assert.ok(finishDecode);
+  (finishDecode as () => void)();
+  await flushAsync();
+  assert.equal(canvas.width, 400);
+  assert.equal(canvas.height, 300);
+  feed.publish({ data: "", metadata: { deviceWidth: 400, deviceHeight: 300 } });
+  viewport = { w: 500, h: 300, dpr: 1 };
+  await resizeStages(500, 300);
+  assert.equal(canvas.width, 400, "the old bitmap survives a CSS resize without backing-store allocation");
+  assert.equal(canvas.height, 300);
+  (finishDecode as unknown as () => void)();
+  await flushAsync();
+  assert.equal(closed, 1, "only the obsolete decode is released");
+  assert.equal(canvas.width, 400);
+  await unmount();
+  assert.equal(closed, 2, "the retained good frame lives until unmount");
 });
 
 suite.test("collapsing the stage reports hidden once and the same size is reported again", async () => {
