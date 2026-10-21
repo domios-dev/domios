@@ -24,6 +24,7 @@ impl ServiceContext {
             .resolve_tab_id(target)
             .ok_or_else(|| format!("Tab {target} not found"))?;
         let target = resolved.as_str();
+        self.wake_frozen_tab(target)?;
         if crate::paths::is_dev_instance() && payload.trace_id.is_none() {
             let id = crate::flow_trace::tab_flow(self, target)
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
