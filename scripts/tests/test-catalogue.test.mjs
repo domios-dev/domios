@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { canonicalPackageName, globToRegExp, listRepoFiles, renderReadme, runCommands, schemaErrors, selectRunners, validateRepo } from "../test-catalogue.mjs";
+import { globToRegExp, listRepoFiles, renderReadme, runCommands, schemaErrors, selectRunners, validateRepo } from "../test-catalogue.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.join(here, "..", "..");
@@ -14,13 +14,6 @@ const schema = JSON.parse(readFileSync(path.join(repo, "tests", "catalogue.schem
 
 const CASE = 'test("case", () => {});\n';
 const PW_TITLE = "@golden picker keeps its workspace row";
-
-test("catalogue package resolution bridges the previous Cargo prefix", () => {
-  assert.equal(canonicalPackageName("codeterm"), "domios"); // rename-bridge
-  assert.equal(canonicalPackageName("codeterm-cli"), "domios-cli"); // rename-bridge
-  assert.equal(canonicalPackageName("domios-service-core"), "domios-service-core");
-  assert.equal(canonicalPackageName("portable-pty"), "portable-pty");
-});
 
 test("inventory through a subst drive keeps Git discovery and excludes ignored artifacts", { skip: process.platform !== "win32" }, (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "catalogue-subst-"));

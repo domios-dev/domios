@@ -3,11 +3,11 @@
 # check-no-raw-graph-sql.sh — Track 3 of v1.1.23 guardrail.
 #
 # After v1.1.23, all graph-table mutations (entities, relations,
-# entity_aliases) MUST route through the domios-mem-store crate.
+# entity_aliases) MUST route through the codeterm-mem-store crate.
 # Two consumer files USED to issue raw SQL — they no longer should:
 #
 #   cli/src/cmd/worker.rs
-#   src-tauri/crates/domios-service-core/src/mem/dreaming.rs
+#   src-tauri/crates/codeterm-service-core/src/mem/dreaming.rs
 #
 # This script greps both for raw graph-table SQL patterns and exits
 # non-zero if any leak in. Documentation guard — wire into CI when a
@@ -32,7 +32,7 @@ set -u
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 FILES=(
     "$ROOT/cli/src/cmd/worker.rs"
-    "$ROOT/src-tauri/crates/domios-service-core/src/mem/dreaming.rs"
+    "$ROOT/src-tauri/crates/codeterm-service-core/src/mem/dreaming.rs"
 )
 
 # Each pattern is a POSIX-extended regex passed to `grep -E`.
@@ -68,7 +68,7 @@ done
 if [ "$leaks" -gt 0 ]; then
     echo ""
     echo "FAIL: found $leaks raw-graph-SQL pattern leak(s)."
-    echo "Route the SQL through domios-mem-store::graph (see Track 3 of v1.1.23)."
+    echo "Route the SQL through codeterm-mem-store::graph (see Track 3 of v1.1.23)."
     exit 1
 fi
 

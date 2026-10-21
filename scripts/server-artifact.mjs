@@ -9,7 +9,7 @@ const { bundledCliName } = createRequire(import.meta.url)('./bundle-cli.js');
 export const SERVER_FEATURES = ['domios-server/embeddings'];
 export function assertServerClosure(packages) {
   if (!packages.some(row => row.startsWith('domios-server '))) throw new Error('Server dependency root missing');
-  const forbidden = packages.filter(row => /^(?:tauri(?:-| )|wry(?: |$)|webview(?:2)?(?:-| )|web-view(?:-| )|webkit2gtk(?:-| )|domios-client-shell(?: |$))/.test(row));
+  const forbidden = packages.filter(row => /^(?:tauri(?:-| )|wry(?: |$)|webview(?:2)?(?:-| )|web-view(?:-| )|webkit2gtk(?:-| )|codeterm-client-shell(?: |$))/.test(row));
   if (forbidden.length) throw new Error(`Server production closure includes forbidden packages: ${forbidden.map(row => row.split(' ')[0]).join(', ')}`);
 }
 export function serverArtifact(messages) {
@@ -30,7 +30,7 @@ export function artifactReceipt({ cargoLog, treeLog, build, target, resources })
 }
 export function workerArtifact(messages, repo) {
   const source = realpathSync.native(path.join(repo, 'cli/src/main.rs'));
-  const artifacts = messages.filter(message => message.reason === 'compiler-artifact' && message.target?.name === 'domios' && message.target.kind.includes('bin') && message.executable && !message.profile?.test && realpathSync.native(message.target.src_path) === source);
+  const artifacts = messages.filter(message => message.reason === 'compiler-artifact' && message.target?.name === 'codeterm' && message.target.kind.includes('bin') && message.executable && !message.profile?.test && realpathSync.native(message.target.src_path) === source);
   if (artifacts.length !== 1) throw new Error('Expected the exact CLI package binary artifact');
   return realpathSync.native(artifacts[0].executable);
 }
@@ -38,7 +38,7 @@ export function stageResources(cliLog, repo, output) {
   const messages = readFileSync(cliLog, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
   if (!messages.some(message => message.reason === 'build-finished' && message.success)) throw new Error('CLI build did not finish');
   const executable = workerArtifact(messages, repo);
-  const name = `domios${process.platform === 'win32' ? '.exe' : ''}`;
+  const name = `codeterm${process.platform === 'win32' ? '.exe' : ''}`;
   mkdirSync(path.join(output, 'cli'), { recursive: true });
   const target = path.join(output, 'cli', name);
   copyFileSync(executable, target); chmodSync(target, 0o755);
@@ -134,12 +134,12 @@ export function resolveDevResourceRoot(resourceRoot, expectedRoot, {
 export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build, serverOnly = false, checkOnly = false }) {
   if (!/^[a-f0-9]{40}$/.test(build)) throw new Error('Expected exact DEV source build identity');
   const builtClient = regular(client);
-  const expectedRoot = process.platform === 'win32' ? path.dirname(builtClient) : path.join(path.dirname(builtClient), '.domios-dev-runtime/lib/domios');
+  const expectedRoot = process.platform === 'win32' ? path.dirname(builtClient) : path.join(path.dirname(builtClient), '.domios-dev-runtime/lib/codeterm');
   const root = resolveDevResourceRoot(resourceRoot, expectedRoot);
   const clientFile = process.platform === 'win32' ? builtClient : path.resolve(root, '../../bin', path.basename(builtClient));
   const server = artifactReceipt({ cargoLog, treeLog, build, resources: root });
   if (path.dirname(server.executable) !== path.dirname(builtClient)) throw new Error('DEV server and client must share the exact Cargo artifact directory');
-  if (path.basename(builtClient) !== `domios${process.platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected DEV client artifact filename');
+  if (path.basename(builtClient) !== `codeterm${process.platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected DEV client artifact filename');
   const messages = readFileSync(cargoLog, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
   const message = messages.find(row => row.reason === 'compiler-artifact' && row.executable && realpathSync.native(row.executable) === server.executable);
   if (realpathSync.native(message.target.src_path) !== realpathSync.native(path.join(repo, 'src-tauri/crates/domios-server/src/main.rs'))) throw new Error('Server artifact has a foreign source target');
@@ -151,7 +151,7 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
   if (provenance.length !== 1) throw new Error('Expected one exact server build-script receipt');
   const environment = Object.fromEntries(provenance[0].env);
   if (environment.BUILD_SHA !== build || environment.SERVER_CLI_SHA256 !== workerDigest) throw new Error('Server build or CLI binding differs from staged artifacts');
-  const contract = readFileSync(path.join(repo, 'src-tauri/crates/domios-types/src/server_bootstrap.rs'), 'utf8');
+  const contract = readFileSync(path.join(repo, 'src-tauri/crates/codeterm-types/src/server_bootstrap.rs'), 'utf8');
   const constant = name => {
     const match = contract.match(new RegExp(`pub const ${name}: u32 = ([0-9]+);`));
     if (!match) throw new Error(`Missing shared bootstrap contract ${name}`);
@@ -189,7 +189,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const [cargoLog, treeLog, build, target, resources, output] = process.argv.slice(2);
     if (!output) throw new Error('Expected Cargo log, closure log, build, target, resources and receipt path');
     const receipt = artifactReceipt({ cargoLog, treeLog, build, target, resources });
-    const worker = path.join(resources, 'cli', `domios${process.platform === 'win32' ? '.exe' : ''}`);
+    const worker = path.join(resources, 'cli', `codeterm${process.platform === 'win32' ? '.exe' : ''}`);
     receipt.worker_cli_sha256 = createHash('sha256').update(readFileSync(worker)).digest('hex');
     writeFileSync(output, JSON.stringify(receipt, null, 2));
   }

@@ -1,6 +1,6 @@
 {
   "license": "PolyForm-Shield-1.0.0",
-  "name": "@domios/chat-preprocessor",
+  "name": "@codeterm/chat-preprocessor",
   "version": "1.4.6",
   "private": true,
   "type": "module",
@@ -11,6 +11,6 @@
     ".": "./src/plugin.ts"
   },
   "devDependencies": {
-    "@domios/plugin-sdk": "workspace:*"
+    "@codeterm/plugin-sdk": "workspace:*"
   }
 }

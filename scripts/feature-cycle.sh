@@ -24,7 +24,7 @@ feature_cycle() {
   local test_features=() product_args=() started
   if [ "$mode" = after ]; then
     test_features=(--no-default-features)
-    configure_product_cargo -p domios -p domios-service-core
+    configure_product_cargo -p codeterm -p codeterm-service-core
     product_args=("${CT_PRODUCT_CARGO_ARGS[@]}" --lib --bins)
   else
     product_args=(--all-targets)
@@ -33,16 +33,16 @@ feature_cycle() {
     cargo check "${CT_DEV_CHECK_ARGS[@]}" --message-format=json || return $?
   started="$(date +%s)"
   feature_cycle_phase clippy cargo clippy --manifest-path src-tauri/Cargo.toml \
-    -p domios -p domios-service-core "${product_args[@]}" --no-deps --message-format=json -- "${CLIPPY_ALLOW[@]}" || return $?
+    -p codeterm -p codeterm-service-core "${product_args[@]}" --no-deps --message-format=json -- "${CLIPPY_ALLOW[@]}" || return $?
   if [ "$mode" = before ]; then
     CODETERM_DEV=1 CODETERM_WEB_DIST="$(pwd -P)/dist" feature_cycle_phase dev-lib \
       cargo check "${CT_DEV_CHECK_ARGS[@]}" --message-format=json || return $?
   fi
   feature_cycle_phase test-check cargo check --manifest-path src-tauri/Cargo.toml \
-    -p domios-service-core --lib --tests --profile test "${test_features[@]}" --message-format=json || return $?
+    -p codeterm-service-core --lib --tests --profile test "${test_features[@]}" --message-format=json || return $?
   printf 'feature-cycle: equivalent-check-queue mode=%s wall=%ss\n' "$mode" "$(( $(date +%s) - started ))" | tee -a "$CT_FEATURE_CYCLE_DIR/times.log"
   CARGO_TEST_CMD='cargo test --message-format json' CARGO_TEST_BUILD_CMD='cargo test --message-format json' \
     feature_cycle_phase test-one scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml \
-      -p domios-service-core --lib "${test_features[@]}" "$selector" || return $?
+      -p codeterm-service-core --lib "${test_features[@]}" "$selector" || return $?
   CT_BUILD_SOURCE_SHA="$(git rev-parse HEAD)" node "$CT_GATEWAY_SCRIPT_ROOT/scripts/feature-cycle-units.mjs" "$CT_FEATURE_CYCLE_DIR"
 }

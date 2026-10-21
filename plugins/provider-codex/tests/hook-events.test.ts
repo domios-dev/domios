@@ -106,7 +106,7 @@ console.log("\n--- Stop hook install/uninstall ---\n");
   );
   assert(stopCmd.indexOf("/hook/stop") !== -1, "Stop hook posts the stop route", stopCmd);
   assert(
-    stopCmd.indexOf("X-Domios-Binding-Nonce: ${DOMIOS_SESSION_BINDING_NONCE}") !== -1,
+    stopCmd.indexOf("X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}") !== -1,
     "Stop hook carries the binding-nonce header",
     stopCmd,
   );
@@ -122,7 +122,7 @@ console.log("\n--- Stop hook install/uninstall ---\n");
   const uninstalled = JSON.parse(files.get(hooksPath) || "{}");
   assert(
     !uninstalled.hooks.Stop.some((e: any) => String(e.hooks?.[0]?.command ?? "").indexOf("/hook/stop") !== -1),
-    "uninstall removes the Domios Stop hook",
+    "uninstall removes the CodeTerm Stop hook",
   );
   assert(
     uninstalled.hooks.Stop.some((e: any) => e.hooks?.[0]?.command === "user-stop-hook"),
@@ -156,7 +156,7 @@ console.log("\n--- Windows: one script posting the event name ---\n");
   const script = scripts.get(scriptPaths[0]) ?? "";
   assert(script.indexOf("hookEvent=%~1") !== -1, "the script posts the event name parameter");
   assert(script.indexOf("curl.exe") !== -1, "the Windows hook uses curl without starting PowerShell");
-  assert(script.indexOf("X-Domios-Hook: domios-hook-v4") !== -1,
+  assert(script.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
     "the script sends the in-command ownership marker");
   assert(script.indexOf("powershell") === -1, "the script does not start PowerShell per event");
   const winSession = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.commandWindows ?? "");
@@ -165,7 +165,7 @@ console.log("\n--- Windows: one script posting the event name ---\n");
     "Windows launches the helper through a shell-neutral cmd wrapper", winSession);
   assert(winSession.indexOf(" session_start ") !== -1, "SessionStart entry passes its event name", winSession);
   assert(winStop.indexOf(" stop ") !== -1, "Stop entry passes its event name", winStop);
-  assert(winSession.indexOf("X-Domios-Hook: domios-hook-v4") !== -1,
+  assert(winSession.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
     "SessionStart entry carries the command ownership marker", winSession);
   assert(winSession.split(".cmd")[0] === winStop.split(".cmd")[0], "both entries invoke the same script");
 }
@@ -174,7 +174,7 @@ console.log("\n--- Windows: refuse an unowned helper path ---\n");
 
 {
   const hooksPath = "/tmp/home\\.codex\\hooks.json";
-  const scriptPath = "/tmp/home\\.codex\\codeterm-session-hook.cmd"; // rename-bridge
+  const scriptPath = "/tmp/home\\.codex\\codeterm-session-hook.cmd";
   const hooks = '{"hooks":{"SessionStart":[],"Stop":[]}}';
   const foreignScript = "@echo off\r\necho user-owned\r\n";
   const files = new Map([[hooksPath, hooks], [scriptPath, foreignScript]]);

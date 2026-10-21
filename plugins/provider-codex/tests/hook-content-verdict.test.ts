@@ -1,6 +1,8 @@
 /**
- * Codex trusts a hook by content hash, so currency is decided by exact
- * generated content, normalizing line endings for Windows file writes.
+ * Codex trusts a hook by content hash, so currency has to be decided on
+ * content. It used to be decided by comparing the file to the running build's
+ * own template, which made every cross-instance start declare the other's hook
+ * stale — a rewrite, a broken trusted_hash, and a dead session binding.
  *
  * Run: node node_modules/tsx/dist/cli.mjs plugins/provider-codex/tests/hook-content-verdict.test.ts
  *
@@ -9,7 +11,7 @@
  */
 
 import {
-  DOMIOS_CODEX_HOOK_SCRIPT_CONTRACT,
+  CODEX_HOOK_SCRIPT_CONTRACT,
   codexWindowsHookScript,
   codexHookContentHash,
   isCurrentCodexHookScriptContent,
@@ -24,9 +26,9 @@ function eq(actual: unknown, expected: unknown, name: string) {
   else { failed++; console.error(`  ✗ ${name}: expected ${String(expected)}, got ${String(actual)}`); }
 }
 
-// Built from the generator, so the fixture matches the installed helper.
+// Built from the contract itself, so this fixture cannot drift from the rule.
 const satisfiesContract = (extra = "") =>
-  codexWindowsHookScript() + extra;
+  CODEX_HOOK_SCRIPT_CONTRACT.join("\n") + "\n" + extra;
 
 console.log("\n--- byte-identical content is current for both writers ---\n");
 
@@ -51,30 +53,26 @@ console.log("\n--- byte-identical content is current for both writers ---\n");
   );
 }
 
-console.log("\n--- only line endings are normalized; content edits are stale ---\n");
+console.log("\n--- only differing content changes the verdict or the hash ---\n");
 
 {
   const base = satisfiesContract();
-  const lineFeed = base.split("\r\n").join("\n");
-  const windowsLineEndings = lineFeed.split("\n").join("\r\n");
-  eq(isCurrentCodexHookScriptContent(lineFeed), true, "LF line endings preserve freshness");
-  eq(isCurrentCodexHookScriptContent(windowsLineEndings), true, "CRLF line endings preserve freshness");
-  const edited = satisfiesContract("rem edited helper\n");
+  const reformatted = satisfiesContract("# a later build reformatted the script\n");
 
   eq(
-    codexHookContentHash(base) === codexHookContentHash(edited),
+    codexHookContentHash(base) === codexHookContentHash(reformatted),
     false,
     "different content hashes differently",
   );
   eq(
-    isCurrentCodexHookScriptContent(edited),
-    false,
-    "an added helper command is stale",
+    isCurrentCodexHookScriptContent(reformatted),
+    true,
+    "a reformat that still satisfies the contract is not stale",
   );
 }
 
-for (const token of DOMIOS_CODEX_HOOK_SCRIPT_CONTRACT) {
-  const missing = DOMIOS_CODEX_HOOK_SCRIPT_CONTRACT.filter((t) => t !== token).join("\n");
+for (const token of CODEX_HOOK_SCRIPT_CONTRACT) {
+  const missing = CODEX_HOOK_SCRIPT_CONTRACT.filter((t) => t !== token).join("\n");
   eq(
     isCurrentCodexHookScriptContent(missing),
     false,
@@ -92,7 +90,7 @@ for (const token of DOMIOS_CODEX_HOOK_SCRIPT_CONTRACT) {
 {
   // A script that falls back to an instance when its environment is missing
   // is stale, so startup reconciliation replaces it with the fail-closed one.
-  const portFallback = satisfiesContract("$port = if ($env:DOMIOS_API_PORT) { $env:DOMIOS_API_PORT }\n");
+  const portFallback = satisfiesContract("$port = if ($env:CODETERM_API_PORT) { $env:CODETERM_API_PORT }\n");
   eq(isCurrentCodexHookScriptContent(portFallback), false, "a port-variable fallback is never current");
   const hostFallback = satisfiesContract("$base = \"http://127.0.0.1:$port\"\n");
   eq(isCurrentCodexHookScriptContent(hostFallback), false, "a loopback-host fallback is never current");
@@ -101,7 +99,7 @@ for (const token of DOMIOS_CODEX_HOOK_SCRIPT_CONTRACT) {
 {
   const generated = codexWindowsHookScript();
   eq(isCurrentCodexHookScriptContent(generated), true, "the generated script satisfies its own contract");
-  eq(generated.indexOf("DOMIOS_API_PORT"), -1, "the generated script reads no port variable");
+  eq(generated.indexOf("CODETERM_API_PORT"), -1, "the generated script reads no port variable");
   const oldCleanup = generated + "\r\nrem codeterm-profile-cleanup-v1\r\n"
     + 'del /F /Q "%USERPROFILE%\\.codex\\codeterm-%CODETERM_TAB_ID%.config.toml"';
   eq(isCurrentCodexHookScriptContent(oldCleanup), false,

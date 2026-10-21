@@ -64,7 +64,7 @@ case "$CMD" in
         exit 2
       fi
       if [ "$BUILD_NOTIFY_GIVEN" = 1 ] && [ -z "$DEV_NOTIFY_PARENT_CLI" ]; then
-        echo "ERROR: Domios CLI was not available on the parent PATH for --notify-tab" >&2
+        echo "ERROR: codeterm was not available on the parent PATH for --notify-tab" >&2
         exit 127
       fi
       if [ "$BUILD_NOTIFY_GIVEN" = 1 ] || [ -n "${DEV_NOTIFY_PARENT_CODETERM_TAB_ID:-}" ] || [ -n "${DEV_NOTIFY_PARENT_CODETERM_PARENT_TAB_ID:-}" ]; then
@@ -137,7 +137,7 @@ if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
     esac
   done
   if [ "$DEV_NOTIFY_SEEN" = "1" ] && [ -z "$DEV_NOTIFY_PARENT_CLI" ]; then
-    echo "ERROR: Domios CLI was not available on the parent PATH for --notify-tab" >&2
+    echo "ERROR: codeterm was not available on the parent PATH for --notify-tab" >&2
     exit 127
   fi
   if [ "${DEV_NOTIFY_STREAM_CHILD:-0}" != 1 ] && { [ "$DEV_NOTIFY_SEEN" = "1" ] || [ -n "$DEV_NOTIFY_TAB" ] || [ -n "${DEV_NOTIFY_PARENT_CODETERM_TAB_ID:-}" ]; }; then
@@ -292,7 +292,7 @@ initialize_build_identity
 
 # --- Kill THIS dev instance only (never prod, never another worktree) ---
 # Scoped strictly to $CT_PORT / $CT_VITE_PORT / this instance's screen+pidfile.
-# No global pgrep on target/debug/domios — that would take down every worktree.
+# No global pgrep on target/debug/codeterm — that would take down every worktree.
 kill_dev() {
   if [ "$CT_PORT" = "7685" ]; then
     echo "ERROR: refusing to kill prod CodeTerm port 7685" >&2
@@ -391,7 +391,7 @@ CMD="${1:-dev}"
 run_workspace_lib_tests() {
   local package
   local test_cap_secs="${TEST_CAP_SECS:-3600}"
-  for package in domios-service-core domios-account domios-billing domios-frontend-bundle domios-types domios-wire domios-sentinel domios-decision domios-provider-signals domios-util domios-mesh domios-mem domios-plan domios-bridge domios-pty domios-plugin domios-plugins; do
+  for package in codeterm-service-core codeterm-account codeterm-billing codeterm-frontend-bundle codeterm-types codeterm-wire codeterm-sentinel codeterm-decision codeterm-provider-signals codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
     TEST_CAP_SECS="$test_cap_secs" scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "$package" --lib
   done
 }
@@ -409,51 +409,50 @@ run_nextest_scope() {
   local filter_args=()
 
   case "$scope" in
-    app|domios|service-core|domios-service-core|codeterm|codeterm-service-core) # rename-bridge
+    app|codeterm|service-core|codeterm-service-core)
       configure_app_test_cargo nextest
       manifest="$CT_APP_TEST_MANIFEST"
       package="$CT_APP_TEST_PACKAGE"
       targets=("${CT_APP_TEST_TARGET_ARGS[@]}")
       ;;
     domios-server) package="domios-server"; targets+=(--lib) ;;
-    shell|domios) package="domios"; targets+=(--lib) ;;
-    devtools|domios-devtools|codeterm-devtools) package="domios-devtools"; targets+=(--test main) ;; # rename-bridge
-    mem-store|domios-mem-store|codeterm-mem-store) package="domios-mem-store"; targets=(--lib) ;; # rename-bridge
-    paths|domios-paths|codeterm-paths) package="domios-paths"; targets=(--lib) ;; # rename-bridge
-    process-identity|domios-process-identity|codeterm-process-identity) package="domios-process-identity"; targets=(--lib) ;; # rename-bridge
-    input-platform) targets+=(--lib -p domios-input-macos -p domios-input-windows) ;;
-    frontend-bundle|domios-frontend-bundle|codeterm-frontend-bundle) package="domios-frontend-bundle"; targets+=(--lib) ;; # rename-bridge
-    notification-core|domios-notification-core|codeterm-notification-core) package="domios-notification-core"; targets+=(--lib) ;; # rename-bridge
-    analytics|domios-analytics|codeterm-analytics) package="domios-analytics"; targets+=(--lib) ;; # rename-bridge
-    agent-detect|domios-agent-detect|codeterm-agent-detect) package="domios-agent-detect"; targets+=(--lib) ;; # rename-bridge
-    billing|domios-billing|codeterm-billing) package="domios-billing"; targets+=(--lib) ;; # rename-bridge
-    usage|domios-usage|codeterm-usage) package="domios-usage"; targets+=(--lib) ;; # rename-bridge
-    account|domios-account|codeterm-account) package="domios-account"; targets+=(--lib) ;; # rename-bridge
-    repowatch|domios-repowatch|codeterm-repowatch) package="domios-repowatch"; targets+=(--lib) ;; # rename-bridge
-    plan|domios-plan|codeterm-plan) package="domios-plan"; targets+=(--lib) ;; # rename-bridge
-    pty|domios-pty|codeterm-pty) package="domios-pty" ;; # rename-bridge
-    util|domios-util|codeterm-util) package="domios-util"; targets+=(--lib) ;; # rename-bridge
-    browser|domios-browser|codeterm-browser) package="domios-browser"; targets+=(--lib) ;; # rename-bridge
-    types|domios-types|codeterm-types) package="domios-types"; targets+=(--all-targets) ;; # rename-bridge
-    wire|domios-wire|codeterm-wire) package="domios-wire"; targets+=(--all-targets) ;; # rename-bridge
-    sentinel|domios-sentinel|codeterm-sentinel) package="domios-sentinel"; targets+=(--all-targets --features test-support) ;; # rename-bridge
-    decision|domios-decision|codeterm-decision) package="domios-decision"; targets+=(--all-targets) ;; # rename-bridge
-    provider-signals|domios-provider-signals|codeterm-provider-signals) package="domios-provider-signals"; targets+=(--all-targets) ;; # rename-bridge
-    mem|domios-mem|codeterm-mem) package="domios-mem"; targets+=(--lib) ;; # rename-bridge
-    mesh|domios-mesh|codeterm-mesh) package="domios-mesh"; targets+=(--lib) ;; # rename-bridge
-    plugin|domios-plugin|codeterm-plugin) package="domios-plugin"; targets+=(--lib) ;; # rename-bridge
-    plugins|domios-plugins|codeterm-plugins) package="domios-plugins"; targets+=(--lib) ;; # rename-bridge
-    cli|domios-cli|codeterm-cli) manifest="cli/Cargo.toml"; package="domios-cli"; targets+=(--all-targets) ;; # rename-bridge
+    shell) package="codeterm"; targets+=(--lib) ;;
+    devtools|codeterm-devtools) package="codeterm-devtools"; targets+=(--test main) ;;
+    mem-store|codeterm-mem-store) package="codeterm-mem-store"; targets=(--lib) ;;
+    paths|codeterm-paths) package="codeterm-paths"; targets=(--lib) ;;
+    process-identity|codeterm-process-identity) package="codeterm-process-identity"; targets=(--lib) ;;
+    input-platform) targets+=(--lib -p codeterm-input-macos -p codeterm-input-windows) ;;
+    frontend-bundle|codeterm-frontend-bundle) package="codeterm-frontend-bundle"; targets+=(--lib) ;;
+    notification-core|codeterm-notification-core) package="codeterm-notification-core"; targets+=(--lib) ;;
+    analytics|codeterm-analytics) package="codeterm-analytics"; targets+=(--lib) ;;
+    agent-detect|codeterm-agent-detect) package="codeterm-agent-detect"; targets+=(--lib) ;;
+    billing|codeterm-billing) package="codeterm-billing"; targets+=(--lib) ;;
+    usage|codeterm-usage) package="codeterm-usage"; targets+=(--lib) ;;
+    account|codeterm-account) package="codeterm-account"; targets+=(--lib) ;;
+    repowatch|codeterm-repowatch) package="codeterm-repowatch"; targets+=(--lib) ;;
+    plan|codeterm-plan) package="codeterm-plan"; targets+=(--lib) ;;
+    pty|codeterm-pty) package="codeterm-pty" ;;
+    util|codeterm-util) package="codeterm-util"; targets+=(--lib) ;;
+    browser|codeterm-browser) package="codeterm-browser"; targets+=(--lib) ;;
+    types|codeterm-types) package="codeterm-types"; targets+=(--all-targets) ;;
+    wire|codeterm-wire) package="codeterm-wire"; targets+=(--all-targets) ;;
+    sentinel|codeterm-sentinel) package="codeterm-sentinel"; targets+=(--all-targets --features test-support) ;;
+    decision|codeterm-decision) package="codeterm-decision"; targets+=(--all-targets) ;;
+    provider-signals|codeterm-provider-signals) package="codeterm-provider-signals"; targets+=(--all-targets) ;;
+    mem|codeterm-mem) package="codeterm-mem"; targets+=(--lib) ;;
+    mesh|codeterm-mesh) package="codeterm-mesh"; targets+=(--lib) ;;
+    plugin|codeterm-plugin) package="codeterm-plugin"; targets+=(--lib) ;;
+    plugins|codeterm-plugins) package="codeterm-plugins"; targets+=(--lib) ;;
+    cli|codeterm-cli) manifest="cli/Cargo.toml"; package="codeterm-cli"; targets+=(--all-targets) ;;
     pty-fork) manifest="src-tauri/pty-fork/Cargo.toml" ;;
-    domios-*) package="$scope"; targets+=(--lib) ;;
-    codeterm-*) package="domios-${scope#codeterm-}"; targets+=(--lib) ;; # rename-bridge
+    codeterm-*) package="$scope"; targets+=(--lib) ;;
     *)
       echo "Unknown nextest scope: $scope" >&2
       return 2
       ;;
   esac
 
-  if [ "$scope" = "app" ] || [ "$scope" = "domios" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "domios-service-core" ] || [ "$scope" = "codeterm-service-core" ] || [ "$scope" = "shell" ]; then # rename-bridge
+  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ] || [ "$scope" = "shell" ]; then
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     prepare_exceptional_worktree_target
@@ -472,7 +471,7 @@ run_nextest_scope() {
 
   local timing_dir run_exit=0 guard_exit=0 alone_exit=0 reuse_args=() confirmation_args=() archive=""
   if [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then timing_dir="$(mktemp -d "$CT_BUILD_ARTIFACT_DIR/nextest.XXXXXX")"; else timing_dir="$(mktemp -d)"; fi
-  if [ "$package" = domios-service-core ] && [[ "$filterset" != *'rdeps('* ]] && find_app_test_archive; then
+  if [ "$package" = codeterm-service-core ] && [[ "$filterset" != *'rdeps('* ]] && find_app_test_archive; then
     archive="$CT_APP_TEST_ARCHIVE"
     configure_app_archive_run "$filterset" || return $?
     reuse_args=("${CT_APP_ARCHIVE_RUN_ARGS[@]}")
@@ -578,7 +577,7 @@ esac
 # CODETERM_DEV_INSTANCE names a dev instance so multiple worktrees can
 # run ./build.sh dev concurrently without colliding. Unset = canonical defaults
 # (.domios-dev / 7686 / 1420). See AGENTS.md "Process safety".
-CT_INSTANCE="${DOMIOS_INSTANCE:-${CODETERM_INSTANCE:-}}" # rename-bridge
+CT_INSTANCE="${CODETERM_INSTANCE:-}"
 CT_PORT="${CODETERM_API_PORT:-7686}"
 CT_VITE_PORT="${CODETERM_VITE_PORT:-}"
 CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
@@ -622,8 +621,7 @@ fi
 CT_DATA_DIR="$HOME/.domios-dev${CT_SUFFIX}"
 DEV_NOTIFY_LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
-export CODETERM_INSTANCE="$CT_INSTANCE" # rename-bridge
-export DOMIOS_INSTANCE="$CT_INSTANCE"
+export CODETERM_INSTANCE="$CT_INSTANCE"
 export CODETERM_API_PORT="$CT_PORT"
 export CODETERM_VITE_PORT="$CT_VITE_PORT"
 export CODETERM_DEV_IDENTIFIER="$CT_IDENTIFIER"
@@ -1192,7 +1190,7 @@ require_release_source() {
 }
 
 # Copy the freshly-built CLI into a target bin dir. Development commands install
-# only into their active dev data directory; production owns ~/.domios/bin.
+# only into their active dev data directory; production owns ~/.codeterm/bin.
 cli_profile_dir() {
   local profile="$1" target_root="${CARGO_TARGET_DIR:-cli/target}"
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
@@ -1210,9 +1208,9 @@ cli_profile_binary() {
   local release_dir
   release_dir="$(cli_profile_dir "$1")"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    printf '%s/domios\n' "$release_dir"
+    printf '%s/codeterm\n' "$release_dir"
   else
-    printf '%s/domios.exe\n' "$release_dir"
+    printf '%s/codeterm.exe\n' "$release_dir"
   fi
 }
 
@@ -1304,7 +1302,7 @@ record_dev_target() {
 
 dev_resource_dir() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/lib/domios"
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/lib/codeterm"
   else
     tauri_debug_dir
   fi
@@ -1312,15 +1310,15 @@ dev_resource_dir() {
 
 dev_built_app_path() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    printf '%s\n' "$(tauri_debug_dir)/domios"
+    printf '%s\n' "$(tauri_debug_dir)/codeterm"
   else
-    printf '%s\n' "$(tauri_debug_dir)/domios.exe"
+    printf '%s\n' "$(tauri_debug_dir)/codeterm.exe"
   fi
 }
 
 dev_app_path() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/domios"
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/codeterm"
   else
     dev_built_app_path
   fi
@@ -1328,16 +1326,16 @@ dev_app_path() {
 
 dev_cli_path() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    printf '%s\n' "$CT_DATA_DIR/bin/domios"
+    printf '%s\n' "$CT_DATA_DIR/bin/codeterm"
   else
-    printf '%s\n' "$CT_DATA_DIR/bin/domios.exe"
+    printf '%s\n' "$CT_DATA_DIR/bin/codeterm.exe"
   fi
 }
 
 # A dev PDB is overwritten by the very next link. The 2026-09-05 abort became
 # unsymbolizable nine minutes after it was written, so the symbol file for each
 # linked dev build is retained under <data dir>/pdb/<build sha>/ and the store is
-# pruned to the newest few. The copy keeps the name domios.pdb because Windows
+# pruned to the newest few. The copy keeps the name codeterm.pdb because Windows
 # symbol lookup finds a PDB by the name recorded in the binary's RSDS record — a
 # renamed file is never found, which is why the sha is the directory.
 DEV_PDB_KEEP_DEFAULT=3
@@ -1349,7 +1347,7 @@ dev_pdb_store() {
 
 dev_pdb_source() {
   printf '%s
-' "${CARGO_TARGET_DIR:-$(pwd -P)/src-tauri/target}/debug/domios.pdb"
+' "${CARGO_TARGET_DIR:-$(pwd -P)/src-tauri/target}/debug/codeterm.pdb"
 }
 
 prune_dev_pdb_store() {
@@ -1394,10 +1392,10 @@ retain_dev_pdb() {
   store="$(dev_pdb_store)"
   dest="$store/$key"
   mkdir -p "$dest"
-  if [ ! -f "$dest/domios.pdb" ] || [ "$src" -nt "$dest/domios.pdb" ]; then
-    cp -f "$src" "$dest/domios.pdb.partial"
-    mv -f "$dest/domios.pdb.partial" "$dest/domios.pdb"
-    echo "[symbols] retained $key -> $dest/domios.pdb"
+  if [ ! -f "$dest/codeterm.pdb" ] || [ "$src" -nt "$dest/codeterm.pdb" ]; then
+    cp -f "$src" "$dest/codeterm.pdb.partial"
+    mv -f "$dest/codeterm.pdb.partial" "$dest/codeterm.pdb"
+    echo "[symbols] retained $key -> $dest/codeterm.pdb"
   else
     # Touch so an unchanged rerun still counts as the most recently used build.
     touch "$dest"
@@ -1487,8 +1485,7 @@ reload_dev_server() {
   CT_DEV_PROVENANCE_SHA="$build_sha" validate_dev_provenance
   release_stable_build_path
   complete_build_gateway_before_handoff
-  export DOMIOS_CLI_PATH="$(dev_cli_path)"
-  export CODETERM_CLI_PATH="$DOMIOS_CLI_PATH" # rename-bridge
+  export CODETERM_CLI_PATH="$(dev_cli_path)"
   node scripts/dev-server.mjs start "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT"
   echo "DEV server reload completed in $(( $(date +%s) - started ))s; native client/window retained."
 }
@@ -1560,9 +1557,9 @@ install_cli_to() {
     source="$(cli_release_binary)"
   fi
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    destination="$bin_dir/domios"
+    destination="$bin_dir/codeterm"
   else
-    destination="$bin_dir/domios.exe"
+    destination="$bin_dir/codeterm.exe"
   fi
 
   source_hash="$(cli_file_sha256_or_status "$source")"
@@ -1601,9 +1598,9 @@ write_cli_docs() {
   local release_dir binary
   release_dir="$(cli_release_dir)"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    binary="$release_dir/domios"
+    binary="$release_dir/codeterm"
   else
-    binary="$release_dir/domios.exe"
+    binary="$release_dir/codeterm.exe"
   fi
   "$binary" cli-manifest --write
 }
@@ -1639,7 +1636,7 @@ prepare_dev_frontend_dist() {
 check_queue_targets() {
   awk '
     /^src-tauri\/crates\/[^\/]+\// { split($0, p, "/"); print "app " p[3]; next }
-    /^src-tauri\/(src|tests|benches|examples|build\.rs|Cargo\.(toml|lock))/ { print "app domios"; next }
+    /^src-tauri\/(src|tests|benches|examples|build\.rs|Cargo\.(toml|lock))/ { print "app codeterm"; next }
     /^cli\// { print "cli"; next }
   ' | sort -u
 }
@@ -1711,7 +1708,7 @@ check_warning_summary() {
 configure_app_test_cargo() {
   configure_dev_cargo || return $?
   CT_APP_TEST_MANIFEST=src-tauri/Cargo.toml
-  CT_APP_TEST_PACKAGE=domios-service-core
+  CT_APP_TEST_PACKAGE=codeterm-service-core
   CT_APP_TEST_TARGET_ARGS=(--lib --no-default-features)
   case "${1:?app test configuration requires a runner}" in
     nextest|test-one) ;;
@@ -1722,9 +1719,9 @@ configure_app_test_cargo() {
 
 configure_dev_cargo() {
   CT_DEV_CARGO_PROFILE=dev
-  CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" --guard src-tauri/crates/domios-server/Cargo.toml src-tauri/crates/domios-service-core/Cargo.toml)" || return $?
+  CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" --guard src-tauri/crates/domios-server/Cargo.toml src-tauri/crates/codeterm-service-core/Cargo.toml)" || return $?
   # The native client carries no server features; CT_DEV_CARGO_FEATURES applies to server packages only.
-  CT_DEV_CHECK_ARGS=(--manifest-path src-tauri/Cargo.toml -p domios --lib --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
+  CT_DEV_CHECK_ARGS=(--manifest-path src-tauri/Cargo.toml -p codeterm --lib --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   CT_DEV_TAURI_ARGS=(-- --profile "$CT_DEV_CARGO_PROFILE")
 }
 
@@ -1732,7 +1729,7 @@ configure_product_cargo() {
   local package feature features=()
   CT_PRODUCT_CARGO_ARGS=(--no-default-features)
   IFS=, read -r -a features <<< "$CT_DEV_CARGO_FEATURES"
-  for package in domios-server domios-service-core domios-mem; do
+  for package in domios-server codeterm-service-core codeterm-mem; do
     case " $* " in
       *" --workspace "*|*" -p $package "*)
         for feature in "${features[@]}"; do CT_PRODUCT_CARGO_ARGS+=(--features "$package/$feature"); done
@@ -1763,7 +1760,7 @@ check_workspace_run() {
   local sha started status=0 out
   sha="$(git rev-parse --verify "${1:-HEAD}^{commit}")"
   CT_BUILD_SOURCE_SHA="$sha"
-  CT_BUILD_CRATES="workspace domios-cli"
+  CT_BUILD_CRATES="workspace codeterm-cli"
   enter_check_worktree "$sha"
   started="$(date +%s)"
   out="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.check-workspace.log"
@@ -1882,18 +1879,18 @@ check_queue_run() {
     touched="*"
   else
     while read -r kind pkg; do
-      if [ "$kind" = cli ]; then cli=1; touched="${touched:-} domios-cli"; else pkg_args+=(-p "$pkg"); touched="${touched:-} $pkg"; fi
+      if [ "$kind" = cli ]; then cli=1; touched="${touched:-} codeterm-cli"; else pkg_args+=(-p "$pkg"); touched="${touched:-} $pkg"; fi
     done <<< "$targets"
   fi
-  if [ "${#pkg_args[@]}" -gt 0 ] && [ "$all" = 0 ] && [ "$touched_only" = 0 ] && ! printf '%s\n' "${pkg_args[@]}" | grep -qx domios; then
-    pkg_args+=(-p domios)
-    targets="$(printf '%s\napp domios' "$targets")"
+  if [ "${#pkg_args[@]}" -gt 0 ] && [ "$all" = 0 ] && [ "$touched_only" = 0 ] && ! printf '%s\n' "${pkg_args[@]}" | grep -qx codeterm; then
+    pkg_args+=(-p codeterm)
+    targets="$(printf '%s\napp codeterm' "$targets")"
   fi
   source scripts/clippy-allow.sh
 
   CT_BUILD_SOURCE_SHA="$sha"
   CT_BUILD_CRATES="$(printf '%s\n' "${pkg_args[@]}" | sed '/^-p$/d')"
-  [ "$cli" != 1 ] || CT_BUILD_CRATES="${CT_BUILD_CRATES}${CT_BUILD_CRATES:+ }domios-cli"
+  [ "$cli" != 1 ] || CT_BUILD_CRATES="${CT_BUILD_CRATES}${CT_BUILD_CRATES:+ }codeterm-cli"
   CT_BUILD_TOUCHED_FILES_COUNT="$(printf '%s\n' "$files" | sed '/^$/d' | wc -l | tr -d ' ')"
   enter_check_worktree "$sha"
   cw="$CT_CHECK_WORKTREE"
@@ -1909,7 +1906,7 @@ check_queue_run() {
     pkg_args=()
     touched=""
     while read -r package tests bins lib; do pkg_args+=(-p "$package"); touched="$touched $package"; done < "$plan"
-    [ "$cli" != 1 ] || touched="$touched domios-cli"
+    [ "$cli" != 1 ] || touched="$touched codeterm-cli"
   fi
   configure_dev_cargo
   if [ "$lane" = 1 ]; then
@@ -1918,14 +1915,14 @@ check_queue_run() {
       if [ "$tests" = 1 ]; then test_packages+=("$package"); fi
       lane_args+=(-p "$package")
     done < "$plan"
-    if grep -q '^domios[[:space:]]0' "$plan"; then lane_args+=(--bins); fi
+    if grep -q '^codeterm[[:space:]]0' "$plan"; then lane_args+=(--bins); fi
     if [ "${#lane_args[@]}" -gt 0 ]; then
       configure_product_cargo "${lane_args[@]}"
       CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml "${lane_args[@]}" "${CT_PRODUCT_CARGO_ARGS[@]}" --lib --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
     fi
     for package in "${test_packages[@]}"; do
       local test_args=(--lib --tests)
-      [ "$package" != domios ] || test_args+=(--bins)
+      [ "$package" != codeterm ] || test_args+=(--bins)
       CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml -p "$package" "${test_args[@]}" --no-default-features --profile test --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
     done
   elif [ "${#pkg_args[@]}" -gt 0 ]; then
@@ -1935,7 +1932,7 @@ check_queue_run() {
   fi
   if [ "$cli" = 1 ]; then
     local cli_targets=(--all-targets)
-    [ "$lane" != 1 ] || cli_targets=(-p domios-cli --bins)
+    [ "$lane" != 1 ] || cli_targets=(-p codeterm-cli --bins)
     CARGO_TARGET_DIR="$cw/target/cli" run_check_queue_cargo "$out" cargo clippy --manifest-path cli/Cargo.toml \
       "${cli_targets[@]}" --no-deps --message-format=short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
   fi
@@ -1998,7 +1995,7 @@ dev_live_window_exe() {
   local target_win
   target_win="$(cat "$(dev_target_record)" 2>/dev/null || true)"
   [ -n "$target_win" ] || return 1
-  powershell.exe -NoProfile -Command "\$dir = [IO.Path]::GetFullPath('$target_win').TrimEnd('\\'); Get-Process domios -ErrorAction SilentlyContinue | Where-Object { \$_.Path -and [IO.Path]::GetDirectoryName(\$_.Path) -ieq \$dir } | Select-Object -First 1 -ExpandProperty Path" 2>/dev/null | tr -d '\r' | grep -m1 .
+  powershell.exe -NoProfile -Command "\$dir = [IO.Path]::GetFullPath('$target_win').TrimEnd('\\'); Get-Process codeterm -ErrorAction SilentlyContinue | Where-Object { \$_.Path -and [IO.Path]::GetDirectoryName(\$_.Path) -ieq \$dir } | Select-Object -First 1 -ExpandProperty Path" 2>/dev/null | tr -d '\r' | grep -m1 .
 }
 
 # Only the split dev-back owns a window it can keep; Windows proves an unchanged client through its exe lock.
@@ -2038,8 +2035,7 @@ swap_dev_server_keep_window() {
   release_stable_build_path
   record_dev_target "$(tauri_debug_dir)"
   complete_build_gateway_before_handoff
-  export DOMIOS_CLI_PATH="$(dev_cli_path)"
-  export CODETERM_CLI_PATH="$DOMIOS_CLI_PATH" # rename-bridge
+  export CODETERM_CLI_PATH="$(dev_cli_path)"
   # The retained window relaunches its server on detachment, so a refused start may only mean it won the race.
   if ! node scripts/dev-server.mjs start "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT"; then
     node scripts/dev-server.mjs inspect "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"
@@ -2067,7 +2063,7 @@ build_and_launch_dev() {
     --message-format=json-render-diagnostics > "$split_logs/server.jsonl"
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
-  local build_args=(--manifest-path src-tauri/Cargo.toml -p domios --bin domios
+  local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   build_dev_client "$conf" "${build_args[@]}"
   build_sha="$CODETERM_BUILD_SHA"
@@ -2429,8 +2425,8 @@ prepare_release_bundle_inputs() {
       : "${APPLE_SIGNING_IDENTITY:?Release CLI signing identity is required}"
       : "${RELEASE_KEYCHAIN:?Release keychain is required}"
       codesign --force --options runtime --timestamp --keychain "$RELEASE_KEYCHAIN" \
-        --sign "$APPLE_SIGNING_IDENTITY" src-tauri/bundled-cli/domios
-      codesign --verify --strict src-tauri/bundled-cli/domios
+        --sign "$APPLE_SIGNING_IDENTITY" src-tauri/bundled-cli/codeterm
+      codesign --verify --strict src-tauri/bundled-cli/codeterm
     fi
     release_sha="$(git rev-parse HEAD)"
     release_logs="release-artifacts/build-logs/$release_target"
@@ -2451,7 +2447,7 @@ prepare_release_bundle_inputs() {
     cargo build --release --timings --manifest-path src-tauri/Cargo.toml \
       "${cargo_target_args[@]}" \
       --features "tauri/custom-protocol${CODETERM_RELEASE_FEATURES:+,$CODETERM_RELEASE_FEATURES}" \
-      --bin domios
+      --bin codeterm
   fi
   if [ "$mode" = "bundle" ] && [ "${CODETERM_RELEASE_COMMON_STAGE:-0}" != 1 ]; then
     node scripts/prepare-bundle-resource-stubs.mjs assert-package-ready
@@ -2621,7 +2617,7 @@ CodeTerm build commands
   ci-clippy                   Run the clippy repo gate through the shared compile cache
   frontend-build              Run the release bundle's frontend step from its stable build path, without Rust
   worktree-check              Isolated lane-safe Rust compile check
-  test-one <input-macos|input-windows|billing|account|analytics|app|shell|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|domios-*|codeterm-*> NAME (codeterm-* is a rename-bridge selector)
+  test-one <input-macos|input-windows|billing|account|analytics|app|shell|root|api|socket|commands|sentinel-host|frontend-bundle|plan|pty|pty-fork|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|cli|agent-detect|notification-core|repowatch|usage|codeterm-*> NAME
                               Run one focused Rust test
   process-probe --case server-only|arbitration|pair-journey --instance split-oracle  Build and prove isolated process ownership
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
@@ -2867,13 +2863,13 @@ EOF
     configure_dev_cargo
     prepare_dev_frontend_dist
     prepare_bundle_stubs
-    measure_args=(--manifest-path src-tauri/Cargo.toml -p domios --bin domios
+    measure_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin codeterm
       --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --timings)
     TAURI_CONFIG="$(cat "$(dev_conf_path)")" cargo build "${measure_args[@]}"
     ;;
   embedding-parity)
     CARGO_BUILD_JOBS=4 cargo build --release --manifest-path src-tauri/Cargo.toml \
-      -p domios-mem --example embedding_oracle
+      -p codeterm-mem --example embedding_oracle
     oracle_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
     if [ -n "${CARGO_BUILD_TARGET:-}" ]; then oracle_dir="$oracle_dir/$CARGO_BUILD_TARGET"; fi
     oracle_ext=""
@@ -2963,7 +2959,7 @@ EOF
     bash scripts/clippy-gate.sh
     run_release_rust_tests
     node node_modules/typescript/bin/tsc --noEmit
-    node node_modules/knip/bin/knip.js --workspace @domios/chat-core --exports
+    node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
     node scripts/check-api-effect-dependencies.mjs
     node scripts/run-ts-unit-tests.mjs
     node node_modules/vitest/vitest.mjs run
@@ -3002,7 +2998,7 @@ EOF
     process_probe_dir="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID-process-probe"
     mkdir -p "$process_probe_dir"
     process_probe_target="$(ct_host_triple)"
-    cargo build --manifest-path cli/Cargo.toml --bin domios --target "$process_probe_target" \
+    cargo build --manifest-path cli/Cargo.toml --bin codeterm --target "$process_probe_target" \
       --message-format=json > "$process_probe_dir/cli.jsonl"
     CODETERM_SERVER_CLI_SHA256="$(node scripts/server-artifact.mjs stage-resources \
       "$process_probe_dir/cli.jsonl" "$(pwd -P)" "$process_probe_dir/resources")"
@@ -3028,7 +3024,7 @@ EOF
     node scripts/process-separation-probe.mjs "${@:2}" --artifact-receipt "$process_probe_dir/artifact.json" "${client_receipt_args[@]}"
     ;;
   test-one)
-    test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a domios-* package; codeterm-* remains a rename bridge}" # rename-bridge
+    test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       domios-server)
@@ -3053,68 +3049,71 @@ EOF
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
         ;;
-      mem-store|domios-mem-store|codeterm-mem-store) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p domios-mem-store --lib "$test_filter" ;; # rename-bridge
-      paths|domios-paths|codeterm-paths) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p domios-paths --lib "$test_filter" ;; # rename-bridge
+      mem-store|codeterm-mem-store) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-mem-store --lib "$test_filter" ;;
+      paths|codeterm-paths) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-paths --lib "$test_filter" ;;
       input-macos|input-windows)
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "domios-$test_scope" --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "codeterm-$test_scope" --lib "$test_filter"
         ;;
       root)
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
         ;;
-      api|socket|commands|sentinel-host|domios-api|domios-socket|domios-commands|domios-sentinel-host|codeterm-api|codeterm-socket|codeterm-commands|codeterm-sentinel-host) # rename-bridge
+      api|socket|commands|sentinel-host|codeterm-api|codeterm-socket|codeterm-commands|codeterm-sentinel-host)
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
-        if [[ "$test_scope" == codeterm-* ]]; then test_package="domios-${test_scope#codeterm-}"; else test_package="domios-${test_scope#domios-}"; fi # rename-bridge
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "$test_package" --lib "$test_filter"
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "codeterm-${test_scope#codeterm-}" --lib "$test_filter"
         ;;
-      frontend-bundle|domios-frontend-bundle|codeterm-frontend-bundle) # rename-bridge
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios-frontend-bundle --lib "$test_filter"
+      frontend-bundle|codeterm-frontend-bundle)
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-frontend-bundle --lib "$test_filter"
         ;;
-      agent-detect|domios-agent-detect|codeterm-agent-detect)
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios-agent-detect --lib "$test_filter"
+      agent-detect|codeterm-agent-detect)
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-agent-detect --lib "$test_filter"
         ;;
-      billing|domios-billing) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-billing/Cargo.toml -p domios-billing --lib "$test_filter" ;;
-      usage|domios-usage|codeterm-usage)
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-usage/Cargo.toml -p domios-usage --lib "$test_filter" ;; # rename-bridge
-      account|domios-account|codeterm-account) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-account/Cargo.toml -p domios-account --lib "$test_filter" ;; # rename-bridge
-      notification-core|domios-notification-core|codeterm-notification-core)
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios-notification-core --lib "$test_filter" ;; # rename-bridge
-      analytics|domios-analytics|codeterm-analytics) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-analytics/Cargo.toml -p domios-analytics --lib "$test_filter" ;; # rename-bridge
-      repowatch|domios-repowatch|codeterm-repowatch)
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios-repowatch --lib "$test_filter" ;; # rename-bridge
-      plan|domios-plan|codeterm-plan) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-plan/Cargo.toml -p domios-plan --lib "$test_filter" ;; # rename-bridge
-      pty|domios-pty|codeterm-pty) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-pty/Cargo.toml -p domios-pty "$test_filter" ;; # rename-bridge
+      billing) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-billing/Cargo.toml -p codeterm-billing --lib "$test_filter" ;;
+      usage)
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-usage/Cargo.toml -p codeterm-usage --lib "$test_filter"
+        ;;
+      account) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-account/Cargo.toml -p codeterm-account --lib "$test_filter" ;;
+      notification-core|codeterm-notification-core)
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-notification-core --lib "$test_filter"
+        ;;
+      analytics) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-analytics/Cargo.toml -p codeterm-analytics --lib "$test_filter" ;;
+      repowatch|codeterm-repowatch)
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-repowatch --lib "$test_filter"
+        ;;
+      plan) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
+      pty) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
       # pty-fork is excluded from the workspace (its own Cargo.lock) but owns
       # the conpty test-isolation boundary (win/psuedocon.rs). Kept as its own
       # scope rather than chained onto `pty` so a pre-existing standalone-build
       # issue in that vendored, previously-untested crate can't newly break
-      # the working domios-pty test path.
+      # the working codeterm-pty test path.
       pty-fork) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/pty-fork/Cargo.toml "$test_filter" ;;
-      util|domios-util|codeterm-util)
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios-util --lib "$test_filter" ;; # rename-bridge
-      browser|domios-browser|codeterm-browser)
-        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios-browser --lib "$test_filter" ;; # rename-bridge
-      types|domios-types|codeterm-types) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-types/Cargo.toml -p domios-types --all-targets "$test_filter" ;; # rename-bridge
-      wire|domios-wire|codeterm-wire) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-wire/Cargo.toml -p domios-wire --all-targets "$test_filter" ;; # rename-bridge
-      sentinel|domios-sentinel|codeterm-sentinel) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-sentinel/Cargo.toml -p domios-sentinel --all-targets "$test_filter" ;; # rename-bridge
-      decision|domios-decision|codeterm-decision) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-decision/Cargo.toml -p domios-decision --all-targets "$test_filter" ;; # rename-bridge
-      provider-signals|domios-provider-signals|codeterm-provider-signals) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-provider-signals/Cargo.toml -p domios-provider-signals --all-targets "$test_filter" ;; # rename-bridge
-      storage|domios-storage|codeterm-storage) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-storage/Cargo.toml -p domios-storage --lib "$test_filter" ;; # rename-bridge
-      mem|domios-mem|codeterm-mem) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-mem/Cargo.toml -p domios-mem --lib "$test_filter" ;; # rename-bridge
-      mesh|domios-mesh|codeterm-mesh) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-mesh/Cargo.toml -p domios-mesh --lib "$test_filter" ;; # rename-bridge
-      blueprint-types|domios-blueprint-types|codeterm-blueprint-types) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-blueprint-types/Cargo.toml -p domios-blueprint-types --lib "$test_filter" ;; # rename-bridge
-      local-recording|domios-local-recording|codeterm-local-recording) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-local-recording/Cargo.toml -p domios-local-recording --lib "$test_filter" ;; # rename-bridge
-      plugin|domios-plugin|codeterm-plugin) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-plugin/Cargo.toml -p domios-plugin --lib "$test_filter" ;; # rename-bridge
+      util|codeterm-util)
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-util --lib "$test_filter"
+        ;;
+      browser|codeterm-browser)
+        scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p codeterm-browser --lib "$test_filter"
+        ;;
+      types) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter" ;;
+      wire) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-wire/Cargo.toml -p codeterm-wire --all-targets "$test_filter" ;;
+      sentinel) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-sentinel/Cargo.toml -p codeterm-sentinel --all-targets "$test_filter" ;;
+      decision) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-decision/Cargo.toml -p codeterm-decision --all-targets "$test_filter" ;;
+      provider-signals) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-provider-signals/Cargo.toml -p codeterm-provider-signals --all-targets "$test_filter" ;;
+      storage) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-storage/Cargo.toml -p codeterm-storage --lib "$test_filter" ;;
+      mem) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
+      mesh) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-mesh/Cargo.toml -p codeterm-mesh --lib "$test_filter" ;;
+      blueprint-types|codeterm-blueprint-types) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-blueprint-types/Cargo.toml -p codeterm-blueprint-types --lib "$test_filter" ;;
+      local-recording|codeterm-local-recording) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-local-recording/Cargo.toml -p codeterm-local-recording --lib "$test_filter" ;;
+      plugin) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-plugin/Cargo.toml -p codeterm-plugin --lib "$test_filter" ;;
       # Plural crate (channel/install/update), distinct from the singular confinement crate above.
-      plugins|domios-plugins|codeterm-plugins) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-plugins/Cargo.toml -p domios-plugins --lib "$test_filter" ;; # rename-bridge
-      cli|domios-cli|codeterm-cli) scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml -p domios-cli --all-targets "$test_filter" ;; # rename-bridge
-      domios-*) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "$test_scope" --lib "$test_filter" ;;
-      codeterm-*) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "domios-${test_scope#codeterm-}" --lib "$test_filter" ;; # rename-bridge
-      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a domios-* package; codeterm-* remains a rename bridge)" >&2; exit 2 ;; # rename-bridge
+      plugins) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
+      cli) scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
+      codeterm-*) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p "$test_scope" --lib "$test_filter" ;;
+      *) echo "Unknown test scope: $test_scope (expected billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package)" >&2; exit 2 ;;
     esac
     ;;
   nextest)
@@ -3227,7 +3226,7 @@ EOF
     fi
     # Whatever bundle-cli.js staged — the name carries the host triple, so do not
     # second-guess it here.
-    FRESH_CLI="$(ls src-tauri/bundled-cli/domios*.exe 2>/dev/null | head -1)"
+    FRESH_CLI="$(ls src-tauri/bundled-cli/codeterm*.exe 2>/dev/null | head -1)"
     if [ ! -x "$FRESH_CLI" ]; then
       echo "ERROR: freshly bundled CLI missing after build: $FRESH_CLI" >&2
       exit 1
@@ -3488,12 +3487,8 @@ LOCK_STORM_PY
     case "$cst_fix" in 0|1) ;; *) echo "ERROR: --fix must be 0 or 1" >&2; exit 2 ;; esac
     ensure_deps
     if [ -z "$cst_cdp" ]; then
-      if command -v domios >/dev/null 2>&1; then cst_cli=domios
-      elif command -v codeterm >/dev/null 2>&1; then cst_cli=codeterm # rename-bridge
-      else echo "ERROR: Domios CLI not found on PATH" >&2; exit 2
-      fi
-      "$cst_cli" plugin browser status 2>/dev/null | grep -q "no browser open" && "$cst_cli" plugin browser open >/dev/null
-      cst_cdp="$("$cst_cli" plugin browser endpoint | tail -n 1)"
+      codeterm plugin browser status 2>/dev/null | grep -q "no browser open" && codeterm plugin browser open >/dev/null
+      cst_cdp="$(codeterm plugin browser endpoint | tail -n 1)"
     fi
     case "$cst_cdp" in ws://*) ;; *) echo "ERROR: no browser CDP endpoint; pass --cdp ws://..." >&2; exit 2 ;; esac
     [ -n "$cst_out" ] || cst_out="$(mktemp -d "${TMPDIR:-/tmp}/chat-scroll-trace.XXXXXX")"
@@ -3568,8 +3563,7 @@ LOCK_STORM_PY
       trap cleanup_failed_prebuilt_launch EXIT INT TERM
     fi
     export PATH="$CT_DATA_DIR/bin:$PATH"
-    export DOMIOS_CLI_PATH="$(dev_cli_path)"
-    export CODETERM_CLI_PATH="$DOMIOS_CLI_PATH" # rename-bridge
+    export CODETERM_CLI_PATH="$(dev_cli_path)"
     export CODETERM_DEV=1
     configure_dev_cargo
     export CODETERM_WEB_DIST="$(pwd -P)/dist"
@@ -3670,11 +3664,9 @@ LOCK_STORM_PY
     install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
     export PATH="$CT_DATA_DIR/bin:$PATH"
     if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-      export DOMIOS_CLI_PATH="$CT_DATA_DIR/bin/domios"
-      export CODETERM_CLI_PATH="$DOMIOS_CLI_PATH" # rename-bridge
+      export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm"
     else
-      export DOMIOS_CLI_PATH="$CT_DATA_DIR/bin/domios.exe"
-      export CODETERM_CLI_PATH="$DOMIOS_CLI_PATH" # rename-bridge
+      export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm.exe"
     fi
     build_and_launch_dev "${@:2}"
 

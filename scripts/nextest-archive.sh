@@ -57,7 +57,7 @@ build_app_test_archive() {
   temporary="${archive%.tar.zst}.$CT_BUILD_JOB_ID.tar.zst"
   started="$(date +%s)"
   CARGO_TARGET_DIR="$cw/target/app" cargo nextest archive --manifest-path src-tauri/Cargo.toml \
-    -p domios-service-core -p domios --lib --no-default-features --cargo-profile test --archive-file "$temporary" || return $?
+    -p codeterm-service-core -p codeterm --lib --no-default-features --cargo-profile test --archive-file "$temporary" || return $?
   [ -s "$temporary" ] || { echo 'ERROR: nextest archive produced no artifact' >&2; return 74; }
   mv "$temporary" "$archive"
   printf '%s\n' "$tree" > "$receipt.$CT_BUILD_JOB_ID"
@@ -69,7 +69,7 @@ build_app_test_archive() {
 }
 
 configure_app_archive_run() {
-  local filterset='package(=domios-service-core) & kind(lib)' workspace
+  local filterset='package(=codeterm-service-core) & kind(lib)' workspace
   workspace="$(cd src-tauri && pwd -P)" || return $?
   [ -f "$workspace/Cargo.toml" ] || { echo 'ERROR: archive workspace remap has no Cargo.toml' >&2; return 2; }
   [ -z "${1:-}" ] || filterset="$filterset & ($1)"

@@ -13,12 +13,12 @@ import sys
 root = Path(sys.argv[1])
 docs = root / "src-tauri/prompts/00-README.md"
 prompts_dir = root / "src-tauri/prompts"
-prompts_rs = root / "src-tauri/crates/domios-prompts/src/prompts.rs"
-service_prompts_rs = root / "src-tauri/crates/domios-service-core/src/prompts.rs"
-plan_prompts_rs = root / "src-tauri/crates/domios-plan/src/service_plan/prompts_plan.rs"
-mem_prompts_rs = root / "src-tauri/crates/domios-mem/src/prompt_text.rs"
-seed_rs = root / "src-tauri/crates/domios-mem/src/seed.rs"
-plugin_prompts_rs = root / "src-tauri/crates/domios-plugin/src/prompts.rs"
+prompts_rs = root / "src-tauri/crates/codeterm-prompts/src/prompts.rs"
+service_prompts_rs = root / "src-tauri/crates/codeterm-service-core/src/prompts.rs"
+plan_prompts_rs = root / "src-tauri/crates/codeterm-plan/src/service_plan/prompts_plan.rs"
+mem_prompts_rs = root / "src-tauri/crates/codeterm-mem/src/prompt_text.rs"
+seed_rs = root / "src-tauri/crates/codeterm-mem/src/seed.rs"
+plugin_prompts_rs = root / "src-tauri/crates/codeterm-plugin/src/prompts.rs"
 
 doc_pairs = {}
 for line in docs.read_text(encoding="utf-8").splitlines():
@@ -88,15 +88,15 @@ for name in sorted(files & doc_pairs.keys() & loaders.keys()):
             f"Const mismatch for {name}: docs={doc_pairs[name]} loaders={sorted(loader_consts)}"
         )
 
-rule_prompt_owners = {source for source, _, _ in loaders.get("codeterm_rule.md", [])}  # rename-bridge
+codeterm_rule_owners = {source for source, _, _ in loaders.get("codeterm_rule.md", [])}
 expected_rule_owners = {
-    "src-tauri/crates/domios-prompts/src/prompts.rs",
-    "src-tauri/crates/domios-plugin/src/prompts.rs",
+    "src-tauri/crates/codeterm-prompts/src/prompts.rs",
+    "src-tauri/crates/codeterm-plugin/src/prompts.rs",
 }
-if rule_prompt_owners != expected_rule_owners:
-    errors.append(f"codeterm_rule.md split ownership drifted: {sorted(rule_prompt_owners)}")  # rename-bridge
+if codeterm_rule_owners != expected_rule_owners:
+    errors.append(f"codeterm_rule.md split ownership drifted: {sorted(codeterm_rule_owners)}")
 
-seed_owner = "src-tauri/crates/domios-mem/src/seed.rs"
+seed_owner = "src-tauri/crates/codeterm-mem/src/seed.rs"
 for name in sorted(file for file in files if file.startswith("seed/")):
     entries = loaders.get(name, [])
     if len(entries) != 1 or entries[0][0] != seed_owner or entries[0][2]:

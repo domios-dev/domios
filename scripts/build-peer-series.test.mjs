@@ -30,17 +30,17 @@ test('series spec accepts plain areas and refuses unsafe or ambiguous probes', (
 });
 
 test('check run parsing keeps every cargo Finished time, the wall and the gateway job', () => {
-  const output = 'Build gateway job J1 log: /g/jobs/J1.log\ncheck-queue: sha=x lane=0 packages=-p domios-api cli=0 exit=0 wall=42s full-log=/g/jobs/J1.check.log\n';
+  const output = 'Build gateway job J1 log: /g/jobs/J1.log\ncheck-queue: sha=x lane=0 packages=-p codeterm-api cli=0 exit=0 wall=42s full-log=/g/jobs/J1.check.log\n';
   const full = '    Finished `dev` profile [unoptimized] target(s) in 30.25s\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 05s\n';
   const run = parseCheckRun(output, full);
-  assert.deepEqual([run.wall, run.exit, run.gatewayJob, run.packages, run.finished], [42, 0, 'J1', '-p domios-api', [30.25, 65]]);
+  assert.deepEqual([run.wall, run.exit, run.gatewayJob, run.packages, run.finished], [42, 0, 'J1', '-p codeterm-api', [30.25, 65]]);
   assert.equal(parseCheckRun('check-queue: no Rust changes between a and b; nothing to check\n').skipped, true);
   assert.equal(parseCheckRun('check-queue: sha=x lane=0 packages= cli=0 exit=0 wall=1s full-log=/Users/k/Library/Application Support/g/J.check.log\n').fullLog,
     '/Users/k/Library/Application Support/g/J.check.log');
   const lines = seriesSummary([{ base_label: 'BEFORE', area: 'pty_io', seed: A, edit: A, runs: { warm: run, floor: run, edit: run } }],
     { expected: 2, stopped: null, resultsPath: '/r.json', otherGatewayJobs: [] });
   assert.equal(lines[0], 'series: areas=1/2 stopped=none results=/r.json');
-  assert.match(lines[1], /^BEFORE pty_io seed=aaaaaaaaa edit=aaaaaaaaa warm=42s\[30.25\+65\] floor=42s\[30.25\+65\] edit=42s\[30.25\+65\] exit=0\/0\/0 jobs=J1,J1,J1 scope=same\(-p_domios-api\)$/);
+  assert.match(lines[1], /^BEFORE pty_io seed=aaaaaaaaa edit=aaaaaaaaa warm=42s\[30.25\+65\] floor=42s\[30.25\+65\] edit=42s\[30.25\+65\] exit=0\/0\/0 jobs=J1,J1,J1 scope=same\(-p_codeterm-api\)$/);
   assert.equal(lines.at(-1), 'gateway-other=none');
   assert.deepEqual(otherGatewayJobs({ recent: [{ job_id: 'J1', started_at: '2026-01-01T00:00:10Z' }, { job_id: 'X', job: 'nextest', started_at: '2026-01-01T00:00:20Z' },
     { job_id: 'OLD', started_at: '2025-01-01T00:00:00Z' }] }, new Set(['J1']), Date.parse('2026-01-01T00:00:00Z')), ['X:nextest']);

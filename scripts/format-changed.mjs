@@ -12,15 +12,6 @@ const rustExtensions = new Set(['.rs']);
 const biomeExtensions = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts', '.json', '.jsonc',
 ]);
-const BIOME_PATH_BATCH_SIZE = 32;
-
-export function biomeFileBatches(files) {
-  const batches = [];
-  for (let offset = 0; offset < files.length; offset += BIOME_PATH_BATCH_SIZE) {
-    batches.push(files.slice(offset, offset + BIOME_PATH_BATCH_SIZE));
-  }
-  return batches;
-}
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -175,12 +166,10 @@ export function formatChangedFiles(root, baseRef = 'origin/develop') {
 
   if (biomeFiles.length > 0) {
     const [command, prefixArgs] = biomeCommand();
-    for (const batch of biomeFileBatches(biomeFiles)) {
-      run(command, [
-        ...prefixArgs, 'exec', 'biome', 'check', '--write', '--formatter-enabled=false',
-        '--no-errors-on-unmatched', '--', ...batch,
-      ], { cwd: absoluteRoot });
-    }
+    run(command, [
+      ...prefixArgs, 'exec', 'biome', 'check', '--write', '--formatter-enabled=false',
+      '--no-errors-on-unmatched', '--', ...biomeFiles,
+    ], { cwd: absoluteRoot });
   }
 
   const changedByTools = formatFiles.some(file =>

@@ -10,10 +10,10 @@ export function checkQueuePlan(metadata, targets, changes, root) {
   return packages.filter(pkg => requested.includes(pkg.name)).map(pkg => {
     const directory = path.relative(root, path.dirname(pkg.manifest_path)).replaceAll('\\', '/');
     const files = changes.split('\n').filter(Boolean).map(line => line.split('\t')).filter(fields => fields.slice(1).some(file => file.startsWith(`${directory}/`)));
-    const tests = pkg.name !== 'domios-service-core' && files.some(([status, ...paths]) =>
+    const tests = pkg.name !== 'codeterm-service-core' && files.some(([status, ...paths]) =>
       paths.some(file => /(?:^|\/)(?:tests\/|tests\.rs$|[^/]+_tests\.rs$)/.test(file)) ||
       (/^[AR]/.test(status) && paths.some(file => file.endsWith('/Cargo.toml'))));
-    return { name: pkg.name, tests, bins: pkg.name === 'domios', lib: pkg.targets.some(target => target.kind.some(kind => ['lib', 'rlib', 'proc-macro', 'cdylib', 'staticlib'].includes(kind))) };
+    return { name: pkg.name, tests, bins: pkg.name === 'codeterm', lib: pkg.targets.some(target => target.kind.some(kind => ['lib', 'rlib', 'proc-macro', 'cdylib', 'staticlib'].includes(kind))) };
   });
 }
 

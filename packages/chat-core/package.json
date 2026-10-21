@@ -1,6 +1,6 @@
 {
   "license": "PolyForm-Shield-1.0.0",
-  "name": "@domios/chat-core",
+  "name": "@codeterm/chat-core",
   "version": "1.15.0",
   "private": true,
   "type": "module",

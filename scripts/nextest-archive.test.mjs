@@ -27,10 +27,10 @@ test('exact archived selector argv passes nextest parsing and rejects the old Ca
     const argv = fs.readFileSync(path.join(directory, 'argv'), 'utf8').split('\0').slice(0, -1);
     const workspace = fs.readFileSync(path.join(directory, 'workspace'), 'utf8').trim();
     assert.equal(path.posix.basename(workspace), path.basename(directory));
-    assert.deepEqual(argv, ['--archive-file', workspace + '/missing.tar.zst', '--workspace-remap', workspace + '/src-tauri', '--filter-expr', 'package(=domios-service-core) & kind(lib)', '--no-tests=fail', 'opaque selector']);
+    assert.deepEqual(argv, ['--archive-file', workspace + '/missing.tar.zst', '--workspace-remap', workspace + '/src-tauri', '--filter-expr', 'package(=codeterm-service-core) & kind(lib)', '--no-tests=fail', 'opaque selector']);
     assert.match(fs.readFileSync(path.join(directory, 'src-tauri/Cargo.toml'), 'utf8'), /\[workspace\]/);
     const scoped = fs.readFileSync(path.join(directory, 'scoped-argv'), 'utf8').split('\0').slice(0, -1);
-    assert.equal(scoped.at(-1), 'package(=domios-service-core) & kind(lib) & (test(opaque) | test(other))');
+    assert.equal(scoped.at(-1), 'package(=codeterm-service-core) & kind(lib) & (test(opaque) | test(other))');
     const cargo = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
     const help = spawnSync(cargo, ['nextest', 'run', '--help'], { encoding: 'utf8' });
     assert.equal(help.status, 0, help.stderr);
@@ -40,7 +40,7 @@ test('exact archived selector argv passes nextest parsing and rejects the old Ca
     assert.notEqual(parsed.status, 2, parsed.stderr);
     assert.match(parsed.stderr, /archive/i);
     assert.doesNotMatch(parsed.stderr, /Usage:|cannot be used with/);
-    const rejected = spawnSync(cargo, ['nextest', 'run', ...argv, '-p', 'domios-service-core', '--lib'], { cwd: directory, encoding: 'utf8' });
+    const rejected = spawnSync(cargo, ['nextest', 'run', ...argv, '-p', 'codeterm-service-core', '--lib'], { cwd: directory, encoding: 'utf8' });
     assert.equal(rejected.status, 2, rejected.stderr);
     assert.match(rejected.stderr, /Usage:/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
@@ -86,10 +86,10 @@ test('one atomic root and core archive per SHA is reused by app selectors withou
     const calls = fs.readFileSync(path.join(directory, 'calls.log'), 'utf8').trim().split('\n');
     const builds = calls.filter(line => line.startsWith('nextest archive'));
     assert.equal(builds.length, 1);
-    assert.match(builds[0], /-p domios-service-core -p domios --lib --no-default-features --cargo-profile test/);
+    assert.match(builds[0], /-p codeterm-service-core -p codeterm --lib --no-default-features --cargo-profile test/);
     assert.match(builds[0], /opaque-job\.tar\.zst/);
     assert.equal(fs.readFileSync(path.join(directory, 'gateway/test-archives/opaque-sha/app-no-embeddings.tar.zst'), 'utf8'), 'artifact');
-    assert.ok(calls.some(line => /^RUN --archive-file .*app-no-embeddings\.tar\.zst --workspace-remap .* --filter-expr package\(=domios-service-core\) & kind\(lib\) --no-tests=fail opaque-selector$/.test(line)));
+    assert.ok(calls.some(line => /^RUN --archive-file .*app-no-embeddings\.tar\.zst --workspace-remap .* --filter-expr package\(=codeterm-service-core\) & kind\(lib\) --no-tests=fail opaque-selector$/.test(line)));
     assert.match(result.stdout, /selector=opaque-a exit=0 wall=\d+s/);
     assert.match(result.stdout, /selector=opaque-b exit=0 wall=\d+s/);
     assert.match(result.stdout, /selector=opaque-selector exit=0 wall=\d+s/);

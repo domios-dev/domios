@@ -29,11 +29,6 @@ function buildIdentityAsset(buildHash: string): Plugin {
 export default defineConfig(({ command }) => {
   const buildHash = resolveBuildIdentity();
   return {
-    resolve: {
-      alias: [
-        { find: /^@codeterm\/(.*)$/, replacement: "@domios/$1" }, // rename-bridge
-      ],
-    },
     // AND from the daemon's /web mount (web mirror) without path rewrites.
     base: "./",
     define: {

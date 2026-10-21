@@ -71,7 +71,7 @@ for (const cacheRoot of [false, true]) {
       prepare_bundle_stubs() { :; }
       configure_lane_workspace_wrapper() { :; }
       cargo() { [ "$CARGO_BUILD_BUILD_DIR" != canonical-build-directory ]; printf '%s' "$CARGO_BUILD_BUILD_DIR"; }
-      lane_check domios-fixture
+      lane_check codeterm-fixture
       [ "$CARGO_BUILD_BUILD_DIR" = canonical-build-directory ]
     `], { cwd:path.resolve(import.meta.dirname, '../..'), encoding:'utf8' });
     assert.equal(result.status, 0, result.stderr);
@@ -119,24 +119,22 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
     configure_lane_workspace_wrapper() { :; }
     enter_cargo_gateway() { return 99; }
     cargo() { printf 'jobs=%s %s\\n' "$CARGO_BUILD_JOBS" "$*"; return 41; }
-    lane_check domios-fixture && exit 1 || [ "$?" = 41 ]
-    lane_check domios-fixture --tests && exit 1 || [ "$?" = 41 ]
-    lane_check domios-pty domios-service-core --tests && exit 1 || [ "$?" = 41 ]
-    lane_check domios-cli --tests && exit 1 || [ "$?" = 41 ]
-    lane_check codeterm-cli --tests && exit 1 || [ "$?" = 41 ] # rename-bridge
-    lane_check domios-fixture --tests --timings && exit 1 || [ "$?" = 41 ]
-    lane_check domios-fixture --all && exit 1 || [ "$?" = 2 ]
-    lane_check domios-fixture domios-cli && exit 1 || [ "$?" = 2 ]
+    lane_check codeterm-fixture && exit 1 || [ "$?" = 41 ]
+    lane_check codeterm-fixture --tests && exit 1 || [ "$?" = 41 ]
+    lane_check codeterm-pty codeterm-service-core --tests && exit 1 || [ "$?" = 41 ]
+    lane_check codeterm-cli --tests && exit 1 || [ "$?" = 41 ]
+    lane_check codeterm-fixture --tests --timings && exit 1 || [ "$?" = 41 ]
+    lane_check codeterm-fixture --all && exit 1 || [ "$?" = 2 ]
+    lane_check codeterm-fixture codeterm-cli && exit 1 || [ "$?" = 2 ]
   `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /no live sccache server; this check will compile without cache/);
   assert.deepEqual(result.stdout.trim().split(/\r?\n/).filter(line => line.startsWith('jobs=')), [
-    'jobs=4 check --manifest-path src-tauri/Cargo.toml -p domios-fixture --lib',
-    'jobs=4 check --manifest-path src-tauri/Cargo.toml -p domios-fixture --lib --tests',
-    'jobs=4 check --manifest-path src-tauri/Cargo.toml -p domios-pty -p domios-service-core --lib --tests',
-    'jobs=4 check --manifest-path cli/Cargo.toml -p domios-cli --bin domios --tests',
-    'jobs=4 check --manifest-path cli/Cargo.toml -p domios-cli --bin domios --tests',
-    'jobs=4 check --manifest-path src-tauri/Cargo.toml -p domios-fixture --lib --tests --timings',
+    'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib',
+    'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests',
+    'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-pty -p codeterm-service-core --lib --tests',
+    'jobs=4 check --manifest-path cli/Cargo.toml -p codeterm-cli --bin codeterm --tests',
+    'jobs=4 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests --timings',
   ]);
 });
 
@@ -171,7 +169,7 @@ test('lane workspace wrapper stays scoped to the lane subshell', () => {
     prepare_dev_frontend_dist() { :; }
     prepare_bundle_stubs() { :; }
     cargo() { [ "$RUSTC_WORKSPACE_WRAPPER" != canonical-wrapper ]; [ -f "$RUSTC_WORKSPACE_WRAPPER" ]; }
-    lane_check domios-fixture
+    lane_check codeterm-fixture
     [ "$RUSTC_WORKSPACE_WRAPPER" = canonical-wrapper ]
   `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
@@ -208,7 +206,7 @@ test('real Windows service-core library and test targets accept the native wrapp
   skip: process.platform !== 'win32' || process.env.CODETERM_LANE_REAL_CRATE_TEST !== '1',
   timeout: 570_000,
 }, () => {
-  const result = spawnSync(bash, ['build.sh', 'lane-check', 'domios-service-core', '--tests'], {
+  const result = spawnSync(bash, ['build.sh', 'lane-check', 'codeterm-service-core', '--tests'], {
     cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8', timeout: 540_000, maxBuffer: 16 * 1024 * 1024,
   });
   assert.equal(result.status, 0, `${result.error?.message ?? ''}\n${result.stdout}\n${result.stderr}`);

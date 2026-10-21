@@ -30,7 +30,7 @@ echo "dev daemon   : $DEV_BUILD  $( [ "$DEV_BUILD" = "$GIT_HEAD" ] && echo '(MAT
 
 if [ "$REGEN" = 1 ]; then
   echo "================ REGENERATE TIMELINES (after classifier change) ================"
-  cargo build --manifest-path src-tauri/Cargo.toml -p domios-devtools --example render_timeline 2>&1 | tail -2
+  cargo build --manifest-path src-tauri/Cargo.toml -p codeterm-devtools --example render_timeline 2>&1 | tail -2
   RT="src-tauri/target/debug/examples/render_timeline"
   n=0
   while IFS= read -r cast; do

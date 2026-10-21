@@ -1,17 +1,32 @@
-import { commandIsOwned as isOwnedFrom1149 } from "./upgrade_from_1_14_9";
-
 export interface HookCmd { type?: string; command?: string; timeout?: number; _source?: string }
 export interface HookEntry { matcher?: string; hooks?: HookCmd[] }
-export interface ClaudeSettings { hooks?: Record<string, HookEntry[]> }
 
-export const DOMIOS_HOOK_MARKER = "domios-hook-v4";
-export const DOMIOS_HOOK_TIMEOUT_SECONDS = 5;
-export const DOMIOS_HOOK_MARKER_HEADER = "X-Domios-Hook: domios-hook-v4";
-export const DOMIOS_HOOK_MARKER_ARG = '-H "' + DOMIOS_HOOK_MARKER_HEADER + '"';
+export const CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+export const CODETERM_HOOK_TIMEOUT_SECONDS = 5;
+export const CODETERM_HOOK_MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
+export const CODETERM_HOOK_MARKER_ARG = '-H "' + CODETERM_HOOK_MARKER_HEADER + '"';
 export const INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
 
+const CODETERM_CURRENT_ROUTES = [
+  "/api/tabs/$CODETERM_TAB_ID/hook/permission",
+  "/api/tabs/$CODETERM_TAB_ID/hook/stop",
+  "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+  "$CODETERM_API_URL/api/mem/flush",
+];
+
+const LEGACY_V2_SESSION_START =
+  'curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start '
+  + "-H 'Content-Type: application/json' -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\" "
+  + "-d '{}' > /dev/null 2>&1 || true";
+const LEGACY_V2_STOP =
+  'curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop '
+  + "-H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true";
+const LEGACY_V2_COMMANDS = new Set([LEGACY_V2_SESSION_START, LEGACY_V2_STOP]);
+
+export interface ClaudeSettings { hooks?: Record<string, HookEntry[]> }
+
 export function commandCarriesMarker(command: string): boolean {
-  return command.indexOf(DOMIOS_HOOK_MARKER_HEADER) !== -1;
+  return command.indexOf(CODETERM_HOOK_MARKER_HEADER) !== -1;
 }
 
 export function entryCarriesMarker(entry: HookEntry): boolean {
@@ -21,10 +36,10 @@ export function entryCarriesMarker(entry: HookEntry): boolean {
   });
 }
 
-export function entryIs1149Hook(entry: HookEntry): boolean {
+export function entryIsLegacyPaneCodetermHook(entry: HookEntry): boolean {
   const hooks = entry && entry.hooks;
   return Array.isArray(hooks) && hooks.some((hook) => {
-    return typeof hook.command === "string" && isOwnedFrom1149(hook.command);
+    return typeof hook.command === "string" && LEGACY_V2_COMMANDS.has(hook.command);
   });
 }
 
@@ -37,24 +52,42 @@ export function isCurrentHookCommand(command: string, platform: string): boolean
     && command.indexOf("|| true") === -1;
 }
 
-export function isDomiosHook(entry: HookEntry): boolean {
+function commandIsCurrentUnmarked(command: string): boolean {
+  if (command.indexOf("$CODETERM_API_URL") === -1) return false;
+  if (command.indexOf("$CODETERM_TAB_ID") === -1) return false;
+  if (command.indexOf("$CODETERM_API_TOKEN") === -1) return false;
+  return CODETERM_CURRENT_ROUTES.some((route) => command.indexOf(route) !== -1);
+}
+
+export function isCodetermHook(entry: HookEntry): boolean {
   const hooks = entry && entry.hooks;
   if (!Array.isArray(hooks)) return false;
   return hooks.some((hook) => {
-    if (!hook || typeof hook.command !== "string") return false;
-    return commandCarriesMarker(hook.command) || isOwnedFrom1149(hook.command);
+    if (!hook) return false;
+    if (typeof hook._source === "string"
+        && (hook._source.indexOf("codeterm-hook") === 0 || hook._source === "codeterm")) {
+      return true;
+    }
+    const command = hook.command;
+    return typeof command === "string"
+      && (commandCarriesMarker(command)
+        || commandIsCurrentUnmarked(command)
+        || LEGACY_V2_COMMANDS.has(command));
   });
 }
 
 export function entriesCarryMarker(entries: HookEntry[]): boolean {
   return entries.every((entry) => {
-    if (!isDomiosHook(entry)) return true;
-    return entryCarriesMarker(entry);
+    if (!isCodetermHook(entry)) return true;
+    const hooks = (entry && entry.hooks) || [];
+    return hooks.some((hook) => {
+      return typeof hook.command === "string" && commandCarriesMarker(hook.command);
+    });
   });
 }
 
 export function entriesHaveBoundedTimeout(entries: HookEntry[]): boolean {
   return entries.every((entry) => (entry.hooks || []).every((hook) => {
-    return !isDomiosHook({ hooks: [hook] }) || hook.timeout === DOMIOS_HOOK_TIMEOUT_SECONDS;
+    return !isCodetermHook({ hooks: [hook] }) || hook.timeout === CODETERM_HOOK_TIMEOUT_SECONDS;
   }));
 }

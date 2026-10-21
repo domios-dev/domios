@@ -15,7 +15,7 @@ function requiredPaths(target) {
   const windows = target.endsWith('-pc-windows-msvc');
   const mac = target.endsWith('-apple-darwin');
   const server = windows ? 'domios-server.exe' : 'domios-server';
-  const cli = windows ? 'domios.exe' : 'domios';
+  const cli = windows ? 'codeterm.exe' : 'codeterm';
   const files = [
     'server-component.json', `cli/${cli}`, 'dist/index.html',
     'LICENSE', 'NOTICE', `domios-server/${server}`,

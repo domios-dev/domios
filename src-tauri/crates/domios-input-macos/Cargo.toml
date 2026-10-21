@@ -1,8 +1,0 @@
-[package]
-license = "PolyForm-Shield-1.0.0"
-name = "domios-input-macos"
-version = "0.0.0"
-edition = "2021"
-
-[lints]
-workspace = true

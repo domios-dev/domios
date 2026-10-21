@@ -1,0 +1,15 @@
+[package]
+license = "PolyForm-Shield-1.0.0"
+name = "codeterm-wire"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+ts-rs = { version = "12.0.1", features = ["no-serde-warnings"] }
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true

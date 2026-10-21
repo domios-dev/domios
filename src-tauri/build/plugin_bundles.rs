@@ -1,6 +1,6 @@
-#[path = "../crates/domios-plugin/src/bundle_hash.rs"]
+#[path = "../crates/codeterm-plugin/src/bundle_hash.rs"]
 mod bundle_hash;
-#[path = "../crates/domios-util/src/bundled_plugin_dirs.rs"]
+#[path = "../crates/codeterm-util/src/bundled_plugin_dirs.rs"]
 mod bundled_plugin_dirs;
 
 pub fn generate_system_plugin_hashes(manifest_dir: &std::path::Path) {

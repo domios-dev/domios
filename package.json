@@ -1,5 +1,5 @@
 {
-  "name": "domios",
+  "name": "codeterm",
   "version": "1.15.0",
   "description": "",
   "main": "index.js",
@@ -39,7 +39,7 @@
     "test:manager-bootstrap": "node evals/manager-bootstrap/live-smoke.mjs",
     "test:provider-matrix": "node evals/manager-bootstrap/provider-matrix.mjs",
     "test:general-agent-provider": "node evals/general-agent/provider-matrix.mjs",
-    "check:unused-exports": "knip --workspace @domios/chat-core --exports",
+    "check:unused-exports": "knip --workspace @codeterm/chat-core --exports",
     "types:export": "node scripts/export-chat-types.mjs",
     "types:check": "pnpm types:export && node scripts/check-generated-chat-types.mjs && git diff --exit-code -- gen/ packages/chat-core/src/gen/ packages/plugin-sdk/src/gen/",
     "knip:report": "knip --reporter compact --no-progress --no-exit-code",
@@ -84,11 +84,11 @@
     "yaml": "2.9.0"
   },
   "dependencies": {
-    "@domios/chat-core": "workspace:*",
-    "@domios/chat-ui": "workspace:*",
-    "@domios/provider-claude": "workspace:*",
-    "@domios/provider-codex": "workspace:*",
-    "@domios/provider-opencode": "workspace:*",
+    "@codeterm/chat-core": "workspace:*",
+    "@codeterm/chat-ui": "workspace:*",
+    "@codeterm/provider-claude": "workspace:*",
+    "@codeterm/provider-codex": "workspace:*",
+    "@codeterm/provider-opencode": "workspace:*",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",

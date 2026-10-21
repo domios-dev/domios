@@ -7,14 +7,14 @@ const fs = require("fs");
 const path = require("path");
 
 const isWindows = process.platform === "win32";
-const binName = isWindows ? "domios.exe" : "domios";
+const binName = isWindows ? "codeterm.exe" : "codeterm";
 const destDir = path.join("src-tauri", "bundled-cli");
 const dest = path.join(destDir, binName);
 
 fs.mkdirSync(destDir, { recursive: true });
 if (!fs.existsSync(dest)) {
   fs.writeFileSync(dest, "");
-  console.log(`domios CLI stub created: ${dest}`);
+  console.log(`codeterm CLI stub created: ${dest}`);
 } else {
-  console.log(`domios CLI stub already present: ${dest}`);
+  console.log(`codeterm CLI stub already present: ${dest}`);
 }

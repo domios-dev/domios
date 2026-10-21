@@ -1,6 +1,6 @@
 {
   "license": "PolyForm-Shield-1.0.0",
-  "name": "@domios/provider-codex",
+  "name": "@codeterm/provider-codex",
   "version": "1.14.48",
   "private": true,
   "type": "module",
@@ -12,10 +12,10 @@
     "./src/parser": "./src/parser.ts"
   },
   "dependencies": {
-    "@domios/chat-core": "workspace:*"
+    "@codeterm/chat-core": "workspace:*"
   },
   "devDependencies": {
-    "@domios/plugin-sdk": "workspace:*"
+    "@codeterm/plugin-sdk": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0"

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
 
-const source = readFileSync(new URL("../../src-tauri/crates/domios-surface/src/surface/browser/wait.js", import.meta.url), "utf8");
+const source = readFileSync(new URL("../../src-tauri/crates/codeterm-surface/src/surface/browser/wait.js", import.meta.url), "utf8");
 
 function fixture() {
   const observers = new Set();

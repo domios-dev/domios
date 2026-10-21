@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
 
-const source = readFileSync(new URL("../../src-tauri/crates/domios-surface/src/surface/browser/selection.js", import.meta.url), "utf8");
+const source = readFileSync(new URL("../../src-tauri/crates/codeterm-surface/src/surface/browser/selection.js", import.meta.url), "utf8");
 const read = (activeElement, selected = "") => vm.runInNewContext(source, { document: { activeElement }, window: { getSelection: () => selected } });
 
 test("copy reads selected page text and selected input ranges", () => {

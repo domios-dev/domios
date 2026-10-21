@@ -3,13 +3,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const sourceRoot = path.resolve(process.argv[2] ?? fileURLToPath(new URL('../src-tauri', import.meta.url)));
-const core = 'crates/domios-service-core/src/service/';
+const core = 'crates/codeterm-service-core/src/service/';
 const contentionFixtures = [
-  { file: 'crates/domios-pty/src/dispatch/tests.rs', binding: 'writer', reason: 'contention fixture' },
+  { file: 'crates/codeterm-pty/src/dispatch/tests.rs', binding: 'writer', reason: 'contention fixture' },
   { file: `${core}command_port_impl.rs`, binding: 'lifecycle_owner', reason: 'contention fixture' },
   { file: `${core}status_reconciliation.rs`, binding: '_lifecycle_owner', reason: 'contention fixture' },
   { file: `${core}status_reconciliation.rs`, binding: 'lifecycle_owner', reason: 'contention fixture' },
-  { file: 'crates/domios-api/src/tab_chat_routes.rs', binding: 'guard', reason: 'contention fixture' },
+  { file: 'crates/codeterm-api/src/tab_chat_routes.rs', binding: 'guard', reason: 'contention fixture' },
 ];
 const guard = /\blet\s+([a-z_][a-z_0-9]*)\s*=\s*(?:[a-zA-Z_][a-zA-Z_0-9]*\s*\.\s*)*mux\s*\.\s*write\s*\(\s*\)\s*;/g;
 const readMethods = 'snapshot|get_tab|tab_id_for_pty|resolve_tab_id|get_focused_tab_id|other_session_ids|tab_ids_with_session|list_workspaces|to_session_snapshot';
@@ -35,7 +35,7 @@ function scan(directory) {
       }
       fail(file, source, match);
     }
-    if (file.startsWith('crates/domios-service-core/src/')) {
+    if (file.startsWith('crates/codeterm-service-core/src/')) {
       for (const match of source.matchAll(chainedRead)) fail(file, source, match);
     }
   }

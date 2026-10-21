@@ -735,18 +735,18 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   assert(!!res && res.ok === true, "installIntegration succeeds", JSON.stringify(res));
   const cmd = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.command ?? "");
   assert(
-    cmd.indexOf("X-Domios-Binding-Nonce: ${DOMIOS_SESSION_BINDING_NONCE}") !== -1,
+    cmd.indexOf("X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}") !== -1,
     "session_start hook curl carries the binding-nonce header",
     cmd,
   );
-  assert(cmd.indexOf("X-Domios-Hook: domios-hook-v4") !== -1,
+  assert(cmd.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
     "session_start hook command carries its ownership marker", cmd);
   assert(
     !writtenScript.includes("codeterm-profile-cleanup-v1") &&
       !writtenScript.includes("codeterm-%CODETERM_TAB_ID%.config.toml") &&
       writtenScript.includes("curl.exe") &&
       writtenScript.includes("--max-time 30") &&
-      writtenScript.includes("X-Domios-Hook: "),
+      writtenScript.includes("X-CodeTerm-Hook: "),
     "Windows SessionStart leaves the active profile for Codex to finish writing",
     writtenScript,
   );
@@ -754,7 +754,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   assert(windowsCommand.startsWith('cmd.exe /d /s /c call "'),
     "commandWindows wraps the quoted helper path in cmd for PowerShell and cmd parsing", windowsCommand);
   assert(windowsCommand.indexOf("powershell") === -1, "Windows hook command avoids a PowerShell spawn", windowsCommand);
-  assert(windowsCommand.indexOf("X-Domios-Hook: domios-hook-v4") !== -1,
+  assert(windowsCommand.indexOf("X-CodeTerm-Hook: codeterm-codex-session-binding-v1") !== -1,
     "Windows hook command carries the in-command ownership marker", windowsCommand);
 }
 
@@ -985,17 +985,17 @@ for (const [name, fixture] of [
       },
     });
   const preNonce =
-    "curl -s -X POST \"$DOMIOS_API_URL/api/tabs/$DOMIOS_TAB_ID/hook/session_start\" " +
-    "-H 'X-Domios-Agent-Provider: codex' " +
-    '-H "X-Domios-Hook: domios-hook-v4" ' +
-    '-H "Authorization: Bearer ${DOMIOS_API_TOKEN}" --data-binary @-';
+    "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
+    "-H 'X-CodeTerm-Agent-Provider: codex' " +
+    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
+    '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" --data-binary @-';
   const old = loadCodexWithHost(sessionStartHook(preNonce));
   assert(
     old.checkIntegration().session_start_hook === false,
     "pre-nonce hook is reported not-current (forces reinstall)",
   );
   const current = loadCodexWithHost(
-    sessionStartHook(preNonce + ' -H "X-Domios-Binding-Nonce: ${DOMIOS_SESSION_BINDING_NONCE}"'),
+    sessionStartHook(preNonce + ' -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"'),
   );
   assert(
     current.checkIntegration().session_start_hook === true,
@@ -1009,14 +1009,14 @@ for (const [name, fixture] of [
   const hooksPath = "/tmp/home/.codex/hooks.json";
   const configPath = "/tmp/home/.codex/config.toml";
   const nonceCommand =
-    "curl -s -X POST \"$DOMIOS_API_URL/api/tabs/$DOMIOS_TAB_ID/hook/session_start\" " +
-    "-H 'X-Domios-Agent-Provider: codex' " +
-    '-H "X-Domios-Hook: domios-hook-v4" ' +
-    '-H "Authorization: Bearer ${DOMIOS_API_TOKEN}" ' +
-    '-H "X-Domios-Binding-Nonce: ${DOMIOS_SESSION_BINDING_NONCE}" --data-binary @-';
+    "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
+    "-H 'X-CodeTerm-Agent-Provider: codex' " +
+    '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
+    '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
+    '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-';
   const stopCommand = nonceCommand.replace("/hook/session_start", "/hook/stop");
   const ownedHook = (command: string, timeout: number) => ({
-    type: "command", command, timeout, _source: "domios-hook-v4",
+    type: "command", command, timeout, _source: "codeterm-codex-session-binding-v1",
   });
   const hooksJson = (timeout: number) => JSON.stringify({
     hooks: {
@@ -1106,12 +1106,12 @@ for (const [name, fixture] of [
   const stale = JSON.stringify({
     hooks: {
       SessionStart: [{ hooks: [{
-        _source: "domios-hook-v4",
+        _source: "codeterm-codex-session-binding-v1",
         command:
-          "curl -s -X POST \"$DOMIOS_API_URL/api/tabs/$DOMIOS_TAB_ID/hook/session_start\" " +
-          '-H "Authorization: Bearer ${DOMIOS_API_TOKEN}" ' +
-          '-H "X-Domios-Hook: domios-hook-v4" ' +
-          '-H "X-Domios-Binding-Nonce: ${DOMIOS_SESSION_BINDING_NONCE}"',
+          "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
+          '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
+          '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" ' +
+          '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"',
       }] }],
       Stop: [],
     },
