@@ -4,6 +4,8 @@ mod test_support;
 #[path = "../../../../testbench/rust/state_calibration.rs"]
 mod state_calibration;
 
+extern crate domios_service_core as codeterm_service_core; // rename-bridge
+
 #[test]
 fn state_calibration_bench() {
     let root = state_calibration::state_dumps_root();

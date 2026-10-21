@@ -1,5 +1,8 @@
 #![cfg(test)]
 
+extern crate domios_bridge as codeterm_bridge; // rename-bridge
+extern crate domios_service_core as codeterm_service_core; // rename-bridge
+
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

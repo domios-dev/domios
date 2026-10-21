@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 #[path = "../../../../testbench/rust/harness.rs"]
 mod harness;
 
+extern crate domios_service_core as codeterm_service_core; // rename-bridge
+
 #[test]
 fn snapshot_testbench_library_is_green() {
     let root = harness::snapshots_root();
