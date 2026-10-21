@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
+import { Button } from "./Button";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { X, Mic, Diff, Film, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
 import { attachmentFileName, attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
@@ -55,20 +56,21 @@ function fileName(path: string): string {
 }
 
 /** The card a hovered capsule shows: the image itself, the head of its text, or what the capsule points at. */
-export function CapsulePreview({ kind, path, label, actions, image: suppliedImage }: { kind: AttachmentKind; path: string; label: string; actions?: ReactNode; image?: LocalImage }) {
+export function CapsulePreview({ kind, path, label, actions, onClose, closeLabel = "Close attachment preview", image: suppliedImage }: { kind: AttachmentKind; path: string; label: string; actions?: ReactNode; onClose?: () => void; closeLabel?: string; image?: LocalImage }) {
   const localImage = useLocalImage(kind === "image" && !suppliedImage ? path : undefined);
   const image = suppliedImage ?? localImage;
   const snippet = useLocalTextPreview(attachmentPreviewKind({ kind, path }) === "document" ? path : undefined);
   const Icon = CAPSULE_ICONS[kind];
   return (
-    <div
-      className="flex w-max max-w-[min(24rem,80vw)] flex-col gap-1.5 overflow-hidden rounded-xl border p-1.5 text-xs shadow-lg backdrop-blur-md"
+    <div role="region" aria-label={`Preview ${label}`} data-copy-skip
+      className="select-none flex w-max max-w-[min(24rem,80vw)] flex-col gap-1.5 overflow-hidden rounded-xl border p-1.5 text-xs shadow-lg backdrop-blur-md"
       style={{
         background: "color-mix(in srgb, var(--ct-surface, #161b22) 92%, transparent)",
         borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)",
         color: "var(--ct-fg)",
       }}
     >
+      {(actions || onClose) && <div role="group" aria-label="Preview actions" className="flex shrink-0 items-center justify-end gap-1">{actions}{onClose && <Button variant="icon" aria-label={closeLabel} onClick={onClose} style={{ minWidth: 44, minHeight: 44 }}><X size={18} aria-hidden /></Button>}</div>}
       {kind === "image" && (
         <div className="flex min-h-16 min-w-24 items-center justify-center overflow-hidden rounded-lg" style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 75%, transparent)" }}>
           {image.src
@@ -76,12 +78,11 @@ export function CapsulePreview({ kind, path, label, actions, image: suppliedImag
             : image.failed ? <span role="alert">Image unavailable <button type="button" aria-label={`Retry image ${label}`} onClick={image.retry}>Retry</button></span> : <ImageIcon size={18} aria-hidden className="opacity-40" />}
         </div>
       )}
-      <div className="flex min-w-0 items-center gap-1.5 px-1">
+      {kind !== "image" && <div className="flex min-w-0 items-center gap-1.5 px-1">
         <Icon size={12} aria-hidden className="shrink-0 opacity-70" />
         <span className="shrink-0 font-medium">{KIND_NAMES[kind]}</span>
         <span className="min-w-0 truncate font-mono text-[11px]" style={CAPSULE_DETAIL_STYLE} title={path}>{STORED_CONTEXT.has(kind) ? label : fileName(path)}</span>
-        {actions}
-      </div>
+      </div>}
       {snippet && (
         <pre
           data-testid="capsule-preview-text"
@@ -95,11 +96,33 @@ export function CapsulePreview({ kind, path, label, actions, image: suppliedImag
   );
 }
 
-/** A capsule the user typed inline: images open fullscreen, everything else reveals on disk. */
-export function AttachmentCapsule({ attachment, image: nativeImage, labelContent, actions }: { attachment: AttachmentMarker; image?: ChatAttachment; labelContent?: ReactNode; actions?: ReactNode }) {
+interface AttachmentCapsuleProps {
+  attachment: AttachmentMarker;
+  image?: ChatAttachment;
+  labelContent?: ReactNode;
+  actions?: ReactNode;
+  inert?: boolean;
+  decoration?: ReactNode;
+  spanProps?: HTMLAttributes<HTMLSpanElement> & Partial<Record<`data-${string}`, string | number | boolean | undefined>>;
+}
+
+function CapsuleContent({ attachment, labelContent, decoration, spanProps }: AttachmentCapsuleProps) {
+  const label = attachment.label ?? fileName(attachment.path);
+  const { name, detail } = capsuleLabelParts(label);
+  const kindLabel = ["image", "video", "file"].includes(attachment.kind) ? attachment.kind : null;
+  return <span {...spanProps} className={labelContent ? "ct-capsule" : "ct-capsule ct-capsule--padded"}>
+    {decoration ?? <CapsuleDecor kind={attachment.kind} />}
+    {labelContent ?? <>{kindLabel ?? name}{!kindLabel && detail && <span className="ct-capsule__detail">{detail}</span>}</>}
+  </span>;
+}
+
+export function AttachmentCapsule(props: AttachmentCapsuleProps) {
+  return props.inert ? <CapsuleContent {...props} /> : <InteractiveAttachmentCapsule {...props} />;
+}
+
+function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelContent, actions, decoration, spanProps }: AttachmentCapsuleProps) {
   const { kind, path } = attachment;
   const label = attachment.label ?? fileName(path);
-  const { name, detail } = capsuleLabelParts(label);
   const inline = nativeImage ? inlineAttachmentSrc(nativeImage) : null;
   const local = useLocalImage(kind === "image" && !inline ? path : undefined);
   const image = inline ? { ...local, src: inline, failed: false } : local;
@@ -147,16 +170,12 @@ export function AttachmentCapsule({ attachment, image: nativeImage, labelContent
         }}
         className="ct-capsule-button pointer-events-auto"
       >
-        <span className={labelContent ? "ct-capsule" : "ct-capsule ct-capsule--padded"}>
-          <CapsuleDecor kind={kind} />
-          {labelContent ?? <>{name}{detail && <span className="ct-capsule__detail">{detail}</span>}</>}
-        </span>
+        <CapsuleContent attachment={attachment} labelContent={labelContent} decoration={decoration} spanProps={spanProps} />
       </button>
       <AnchoredPopover open={previewing && !open && !playing} anchor={triggerRef} floatingRef={previewRef} placement="top-start" gap={0} onClose={closePreview} style={{ overflow: "auto" }} onPointerEnter={() => setPreviewing(true)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setPreviewing(false); }}>
-        <div role="region" aria-label={`Preview ${label}`} data-copy-skip className="relative select-none">
-          <button type="button" aria-label={`Close preview ${label}`} onClick={closePreview} style={{ minWidth: 44, minHeight: 44, display: "grid", placeItems: "center", marginLeft: "auto" }}><X size={18} aria-hidden /></button>
-          <CapsulePreview kind={kind} path={path} label={label} image={image} actions={<>{actions}{(opensImage || kind === "video") && <button type="button" aria-label={`Expand ${kind} ${label}`} onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: fileName(path), src: image.src, path }); }} style={{ minHeight: 44 }}>Expand</button>}</>} />
-        </div>
+          <CapsulePreview kind={kind} path={path} label={label} image={image} onClose={closePreview} closeLabel={`Close preview ${label}`} actions={<>{actions}
+            {(opensImage || kind === "video") && <Button size="compact" aria-label={`Expand ${kind} ${label}`} onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: fileName(path), src: image.src, path }); }} style={{ minHeight: 44 }}>Expand</Button>}
+          </>} />
       </AnchoredPopover>
       {open && <ImageFullscreen image={open} anchorRef={anchorRef} onClose={close} />}
       {playing && <VideoFullscreen label={label} path={path} anchorRef={anchorRef} onClose={() => setPlaying(false)} />}
