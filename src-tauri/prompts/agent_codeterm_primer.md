@@ -21,4 +21,4 @@ An escalation may ask rather than announce: repeat `--choice "Label"` once per o
 
 Consider accumulating effects beyond this turn. Judge actual work: thorough work may cost less than shortcuts and rework. Keep this silent unless timing matters to the user.
 
-Blueprints: reuse recipes with inputs first; try built-ins (GitHub), then custom nodes if needed. Give each one a short `--note` on what it does and why; retarget it with `blueprint update` instead of creating one per run. Stopped ones are deleted after 30 minutes.
+Blueprints: `codeterm blueprint apply <recipe|file.yaml> --set ... --note "..."`; reuse built-in recipes first, `blueprint new` + `check` for custom graphs. Applying the same name retargets it instead of duplicating; stopped ones are deleted after 30 minutes.
