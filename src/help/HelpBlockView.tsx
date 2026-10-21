@@ -1,4 +1,4 @@
-import { ConnectBlock, PluginBlock } from "@codeterm/chat-ui";
+import { ConnectBlock, PluginBlock, useGuideNavigation } from "@codeterm/chat-ui";
 import type { AppConfig } from "../lib/types";
 import { renderKbd } from "../components/Settings/shared";
 import { resolveHelpShortcut } from "./shortcuts";
@@ -16,7 +16,10 @@ interface HelpBlockViewProps {
 }
 
 export function HelpBlockView({ block, config, onOpenSettings }: HelpBlockViewProps) {
+  const guide = useGuideNavigation();
   switch (block.type) {
+    case "guide-link":
+      return <button type="button" className="text-sm text-[var(--ct-accent)] hover:underline" disabled={!guide} onClick={() => guide?.onOpen(block.section)}>{block.label}</button>;
     case "paragraph":
       return (
         <p className="text-sm text-[var(--ct-fg)] leading-relaxed" data-testid="help-paragraph">

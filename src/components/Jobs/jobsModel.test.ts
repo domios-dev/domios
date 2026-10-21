@@ -30,6 +30,10 @@ const crossTeamGraph = {
 const sentinelEntries = blueprintScenarioJobs(crossTeamGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS });
 
 const all = mergeJobs({ workspaceId: "workspace-a", teamId: null }, [cron("team-cron", "team-a"), cron("no-team-cron", null), cron("foreign-cron", null, "workspace-b")], sentinelEntries);
+const curator = { ...cron("curator:plan-a", "team-a", "workspace-a", false), role: "curator", protected: true, oneshot: true };
+const curatorJobs = mergeJobs(NO_JOBS_FILTER, [curator], []);
+assert.equal(curatorJobs[0].title, "Curator rounds");
+assert.equal(clearableJobs(curatorJobs).length, 0, "system-owned rounds cannot be cleared manually");
 assert.deepEqual(all.map((job) => job.title).sort(), ["first-completed", "no-team-cron", "question: inspect workspace", "team-cron", "Blueprint no team", "Blueprint scenario A"].sort());
 assert.equal(mergeJobs({ workspaceId: "workspace-a", teamId: "team-a" }, [cron("team-cron", "team-a"), cron("no-team-cron", null)], sentinelEntries).length, 2);
 assert.deepEqual(mergeJobs({ workspaceId: null, teamId: "team-b" }, [cron("team-cron", "team-a"), cron("foreign-team-cron", "team-b", "workspace-b")], sentinelEntries).map((job) => job.title), ["foreign-team-cron", "question: inspect workspace"]);

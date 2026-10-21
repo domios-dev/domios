@@ -59,6 +59,8 @@ export function formatHourBand(ts: number): string {
 }
 
 const KIND_LABELS: Record<string, string> = {
+  curator_round: "Curator round",
+  curator: "Curator",
   planning: "Planning",
   task_created: "Task added",
   decision: "Decision",
