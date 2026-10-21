@@ -8,7 +8,8 @@ import { ChangesButton } from "./ChangesPanel";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
 import { isUtilityShell } from "../../lib/shellCommandState";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
@@ -228,10 +229,26 @@ export function TabTopBar({
       .catch((error) => reportFailure(error, "updating this tab"));
   };
 
+  // Bubbles that do not fit one row stay clipped behind a toggle instead of wrapping the bar onto a second line.
+  const bubblesRef = useRef<HTMLDivElement>(null);
+  const [hiddenBubbles, setHiddenBubbles] = useState(0);
+  const [bubblesOpen, setBubblesOpen] = useState(false);
+  useLayoutEffect(() => {
+    const row = bubblesRef.current;
+    if (!row) return;
+    const check = () => setHiddenBubbles(Array.from(row.children)
+      .filter((child) => child instanceof HTMLElement && child.offsetWidth > 0 && child.offsetTop - row.offsetTop >= TAB_BAR_CONTROL_H).length);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(row);
+    for (const child of Array.from(row.children)) observer.observe(child);
+    return () => observer.disconnect();
+  });
+
   return (
     <div
       data-testid="tab-top-bar"
-      className="ct-tab-top-bar flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-1.5 px-2 sm:flex-nowrap sm:gap-2"
+      className="ct-tab-top-bar flex min-w-0 shrink-0 flex-nowrap items-start justify-between gap-1.5 px-2 sm:gap-2"
       style={{
         ["--ct-tab-pill-h" as string]: `${TAB_BAR_CONTROL_H}px`,
         paddingTop: 6,
@@ -255,14 +272,31 @@ export function TabTopBar({
           />
         )}
       </div>
-      <div className="ml-auto flex min-w-0 shrink items-center gap-1 sm:gap-1.5">
+      <div className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1 sm:gap-1.5">
+        {(hiddenBubbles > 0 || bubblesOpen) && (
+          <button
+            type="button"
+            className="ct-bar-pill inline-flex shrink-0 items-center justify-center gap-0.5 px-2 text-xs"
+            style={{ height: TAB_BAR_CONTROL_H }}
+            aria-expanded={bubblesOpen}
+            aria-label={bubblesOpen ? "Show fewer" : `Show ${hiddenBubbles} more`}
+            title={bubblesOpen ? "Show fewer" : `Show ${hiddenBubbles} more`}
+            onClick={() => setBubblesOpen((open) => !open)}
+          >
+            {bubblesOpen ? <ChevronDown size={14} aria-hidden style={{ transform: "rotate(180deg)" }} /> : <>+{hiddenBubbles}<ChevronDown size={12} aria-hidden /></>}
+          </button>
+        )}
+      <div
+        ref={bubblesRef}
+        className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 overflow-hidden sm:gap-1.5"
+        style={bubblesOpen ? undefined : { maxHeight: TAB_BAR_CONTROL_H }}
+      >
         {shellTab && isUtilityShell(shellTab) && <>
           <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
           <ShellStatus tab={shellTab} />
         </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
-        <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
-        <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
+        {/* Order is priority: the first row keeps tokens, then changes, then plugins. */}
         {usageProvider && (
           <UsageBubble
             provider={usageProvider}
@@ -278,6 +312,9 @@ export function TabTopBar({
           <DocumentsButton tabId={tabId} />
           <ChangesButton tabId={tabId} />
         </div>
+        <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
+        <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
+      </div>
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}
