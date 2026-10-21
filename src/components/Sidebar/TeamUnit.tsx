@@ -6,7 +6,7 @@ import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 import { TaskStatus, type Plan } from "../Canvas/types";
-import { SidebarDisclosure } from "./SidebarDisclosure";
+import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { ActivityDots } from "../shared/ActivityDots";
 import { KebabGlyph } from "../shared/RowMenuButton";
@@ -406,6 +406,10 @@ export interface TeamUnitProps {
   workers: ReactNode;
   workerCount: number;
   workingWorkerCount: number;
+  workingManagerCount?: number;
+  workingAgentCount?: number;
+  workingTerminalCount?: number;
+  workingCronCount?: number;
   agents?: ReactNode;
   agentCount?: number;
   terminals?: ReactNode;
@@ -437,6 +441,10 @@ export function TeamUnit({
   workers,
   workerCount,
   workingWorkerCount,
+  workingManagerCount = 0,
+  workingAgentCount = 0,
+  workingTerminalCount = 0,
+  workingCronCount = 0,
   agents,
   agentCount = 0,
   terminals,
@@ -454,6 +462,8 @@ export function TeamUnit({
 }: TeamUnitProps) {
   const initialDisclosure = useMemo(() => loadTeamDisclosureState(team.id), [team.id]);
   const [expanded, setExpanded] = useState(initialDisclosure.expanded);
+  const [managersExpanded, setManagersExpanded] = useState(initialDisclosure.managersExpanded);
+  const [agentsExpanded, setAgentsExpanded] = useState(initialDisclosure.agentsExpanded);
   const [workersExpanded, setWorkersExpanded] = useState(initialDisclosure.workersExpanded);
   const [terminalsExpanded, setTerminalsExpanded] = useState(initialDisclosure.terminalsExpanded);
   const [cronsExpanded, setCronsExpanded] = useState(initialDisclosure.cronsExpanded);
@@ -699,8 +709,8 @@ export function TeamUnit({
               data-testid="managers-section"
               className="sidebar-team-section"
             >
-              <div className="sidebar-team-section-label">MANAGERS {managerCount}</div>
-              <div className="sidebar-team-member-list">{managers}</div>
+              <SidebarSectionHeader kind="managers" count={managerCount} working={workingManagerCount} expanded={managersExpanded} onClick={() => { const next = !managersExpanded; setManagersExpanded(next); persistTeamDisclosureState(team.id, { managersExpanded: next }); }} />
+              {managersExpanded && <div className="sidebar-team-member-list">{managers}</div>}
             </div>
           )}
           {workerCount > 0 && (
@@ -710,19 +720,7 @@ export function TeamUnit({
               data-testid="workers-section"
               className="sidebar-team-section"
             >
-              <SidebarDisclosure
-                data-testid="workers-collapse-toggle"
-                expanded={workersExpanded}
-                className="sidebar-team-workers-toggle"
-                onClick={toggleWorkersExpanded}
-              >
-                <span>WORKERS {workerCount}</span>
-                <span className="sidebar-team-workers-state">
-                  <span aria-hidden>·</span>
-                  <span>{workingWorkerCount} working</span>
-                  {workingWorkerCount > 0 && <ActivityDots size="small" tone="muted" active />}
-                </span>
-              </SidebarDisclosure>
+              <SidebarSectionHeader kind="workers" count={workerCount} working={workingWorkerCount} expanded={workersExpanded} data-testid="workers-collapse-toggle" onClick={toggleWorkersExpanded} />
               {workersExpanded ? (
                 <div className="sidebar-team-member-list">{workers}</div>
               ) : closing ? (
@@ -734,8 +732,8 @@ export function TeamUnit({
           )}
           {agentCount > 0 && (
             <div role="group" aria-label={`${displayTitle} agents`} className="sidebar-team-section">
-              <div className="sidebar-team-section-label">AGENTS {agentCount}</div>
-              <div className="sidebar-team-member-list">{agents}</div>
+              <SidebarSectionHeader kind="agents" count={agentCount} working={workingAgentCount} expanded={agentsExpanded} onClick={() => { const next = !agentsExpanded; setAgentsExpanded(next); persistTeamDisclosureState(team.id, { agentsExpanded: next }); }} />
+              {agentsExpanded && <div className="sidebar-team-member-list">{agents}</div>}
             </div>
           )}
           {terminalCount > 0 && (
@@ -745,14 +743,7 @@ export function TeamUnit({
               data-testid="terminals-section"
               className="sidebar-team-section"
             >
-              <SidebarDisclosure
-                data-testid="terminals-collapse-toggle"
-                expanded={terminalsExpanded}
-                className="sidebar-team-workers-toggle"
-                onClick={toggleTerminalsExpanded}
-              >{terminalsExpanded
-                ? "UTILITY SHELLS"
-                : `${terminalCount} ${terminalCount === 1 ? "utility shell" : "utility shells"}`}</SidebarDisclosure>
+              <SidebarSectionHeader kind="utilities" count={terminalCount} working={workingTerminalCount} expanded={terminalsExpanded} data-testid="terminals-collapse-toggle" onClick={toggleTerminalsExpanded} />
               {terminalsExpanded && (
                 <div className="sidebar-team-member-list">{terminals}</div>
               )}
@@ -765,14 +756,7 @@ export function TeamUnit({
               data-testid="crons-section"
               className="sidebar-team-section"
             >
-              <SidebarDisclosure
-                data-testid="crons-collapse-toggle"
-                expanded={cronsExpanded}
-                className="sidebar-team-workers-toggle"
-                onClick={toggleCronsExpanded}
-              >{cronsExpanded
-                ? "JOBS"
-                : `${cronCount} ${cronCount === 1 ? "job" : "jobs"}`}</SidebarDisclosure>
+              <SidebarSectionHeader kind="jobs" count={cronCount} working={workingCronCount} expanded={cronsExpanded} data-testid="crons-collapse-toggle" onClick={toggleCronsExpanded} />
               {cronsExpanded && (
                 <div className="sidebar-team-member-list">{crons}</div>
               )}
