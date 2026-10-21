@@ -384,6 +384,7 @@ pub async fn bridge_send_api(
         append,
         buttons,
         edit: None,
+        completion: None,
         receipt: None,
         route: codeterm_service_core::bridge::manager::OutboundRoute::Chat,
     })

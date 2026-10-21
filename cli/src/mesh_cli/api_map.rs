@@ -772,6 +772,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     .to_string(),
                 ),
             ),
+            crate::BridgeAction::Send { file: Some(_), .. } => unsupported(
+                "Bridge file uploads over mesh are unsupported; run the send on the machine holding the file",
+            ),
             crate::BridgeAction::Send {
                 text,
                 from_pad,
