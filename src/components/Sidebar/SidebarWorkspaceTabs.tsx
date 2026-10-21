@@ -352,6 +352,10 @@ export function SidebarWorkspaceTabs({
         team={team}
         plan={plan}
         tabs={tabs}
+        workingManagerCount={managers.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
+        workingAgentCount={agents.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
+        workingTerminalCount={terminals.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
+        workingCronCount={teamCrons.filter(job => job.last_run?.status === "Running" || job.last_run?.status === "AwaitingOwnerPrompt").length}
         managerCount={managers.length}
         managers={
           <SortableContext items={managerItems} strategy={verticalListSortingStrategy}>

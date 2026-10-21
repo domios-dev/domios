@@ -2,6 +2,8 @@ const STORAGE_KEY = "codeterm.sidebar.team-disclosures";
 
 interface TeamDisclosureState {
   expanded?: boolean;
+  managersExpanded?: boolean;
+  agentsExpanded?: boolean;
   workersExpanded?: boolean;
   terminalsExpanded?: boolean;
   cronsExpanded?: boolean;
@@ -20,6 +22,8 @@ export function loadTeamDisclosureState(teamId: string): Required<TeamDisclosure
   const state = readStates()[teamId];
   return {
     expanded: state?.expanded !== false,
+    managersExpanded: state?.managersExpanded !== false,
+    agentsExpanded: state?.agentsExpanded !== false,
     workersExpanded: state?.workersExpanded !== false,
     terminalsExpanded: state?.terminalsExpanded === true,
     cronsExpanded: state?.cronsExpanded === true,

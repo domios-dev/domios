@@ -29,8 +29,8 @@ function TeamUnitWithSentinels({ scope, onOpenSentinel, adapter, ...props }: Tea
       <span className="w-7 shrink-0" aria-hidden="true" />
     </div>;
   });
-  for (const blueprint of state.graph?.blueprints ?? []) {
-    if (blueprint.owner?.kind !== "team" || blueprint.owner.team_id !== scope.team_id) continue;
+  const blueprints = (state.graph?.blueprints ?? []).filter(blueprint => blueprint.owner?.kind === "team" && blueprint.owner.team_id === scope.team_id);
+  for (const blueprint of blueprints) {
     rows.push(<div key={`blueprint:${blueprint.id}`} className="sidebar-team-cron-row">
       <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-blueprint-job" aria-label={`Blueprint ${blueprint.name}, ${jobStateLabel(blueprint.state)}`} title={blueprint.name} onClick={() => requestOpenJob({ workspaceId: scope.workspace_id, target: { teamId: scope.team_id, blueprintId: blueprint.id } })}>
         <Workflow size={11} aria-hidden="true" />
@@ -41,7 +41,7 @@ function TeamUnitWithSentinels({ scope, onOpenSentinel, adapter, ...props }: Tea
     </div>);
   }
   if (state.failed && !state.graph) rows.push(<div key="sentinels-unavailable" className="sidebar-team-cron-row"><span className="sidebar-team-cron-main cursor-default" data-testid="sidebar-sentinels-unavailable"><Network size={11} aria-hidden="true" /><span className="sidebar-team-cron-name">Blueprints unavailable</span></span></div>);
-  return <TeamUnit {...props} crons={<>{props.crons}{rows}</>} cronCount={(props.cronCount ?? 0) + rows.length} />;
+  return <TeamUnit {...props} crons={<>{props.crons}{rows}</>} cronCount={(props.cronCount ?? 0) + rows.length} workingCronCount={(props.workingCronCount ?? 0) + [...jobs, ...blueprints].filter(job => ["active", "running", "finishing"].includes(job.state.toLowerCase())).length} />;
 }
 
 /** Team card whose Jobs disclosure lists its Cron rows plus stored agent-authored Blueprint scenarios of the same exact scope. */
