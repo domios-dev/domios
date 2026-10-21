@@ -192,7 +192,8 @@ async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_re
     });
     harness.registry.entered.notified().await;
 
-    let racing_refresh = harness.mesh.identity_changed(Some(&identity(UID)));
+    let racing_identity = identity(UID);
+    let racing_refresh = harness.mesh.identity_changed(Some(&racing_identity));
     assert_eq!(
         harness.mesh.sign_out(racing_refresh).await.0,
         Cleanup::Confirmed
