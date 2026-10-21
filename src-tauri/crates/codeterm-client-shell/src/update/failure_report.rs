@@ -19,7 +19,12 @@ impl UpdateAbort {
             phase: phase.to_string(),
             cause: cause.to_string(),
             torn_down_tabs,
-            next_steps: NEXT_STEPS.to_string(),
+            next_steps: if phase == "preflight" {
+                "The session is still running. Resolve the reported refusal and retry the update."
+                    .to_string()
+            } else {
+                NEXT_STEPS.to_string()
+            },
         }
     }
 }
