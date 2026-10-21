@@ -128,8 +128,15 @@ pub(super) async fn read(
     .await;
     match result {
         Ok(Ok(file)) => Json(file).into_response(),
-        _ => {
-            log::debug!("[local-preview] read refused");
+        Ok(Err(error)) => {
+            log::debug!(
+                "[local-preview] read refused: {}",
+                codeterm_service_core::service::local_preview::html_preview::refusal_reason(&error)
+            );
+            refusal()
+        }
+        Err(_) => {
+            log::debug!("[local-preview] read refused: worker_failed");
             refusal()
         }
     }
@@ -161,8 +168,15 @@ pub(super) async fn check(
     .await;
     match result {
         Ok(Ok(files)) => Json(files).into_response(),
-        _ => {
-            log::debug!("[local-preview] batch refused");
+        Ok(Err(error)) => {
+            log::debug!(
+                "[local-preview] batch refused: {}",
+                codeterm_service_core::service::local_preview::html_preview::refusal_reason(&error)
+            );
+            refusal()
+        }
+        Err(_) => {
+            log::debug!("[local-preview] batch refused: worker_failed");
             refusal()
         }
     }
