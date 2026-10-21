@@ -301,8 +301,8 @@ test("staffing failure stays visible without local mutation or refetch", async (
       .find((button) => button.textContent?.includes("Registry provider")) as HTMLButtonElement;
     await act(async () => provider.click());
     assert(
-      document.querySelector('[data-testid="team-menu-error"]')?.textContent?.includes("403"),
-      "403 staffing rejection is shown inline",
+      !document.querySelector('[data-testid="team-menu-error"]') && !document.querySelector('[role="alert"]'),
+      "403 staffing rejection does not render inside the floating Team menu",
     );
     assert(JSON.stringify(tabs) === tabsBefore, "staffing rejection does not mutate local Tab state");
     assert(fetches === 0, "staffing rejection does not refetch or poll");

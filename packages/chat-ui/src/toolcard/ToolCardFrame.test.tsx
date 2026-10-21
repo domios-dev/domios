@@ -26,6 +26,14 @@ async function render(node: React.ReactElement) {
 }
 
 const { host } = await render(<CommandCard event={event()} expanded={false} onToggle={() => {}} />);
+for (const source of [{toolInput:{changes:{opaque:{value:17}}}}, {toolResult:"opaque raw patch"}]) {
+  const message = {id:"unknown", type:"tool_call" as const, content:"", ...source};
+  const {host: rawHost} = await render(<ToolCardFrame event={event({kind:"edit", summary:"", detail:undefined, result:source.toolResult, message})} expanded onToggle={() => {}}><span /></ToolCardFrame>);
+  const button = [...rawHost.querySelectorAll("button")].find(node => node.textContent === "Raw command");
+  if (!button) throw new Error("raw payload disclosure missing");
+  await act(async () => button.click());
+  if (!rawHost.textContent?.includes("opaque")) throw new Error("unknown edit payload must remain visible");
+}
 if (!host.textContent?.includes("command") || !host.textContent?.includes("echo preview")) throw new Error(`summary row regression: ${host.textContent}`);
 if (!host.querySelector("svg")) throw new Error("glyph regression");
 if (host.querySelector('[data-testid="toolcard-command"]')) throw new Error("command should start hidden");

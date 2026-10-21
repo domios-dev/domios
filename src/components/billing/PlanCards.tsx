@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Check } from "lucide-react";
+import { nativeBridge } from "../../lib/nativeBridge";
+import { siteLinks } from "../../../shared/siteLinks";
 import { Button } from "../shared/Button";
 import { Chip } from "../shared/Chip";
 import { LiquidToggle } from "../shared/LiquidToggle";
@@ -97,7 +99,7 @@ export function PlanCards({ currentPlan = null, canPurchase = true, onChoose, ca
   return (
     <div className="flex flex-col gap-3">
       <BillingIntervalToggle interval={interval} onChange={setInterval} savings={bestYearlySavings(offers)} />
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+      <div role="group" aria-label="Subscription plans" className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         {offers.offers.map((offer) => (
           <PlanCard
             key={offer.id}
@@ -109,6 +111,15 @@ export function PlanCards({ currentPlan = null, canPurchase = true, onChoose, ca
           />
         ))}
       </div>
+      <section aria-label="Enterprise plan" className="flex w-full items-center justify-between gap-3 rounded-[var(--ct-radius-md)] border border-[var(--ct-border-subtle)] bg-[var(--ct-bg)] p-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h3 className="m-0 text-sm font-semibold text-[var(--ct-fg)]">Enterprise</h3>
+          <p className="m-0 text-xs text-[var(--ct-muted-fg)]">Running Domios at scale for a big team? Contact us.</p>
+        </div>
+        <Button size="sm" variant="ghost" className="shrink-0 text-xs" onClick={() => void nativeBridge.openUrl(siteLinks.discord)}>
+          Contact us
+        </Button>
+      </section>
     </div>
   );
 }

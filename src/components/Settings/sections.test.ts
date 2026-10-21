@@ -75,6 +75,11 @@ test("the messengers link opens the Messengers card and unknown links are reject
   assert(!isSettingsLinkId("nope") && !isSettingsLinkId("toString"), "unknown link accepted");
 });
 
+test("the plans link opens the subscription plans card in Account", () => {
+  const route = resolveSettingsLink("plans");
+  assert(route?.section === "account" && route.card === "subscription-plans", "plans routes to the subscription plans card");
+});
+
 test("notification_settings_home: the agents description no longer claims notifications", () => {
   const agents = SETTINGS_SECTIONS.find((s) => s.id === "agents");
   assert(agents, "agents entry");

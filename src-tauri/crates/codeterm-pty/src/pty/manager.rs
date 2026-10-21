@@ -488,6 +488,7 @@ fn build_session_for_launch(
     job_policy: WindowsJobPolicy,
 ) -> Result<BuiltSession, String> {
     let is_direct = direct.is_some();
+    let started = std::time::Instant::now();
     let (direct_launch, env_unset) =
         direct.map_or((None, &[][..]), |(launch, unset)| (Some(launch), unset));
     let launch = profile
@@ -496,6 +497,7 @@ fn build_session_for_launch(
         .transpose()?
         .or(direct_launch);
     let spawn_permit = spawn_gate.acquire()?;
+    let preparation_us = started.elapsed().as_micros();
     let pty_system = native_pty_system();
     let size = PtySize {
         rows,
@@ -504,9 +506,12 @@ fn build_session_for_launch(
         pixel_height: 0,
     };
 
+    let open_started = std::time::Instant::now();
     let pair = pty_system
         .openpty(size)
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
+    let open_us = open_started.elapsed().as_micros();
+    let env_started = std::time::Instant::now();
 
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
     let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -580,10 +585,14 @@ fn build_session_for_launch(
     apply_pty_env(&mut cmd, &env_vars);
     apply_launch_overrides(&mut cmd, launch_cwd.as_deref(), env_unset);
 
+    let env_us = env_started.elapsed().as_micros();
+    let spawn_started = std::time::Instant::now();
     let child = pair
         .slave
         .spawn_command(cmd)
         .map_err(|e| format!("Failed to spawn '{}': {}", shell, e))?;
+    let spawn_us = spawn_started.elapsed().as_micros();
+    let observer_started = std::time::Instant::now();
 
     let write_queue = WriteQueue::new(writer);
     let session = Arc::new(PtySession {
@@ -612,6 +621,7 @@ fn build_session_for_launch(
         session.child_exit.mark_unobservable();
     }
 
+    log::debug!("[pty.build] direct={} preparation_us={} openpty_us={} environment_us={} spawn_us={} observer_us={} total_us={}", is_direct, preparation_us, open_us, env_us, spawn_us, observer_started.elapsed().as_micros(), started.elapsed().as_micros());
     Ok(BuiltSession {
         shell,
         session,

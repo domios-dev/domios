@@ -155,8 +155,16 @@ impl ServiceContext {
             }
         }
 
-        let (mut ws, workspaces) =
-            create_workspace_with_count(&mut self.mux.write(), name, cwd.clone());
+        let gate = self.limit_gate();
+        let (mut ws, workspaces) = {
+            let mut mux = self.mux.write();
+            gate.admit(
+                super::billing::LimitKey::Workspaces,
+                mux.limited_workspace_count(),
+            )
+            .map_err(|refusal| refusal.to_string())?;
+            create_workspace_with_count(&mut mux, name, cwd.clone())
+        };
         if activate {
             let _ = self.mux.write().set_active_workspace(&ws.id);
         }
@@ -672,8 +680,10 @@ impl ServiceContext {
 
     pub fn create_named_tab(&self, workspace_id: &str, title: &str) -> Result<String, String> {
         super::tab::validate_tab_title(title)?;
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
+            super::billing::admit_new_tab(&gate, &mux)?;
             let tab_id = mux.create_tab(workspace_id)?;
             mux.rename_tab(&tab_id, title)?;
             let _ = mux.set_active_tab(workspace_id, &tab_id);
@@ -691,8 +701,10 @@ impl ServiceContext {
         workspace_id: &str,
         activate: bool,
     ) -> Result<String, String> {
+        let gate = self.limit_gate();
         let result = {
             let mut mux = self.mux.write();
+            super::billing::admit_new_tab(&gate, &mux)?;
             let tab_id = mux.create_tab(workspace_id)?;
             if activate {
                 let _ = mux.set_active_tab(workspace_id, &tab_id);

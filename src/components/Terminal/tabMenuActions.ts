@@ -1,4 +1,5 @@
 import { makeOrchestrator, makePlanner } from "../../lib/orchestratorOnboard";
+import { guardFreeLimit, openOnRefusal } from "../billing/freeLimitGate";
 import {invoke} from "../../lib/bridge";
 import { runPluginTabMenuItem } from "../../lib/pluginTabMenu";
 import { replaceOrchestrator } from "../Sidebar/orchestratorRecoveryMenu";
@@ -32,9 +33,11 @@ export async function performTabMenuAction(
       handlers.close?.();
       return;
     case "makeOrchestrator":
-      return makeOrchestrator(tabId, handlers.sessionBindingNonce ?? undefined);
+      await openOnRefusal("teams", () => makeOrchestrator(tabId, handlers.sessionBindingNonce ?? undefined));
+      return;
     case "makePlanner":
-      return makePlanner(tabId, action.planId, handlers.sessionBindingNonce ?? undefined);
+      await openOnRefusal("teams", () => makePlanner(tabId, action.planId, handlers.sessionBindingNonce ?? undefined));
+      return;
     case "switchModel":
       return switchTabModel(action.view, action.modelId);
     case "switchProvider":
@@ -48,7 +51,7 @@ export async function performTabMenuAction(
     case "restart":
       return restartTabSession(tabId);
     case "fork":
-      await invoke("fork_agent_tab",{tabId});
+      await guardFreeLimit(["agent.tabs"], () => invoke("fork_agent_tab",{tabId}));
       return;
     case "copySessionId":
       return copyTabSessionId(action.sessionId);

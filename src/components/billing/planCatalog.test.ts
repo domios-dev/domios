@@ -30,6 +30,11 @@ assert.equal(offerIdForPlan(BUILTIN_PLAN_CATALOG, null), "free");
 assert.equal(offerIdForPlan(BUILTIN_PLAN_CATALOG, "pro_yearly"), "pro");
 assert.equal(offerIdForPlan(BUILTIN_PLAN_CATALOG, "sponsor"), "sponsor");
 
+assert.deepEqual(
+  BUILTIN_PLAN_CATALOG.offers.flatMap((offer) => Object.values(offer.prices).map((price) => price?.planKey)),
+  ["pro_monthly", "pro_yearly", "sponsor_yearly"],
+);
+
 assert.deepEqual(parsePlanCatalog(JSON.parse(JSON.stringify(BUILTIN_PLAN_CATALOG))), BUILTIN_PLAN_CATALOG);
 assert.equal(parsePlanCatalog({ offers: [] }), null);
 assert.equal(parsePlanCatalog({ offers: [{ id: "pro", name: "Pro", prices: { year: { planKey: "y", amount: -1, currency: "USD" } } }] }), null);

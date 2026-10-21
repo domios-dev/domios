@@ -417,6 +417,14 @@ check("provider timestamps become epoch ms and receipt time stays host owned",()
     {kind:"turnState",threadId:ctx.threadId!,turnId:"goal-b",state:"working",startedAt:105000}]);
 });
 check("file change and turn diff use app-server arrays and exact hunks",()=> {
+  const captured = JSON.parse(fs.readFileSync(new URL("./fixtures/captured-live-edit.json", import.meta.url), "utf8"));
+  const capturedEvent = hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:captured}}]).events[0];
+  assert.ok(capturedEvent.kind === "chatItem");
+  assert.equal((capturedEvent.item.fileDiffs as {additions:number}[])[0].additions,42);
+  const unknown = hooks.runtimeReduce(ctx,null,[{kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"unknown",type:"fileChange",status:"completed",changes:{opaque:{value:17}}}}}]).events[0];
+  assert.ok(unknown.kind === "chatItem");
+  assert.ok(unknown.item.toolDetail?.includes('"value": 17'));
+  assert.equal(unknown.item.toolSummary,"File change");
   const diff="@@ -1 +1 @@\n-old\n+new\n";
   const frame:RuntimeFrame={kind:"notification",method:"item/completed",params:{threadId:ctx.threadId!,turnId:"turn-a",item:{id:"file",type:"fileChange",status:"completed",changes:[{path:"file.txt",kind:{type:"update"},diff}]}}};
   const result=hooks.runtimeReduce(ctx,null,[frame]);const event=result.events[0];assert.ok(event.kind === "chatItem");

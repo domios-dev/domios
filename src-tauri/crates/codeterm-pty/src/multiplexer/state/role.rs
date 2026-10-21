@@ -16,6 +16,15 @@ impl MultiplexerState {
         &mut self,
         parent_id: &str,
     ) -> Result<TeamResolution, String> {
+        self.resolve_or_mint_team_for_parent_admitted(parent_id, |_| Ok(()))
+    }
+
+    /// `admit` sees the current Team count and runs only when a new Team would be minted.
+    pub fn resolve_or_mint_team_for_parent_admitted(
+        &mut self,
+        parent_id: &str,
+        admit: impl FnOnce(usize) -> Result<(), String>,
+    ) -> Result<TeamResolution, String> {
         let existing = self
             .tabs
             .get(parent_id)
@@ -28,6 +37,7 @@ impl MultiplexerState {
                 minted: false,
             });
         }
+        admit(self.team_count())?;
         let workspace_id = self.find_workspace_for_tab(parent_id).unwrap_or_default();
         let team = Team::new(workspace_id, now_millis());
         let team_id = team.id.clone();
