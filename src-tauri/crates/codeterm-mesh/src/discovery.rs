@@ -65,15 +65,6 @@ pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
     }
 }
 
-pub(crate) fn is_tailscale_ip(ip: &str) -> bool {
-    ip.parse::<std::net::Ipv4Addr>()
-        .map(|a| {
-            let o = a.octets();
-            o[0] == 100 && (64..=127).contains(&o[1])
-        })
-        .unwrap_or(false)
-}
-
 pub fn tailscale_self_dns_name() -> Option<String> {
     let val = tailscale_status_json()?;
     let dns = val

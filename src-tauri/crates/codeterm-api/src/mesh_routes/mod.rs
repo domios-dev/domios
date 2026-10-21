@@ -3,7 +3,7 @@
 use crate::routes::{check_auth, AppState};
 use axum::{
     extract::State as AxumState,
-    http::{HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, StatusCode},
     Json,
 };
 
@@ -44,9 +44,10 @@ pub(crate) fn require_current_peer_version(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn current_peer_version_header() -> HeaderMap {
     let mut headers = HeaderMap::new();
-    if let Ok(value) = HeaderValue::from_str(codeterm_service_core::mesh::version::local_version())
+    if let Ok(value) = axum::http::HeaderValue::from_str(codeterm_service_core::mesh::version::local_version())
     {
         headers.insert(codeterm_service_core::mesh::version::VERSION_HEADER, value);
     }

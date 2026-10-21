@@ -6,7 +6,7 @@ use std::sync::{
 use parking_lot::Mutex;
 
 use super::MeshState;
-use super::{discovery, transport, types};
+use super::{discovery, transport};
 
 pub async fn broadcast_sync(mesh: &MeshState) {
     let (payload, clients) = {
