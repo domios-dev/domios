@@ -240,12 +240,10 @@ impl Billing {
             return Err(self.recompute(&cache));
         }
         if event == RefreshEvent::Focus
-            && !cache.verified.as_ref().is_some_and(|grant| {
-                matches!(
-                    grant.verdict((self.clock)()).state,
-                    TimeState::Stale | TimeState::Grace
-                )
-            })
+            && !cache
+                .verified
+                .as_ref()
+                .is_some_and(|grant| grant.verdict((self.clock)()).state == TimeState::Stale)
             && !cache.checkout_pending
             && cache
                 .last_focus

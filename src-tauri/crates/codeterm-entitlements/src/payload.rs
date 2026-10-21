@@ -5,12 +5,8 @@ use std::collections::HashSet;
 pub const ISSUER: &str = "domios-entitlements";
 pub const MAX_PAYLOAD_BYTES: usize = 8192;
 pub const MAX_CAPABILITIES: usize = 64;
-pub const REFRESH_SECS: u64 = 86_400;
-pub const ADMIN_LEASE_SECS: u64 = 86_400;
-pub const ADMIN_GRACE_SECS: u64 = 259_200;
-pub const LEASE_SECS: u64 = 604_800;
-pub const GRACE_SECS: u64 = 1_209_600;
-pub const PERIOD_TAIL_SECS: u64 = 604_800;
+pub const REFRESH_SECS: u64 = 1_800;
+pub const LEASE_SECS: u64 = 3_600;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -212,18 +208,8 @@ impl GrantPayload {
             self.authority == Authority::Billing || self.period_end.is_none(),
             D::PeriodEnd,
         )?;
-        let tail = self.period_end.map(|end| end + PERIOD_TAIL_SECS);
-        let (expires, grace) = if self.authority == Authority::Admin {
-            (
-                self.issued_at + ADMIN_LEASE_SECS,
-                self.issued_at + ADMIN_GRACE_SECS,
-            )
-        } else {
-            let expires = min_opt(self.issued_at + LEASE_SECS, tail);
-            (expires, min_opt(expires + GRACE_SECS, tail))
-        };
-        ensure(self.expires_at == expires, D::Expiry)?;
-        ensure(self.grace_until == grace, D::Grace)?;
+        ensure(self.expires_at == self.issued_at + LEASE_SECS, D::Expiry)?;
+        ensure(self.grace_until == self.expires_at, D::Grace)?;
         let limits = &self.limits;
         ensure(
             limits.mesh_machines.scope == Scope::Account
@@ -257,10 +243,6 @@ impl GrantPayload {
         }
         Ok(())
     }
-}
-
-fn min_opt(value: u64, bound: Option<u64>) -> u64 {
-    bound.map_or(value, |bound| value.min(bound))
 }
 
 fn ensure(condition: bool, defect: PayloadDefect) -> Result<(), PayloadDefect> {
