@@ -2957,7 +2957,8 @@ EOF
     cargo check --manifest-path cli/Cargo.toml
     node scripts/check-release-locks.mjs
     # The script, gateway and release-signing fixture guards run here, not in a PR workflow.
-    bash ./build.sh script-guards
+    # Under the gateway's subst drive the catalogue reads every Cargo.toml as an unmatched test; run from the real worktree.
+    (cd "${CT_REAL_WORKTREE:-.}" && bash ./build.sh script-guards)
     bash scripts/clippy-gate.sh
     run_release_rust_tests
     node node_modules/typescript/bin/tsc --noEmit

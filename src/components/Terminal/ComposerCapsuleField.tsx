@@ -32,7 +32,7 @@ function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan;
         ? <span className="ct-capsule__icon"><LoaderCircle aria-hidden className="h-full w-full animate-spin motion-reduce:animate-none" /></span>
         : <TriangleAlert aria-hidden className="ct-capsule__icon" style={{ color: "var(--ct-error, #f85149)" }} />}</>
         : <CapsuleDecor kind={capsule?.kind ?? null} />}
-      {kindLabel ? <span className="relative"><span style={{ visibility: "hidden" }}>{labelChars(name)}</span><span className="absolute left-0 text-xs">{kindLabel}</span></span> : labelChars(name)}
+      {kindLabel ? <span className="ct-capsule__kind" data-kind={kindLabel}><span style={{ visibility: "hidden" }}>{labelChars(name)}</span></span> : labelChars(name)}
       {detail && <span className="ct-capsule__detail">{labelChars(detail)}</span>}
       {CAPSULE_TRAIL}
     </span>
