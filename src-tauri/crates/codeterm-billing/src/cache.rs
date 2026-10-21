@@ -396,10 +396,9 @@ impl Billing {
     pub async fn checkout_url(
         &self,
         session: &codeterm_account::Session,
-        plan: &str,
+        key: CheckoutKey,
     ) -> Result<url::Url> {
-        Plan::parse(plan)?;
-        self.provider.checkout_url(session, plan).await
+        self.provider.checkout_url(session, key.as_str()).await
     }
     pub async fn portal_url(&self, session: &codeterm_account::Session) -> Result<url::Url> {
         self.provider.portal_url(session).await

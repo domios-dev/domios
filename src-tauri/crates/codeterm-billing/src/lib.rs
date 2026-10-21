@@ -12,7 +12,9 @@ pub use envelope::{
     Access, ApplicationAccess, ApplicationEnvelope, Authority, BillingInventory, Capabilities,
     Effective, Reading, Version,
 };
-pub use model::{entitlement_allows, Capability, Entitlements, Plan, Status, CAPABILITY_PLANS};
+pub use model::{
+    entitlement_allows, Capability, CheckoutKey, Entitlements, Plan, Status, CAPABILITY_PLANS,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProductEvent {

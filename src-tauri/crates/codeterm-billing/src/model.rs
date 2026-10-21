@@ -8,14 +8,6 @@ pub enum Plan {
     Sponsor,
 }
 impl Plan {
-    pub fn parse(value: &str) -> Result<Self, String> {
-        match value {
-            "free" => Ok(Self::Free),
-            "pro" => Ok(Self::Pro),
-            "sponsor" => Ok(Self::Sponsor),
-            _ => Err("Unknown billing plan".into()),
-        }
-    }
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Free => "free",
@@ -24,6 +16,38 @@ impl Plan {
         }
     }
 }
+
+/// A commercial price key sent to checkout unchanged; it maps to an entitlement plan only for analytics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckoutKey {
+    ProMonthly,
+    ProYearly,
+    SponsorYearly,
+}
+impl CheckoutKey {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "pro_monthly" => Ok(Self::ProMonthly),
+            "pro_yearly" => Ok(Self::ProYearly),
+            "sponsor_yearly" => Ok(Self::SponsorYearly),
+            _ => Err("Unknown billing plan".into()),
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ProMonthly => "pro_monthly",
+            Self::ProYearly => "pro_yearly",
+            Self::SponsorYearly => "sponsor_yearly",
+        }
+    }
+    pub fn plan(self) -> Plan {
+        match self {
+            Self::ProMonthly | Self::ProYearly => Plan::Pro,
+            Self::SponsorYearly => Plan::Sponsor,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
