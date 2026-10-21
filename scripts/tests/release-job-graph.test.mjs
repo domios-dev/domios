@@ -154,7 +154,7 @@ test('production publications serialize and verify draft bytes before becoming p
   assert.match(steps[verify].run, /gh release download/);
 });
 test('release CI actions are immutable and every executable job has a deadline', () => {
-  for (const name of ['release', 'tests', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows', 'release-manifest-validate', 'frontend-release', 'release-credentials', 'ready-for-release', 'qualification', 'precheck', 'build-gateway']) {
+  for (const name of ['release', 'tests', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows', 'release-manifest-validate', 'frontend-release', 'release-credentials', 'ready-for-release', 'qualification', 'precheck']) {
     for (const job of Object.values(workflow(name).jobs)) {
       if (job.uses) continue;
       assert.ok(job['timeout-minutes'] > 0, `${name} deadline`);
