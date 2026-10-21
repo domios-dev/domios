@@ -355,6 +355,7 @@ pub async fn bridge_announce(
         append: false,
         buttons: None,
         edit: None,
+        completion: None,
         receipt: None,
         route: codeterm_service_core::bridge::manager::OutboundRoute::Chat,
     })
