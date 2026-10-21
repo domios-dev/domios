@@ -180,6 +180,11 @@ impl ServiceContext {
                     .as_ref()
                     .map(|metadata| &metadata.params),
             )?;
+            let tier = super::spawn_speed::validate_agent_speed(
+                &self.agent_registry,
+                &plugin_id,
+                params.speed.as_deref(),
+            )?;
             let full_access = params.permission_bypass_requested(&plugin_id);
             if config.is_null() {
                 config = serde_json::json!({});
@@ -191,6 +196,9 @@ impl ServiceContext {
                     "mode".into(),
                     serde_json::json!(runtime_launch_mode(full_access)),
                 );
+            if let Some(tier) = tier {
+                config["serviceTier"] = serde_json::json!(tier);
+            }
         } else if spec
             .chatbackend_launch
             .as_ref()

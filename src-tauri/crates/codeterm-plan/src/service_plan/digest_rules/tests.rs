@@ -16,6 +16,7 @@ pub(super) fn minimal_task(
         name: name.into(),
         kind: "implement".into(),
         model: None,
+        speed: None,
         model_rationale: None,
         personality: None,
         personality_provenance: None,

@@ -29,6 +29,7 @@ pub(super) fn task(id: &str, status: TaskStatus, tab_id: Option<&str>) -> Task {
         name: id.into(),
         kind: "status_update".into(),
         model: None,
+        speed: None,
         model_rationale: None,
         acceptance_criteria: vec![],
         external_refs: vec![],

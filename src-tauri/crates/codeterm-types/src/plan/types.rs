@@ -484,6 +484,8 @@ pub struct Task {
     #[serde(rename = "type")]
     pub kind: String,
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
     pub model_rationale: Option<String>,
     #[serde(default)]
     pub personality: Option<String>,
@@ -1095,6 +1097,7 @@ mod tests {
             name: "n".into(),
             kind: "implement".into(),
             model: None,
+            speed: None,
             model_rationale: None,
             personality: None,
             personality_provenance: None,

@@ -720,3 +720,53 @@ fn set_orchestrator_help_mentions_workers_not_leads() {
     assert!(help.contains("workers"), "{help}");
     assert!(!help.to_ascii_lowercase().contains("lead"), "{help}");
 }
+
+#[test]
+fn launch_commands_accept_provider_owned_speed() {
+    for args in [
+        vec![
+            "codeterm",
+            "agent",
+            "spawn",
+            "fixture",
+            "--speed",
+            "opaque-tier",
+        ],
+        vec![
+            "codeterm",
+            "plan",
+            "task",
+            "dispatch",
+            "plan",
+            "task",
+            "--execution-intent",
+            "mutating",
+            "--speed",
+            "opaque-tier",
+        ],
+        vec![
+            "codeterm",
+            "plan",
+            "task",
+            "respawn",
+            "plan",
+            "task",
+            "--attempt",
+            "attempt",
+            "--speed",
+            "opaque-tier",
+        ],
+        vec![
+            "codeterm",
+            "plan",
+            "task",
+            "update",
+            "plan",
+            "task",
+            "--speed",
+            "opaque-tier",
+        ],
+    ] {
+        Cli::try_parse_from(args).unwrap();
+    }
+}

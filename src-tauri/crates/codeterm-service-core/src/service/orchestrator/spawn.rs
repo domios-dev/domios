@@ -108,6 +108,11 @@ impl ServiceContext {
         }
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
         self.apply_model_preset(&agent, &mut params)?;
+        crate::service::spawn_speed::validate_agent_speed(
+            &self.agent_registry,
+            &agent,
+            params.speed.as_deref(),
+        )?;
         let reasoning_effort = params.reasoning_effort.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
@@ -250,6 +255,11 @@ impl ServiceContext {
             .await
             .map_err(|_| "preset resolution worker failed")??;
         }
+        crate::service::spawn_speed::validate_agent_speed(
+            &self.agent_registry,
+            &agent_cmd,
+            params.speed.as_deref(),
+        )?;
         let svc = self.clone();
         let probe = params.clone();
         let probe_agent = agent_cmd.clone();
