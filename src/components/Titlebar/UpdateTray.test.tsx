@@ -22,7 +22,7 @@ vi.mock("../../lib/bridge", () => ({ listen: async (_event: string, handler: typ
 } }));
 import { UpdatePanelProvider } from "../../hooks/useUpdatePanel";
 import { UpdateTray } from "./UpdateTray";
-import { UpdatePanelContents } from "../UpdatePanel";
+import { UpdatePanel } from "../UpdatePanel";
 import { classifyUpdateStatus } from "../../lib/updateStatusModel";
 
 const testActions = { upsertToast: vi.fn() } as unknown as MultiplexerActionsContextType;
@@ -51,7 +51,7 @@ it("keeps an unreachable core channel silent and names its cause as a diagnostic
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanelContents /></UpdatePanelProvider>));
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
     expect(host.querySelector('button[aria-label^="Update "]:not([aria-label="Update all"])')).toBeNull();
     expect(host.querySelector('[aria-label="Installed plugin ahead of channel"]')).toBeNull();
@@ -68,7 +68,7 @@ it("wires local-ahead information for a non-core plugin without a failure badge"
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanelContents /></UpdatePanelProvider>));
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     expect(host.querySelector('[role="status"][aria-label="Installed plugin ahead of channel"]')?.textContent)
       .toBe(classifyUpdateStatus(ahead).information[0]);
     expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
@@ -110,7 +110,7 @@ it("keeps a failed channel on its own row while Update all applies the healthy c
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanelContents /></UpdatePanelProvider>));
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     expect(host.querySelector('[aria-label="community updates unavailable"] pre')?.textContent).toBe(communityUnavailable);
     const failedApply = host.querySelector<HTMLButtonElement>('button[aria-label="Update lark"]')!;
     const healthyApply = host.querySelector<HTMLButtonElement>('button[aria-label="Update teams-client"]')!;
@@ -138,7 +138,7 @@ it("allows Update from a healthy channel while another channel is unavailable", 
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanelContents /></UpdatePanelProvider>));
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
     await act(async () => trigger.click());
     const panel = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
@@ -232,7 +232,7 @@ for (const origin of ["startup", "event"] as const) {
     const host = document.createElement("div"); document.body.append(host);
     const root = createRoot(host);
     try {
-      await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanelContents /></UpdatePanelProvider>));
+      await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
       if (origin === "event") await act(async () => fake.availabilityChanged!({ payload: { items: [], errors: { app: "offline" } } }));
       expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
       expect(host.querySelector('[role="alert"]')).toBeNull();
