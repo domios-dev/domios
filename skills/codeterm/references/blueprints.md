@@ -4,7 +4,9 @@ Before you repeat a check or wait on an external, agent or cron status, apply a
 Blueprint: what is watched → what happens. One verb covers built-ins and files:
 
 ```bash
-codeterm blueprint recipe                                   # list built-in recipes
+codeterm blueprint recipe                                   # built-in and saved solutions
+codeterm blueprint new --like "watch CI and report failure"
+codeterm blueprint keep <id> --when "Watch CI and report failure"
 codeterm blueprint apply github --set repo=owner/repo --set id=42 --note "Report CI failures"
 codeterm blueprint new watch > watch.yaml                   # commented scaffold for a custom graph
 codeterm blueprint check watch.yaml --set ...               # offline, errors at file:line:column

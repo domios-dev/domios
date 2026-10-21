@@ -13,7 +13,11 @@ pub enum BlueprintAction {
     /// Create or update a YAML file or recipe by name in the caller's Team
     #[command(alias = "create")]
     Apply {
+        #[arg(default_value = "")]
         source: String,
+        /// Offer proven graphs matching this intent before authoring
+        #[arg(long, conflicts_with_all = ["source", "set", "note", "dry_run"])]
+        like: Option<String>,
         #[arg(long = "set")]
         set: Vec<String>,
         #[arg(long, value_parser = parse_blueprint_note)]
@@ -22,7 +26,19 @@ pub enum BlueprintAction {
         dry_run: bool,
     },
     /// Print a commented YAML scaffold from a recipe or node kind
-    New { kind: String },
+    New {
+        #[arg(default_value = "watch")]
+        kind: String,
+        /// Offer proven graphs matching this intent before authoring
+        #[arg(long, conflicts_with = "kind")]
+        like: Option<String>,
+    },
+    /// Keep a generalised solution (Team Orchestrator only)
+    Keep {
+        id: String,
+        #[arg(long, required = true)]
+        when: String,
+    },
     /// Print the authoring JSON Schema for editors and agents
     Schema,
     /// Export a portable recipe containing only the definition
