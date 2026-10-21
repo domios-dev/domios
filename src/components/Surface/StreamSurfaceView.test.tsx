@@ -3,6 +3,7 @@
 import "./surfaceDomGlobals.testdata";
 import { resetCaptureOwnershipForTest } from "../Terminal/voice/localRecordingCaptureModel";
 import assert from "node:assert/strict";
+import { connectNoticeToasts, type ToastInput } from "../../lib/notices";
 import { act } from "react";
 import { BROWSER_SURFACE_CHROME, BROWSER_SURFACE_TITLE } from "./browserChrome";
 import { surfaceControlStore } from "../../lib/surfaceControlStore";
@@ -39,8 +40,12 @@ interface MountOptions {
   clipboard?: Pick<Clipboard, "readText" | "writeText">;
 }
 
+let raisedNotices: ToastInput[] = [];
+
 async function mount({ ownerName, surfaceTabId, opened = [], clipboard }: MountOptions = {}) {
   const fake = createFakeStreamTransport();
+  raisedNotices = [];
+  const disconnectNotices = connectNoticeToasts((notice) => raisedNotices.push(notice));
   const view = await render(
     <StreamSurfaceView
       transport={fake.transport}
@@ -54,7 +59,7 @@ async function mount({ ownerName, surfaceTabId, opened = [], clipboard }: MountO
       clipboard={clipboard}
     />,
   );
-  return { ...view, fake, region: () => getByRole(view.host, "region", label) };
+  return { ...view, unmount: async () => { disconnectNotices(); await view.unmount(); }, fake, region: () => getByRole(view.host, "region", label) };
 }
 
 const SURFACE_TAB = "surface-1";
@@ -215,7 +220,7 @@ suite.test("a failed send closes the ask UI and restores the live canvas", async
   await dragArea(region());
   await ask(host, "what is this?");
   assertSnipRestored(region());
-  assert.ok(byTestId(region(), "surface-notice"), "the send failure is reported");
+  assert.ok(raisedNotices.some((notice) => notice.body?.includes("send failed")), "the send failure reaches the toast publisher");
   await unmount();
 });
 
@@ -224,7 +229,7 @@ suite.test("a failed capture removes its pending frame and selection state", asy
   fake.respond(SURFACE_METHOD.snipCapture, () => Promise.reject(new Error("capture failed")));
   await dragArea(region());
   assertSnipRestored(region());
-  assert.ok(byTestId(region(), "surface-notice"), "the capture failure is reported");
+  assert.ok(raisedNotices.some((notice) => notice.body?.includes("capture failed")), "the capture failure reaches the toast publisher");
   assert.equal(fake.callsTo(SURFACE_METHOD.snipSend).length, 0);
   await unmount();
 });
@@ -376,7 +381,7 @@ suite.test("+ New profile opens a dialog whose name switches the profile", async
   assert.deepEqual(fake.callsTo("profiles.use").map((call) => call.args), [{ name: "Work" }]);
   assert.deepEqual(fake.callsTo("profiles.create").map((call) => call.args), [{ name: "Work" }]);
   assert.equal(queryByRole(document.body, "dialog", "New profile"), null, "the dialog closes on submit");
-  assert.ok(getByRole(region(), "status", profileSwitchedNotice("Work")));
+  assert.ok(raisedNotices.some((notice) => notice.body === profileSwitchedNotice("Work")));
   await unmount();
 });
 
@@ -413,26 +418,17 @@ suite.test("cancelling the new-profile dialog switches nothing; Clean sends the 
   await unmount();
 });
 
-suite.test("a needs-human state shows a dismissible notice that errors override", async () => {
+suite.test("needs-human transitions publish once and do not create a surface overlay", async () => {
   const { fake, region, unmount } = await mount();
   await resizeStages(640, 480);
-  const consent = needsHumanNotice({ ...state, needsHuman: "consent" })!;
-  const captcha = needsHumanNotice({ ...state, needsHuman: "captcha" })!;
-  const dismiss = async (notice: HTMLElement) => act(async () => getByRole(notice, "button", "Dismiss notice").click());
   await act(async () => fake.emitState({ ...state, needsHuman: "consent" }));
-  assert.equal(getByRole(region(), "status", consent).getAttribute("data-tone"), "warn");
-  await act(async () => fake.emitNotice({ text: "boom", tone: "error" }));
-  assert.equal(queryByRole(region(), "status"), null, "an error notice takes precedence");
-  await dismiss(getByRole(region(), "alert"));
-  await dismiss(getByRole(region(), "status", consent));
-  assert.equal(queryByRole(region(), "status"), null, "dismissing hides the need");
+  assert.equal(raisedNotices[raisedNotices.length - 1]?.body, needsHumanNotice({ ...state, needsHuman: "consent" }));
+  const count = raisedNotices.length;
   await act(async () => fake.emitState({ ...state, needsHuman: "consent" }));
-  assert.equal(queryByRole(region(), "status"), null, "the same need stays dismissed");
+  assert.equal(raisedNotices.length, count);
   await act(async () => fake.emitState({ ...state, needsHuman: "captcha" }));
-  await dismiss(getByRole(region(), "status", captcha));
-  await act(async () => fake.emitState({ ...state, needsHuman: "none" }));
-  await act(async () => fake.emitState({ ...state, needsHuman: "captcha" }));
-  assert.ok(getByRole(region(), "status", captcha), "a need that went away and came back shows again");
+  assert.equal(raisedNotices[raisedNotices.length - 1]?.body, needsHumanNotice({ ...state, needsHuman: "captcha" }));
+  assert.equal(byTestId(region(), "surface-notice"), null);
   await unmount();
 });
 
@@ -556,7 +552,7 @@ suite.test("a paused preview shows a quiet inline state, never the notice bar, a
   assert.equal(paused.textContent?.startsWith(PREVIEW_PAUSED_TEXT), true);
   assert.equal(byTestId(region(), "surface-notice"), null, "a recurring condition is not a notice bar");
   await act(async () => fake.emitNotice({ text: "boom", tone: "error" }));
-  assert.ok(byTestId(region(), "surface-notice"), "other notices keep the bar");
+  assert.ok(raisedNotices.some((notice) => notice.body === "boom"), "other notices reach the toast publisher");
   assert.ok(byTestId(region(), "surface-preview-paused"), "and do not clear the paused state");
   await act(async () => fake.emitFrame(frameAt(640, 480)));
   assert.equal(byTestId(region(), "surface-preview-paused"), null, "the next frame clears it");
