@@ -195,7 +195,6 @@ fn warnings_do_not_fail_and_native_object_inputs_round_trip() {
         json!({"resource":"demo"})
     );
 }
-use super::*;
 use crate::blueprint_watch::{duration_ms, Create, Route};
 
 #[test]

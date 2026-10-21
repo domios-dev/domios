@@ -393,7 +393,7 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
         },
     ));
     assert_eq!(accepted.value.outcome, MutationOutcome::Applied);
-    let stopped = done(repo.stop(id.clone(), "explicit".into()));
+    let stopped = done(repo.stop(id.clone(), "explicit".into(), 1000));
     assert_eq!(stopped.value.outcome, MutationOutcome::Applied);
     let last = stored(&storage, &job.id).record;
     assert_eq!(last.transitions[0].definition_version, Some(2));
