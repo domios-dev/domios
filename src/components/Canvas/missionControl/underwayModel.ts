@@ -9,11 +9,10 @@ function rank(tab: Tab): number {
 }
 
 export function underwayRows(tabs: readonly Tab[], plans: readonly Plan[], teamId: string) {
-  return tabs.filter((tab) => tab.team_id === teamId && tab.role === "Worker" && showsChecklist(tab)).flatMap((tab) => {
+  return tabs.filter((tab) => tab.team_id === teamId && showsChecklist(tab)).map((tab) => {
     const assigned = plans.filter((plan) => plan.team_id === teamId).flatMap((plan) => plan.tasks).filter((candidate) => candidate.assigned_tab_id === tab.id);
     const task = assigned.find((candidate) => candidate.status === "in_progress") ?? assigned[0];
-    if (task ? task.status !== "in_progress" : tab.agent_state?.state !== "working") return [];
-    return [{ tab, task }];
+    return { tab, task };
   }).sort((a, b) => rank(a.tab) - rank(b.tab)
     || (a.task?.key ?? "").localeCompare(b.task?.key ?? "", undefined, { numeric: true })
     || a.tab.id.localeCompare(b.tab.id));

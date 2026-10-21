@@ -19,9 +19,9 @@ test("working rows rank kinds then numeric task keys with stable identities", ()
   assert.deepEqual(underwayRows(tabs, plans, "team").map(({ tab }) => tab.id), ["release", "qa2", "qa10", "review", "plain"]);
 });
 
-test("task state keeps idle turns visible and removes finished work", () => {
+test("every team agent that keeps a checklist is listed, whatever its task state", () => {
   const tabs = [tab("active", "worker", { agent_state: { state: "idle" } }), tab("review"), tab("done"), tab("free"), tab("idle", "worker", { agent_state: { state: "idle" } }), tab("foreign", "worker", { team_id: "other" }), tab("manager", "worker", { role: "Manager" }), tab("empty", "worker", { has_checklist: false })];
-  assert.deepEqual(underwayRows(tabs, [plan([{ id: "active", key: "COD-1", status: "in_progress" }, { id: "review", key: "COD-2", status: "in_review" }, { id: "done", key: "COD-3", status: "done" }])], "team").map(({ tab }) => tab.id), ["free", "active"]);
+  assert.deepEqual(underwayRows(tabs, [plan([{ id: "active", key: "COD-1", status: "in_progress" }, { id: "review", key: "COD-2", status: "in_review" }, { id: "done", key: "COD-3", status: "done" }])], "team").map(({ tab }) => tab.id), ["free", "idle", "manager", "active", "review", "done"]);
 });
 
 test("current in-progress assignment wins over older completed assignments", () => {

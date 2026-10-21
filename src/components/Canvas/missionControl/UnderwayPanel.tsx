@@ -70,7 +70,7 @@ export function UnderwayBoardRow({ api, teamId, plans, refs, deepLinks }: {
       <BoardPanel testId="mc-board-underway" title="Underway" meta={<>{rows.length ? `${rows.length} working` : "idle"}<ActivityDots size="small" tone="muted" active={rows.length > 0} /></>}>
         <div className="mc-underway-list">
           {rows.length ? <ol aria-label="Working agents">{rows.map(({ tab, task }) => <UnderwayRow key={tab.id} tab={tab} task={task} view={views.get(tab.id)} plans={plans} refs={refs} deepLinks={deepLinks} />)}</ol>
-            : <div className="mc-underway-empty"><p>No agent is working through a checklist.</p><p>Agents appear here while their task is in progress.</p></div>}
+            : <div className="mc-underway-empty"><p>No agent in this team has a checklist yet.</p><p>Agents appear here as soon as they keep one.</p></div>}
         </div>
         <button type="button" className="mc-underway-resize" aria-label="Resize Underway; use arrow keys to change width and height" {...handle}><Grip size={14} /></button>
       </BoardPanel>
