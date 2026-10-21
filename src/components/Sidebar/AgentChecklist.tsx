@@ -73,11 +73,15 @@ function StateGlyph({ state }: { state: AgentChecklistState }) {
   return <Icon size={10} strokeWidth={1.75} aria-hidden="true" className="sidebar-agent-checklist__glyph" />;
 }
 
+function ChecklistTaskLink({ target, label, onOpen }: { target: { planId: string; taskId: string }; label: string; onOpen: () => void }) {
+  const navigate = usePlanTargetNavigation();
+  return <button type="button" className="text-[var(--ct-accent)] text-left underline" onClick={() => { navigate(target); onOpen(); }}>{label}</button>;
+}
+
 function SidebarAgentChecklist({ item, plans, tabId }: { item: AgentChecklistItem; plans: readonly Plan[]; tabId: string }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLLIElement>(null);
   const detailId = useId();
-  const navigate = usePlanTargetNavigation();
   const linked = item.link?.kind === "domios_task" ? item.link : null;
   const plan = plans.find((candidate) => linked ? candidate.id === linked.plan_id : item.locked && candidate.tasks.some((task) => task.assigned_tab_id === tabId));
   const task = plan?.tasks.find((candidate) => linked ? candidate.id === linked.task_id : candidate.assigned_tab_id === tabId);
@@ -103,9 +107,7 @@ function SidebarAgentChecklist({ item, plans, tabId }: { item: AgentChecklistIte
         {item.state === "in_progress" && item.activeForm && <p>{item.activeForm}</p>}
         {item.reason && <p>Reason: {item.reason}</p>}
         {item.link?.kind === "url" && <a className="text-[var(--ct-accent)] underline" href={item.link.url} target="_blank" rel="noopener noreferrer">{item.link.label} · {item.link.url}</a>}
-        {taskTarget && <button type="button" className="text-[var(--ct-accent)] text-left underline" onClick={() => { navigate(taskTarget); setOpen(false); }}>
-          {task ? `${task.key ?? task.id} · ${task.name}` : linked?.label}
-        </button>}
+        {taskTarget && <ChecklistTaskLink target={taskTarget} label={task ? `${task.key ?? task.id} · ${task.name}` : linked?.label ?? ""} onOpen={() => setOpen(false)} />}
       </section>
     </AnchoredPopover>
   </li>;
