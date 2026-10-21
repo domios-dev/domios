@@ -29,7 +29,7 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
         .blueprint_keep(&caller, "missing", "Watch CI failures")
         .unwrap_err()
         .contains("Orchestrator"));
-    let document=Document::from_definition(&json!({"create":{"name":"Concrete watch","note":"Watch CI","probe":"echo private-instance","question":"Ready?","buckets":["done"],"every":"20s","matches":{"done":"ready"},"routes":{"done":"notify"},"timeout":"1h"}})).unwrap();
+    let document=Document::from_definition(&json!({"create":{"name":"Concrete watch","note":"Watch CI","probe":"echo private-instance","question":"Ready?","buckets":["done"],"every":"20s","matches":{"done":"ready"},"routes":{"done":"notify"},"until":"done","timeout":"1h"}})).unwrap();
     let id = service
         .mem
         .save_blueprint(
@@ -68,5 +68,53 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
         .unwrap()
         .body
         .contains("private-instance"));
+    assert!(service
+        .blueprint_save_solution_host(
+            &workspace,
+            caller.team.as_deref(),
+            &job.id,
+            "Watch readiness"
+        )
+        .unwrap_err()
+        .contains("successful"));
+    let transition = crate::handlers::Transition {
+        causal_run: None,
+        decision: None,
+        id: "proof".into(),
+        bucket: "done".into(),
+        accepted_at: 1,
+        terminal: true,
+        handlers: vec![],
+    };
+    assert!(crate::storage::commit(&handle.store, |store| store
+        .stage_finish_with(&job, Some(transition)))
+    .unwrap());
+    let saved = service
+        .blueprint_save_solution_host(
+            &workspace,
+            caller.team.as_deref(),
+            &job.id,
+            "Watch readiness",
+        )
+        .unwrap();
+    assert_eq!(saved["status"], "saved");
+    let saved_id = saved["id"].as_str().unwrap();
+    assert!(service
+        .mem
+        .blueprint_recipe(&area(&workspace), saved_id)
+        .is_ok());
+    let listed = service.blueprint_solutions_host(&workspace).unwrap();
+    assert!(listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["id"] == saved_id));
+    service
+        .blueprint_archive_solution_host(&workspace, saved_id)
+        .unwrap();
+    assert!(service
+        .mem
+        .blueprint_recipe(&area(&workspace), saved_id)
+        .is_err());
     close(instance);
 }

@@ -383,6 +383,22 @@ impl MemManager {
         Ok(result)
     }
 
+    pub fn list_blueprint_solutions(&self, area: &str) -> Result<Vec<Entry>, String> {
+        entries(&self.conn.lock(), &self.blobs_dir, area)
+    }
+
+    pub fn archive_blueprint_solution(&self, area: &str, id: &str) -> Result<(), String> {
+        self.guard_commit()?;
+        let conn = self.conn.lock();
+        if !entries(&conn, &self.blobs_dir, area)?
+            .iter()
+            .any(|entry| entry.id == id)
+        {
+            return Err("Saved Blueprint recipe not found in this project".into());
+        }
+        archive(&conn, id, "Archived by owner")
+    }
+
     pub fn blueprint_recipe(
         self: &std::sync::Arc<Self>,
         area: &str,
