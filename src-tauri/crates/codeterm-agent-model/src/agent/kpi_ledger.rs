@@ -479,6 +479,10 @@ impl KpiLedger {
         self.list_where("plan_id = ?1", params![plan_id])
     }
 
+    pub fn output_tokens_for_tab(&self, tab_id: &str) -> Result<Option<u64>, String> {
+        self.conn.lock().query_row("SELECT SUM(output_tokens) FROM kpi_events WHERE tab_id = ?1 AND kind = 'token_usage'",params![tab_id],|row|row.get::<_,Option<i64>>(0)).map(|n|n.map(|n|n.max(0) as u64)).map_err(|e|e.to_string())
+    }
+
     fn list_where(
         &self,
         predicate: &str,

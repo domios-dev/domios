@@ -186,6 +186,7 @@ impl BlueprintExt for ServiceContext {
         spec: BlueprintSpec,
         stopped: bool,
     ) -> Result<Value, String> {
+        self.authorize_curator_operation(&caller.tab, None, "create")?;
         self.validate_pipeline(&spec)?;
         self.validate_event_trigger(&spec)?;
         ensure_trigger_available(&spec.trigger)
@@ -272,7 +273,16 @@ impl BlueprintExt for ServiceContext {
         spec: BlueprintSpec,
         cause: Option<String>,
     ) -> Result<crate::store::Sentinel, String> {
+        let curator = self.authorize_curator_operation(&caller.tab, Some(id), "apply")?;
         let current = self.pipeline_update_current(caller, id, expect_version)?;
+        if curator
+            && !crate::blueprint_apply::retarget_only(
+                &serde_json::to_value(current.pipeline()).map_err(|e| e.to_string())?,
+                &serde_json::to_value(&spec).map_err(|e| e.to_string())?,
+            )
+        {
+            return Err("Curator pipeline amendments may only retarget".into());
+        }
         self.validate_pipeline(&spec)?;
         self.validate_event_trigger(&spec)?;
         ensure_trigger_available(&spec.trigger)

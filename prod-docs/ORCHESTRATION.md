@@ -101,10 +101,10 @@ Exit `in_review` only with `codeterm plan review accept`, `bounce`, or `hold`, p
 
 ### Quiet team heartbeat
 
-Heartbeat is the only interval-based plan reminder: events add none and completed plans get no wrap-up. Reports, worker-loss notices, decisions, and failure alerts keep separate channels. It suppresses unchanged state and requires a next step; no Supporter or model is needed. Worker reminders also respect their interval; see `ORCHESTRATION-OPERATIONS`.
+The default Curator control loop replaces the Orchestrator heartbeat. It mirrors the Orchestrator's model, starts from a bounded activity digest, and chooses its next round within 45 minutes to two hours. Quiet windows use a free heartbeat nudge only when work needs attention. Paused plans, completed plans and Teams waiting on a human do not launch rounds. Owners can select heartbeat mode and its interval; failures expose a visible heartbeat fallback. Worker reminders keep their own interval. See `ORCHESTRATION-OPERATIONS`.
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
 Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
 
-<!-- revision: 135 -->
+<!-- revision: 136 -->

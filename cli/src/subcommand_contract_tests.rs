@@ -10,6 +10,7 @@ use clap::{CommandFactory, Parser};
 
 mod agent;
 mod context;
+mod curator;
 mod plan_lane_clean;
 mod plan_project;
 mod recurrence;

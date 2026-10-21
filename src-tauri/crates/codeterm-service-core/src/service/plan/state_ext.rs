@@ -47,6 +47,9 @@ impl ServiceContext {
             now_ms,
         );
         snapshot.mission_control.kpi = super::mission_control_ext::plan_kpi(self, plan_id);
+        if let Ok(control_loop) = self.control_loop_show(plan_id) {
+            snapshot.control_loop = control_loop;
+        }
         snapshot.mission_control.spend = super::mission_control_ext::machine_spend(self);
         Ok(snapshot)
     }
