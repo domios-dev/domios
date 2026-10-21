@@ -500,6 +500,9 @@ async fn close_team_inner(
     if let Err(error) = &lane_cleanup {
         log::error!("{error}");
     }
+    for tab_id in &cleanup.member_tab_ids {
+        svc.settle_lanes_held_by_closed_tab(tab_id);
+    }
     let flagged_plans = changed_plan_ids
         .iter()
         .filter_map(|plan_id| svc.plan_store.get(plan_id))

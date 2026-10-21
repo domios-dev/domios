@@ -622,6 +622,7 @@ pub(crate) fn merge_lane(
         )
         .map_err(super::super::plan::plan_rpc_err)?;
     super::emit_plan_changed(svc, &plan_id);
+    svc.settle_lane(&plan_id, &task_id);
     Ok(json!({
         "integrated": true,
         "idempotent": false,

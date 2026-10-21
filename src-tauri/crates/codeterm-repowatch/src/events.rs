@@ -76,6 +76,5 @@ impl std::error::Error for RepoWatchError {}
 /// tests use a channel.
 pub trait RepoEventSink: Send + Sync {
     fn repository_changed(&self, identity: &str);
-    fn repository_head_changed(&self, _identity: &str) {}
     fn repository_unavailable(&self, identity: &str, reason: RepoWatchUnavailable);
 }

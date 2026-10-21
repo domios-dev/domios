@@ -42,6 +42,7 @@ pub fn restore(service: &ServiceContext) {
     {
         log::warn!("[plan] dangling team-binding reconciliation failed: {error}");
     }
+    service.settle_finished_lane_history();
 
     service.mark_plans_startup_loaded();
 }
