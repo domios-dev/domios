@@ -50,6 +50,7 @@ export function SettingsCard({
   description,
   children,
   className,
+  backdrop,
 }: {
   icon?: ReactNode;
   title: ReactNode;
@@ -57,15 +58,17 @@ export function SettingsCard({
   description?: ReactNode;
   children?: ReactNode;
   className?: string;
+  backdrop?: ReactNode;
 }) {
   const titleId = useId();
   return (
     <section
       role="group"
       aria-labelledby={titleId}
-      className={`ct-card ct-card--static ct-settings-card ${className ?? ""}`}
+      className={`ct-card ct-card--static ct-settings-card ${backdrop ? "ct-settings-card--backdrop" : ""} ${className ?? ""}`}
       data-testid="settings-card"
     >
+      {backdrop}
       <header className="ct-settings-card__head">
         {icon && <span className="ct-settings-card__icon" aria-hidden="true">{icon}</span>}
         <div className="ct-settings-card__heading">
