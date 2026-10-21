@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../../lib/notices";
 import { useState } from "react";
 import { LoaderCircle, UserRound } from "lucide-react";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
@@ -21,12 +22,12 @@ export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
   const startSignIn = async (hint: SignInOption["hint"]) => {
     const failure = await account.signIn(hint);
     if (!failure) return;
-    upsertToast(signInFailureToast(failure, () => startSignIn(hint)));
+    createNoticePublisher({ upsertToast })(signInFailureToast(failure, () => startSignIn(hint)));
   };
   const manageSubscription = async () => {
     const failure = await billing.manage(onOpenPlans);
     if (!failure) return;
-    upsertToast(billingFailureToast(failure, "managing your subscription", billing.plan?.status,
+    createNoticePublisher({ upsertToast })(billingFailureToast(failure, "managing your subscription", billing.plan?.status,
       () => manageSubscription()));
   };
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>

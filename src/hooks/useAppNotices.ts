@@ -17,7 +17,7 @@ function mismatchDetails(mismatch: BuildMismatch) {
 function copyDetails(raw: string) {
   return { label: "Copy details", run: async () => {
     try { await navigator.clipboard.writeText(raw); }
-    catch { publishNotice({ kind: "toast", severity: "Warning", title: "Copy details unavailable", detail: "Open the notification details and copy the text manually." }); }
+    catch { publishNotice({ kind: "toast", severity: "Warning", title: "Copy details unavailable", detail: raw }); }
   } };
 }
 
@@ -37,8 +37,10 @@ export function useAppNotices() {
   usePwaSetup();
 
   useEffect(() => {
+    let active = true;
     let lastMismatch: string | null = null;
     const showMismatch = (mismatch: BuildMismatch | null) => {
+      if (!active) return;
       if (!mismatch) { lastMismatch = null; dismissToast("interface-build-mismatch"); return; }
       const key = JSON.stringify(mismatch);
       if (key === lastMismatch) return;
@@ -50,7 +52,7 @@ export function useAppNotices() {
     const unlisten = onMismatch(showMismatch);
     const uninstall = installBuildDriftTriggers();
     void checkBuildMismatch().then(showMismatch).catch(() => {});
-    return () => { unlisten(); uninstall(); };
+    return () => { active = false; unlisten(); uninstall(); };
   }, [dismissToast]);
 
   useEffect(() => {

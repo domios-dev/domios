@@ -8,6 +8,8 @@ import type { FrontendUpdateOffer } from "../lib/frontendUpdate/runtime";
 const fixture = vi.hoisted(() => ({
   mismatch: null as ((value: BuildMismatch | null) => void) | null,
   initialMismatch: null as BuildMismatch | null,
+  pendingMismatch: null as Promise<BuildMismatch | null> | null,
+  published: [] as string[],
   offer: null as FrontendUpdateOffer | null,
   offerListeners: new Set<() => void>(),
   reload: vi.fn(async (_hash?: string) => {}),
@@ -17,7 +19,7 @@ const fixture = vi.hoisted(() => ({
 vi.mock("../store/multiplexer", () => ({ useMultiplexer: () => fixture.actions }));
 vi.mock("../lib/buildMismatchGuard", () => ({
   onMismatch: (listener: typeof fixture.mismatch) => { fixture.mismatch = listener; return () => { fixture.mismatch = null; }; },
-  checkBuildMismatch: async () => fixture.initialMismatch, installBuildDriftTriggers: () => () => {},
+  checkBuildMismatch: () => fixture.pendingMismatch ?? Promise.resolve(fixture.initialMismatch), installBuildDriftTriggers: () => () => {},
 }));
 vi.mock("../lib/serviceWorkerRegistration", () => ({ reloadInterface: fixture.reload, registerServiceWorker: vi.fn() }));
 vi.mock("../lib/frontendUpdate/browser", () => ({
@@ -35,7 +37,7 @@ import { NotificationToastContainer } from "../components/Notifications/Notifica
 function Notices() { useAppNotices(); return null; }
 function Harness() {
   const [toasts, setToasts] = useState<Notification[]>([]);
-  const upsertToast = useCallback((toast: Omit<Notification, "timestamp" | "read">) => setToasts((current) => [...current.filter((item) => item.id !== toast.id), { ...toast, timestamp: 1, read: false }]), []);
+  const upsertToast = useCallback((toast: Omit<Notification, "timestamp" | "read">) => { fixture.published.push(toast.id); setToasts((current) => [...current.filter((item) => item.id !== toast.id), { ...toast, timestamp: 1, read: false }]); }, []);
   const dismissToast = useCallback((id: string) => setToasts((current) => current.filter((item) => item.id !== id)), []);
   fixture.actions = { upsertToast, dismissToast };
   return <><Notices /><NotificationToastContainer toasts={toasts} onDismiss={dismissToast} /></>;
@@ -53,7 +55,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await act(async () => root.unmount()); host.remove();
-  fixture.offer = null; fixture.initialMismatch = null; fixture.reload.mockReset(); fixture.accept.mockReset();
+  fixture.offer = null; fixture.initialMismatch = null; fixture.pendingMismatch = null; fixture.published = []; fixture.reload.mockReset(); fixture.accept.mockReset();
 });
 
 it("puts build drift and reload failure in the stack with Reload, Copy details and Retry", async () => {
@@ -83,6 +85,30 @@ it("shows an already detected build mismatch once and copies its details", async
     expect(copy).toHaveBeenCalledWith("Interface build: old; daemon build: new");
     await act(async () => fixture.mismatch!(fixture.initialMismatch));
     expect(toast("interface-build-mismatch")).toBeNull();
+  } finally { copy.mockRestore(); }
+});
+
+it("does not publish a build check that completes after teardown", async () => {
+  await act(async () => root.unmount());
+  let resolve!: (value: BuildMismatch | null) => void;
+  fixture.pendingMismatch = new Promise((done) => { resolve = done; });
+  root = createRoot(host);
+  await act(async () => root.render(<Harness />));
+  await act(async () => root.unmount());
+  await act(async () => resolve({ reason: "build", frontendHash: "old", backendHash: "new", frontendVersion: "old", backendVersion: "new", apiVersion: 1, minApiVersion: 1, maxApiVersion: 1 }));
+  fixture.pendingMismatch = null;
+  root = createRoot(host);
+  await act(async () => root.render(<Harness />));
+  expect(fixture.published).not.toContain("interface-build-mismatch");
+});
+
+it("keeps raw details available when clipboard copying fails", async () => {
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("clipboard unavailable"));
+  try {
+    await act(async () => fixture.mismatch!({ reason: "build", frontendHash: "old", backendHash: "new", frontendVersion: "old", backendVersion: "new", apiVersion: 1, minApiVersion: 1, maxApiVersion: 1 }));
+    await act(async () => action("interface-build-mismatch", "Copy details").click());
+    expect(host.textContent).toContain("Interface build: old; daemon build: new");
+    expect(host.querySelector('button[aria-label="Show notification: Copy details unavailable"]')).not.toBeNull();
   } finally { copy.mockRestore(); }
 });
 
