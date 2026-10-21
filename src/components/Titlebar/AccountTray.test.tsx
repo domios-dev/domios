@@ -7,13 +7,13 @@ import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/mu
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openPlans, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openPlans: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false, billingPending: false, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false },
+  state: { signedIn: false, sessionOnly: false, billingPending: false, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null },
 }));
 const localFetch = vi.hoisted(() => vi.fn());
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
   ...await importOriginal<typeof import("../Settings/useAccount")>(),
   useAccount: () => ({model: state.signedIn
-    ? {kind:"signed_in",sessionOnly:state.sessionOnly,identity:{uid:"user",display_name:"Ada",email:"ada@example.test",provider:"fake"}}
+    ? {kind:"signed_in",sessionOnly:state.sessionOnly,identity:{uid:"user",display_name:"Ada",email:"ada@example.test",provider:"fake",photo_url:state.photoUrl}}
     : {kind:"signed_out"}, signIn, signOut}),
 }));
 vi.mock("../Settings/useAccountPlan", async (importOriginal) => {
@@ -303,6 +303,60 @@ for (const signedIn of [false,true]) it(`opens community links in the system bro
     expect(openUrl).toHaveBeenCalledTimes(2);
   } finally {await act(async () => root.unmount());host.remove();state.signedIn=false;}
 });
+
+const PHOTO = "https://lh3.googleusercontent.com/a/fixture=s96-c";
+async function renderSignedIn(photoUrl: string | null) {
+  state.signedIn = true;
+  state.photoUrl = photoUrl;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(<AccountTrayWithActions />));
+  const button = host.querySelector("button")!;
+  const cleanup = async () => { await act(async () => root.unmount()); host.remove(); state.signedIn = false; state.photoUrl = null; };
+  return { button, cleanup };
+}
+async function openMenuHeader(button: HTMLButtonElement) {
+  await act(async () => button.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
+  return Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.includes("ada@example.test"))!;
+}
+
+it("shows the provider avatar in the tray and menu header without sending a referrer", async () => {
+  const { button, cleanup } = await renderSignedIn(PHOTO);
+  try {
+    const image = button.querySelector("img")!;
+    expect(image.getAttribute("src")).toBe(PHOTO);
+    expect(image.getAttribute("alt")).toBe("Ada avatar");
+    expect(image.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(button.getAttribute("aria-label")).toBe("Account: Ada");
+    const header = await openMenuHeader(button);
+    expect(header.querySelector("img")?.getAttribute("src")).toBe(PHOTO);
+    expect(header.querySelector("img")?.getAttribute("referrerpolicy")).toBe("no-referrer");
+  } finally { await cleanup(); }
+});
+
+it("falls back to the initial when the avatar fails to load", async () => {
+  const { button, cleanup } = await renderSignedIn(PHOTO);
+  try {
+    await act(async () => button.querySelector("img")!.dispatchEvent(new Event("error")));
+    expect(button.querySelector("img")).toBeNull();
+    expect(button.textContent).toBe("A");
+    const header = await openMenuHeader(button);
+    await act(async () => header.querySelector("img")!.dispatchEvent(new Event("error")));
+    expect(header.querySelector("img")).toBeNull();
+    expect(header.textContent).toContain("A");
+  } finally { await cleanup(); }
+});
+
+for (const photoUrl of [null, "http://lh3.googleusercontent.com/a/fixture", `https://lh3.googleusercontent.com/${"a".repeat(2048)}`]) {
+  it(`shows the initial without an image for photo_url=${photoUrl?.slice(0, 40) ?? "none"}`, async () => {
+    const { button, cleanup } = await renderSignedIn(photoUrl);
+    try {
+      expect(button.querySelector("img")).toBeNull();
+      expect(button.textContent).toBe("A");
+      expect((await openMenuHeader(button)).querySelector("img")).toBeNull();
+    } finally { await cleanup(); }
+  });
+}
 
 it("exposes the session-only storage warning in the account menu", async () => {
   state.signedIn = true;

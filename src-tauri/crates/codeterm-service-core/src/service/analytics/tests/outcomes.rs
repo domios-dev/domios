@@ -55,6 +55,7 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
             email: None,
             display_name: None,
             provider: "fake".into(),
+            photo_url: None,
         },
         id_token: codeterm_account::Secret::new("private-token"),
     };
@@ -98,6 +99,7 @@ async fn product_checkout_started_records_browser_open_with_closed_plan_only() {
             email: None,
             display_name: None,
             provider: "fake".into(),
+            photo_url: None,
         },
         id_token: codeterm_account::Secret::new("private-token"),
     };

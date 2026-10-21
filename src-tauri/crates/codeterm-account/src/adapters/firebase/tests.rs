@@ -106,6 +106,79 @@ async fn refresh_posts_form_and_replaces_tokens() {
     assert_eq!(tokens.refresh_token.expose(), "refresh-after");
     assert_eq!(tokens.session.identity.uid, "uid-after");
 }
+struct LookupTransport(Value);
+#[async_trait]
+impl super::Transport for LookupTransport {
+    async fn post(&self, url: &str, _: Body, _: Option<RequestDiagnostic>) -> Result<Value> {
+        if url.starts_with("https://securetoken.googleapis.com/") {
+            Ok(json!({"id_token":"id-after", "refresh_token":"refresh-after"}))
+        } else {
+            Ok(json!({ "users": [self.0.clone()] }))
+        }
+    }
+}
+async fn refreshed_photo(user: Value) -> Option<String> {
+    let provider = Firebase::new(fixture_config(), Arc::new(LookupTransport(user)));
+    let tokens = provider
+        .refresh(&Secret::new("refresh-before"))
+        .await
+        .unwrap();
+    tokens.session.identity.photo_url
+}
+#[tokio::test]
+async fn lookup_accepts_only_bounded_https_photo_urls() {
+    let photo = "https://lh3.googleusercontent.com/a/fixture=s96-c";
+    assert_eq!(
+        refreshed_photo(json!({"localId":"uid", "photoUrl": photo}))
+            .await
+            .as_deref(),
+        Some(photo)
+    );
+    let oversize = format!("https://lh3.googleusercontent.com/{}", "a".repeat(2048));
+    for rejected in [
+        "http://lh3.googleusercontent.com/a/fixture",
+        "javascript:alert(1)",
+        "data:image/png;base64,AAAA",
+        "https://user:pass@lh3.googleusercontent.com/a",
+        "not a url",
+        "",
+        oversize.as_str(),
+    ] {
+        assert_eq!(
+            refreshed_photo(json!({"localId":"uid", "photoUrl": rejected})).await,
+            None
+        );
+    }
+    assert_eq!(refreshed_photo(json!({"localId":"uid"})).await, None);
+}
+#[tokio::test]
+async fn lookup_falls_back_to_linked_provider_photo() {
+    let photo = "https://platform-lookaside.fbsbx.com/platform/profilepic/?asid=1";
+    let user = json!({"localId":"uid", "photoUrl":"http://insecure.test/a", "providerUserInfo":[
+        {"providerId":"password"}, {"providerId":"facebook.com", "photoUrl": photo}
+    ]});
+    assert_eq!(refreshed_photo(user).await.as_deref(), Some(photo));
+}
+#[test]
+fn identity_debug_redacts_photo_url() {
+    let identity = Identity {
+        uid: "uid".into(),
+        email: None,
+        display_name: None,
+        provider: "firebase".into(),
+        photo_url: Some("https://lh3.googleusercontent.com/a/secret-path".into()),
+    };
+    let debug = format!("{identity:?}");
+    assert!(!debug.contains("secret-path"));
+    assert!(debug.contains("[REDACTED]"));
+}
+#[test]
+fn identity_without_photo_url_deserializes() {
+    let identity: Identity =
+        serde_json::from_value(json!({"uid":"u","email":null,"display_name":null,"provider":"p"}))
+            .unwrap();
+    assert_eq!(identity.photo_url, None);
+}
 struct RefusingTransport;
 #[async_trait]
 impl super::Transport for RefusingTransport {
