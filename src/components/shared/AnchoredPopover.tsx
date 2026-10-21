@@ -2,6 +2,7 @@ import { useEffect, useRef, type CSSProperties, type ReactNode, type RefObject }
 import { createPortal } from "react-dom";
 import type { FloatingPlacement } from "./floatingPosition";
 import { useAnchoredPopoverPosition, type PopoverAnchor } from "./useAnchoredPopoverPosition";
+import { dismissOnEscape } from "./useEscapeDismissal";
 
 export interface AnchoredPopoverProps {
   open: boolean;
@@ -19,10 +20,6 @@ export interface AnchoredPopoverProps {
   onPointerEnter?: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerLeave?: (event: React.PointerEvent<HTMLDivElement>) => void;
   floatingRef?: RefObject<HTMLDivElement | null>;
-}
-
-function isEscape(event: { code: string; key: string }): boolean {
-  return event.code === "Escape" || event.key === "Escape";
 }
 
 function inAnyPopover(target: EventTarget | null): boolean {
@@ -58,12 +55,10 @@ export function AnchoredPopover({
       onClose();
     };
     const escape = (event: KeyboardEvent) => {
-      if (!isEscape(event) || event.defaultPrevented || inAnyPopover(event.target)) return;
-      event.preventDefault();
+      if (inAnyPopover(event.target)) return;
       const active = document.activeElement;
       const returnFocus = !active || active === document.body || Boolean(contentRef.current?.contains(active));
-      onClose();
-      if (returnFocus) anchorElement?.current?.focus({ preventScroll: true });
+      if (dismissOnEscape(event, onClose) && returnFocus) anchorElement?.current?.focus({ preventScroll: true });
     };
     document.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", escape, true);
@@ -82,10 +77,7 @@ export function AnchoredPopover({
       data-anchored-popover=""
       data-side={position?.side}
       onKeyDown={(event) => {
-        if (!onClose || !isEscape(event) || event.defaultPrevented) return;
-        event.preventDefault();
-        onClose();
-        anchorElement?.current?.focus({ preventScroll: true });
+        if (onClose && dismissOnEscape(event, onClose)) anchorElement?.current?.focus({ preventScroll: true });
       }}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
