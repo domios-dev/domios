@@ -5,7 +5,7 @@
 //! `https://host.ts.net/` link with no mixed-content or cert prompts. Doing
 //! that by hand is a fiddly multi-step CLI dance, so this module automates it —
 //! but every mutation is gated behind explicit user confirmation in the UI and
-//! is idempotent + defensive so it can never clobber a sibling CodeTerm.
+//! is idempotent + defensive so it can never clobber a sibling Domios.
 //!
 //! Read-side parsing (`tailscale_serve_https_url`) lives here too — it is the
 //! inverse of what enable writes, and co-locating keeps the serve concern in
@@ -646,7 +646,7 @@ impl ServeResult {
     }
 }
 
-/// The two CodeTerm API ports (prod 7685 / dev 7686) are siblings: a serve
+/// The two Domios API ports (prod 7685 / dev 7686) are siblings: a serve
 /// listener bound to one while running as the other is the exact #150 footgun.
 fn sibling_codeterm_port(port: u16) -> Option<u16> {
     match port {
@@ -657,7 +657,7 @@ fn sibling_codeterm_port(port: u16) -> Option<u16> {
 }
 
 /// Refuse a public HTTPS port that collides with our own API port or with the
-/// sibling CodeTerm's port — either would proxy traffic into the wrong daemon.
+/// sibling Domios port — either would proxy traffic into the wrong daemon.
 fn would_clobber_codeterm_port(api_port: u16, https_port: u16) -> bool {
     https_port == api_port || sibling_codeterm_port(api_port) == Some(https_port)
 }
@@ -668,7 +668,7 @@ fn would_clobber_codeterm_port(api_port: u16, https_port: u16) -> bool {
 /// commands and only the second click reaches here).
 ///
 /// `https_port` overrides the public port; `None` means try 443 then fall back
-/// to 8443. Defends against clobbering a sibling CodeTerm and verifies the
+/// to 8443. Defends against clobbering a sibling Domios and verifies the
 /// result before reporting success.
 pub fn enable_web_serve(api_port: u16, https_port: Option<u16>) -> ServeResult {
     let requested = https_port;
@@ -694,7 +694,7 @@ pub fn enable_web_serve(api_port: u16, https_port: Option<u16>) -> ServeResult {
         return ServeResult::err("tailscale-not-installed", primary);
     };
 
-    // (2) Refuse a public port that would clobber a CodeTerm API port.
+    // (2) Refuse a public port that would clobber a Domios API port.
     if would_clobber_codeterm_port(api_port, primary) {
         return ServeResult::err("would-clobber-codeterm-port", primary);
     }
@@ -980,10 +980,10 @@ mod tests {
     fn clobber_guard_rejects_own_and_sibling_ports() {
         // Public port == our own API port.
         assert!(would_clobber_codeterm_port(7685, 7685));
-        // Public port == sibling CodeTerm's API port (the #150 footgun).
+        // Public port == sibling Domios API port (the #150 footgun).
         assert!(would_clobber_codeterm_port(7685, 7686));
         assert!(would_clobber_codeterm_port(7686, 7685));
-        // 443 / 8443 against a CodeTerm api_port are fine.
+        // 443 / 8443 against a Domios api_port are fine.
         assert!(!would_clobber_codeterm_port(7685, 443));
         assert!(!would_clobber_codeterm_port(7685, 8443));
         // Non-sibling custom port: only self-collision is rejected.

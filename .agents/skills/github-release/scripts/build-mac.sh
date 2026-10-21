@@ -30,7 +30,7 @@ fi
 if [ "$ARCH" = "arm64" ]; then
   rm -rf src-tauri/target/release/bundle
   CODETERM_RELEASE_COMMON_STAGE=1 ./build.sh release-inputs --for-bundle
-  pnpm tauri build --no-bundle --features "${CODETERM_RELEASE_FEATURES:-embeddings}" \
+  pnpm tauri build --no-bundle ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} \
     --config '{"bundle":{"externalBin":[]}}'
   node scripts/release-stage.mjs stage-full --target aarch64-apple-darwin \
     --source-sha "$(git rev-parse HEAD)" \

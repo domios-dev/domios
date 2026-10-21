@@ -8,7 +8,8 @@ pub(super) use bootstrap::read_single_bounded_line;
 pub(super) use bootstrap::HelperFailure;
 use bootstrap::VerifiedClientInstall;
 pub(crate) use bootstrap::{
-    startup_io_error, startup_reached, startup_refused, startup_started, ClientStartupStage,
+    startup_io_error, startup_reached, startup_refused, startup_started, ClientStartupFailure,
+    ClientStartupStage,
 };
 
 pub(crate) fn record_client_only_quit() {
@@ -257,7 +258,7 @@ pub(crate) async fn initialize_client(
     manifest: ServerComponentManifest,
     trusted_resource_root: PathBuf,
     launch_options: LaunchOptions,
-) -> Result<NativeClientInitialization, String> {
+) -> Result<NativeClientInitialization, ClientStartupFailure> {
     let inputs = Arc::new(NativeClientInstallInputs {
         manifest,
         trusted_resource_root,
@@ -284,7 +285,7 @@ pub(crate) async fn initialize_client(
 
 pub(crate) async fn retry_initialize_client(
     app: AppHandle,
-) -> Result<NativeClientInitialization, String> {
+) -> Result<NativeClientInitialization, ClientStartupFailure> {
     let gate = app
         .try_state::<NativeClientInitializationGate>()
         .map(|state| state.inner().clone())
@@ -304,7 +305,7 @@ async fn initialize_client_once(
     app: AppHandle,
     inputs: Arc<NativeClientInstallInputs>,
     allow_launch: bool,
-) -> Result<NativeClientInitialization, String> {
+) -> Result<NativeClientInitialization, ClientStartupFailure> {
     let NativeClientInstallInputs {
         manifest,
         trusted_resource_root,

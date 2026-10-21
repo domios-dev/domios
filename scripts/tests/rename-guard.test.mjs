@@ -112,13 +112,33 @@ test('scan reports every scope and scans tracked paths as well as contents', (t)
   commit(root, 'seed scoped paths');
   const rules = writeAllowlist(root, []);
   const result = scanTree({ root, allowlist: rules, scope: 'all' });
-  assert.equal(result.counts.identity.files, 1);
-  assert.equal(result.counts.identity.occurrences, 1);
+  assert.equal(result.counts.crates.files, 1);
+  assert.equal(result.counts.crates.occurrences, 1);
+  assert.equal(result.counts.identity.files, 0);
   assert.equal(result.counts.docs.violations, 1);
   assert.equal(result.counts.all.files, 2);
   const report = cli(root, rules, ['--scope', 'all', '--report']);
   assert.equal(report.status, 0, report.stdout + report.stderr);
   for (const scope of ['identity', 'cli', 'crates', 'native', 'docs', 'all']) assert.match(report.stdout, new RegExp(`^${scope}:`, 'm'));
+});
+
+test('identity files keep runtime identity in identity and route phase-2 names by occurrence', (t) => {
+  const root = fixture(t);
+  write(root, `src-tauri/crates/${marker}-paths/src/lib.rs`, [
+    'use codeterm_paths::data_dir;',
+    'const INSTANCE: &str = "CODETERM_INSTANCE";',
+    'const ABOUT: &str = "CodeTerm data";',
+    'const MAGIC: &[u8] = b"CODETERM1";',
+    '// codeterm#123 tracks the historical issue.',
+  ].join('\n'));
+  commit(root, 'seed mixed identity and phase-2 names');
+  const rules = writeAllowlist(root, []);
+  const result = scanTree({ root, allowlist: rules, scope: 'all' });
+  assert.deepEqual(result.counts.identity, { files: 1, occurrences: 1, violations: 1 });
+  assert.deepEqual(result.counts.cli, { files: 1, occurrences: 1, violations: 1 });
+  assert.deepEqual(result.counts.crates, { files: 1, occurrences: 3, violations: 3 });
+  assert.deepEqual(result.counts.docs, { files: 1, occurrences: 1, violations: 1 });
+  assert.equal(result.counts.all.occurrences, 6);
 });
 
 test('lane checker rejects out-of-list edits, reports occurrences, overlaps and unowned files', (t) => {

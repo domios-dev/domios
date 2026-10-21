@@ -1,4 +1,5 @@
 import type { Notification, Tab, Team } from "../../lib/types";
+import { sameJson } from "../../lib/sameJson";
 import type { ExtendedState } from "./tree";
 
 const TITLE_SPINNER_PREFIX = /^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u;
@@ -16,15 +17,37 @@ export function selectActiveWorkspaceId(state: ExtendedState): string | null {
 }
 
 const APP_SHELL_FIELDS = [
-  "workspaces", "tabs", "teams", "activeTabIds", "active_workspace_id", "focused_tab_id",
+  "workspaces", "teams", "activeTabIds", "active_workspace_id", "focused_tab_id",
   "notifications", "notificationsLoaded", "toasts", "storageUnavailable",
 ] as const satisfies ReadonlyArray<keyof ExtendedState>;
+
+/** Live agent telemetry; each mounted tab and sidebar row selects it for itself. */
+const TAB_TELEMETRY_FIELDS: ReadonlySet<keyof Tab> = new Set(["last_active_at_ms", "agent_state"]);
+
+// A streamed snapshot rebuilds the whole tab, so unchanged nested fields arrive as new objects.
+function sameShellTab(a: Tab | undefined, b: Tab | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof Tab)[]);
+  for (const key of keys) {
+    if (!TAB_TELEMETRY_FIELDS.has(key) && !sameJson(a[key], b[key])) return false;
+  }
+  return true;
+}
+
+/** The tab structure the app shell reads: ids and every field except live telemetry. */
+export function shellTabsEqual(a: Record<string, Tab>, b: Record<string, Tab>): boolean {
+  if (a === b) return true;
+  const ids = Object.keys(a);
+  if (ids.length !== Object.keys(b).length) return false;
+  return ids.every((id) => id in b && sameShellTab(a[id], b[id]));
+}
 
 /** The app shell reads the generation only as route readiness, so a snapshot that changed nothing else keeps it still. */
 export function appShellStateEqual(a: ExtendedState, b: ExtendedState): boolean {
   if (a === b) return true;
   if (Math.min(a.generation, 1) !== Math.min(b.generation, 1)) return false;
-  return APP_SHELL_FIELDS.every((field) => a[field] === b[field]);
+  return APP_SHELL_FIELDS.every((field) => a[field] === b[field]) && shellTabsEqual(a.tabs, b.tabs);
 }
 
 export function selectTeams(state: ExtendedState): Team[] {

@@ -219,14 +219,14 @@ impl MeshManager {
             ));
         }
         if remote_instance_id == self.ident.identity.instance_id {
-            return Err("Cannot pair with this CodeTerm instance".to_string());
+            return Err("Cannot pair with this Domios instance".to_string());
         }
         self.reject_untrusted_pairing_identity(remote_instance_id)
     }
 
     fn reject_untrusted_pairing_identity(&self, remote_instance_id: &str) -> Result<(), String> {
         if remote_instance_id == self.ident.identity.instance_id {
-            return Err("Cannot pair with this CodeTerm instance".to_string());
+            return Err("Cannot pair with this Domios instance".to_string());
         }
         if self.paired_peers.contains_key(remote_instance_id) {
             return Err("Peer is already paired".to_string());
@@ -845,7 +845,7 @@ mod liveness_tests {
             access_level: types::AccessLevel::Full,
             version: None,
             web_ui: None,
-            relay_protocol_version: 0,
+            relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
             consecutive_misses: 0,
             last_active_ms: None,
         }
@@ -904,7 +904,7 @@ mod liveness_tests {
                     api_port: 7685,
                     online: false,
                     web_ui: None,
-                    relay_protocol_version: 0,
+                    relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
                 },
             )
             .unwrap();
@@ -934,7 +934,7 @@ mod liveness_tests {
                     api_port: 7685,
                     online: true,
                     web_ui: None,
-                    relay_protocol_version: 0,
+                    relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
                 },
             )
             .unwrap();
@@ -963,7 +963,7 @@ mod liveness_tests {
                     api_port: 7685,
                     online: false,
                     web_ui: None,
-                    relay_protocol_version: 0,
+                    relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
                 },
             )
             .unwrap();

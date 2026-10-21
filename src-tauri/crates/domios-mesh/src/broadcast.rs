@@ -256,6 +256,10 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                 match http
                     .post(&url)
                     .header("Authorization", format!("Bearer {}", token))
+                    .header(
+                        crate::version::VERSION_HEADER,
+                        crate::version::local_version(),
+                    )
                     .json(&announce)
                     .send()
                     .await

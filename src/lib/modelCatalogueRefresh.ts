@@ -1,4 +1,5 @@
 import { invoke } from "./bridge";
+import type { Notification } from "./notificationTypes";
 
 export interface ModelCatalogueRefreshOutcome {
   refreshed: boolean;
@@ -20,9 +21,22 @@ export function refreshOutcomeFromResponse(value: unknown): ModelCatalogueRefres
   };
 }
 
-export function refreshFailureMessage(reason: string | undefined): string {
-  const cause = reason ? `: ${reason}` : "";
-  return `The model list could not be refreshed${cause}. The current list stays in use.`;
+/** A one-line local toast; the daemon log keeps the full reason, Copy hands it over. */
+export function refreshFailureToast(
+  providerId: string,
+  reason: string | undefined,
+  copy: (text: string) => void | Promise<void>,
+): Omit<Notification, "timestamp" | "read"> {
+  return {
+    id: `model-catalogue-refresh:${providerId}`,
+    tab_id: null,
+    workspace_id: null,
+    title: "Couldn't refresh models",
+    body: null,
+    severity: "Warning",
+    level: "verbose",
+    ...(reason ? { local_actions: [{ label: "Copy", run: () => copy(reason) }] } : {}),
+  };
 }
 
 const defaultApi: ModelCatalogueRefreshApi = {

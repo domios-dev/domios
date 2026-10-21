@@ -97,25 +97,28 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
   const [state, dispatch] = useReducer(reduceMessageSelection, EMPTY_SELECTION);
   const renderingStreamId = useDeferredValue(streamingMessageId);
   const index = useMemo(() => indexMessageParts(rows.map((row) => rowClip(row, chatClipNames(agent))), renderingStreamId), [rows, agent, renderingStreamId]);
-  const { order } = index;
   const live = useRef({ index, state });
   live.current = { index, state };
   const focusCursor = useRef(false);
   const press = useRef<Press | null>(null);
   const stopTracking = useRef<(() => void) | null>(null);
 
-  useEffect(() => { dispatch({ type: "prune", order }); }, [order]);
+  useEffect(() => {
+    const current = live.current.state;
+    if (current.selected.length > 0 || current.cursor || current.drag) dispatch({ type: "prune", order: index.order });
+  }, [index]);
   useEffect(() => () => stopTracking.current?.(), []);
 
   const clipsOf = useLatestCallback((ids: readonly string[]): ClipMessage[] => {
     return clipsForParts(live.current.index, ids);
   }, []);
-  const clipFor = useLatestCallback((id: string): ClipMessage | null => live.current.index.byId.get(id) ?? null, []);
+  const clipFor = useLatestCallback((id: string): ClipMessage | null => live.current.index.clipFor(id) ?? null, []);
   const selectedClips = useLatestCallback(() => clipsOf(orderedSelection(live.current.state, live.current.index.order)), [clipsOf]);
 
   const clear = useLatestCallback(() => dispatch({ type: "clear" }), []);
   const select = useLatestCallback((id: string) => {
-    const ids = live.current.index.byMessage.get(id)?.map((part) => part.id) ?? [id];
+    const parts = live.current.index.partsFor(id);
+    const ids = parts.length > 0 ? parts.map((part) => part.id) : [id];
     for (const target of ids) if (!live.current.state.selected.includes(target)) dispatch({ type: "toggle", id: target });
     focusCursor.current = true;
   }, []);
@@ -156,7 +159,7 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target as HTMLElement;
     const targetId = rowIdAt(target, surfaceRef.current, event.clientY);
-    id = targetId && live.current.index.order.includes(targetId) ? targetId : live.current.index.byMessage.get(id)?.[0]?.id ?? id;
+    id = targetId && live.current.index.order.includes(targetId) ? targetId : live.current.index.partsFor(id)[0]?.id ?? id;
     if (target.closest("[role='menu']")) return;
     const inGutter = Boolean(target.closest(GUTTER));
     if (!inGutter && target.closest(INTERACTIVE)) return;
@@ -178,7 +181,7 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
     const target = event.target as HTMLElement;
     const row = target.closest<HTMLElement>("[data-message-part-id], [data-message-id]");
     if (row === null || target !== row || event.altKey || event.ctrlKey || event.metaKey) return;
-    const id = row.dataset.messagePartId ?? live.current.index.byMessage.get(row.dataset.messageId ?? "")?.[0]?.id ?? "";
+    const id = row.dataset.messagePartId ?? live.current.index.partsFor(row.dataset.messageId ?? "")[0]?.id ?? "";
     if (event.code === "ArrowDown" || event.code === "ArrowUp") {
       event.preventDefault();
       if (live.current.state.cursor !== id) dispatch({ type: "focus", id });
@@ -198,7 +201,7 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
     if (!focusCursor.current || !state.cursor) return;
     const element = surfaceRef.current?.querySelector<HTMLElement>(`[data-message-part-id="${CSS.escape(state.cursor)}"], [data-message-id="${CSS.escape(state.cursor)}"]`);
     if (!element) {
-      const messageId = [...live.current.index.byMessage].find(([, parts]) => parts.some((part) => part.id === state.cursor))?.[0];
+      const messageId = live.current.index.messageOf(state.cursor);
       if (prepareMessage?.(messageId ?? state.cursor)) return;
     }
     focusCursor.current = false;
@@ -234,7 +237,7 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef, stream
   // Lookups read the latest index and selection, so streamed transcript changes keep the handlers stable; a selection change renews them.
   const rowHandlers = useMemo<MessageRowHandlers>(() => ({
     clipFor,
-    partsFor: (id) => live.current.index.byMessage.get(id) ?? [],
+    partsFor: (id) => live.current.index.partsFor(id),
     selectedFor: (id) => liveSelected.current.has(id),
     cursorFor: (id) => state.cursor === id,
     joinNextFor: (id) => {

@@ -58,14 +58,20 @@ fn mesh_peer_resolution_table() {
 }
 
 #[test]
-fn mesh_peer_resolution_accepts_legacy_v1_peer_for_routed_send() {
+fn mesh_peer_resolution_refuses_a_v1_peer_for_routed_send() {
     let mut legacy_peer = peer(LIVE_ID, "AIR", true);
     legacy_peer.relay_protocol_version = 1;
     let mesh = mesh_with(vec![legacy_peer]);
 
-    let resolved = resolve_relay_peer(&mesh, "AIR")
-        .expect("the current relay forwards to a v1 peer whose send handler frames locally");
-    assert_eq!(resolved.1, LIVE_ID);
+    let (status, body) = match resolve_relay_peer(&mesh, "AIR") {
+        Ok(_) => panic!("a v1 peer must not receive relayed traffic"),
+        Err(error) => error,
+    };
+    assert_eq!(status, StatusCode::UPGRADE_REQUIRED);
+    assert!(
+        body.contains("incompatible Mesh relay protocol 1"),
+        "{body}"
+    );
 }
 
 #[test]

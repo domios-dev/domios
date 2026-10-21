@@ -90,10 +90,8 @@ mod tests {
     const PLACEHOLDER: &str = "BW_MASTER_PASSWORD=synthetic-not-a-credential\n";
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "codeterm-legacy-secret-{tag}-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("domios-legacy-secret-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir

@@ -91,6 +91,7 @@ pub(crate) fn append(
     actor_tab_id: Option<String>,
     at: u64,
     items: Vec<TabTodoNewItemRecord>,
+    locked: bool,
 ) -> Result<TabTodoChecklistRecord, StorageError> {
     validate_tab_id(&tab_id)?;
     validate_actor(actor_tab_id.as_deref())?;
@@ -106,7 +107,7 @@ pub(crate) fn append(
         ));
     }
     for (offset, item) in items.iter().enumerate() {
-        insert_item(cx, &tab_id, generation as u64, next + offset, item, true)?;
+        insert_item(cx, &tab_id, generation as u64, next + offset, item, locked)?;
         audit(
             cx,
             &tab_id,

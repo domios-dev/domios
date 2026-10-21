@@ -1,0 +1,20 @@
+{
+  "machine": "air",
+  "runners": [
+    {
+      "id": 35,
+      "name": "air-macos",
+      "labels": [
+        "light",
+        "macos-ci",
+        "rust-shard",
+        "host-air"
+      ]
+    }
+  ],
+  "borrowed": {
+    "build-mac-x64": [
+      "macos-ci"
+    ]
+  }
+}

@@ -41,3 +41,10 @@ pub fn app_state(fixture: &ServiceFixture) -> AppState {
         web_dist: None,
     }
 }
+
+pub const TEST_APP_VERSION: &str = "1.15.0";
+
+/// Only the root binary installs the app version; route tests stand in for it.
+pub fn install_app_version() {
+    codeterm_build_info::install_version(TEST_APP_VERSION);
+}

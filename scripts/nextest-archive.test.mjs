@@ -96,6 +96,61 @@ test('one atomic root and core archive per SHA is reused by app selectors withou
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
+test('an archive runs only for a clean checkout whose tree matches the tree it was built from', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'app-archive-fresh-'));
+  try {
+    const result = spawnSync(bash, ['-c', `
+      set -euo pipefail
+      source "$1/scripts/nextest-archive.sh"
+      mkdir src-tauri
+      printf '[workspace]\\n' > src-tauri/Cargo.toml
+      head=opaque-sha
+      source_tree=opaque-tree
+      dirty=''
+      CT_BUILD_JOB_ID=opaque-job
+      git() {
+        case "$1" in
+          rev-parse) case "$*" in *'^{tree}'*) echo "$source_tree" ;; *) echo "$head" ;; esac ;;
+          status) printf '%s' "$dirty" ;;
+        esac
+      }
+      ct_gateway_dir() { echo "$PWD/gateway"; }
+      enter_cargo_gateway() { :; }
+      check_queue_worktree() { echo "$PWD"; }
+      enter_stable_build_path() { :; }
+      configure_dev_cargo() { :; }
+      prepare_dev_frontend_dist() { :; }
+      prepare_bundle_stubs() { :; }
+      cargo() {
+        echo BUILD >> builds.log
+        while [ "$1" != --archive-file ]; do shift; done
+        printf artifact > "$2"
+      }
+      build_app_test_archive "$head"
+      archive="$(app_test_archive_path "$head")"
+      [ "$(cat "$(app_test_archive_receipt "$archive")")" = opaque-tree ] || exit 81
+      find_app_test_archive > fresh.out || exit 82
+      dirty='?? src-tauri/crates/opaque/src/new_tests.rs'
+      if find_app_test_archive > dirty.out; then exit 83; fi
+      dirty=''
+      source_tree=other-tree
+      if find_app_test_archive > foreign.out; then exit 84; fi
+      source_tree=opaque-tree
+      rm "$(app_test_archive_receipt "$archive")"
+      if find_app_test_archive > unreceipted.out; then exit 85; fi
+      build_app_test_archive "$head"
+      find_app_test_archive > rebuilt.out || exit 86
+    `, 'fixture', root.replaceAll('\\', '/')], { cwd: directory, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const read = name => fs.readFileSync(path.join(directory, name), 'utf8');
+    assert.match(read('fresh.out'), /reuse sha=opaque-sha tree=opaque-tree/);
+    assert.match(read('dirty.out'), /compiling; the checkout has changes beyond opaque-sha/);
+    assert.match(read('foreign.out'), /compiling; the archive for opaque-sha was not built from source tree other-tree/);
+    assert.match(read('unreceipted.out'), /compiling; the archive for opaque-sha was not built from source tree opaque-tree/);
+    assert.equal(read('builds.log').trim().split('\n').length, 2, 'an archive without a matching receipt is rebuilt, never reused');
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('both app runners use archive reuse and serial slow confirmations retain the same archive', () => {
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
   const nextest = source.match(/^run_nextest_scope\(\) \{[\s\S]*?^\}/m)[0];

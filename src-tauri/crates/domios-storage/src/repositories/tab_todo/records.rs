@@ -128,6 +128,64 @@ impl TabTodoAmendmentRecord {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabTodoItemRefRecord {
+    pub item_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabTodoStateChangeRecord {
+    pub item_id: String,
+    pub expected_revision: u64,
+    pub state: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TabTodoOwnWriteBase {
+    Fresh,
+    Clear,
+    Edit,
+}
+
+/// An owning tab's declared checklist, applied in one transaction against `generation`
+/// (0 when the tab has none yet).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabTodoOwnWriteRecord {
+    pub base: TabTodoOwnWriteBase,
+    pub generation: u64,
+    pub removals: Vec<TabTodoItemRefRecord>,
+    pub appends: Vec<TabTodoNewItemRecord>,
+    pub state_changes: Vec<TabTodoStateChangeRecord>,
+}
+
+impl TabTodoOwnWriteRecord {
+    pub(crate) fn cost(&self) -> usize {
+        RECORD_OVERHEAD
+            + self
+                .removals
+                .iter()
+                .map(|removal| RECORD_OVERHEAD + removal.item_id.len())
+                .sum::<usize>()
+            + self
+                .appends
+                .iter()
+                .map(TabTodoNewItemRecord::cost)
+                .sum::<usize>()
+            + self
+                .state_changes
+                .iter()
+                .map(|change| {
+                    RECORD_OVERHEAD
+                        + change.item_id.len()
+                        + change.state.len()
+                        + change.reason.as_ref().map_or(0, String::len)
+                })
+                .sum::<usize>()
+    }
+}
+
 pub(crate) fn validate_tab_id(value: &str) -> Result<(), StorageError> {
     identifier("todo tab id", value, MAX_TAB_ID_BYTES)
 }

@@ -5,18 +5,33 @@ app_test_archive_path() {
   printf '%s/test-archives/%s/app-no-embeddings.tar.zst\n' "$(ct_gateway_dir)" "$1"
 }
 
+app_test_archive_receipt() {
+  printf '%s.source-tree\n' "$1"
+}
+
+# Rust build inputs span the whole repository (prompts, plugins, docs, fixtures), so
+# reuse needs a clean checkout whose tree matches the one the archive was built from.
 find_app_test_archive() {
-  local sha
-  sha="$(git rev-parse HEAD)"
+  local sha tree changes
+  sha="$(git rev-parse HEAD)" || return 1
   CT_APP_TEST_ARCHIVE="$(app_test_archive_path "$sha")"
   [ -s "$CT_APP_TEST_ARCHIVE" ] || return 1
-  git diff --quiet HEAD -- src-tauri .cargo || return 1
+  changes="$(git status --porcelain)" || return 1
+  if [ -n "$changes" ]; then
+    echo "nextest-archive: compiling; the checkout has changes beyond $sha"
+    return 1
+  fi
+  tree="$(git rev-parse "$sha^{tree}")" || return 1
+  if [ "$(cat "$(app_test_archive_receipt "$CT_APP_TEST_ARCHIVE")" 2>/dev/null)" != "$tree" ]; then
+    echo "nextest-archive: compiling; the archive for $sha was not built from source tree $tree"
+    return 1
+  fi
   configure_dev_cargo || return $?
-  echo "nextest-archive: reuse sha=$sha archive=$CT_APP_TEST_ARCHIVE"
+  echo "nextest-archive: reuse sha=$sha tree=$tree archive=$CT_APP_TEST_ARCHIVE"
 }
 
 build_app_test_archive() {
-  local sha="${1:-HEAD}" cw archive temporary started selector
+  local sha="${1:-HEAD}" cw archive receipt tree temporary started selector
   [ "$#" = 0 ] || shift
   if [ "$#" -gt 0 ]; then
     [ "$1" = --measure ] && [ "$#" -gt 1 ] || { echo 'Usage: ./build.sh nextest-archive [sha] [--measure selector...]' >&2; return 2; }
@@ -30,9 +45,12 @@ build_app_test_archive() {
   enter_stable_build_path "$cw"
   configure_dev_cargo || return $?
   archive="$(app_test_archive_path "$sha")"
-  if [ -s "$archive" ]; then
-    echo "nextest-archive: reuse sha=$sha archive=$archive"
+  receipt="$(app_test_archive_receipt "$archive")"
+  tree="$(git rev-parse 'HEAD^{tree}')" || return $?
+  if [ -s "$archive" ] && [ "$(cat "$receipt" 2>/dev/null)" = "$tree" ]; then
+    echo "nextest-archive: reuse sha=$sha tree=$tree archive=$archive"
   else
+  rm -f "$receipt"
   prepare_dev_frontend_dist "$cw"
   prepare_bundle_stubs
   mkdir -p "$(dirname "$archive")"
@@ -42,7 +60,9 @@ build_app_test_archive() {
     -p domios-service-core -p domios --lib --no-default-features --cargo-profile test --archive-file "$temporary" || return $?
   [ -s "$temporary" ] || { echo 'ERROR: nextest archive produced no artifact' >&2; return 74; }
   mv "$temporary" "$archive"
-  echo "nextest-archive: built sha=$sha wall=$(( $(date +%s) - started ))s archive=$archive"
+  printf '%s\n' "$tree" > "$receipt.$CT_BUILD_JOB_ID"
+  mv "$receipt.$CT_BUILD_JOB_ID" "$receipt"
+  echo "nextest-archive: built sha=$sha tree=$tree wall=$(( $(date +%s) - started ))s archive=$archive"
   fi
   CT_APP_TEST_ARCHIVE="$archive"
   for selector in "$@"; do run_archived_app_test "$selector" || return $?; done

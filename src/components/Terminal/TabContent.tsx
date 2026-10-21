@@ -87,7 +87,7 @@ export function TabContent({
   if (isFirstRunGeneralTab(tab)) {
     return (
       <TabWrapper tabId={tab.id}>
-        <FirstRunGeneralPicker providers={providers} />
+        <FirstRunGeneralPicker providers={providers} home={workspaceId ? { workspaceId, tabId: tab.id } : undefined} />
       </TabWrapper>
     );
   }

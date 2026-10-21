@@ -72,7 +72,7 @@ export interface ChannelRecord {
   name: string;
   url: string;
   path?: string;
-  kind: "local" | "git";
+  kind: "local" | "git" | "archive";
   system?: boolean;
   removable?: boolean;
   version?: string | null;

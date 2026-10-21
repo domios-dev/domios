@@ -10,6 +10,7 @@ export interface UpdateItem {
   name: string;
   currentVersion: string;
   targetVersion: string;
+  channel?: string;
   channelError?: string;
 }
 
@@ -82,13 +83,14 @@ export function panelItems(
   items: readonly UpdateAvailabilityItem[],
   channelErrors: Readonly<Record<string, string>> = {},
 ): UpdateItem[] {
-  return items.filter(item => hasUpdateBadge(item)
-    || (item.kind === "plugin" && item.channel !== null && Boolean(channelErrors[item.channel])))
+  return items.filter(item => hasUpdateBadge(item) || (item.kind === "plugin" && item.state !== "core_silent"
+    && item.channel !== null && Boolean(channelErrors[item.channel])))
     .map(item => ({
     id: item.id,
     group: item.kind === "app" ? "App" : item.kind === "frontend" ? "Interface" : "Plugins",
     name: item.kind === "app" ? "Domios" : item.kind === "frontend" ? "Interface" : item.id,
     currentVersion: item.installed ?? "Bundled", targetVersion: item.latest!,
+    channel: item.channel ?? undefined,
     channelError: item.kind === "plugin" && item.channel ? channelErrors[item.channel] : undefined,
   }));
 }

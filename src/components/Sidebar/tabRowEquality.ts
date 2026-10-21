@@ -23,6 +23,7 @@ const ROW_TAB_FIELDS = [
   "role",
   "role_profile",
   "roleless_tracked",
+  "has_checklist",
   "remote_peer_id",
   "remote_peer_name",
   "chat_view",

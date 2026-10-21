@@ -29,4 +29,7 @@ const node: HastNode = {
 rehypeSourceOffsets(normalized)(node);
 assert.equal(node.properties?.dataSrcStart, String(`Lead\n@ds-plugin example\n\n${html}\n\n`.length));
 assert.equal(node.properties?.dataSrcText, `${normalized.start(tail)}-${normalized.end(tail + 4)}`);
-console.log("messageParts: 17 source and normalization assertions passed");
+const longMessage = Array.from({ length: 2500 }, (_, index) => `## Section ${index}\n\nBody ${index} of a long agent reply.`).join("\n\n");
+assert.ok(longMessage.length > 100_000);
+assert.equal(messageParts("long-message", longMessage), messageParts("long-message", longMessage));
+console.log("messageParts: 18 source, normalization and cache assertions passed");

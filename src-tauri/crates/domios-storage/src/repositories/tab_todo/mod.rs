@@ -2,12 +2,14 @@
 
 mod lifecycle;
 mod mutations;
+mod own_write;
 mod queries;
 mod records;
 
 pub use records::{
     TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoCountersRecord, TabTodoItemEventRecord,
-    TabTodoItemRecord, TabTodoNewItemRecord, MAX_TAB_TODO_AUDIT_EVENTS, MAX_TAB_TODO_ITEMS,
+    TabTodoItemRecord, TabTodoItemRefRecord, TabTodoNewItemRecord, TabTodoOwnWriteBase,
+    TabTodoOwnWriteRecord, TabTodoStateChangeRecord, MAX_TAB_TODO_AUDIT_EVENTS, MAX_TAB_TODO_ITEMS,
     MAX_TAB_TODO_ITEM_EVENTS,
 };
 
@@ -81,8 +83,28 @@ impl TabTodoRepository {
     ) -> Completion<Committed<TabTodoChecklistRecord>> {
         let cost = record_cost(&items) + tab_id.len() + 128;
         self.storage.submit_mutation(cost, move |cx| {
-            mutations::append(cx, tab_id, generation, actor, at, items)
+            mutations::append(cx, tab_id, generation, actor, at, items, true)
         })
+    }
+
+    /// The owning tab's declared checklist: creation, unlocked edits and state changes at once.
+    pub fn write_own(
+        &self,
+        tab_id: String,
+        workspace_id: String,
+        team_id: Option<String>,
+        at: u64,
+        write: TabTodoOwnWriteRecord,
+    ) -> Completion<Committed<TabTodoChecklistRecord>> {
+        let cost = write.cost() + tab_id.len() + workspace_id.len() + 128;
+        self.storage.submit_mutation(cost, move |cx| {
+            own_write::write_own(cx, tab_id, workspace_id, team_id, at, write)
+        })
+    }
+
+    pub fn tab_ids_with_items(&self) -> Completion<Read<Vec<String>>> {
+        self.storage
+            .submit_read(move |cx| own_write::tab_ids_with_items(cx.conn))
     }
 
     pub fn set_state(

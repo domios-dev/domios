@@ -21,6 +21,23 @@ export function isProviderSelectable(
   return providerAvailability(provider) !== "unavailable";
 }
 
+export const PROVIDER_AVAILABILITY_CHANGED = "provider-availability-changed";
+
+/** Pushed by the server after it re-probes a provider, e.g. when its installer tab finishes. */
+export interface ProviderAvailabilityChange {
+  provider: string;
+  availability: ProviderAvailability;
+  tab_id?: string | null;
+}
+
+export function applyAvailabilityChange<T extends Pick<ProviderDescriptor, "id" | "availability">>(
+  providers: T[],
+  change: ProviderAvailabilityChange,
+): T[] {
+  if (!providers.some((p) => p.id === change.provider && p.availability !== change.availability)) return providers;
+  return providers.map((p) => (p.id === change.provider ? { ...p, availability: change.availability } : p));
+}
+
 export function providerAvailabilityLabel(
   provider: Pick<ProviderDescriptor, "availability">,
 ): string {

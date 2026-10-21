@@ -110,9 +110,25 @@ pub fn data_dir_path() -> PathBuf {
             return path;
         }
     }
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(dir_name())
+    default_data_dir().unwrap_or_else(|| PathBuf::from(".").join(dir_name()))
+}
+
+#[cfg(not(feature = "isolated-data-root"))]
+fn default_data_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(dir_name()))
+}
+
+/// Test builds swap the per-user root for one process-wide temp root so no test reaches it.
+#[cfg(feature = "isolated-data-root")]
+fn default_data_dir() -> Option<PathBuf> {
+    static ROOT: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let root = ROOT.get_or_init(|| {
+        tempfile::Builder::new()
+            .prefix("domios-test-root-")
+            .tempdir()
+            .expect("create isolated test data root")
+    });
+    Some(root.path().join(dir_name()))
 }
 
 /// Get the Domios data directory, honoring an absolute explicit override.
@@ -136,8 +152,8 @@ pub fn config_path() -> Result<PathBuf, String> {
             return Ok(data_dir.join("config.toml"));
         }
     }
-    let dir = dirs::home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
-    Ok(dir.join(dir_name()).join("config.toml"))
+    let dir = default_data_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
+    Ok(dir.join("config.toml"))
 }
 
 /// Normalize a workspace `cwd` for comparison purposes. Two inputs that refer

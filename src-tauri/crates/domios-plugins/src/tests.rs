@@ -1,5 +1,6 @@
 use super::*;
 
+mod core_channel_unreachable;
 mod error_paths;
 mod id_validation;
 mod system_channel;
@@ -154,22 +155,13 @@ mod store_index_tests {
     }
 
     #[test]
-    fn default_system_channel_points_at_a_released_plugins_index() {
+    fn default_system_channel_is_a_public_release_asset() {
         assert_eq!(
             DEFAULT_SYSTEM_CHANNEL_URL,
-            "https://github.com/rollacode/codeterm.git#master:plugins"
+            "https://github.com/rollacode/codeterm-releases/releases/download/codeterm-core-latest/codeterm-core.tar.gz"
         );
-        let git_ref = DEFAULT_SYSTEM_CHANNEL_URL
-            .rsplit_once('#')
-            .expect("system channel url names a ref")
-            .1
-            .split_once(':')
-            .expect("system channel url names a subpath in that ref")
-            .0;
-        assert_ne!(
-            git_ref, "develop",
-            "the default system channel installs as System trust; it must not track unreleased code"
-        );
+        assert!(archive_channel::is_archive_url(DEFAULT_SYSTEM_CHANNEL_URL));
+        assert!(!DEFAULT_SYSTEM_CHANNEL_URL.contains("rollacode/codeterm.git"));
         assert_eq!(
             DEFAULT_PLUGIN_CHANNEL_URL,
             "https://github.com/rollacode/codeterm-plugins.git"
@@ -177,7 +169,7 @@ mod store_index_tests {
     }
 
     #[test]
-    fn system_channel_url_defaults_to_private_source() {
+    fn system_channel_url_defaults_to_public_release_asset() {
         with_data_root(|_| {
             std::env::remove_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL");
             assert_eq!(system_channel_url(), DEFAULT_SYSTEM_CHANNEL_URL);
@@ -194,15 +186,11 @@ mod store_index_tests {
     }
 
     #[test]
-    fn git_channel_errors_are_actionable_and_hide_raw_details() {
-        let error =
-            git_non_interactive_error("remote: Repository not found. fatal: repository is private");
-
+    fn git_channel_errors_name_the_cause() {
         assert_eq!(
-            error,
-            "Plugin updates are unavailable right now. Domios will retry."
+            git_failure("remote: Repository not found. fatal: repository is private"),
+            channel_failure::REPOSITORY_NOT_FOUND
         );
-        assert!(!error.contains("Repository not found"));
     }
 
     #[test]
