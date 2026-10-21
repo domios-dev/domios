@@ -78,7 +78,6 @@ impl Account {
         let _operation = match self.operation.try_lock() {
             Ok(operation) => operation,
             Err(_) => {
-                crate::sign_in_diagnostic::log_failure(SignInStage::Preparation, Error::Pending);
                 log::info!(target: "codeterm_account::sign_in", "sign_in attempt outcome=failure stage={} error_kind={}", SignInStage::Preparation.name(), crate::sign_in_diagnostic::error_kind(Error::Pending));
                 return Err(Error::Pending);
             }
