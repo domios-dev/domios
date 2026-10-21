@@ -45,7 +45,10 @@ pub(super) async fn apply(
             result?;
             {
                 let current = current.lock();
-                if current.as_ref().is_some_and(|page| Arc::ptr_eq(page, &runtime)) {
+                if current
+                    .as_ref()
+                    .is_some_and(|page| Arc::ptr_eq(page, &runtime))
+                {
                     frames.set_params(ScreencastParams::new(next));
                 }
             }
