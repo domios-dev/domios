@@ -28,10 +28,11 @@ impl UsageParser for ClaudeTuiUsageParser {
             return Err(UsageParseError::NothingFound);
         }
 
+        const PROVIDER_ID: &str = "claude";
         let now_ms = Utc::now().timestamp_millis();
         if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(raw_text) {
             if value.get("kind").and_then(|kind| kind.as_str()) == Some("codeterm_usage_v1") {
-                value["provider"] = "claude".into();
+                value["provider"] = PROVIDER_ID.into();
                 value["captured_at_ms"] = now_ms.into();
                 value["billing_mode"] = "subscription".into();
                 value["limits_reported"] = (value["session_pct"].is_number()
@@ -44,7 +45,7 @@ impl UsageParser for ClaudeTuiUsageParser {
             }
         }
         let normalized = normalize(raw_text);
-        let mut snap = UsageSnapshot::empty("claude", raw_text, now_ms);
+        let mut snap = UsageSnapshot::empty(PROVIDER_ID, raw_text, now_ms);
 
         let (s_pct, s_resets_ms) = session_block::parse_current_session(&normalized, now_ms);
         snap.session_pct = s_pct;

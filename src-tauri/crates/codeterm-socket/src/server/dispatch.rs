@@ -239,6 +239,7 @@ pub(super) fn dispatch(
                 "canvas.filter",
                 "blueprint.create",
                 "blueprint.export",
+                "blueprint.apply",
                 "blueprint.import",
                 "blueprint.input",
                 "blueprint.pipeline.create",
