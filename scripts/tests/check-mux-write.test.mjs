@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const checker = fileURLToPath(new URL('../check-mux-write.mjs', import.meta.url));
-function check(source, file = 'crates/domios-service-core/src/fixture.rs') {
+function check(source, file = 'crates/codeterm-service-core/src/fixture.rs') {
   const root = mkdtempSync(path.join(tmpdir(), 'mux-write-'));
   try {
     const target = path.join(root, file);
@@ -46,14 +46,14 @@ test('checks Rust outside service core', () => {
 });
 
 test('allows only the named contention fixture in test code', () => {
-  const file = 'crates/domios-service-core/src/service/command_port_impl.rs';
+  const file = 'crates/codeterm-service-core/src/service/command_port_impl.rs';
   assert.equal(check('#[cfg(test)] mod tests { let lifecycle_owner = mux.write(); }', file).status, 0);
   assert.equal(check('let lifecycle_owner = mux.write();', file).status, 1);
   assert.equal(check('#[cfg(test)] mod tests { let other = mux.write(); }', file).status, 1);
 });
 
 test('a fixture exemption cannot hide a second occurrence', () => {
-  const file = 'crates/domios-pty/src/dispatch/tests.rs';
+  const file = 'crates/codeterm-pty/src/dispatch/tests.rs';
   assert.equal(check('let writer = mux.write();', file).status, 0);
   assert.equal(check('let writer = mux.write();\nlet writer = mux.write();', file).status, 1);
 });

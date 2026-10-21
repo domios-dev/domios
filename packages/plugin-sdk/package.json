@@ -1,5 +1,5 @@
 {
-  "name": "@domios/plugin-sdk",
+  "name": "@codeterm/plugin-sdk",
   "version": "1.15.0",
   "type": "module",
   "description": "Type-only SDK for authoring CodeTerm plugin logic (host API + capability contracts) in TypeScript.",

@@ -6,15 +6,13 @@
  * The `current` fixtures are the verbatim ~/.claude/settings.json hook set read
  * from BLACKSTAR, where Claude Code's own serializer has already stripped every
  * `_source`. The `legacy v2` fixtures are the pane-era form reported on ROG in
- * issue 476 (`${CODETERM_API_PORT:-7685}` + `/api/panes/$CODETERM_PANE_ID/`). // rename-bridge
+ * issue 476 (`${CODETERM_API_PORT:-7685}` + `/api/panes/$CODETERM_PANE_ID/`).
  */
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
-import { CODETERM_CLAUDE_HOOK_MARKER_V1149, commandIsOwned } from "../src/upgrade_from_1_14_9"; // rename-bridge
 
 let passed = 0;
 let failed = 0;
@@ -30,34 +28,34 @@ function eq(actual: unknown, expected: unknown, name: string) {
   assert(a === e, name, `expected ${e}, got ${a}`);
 }
 
-const MARKER_HEADER = "X-Domios-Hook: domios-hook-v4";
+const MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
 const EVENTS = ["PermissionRequest", "Notification", "Stop", "SessionStart"];
 
-const GUARD = 'if [ -n "${DOMIOS_API_URL:-}" ] && [ -n "${DOMIOS_API_TOKEN:-}" ] && [ -n "${DOMIOS_TAB_ID:-}" ]; then ';
-const AUTH = '-H "Authorization: Bearer $DOMIOS_API_TOKEN"';
-const NONCE = '-H "X-Domios-Binding-Nonce: ${DOMIOS_SESSION_BINDING_NONCE}"';
+const GUARD = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
+const AUTH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
+const NONCE = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
 
 const CURRENT_PERMISSION = GUARD
-  + 'curl -s -o /dev/null -X POST "$DOMIOS_API_URL/api/tabs/$DOMIOS_TAB_ID/hook/permission" '
+  + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/permission" '
   + "-H 'Content-Type: application/json' " + AUTH + " " + NONCE + " --data-binary @- || true; fi";
 const CURRENT_STOP = GUARD
-  + 'curl -s -o /dev/null -X POST "$DOMIOS_API_URL/api/tabs/$DOMIOS_TAB_ID/hook/stop" '
+  + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/stop" '
   + "-H 'Content-Type: application/json' " + AUTH + " -d '{}' || true; fi";
 const CURRENT_PRECOMPACT = GUARD
-  + 'curl -s -o /dev/null -X POST "$DOMIOS_API_URL/api/mem/flush" '
+  + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/mem/flush" '
   + "-H 'Content-Type: application/json' " + AUTH
-  + ' -d \'{"tab":"\'"$DOMIOS_TAB_ID"\'","title":"pre-compact"}\' || true; fi';
+  + ' -d \'{"tab":"\'"$CODETERM_TAB_ID"\'","title":"pre-compact"}\' || true; fi';
 const CURRENT_SESSION_START = GUARD
-  + 'curl -s -o /dev/null -X POST "$DOMIOS_API_URL/api/tabs/$DOMIOS_TAB_ID/hook/session_start" '
+  + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" '
   + "-H 'Content-Type: application/json' " + AUTH + " " + NONCE + " --data-binary @- || true; fi";
 
 const LEGACY_V2_SESSION_START =
-  "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start " // rename-bridge
+  "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/session_start "
   + "-H 'Content-Type: application/json' " + NONCE + " -d '{}' > /dev/null 2>&1 || true";
 const LEGACY_V2_STOP =
-  "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop " // rename-bridge
+  "curl -s -X POST http://localhost:${CODETERM_API_PORT:-7685}/api/panes/$CODETERM_PANE_ID/hook/stop "
   + "-H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true";
-const FOREIGN_PANE_ROUTE = "curl http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start"; // rename-bridge
+const FOREIGN_PANE_ROUTE = "curl http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start";
 
 const FOREIGN_LOCAL_HTTP = 'curl -s -X POST http://localhost:7686/api/telemetry/session -d \'{"kind":"start"}\'';
 const FOREIGN_SCRIPT = "~/bin/my-audit-hook.sh --event stop";
@@ -79,31 +77,21 @@ function currentUnmarked(event: string): Entry {
   return entry("", CURRENT_SESSION_START);
 }
 
-function previousRelease(event: string): Entry {
-  const value = currentUnmarked(event);
-  value.hooks[0].command += ` -H "X-CodeTerm-Hook: ${CODETERM_CLAUDE_HOOK_MARKER_V1149}"`; // rename-bridge
-  return value;
-}
-
-assert(commandIsOwned(`curl -H "X-CodeTerm-Hook: ${CODETERM_CLAUDE_HOOK_MARKER_V1149}"`), "the 1.14.9 marker is owned");
-assert(!commandIsOwned(`curl -H "X-CodeTerm-Hook: ${CODETERM_CLAUDE_HOOK_MARKER_V1149}0"`), "a marker with a suffix is not owned");
-
 function foreignEntry(event: string): Entry {
   return event === "Stop" ? entry("", FOREIGN_SCRIPT, "acme-audit") : entry("*", FOREIGN_LOCAL_HTTP);
 }
 
-const TEST_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "domios-claude-hooks-"));
-const SETTINGS_PATH = path.join(TEST_HOME, ".claude", "settings.json");
+const SETTINGS_PATH = "/home/test/.claude/settings.json";
 const bundle = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
 
-function loadClaude(files: Map<string, string>, instance: string | null = null) {
+function loadClaude(files: Map<string, string>) {
   const host = {
     manifestJson: () => "null",
-    homeDir: () => TEST_HOME,
+    homeDir: () => "/home/test",
     path: { equal: (a: string, b: string) => a === b },
     platform: () => "linux",
     unixNowMs: () => 0,
-    envGet: (name: string) => name === "DOMIOS_INSTANCE" ? instance : null,
+    envGet: () => null,
     shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
     expandHome: () => SETTINGS_PATH,
     fileExists: (p: string) => files.has(p),
@@ -134,18 +122,18 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   return new Map([[SETTINGS_PATH, JSON.stringify({ model: "opus", hooks })]]);
 }
 
-// ── previous_release_marker_is_owned ──────────────────────────────────────
+// ── current_unmarked_codeterm_hook_is_owned ────────────────────────────────
 {
-  console.log("previous_release_marker_is_owned");
+  console.log("current_unmarked_codeterm_hook_is_owned");
   const hooks: Record<string, Entry[]> = {};
-  for (const event of EVENTS) hooks[event] = [previousRelease(event)];
+  for (const event of EVENTS) hooks[event] = [currentUnmarked(event)];
   const files = settingsWith(hooks);
   const p = loadClaude(files);
   const result = p.installIntegration(7686, { consent: true, precompact_memory_export: true, repair: true });
-  assert(result.ok === true, "release install over the exact v3 generation succeeds");
+  assert(result.ok === true, "install over the unmarked set succeeds");
   const written = JSON.parse(files.get(SETTINGS_PATH) as string);
   for (const event of EVENTS) {
-    eq(written.hooks[event].length, 1, `${event}: the v3 entry was replaced, not duplicated`);
+    eq(written.hooks[event].length, 1, `${event}: the unmarked entry was replaced, not duplicated`);
     assert(
       String(written.hooks[event][0].hooks[0].command).indexOf(MARKER_HEADER) !== -1,
       `${event}: the replacement carries the durable marker`,
@@ -155,41 +143,35 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   eq(written.hooks.Stop.length, 1, "Stop keeps exactly one entry");
 }
 
+// ── legacy_v2_codeterm_hook_is_owned ───────────────────────────────────────
 {
-  const files = settingsWith({ SessionStart: [previousRelease("SessionStart")] });
-  const before = files.get(SETTINGS_PATH);
-  const p = loadClaude(files, "");
-  const result = p.installIntegration(7686, { consent: true, repair: true });
-  assert(result.ok === true && result.changed === false, "DEV leaves the installed v3 generation alone");
-  eq(files.get(SETTINGS_PATH), before, "DEV leaves the temporary HOME settings byte-identical");
-  eq(files.size, 1, "DEV creates no backup or provider files");
-}
-
-// ── pane_route_without_release_marker_is_foreign ───────────────────────────
-{
-  console.log("pane_route_without_release_marker_is_foreign");
+  console.log("legacy_v2_codeterm_hook_is_owned");
   const files = settingsWith({
     SessionStart: [
-      entry("", LEGACY_V2_SESSION_START, "codeterm-hook-v2"), // rename-bridge
+      entry("", LEGACY_V2_SESSION_START, "codeterm-hook-v2"),
       entry("", LEGACY_V2_SESSION_START),
     ],
-    Stop: [entry("", LEGACY_V2_STOP), entry("", LEGACY_V2_STOP, "codeterm")], // rename-bridge
+    Stop: [entry("", LEGACY_V2_STOP), entry("", LEGACY_V2_STOP, "codeterm")],
   });
   const p = loadClaude(files);
   const before = p.checkIntegration();
-  eq(before.integration_owned, false, "an older pane route without the release marker is foreign");
-  eq(before.hook_contract_current, false, "the pane contract is not current");
+  eq(before.integration_owned, true, "the exact pane fingerprint grants startup ownership");
+  eq(before.hook_contract_current, false, "the pane contract is stale before reconciliation");
   assert(p.installIntegration(7686, { consent: true, repair: true }).ok === true, "install over v2 succeeds");
   const written = JSON.parse(files.get(SETTINGS_PATH) as string);
-  eq(written.hooks.SessionStart.length, 3, "unmarked pane entries are preserved beside the new hook");
-  eq(written.hooks.Stop.length, 3, "foreign pane entries remain beside the new hook");
+  eq(written.hooks.SessionStart.length, 1, "marked and _source-stripped v2 both collapse into one entry");
+  eq(written.hooks.Stop.length, 1, "the pre-marker generation collapses too");
+  assert(
+    JSON.stringify(written.hooks).indexOf("CODETERM_PANE_ID") === -1,
+    "no pane-era command survives the migration",
+  );
 }
 
 {
   const files = settingsWith({ SessionStart: [entry("", FOREIGN_PANE_ROUTE)] });
   const p = loadClaude(files);
   const status = p.checkIntegration();
-  eq(status.integration_owned, false, "a similar pane route does not imply Domios ownership");
+  eq(status.integration_owned, false, "a similar pane route does not imply CodeTerm ownership");
   p.installIntegration(7686, { consent: true, repair: true });
   const hooks = JSON.parse(files.get(SETTINGS_PATH) as string).hooks.SessionStart;
   eq(hooks[0], entry("", FOREIGN_PANE_ROUTE), "the foreign route is byte-identical after install");
@@ -215,8 +197,8 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
 {
   console.log("reconcile_current_hooks_twice_keeps_one_entry_per_event");
   const hooks: Record<string, Entry[]> = {};
-  for (const event of EVENTS) hooks[event] = [foreignEntry(event), previousRelease(event)];
-  hooks.SessionStart.push(previousRelease("SessionStart"));
+  for (const event of EVENTS) hooks[event] = [foreignEntry(event), currentUnmarked(event)];
+  hooks.SessionStart.push(entry("", LEGACY_V2_SESSION_START, "codeterm-hook-v2"));
   const files = settingsWith(hooks);
   const p = loadClaude(files);
   const options = { consent: true, precompact_memory_export: true, repair: true };
@@ -234,10 +216,10 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
     assert(command.indexOf(MARKER_HEADER) !== -1, `${event}: canonical entry carries the marker`);
     assert(
       command.indexOf("localhost") === -1 && command.indexOf("7685") === -1
-      && command.indexOf("7686") === -1 && command.indexOf("DOMIOS_API_PORT") === -1,
+      && command.indexOf("7686") === -1 && command.indexOf("CODETERM_API_PORT") === -1,
       `${event}: instance-agnostic, no port baked in`,
     );
-    assert(command.indexOf("$DOMIOS_API_TOKEN") !== -1 && command.indexOf("Bearer ct_") === -1,
+    assert(command.indexOf("$CODETERM_API_TOKEN") !== -1 && command.indexOf("Bearer ct_") === -1,
       `${event}: the token is read from the environment, never embedded`);
   }
   const status = loadClaude(files).checkIntegration();
@@ -250,8 +232,8 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
 {
   const files = settingsWith({ PreCompact: [foreignEntry("PreCompact")] });
   const status = loadClaude(files).checkIntegration();
-  eq(status.integration_owned, false, "a foreign hook does not imply Domios consent");
-  eq(status.precompact_hook, undefined, "a foreign PreCompact hook does not imply Domios export opt-in");
+  eq(status.integration_owned, false, "a foreign hook does not imply CodeTerm consent");
+  eq(status.precompact_hook, undefined, "a foreign PreCompact hook does not imply CodeTerm export opt-in");
 }
 
 {
@@ -278,17 +260,17 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   const prod = JSON.parse(prodFiles.get(SETTINGS_PATH) as string);
   eq(dev.hooks, prod.hooks, "dev and prod receive byte-identical hook commands");
   const written = JSON.stringify(dev.hooks);
-  assert(written.indexOf("$DOMIOS_API_URL") !== -1, "hooks route through the agent environment");
-  assert(written.indexOf("$DOMIOS_API_TOKEN") !== -1, "hooks read the token from the environment");
-  assert(written.indexOf("$DOMIOS_TAB_ID") !== -1, "hooks read the tab identity from the environment");
+  assert(written.indexOf("$CODETERM_API_URL") !== -1, "hooks route through the agent environment");
+  assert(written.indexOf("$CODETERM_API_TOKEN") !== -1, "hooks read the token from the environment");
+  assert(written.indexOf("$CODETERM_TAB_ID") !== -1, "hooks read the tab identity from the environment");
   assert(written.indexOf("localhost") === -1 && written.indexOf("7685") === -1
-    && written.indexOf("7686") === -1 && written.indexOf("DOMIOS_API_PORT") === -1,
+    && written.indexOf("7686") === -1 && written.indexOf("CODETERM_API_PORT") === -1,
   "hook commands contain no instance host or port");
 }
 
 {
   const foreign = foreignEntry("PreCompact");
-  const owned = previousRelease("PreCompact");
+  const owned = entry("", CURRENT_PRECOMPACT, "codeterm-hook-v3");
   const files = settingsWith({ PreCompact: [owned, foreign] });
   const provider = loadClaude(files);
   assert(provider.installIntegration(7686, {
@@ -302,7 +284,7 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
 
 {
   const foreign = { type: "command", command: "foreign-shared-group", timeout: 1234 };
-  const group = { matcher: "*", hooks: [...previousRelease("PreCompact").hooks!, foreign] };
+  const group = { matcher: "*", hooks: [...entry("", CURRENT_PRECOMPACT, "codeterm-hook-v3").hooks!, foreign] };
   for (const operation of ["install", "uninstall"]) {
     const files = settingsWith({ PreCompact: [group] });
     const provider = loadClaude(files);
@@ -335,5 +317,4 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
-fs.rmSync(TEST_HOME, { recursive: true, force: true });
 if (failed > 0) process.exit(1);

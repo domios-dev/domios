@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 const rootFlag = process.argv.indexOf("--root");
 const root = rootFlag >= 0 ? resolve(process.argv[rootFlag + 1]) : fileURLToPath(new URL("../", import.meta.url));
 const read = (path) => readFileSync(resolve(root, path), "utf8");
-const schema = JSON.parse(read("src-tauri/crates/domios-analytics/catalog.schema.json"));
+const schema = JSON.parse(read("src-tauri/crates/codeterm-analytics/catalog.schema.json"));
 const providers = readdirSync(resolve(root, "plugins")).filter((id) => id.startsWith("provider-") && existsSync(resolve(root, `plugins/${id}/plugin.json`))).map((id) => JSON.parse(read(`plugins/${id}/plugin.json`))).sort((a,b) => a.id.localeCompare(b.id));
 schema.enums.ProviderId = [...providers.map((p) => p.id), "other"];
 const variant = (value) => value.split(/[^a-zA-Z0-9]+/).filter(Boolean).map((s) => s[0].toUpperCase() + s.slice(1)).join("");
@@ -37,7 +37,7 @@ const docPath = "prod-docs/ACCOUNT.md";
 const doc = read(docPath);
 const documented = doc.replace(/<!-- analytics-catalog:start -->[\s\S]*?<!-- analytics-catalog:end -->/, `<!-- analytics-catalog:start -->\n${table}\n<!-- analytics-catalog:end -->`);
 let stale = false;
-for (const [path, content] of [["src-tauri/crates/domios-analytics/src/catalog/generated.rs", formatted.stdout], ["src/lib/productAnalytics.generated.ts",ts], [docPath, documented]]) {
+for (const [path, content] of [["src-tauri/crates/codeterm-analytics/src/catalog/generated.rs", formatted.stdout], ["src/lib/productAnalytics.generated.ts",ts], [docPath, documented]]) {
   if (process.argv.includes("--write")) writeFileSync(resolve(root,path),content);
   else if (!existsSync(resolve(root,path)) || read(path) !== content) { console.error(`Stale analytics catalog: ${path}. Run node scripts/check-analytics-catalog.mjs --write`); stale = true; }
 }

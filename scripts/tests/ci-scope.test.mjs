@@ -23,7 +23,7 @@ test("frontend-only paths select frontend checks without Rust gates", () => {
 
 test("Rust-only paths select Rust checks", () => {
   for (const file of [
-    "src-tauri/src/lib.rs", "src-tauri/crates/domios-types/src/lib.rs", "cli/src/main.rs",
+    "src-tauri/src/lib.rs", "src-tauri/crates/codeterm-types/src/lib.rs", "cli/src/main.rs",
     "src-tauri/Cargo.lock", "cli/Cargo.toml", "Cargo.toml", "Cargo.lock", "build.sh", "build.ps1",
     "rust-toolchain", "rust-toolchain.toml", ".cargo/config.toml", "rustfmt.toml", ".rustfmt.toml",
   ]) assert.deepEqual(classifyPaths([file], plugins), rustOnly, file);

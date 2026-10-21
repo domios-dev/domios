@@ -1,0 +1,11 @@
+[package]
+license = "AGPL-3.0-only"
+name = "codeterm-local-recording"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[lints]
+workspace = true

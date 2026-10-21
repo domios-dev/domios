@@ -217,7 +217,7 @@ test('mixed build verbs share one cache startup and persist four completed histo
       [ "$CT_GATEWAY_ACTIVE" = 1 ] && [ -f "$fixture_dir/live" ] || return 98
       echo "$CT_BUILD_JOB_ID $*" >> "$fixture_dir/cargo"
       if [ "$1" = metadata ]; then
-        command node -e 'const path=require("node:path"); const names=["domios","domios-service-core","domios-plan"]; console.log(JSON.stringify({workspace_members:names,packages:names.map(name=>({id:name,name,manifest_path:path.join(process.cwd(),"src-tauri",...(name==="domios"?[]:["crates",name]),"Cargo.toml"),targets:[{kind:["lib"]}]}))}))'
+        command node -e 'const path=require("node:path"); const names=["codeterm","codeterm-service-core","codeterm-plan"]; console.log(JSON.stringify({workspace_members:names,packages:names.map(name=>({id:name,name,manifest_path:path.join(process.cwd(),"src-tauri",...(name==="codeterm"?[]:["crates",name]),"Cargo.toml"),targets:[{kind:["lib"]}]}))}))'
       else echo '{}'; fi
     }
     scripts/test-capped.sh() { cargo test "$@"; }

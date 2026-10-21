@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const dir = path.join(root, 'src-tauri/crates/domios-service-core/src/startup');
+const dir = path.join(root, 'src-tauri/crates/codeterm-service-core/src/startup');
 const template = readFileSync(path.join(dir, 'brand_fallback.html'), 'utf8');
 const source = readFileSync(path.join(dir, 'brand_fallback.rs'), 'utf8');
 

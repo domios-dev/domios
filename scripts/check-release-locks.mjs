@@ -14,8 +14,8 @@ function lockedVersion(path, packageName) {
 }
 
 const locks = [
-  ["src-tauri/Cargo.lock", "domios"],
-  ["cli/Cargo.lock", "domios-cli"],
+  ["src-tauri/Cargo.lock", "codeterm"],
+  ["cli/Cargo.lock", "codeterm-cli"],
 ];
 
 const stale = locks

@@ -18,10 +18,10 @@ function run(command, args, cwd) {
 }
 
 async function makeDiffFixture(t, changedPath) {
-  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "domios-affected-tests-")));
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "codeterm-affected-tests-")));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await mkdir(path.join(directory, "src-tauri", "src"), { recursive: true });
-  await mkdir(path.join(directory, "src-tauri", "crates", "domios-plugin", "src"), { recursive: true });
+  await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-plugin", "src"), { recursive: true });
   await mkdir(path.join(directory, "src-tauri", "prompts"), { recursive: true });
   await mkdir(path.join(directory, "cli", "src"), { recursive: true });
   await mkdir(path.join(directory, "plugins", "provider-codex", "src"), { recursive: true });
@@ -30,11 +30,11 @@ async function makeDiffFixture(t, changedPath) {
   await mkdir(path.join(directory, "packages"), { recursive: true });
 
   await writeFile(path.join(directory, "src-tauri", "Cargo.toml"), `[workspace]
-members = [".", "crates/domios-plugin", "crates/domios-frontend-bundle", "crates/domios-service-core", "crates/domios-prompts"]
+members = [".", "crates/codeterm-plugin", "crates/codeterm-frontend-bundle", "crates/codeterm-service-core", "crates/codeterm-prompts"]
 resolver = "2"
 
 [package]
-name = "domios"
+name = "codeterm"
 version = "0.1.0"
 edition = "2021"
 
@@ -43,36 +43,36 @@ path = "src/lib.rs"
 `);
   await writeFile(path.join(directory, "src-tauri", "src", "lib.rs"), "pub mod service;\n");
   await writeFile(path.join(directory, "src-tauri", "src", "service.rs"), "pub fn current() {}\n");
-  await mkdir(path.join(directory, "src-tauri", "crates", "domios-service-core", "src"), { recursive: true });
-  await writeFile(path.join(directory, "src-tauri", "crates", "domios-service-core", "Cargo.toml"), '[package]\nname = "domios-service-core"\nversion = "0.1.0"\nedition = "2021"\n');
-  await writeFile(path.join(directory, "src-tauri", "crates", "domios-service-core", "src", "lib.rs"), 'pub fn core() {}\n');
-  await mkdir(path.join(directory, "src-tauri", "crates", "domios-prompts", "src"), { recursive: true });
-  await writeFile(path.join(directory, "src-tauri", "crates", "domios-prompts", "Cargo.toml"), '[package]\nname = "domios-prompts"\nversion = "0.0.0"\nedition = "2021"\n');
-  await writeFile(path.join(directory, "src-tauri", "crates", "domios-prompts", "src", "lib.rs"), 'pub fn prompts() {}\n');
-  await writeFile(path.join(directory, "src-tauri", "crates", "domios-plugin", "Cargo.toml"), `[package]
-name = "domios-plugin"
+  await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "src"), { recursive: true });
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "Cargo.toml"), '[package]\nname = "codeterm-service-core"\nversion = "0.1.0"\nedition = "2021"\n');
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-service-core", "src", "lib.rs"), 'pub fn core() {}\n');
+  await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-prompts", "src"), { recursive: true });
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-prompts", "Cargo.toml"), '[package]\nname = "codeterm-prompts"\nversion = "0.0.0"\nedition = "2021"\n');
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-prompts", "src", "lib.rs"), 'pub fn prompts() {}\n');
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-plugin", "Cargo.toml"), `[package]
+name = "codeterm-plugin"
 version = "0.1.0"
 edition = "2021"
 `);
-  await writeFile(path.join(directory, "src-tauri", "crates", "domios-plugin", "src", "lib.rs"), "pub fn plugin() {}\n");
-  await mkdir(path.join(directory, "src-tauri", "crates", "domios-frontend-bundle", "src"), { recursive: true });
-  await writeFile(path.join(directory, "src-tauri", "crates", "domios-frontend-bundle", "Cargo.toml"), `[package]
-name = "domios-frontend-bundle"
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-plugin", "src", "lib.rs"), "pub fn plugin() {}\n");
+  await mkdir(path.join(directory, "src-tauri", "crates", "codeterm-frontend-bundle", "src"), { recursive: true });
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-frontend-bundle", "Cargo.toml"), `[package]
+name = "codeterm-frontend-bundle"
 version = "0.1.0"
 edition = "2021"
 `);
-  await writeFile(path.join(directory, "src-tauri", "crates", "domios-frontend-bundle", "src", "lib.rs"), "pub fn bundle() {}\n");
+  await writeFile(path.join(directory, "src-tauri", "crates", "codeterm-frontend-bundle", "src", "lib.rs"), "pub fn bundle() {}\n");
   await writeFile(path.join(directory, "cli", "Cargo.toml"), `[package]
-name = "domios-cli"
+name = "codeterm-cli"
 version = "0.1.0"
 edition = "2021"
 `);
   await writeFile(path.join(directory, "cli", "src", "main.rs"), "fn main() {}\n");
   await writeFile(path.join(directory, "scripts", "vitest-owned-tests.json"), "[]\n");
 
-  const roots = ["src-tauri", "cli", ...["domios-plugin", "domios-frontend-bundle", "domios-service-core", "domios-prompts"].map(name => "src-tauri/crates/" + name)];
+  const roots = ["src-tauri", "cli", ...["codeterm-plugin", "codeterm-frontend-bundle", "codeterm-service-core", "codeterm-prompts"].map(name => "src-tauri/crates/" + name)];
   const packages = roots.map(root => {
-    const name = root === "src-tauri" ? "domios" : root === "cli" ? "domios-cli" : root.split("/").at(-1);
+    const name = root === "src-tauri" ? "codeterm" : root === "cli" ? "codeterm-cli" : root.split("/").at(-1);
     return { name, manifest_path: path.join(directory, root, "Cargo.toml"), targets: [{kind: [root === "cli" ? "bin" : "lib"], src_path: path.join(directory, root, "src", root === "cli" ? "main.rs" : "lib.rs")}] };
   });
   await writeFile(path.join(directory, "metadata.json"), JSON.stringify({packages}));
@@ -118,7 +118,7 @@ test("maps a Rust service diff to its module filter", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/src/service/handler.rs");
   const output = mapFixture(fixture.directory, fixture.base);
   assert.match(output, /\.\/build\.sh nextest shell 'test\(\/\^service::handler::\/\)'/);
-  assert.match(output, /Cost: 1 domios compile \+ 1 filter/);
+  assert.match(output, /Cost: 1 codeterm compile \+ 1 filter/);
 });
 
 test("maps root startup changes to the shell test binary", async (t) => {
@@ -138,15 +138,15 @@ test("maps a provider plugin diff to plugin and native parity coverage", async (
 test("maps a prompt diff to the prompt contract suite", async (t) => {
   const fixture = await makeDiffFixture(t, "src-tauri/prompts/launch.md");
   const output = mapFixture(fixture.directory, fixture.base);
-  assert.match(output, /\.\/build\.sh nextest domios-prompts 'test\(\/\^prompts::tests::\/\)'/);
-  assert.match(output, /\.\/build\.sh nextest domios-service-core 'test\(\/\^prompts::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest codeterm-prompts 'test\(\/\^prompts::tests::\/\)'/);
+  assert.match(output, /\.\/build\.sh nextest codeterm-service-core 'test\(\/\^prompts::\/\)'/);
 });
 
 test("maps bundle crate changes to its supported scope and narrow module", async (t) => {
-  const fixture = await makeDiffFixture(t, "src-tauri/crates/domios-frontend-bundle/src/activation.rs");
+  const fixture = await makeDiffFixture(t, "src-tauri/crates/codeterm-frontend-bundle/src/activation.rs");
   const output = mapFixture(fixture.directory, fixture.base);
   assert.match(output, /\.\/build\.sh nextest frontend-bundle 'test\(\/\^activation::\/\)'/);
-  assert.match(output, /Cost: 1 domios-frontend-bundle compile/);
+  assert.match(output, /Cost: 1 codeterm-frontend-bundle compile/);
 });
 
 test("a Rust fixture under scripts/tests/fixtures selects no Rust compile", async (t) => {

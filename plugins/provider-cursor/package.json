@@ -1,6 +1,6 @@
 {
   "license": "Apache-2.0",
-  "name": "@domios/provider-cursor",
+  "name": "@codeterm/provider-cursor",
   "version": "1.4.7",
   "private": true,
   "type": "module",
@@ -11,10 +11,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@domios/chat-core": "workspace:*"
+    "@codeterm/chat-core": "workspace:*"
   },
   "devDependencies": {
-    "@domios/plugin-sdk": "workspace:*"
+    "@codeterm/plugin-sdk": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0"

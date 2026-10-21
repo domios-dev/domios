@@ -44,15 +44,15 @@ test('macOS shared shards and all native consumers retain matching archive build
 });
 
 const packagesOf = (args) => args.flatMap((arg, index) => arg === '-p' ? [args[index + 1]] : []);
-const PREVIOUSLY_SKIPPED = ['domios-input-macos', 'domios-input-windows', 'domios-analytics', 'domios-browser',
-  'domios-storage', 'domios-agent-detect', 'domios-notification-core', 'domios-repowatch', 'domios-usage', 'domios-blueprint-types',
-  'domios-local-recording', 'domios-notify-types', 'domios-events', 'domios-config', 'domios-secrets', 'domios-keepawake',
-  'domios-cron', 'domios-shutdown'];
+const PREVIOUSLY_SKIPPED = ['codeterm-input-macos', 'codeterm-input-windows', 'codeterm-analytics', 'codeterm-browser',
+  'codeterm-storage', 'codeterm-agent-detect', 'codeterm-notification-core', 'codeterm-repowatch', 'codeterm-usage', 'codeterm-blueprint-types',
+  'codeterm-local-recording', 'codeterm-notify-types', 'codeterm-events', 'codeterm-config', 'codeterm-secrets', 'codeterm-keepawake',
+  'codeterm-cron', 'codeterm-shutdown'];
 
 test('the release Rust set comes from the catalogue release tier and leaves pty-fork manual', () => {
   const { runners, overlay, testCounts } = loadReleaseRust(fileURLToPath(new URL('../..', import.meta.url)));
   const released = runners.map((r) => r.package);
-  for (const pkg of [...PREVIOUSLY_SKIPPED, 'domios-mem-store', 'domios-paths', 'domios-server', 'domios', 'domios-service-core', 'domios-cli']) assert.ok(released.includes(pkg), pkg);
+  for (const pkg of [...PREVIOUSLY_SKIPPED, 'codeterm-mem-store', 'codeterm-paths', 'domios-server', 'codeterm', 'codeterm-service-core', 'codeterm-cli']) assert.ok(released.includes(pkg), pkg);
   assert.ok(!released.includes('portable-pty'));
   assert.ok(testCounts['rust-mem-store'] > 0 && testCounts['rust-paths'] > 0 && testCounts['rust-domios-server'] > 0);
   const plan = releaseRustPlan(runners, overlay, 'linux', [], testCounts);
@@ -63,17 +63,17 @@ test('the release Rust set comes from the catalogue release tier and leaves pty-
   const workspace = archiveTargets('workspace', runners);
   const archived = packagesOf(workspace);
   for (const pkg of PREVIOUSLY_SKIPPED.slice(2)) assert.ok(archived.includes(pkg), pkg);
-  for (const pkg of ['domios-mem-store', 'domios-paths', 'domios-server', 'domios']) assert.ok(archived.includes(pkg), pkg);
+  for (const pkg of ['codeterm-mem-store', 'codeterm-paths', 'domios-server', 'codeterm']) assert.ok(archived.includes(pkg), pkg);
   assert.ok(!archived.includes('portable-pty'));
   assert.deepEqual(workspace.slice(-3), ['--lib', '--test', 'main']);
-  assert.deepEqual(archiveTargets('cli', runners), ['-p', 'domios-cli', '--all-targets']);
+  assert.deepEqual(archiveTargets('cli', runners), ['-p', 'codeterm-cli', '--all-targets']);
 });
 
 const runner = (id, extra = {}) => ({ id, lang: 'rust', kind: 'unit', package: id, manifest: 'src-tauri/Cargo.toml', runner: './build.sh nextest ' + id, budget_secs: 600, ci: ['tests.yml:rust-tests'], ...extra });
 
 test('native recording packages keep their own CI job outside the shared archive', () => {
-  const runners = [runner('domios-a'), runner('domios-input-macos', { ci: ['tests.yml:rust-input-platform'] })];
-  assert.deepEqual(archiveTargets('workspace', runners), ['-p', 'domios-a', '--lib']);
+  const runners = [runner('codeterm-a'), runner('codeterm-input-macos', { ci: ['tests.yml:rust-input-platform'] })];
+  assert.deepEqual(archiveTargets('workspace', runners), ['-p', 'codeterm-a', '--lib']);
 });
 
 test('archive target flags are the union over the lane and keep each --test name paired', () => {

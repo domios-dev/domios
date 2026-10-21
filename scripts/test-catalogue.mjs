@@ -25,11 +25,6 @@ export const PATHS = {
   readme: "tests/README.md",
   vitest: "scripts/vitest-owned-tests.json",
 };
-const legacyCargoPrefix = "codeterm"; // rename-bridge
-export function canonicalPackageName(name) {
-  if (name === legacyCargoPrefix) return "domios";
-  return name.startsWith(`${legacyCargoPrefix}-`) ? `domios-${name.slice(legacyCargoPrefix.length + 1)}` : name; // rename-bridge
-}
 const TS_UNIT_ID = "ts-unit";
 const FILE_METHODS = new Set(["glob", "pytest-collect", "playwright-list"]);
 const RUST_METHODS = new Set(["nextest-list", "static-scan"]);
@@ -146,13 +141,11 @@ export function rustPackages(root, runners, nextestFiles = []) {
   const abs = toPosix(path.resolve(root));
   const crates = new Map(workspaceCrates(abs).crates.map((c) => [c.name, c]));
   for (const r of runners) {
-    if (!RUST_METHODS.has(r.discovery?.method) || typeof r.package !== "string" || !r.manifest) continue;
-    const packageName = canonicalPackageName(r.package);
-    if (crates.has(packageName)) continue;
+    if (!RUST_METHODS.has(r.discovery?.method) || crates.has(r.package) || !r.manifest) continue;
     const file = path.join(root, r.manifest);
     if (!existsSync(file)) continue;
     const manifest = parseCargoToml(readFileSync(file, "utf8"));
-    if (manifest.package.name === packageName) crates.set(packageName, { name: packageName, dir: posix.dirname(`${abs}/${toPosix(r.manifest)}`), manifest });
+    if (manifest.package.name === r.package) crates.set(r.package, { name: r.package, dir: posix.dirname(`${abs}/${toPosix(r.manifest)}`), manifest });
   }
   const listed = new Map();
   for (const f of nextestFiles) for (const t of readInventoryFile(f).tests) listed.set(t.crate, [...(listed.get(t.crate) ?? []), t]);
@@ -207,10 +200,9 @@ export function discoverRunner(runner, ctx) {
   }
   if (d.method === "list-file") return { source: "list-file", files: [...ctx.readList(d.list_file)] };
   if (RUST_METHODS.has(d.method)) {
-    const packageName = canonicalPackageName(runner.package);
-    if (!ctx.rust.has(packageName)) throw new Error(`Cargo package ${runner.package} is in no workspace and not at ${runner.manifest}`);
-    const inv = ctx.rust.inventory(packageName);
-    return { source: inv.source, files: [ctx.rust.manifestFile(packageName)], tests: inv.tests };
+    if (!ctx.rust.has(runner.package)) throw new Error(`Cargo package ${runner.package} is in no workspace and not at ${runner.manifest}`);
+    const inv = ctx.rust.inventory(runner.package);
+    return { source: inv.source, files: [ctx.rust.manifestFile(runner.package)], tests: inv.tests };
   }
   return { source: "single", files: [] };
 }
@@ -240,7 +232,7 @@ function overlayErrors(overlay, found, ctx) {
       if ("binary" in m.target) {
         const pkg = m.target.binary.split("::")[0];
         if (!owner.tests) return errors.push(`${at}: ${m.runner} is not a Rust runner`);
-        if (pkg !== canonicalPackageName(owner.runner.package)) return errors.push(`${at}: binary ${m.target.binary} is not package ${owner.runner.package}`);
+        if (pkg !== owner.runner.package) return errors.push(`${at}: binary ${m.target.binary} is not package ${owner.runner.package}`);
         if (!owner.tests.some((t) => testKey(t) === m.target.test)) errors.push(`${at}: ${m.target.test} is not in the ${owner.source} inventory of ${pkg}`);
         return;
       }

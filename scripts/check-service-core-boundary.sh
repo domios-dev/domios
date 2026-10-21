@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Caller: build.sh verify
-# Keeps ServiceContext's inherent impls inside domios-service-core and ports/ free of lock and PTY internals.
+# Keeps ServiceContext's inherent impls inside codeterm-service-core and ports/ free of lock and PTY internals.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-core="src-tauri/crates/domios-service-core"
+core="src-tauri/crates/codeterm-service-core"
 status=0
 
 inherent_impls="$(grep -rnE --include='*.rs' --exclude-dir=target --exclude-dir=node_modules \
@@ -17,9 +17,8 @@ if [ -n "$inherent_impls" ]; then
 fi
 
 # Named exceptions to port rule 1: the socket entry-point bridge and the one-time sentinel runtime composition.
-legacy_pty_alias='codeterm_pty' # rename-bridge
 port_leaks="$(grep -rnE --include='*.rs' \
-  "domios_pty|${legacy_pty_alias}|crate::multiplexer|MuxState|lock_hold|Guard<|&ServiceContext|&MultiplexerState|&mut ServiceContext" \
+  'codeterm_pty|crate::multiplexer|MuxState|lock_hold|Guard<|&ServiceContext|&MultiplexerState|&mut ServiceContext' \
   "$core/src/ports" | grep -vE "^$core/src/ports/(socket|sentinel)\.rs:" || true)"
 if [ -n "$port_leaks" ]; then
   echo "service-core boundary: ports/ names a lock, PTY or ServiceContext reference:" >&2
@@ -30,7 +29,7 @@ fi
 node scripts/check-crate-layering.mjs || status=1
 for leaf in src-tauri/crates/*; do
   case "${leaf##*/}" in
-    domios-server|domios-service-core|domios-api|domios-commands|domios-orchestration|domios-sentinel-host|domios-socket) continue ;;
+    domios-server|codeterm-service-core|codeterm-api|codeterm-commands|codeterm-orchestration|codeterm-sentinel-host|codeterm-socket) continue ;;
   esac
   context_refs="$(grep -rnE --include='*.rs' '\bServiceContext\b' "$leaf/src" "$leaf/tests" 2>/dev/null | grep -vE ':[0-9]+:[[:space:]]*//' || true)"
   if [ -n "$context_refs" ]; then

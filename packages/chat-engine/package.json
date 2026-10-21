@@ -1,5 +1,5 @@
 {
-  "name": "@domios/chat-engine",
+  "name": "@codeterm/chat-engine",
   "version": "1.15.0",
   "type": "module",
   "description": "Pure context-engine helpers for chatBackend plugins (chat window policy + machine assembly).",
@@ -29,6 +29,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@domios/plugin-sdk": "workspace:*"
+    "@codeterm/plugin-sdk": "workspace:*"
   }
 }

@@ -2,7 +2,7 @@
 // `install-local` and the cross-building release workflow — and the consumer,
 // the app's startup lookup. When they disagreed, an app installed from CI kept a
 // stale triple-named resource that the lookup prefers, so a freshly bundled CLI
-// was ignored and every `domios` command kept talking an old protocol.
+// was ignored and every `codeterm` command kept talking an old protocol.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -14,13 +14,13 @@ test("windows stages one name whether or not a cross target is set", () => {
   const native = bundledCliName({}, "win32", "x64");
   const cross = bundledCliName({ CARGO_BUILD_TARGET: "x86_64-pc-windows-msvc" }, "win32", "x64");
   assert.equal(native, cross, "a local build and a cross build must agree on the name");
-  assert.match(native, /^domios-.+-pc-windows-msvc\.exe$/);
+  assert.match(native, /^codeterm-.+-pc-windows-msvc\.exe$/);
 });
 
 test("an explicit cross target wins over the host arch", () => {
   assert.equal(
     bundledCliName({ CARGO_BUILD_TARGET: "aarch64-pc-windows-msvc" }, "win32", "x64"),
-    "domios-aarch64-pc-windows-msvc.exe",
+    "codeterm-aarch64-pc-windows-msvc.exe",
   );
 });
 
@@ -31,15 +31,15 @@ test("each windows arch maps to its own triple", () => {
 });
 
 test("non-windows keeps the plain name", () => {
-  assert.equal(bundledCliName({}, "linux", "x64"), "domios");
-  assert.equal(bundledCliName({ CARGO_BUILD_TARGET: "aarch64-apple-darwin" }, "darwin", "arm64"), "domios");
+  assert.equal(bundledCliName({}, "linux", "x64"), "codeterm");
+  assert.equal(bundledCliName({ CARGO_BUILD_TARGET: "aarch64-apple-darwin" }, "darwin", "arm64"), "codeterm");
 });
 
 test("bundle regeneration clears stale CLI names before Tauri packages resources", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "domios-cli-stage-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-cli-stage-"));
   try {
-    fs.writeFileSync(path.join(dir, "codeterm-09-18.exe"), "stale"); // rename-bridge
-    fs.writeFileSync(path.join(dir, "codeterm.exe"), "old"); // rename-bridge
+    fs.writeFileSync(path.join(dir, "codeterm-09-18.exe"), "stale");
+    fs.writeFileSync(path.join(dir, "codeterm.exe"), "old");
     fs.writeFileSync(path.join(dir, "keep.txt"), "keep");
 
     clearStaleBundledCli(dir);
@@ -51,14 +51,14 @@ test("bundle regeneration clears stale CLI names before Tauri packages resources
 });
 
 test("bundle regeneration retains the current CLI while removing stale architecture names", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "domios-cli-reuse-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-cli-reuse-"));
   try {
-    fs.writeFileSync(path.join(dir, "domios"), "current");
-    fs.writeFileSync(path.join(dir, "codeterm-old.exe"), "stale"); // rename-bridge
-    fs.utimesSync(path.join(dir, "domios"), 100, 100);
-    clearStaleBundledCli(dir, "domios");
-    assert.deepEqual(fs.readdirSync(dir), ["domios"]);
-    assert.equal(fs.statSync(path.join(dir, "domios")).mtimeMs, 100000);
+    fs.writeFileSync(path.join(dir, "codeterm"), "current");
+    fs.writeFileSync(path.join(dir, "codeterm-old.exe"), "stale");
+    fs.utimesSync(path.join(dir, "codeterm"), 100, 100);
+    clearStaleBundledCli(dir, "codeterm");
+    assert.deepEqual(fs.readdirSync(dir), ["codeterm"]);
+    assert.equal(fs.statSync(path.join(dir, "codeterm")).mtimeMs, 100000);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

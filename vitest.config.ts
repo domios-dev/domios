@@ -14,11 +14,6 @@ const execArgv = process.allowedNodeEnvironmentFlags.has("--no-experimental-webs
 
 export default defineConfig({
   plugins: [react()],
-  resolve: {
-    alias: [
-      { find: /^@codeterm\/(.*)$/, replacement: "@domios/$1" }, // rename-bridge
-    ],
-  },
   test: {
     environment: "happy-dom",
     include,

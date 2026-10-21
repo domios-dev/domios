@@ -10,17 +10,6 @@ pub fn run() {
     run::run(app_context(), command_registration::register_commands);
 }
 
-extern crate domios_build_info as codeterm_build_info; // rename-bridge
-extern crate domios_client_shell as codeterm_client_shell; // rename-bridge
-#[cfg(target_os = "macos")]
-extern crate domios_crash as codeterm_crash; // rename-bridge
-extern crate domios_frontend_shell as codeterm_frontend_shell; // rename-bridge
-extern crate domios_paths as codeterm_paths; // rename-bridge
-extern crate domios_process_identity as codeterm_process_identity; // rename-bridge
-extern crate domios_types as codeterm_types; // rename-bridge
-extern crate domios_update as codeterm_update; // rename-bridge
-extern crate domios_util as codeterm_util; // rename-bridge
-
 // macOS embeds Info.plist under one fixed symbol per expansion, so the crate expands it once.
 pub(crate) fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {
     tauri::generate_context!()

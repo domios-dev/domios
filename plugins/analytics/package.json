@@ -1,11 +1,11 @@
 {
   "license": "Apache-2.0",
-  "name": "@domios/plugin-analytics",
+  "name": "@codeterm/plugin-analytics",
   "version": "1.10.20",
   "private": true,
   "type": "module",
   "description": "CodeTerm core Analytics plugin: the machine-wide KPI dashboard view.",
   "devDependencies": {
-    "@domios/plugin-sdk": "workspace:*"
+    "@codeterm/plugin-sdk": "workspace:*"
   }
 }

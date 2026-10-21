@@ -43,7 +43,7 @@ test("Cargo path values accept the src-tauri directory without admitting framewo
     write("codeterm-events", "Cargo.toml", declaration);
     result = run();
     assert.equal(result.status, 1, result.stderr);
-    assert.match(result.stderr, /leaf crate names (?:tauri|service-core)/);
+    assert.match(result.stderr, /leaf crate names (?:tauri|codeterm-service-core)/);
   }
 });
 for (const [name, file, text] of [

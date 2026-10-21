@@ -3,8 +3,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const scope = 'src-tauri/crates/domios-service-core/src/';
-export const extractedLeaves = ['domios-crash', 'domios-notifications', 'domios-surface'];
+export const scope = 'src-tauri/crates/codeterm-service-core/src/';
+export const extractedLeaves = ['codeterm-crash', 'codeterm-notifications', 'codeterm-surface'];
 export const baselinePath = 'scripts/tauri-reach-baseline.json';
 
 export function countReach(source) {

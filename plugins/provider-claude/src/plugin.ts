@@ -15,7 +15,7 @@ import type {
   ParsedPrompt,
   PluginModule,
   ResumeParams,
-} from "@domios/plugin-sdk";
+} from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 import { permissionHookCapability } from "./permissionHook";
 import { parseContextUsage, statuslineLaunchArgs } from "./context";
@@ -71,15 +71,16 @@ import {
 import { claudePermissionPromptResponse } from "./permissionPrompt";
 import { claudeFolderTrustPrompt, claudeFolderTrustResponse } from "./folderTrust";
 import {
-  DOMIOS_HOOK_MARKER,
-  DOMIOS_HOOK_TIMEOUT_SECONDS,
-  DOMIOS_HOOK_MARKER_ARG,
+  CODETERM_HOOK_MARKER,
+  CODETERM_HOOK_TIMEOUT_SECONDS,
+  CODETERM_HOOK_MARKER_ARG,
   INTEGRATION_HOOK_KEYS,
-  entryIs1149Hook,
+  entryCarriesMarker,
+  entryIsLegacyPaneCodetermHook,
   entriesCarryMarker,
   entriesHaveBoundedTimeout,
   isCurrentHookCommand,
-  isDomiosHook,
+  isCodetermHook,
 } from "./hookOwnership";
 import type { ClaudeSettings, HookEntry } from "./hookOwnership";
 
@@ -173,7 +174,7 @@ function isBrailleSpinner(ch: string): boolean {
 function retainForeignPrecompactEntry(entry: HookEntry): boolean {
   if (!entry || !Array.isArray(entry.hooks)) return true;
   const previous = entry.hooks;
-  const remaining = previous.filter((hook) => !isDomiosHook({ hooks: [hook] }));
+  const remaining = previous.filter((hook) => !isCodetermHook({ hooks: [hook] }));
   if (remaining.length === previous.length) return true;
   entry.hooks = remaining;
   return remaining.length > 0;
@@ -495,10 +496,10 @@ const plugin: PluginModule = {
     return subAgentUsageSources(sessionFilePath, sessionId);
   },
 
-  // Write the existing bridge rule path via host APIs. // rename-bridge
+  // Write bridge rule to `~/.claude/rules/codeterm.md` via host APIs.
   installBridgeRule(payload: string): unknown {
     const m = manifest();
-    const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md"; // rename-bridge
+    const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
     const expanded = host.expandHome(rulePath);
     if (!expanded) return { ok: false, error: "could not expand " + rulePath };
     const ok = host.writeFile(expanded, payload);
@@ -511,7 +512,7 @@ const plugin: PluginModule = {
 
   uninstallBridgeRule(): unknown {
     const m = manifest();
-    const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md"; // rename-bridge
+    const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
     const expanded = host.expandHome(rulePath);
     if (!expanded) return { ok: true }; // nothing to do
     if (!host.fileExists(expanded)) return { ok: true };
@@ -541,7 +542,7 @@ const plugin: PluginModule = {
 
         session_start_hook: false,
         target: path || "~/.claude/settings.json",
-        backup_exists: !!path && host.fileExists(path + ".codeterm-backup"), // rename-bridge
+        backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
         proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"],
       };
     }
@@ -566,14 +567,14 @@ const plugin: PluginModule = {
           const command = hook && hook.command;
           // Claude Code rewrites settings.json and its serializer drops `_source`, so requiring it reports a working hook as missing.
           if (typeof command === "string"
-              && (!completion || (command.includes("DOMIOS_SESSION_BINDING_NONCE")
+              && (!completion || (command.includes("CODETERM_SESSION_BINDING_NONCE")
                 && command.includes('--data-binary "@-"')))
               && isCurrentHookCommand(command, host.platform())
-              && command.indexOf("DOMIOS_TAB_ID") !== -1
-              && command.indexOf("DOMIOS_API_URL") !== -1
-              && command.indexOf("DOMIOS_API_TOKEN") !== -1
-              && command.indexOf("DOMIOS_API_PORT") === -1
-              && command.indexOf("DOMIOS_PANE_ID") === -1) return true;
+              && command.indexOf("CODETERM_TAB_ID") !== -1
+              && command.indexOf("CODETERM_API_URL") !== -1
+              && command.indexOf("CODETERM_API_TOKEN") !== -1
+              && command.indexOf("CODETERM_API_PORT") === -1
+              && command.indexOf("CODETERM_PANE_ID") === -1) return true;
         }
       }
       return false;
@@ -590,12 +591,12 @@ const plugin: PluginModule = {
           const command = h && h.command;
           if (typeof command === "string"
               && isCurrentHookCommand(command, host.platform())
-              && command.indexOf("DOMIOS_SESSION_BINDING_NONCE") !== -1
-              && command.indexOf("DOMIOS_TAB_ID") !== -1
-              && command.indexOf("DOMIOS_API_URL") !== -1
-              && command.indexOf("DOMIOS_API_TOKEN") !== -1
-              && command.indexOf("DOMIOS_API_PORT") === -1
-              && command.indexOf("DOMIOS_PANE_ID") === -1) return true;
+              && command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1
+              && command.indexOf("CODETERM_TAB_ID") !== -1
+              && command.indexOf("CODETERM_API_URL") !== -1
+              && command.indexOf("CODETERM_API_TOKEN") !== -1
+              && command.indexOf("CODETERM_API_PORT") === -1
+              && command.indexOf("CODETERM_PANE_ID") === -1) return true;
         }
       }
       return false;
@@ -603,12 +604,14 @@ const plugin: PluginModule = {
     const n = present("Notification");
     const pr = present("PermissionRequest");
     const s = present("Stop", true);
-    const pc = Array.isArray(json.hooks?.PreCompact) && json.hooks.PreCompact.some(isDomiosHook);
+    const pc = Array.isArray(json.hooks?.PreCompact) && json.hooks.PreCompact.some(isCodetermHook);
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
     const owned = INTEGRATION_HOOK_KEYS.some((key) => {
       const arr = json.hooks && json.hooks[key];
-      return Array.isArray(arr) && arr.some(isDomiosHook);
+      return Array.isArray(arr) && arr.some((entry) => {
+        return entryCarriesMarker(entry) || entryIsLegacyPaneCodetermHook(entry);
+      });
     });
     // False means the machine still runs pre-marker hooks the consented
     // reconciliation migrates once; it never means the hooks are broken.
@@ -628,7 +631,7 @@ const plugin: PluginModule = {
 
       session_start_hook: ss,
       target: path,
-      backup_exists: host.fileExists(path + ".codeterm-backup"), // rename-bridge
+      backup_exists: host.fileExists(path + ".codeterm-backup"),
       proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"],
     };
   },
@@ -666,25 +669,20 @@ const plugin: PluginModule = {
     if (json.hooks !== undefined && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
       return { ok: false, error: "hooks is not an object" };
     }
-    const has1149Hook = Object.values(json.hooks || {}).some((entries) =>
-      Array.isArray(entries) && entries.some(entryIs1149Hook));
-    if (host.envGet("DOMIOS_INSTANCE") !== null && has1149Hook) {
-      return { ok: true, changed: false, reason: "DEV left the 1.14.9 hook generation untouched" };
-    }
     if (!json.hooks) json.hooks = {};
 
     const executable = host.platform() === "windows" ? "curl.exe" : "curl";
     const hookCommand = (path: string, body: string, extraHeaders: string, stdin: boolean): string => {
       const payload = stdin ? '--data-binary "@-"' : `--data-binary "${body}"`;
-      return `${executable} --silent --request POST "$DOMIOS_API_URL${path}" `
-        + `--header "Content-Type: application/json" --header "Authorization: Bearer $DOMIOS_API_TOKEN" `
-        + `${DOMIOS_HOOK_MARKER_ARG} ${extraHeaders} ${payload}`;
+      return `${executable} --silent --request POST "$CODETERM_API_URL${path}" `
+        + `--header "Content-Type: application/json" --header "Authorization: Bearer $CODETERM_API_TOKEN" `
+        + `${CODETERM_HOOK_MARKER_ARG} ${extraHeaders} ${payload}`;
     };
-    const nonceHeader = '--header "X-Domios-Binding-Nonce: $DOMIOS_SESSION_BINDING_NONCE"';
-    const notifyCmd = hookCommand("/api/tabs/$DOMIOS_TAB_ID/hook/permission", "", nonceHeader, true);
-    const stopCmd = hookCommand("/api/tabs/$DOMIOS_TAB_ID/hook/stop", "", nonceHeader, true);
+    const nonceHeader = '--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"';
+    const notifyCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/permission", "", nonceHeader, true);
+    const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "", nonceHeader, true);
     const sessionStartCmd = hookCommand(
-      "/api/tabs/$DOMIOS_TAB_ID/hook/session_start",
+      "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
       "",
       nonceHeader,
       true,
@@ -697,20 +695,20 @@ const plugin: PluginModule = {
           type: "command",
           command: cmd,
           timeout: timeout,
-          _source: DOMIOS_HOOK_MARKER,
+          _source: CODETERM_HOOK_MARKER,
         }],
       };
     }
     // PermissionRequest and Notification share the permission route and differ
     // only in matcher: per-tool vs the vendor's late permission_prompt.
     const newHooks: Record<string, HookEntry> = {
-      PermissionRequest: newEntry("*", notifyCmd, DOMIOS_HOOK_TIMEOUT_SECONDS),
-      Notification:      newEntry("permission_prompt", notifyCmd, DOMIOS_HOOK_TIMEOUT_SECONDS),
-      Stop:              newEntry("", stopCmd, DOMIOS_HOOK_TIMEOUT_SECONDS),
-      SessionStart:      newEntry("", sessionStartCmd, DOMIOS_HOOK_TIMEOUT_SECONDS),
+      PermissionRequest: newEntry("*", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      Notification:      newEntry("permission_prompt", notifyCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      Stop:              newEntry("", stopCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
+      SessionStart:      newEntry("", sessionStartCmd, CODETERM_HOOK_TIMEOUT_SECONDS),
     };
 
-    // Remove existing owned hooks before appending to avoid stale leftovers.
+    // Remove existing codeterm hooks before appending to avoid stale leftovers.
     const keys = INTEGRATION_HOOK_KEYS;
     let preservedUnclassified = 0;
     for (let i = 0; i < keys.length; i++) {
@@ -720,7 +718,7 @@ const plugin: PluginModule = {
       }
       const existing = Array.isArray(json.hooks[k])
         ? json.hooks[k].filter((entry) => {
-          const retained = k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isDomiosHook(entry);
+          const retained = k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry);
           if (retained) preservedUnclassified++;
           return retained;
         })
@@ -733,8 +731,8 @@ const plugin: PluginModule = {
       }
     }
 
-    if (!host.fs.writeFile(path + ".codeterm-backup", original) // rename-bridge
-      || !host.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent")) { // rename-bridge
+    if (!host.fs.writeFile(path + ".codeterm-backup", original)
+      || !host.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent")) {
       return { ok: false, error: "could not write recoverable backup for " + path };
     }
     const ok = host.fs.writeJson(path, json);
@@ -779,7 +777,7 @@ const plugin: PluginModule = {
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (Array.isArray(json.hooks[k])) {
-        json.hooks[k] = json.hooks[k].filter((entry) => k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isDomiosHook(entry));
+        json.hooks[k] = json.hooks[k].filter((entry) => k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry));
       }
     }
     const ok = host.fs.writeJson(path, json);
@@ -795,11 +793,11 @@ const plugin: PluginModule = {
     const path = host.expandHome((m && m.integration && m.integration.settingsPath)
       || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
-    const backup = path + ".codeterm-backup"; // rename-bridge
+    const backup = path + ".codeterm-backup";
     if (!host.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
     const original = host.fs.readFile(backup);
     if (typeof original !== "string") return { ok: false, error: "restore failed for " + path };
-    const state = host.fs.readFile(path + ".codeterm-backup-state"); // rename-bridge
+    const state = host.fs.readFile(path + ".codeterm-backup-state");
     const wasAbsent = state === "absent" || (typeof state !== "string" && original === "");
     if (wasAbsent) return !host.fileExists(path) || host.removeFile(path)
       ? { ok: true }

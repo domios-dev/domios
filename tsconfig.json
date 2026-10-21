@@ -16,14 +16,8 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "allowImportingTsExtensions": true,
-    "baseUrl": ".",
     "paths": {
-      "@domios/plugin-sdk": ["./packages/plugin-sdk/src/index.ts"],
-      "@codeterm/chat-core": ["packages/chat-core/src/index.ts"], // rename-bridge
-      "@codeterm/chat-ui": ["packages/chat-ui/src/index.ts"], // rename-bridge
-      "@codeterm/chat-ui/dsTasksBlock": ["packages/chat-ui/src/codeterm/dsTasksBlock.ts"], // rename-bridge
-      "@codeterm/chat-ui/renderability": ["packages/chat-ui/src/renderability.ts"], // rename-bridge
-      "@codeterm/plugin-sdk": ["packages/plugin-sdk/src/index.ts"] // rename-bridge
+      "@codeterm/plugin-sdk": ["./packages/plugin-sdk/src/index.ts"]
     }
   },
   "include": [

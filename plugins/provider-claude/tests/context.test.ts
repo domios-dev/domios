@@ -50,9 +50,9 @@ check(() => assert.equal(JSON.stringify(user), original));
 check(() => assert.deepEqual(Object.keys(settings), ["statusLine"]));
 check(() => assert.equal(settings.statusLine.padding, 2));
 const env = {...process.env};
-delete env.DOMIOS_API_URL;
-delete env.DOMIOS_API_TOKEN;
-delete env.DOMIOS_TAB_ID;
+delete env.CODETERM_API_URL;
+delete env.CODETERM_API_TOKEN;
+delete env.CODETERM_TAB_ID;
 const payload = JSON.stringify(record);
 const gitPath = process.platform === "win32" ? spawnSync("git", ["--exec-path"], {encoding:"utf8"}).stdout.trim() : "";
 const bash = process.platform === "win32" ? path.resolve(gitPath, "../../../bin/bash.exe") : "bash";
@@ -60,7 +60,7 @@ const chained = spawnSync(bash, ["-c", settings.statusLine.command], {input:payl
 check(() => assert.equal(chained.status, 0, chained.stderr));
 check(() => assert.equal(chained.stdout, payload));
 const failedForward = spawnSync(bash, ["-c", `curl() { cat >/dev/null; return 7; }; ${settings.statusLine.command}`], {
-  input:payload,encoding:"utf8",env:{...env,DOMIOS_API_URL:"fixture",DOMIOS_API_TOKEN:"fixture",DOMIOS_TAB_ID:"fixture"},
+  input:payload,encoding:"utf8",env:{...env,CODETERM_API_URL:"fixture",CODETERM_API_TOKEN:"fixture",CODETERM_TAB_ID:"fixture"},
 });
 check(() => assert.equal(failedForward.status, 0, failedForward.stderr));
 check(() => assert.equal(failedForward.stdout, payload));

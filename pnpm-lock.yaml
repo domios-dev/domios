@@ -10,6 +10,21 @@ importers:
 
   .:
     dependencies:
+      '@codeterm/chat-core':
+        specifier: workspace:*
+        version: link:packages/chat-core
+      '@codeterm/chat-ui':
+        specifier: workspace:*
+        version: link:packages/chat-ui
+      '@codeterm/provider-claude':
+        specifier: workspace:*
+        version: link:plugins/provider-claude
+      '@codeterm/provider-codex':
+        specifier: workspace:*
+        version: link:plugins/provider-codex
+      '@codeterm/provider-opencode':
+        specifier: workspace:*
+        version: link:plugins/provider-opencode
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -19,21 +34,6 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.4)
-      '@domios/chat-core':
-        specifier: workspace:*
-        version: link:packages/chat-core
-      '@domios/chat-ui':
-        specifier: workspace:*
-        version: link:packages/chat-ui
-      '@domios/provider-claude':
-        specifier: workspace:*
-        version: link:plugins/provider-claude
-      '@domios/provider-codex':
-        specifier: workspace:*
-        version: link:plugins/provider-codex
-      '@domios/provider-opencode':
-        specifier: workspace:*
-        version: link:plugins/provider-opencode
       '@git-diff-view/react':
         specifier: ^0.1.5
         version: 0.1.5(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -199,13 +199,13 @@ importers:
 
   packages/chat-engine:
     dependencies:
-      '@domios/plugin-sdk':
+      '@codeterm/plugin-sdk':
         specifier: workspace:*
         version: link:../plugin-sdk
 
   packages/chat-ui:
     dependencies:
-      '@domios/chat-core':
+      '@codeterm/chat-core':
         specifier: workspace:*
         version: link:../chat-core
       lucide-react:
@@ -237,58 +237,58 @@ importers:
 
   plugins/analytics:
     devDependencies:
-      '@domios/plugin-sdk':
+      '@codeterm/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
   plugins/browser:
     devDependencies:
-      '@domios/plugin-sdk':
+      '@codeterm/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
   plugins/chat-preprocessor:
     devDependencies:
-      '@domios/plugin-sdk':
+      '@codeterm/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
   plugins/provider-claude:
     dependencies:
-      '@domios/chat-ui':
+      '@codeterm/chat-ui':
         specifier: workspace:*
         version: link:../../packages/chat-ui
       react:
         specifier: ^19.0.0
         version: 19.2.4
     devDependencies:
-      '@domios/plugin-sdk':
+      '@codeterm/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
   plugins/provider-codex:
     dependencies:
-      '@domios/chat-core':
+      '@codeterm/chat-core':
         specifier: workspace:*
         version: link:../../packages/chat-core
       react:
         specifier: ^19.0.0
         version: 19.2.4
     devDependencies:
-      '@domios/plugin-sdk':
+      '@codeterm/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
   plugins/provider-cursor:
     dependencies:
-      '@domios/chat-core':
+      '@codeterm/chat-core':
         specifier: workspace:*
         version: link:../../packages/chat-core
       react:
         specifier: ^19.0.0
         version: 19.2.4
     devDependencies:
-      '@domios/plugin-sdk':
+      '@codeterm/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
@@ -298,7 +298,7 @@ importers:
         specifier: ^19.0.0
         version: 19.2.4
     devDependencies:
-      '@domios/plugin-sdk':
+      '@codeterm/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 

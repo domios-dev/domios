@@ -1,0 +1,41 @@
+[package]
+license = "AGPL-3.0-only"
+name = "codeterm-commands"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "codeterm_commands"
+
+[dependencies]
+codeterm-build-info = { path = "../codeterm-build-info" }
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false }
+codeterm-orchestration = { path = "../codeterm-orchestration" }
+codeterm-analytics = { path = "../codeterm-analytics" }
+codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-events = { path = "../codeterm-events" }
+codeterm-util = { path = "../codeterm-util" }
+codeterm-mesh = { path = "../codeterm-mesh" }
+codeterm-plugin = { path = "../codeterm-plugin" }
+log = { version = "0.4", features = ["release_max_level_info"] }
+parking_lot = "0.12"
+axum = { version = "0.8", features = ["multipart"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
+url = "2"
+async-trait = "0.1"
+which = "7"
+codeterm-plugins = { path = "../codeterm-plugins" }
+codeterm-update = { path = "../codeterm-update" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }

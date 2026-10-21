@@ -2,11 +2,7 @@
 # Caller: build.sh helpers; scripts qa-report.sh, tests/qa-report-early-alerts.sh, tests/utility-shell-reports.test.mjs
 
 dev_notify_capture_parent() {
-  if command -v domios >/dev/null 2>&1; then
-    DEV_NOTIFY_PARENT_CLI="$(command -v domios)"
-  else
-    DEV_NOTIFY_PARENT_CLI="$(command -v codeterm 2>/dev/null || true)" # rename-bridge
-  fi
+  DEV_NOTIFY_PARENT_CLI="$(command -v codeterm 2>/dev/null || true)"
   DEV_NOTIFY_PARENT_CODETERM_API_URL_SET="${CODETERM_API_URL+x}"
   DEV_NOTIFY_PARENT_CODETERM_API_URL="${CODETERM_API_URL-}"
   DEV_NOTIFY_PARENT_CODETERM_API_TOKEN_SET="${CODETERM_API_TOKEN+x}"
@@ -31,7 +27,7 @@ dev_notify_capture_parent() {
 
 dev_notify_parent_cli() {
   if [ -z "${DEV_NOTIFY_PARENT_CLI:-}" ]; then
-    echo "ERROR: parent Domios CLI was not available when notifications were captured" >&2
+    echo "ERROR: parent codeterm CLI was not available when notifications were captured" >&2
     return 127
   fi
   (

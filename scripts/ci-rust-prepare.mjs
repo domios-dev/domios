@@ -19,5 +19,5 @@ if (process.argv[2] === 'cleanup') {
 } else {
   fs.mkdirSync('dist', { recursive: true });
   fs.mkdirSync(bundles[0], { recursive: true });
-  if (!fs.readdirSync(bundles[0]).length) fs.writeFileSync(path.join(bundles[0], process.platform === 'win32' ? 'domios.exe' : 'domios'), '');
+  if (!fs.readdirSync(bundles[0]).length) fs.writeFileSync(path.join(bundles[0], process.platform === 'win32' ? 'codeterm.exe' : 'codeterm'), '');
 }

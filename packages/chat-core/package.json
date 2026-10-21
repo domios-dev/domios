@@ -1,6 +1,6 @@
 {
   "license": "AGPL-3.0-only",
-  "name": "@domios/chat-core",
+  "name": "@codeterm/chat-core",
   "version": "1.15.0",
   "private": true,
   "type": "module",

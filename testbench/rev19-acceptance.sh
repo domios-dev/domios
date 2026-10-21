@@ -42,7 +42,7 @@ echo "    testbench/stop-oracle.sh --tab <disposable> --mode stop"
 echo "    testbench/stop-oracle.sh --tab <disposable> --mode http-abort --oc-base http://127.0.0.1:<port> --oc-session ses_…"
 
 say "OFFLINE regression — regen timelines (classifier untouched by spawn diff)"
-( cd src-tauri && cargo build -p domios-devtools --example render_timeline 2>&1 | tail -1 )
+( cd src-tauri && cargo build -p codeterm-devtools --example render_timeline 2>&1 | tail -1 )
 RT=src-tauri/target/debug/examples/render_timeline; rm -rf "$SCRATCH/regen"; mkdir -p "$SCRATCH/regen"
 while IFS= read -r c; do d=$(dirname "$c");
   rows="$(python3 testbench/provider_rows.py "$d" --fixture-rows 0)" || continue

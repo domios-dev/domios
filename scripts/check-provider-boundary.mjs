@@ -6,8 +6,6 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const allowlistPath = 'scripts/provider-boundary-allowlist.json';
-const legacyCratePath = 'src-tauri/crates/codeterm-'; // rename-bridge
-const currentCratePath = 'src-tauri/crates/domios-';
 const migratedBaseline = '86b30145e90e9d2f31294ead517b82716fd44da8';
 const scopes = ['src-tauri/src', 'src-tauri/crates', 'crates'];
 const sourceExtension = /\.(rs|ts|tsx|js|mjs|cjs|py|swift|json|toml)$/;
@@ -80,21 +78,6 @@ export function validateAllowlist(document) {
     seen.add(identity);
   }
   return document.entries;
-}
-
-export function canonicalizeAllowlistPaths(document) {
-  const canonicalPath = file => file.startsWith(legacyCratePath)
-    ? `${currentCratePath}${file.slice(legacyCratePath.length)}` // rename-bridge
-    : file;
-  return {
-    ...document,
-    splits: (document.splits ?? []).map(split => ({
-      ...split,
-      from: canonicalPath(split.from),
-      to: split.to.map(canonicalPath),
-    })),
-    entries: document.entries.map(entry => ({ ...entry, file: canonicalPath(entry.file) })),
-  };
 }
 
 export function countOccurrences(occurrences) {
@@ -235,7 +218,7 @@ function main() {
     base = args[++i];
   }
   const root = git(process.cwd(), ['rev-parse', '--show-toplevel']).trim();
-  const document = canonicalizeAllowlistPaths(JSON.parse(readFileSync(resolve(root, allowlistPath), 'utf8')));
+  const document = JSON.parse(readFileSync(resolve(root, allowlistPath), 'utf8'));
   const occurrences = scanWorkingTree(root);
   const forkPoint = forkPointOf(root, base);
   const revision = baselineRevision(root, forkPoint);

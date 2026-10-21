@@ -514,7 +514,7 @@ jobs:
       - name: Prepare compile stubs
         run: |
           mkdir -p dist src-tauri/bundled-cli
-          [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/domios
+          [ -n "$(ls -A src-tauri/bundled-cli)" ] || touch src-tauri/bundled-cli/codeterm
       - name: Reset compiler capture
         continue-on-error: true
         run: node -e "require('fs').writeFileSync('ci-rust-warnings.log', '')"

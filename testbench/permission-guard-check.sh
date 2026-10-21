@@ -15,7 +15,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 CAST="testbench/replays/synthetic/permission_box_visible_cursor_v1/raw.cast"
 RT="src-tauri/target/debug/examples/render_timeline"
 OUT="${TMPDIR:-/tmp}/permission_guard.$$.json"
-[ -x "$RT" ] || (cd src-tauri && cargo build -p domios-devtools --example render_timeline >/dev/null 2>&1)
+[ -x "$RT" ] || (cd src-tauri && cargo build -p codeterm-devtools --example render_timeline >/dev/null 2>&1)
 # Synthetic cast: no provider, so the band is stated fixture data.
 "$RT" "$CAST" "$OUT" --status-bar-rows 0 >/dev/null 2>&1
 

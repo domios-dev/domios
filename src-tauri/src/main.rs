@@ -3,5 +3,3 @@
 fn main() {
     codeterm_lib::run();
 }
-
-extern crate domios_lib as codeterm_lib; // rename-bridge

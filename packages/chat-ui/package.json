@@ -1,6 +1,6 @@
 {
   "license": "AGPL-3.0-only",
-  "name": "@domios/chat-ui",
+  "name": "@codeterm/chat-ui",
   "version": "1.15.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "./dsTasksBlock": "./src/codeterm/dsTasksBlock.ts"
   },
   "dependencies": {
-    "@domios/chat-core": "workspace:*",
+    "@codeterm/chat-core": "workspace:*",
     "tlds": "^1.261.0"
   },
   "peerDependencies": {

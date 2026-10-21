@@ -125,7 +125,7 @@ def compare_vectors(old, new, count):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--old-binary", type=Path)
-    parser.add_argument("--baseline", type=Path, default=Path(__file__).resolve().parent.parent / "src-tauri/crates/domios-mem/tests/fixtures/embed_parity.json")
+    parser.add_argument("--baseline", type=Path, default=Path(__file__).resolve().parent.parent / "src-tauri/crates/codeterm-mem/tests/fixtures/embed_parity.json")
     parser.add_argument("--new-binary", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()

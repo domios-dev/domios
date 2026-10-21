@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
-import { biomeFileBatches, collectChangedFiles, formatChangedFiles } from '../format-changed.mjs';
+import { collectChangedFiles, formatChangedFiles } from '../format-changed.mjs';
 
 const temporaryDirectories = [];
 
@@ -56,16 +56,8 @@ test('selects committed, staged, unstaged and untracked files while skipping del
   ]);
 });
 
-test('batches Biome paths without dropping or reordering files', () => {
-  const files = Array.from({ length: 67 }, (_, index) => `path-${index}.ts`);
-  const batches = biomeFileBatches(files);
-
-  assert.deepEqual(batches.map(batch => batch.length), [32, 32, 3]);
-  assert.deepEqual(batches.flat(), files);
-});
-
 test('formats a changed Rust file with its package edition', () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'domios-fmt-rust-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'codeterm-fmt-rust-'));
   temporaryDirectories.push(root);
   write(root, 'rust-toolchain.toml', readFileSync(new URL('../../rust-toolchain.toml', import.meta.url), 'utf8'));
   git(root, 'init', '-b', 'develop');

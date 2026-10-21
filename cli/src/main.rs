@@ -1122,15 +1122,3 @@ mod test_support;
 
 #[cfg(test)]
 mod startup_tests;
-
-extern crate domios_blueprint_types as codeterm_blueprint_types; // rename-bridge
-extern crate domios_build_info as codeterm_build_info; // rename-bridge
-extern crate domios_mem_store as codeterm_mem_store; // rename-bridge
-extern crate domios_mesh as codeterm_mesh; // rename-bridge
-extern crate domios_notification_core as codeterm_notification_core; // rename-bridge
-extern crate domios_paths as codeterm_paths; // rename-bridge
-extern crate domios_plugin as codeterm_plugin; // rename-bridge
-extern crate domios_plugins as codeterm_plugins; // rename-bridge
-extern crate domios_process_identity as codeterm_process_identity; // rename-bridge
-extern crate domios_types as codeterm_types; // rename-bridge
-extern crate domios_wire as codeterm_wire; // rename-bridge
