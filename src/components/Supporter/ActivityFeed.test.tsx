@@ -36,6 +36,14 @@ beforeEach(() => {
 afterEach(async () => setup.cleanup());
 
 describe("Spinal Cord activity", () => {
+  it("renders one redacted line per Curator round", async () => {
+    entries = [0, 1].map((offset) => ({ ...entry("team_aabbccdd", 1700000000 + offset), kind: "curator", label: "done", action: "decision", asked: [{ name: "private", question: "opaque-question", answer: "opaque-answer" }] }));
+    const host = await setup.render(<ActivityFeed api={API} teamId="team_aabbccdd" />);
+    const rows = host.querySelectorAll('li[data-kind="curator"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).not.toContain("opaque-");
+    expect(rows[0].getAttribute("aria-label")).toContain("Curator");
+  });
   it("heartbeat_wakes_and_suppressions_render_in_the_feed", async () => {
     entries = [
       { ...entry("team_aabbccdd"), kind: "heartbeat", label: "action_needed", action: "wake", reason: "hard_wake" },

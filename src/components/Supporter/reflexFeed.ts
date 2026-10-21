@@ -16,6 +16,7 @@ const kinds: Record<typeof ACTIVITY_KINDS[number], Outcome> = {
   sentinel: outcome(ListChecks, "Evaluated Blueprint"),
   blueprint: outcome(ListChecks, "Evaluated Blueprint"),
   heartbeat: outcome(ListChecks, "Checked Team progress"),
+  curator: outcome(ListChecks, "Recorded a Curator round"),
 };
 const labels: Record<typeof ACTIVITY_LABELS[number], Outcome> = {
   action_needed: outcome(Zap, "needs action"),
@@ -91,7 +92,10 @@ export function reflexOutcome(entry: SupporterActivity): ReflexRow {
   const reason = lookup(reasons, entry.reason);
   const subject = entry.tab_title?.replace(/\s+/g, " ").trim() || undefined;
   let result = action ?? kind ?? outcome(CircleHelp, "Recorded a decision");
-  if (entry.kind === "tab_state" && label && ["notify_only", "spawn_ok", "decision", "notify", "strong_action"].includes(entry.action)) {
+  if (entry.kind === "curator") {
+    const round = lookup({ quiet: "Quiet round", nudged: "Nudged the Orchestrator", done: "Round complete", partial: "Partial round", failed: "Round failed", fallback: "Heartbeat fallback", mode_changed: "Mode changed during round" }, entry.label);
+    result = outcome(ListChecks, `Curator: ${round ?? "round recorded"}`, entry.label === "quiet" ? "quiet" : "decided");
+  } else if (entry.kind === "tab_state" && label && ["notify_only", "spawn_ok", "decision", "notify", "strong_action"].includes(entry.action)) {
     const note = ["notify", "strong_action"].includes(entry.action) && action ? ` · ${action.phrase.toLowerCase()}` : "";
     result = { ...label, tone: note && action ? action.tone : label.tone, phrase: `${subject ?? "Tab"} ${label.phrase}${note}` };
   } else if (entry.kind === "rerank") {
@@ -127,7 +131,7 @@ export function groupReflexes(entries: readonly SupporterActivity[]): ReflexRow[
     const row = reflexOutcome(entry);
     const tab = entry.tab_id ?? entry.tab_title ?? "global";
     const previous = lastByTab.get(tab);
-    if (previous?.key === row.key) {
+    if (entry.kind !== "curator" && previous?.key === row.key) {
       const count = previous.count + 1;
       if (Number.isFinite(row.time) && (!Number.isFinite(previous.time) || row.time > previous.time)) {
         Object.assign(previous, row);

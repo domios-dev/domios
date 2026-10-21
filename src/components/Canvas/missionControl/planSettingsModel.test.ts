@@ -10,10 +10,15 @@ const base: PlanOversight = {
   fallback_reason: null, paused: false, paused_at: null, pause_reason: null,
 };
 
-assert.deepEqual(HEARTBEAT_INTERVALS.map(option => option.label), ["5m", "10m", "15m", "30m", "1h", "3h"]);
-assert.equal(HEARTBEAT_INTERVALS.find(option => option.label === "1h")?.ms, 60 * M);
+assert.deepEqual(HEARTBEAT_INTERVALS.map(option => option.ms), [15, 30, 45, 60, 90, 120].map(minutes => minutes * M));
+assert.equal(HEARTBEAT_INTERVALS.find(option => option.label === "60m")?.ms, 60 * M);
 assert.equal(intervalLabel(30 * M), "30m");
-assert.equal(intervalLabel(2 * 60 * M), "2h");
+assert.equal(intervalLabel(2 * 60 * M), "120m");
+assert.equal(intervalLabel(null), "machine default");
+for (const reason of ["reminders_disabled", "waiting_on_human", "complete"]) {
+  assert.equal(oversightLines({ ...base, suspended_reason: reason }, NOW).length, 1);
+  assert.equal(oversightLines({ ...base, suspended_reason: reason }, NOW)[0].tone, "muted");
+}
 
 assert.deepEqual(oversightLines(base, NOW), [{ tone: "accent", text: "Next round in ~1h, last round 38m ago" }]);
 assert.deepEqual(oversightLines({ ...base, last_round_at: null }, NOW), [{ tone: "accent", text: "Next round in ~1h" }]);
@@ -35,4 +40,4 @@ assert.equal(pauseHint({ ...base, paused: true, paused_at: NOW - 25 * M, pause_r
   "Paused 25m ago: opaque. No heartbeats or dispatch until resumed.");
 assert.equal(pauseHint({ ...base, paused: true }, NOW, "running hint"), "Paused. No heartbeats or dispatch until resumed.");
 
-console.log("plan settings model: 17 assertions passed");
+console.log("plan settings model assertions passed");

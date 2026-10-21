@@ -2,7 +2,6 @@ import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } f
 import { AnchoredPopover } from "../../shared/AnchoredPopover";
 import type { TeamPlanSummary } from "./missionControlState";
 import type { ApiConfig } from "../../../lib/types";
-import { PlanModeControls } from "../planView/PlanModeControls";
 import { PLANNING_STATE_LABEL, planDraftState } from "../planView/boardModel";
 import {
   formatCount,
@@ -267,7 +266,6 @@ export function PlanCard({
   previousPlans = [],
   onOpenPlan,
   onOpenPlanView,
-  api,
 }: {
   plan: TeamPlanSummary;
   api?: ApiConfig;
@@ -285,7 +283,6 @@ export function PlanCard({
     <BoardPanel
       testId="mc-board-plan"
       title="Plan"
-      meta={<PlanModeControls plan={plan} api={api} reason="Paused from Mission Control" />}
     >
       <BoardPanelSection>
         {onOpenPlanView ? (

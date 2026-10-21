@@ -87,12 +87,12 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
     : "Runs in a private cron worker";
 
   return (
-    <section className="h-full overflow-y-auto bg-[var(--ct-bg)]" aria-label={`Cron ${job.name}`}>
+    <section className="h-full overflow-y-auto bg-[var(--ct-bg)]" aria-label={job.role === "curator" ? "Curator rounds" : `Cron ${job.name}`}>
       <header className="ct-jobs-header sticky top-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
         {back}
         <span className="ct-card__icon" style={{ "--ct-card-tone": AUTOMATION_TONE.cron } as CSSProperties}><Clock3 size={14} aria-hidden="true" /></span>
         <div className="min-w-0 flex-[1_1_12rem]">
-          <h2 className="break-words text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{job.name}</h2>
+          <h2 className="break-words text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{job.role === "curator" ? "Curator rounds" : job.name}</h2>
           <p className="text-xs text-[var(--ct-muted-fg)]">Cron · {target}</p>
         </div>
         <button type="button" aria-pressed={showAutomation} onClick={() => setShowAutomation(!showAutomation)} className={AUTOMATION_TOOL}>{showAutomation ? "Cron details" : "Automation graph"}</button>
