@@ -98,8 +98,16 @@ export function platformLane(lane, packages, hasPlatformTests) {
 function narrowToPlatformPackages(lane) {
   const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--locked', '--no-deps', '--manifest-path', lane.manifest, '--format-version', '1'],
     { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
-  const hasPlatformTests = (source) => JSON.parse(execFileSync('cargo', ['run', '--quiet', '--locked', '--manifest-path', 'scripts/ci-test-classifier/Cargo.toml', '--', source],
-    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] })).some((entry) => entry.platform);
+  // A source that needs its build script's OUT_DIR cannot be read before compiling, so it stays in the lane.
+  const hasPlatformTests = (source) => {
+    try {
+      return JSON.parse(execFileSync('cargo', ['run', '--quiet', '--locked', '--manifest-path', 'scripts/ci-test-classifier/Cargo.toml', '--', source],
+        { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] })).some((entry) => entry.platform);
+    } catch {
+      console.log(`[platform] ${source} needs build output to classify; kept`);
+      return true;
+    }
+  };
   return platformLane(lane, metadata.packages, hasPlatformTests);
 }
 
