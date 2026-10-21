@@ -1275,6 +1275,7 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+ "url",
  "uuid",
 ]
 
@@ -2016,6 +2017,7 @@ dependencies = [
  "log",
  "parking_lot",
  "regex",
+ "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",
