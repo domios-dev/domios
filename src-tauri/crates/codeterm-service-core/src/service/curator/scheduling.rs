@@ -315,7 +315,7 @@ impl ServiceContext {
         {
             return Ok(None);
         }
-        let occupied = self.mux.read().tabs.values().any(|tab| {
+        let occupied = self.mux.read().all_tabs().any(|tab| {
             tab.team_id == plan.team_id
                 && tab.role_profile.as_deref() == Some("curator")
                 && (tab.agent_type.is_some() || tab.agent_booting)
