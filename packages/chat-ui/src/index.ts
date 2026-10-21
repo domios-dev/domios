@@ -91,3 +91,5 @@ export { ChatDaySeparator } from "./ChatDaySeparator";
 export { chatLocalDay, chatDaySeparators, messageTimeLabels, showChatTimeGutter, chatHorizontalInsets } from "./chatTimeModel";
 export { messageRowTime } from "./messageRowTime";
 export { ImageFullscreen, type FullscreenImage } from "./ImageFullscreen";
+
+export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
