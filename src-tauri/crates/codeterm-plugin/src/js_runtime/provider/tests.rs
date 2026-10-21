@@ -7,6 +7,7 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
 
+mod descriptor;
 mod live_model_command;
 
 fn load(manifest_json: &str, plugin_js: &str) -> JsProvider {
