@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { LoaderCircle, RotateCw, TriangleAlert, X } from "lucide-react";
-import { CapsuleDecor, CapsulePreview, LocalArtifactScope, capsuleLabelParts } from "@codeterm/chat-ui";
+import { AttachmentCapsule, CapsulePreview, LocalArtifactScope, capsuleLabelParts } from "@codeterm/chat-ui";
 import {
   CAPSULE_LEAD,
   CAPSULE_TRAIL,
@@ -26,16 +26,20 @@ function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan;
   const { name, detail } = capsuleLabelParts(span.label);
   const kindLabel = capsule && ["video", "image", "file"].includes(capsule.kind) ? capsule.kind : null;
   return (
-    <span data-capsule-start={span.start} data-unknown={capsule ? undefined : ""} data-hovered={hovered || undefined} className="ct-capsule">
-      {CAPSULE_LEAD}
-      {upload ? <><span className="ct-capsule__plate" />{upload.state === "uploading"
+    <AttachmentCapsule
+      inert
+      attachment={{ kind: capsule?.kind ?? "file", path: capsule?.path ?? "", label: span.label }}
+      spanProps={{ "data-capsule-start": span.start, "data-unknown": capsule ? undefined : "", "data-hovered": hovered || undefined }}
+      decoration={upload ? <><span className="ct-capsule__plate" />{upload.state === "uploading"
         ? <span className="ct-capsule__icon"><LoaderCircle aria-hidden className="h-full w-full animate-spin motion-reduce:animate-none" /></span>
-        : <TriangleAlert aria-hidden className="ct-capsule__icon" style={{ color: "var(--ct-error, #f85149)" }} />}</>
-        : <CapsuleDecor kind={capsule?.kind ?? null} />}
-      {kindLabel ? <span className="relative"><span style={{ visibility: "hidden" }}>{labelChars(name)}</span><span className="ct-capsule__kind">{kindLabel}</span></span> : labelChars(name)}
-      {detail && <span className="ct-capsule__detail">{labelChars(detail)}</span>}
-      {CAPSULE_TRAIL}
-    </span>
+        : <TriangleAlert aria-hidden className="ct-capsule__icon" style={{ color: "var(--ct-error, #f85149)" }} />}</> : undefined}
+      labelContent={<>
+        {CAPSULE_LEAD}
+        {kindLabel ? <span className="relative"><span style={{ visibility: "hidden" }}>{labelChars(name)}</span><span className="ct-capsule__kind">{kindLabel}</span></span> : labelChars(name)}
+        {detail && <span className="ct-capsule__detail">{labelChars(detail)}</span>}
+        {CAPSULE_TRAIL}
+      </>}
+    />
   );
 }
 
@@ -139,12 +143,12 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
       {active && hover && hoverCapsule && hoverCapsule.uploadId === undefined && (
         <AnchoredPopover open anchor={{ x: hover.x, y: hover.y }} floatingRef={cardRef} placement="top-start" gap={0} onClose={() => setHover(null)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setHover(null); }} style={{ overflow: "auto" }}>
           <div data-testid="composer-capsule-card">
-          <button type="button" aria-label="Close attachment preview" onClick={() => setHover(null)} style={{ minWidth: 44, minHeight: 44 }}><X size={18} aria-hidden /></button>
           <LocalArtifactScope tabId={tabId}>
             <CapsulePreview
               kind={hoverCapsule.kind}
               path={hoverCapsule.path}
               label={hover.span.label}
+              onClose={() => setHover(null)}
               actions={(
                 <button
                   type="button"
