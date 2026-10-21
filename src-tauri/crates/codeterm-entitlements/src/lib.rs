@@ -11,7 +11,9 @@ pub mod verdict;
 pub mod verify;
 
 pub use activation::{access_source, AccessSource, Activation, CompiledKey, Phase, ACTIVATION};
-pub use gate::{admit, enforcing, LimitGate, LimitKey, LimitRefusal, FREE_LIMIT_REACHED};
+pub use gate::{
+    admit, enforcing, LimitGate, LimitKey, LimitRefusal, LimitSummary, FREE_LIMIT_REACHED,
+};
 pub use payload::{
     Audience, Authority, Enforcement, GrantPayload, Label, Limits, Mode, PayloadDefect, Perks,
     Scope, ScopedLimit, SignedLimits, TransitionReason, COMPILED_FREE_LIMITS,
