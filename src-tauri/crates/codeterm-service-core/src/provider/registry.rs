@@ -67,6 +67,7 @@ impl ProviderRegistry {
         id: &str,
         platform: &str,
     ) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
+        let started = std::time::Instant::now();
         let revision = self.cli_revision(id);
         let key = format!("{id}:{platform}");
         let cached = self.cli_status_cache.lock().get(&key, &revision);
@@ -76,8 +77,18 @@ impl ProviderRegistry {
                 super::catalogue_cache::binary_found,
             )
         }) {
+            log::debug!(
+                "[providers.cli_cache] provider={} hit=true elapsed_us={}",
+                id,
+                started.elapsed().as_micros()
+            );
             return Ok(status);
         }
+        log::debug!(
+            "[providers.cli_cache] provider={} hit=false elapsed_us={}",
+            id,
+            started.elapsed().as_micros()
+        );
         let status = self.compute_cli_status(id, platform)?;
         if self.cli_revision(id) == revision {
             self.cli_status_cache
@@ -120,6 +131,7 @@ impl ProviderRegistry {
                 Ok(codeterm_plugin::provider_cli::no_cli())
             }
             Some(ProviderTransport::Pty | ProviderTransport::ChatBackend) => {
+                let metadata_started = std::time::Instant::now();
                 let (binary, installer, updater, compatibility) = self
                     .agents
                     .provider_arc(id)
@@ -135,12 +147,16 @@ impl ProviderRegistry {
                         )
                     })
                     .ok_or_else(|| format!("Unknown provider: {id}"))?;
+                let metadata_us = metadata_started.elapsed().as_micros();
+                let observe_started = std::time::Instant::now();
                 let mut status = codeterm_plugin::provider_cli::observe_cli_with_compatibility(
                     binary,
                     installer,
                     updater,
                     compatibility.as_ref(),
                 );
+                let observe_us = observe_started.elapsed().as_micros();
+                let update_started = std::time::Instant::now();
                 status.update_summary = crate::service::provider_update::status_summary(id);
                 status.display_name = self
                     .agents
@@ -174,6 +190,13 @@ impl ProviderRegistry {
                         status.update_refusal = Some("Installation method is unknown or unsupported. Update with the installer that owns this binary.".into());
                     }
                 }
+                log::debug!(
+                    "[providers.cli_observe] provider={} metadata_us={} observe_us={} update_us={}",
+                    id,
+                    metadata_us,
+                    observe_us,
+                    update_started.elapsed().as_micros()
+                );
                 Ok(status)
             }
             None => Err(format!("Unknown provider: {id}")),
