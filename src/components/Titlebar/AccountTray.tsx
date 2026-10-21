@@ -1,5 +1,5 @@
 import { useContext, useState } from "react";
-import { UserRound } from "lucide-react";
+import { LoaderCircle, UserRound } from "lucide-react";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
 import { signInFailureToastMessage, useAccount } from "../Settings/useAccount";
@@ -11,7 +11,7 @@ import { communityMenu } from "../shared/CommunityLinks";
 import { accountTrayModel } from "./accountTrayModel";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 
-export function AccountTray() {
+export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
   const account = useAccount();
   const actions = useContext(MultiplexerActionsContext);
   const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
@@ -37,7 +37,7 @@ export function AccountTray() {
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
     { label: model.identity, description: model.email ?? undefined, disabled: true },
     { label: model.plan, disabled: true },
-    { label: "Manage subscription", onClick: () => void billing.manage() },
+    { label: billing.pending ? "Opening subscription…" : "Manage subscription", disabled: billing.pending, onClick: () => void billing.manage(onOpenPlans) },
     { label: "Sign out", onClick: () => void account.signOut() },
   ] : pending ? [
     { label: "Loading account…", disabled: true },
@@ -52,10 +52,12 @@ export function AccountTray() {
   items.push({separator:true,key:"community"},communityMenu());
   return <div className="flex items-center">
     <DropdownMenu menuLabel="Account" items={items} onOpenChange={setOpen} trigger={
-      <button type="button" className={UI_TRAY_BTN} aria-label={model.name} title={model.name}
-        aria-haspopup="menu" aria-expanded={open} aria-busy={pending}>
+      <button type="button" className={UI_TRAY_BTN} aria-label={billing.pending ? "Opening subscription" : model.name}
+        title={billing.pending ? "Opening subscription…" : model.name} aria-haspopup="menu" aria-expanded={open} aria-busy={pending || billing.pending}>
         {pending
           ? <Skeleton inline><SkeletonBlock shape="circle" width={20} height={20} /></Skeleton>
+          : billing.pending
+            ? <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
           : model.kind === "signed_in"
             ? <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--ct-accent)_22%,transparent)] text-[11px] font-semibold text-[var(--ct-accent)]" aria-hidden="true">
               {model.initial}
