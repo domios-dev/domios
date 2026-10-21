@@ -1,4 +1,5 @@
 mod account;
+pub mod account_mesh;
 pub mod adapters;
 mod build_config;
 mod flow;
