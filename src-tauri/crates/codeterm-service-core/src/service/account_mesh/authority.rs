@@ -65,7 +65,11 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
             limit,
             active_count,
         },
-        AccountMeshRefusal::RateLimited { .. } => M::RateLimited,
+        AccountMeshRefusal::RateLimited {
+            retry_after_seconds,
+        } => M::RateLimited {
+            retry_after_seconds,
+        },
         AccountMeshRefusal::Revoked | AccountMeshRefusal::Forbidden => M::Revoked,
         AccountMeshRefusal::SignedOut => M::SignedOut,
         AccountMeshRefusal::Cancelled => M::Cancelled,

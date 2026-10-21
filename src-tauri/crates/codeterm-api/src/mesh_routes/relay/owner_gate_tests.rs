@@ -1,6 +1,6 @@
 use super::*;
 use codeterm_service_core::mesh::types::{
-    AccessLevel, PairedPeer, RelayCommand, RELAY_PROTOCOL_VERSION,
+    AccessLevel, PairedPeer, RelayCommand, RelayResponse, RELAY_PROTOCOL_VERSION,
 };
 
 const ISOLATED_PEER: &str = "peer-isolated";

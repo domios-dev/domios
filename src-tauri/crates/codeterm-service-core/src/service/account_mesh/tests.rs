@@ -2,7 +2,7 @@ use super::authority::{admission_refusal, membership_refusal};
 use super::*;
 use codeterm_account::account_mesh::{
     AccountMeshConfig, AccountMeshPorts, AccountMeshStore, Clock, Cleanup, EndpointSource,
-    InstallationKeyStore, MembershipRefusal, MeshTransport, SessionSource, SignedMembership,
+    InstallationKeyStore, MembershipRefusal, SessionSource, SignedMembership,
     UnavailableRegistry, VerifiedMembership,
 };
 use async_trait::async_trait;
@@ -265,8 +265,8 @@ struct NoSession;
 
 #[async_trait]
 impl SessionSource for NoSession {
-    async fn session(&self) -> Option<codeterm_account::Session> {
-        None
+    async fn session(&self) -> Result<Option<codeterm_account::Session>, AccountMeshRefusal> {
+        Ok(None)
     }
 }
 
@@ -324,10 +324,10 @@ impl AccountMeshStore for HeldSignOutStore {
 
 #[tokio::test]
 async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() {
-    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let mesh_state = legacy_mesh();
-    fixture.service.set_ext(mesh_state.clone()).unwrap();
+    assert!(fixture.service.set_ext(mesh_state.clone()).is_ok());
     let service = Arc::new(fixture.service.clone());
     let transport = Arc::new(TransportBridge {
         service: Arc::downgrade(&service),

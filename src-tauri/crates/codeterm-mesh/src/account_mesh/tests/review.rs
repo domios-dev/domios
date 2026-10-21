@@ -107,10 +107,11 @@ impl LinkTransport for HeldCommitReply {
         body: serde_json::Value,
     ) -> BoxFuture<'_, Result<serde_json::Value, AdmissionRefusal>> {
         let inner = &self.inner;
+        let ip = ip.to_string();
         let entered = self.entered.clone();
         let release = self.release.clone();
         Box::pin(async move {
-            let result = inner.post(ip, port, path, bearer, body).await;
+            let result = inner.post(&ip, port, path, bearer, body).await;
             if path == LINK_COMMIT_PATH {
                 entered.notify_one();
                 release.notified().await;
