@@ -21,6 +21,8 @@ export interface PipelineViewEdge {
 }
 
 export interface PipelineView {
+  note?: string | null;
+  deletesAt?: number | null;
   runs?: readonly { id: string; at: number; state: string; pipeline: PipelineView }[];
   id: string;
   name: string;
@@ -105,6 +107,8 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
     })),
     id: blueprint.id,
     name: blueprint.name,
+    note: blueprint.note,
+    deletesAt: blueprint.deletes_at,
     owner: normalizedOwner(blueprint.owner),
     state: blueprint.state,
     nodes,

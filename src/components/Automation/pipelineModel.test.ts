@@ -50,3 +50,7 @@ const github = pipelineModel(blueprint({ steps: [{ ...blueprint().steps![0], kin
 assert.equal(github.nodes[1].capability, "github");
 assert.equal(github.nodes[1].title, "GitHub jobs");
 assert.equal(github.nodes[1].state, "done");
+
+const annotated = pipelineModel(blueprint({ note: "Reports failed jobs", state: "stopped", stopped_at: 1_000, deletes_at: 1_801_000 }));
+assert.equal(annotated.note, "Reports failed jobs");
+assert.equal(annotated.deletesAt, 1_801_000);

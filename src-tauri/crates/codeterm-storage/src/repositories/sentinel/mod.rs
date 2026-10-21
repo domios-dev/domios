@@ -266,13 +266,13 @@ impl SentinelRepository {
     }
 
     /// Unconditionally stops and advances the generation, fencing every older lease.
-    pub fn stop(&self, id: SentinelId, reason: String) -> Mutation {
+    pub fn stop(&self, id: SentinelId, reason: String, stopped_at: u64) -> Mutation {
         if let Err(error) = text("stop reason", &reason) {
             return refused(error);
         }
         let cost = overhead() + id.as_str().len() + reason.len();
         self.storage
-            .submit_mutation(cost, move |cx| runtime::stop(cx, &id, &reason))
+            .submit_mutation(cost, move |cx| runtime::stop(cx, &id, &reason, stopped_at))
     }
 
     pub fn remove_team(&self, team: String) -> Mutation {

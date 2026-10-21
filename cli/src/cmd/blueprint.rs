@@ -43,6 +43,7 @@ fn read_text_input_file(path: &std::path::Path) -> Result<String, String> {
 }
 
 fn render(job: &Value) {
+    if let Some(note) = job["note"].as_str().filter(|note| !note.is_empty()) { println!("Note: {note}"); }
     if let Some(pipeline) = job.get("pipeline") {
         let current_step = job["current_step"]
             .as_u64()
@@ -465,6 +466,7 @@ fn request(
         }
         BlueprintAction::Recipe { .. } => return Err("blueprint recipe is handled locally".into()),
         BlueprintAction::Create {
+            note,
             spec,
             recipe,
             set,
@@ -534,7 +536,11 @@ fn request(
                     }
                     let raw = pipeline_spec::read_spec(std::path::Path::new(path))?;
                     let recipe = codeterm_blueprint_types::blueprint_recipe::Recipe::parse(&raw)?;
-                    let bound = recipe.bind(&set)?;
+                    let mut bound = recipe.bind(&set)?;
+                    if let Some(note) = &note {
+                        let key = if bound.get("create").is_some() { "create" } else { "spec" };
+                        bound[key]["note"] = json!(note);
+                    }
                     if dry_run {
                         if let Some(create) = bound.get("create") {
                             params["create"] = create.clone();
@@ -546,6 +552,9 @@ fn request(
                             .ok_or("recipe definition must contain create or spec")?;
                         return Ok(("blueprint.pipeline.validate", params));
                     }
+                    let mut recipe = recipe;
+                    let key = if recipe.definition.get("create").is_some() { "create" } else { "spec" };
+                    if let Some(note) = note { recipe.definition[key]["note"] = json!(note); }
                     params["recipe"] =
                         serde_json::to_value(recipe).map_err(|error| error.to_string())?;
                     params["set"] = json!(set);
@@ -558,6 +567,7 @@ fn request(
                     &set,
                     owner.as_deref(),
                 )?;
+                if let Some(note) = note { params["spec"]["note"] = json!(note); }
                 return Ok((
                     if dry_run {
                         "blueprint.pipeline.validate"
@@ -588,7 +598,7 @@ fn request(
             )?;
             let terminal = (terminal_pattern.is_some() || output_settled.is_some())
                 .then(|| json!({"pattern": terminal_pattern, "idle_ms": output_settled}));
-            params["create"] = json!({ "name": name.ok_or("--name is required")?, "probe": probe, "observe": observe, "input": input, "question": question.ok_or("--question is required")?, "buckets": buckets.ok_or("--buckets is required")?, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
+            params["create"] = json!({ "note": note, "name": name.ok_or("--name is required")?, "probe": probe, "observe": observe, "input": input, "question": question.ok_or("--question is required")?, "buckets": buckets.ok_or("--buckets is required")?, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
             params["create"]["terminal"] = json!(terminal);
             params["create"]["session"] = json!(session);
             params["create"]["model_classification"] = json!(model_classification);
@@ -635,6 +645,7 @@ fn request(
             "blueprint.delete"
         }
         BlueprintAction::Update {
+            note,
             id,
             expect_version,
             from_file,
@@ -643,8 +654,10 @@ fn request(
         } => {
             params["id"] = json!(id);
             params["expect_version"] = json!(expect_version);
-            let update = read_update(&from_file, cause.as_deref())?;
-            if let Some(spec) = pipeline_update_spec(&update)? {
+            let mut update = read_update(&from_file, cause.as_deref())?;
+            if let Some(note) = &note { update["note"] = json!(note); }
+            if let Some(mut spec) = pipeline_update_spec(&update)? {
+                if let Some(note) = note { spec["note"] = json!(note); }
                 params["spec"] = spec;
                 if let Some(cause) = cause {
                     params["cause"] = json!(cause);
