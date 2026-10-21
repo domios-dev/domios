@@ -1,6 +1,6 @@
 import { SavedSolutions } from "./SavedSolutions";
 import { SaveSolutionForm } from "./SaveSolutionForm";
-import { successfulSolutionScope, type SolutionScope } from "./blueprintSolutions";
+import { successfulSolutionScope, blueprintSolutionsApi, type BlueprintSolutionsApi, type SolutionScope } from "./blueprintSolutions";
 import { blueprintMeta } from "../Automation/blueprintMeta";
 import type { TransportClient } from "../../lib/transportClient";
 import { JobsMachineFilter } from "./JobsMachineFilter";
@@ -71,6 +71,7 @@ function EmptyJobs({ scope, canWiden }: { scope: JobsEmptyScope; canWiden: boole
 }
 
 interface SurfaceProps {
+  solutionsApi: BlueprintSolutionsApi;
   adapter: AutomationGraphAdapter;
   connectionId: string;
   sources: readonly string[];
@@ -92,7 +93,7 @@ interface SurfaceProps {
   onDetailChange: (open: boolean) => void;
 }
 
-function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef, onExit, onReturn, onDetailChange }: SurfaceProps) {
+function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef, onExit, onReturn, onDetailChange }: SurfaceProps) {
   const graphs = useWorkspaceGraphs(adapter, connectionId, sources);
   const [saveScope, setSaveScope] = useState<SolutionScope | null>(null);
   const [solutionRevision, setSolutionRevision] = useState(0);
@@ -262,7 +263,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
   const reading = (crons.jobs === null && !crons.failed) || graphs.some((graph) => graph.loading);
   const empty = jobs.length === 0 && crons.jobs !== null && graphsRead && !crons.failed && !graphsFailed;
   return <div ref={list} className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-4 sm:px-6">
-    {saveScope && <SaveSolutionForm scope={saveScope} onCancel={() => setSaveScope(null)} onSaved={() => { setSaveScope(null); setSolutionSaved(true); setSolutionRevision((revision) => revision + 1); }} />}
+    {saveScope && <SaveSolutionForm api={solutionsApi} scope={saveScope} onCancel={() => setSaveScope(null)} onSaved={() => { setSaveScope(null); setSolutionSaved(true); setSolutionRevision((revision) => revision + 1); }} />}
     {solutionSaved && <p role="status">Solution saved.</p>}
     {missing && <div ref={removed} tabIndex={-1} role="status" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2 outline-none"><InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /></div>}
     {crons.failed && crons.jobs === null && <p role="status" aria-label="Jobs unavailable" className="ct-job-note">Jobs are unavailable.</p>}
@@ -288,7 +289,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
           : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} {...sentinelRowText(job.sentinel, job.title)} type={job.sentinel.type} tone="blueprint" state={sentinelStateLabel(job.sentinel)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
       })}
     </ul>}
-    <SavedSolutions sources={sources} revision={solutionRevision} />
+    <SavedSolutions api={solutionsApi} sources={sources} revision={solutionRevision} />
     {confirmation && <JobConfirmationDialog
       title={confirmation.kind === "delete" ? deleteJobConfirmation(confirmation.job).title : "Clear stopped jobs?"}
       description={confirmation.kind === "delete"
@@ -304,6 +305,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
 }
 
 export interface JobsViewProps {
+  solutionsApi?: BlueprintSolutionsApi;
   machinePeers?: readonly PairedPeer[];
   peerClient?: (peerId: string) => TransportClient;
   workspaces: readonly JobsWorkspace[];
@@ -323,7 +325,7 @@ export interface JobsViewProps {
 }
 
 /** The one Jobs view: crons and Blueprint graphs narrowed by optional workspace and Team capsules. Hosts differ only by initial filter. */
-export function JobsView({ machinePeers, peerClient, workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
+export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, peerClient, workspaces, teams, tabs = {}, initialFilter = NO_JOBS_FILTER, initialScenarioId, initialCronId, initialBlueprintId, initialRunId, returnTo, onReturnTo, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
   const origin = useRef<ReturnToRoute>({ returnTo });
   const onReturn = () => {
     if (!returnToOrigin(origin.current, onReturnTo ?? (() => false))) return false;
@@ -371,7 +373,7 @@ export function JobsView({ machinePeers, peerClient, workspaces, teams, tabs = {
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
         : !layout.teamAvailable ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} />
-          : <JobsSurface key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} onReturn={onReturn} onDetailChange={setDetailOpen} />}
+          : <JobsSurface solutionsApi={solutionsApi} key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} onReturn={onReturn} onDetailChange={setDetailOpen} />}
     </div>
   </section>;
 }
