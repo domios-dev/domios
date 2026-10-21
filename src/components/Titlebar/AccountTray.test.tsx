@@ -6,7 +6,7 @@ import { MultiplexerActionsContext, type MultiplexerActionsContextType } from ".
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false },
+  state: { signedIn: false, sessionOnly: false, planStatus: "active" },
 }));
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
   ...await importOriginal<typeof import("../Settings/useAccount")>(),
@@ -15,7 +15,7 @@ vi.mock("../Settings/useAccount", async (importOriginal) => ({
     : {kind:"signed_out"}, signIn, signOut}),
 }));
 vi.mock("../Settings/useAccountPlan", () => ({useAccountPlan: () => ({
-  plan:{plan:"pro",status:"active",stale:false,periodEnd:null,cancelAtPeriodEnd:false},error:null,manage,
+  plan:{plan:"pro",status:state.planStatus,stale:false,periodEnd:null,cancelAtPeriodEnd:false},manage,
 })}));
 vi.mock("../../lib/nativeBridge", () => ({nativeBridge:{openUrl}}));
 import { siteLinks } from "../../../shared/siteLinks";
@@ -73,6 +73,54 @@ it("shows a stage-named toast with a retry after sign-in fails", async () => {
     expect(signIn).toHaveBeenCalledTimes(2);
     expect(signIn).toHaveBeenNthCalledWith(2, { mode: "signin" });
   } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("shows subscription failures in a retryable toast without a titlebar alert", async () => {
+  state.signedIn = true;
+  manage.mockResolvedValueOnce(new Error("billing_portal_failed"));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithToasts />));
+    const trigger = host.querySelector("button")!;
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
+    const manageItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.includes("Manage subscription"));
+    await act(async () => manageItem!.click());
+    expect(host.querySelector('[data-testid="notification-toast"]')?.getAttribute("role")).toBe("status");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    const retry = Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "Retry");
+    expect(retry).toBeDefined();
+    await act(async () => retry!.click());
+    expect(manage).toHaveBeenCalledTimes(2);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false;
+  }
+});
+
+it("reports unavailable subscription management without offering a crashing retry", async () => {
+  state.signedIn = true;
+  state.planStatus = "unavailable";
+  manage.mockResolvedValueOnce(new Error("functions URL is unavailable"));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithToasts />));
+    const trigger = host.querySelector("button")!;
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
+    const manageItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      .find((item) => item.textContent?.includes("Manage subscription"));
+    await act(async () => manageItem!.click());
+    const toast = host.querySelector('[data-testid="notification-toast"]');
+    expect(toast?.getAttribute("role")).toBe("status");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(Array.from(host.querySelectorAll("button")).some((button) => button.textContent === "Retry")).toBe(false);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.planStatus = "active";
+  }
 });
 it("shows identity and plan and wires subscription and sign out", async () => {
   state.signedIn = true;

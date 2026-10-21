@@ -1,4 +1,5 @@
-import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { describeError } from "../../lib/describeError";
+import { useMultiplexer } from "../../store/multiplexer";
 import { tabActivity } from "../../lib/tabActivity";
 import { ComposerContextMeter } from "./ComposerContextMeter";
 import { DocumentsButton } from "./DocumentsPanel";
@@ -58,10 +59,6 @@ interface TabTopBarProps {
   tabMenu?: HeaderTabMenu;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function TabRenameField({ title, onDone }: { title: string; onDone: (title: string | null) => void }) {
   const [value, setValue] = useState(title);
   return (
@@ -109,8 +106,8 @@ export function TabTopBar({
   const [reconnecting, setReconnecting] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [renaming, setRenaming] = useState(false);
-  const [reconnectError, setReconnectError] = useState<string | null>(null);
   const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
+  const { upsertToast } = useMultiplexer();
   const menuTab = tabMenu?.tab ?? null;
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
   const onRename = tabMenu?.onRename;
@@ -118,31 +115,59 @@ export function TabTopBar({
   const pluginTabMenu = usePluginTabMenu();
   const telegramThread = useTelegramThreadMenu(tabId, menuTab !== null && !menuTab.remote_peer_id);
 
+  const reportFailure = useCallback((error: unknown, operation: string, retry?: () => void | Promise<void>) => {
+    const description = describeError(error, { operation });
+    upsertToast({
+      id: `tab-header-action-failure-${tabId}`,
+      title: description.title,
+      body: description.cause,
+      severity: "Warning",
+      level: "action_needed",
+      tab_id: tabId,
+      workspace_id: workspaceId ?? null,
+      local_actions: [
+        ...(description.raw ? [{ label: "Copy details", run: async () => {
+          try { await navigator.clipboard.writeText(description.raw); } catch { return; }
+        } }] : []),
+        ...(retry ? [{ label: "Retry", run: retry }] : []),
+      ],
+    });
+  }, [tabId, upsertToast, workspaceId]);
+
+  const runRetryable = useCallback(async (operation: string, action: () => Promise<unknown>): Promise<void> => {
+    const run = async () => {
+      try {
+        await action();
+      } catch (error) {
+        reportFailure(error, operation, run);
+      }
+    };
+    await run();
+  }, [reportFailure]);
+
   const reconnect = useCallback(async () => {
     if (reconnecting) return;
     setReconnecting(true);
-    setReconnectError(null);
     try {
-      await reconnectTabSession(tabId);
+      await runRetryable("reconnecting this tab", () => reconnectTabSession(tabId));
     } catch (error) {
-      setReconnectError(errorMessage(error));
+      reportFailure(error, "reconnecting this tab", () => reconnect());
     } finally {
       setReconnecting(false);
     }
-  }, [tabId, reconnecting]);
+  }, [tabId, reconnecting, runRetryable, reportFailure]);
 
   const restartSession = useCallback(async () => {
     if (restarting) return;
     setRestarting(true);
-    setReconnectError(null);
     try {
-      await restartTabSession(tabId);
+      await runRetryable("restarting this tab", () => restartTabSession(tabId));
     } catch (error) {
-      setReconnectError(errorMessage(error));
+      reportFailure(error, "restarting this tab", () => restartSession());
     } finally {
       setRestarting(false);
     }
-  }, [tabId, restarting]);
+  }, [tabId, restarting, runRetryable, reportFailure]);
 
   useEffect(() => {
     if (!isActive || !canReconnect) return;
@@ -182,7 +207,7 @@ export function TabTopBar({
       void (async () => {
         if (!tabMenu?.onClose) return;
         if (!workspaceId) {
-          setReconnectError("Could not read Blueprint close inventory: workspace unavailable.");
+          reportFailure(new Error("Could not read Blueprint close inventory: workspace unavailable."), "closing this tab");
           return;
         }
         try {
@@ -191,14 +216,13 @@ export function TabTopBar({
           if (running.length > 0) setCloseBlueprints(running);
           else tabMenu.onClose?.();
         } catch (error) {
-          setReconnectError(errorMessage(error));
+          reportFailure(error, "closing this tab", () => runMenuAction(action));
         }
       })();
       return;
     }
-    setReconnectError(null);
     performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, switchProvider: openProviderSwitch, rename: () => setRenaming(true), close: tabMenu?.onClose })
-      .catch((error) => setReconnectError(errorMessage(error)));
+      .catch((error) => reportFailure(error, "updating this tab"));
   };
 
   return (
@@ -229,11 +253,6 @@ export function TabTopBar({
         )}
       </div>
       <div className="ml-auto flex min-w-0 shrink items-center gap-1 sm:gap-1.5">
-        {reconnectError && (
-          <div data-testid="chat-reconnect-error" className="max-w-72">
-            <InlineErrorNotice error={reconnectError} operation="reconnecting this tab" />
-          </div>
-        )}
         {shellTab && isUtilityShell(shellTab) && <>
           <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
           <ShellStatus tab={shellTab} />

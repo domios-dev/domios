@@ -5,13 +5,11 @@ import { accountPlanModel, type AccountPlan, type PlanModel } from "./accountPla
 
 export function useAccountPlan(identityKey: string | null) {
   const [plan, setPlan] = useState<PlanModel | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const active = useRef(0);
   useEffect(() => {
     const generation = ++active.current;
     const controller = new AbortController();
     setPlan(null);
-    setActionError(null);
     async function refresh(focus = false) {
       try {
         const response = await localFetch(`/api/account/plan${focus ? "/refresh" : ""}`, {method:focus ? "POST" : "GET",signal:controller.signal});
@@ -29,12 +27,14 @@ export function useAccountPlan(identityKey: string | null) {
     window.addEventListener("focus",onFocus);
     return () => { controller.abort(); active.current++; window.removeEventListener("focus",onFocus); };
   }, [identityKey]);
-  async function open(action: "upgrade" | "portal", planKey?: string) {
-    setActionError(null);
+  async function open(action: "upgrade" | "portal", planKey?: string): Promise<unknown | null> {
     try {
       const response = await localFetch(`/api/account/${action}`,{method:"POST",...(action === "upgrade" ? {headers:{"Content-Type":"application/json"},body:JSON.stringify({plan:planKey})} : {})});
       if (!response.ok) throw new Error(await response.text());
-    } catch (failure: unknown) { setActionError(failure instanceof Error ? failure.message : "Billing unavailable"); }
+      return null;
+    } catch (failure: unknown) {
+      return failure;
+    }
   }
-  return {plan,actionError,upgrade:(planKey: string) => open("upgrade",planKey),manage:() => open("portal")};
+  return {plan,upgrade:(planKey: string) => open("upgrade",planKey),manage:() => open("portal")};
 }

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { CreditCard, UserRound } from "lucide-react";
 import { Button } from "../shared/Button";
@@ -6,6 +7,9 @@ import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignIn
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
 import { useAccountPlan } from "./useAccountPlan";
 import { useAccount } from "./useAccount";
+import { useMultiplexer } from "../../store/multiplexer";
+import { billingFailureToast, signInFailureToast } from "./accountFailureToast";
+import type { LoginHint } from "./accountModel";
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
 
@@ -17,7 +21,35 @@ function initialsOf(name: string): string {
 export function AccountTab() {
   const { model, signIn, signOut } = useAccount();
   const billing = useAccountPlan(model.kind === "signed_in" ? model.identity.uid : null);
+  const { upsertToast } = useMultiplexer();
+  const retryHint = useRef<LoginHint | undefined>(undefined);
+  const lastSignInFailure = useRef<string | null>(null);
   const signedIn = model.kind === "signed_in";
+  useEffect(() => {
+    if (model.kind !== "error" || !model.failure) {
+      lastSignInFailure.current = null;
+      return;
+    }
+    const key = `${model.failure.stage}:${model.failure.error}`;
+    if (lastSignInFailure.current === key) return;
+    lastSignInFailure.current = key;
+    upsertToast(signInFailureToast(model.failure, () => { void signIn(retryHint.current); }));
+  }, [model, signIn, upsertToast]);
+  const showBillingFailure = (error: unknown, operation: string, retry: () => void | Promise<void>) => {
+    upsertToast(billingFailureToast(error, operation, billing.plan?.status, retry));
+  };
+  const manageSubscription = async () => {
+    const failure = await billing.manage();
+    if (failure) showBillingFailure(failure, "managing your subscription", () => manageSubscription());
+  };
+  const choosePlan = async (planKey: string) => {
+    const failure = await billing.upgrade(planKey);
+    if (failure) showBillingFailure(failure, "changing your subscription", () => choosePlan(planKey));
+  };
+  const startSignIn = (hint: LoginHint) => {
+    retryHint.current = hint;
+    void signIn(hint);
+  };
   return <SettingsPage title="Account">
     <SettingsCard icon={<UserRound size={16} />} title="Domios account">
       {model.kind === "signed_in" ? (() => {
@@ -40,16 +72,16 @@ export function AccountTab() {
         {model.kind === "pending"
           ? <p role="status" className={MUTED}>Finish signing in in your browser.</p>
           : <p className={MUTED}>Sign in to keep your plan and settings with your account.</p>}
-        {model.kind === "error" && <InlineErrorNotice error={model.message} operation="signing in" blocking />}
+        {model.kind === "error" && !model.failure && <InlineErrorNotice error={model.message} operation="updating your account" blocking />}
         <div className="flex flex-wrap items-center gap-2">
           {ACCOUNT_ENTRY_OPTIONS.map((option, index) =>
             <Button key={option.label} size="sm" variant={index === 0 ? "primary" : "ghost"} disabled={model.kind === "pending"}
-              onClick={() => void signIn(option.hint)}>{option.label}</Button>)}
+              onClick={() => startSignIn(option.hint)}>{option.label}</Button>)}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {SIGN_IN_PROVIDER_OPTIONS.map((option) =>
             <Button key={option.label} size="sm" variant="ghost" className="gap-2" disabled={model.kind === "pending"}
-              onClick={() => void signIn(option.hint)}>{option.icon}{option.label}</Button>)}
+              onClick={() => startSignIn(option.hint)}>{option.icon}{option.label}</Button>)}
         </div>
       </div>}
     </SettingsCard>
@@ -58,16 +90,15 @@ export function AccountTab() {
         <div className="flex w-full items-center gap-2">
           <span className="text-xl font-semibold capitalize text-[var(--ct-fg)]">{billing.plan?.plan ?? "free"}</span>
           {billing.plan && <SettingsPill tone={billing.plan.status === "active" ? "green" : "muted"}>{billing.plan.status}</SettingsPill>}
-          {signedIn && <Button size="sm" variant="ghost" className="ml-auto text-xs" onClick={() => void billing.manage()}>Manage subscription</Button>}
+          {signedIn && <Button size="sm" variant="ghost" className="ml-auto text-xs" onClick={() => void manageSubscription()}>Manage subscription</Button>}
         </div>
         {billing.plan?.periodEnd && <p className={MUTED}>
           {billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
         </p>}
         {billing.plan?.stale && <p role="status" className={MUTED}>Showing the last known plan.</p>}
-        {billing.actionError && <InlineErrorNotice error={billing.actionError} operation="loading your plan" blocking />}
         {!signedIn && <p className={MUTED}>Sign in to change your plan.</p>}
         <div className="w-full">
-          <PlanCards currentPlan={billing.plan?.plan ?? null} canPurchase={signedIn} onChoose={(planKey) => void billing.upgrade(planKey)} />
+          <PlanCards currentPlan={billing.plan?.plan ?? null} canPurchase={signedIn} onChoose={(planKey) => void choosePlan(planKey)} />
         </div>
       </div>
     </SettingsCard>
