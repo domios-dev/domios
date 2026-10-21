@@ -76,6 +76,26 @@ pub fn run_with_environment(
     )
 }
 
+pub fn run_with_budget(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    runtime: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+    environment: &environment::Environment,
+) -> Result<Output, process::ProbeFailure> {
+    let deadlines = process::Deadlines::start(limit, runtime)?;
+    run_transaction(
+        command,
+        cwd,
+        deadlines,
+        owner,
+        &cancellation::Cancellation::default(),
+        false,
+        environment,
+    )
+}
+
 #[cfg(all(any(test, feature = "test-support"), windows))]
 pub fn run_with_receipt(
     command: &str,

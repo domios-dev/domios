@@ -175,6 +175,7 @@ Tips for writing good evals:
 - `evals/session-restore/` — kill+restart preserves workspace/tab/agent_type/titles.
 - `evals/manager-bootstrap/` — single-turn team bootstrap reads host role context and does not invent work.
 - `evals/orchestrator-control-loop/` — responsive long-operation ownership and proportional verification.
+- `evals/blueprint-reuse/` — recipe-first authoring, built-in GitHub discovery, and custom-node fallback.
 - `evals/spawned-agent-primer/` — shared capabilities, tab identity, and role rules for every spawned agent.
 - `evals/worker-handoff/` — mandatory structured Worker handoff for partial, blocked, and review-ready turns.
 
@@ -218,4 +219,4 @@ eval (`live` / `cached` / `k/N cached`). Treat them as part of the numbers:
 
 To debug a single eval without rerunning the whole set: `python runner.py --prompt-file ... --eval-set ... --only-id 8 --runs 1 --verbose`. The runner will print the full agent response and matcher decisions for that one eval.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

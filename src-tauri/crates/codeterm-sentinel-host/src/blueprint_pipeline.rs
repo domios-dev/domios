@@ -133,6 +133,9 @@ impl BlueprintExt for ServiceContext {
                 StepKind::Agent { .. } => {
                     checks.push(field_check(&format!("steps[{index}].agent"), &errors));
                 }
+                StepKind::Github { .. } => {
+                    checks.push(field_check(&format!("steps[{index}].github"), &errors));
+                }
                 StepKind::Command { .. } => {}
             }
         }
