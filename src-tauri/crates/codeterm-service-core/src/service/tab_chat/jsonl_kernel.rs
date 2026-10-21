@@ -11,17 +11,35 @@ pub fn delta(
         return None;
     }
     let Some(source) = provider.record_source("sessionTranscript") else {
-        return provider.parse_session_delta_bounded(path, from, budget);
+        let started = std::time::Instant::now();
+        let result = provider.parse_session_delta_bounded(path, from, budget);
+        log::debug!(
+            "[chat.jsonl] mode=provider combined_us={} found={}",
+            started.elapsed().as_micros(),
+            result.is_some()
+        );
+        return result;
     };
+    let started = std::time::Instant::now();
     let window =
         codeterm_plugin::jsonl_window::records::read_records(path, from, budget, source, None)
             .ok()?;
-    provider
+    let read_us = started.elapsed().as_micros();
+    let parse_started = std::time::Instant::now();
+    let result = provider
         .parse_session_records(&window)
         .map_err(|reason| {
             log::warn!("[jsonl-kernel] session record projection failed: {reason}");
         })
-        .ok()
+        .ok();
+    log::debug!(
+        "[chat.jsonl] mode=records read_records_us={} projection_us={} total_us={} found={}",
+        read_us,
+        parse_started.elapsed().as_micros(),
+        started.elapsed().as_micros(),
+        result.is_some()
+    );
+    result
 }
 
 pub fn stored_window(

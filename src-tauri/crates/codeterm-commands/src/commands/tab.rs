@@ -400,7 +400,19 @@ fn chat_start_inner(
     let path_started = std::time::Instant::now();
     let Some(path) = svc
         .agent_registry
-        .with_provider(&provider_id, |p| p.session_jsonl_path(&cwd, &session_id))
+        .with_provider(&provider_id, |p| {
+            let dispatch_us = path_started.elapsed().as_micros();
+            let lookup_started = std::time::Instant::now();
+            let path = p.session_jsonl_path(&cwd, &session_id);
+            log::debug!(
+                "[chat_start.path] tab={} dispatch_us={} provider_call_us={} found={}",
+                tab_id,
+                dispatch_us,
+                lookup_started.elapsed().as_micros(),
+                path.is_some()
+            );
+            path
+        })
         .flatten()
     else {
         log::warn!(
