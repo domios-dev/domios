@@ -41,6 +41,7 @@ impl RpcClient for FakeRpc {
 fn written(items: Vec<TabTodoItem>) -> Value {
     json!({
         "checklist": TabTodoChecklist {
+        proposal: None,
             tab_id: "orchestrator".into(),
             generation: 1,
             started_at: 0,
@@ -120,6 +121,7 @@ fn todo_write_refuses_bad_entries_before_calling_the_daemon() {
 #[test]
 fn completion_reply_lists_the_remaining_open_items() {
     let checklist = TabTodoChecklist {
+        proposal: None,
         tab_id: "tab".into(),
         generation: 1,
         started_at: 0,

@@ -26,7 +26,7 @@ export function ImageFullscreen({ image, anchorRef, onClose }: {
   const panelRef = useRef<HTMLDivElement>(null);
   const path = image.path;
   return (
-    <FullscreenOverlay panelRef={panelRef} label={`Image ${image.name}`} onClose={onClose} returnFocusRef={anchorRef}>
+    <FullscreenOverlay panelRef={panelRef} closeButton={false} label={`Image ${image.name}`} onClose={onClose} returnFocusRef={anchorRef}>
       <header className="flex min-w-0 items-center gap-2 px-1.5 pb-2 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
         <ImageIcon size={14} aria-hidden className="shrink-0" />
         <span className="shrink-0 font-medium" style={{ color: "var(--ct-fg)" }}>{image.name}</span>

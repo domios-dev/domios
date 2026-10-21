@@ -1,3 +1,4 @@
+import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import type { ApiConfig } from "../../lib/types";
 import { UI_TEXT } from "../shared/design";
 import type { SupporterActivity } from "./activity";
@@ -19,7 +20,7 @@ export function ActivityFeed({ api, teamId, embedded = false }: { api: ApiConfig
     >
       {!embedded && <h3 className={`${UI_TEXT.sectionTitle} mb-1`}>Spinal-cord activity</h3>}
       {failed && <p role="status" className={UI_TEXT.detailMuted}>Activity is unavailable.</p>}
-      {!data && !failed && <p role="status" className={UI_TEXT.detailMuted}>Loading activity…</p>}
+      {!data && !failed && <div role="status" aria-label="Loading activity"><span className="sr-only">Loading activity…</span><Skeleton className="flex flex-col gap-3 py-3"><SkeletonBlock width="90%" height={12} /><SkeletonBlock width="75%" height={12} /><SkeletonBlock width="85%" height={12} /></Skeleton></div>}
       {data && entries.length === 0 && <p className={UI_TEXT.detailMuted}>No recorded decisions.</p>}
       <ol
         aria-label={teamId ? "Team Spinal Cord decisions" : "Machine Spinal Cord decisions"}

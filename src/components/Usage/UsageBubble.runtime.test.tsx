@@ -122,6 +122,48 @@ await act(async()=>emit("foreign"));
 assert.equal(container.querySelector("output")?.textContent,"[]");
 await act(async()=>emit());
 assert.deepEqual(JSON.parse(container.querySelector("output")!.textContent!),groupUsage);
+const expiryNow = Date.UTC(2026, 10, 3);
+Date.now = () => expiryNow;
+const details = {
+  limits:[{kind:"weekly_scoped" as const,label:"Weekly · Fable",percent:47,resets_at:expiryNow+48*3_600_000,is_active:true,critical:true}],
+  dollar_credits:[{remaining_dollars:250,resets_at:expiryNow+48*3_600_000}],
+  extra_usage:{enabled:false,spend_limit_reached:false,used:12,limit:100,currency:"USD",settings_url:"https://claude.ai/settings/usage"},
+};
+snapshot = {...snapshot,runtime_usage:undefined,usage_details:details,parsed_ok:true,captured_at:expiryNow,session_pct:17,weekly_pct:60};
+await act(async()=>root.render(<UsageBubble key="allowances" provider="fixture" trackingEnabled/>));
+await act(async()=>emit());
+assert.ok(container.querySelector('[aria-label="Unused credits expire within 3 days"]'));
+await act(async()=>container.querySelector("button")!.click());
+const dialog = document.querySelector('[role="dialog"][aria-label="usage details"]')!;
+assert.ok(dialog.textContent?.includes("Weekly · Fable · active"));
+assert.ok(dialog.textContent?.includes("47%"));
+assert.ok(dialog.textContent?.includes("$250 credit left · until Nov 5"));
+assert.ok(dialog.textContent?.includes("expires in 2 days"));
+assert.ok(dialog.textContent?.includes("Usage credits off"));
+assert.equal(dialog.querySelector('a')?.getAttribute("href"),"https://claude.ai/settings/usage");
+const {nativeBridge} = await import("../../lib/nativeBridge");
+const originalOpenUrl = nativeBridge.openUrl;
+let openedSettings = "";
+nativeBridge.openUrl = async url => {openedSettings = url;};
+await act(async()=>dialog.querySelector("a")!.click());
+assert.equal(openedSettings,"https://claude.ai/settings/usage");
+nativeBridge.openUrl = originalOpenUrl;
+assert.equal([...dialog.querySelectorAll("button")].some(button=>button.textContent === "Use"),false);
+snapshot = {...snapshot,usage_details:{...details,dollar_credits:[{remaining_dollars:0,resets_at:expiryNow+48*3_600_000}],extra_usage:{...details.extra_usage,enabled:true,spend_limit_reached:true}}};
+await act(async()=>emit());
+assert.equal(container.querySelector('[aria-label="Unused credits expire within 3 days"]'),null);
+assert.ok(dialog.textContent?.includes("Usage credits on · 12/100 USD · limit reached"));
+assert.equal(dialog.textContent?.includes("expires in"),false);
+snapshot = {...snapshot,usage_details:null};
+await act(async()=>emit());
+assert.equal(dialog.querySelector("a"),null);
+assert.equal(dialog.textContent?.includes("Weekly · Fable"),false);
+await act(async()=>root.render(<GroupProbe/>));
+await render({...reading,resets:{availableCount:1,nextExpiry:expiryNow+3_600_000,credits:[{id:"soon",status:"available",expiresAt:expiryNow+3_600_000}]}});
+assert.ok(container.querySelector('[aria-label="Unused credits expire within 3 days"]'));
+await act(async()=>container.querySelector("button")!.click());
+assert.ok(document.querySelector('[role="dialog"]')?.textContent?.includes("expires in 1 hour"));
+Date.now = now;
 await act(async()=>root.unmount());bridge.__setInvokeForTest(null);bridge.__setListenForTest(null);dom.happyDOM.abort();
 console.log("PASS usage chip wiring: subscription metrics and API session breakdown");
 

@@ -1,0 +1,71 @@
+
+import React from "react";
+
+export type ButtonVariant = "primary" | "ghost" | "accent" | "danger" | "icon" | "capsule" | "capsuleAdd";
+export type ButtonSize = "sm" | "md" | "lg" | "compact";
+
+export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  loading?: boolean;
+  busyIndicator?: React.ReactNode;
+  touchMode?: boolean;
+  "data-testid"?: string;
+  ref?: React.Ref<HTMLButtonElement>;
+}
+
+const VARIANT_CLASS: Record<ButtonVariant, string> = {
+  primary: "ct-btn ct-btn-primary",
+  ghost: "ct-btn ct-btn-ghost",
+  accent: "ct-btn ct-btn-accent",
+  danger: "ct-btn ct-btn-danger",
+  icon: "ct-btn ct-btn-icon ct-btn-ghost",
+  capsule: "ct-btn ct-btn-capsule",
+  capsuleAdd: "ct-btn ct-btn-capsule-add",
+};
+
+const SIZE_CLASS: Record<ButtonSize, string> = {
+  sm: "ct-btn-sm",
+  md: "",
+  lg: "ct-btn-lg",
+  compact: "ct-btn-compact",
+};
+
+export function Button({
+  variant = "ghost",
+  size = "md",
+  loading = false,
+  busyIndicator,
+  touchMode = false,
+  disabled,
+  type = "button",
+  children,
+  className,
+  "data-testid": testId,
+  ...rest
+}: ButtonProps) {
+  const variantCls = VARIANT_CLASS[variant];
+  const sizeCls = SIZE_CLASS[size];
+  const cls = [variantCls, "ct-liquid-interactive", sizeCls, className].filter(Boolean).join(" ");
+
+  return (
+    <button
+      {...rest}
+      type={type}
+      className={cls}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      data-touch-mode={touchMode ? "true" : undefined}
+      data-testid={testId}
+    >
+      {loading ? (
+        <>
+          {busyIndicator}
+          {children}
+        </>
+      ) : (
+        children
+      )}
+    </button>
+  );
+}

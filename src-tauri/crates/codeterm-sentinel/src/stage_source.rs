@@ -133,6 +133,7 @@ mod tests {
     #[test]
     fn stage_source_codec_round_trips_each_variant_and_reads_legacy_pipeline() {
         let spec = BlueprintSpec {
+            note: None,
             name: "pipeline".into(),
             owner: BlueprintOwner::Tab,
             trigger: Trigger::Schedule {

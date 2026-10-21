@@ -16,6 +16,7 @@ use crate::repositories::{from_sql_u64, to_sql_u64};
 use rusqlite::{params, Connection, OptionalExtension};
 
 mod activation;
+mod definition_update;
 mod eviction;
 
 pub(super) use eviction::create_evicting;
@@ -344,8 +345,8 @@ fn insert_runtime(
         .transpose()?;
     cx.write(
         "INSERT INTO blueprint_runtime (blueprint_id, generation, next_run, expires_at, paused, \
-         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at, run_transitions, causal_run_json, runs_since_transition, last_probe_at, probe_state) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at, run_transitions, causal_run_json, runs_since_transition, last_probe_at, probe_state, stopped_at, transition_offset, action_offset) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
         params![
             id,
             to_sql_u64("generation", runtime.generation)?,
@@ -364,7 +365,9 @@ fn insert_runtime(
             runtime.causal_run_json,
             to_sql_u64("probe count", runtime.runs_since_transition)?,
             runtime.last_probe_at.map(|at| to_sql_u64("last probe", at)).transpose()?,
-            runtime.probe_state
+            runtime.probe_state,
+            runtime.stopped_at.map(|at| to_sql_u64("stop time", at)).transpose()?,
+            runtime.transition_offset, runtime.action_offset
         ],
     )?;
     Ok(())
@@ -377,7 +380,7 @@ fn write_outcome(
 ) -> Result<(), StorageError> {
     cx.write(
         "UPDATE blueprint_runtime SET last_hash = ?2, last_bucket = ?3, stopped = ?4, \
-         last_reason = ?5, held = ?6, run_transitions = ?7, runs_since_transition = ?8, last_probe_at = ?9, probe_state = ?10 WHERE blueprint_id = ?1",
+         last_reason = ?5, held = ?6, run_transitions = ?7, runs_since_transition = ?8, last_probe_at = ?9, probe_state = ?10, stopped_at = CASE WHEN ?4 THEN COALESCE(stopped_at, ?11) ELSE NULL END WHERE blueprint_id = ?1",
         params![
             id,
             outcome.last_hash,
@@ -388,7 +391,8 @@ fn write_outcome(
             outcome.run_transitions,
             to_sql_u64("probe count", outcome.runs_since_transition)?,
             outcome.last_probe_at.map(|at| to_sql_u64("last probe", at)).transpose()?,
-            outcome.probe_state
+            outcome.probe_state,
+            outcome.stopped_at.map(|at| to_sql_u64("stop time", at)).transpose()?
         ],
     )?;
     Ok(())
@@ -687,65 +691,7 @@ fn import_transition(
     Ok(())
 }
 
-/// Appends an immutable version with its lineage, moves the head and advances the generation,
-/// so a lease taken under the replaced version can no longer act; nothing else changes.
-pub(super) fn update_definition(
-    cx: &mut WriteCx<'_>,
-    id: &SentinelId,
-    expect_version: u64,
-    update: DefinitionUpdate,
-) -> Result<SentinelCommit, StorageError> {
-    let id = id.as_str();
-    let Some(head) = definitions::head_version(cx.conn, id)? else {
-        return Ok(SentinelCommit::fenced(Fence::Missing, None));
-    };
-    if head != expect_version {
-        return fenced(cx.conn, Fence::Version, id);
-    }
-    let next = definitions::latest_version(cx.conn, id)? + 1;
-    let input_due_at = update
-        .definition
-        .pipeline()
-        .is_some_and(|pipeline| {
-            matches!(
-                &pipeline.trigger,
-                codeterm_blueprint_types::blueprint_pipeline::Trigger::Input { .. }
-            )
-        })
-        .then_some(update.authored_at);
-    let amendment = AmendmentRecord {
-        version: next,
-        replaced_version: head,
-        author_tab_id: update.author_tab_id,
-        cause_transition_id: update.cause_transition_id,
-        authored_at: update.authored_at,
-    };
-    definitions::insert_version(
-        cx,
-        id,
-        next,
-        DefinitionProvenance::Authored,
-        Some(&amendment),
-        &update.definition,
-    )?;
-    definitions::move_head(cx, id, next)?;
-    let advanced = if let Some(next_run) = input_due_at {
-        cx.write(
-            "UPDATE blueprint_runtime SET generation = generation + 1, next_run = ?2 WHERE blueprint_id = ?1",
-            params![id, to_sql_u64("input amendment due time", next_run)?],
-        )?
-    } else {
-        cx.write(
-            "UPDATE blueprint_runtime SET generation = generation + 1 WHERE blueprint_id = ?1",
-            [id],
-        )?
-    };
-    if advanced != 1 {
-        return Err(corrupt("stage has no runtime"));
-    }
-    touch(cx, id)?;
-    finished(cx.conn, MutationOutcome::Applied, &[id.to_string()])
-}
+pub(super) use definition_update::update_definition;
 
 pub(super) fn set_run_binding(
     cx: &mut WriteCx<'_>,
@@ -811,11 +757,16 @@ pub(super) fn set_run_binding(
     finished(cx.conn, MutationOutcome::Applied, &[id.to_string()])
 }
 
-fn stop_row(cx: &mut WriteCx<'_>, id: &str, reason: &str) -> Result<bool, StorageError> {
+fn stop_row(
+    cx: &mut WriteCx<'_>,
+    id: &str,
+    reason: &str,
+    stopped_at: u64,
+) -> Result<bool, StorageError> {
     let changed = cx.write(
         "UPDATE blueprint_runtime SET stopped = 1, generation = generation + 1, \
-         last_reason = ?2 WHERE blueprint_id = ?1",
-        params![id, reason],
+         last_reason = ?2, stopped_at = COALESCE(stopped_at, ?3) WHERE blueprint_id = ?1",
+        params![id, reason, to_sql_u64("stop time", stopped_at)?],
     )?;
     if changed == 1 {
         touch(cx, id)?;
@@ -827,8 +778,9 @@ pub(super) fn stop(
     cx: &mut WriteCx<'_>,
     id: &SentinelId,
     reason: &str,
+    stopped_at: u64,
 ) -> Result<SentinelCommit, StorageError> {
-    if !stop_row(cx, id.as_str(), reason)? {
+    if !stop_row(cx, id.as_str(), reason, stopped_at)? {
         return Ok(SentinelCommit::fenced(Fence::Missing, None));
     }
     finished(
@@ -950,8 +902,12 @@ pub(super) fn schedule(
                     touched.push(id.as_str().to_string());
                 }
             }
-            ScheduleUpdate::Stop { id, reason } => {
-                if stop_row(cx, id.as_str(), &reason)? {
+            ScheduleUpdate::Stop {
+                id,
+                reason,
+                stopped_at,
+            } => {
+                if stop_row(cx, id.as_str(), &reason, stopped_at)? {
                     touched.push(id.as_str().to_string());
                 }
             }
@@ -1016,7 +972,14 @@ pub(super) fn accept_transition(
         let per_run_spent = if live.run_id.is_some() {
             u64::from(live.run_transitions) >= max_transitions
         } else {
-            accepted >= max_transitions
+            accepted.saturating_sub(from_sql_u64(
+                "transition offset",
+                scalar(
+                    cx.conn,
+                    "SELECT transition_offset FROM blueprint_runtime WHERE blueprint_id = ?1",
+                    id,
+                )?,
+            )?) >= max_transitions
         };
         (per_run_spent || accepted >= MAX_TRANSITIONS as u64).then_some(Fence::Budget)
     };
@@ -1061,7 +1024,15 @@ pub(super) fn claim_handler(
         id,
     )?;
     let (_, max_actions) = definitions::head_budgets(cx.conn, id)?;
-    if from_sql_u64("claim count", claimed)? >= max_actions {
+    if from_sql_u64("claim count", claimed)?.saturating_sub(from_sql_u64(
+        "action offset",
+        scalar(
+            cx.conn,
+            "SELECT action_offset FROM blueprint_runtime WHERE blueprint_id = ?1",
+            id,
+        )?,
+    )?) >= max_actions
+    {
         return fenced(cx.conn, Fence::Budget, id);
     }
     let ordinal = next_result_ordinal(cx.conn, id, transition)?;

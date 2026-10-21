@@ -22,6 +22,8 @@ impl BillingMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageSnapshotRow {
     pub id: i64,
+    #[serde(default)]
+    pub usage_details: Option<serde_json::Value>,
     pub provider: String,
     #[serde(default)]
     pub billing_mode: BillingMode,

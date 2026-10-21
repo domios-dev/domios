@@ -1018,3 +1018,7 @@
 .ct-usage-reset-use:focus-visible { outline: 2px solid var(--ct-accent, #6366f1); outline-offset: 1px; }
 .ct-usage-reset-use:disabled { opacity: 0.45; cursor: default; }
 .ct-usage-reset-credits > .ct-usage-reset-use { justify-self: start; }
+
+.ct-usage-bubble { position: relative; }
+.ct-usage-bubble .ct-usage-credit-alert { background: var(--ct-danger, #ef4444); }
+.ct-usage-credit-expiry { color: var(--ct-danger, #ef4444); }

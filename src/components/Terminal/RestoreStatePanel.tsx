@@ -3,15 +3,16 @@ import type { RestoreStageView } from "../../lib/restoreStageView";
 import { BrandState } from "../brand/BrandState";
 import { brandStateModel } from "../brand/brandStateModel";
 
-export function RestoreStatePanel({ view }: {
+export function RestoreStatePanel({ view, pulse = false }: {
   view: RestoreStageView;
+  pulse?: boolean;
 }) {
   const currentLabel = view.steps[Math.max(0, view.current)]?.label ?? view.label;
   const model = view.phase === "failed"
     ? brandStateModel({ error: { title: view.label, sentence: view.hint ?? "The session could not be restored." } })
     : brandStateModel({ loading: true, label: view.label, detail: view.phase === "sleeping" ? view.hint ?? undefined : undefined, animate: view.phase !== "sleeping" });
   return (
-    <BrandState model={model} className="ct-loading-material">
+    <BrandState model={model} className="ct-loading-material" pulse={pulse}>
         {view.phase !== "sleeping" && <div className="ct-loading-progress mx-auto mt-5 w-full max-w-[200px]">
           <div aria-hidden="true" className="restore-progress-labels mb-3 text-xs text-[var(--ct-muted-fg)]">
             {view.steps.map((step, index) => <span key={step.id} data-current={index === Math.max(0, view.current)}>{step.label}</span>)}

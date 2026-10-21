@@ -246,6 +246,7 @@ mod tests {
             clock,
         )));
         let spec = codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec {
+            note: None,
             name: "event-lease-test".into(),
             owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab,
             trigger: codeterm_blueprint_types::blueprint_pipeline::Trigger::Event {

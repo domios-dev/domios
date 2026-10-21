@@ -24,12 +24,13 @@ pub(crate) struct ProjectedHeartbeat {
 }
 
 pub(crate) fn heartbeat_reason(plan_id: &str, task_ids: &[String]) -> String {
-    let tasks = if task_ids.is_empty() {
-        "none".to_string()
-    } else {
+    if task_ids.is_empty() {
+        return format!("sent because plan {plan_id} still has open work");
+    }
+    format!(
+        "sent because tasks {} are still in progress in plan {plan_id}",
         task_ids.join(", ")
-    };
-    format!("sent because tasks {tasks} are still in progress in plan {plan_id}")
+    )
 }
 
 /// Read-only view of the reminder targets the scheduler already owns.

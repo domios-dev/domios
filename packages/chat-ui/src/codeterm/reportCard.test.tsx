@@ -98,10 +98,9 @@ async function main(): Promise<void> {
   for (const repeated of ["task", "status", "branch", "sha"]) {
     assert(!definitions.includes(repeated), `expanded body repeated the header field "${repeated}"`);
   }
-  const incidentRow = inbound.host.querySelector('[data-testid="chat-inbound-report-incident"]');
   assert(
-    incidentRow?.textContent?.includes("missing caller session id"),
-    "the inbound card dropped the rejection cause",
+    !inbound.host.querySelector('[data-testid="chat-inbound-report-incident"]'),
+    "a rejected transition rendered an incident row for the user",
   );
   const inboundBody = inbound.host.querySelector('[data-testid="chat-inbound-report-body"]');
   assert(inboundBody?.textContent === SUMMARY, "the inbound card did not lead with the report summary");
@@ -190,9 +189,8 @@ async function main(): Promise<void> {
   assert(outbound.host.textContent?.includes("transition rejected"), "outbound header lost its verdict");
   assert(outbound.host.textContent?.includes("f9606ded3"), "outbound header lost its short sha");
   assert(
-    outbound.host.querySelector('[data-testid="chat-outbound-report-incident"]')?.textContent
-      ?.includes("missing caller session id"),
-    "the outbound card dropped the rejection cause",
+    !outbound.host.querySelector('[data-testid="chat-outbound-report-incident"]'),
+    "a rejected transition rendered an outbound incident row for the user",
   );
   assert(
     outbound.host.querySelector('[data-testid="chat-outbound-report-body"]')?.textContent === SUMMARY,

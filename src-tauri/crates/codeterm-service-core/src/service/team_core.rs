@@ -112,12 +112,10 @@ pub fn valid_live_plan_team(
     mux: &MultiplexerState,
     plan_id: &str,
 ) -> Result<String, TeamPlanError> {
-    let plan = svc
+    let team_id = svc
         .plan_store
-        .get(plan_id)
-        .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
-    let team_id = plan
-        .team_id
+        .plan_team_id(plan_id)
+        .ok_or(TeamPlanError::Plan(PlanError::NotFound))?
         .filter(|team_id| !team_id.trim().is_empty())
         .ok_or_else(|| {
             TeamPlanError::Plan(PlanError::ActivePlanRequiresTeam {

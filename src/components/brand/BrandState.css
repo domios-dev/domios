@@ -42,6 +42,20 @@
   pointer-events: none;
 }
 
+.brand-dot-stage {
+  position: relative;
+  isolation: isolate;
+}
+
+.brand-dot-stage > .brand-state-matrix {
+  border-radius: inherit;
+}
+
+.brand-dot-stage > :not(.brand-state-matrix) {
+  position: relative;
+  z-index: 1;
+}
+
 .brand-state--loading > :not(canvas),
 .brand-state--error > :not(canvas) {
   position: relative;

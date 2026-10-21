@@ -35,7 +35,7 @@ for (const outcome of ["success", "failure", "external"] as const) {
       expect(host.querySelector('progress')?.hasAttribute("value")).toBe(false);
       expect(bulk.disabled).toBe(true);
       expect(check.disabled).toBe(true);
-      expect(host.querySelector('button[aria-label^="Apply"]:not(:disabled)')).toBeNull();
+      expect(host.querySelector('button[aria-label^="Update "]:not([aria-label="Update all"]):not(:disabled)')).toBeNull();
       await act(async () => { bulk.click(); check.click(); });
       expect(fake.plugin).toHaveBeenCalledTimes(1);
       if (outcome === "external") {
@@ -68,13 +68,13 @@ it("retains failed diagnostics after checking and never offers an update for the
   const root = createRoot(host);
   try {
     await act(async () => root.render(<UpdatePanelProvider><UpdatePanel /></UpdatePanelProvider>));
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Apply git update"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Update git"]')!.click());
     expect(host.querySelector('[role="alert"]')?.getAttribute("aria-label")).toContain("git");
     expect(host.querySelector("details")?.open).toBe(false);
     fake.check.mockResolvedValue({ items: [], errors: {} });
     await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === "Check again")!.click());
     expect(host.querySelector('[aria-label="git update failed"]')).not.toBeNull();
-    expect(host.querySelector('button[aria-label^="Apply"]')).toBeNull();
+    expect(host.querySelector('button[aria-label^="Update "]:not([aria-label="Update all"])')).toBeNull();
     expect(host.querySelector<HTMLButtonElement>('[aria-label="Update all"]')?.disabled).toBe(true);
     expect(host.querySelector("pre")?.textContent).toContain("opaque final rename refusal");
     expect(fake.plugin).toHaveBeenCalledTimes(1);
@@ -92,7 +92,7 @@ it("shows a channel failure once, keeps its rows non-actionable, and reports the
     expect(host.querySelectorAll('section[aria-label="official updates unavailable"]')).toHaveLength(1);
     expect([...host.querySelectorAll("pre")].filter(pre => pre.textContent === message)).toHaveLength(1);
     expect(host.querySelector("details")?.open).toBe(false);
-    expect(host.querySelector('button[aria-label^="Apply"]')).toBeNull();
+    expect(host.querySelector('button[aria-label^="Update "]:not([aria-label="Update all"])')).toBeNull();
     expect(host.querySelector<HTMLButtonElement>('[aria-label="Update all"]')?.disabled).toBe(true);
     for (const id of ["git", "grok"]) expect(host.querySelector(`[aria-label="${id} update failed"]`)).not.toBeNull();
     await act(async () => host.querySelector("summary")!.click());

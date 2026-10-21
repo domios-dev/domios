@@ -29,6 +29,20 @@ impl UsageParser for ClaudeTuiUsageParser {
         }
 
         let now_ms = Utc::now().timestamp_millis();
+        if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(raw_text) {
+            if value.get("kind").and_then(|kind| kind.as_str()) == Some("codeterm_usage_v1") {
+                value["provider"] = "claude".into();
+                value["captured_at_ms"] = now_ms.into();
+                value["billing_mode"] = "subscription".into();
+                value["limits_reported"] = (value["session_pct"].is_number()
+                    || value["weekly_pct"].is_number()
+                    || value["usage_details"].is_object())
+                .into();
+                value["raw_text"] = raw_text.into();
+                return serde_json::from_value(value)
+                    .map_err(|error| UsageParseError::Other(error.to_string()));
+            }
+        }
         let normalized = normalize(raw_text);
         let mut snap = UsageSnapshot::empty("claude", raw_text, now_ms);
 
