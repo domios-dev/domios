@@ -1173,3 +1173,14 @@ fn command_transcript_parser_native_js_parity() {
 }
 
 mod boolean_record;
+
+#[test]
+fn host_data_dir_returns_instance_root() {
+    let _env = codeterm_util::test_env::EnvGuard::lock();
+    let vm = vm_with(r#"module.exports.default = { root() { return host.dataDir(); } };"#);
+    let root: String = crate::js_runtime::vm::call_json(&vm, "root", &[]).unwrap();
+    assert_eq!(
+        std::path::PathBuf::from(root),
+        codeterm_paths::data_dir_path()
+    );
+}
