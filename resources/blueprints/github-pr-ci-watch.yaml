@@ -1,8 +1,11 @@
 # Check and apply this file with codeterm blueprint.
 schema_version: 1
-name: PR verdict {{pr_verdict_probe}}
+name: '{{name}}'
 note: Watch one PR until all checks pass; notify on a failing check.
 inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
   pr_verdict_probe:
     type: string
     description: Read-only command printing waiting, passed or failed for one PR.
