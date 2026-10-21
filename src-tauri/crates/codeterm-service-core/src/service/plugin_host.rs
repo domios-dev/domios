@@ -731,17 +731,25 @@ fn enqueue_agent_turn(
             Ok(Ok(h)) => h,
             Ok(Err(e)) => {
                 log::error!("[plugin-host] {worker_id_task} spawn_tab failed: {e}");
-                let _ = svc_task
-                    .workers
-                    .update_status(&worker_id_task, workers::WorkerStatus::Error);
+                let _ = svc_task.workers.finish_execution(
+                    &worker_id_task,
+                    None,
+                    codeterm_mem::dream_status::ExecutionEnd::ProcessEnded {
+                        detail: format!("spawn_tab failed: {e}"),
+                    },
+                );
                 drop(permit);
                 return;
             }
             Err(e) => {
                 log::error!("[plugin-host] {worker_id_task} spawn_blocking panicked: {e}");
-                let _ = svc_task
-                    .workers
-                    .update_status(&worker_id_task, workers::WorkerStatus::Error);
+                let _ = svc_task.workers.finish_execution(
+                    &worker_id_task,
+                    None,
+                    codeterm_mem::dream_status::ExecutionEnd::ProcessEnded {
+                        detail: format!("spawn task failed: {e}"),
+                    },
+                );
                 drop(permit);
                 return;
             }
