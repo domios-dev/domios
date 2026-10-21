@@ -1,6 +1,7 @@
 import { createNoticePublisher } from "../../lib/notices";
 import { useState } from "react";
-import { LoaderCircle, UserRound } from "lucide-react";
+import { UserRound } from "lucide-react";
+import { BusyState } from "../shared/BusyState";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
 import { useAccount } from "../Settings/useAccount";
 import { useAccountPlan } from "../Settings/useAccountPlan";
@@ -55,7 +56,7 @@ export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
         {pending
           ? <Skeleton inline><SkeletonBlock shape="circle" width={20} height={20} /></Skeleton>
           : billing.pending
-            ? <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+            ? <BusyState inline hideLabel dotSize="small" label="Opening subscription" />
           : model.kind === "signed_in"
             ? <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--ct-accent)_22%,transparent)] text-[11px] font-semibold text-[var(--ct-accent)]" aria-hidden="true">
               {model.initial}

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { LoaderCircle, RotateCw, TriangleAlert, X } from "lucide-react";
+import { BusyState } from "../shared/BusyState";
+import { RotateCw, TriangleAlert, X } from "lucide-react";
 import { CapsuleDecor, CapsulePreview, LocalArtifactScope, capsuleLabelParts } from "@codeterm/chat-ui";
 import {
   CAPSULE_LEAD,
@@ -29,7 +30,7 @@ function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan;
     <span data-capsule-start={span.start} data-unknown={capsule ? undefined : ""} data-hovered={hovered || undefined} className="ct-capsule">
       {CAPSULE_LEAD}
       {upload ? <><span className="ct-capsule__plate" />{upload.state === "uploading"
-        ? <span className="ct-capsule__icon"><LoaderCircle aria-hidden className="h-full w-full animate-spin motion-reduce:animate-none" /></span>
+        ? <span className="ct-capsule__icon"><BusyState inline hideLabel dotSize="small" label="Uploading" /></span>
         : <TriangleAlert aria-hidden className="ct-capsule__icon" style={{ color: "var(--ct-error, #f85149)" }} />}</>
         : <CapsuleDecor kind={capsule?.kind ?? null} />}
       {kindLabel ? <span className="ct-capsule__kind" data-kind={kindLabel}><span style={{ visibility: "hidden" }}>{labelChars(name)}</span></span> : labelChars(name)}
@@ -42,7 +43,7 @@ function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan;
 function UploadCard({ upload, span, onRemove, onRetry }: { upload: ComposerUpload; span: CapsuleSpan; onRemove: (span: CapsuleSpan) => void; onRetry: (id: number) => void }) {
   return (
     <div role="status" aria-label={`${upload.state === "uploading" ? "Uploading" : "Failed attachment"} ${upload.name}`} className="ct-capsule-button inline-flex items-center gap-1" title={upload.failure?.message}>
-      {upload.state === "uploading" ? <LoaderCircle size={12} aria-hidden className="animate-spin motion-reduce:animate-none" /> : <TriangleAlert size={12} aria-hidden />}
+      {upload.state === "uploading" ? <BusyState inline hideLabel dotSize="small" label={`Uploading ${upload.name}`} /> : <TriangleAlert size={12} aria-hidden />}
       {canRetryUpload(upload) && <button type="button" aria-label={`Retry attachment ${upload.name}`} onClick={() => onRetry(upload.id)}><RotateCw size={12} aria-hidden /></button>}
       <button type="button" aria-label={`Remove attachment ${upload.name}`} onClick={() => onRemove(span)}><X size={12} aria-hidden /></button>
     </div>
