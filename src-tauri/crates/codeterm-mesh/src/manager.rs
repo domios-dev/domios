@@ -43,6 +43,7 @@ pub struct MeshManager {
     gate_generation: tokio::sync::watch::Sender<u64>,
     pending_links: HashMap<String, account_admission::PendingLink>,
     pending_adoptions: HashMap<String, account_admission::PendingAdoption>,
+    account_ready: bool,
 }
 
 impl MeshManager {
@@ -117,6 +118,7 @@ impl MeshManager {
             gate_generation: tokio::sync::watch::channel(0).0,
             pending_links: HashMap::new(),
             pending_adoptions: HashMap::new(),
+            account_ready: true,
         }
     }
 

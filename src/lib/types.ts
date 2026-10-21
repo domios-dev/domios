@@ -752,35 +752,8 @@ export interface WebUiAnnouncement {
   endpoints: WebUiEndpoint[];
 }
 
-export interface DiscoveredPeer {
-  instance_id: string;
-  instance_name: string;
-  addresses: PeerAddress[];
-  api_port: number;
-  discovery_method: "mdns" | "tailscale" | "udp" | "gossip" | "manual";
-  last_seen: number;
-  dev: boolean;
-  mesh_id: string | null;
-  /** instance_ids of paired peers who told us about this peer via gossip. */
-  vouched_by: string[];
-}
-
-export interface MeshPairingRequest {
-  request_id: string;
-  from_instance_id: string;
-  from_instance_name: string;
-  from_address: string;
-  from_port: number;
-  timestamp: number;
-  status: "pending" | "accepted" | "rejected" | "expired";
-}
-
 export interface MeshPeersResponse {
   paired: PairedPeer[];
-  /** No longer sent: new links come only from the account registry. */
-  discovered?: DiscoveredPeer[];
-  /** No longer sent: pairing requests were removed with account-only admission. */
-  incoming_requests?: MeshPairingRequest[];
   local_instance_name: string;
 }
 

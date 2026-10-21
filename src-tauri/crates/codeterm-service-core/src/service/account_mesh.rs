@@ -248,9 +248,52 @@ impl ServiceContext {
         })
     }
 
-    /// Saved pairs joined by the transport owner; empty until that join is wired.
+    /// Saved pairs with their admission, joined from the Mesh transport.
     fn account_mesh_pairs(&self) -> Vec<serde_json::Value> {
-        Vec::new()
+        let Some(mesh) = self.try_ext::<crate::MeshStateHandle>() else {
+            return Vec::new();
+        };
+        let pairs = mesh.lock().account_mesh_pairs();
+        pairs
+            .into_iter()
+            .filter_map(|pair| serde_json::to_value(pair).ok())
+            .collect()
+    }
+
+    /// Binds the Mesh gate to the account lifecycle once and keeps them in step: every
+    /// account state reaches the gate before adoption runs, and the ready listener reaches
+    /// enrollment. The gate stays closed until the first state is applied.
+    pub fn start_account_mesh_transport(&self) {
+        let Some(service) = self.weak_self().upgrade() else {
+            return;
+        };
+        crate::async_runtime::spawn(async move {
+            let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() else {
+                log::error!("[account-mesh] no Mesh state; Mesh traffic stays blocked");
+                return;
+            };
+            let account_mesh = match service.account_mesh().await {
+                Ok(account_mesh) => account_mesh,
+                Err(error) => {
+                    log::warn!("[account-mesh] unavailable; legacy pairs keep working: {error}");
+                    mesh.lock().apply_account_state(Default::default());
+                    return;
+                }
+            };
+            mesh.lock().bind_account_authority(account_mesh.authority());
+            crate::async_runtime::spawn(push_account_mesh_listener(service.clone(), mesh.clone()));
+            let mut states = account_mesh.mesh_states();
+            loop {
+                let state = states.borrow_and_update().clone();
+                mesh.lock().apply_account_state(state);
+                crate::async_runtime::spawn(
+                    codeterm_mesh::account_mesh::link::on_account_state_applied(mesh.clone()),
+                );
+                if states.changed().await.is_err() {
+                    return;
+                }
+            }
+        });
     }
 
     pub async fn account_mesh_enroll(&self) -> Result<AccountMeshOutcome<()>, String> {
@@ -307,6 +350,24 @@ impl ServiceContext {
             .mesh
             .acknowledge_limit_notice(request_id)
             .await)
+    }
+}
+
+async fn push_account_mesh_listener(service: Arc<ServiceContext>, mesh: crate::MeshStateHandle) {
+    let mut changes = mesh.lock().gate_watch();
+    let mut published: Option<Option<MeshEndpoint>> = None;
+    loop {
+        let endpoint = mesh
+            .lock()
+            .ready_tailnet_endpoint()
+            .and_then(|(ip, port)| MeshEndpoint::new(ip, port));
+        if published != Some(endpoint) {
+            service.set_account_mesh_listener(endpoint).await;
+            published = Some(endpoint);
+        }
+        if changes.changed().await.is_err() {
+            return;
+        }
     }
 }
 

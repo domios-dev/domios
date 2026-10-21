@@ -62,7 +62,7 @@ pub async fn mesh_account_link(
             Json(serde_json::json!({
                 "ok": false,
                 "request_id": request_id,
-                "refusal": refusal,
+                "failure": refusal,
             })),
         )),
     }

@@ -74,7 +74,7 @@ impl AccountMeshState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "reason", rename_all = "snake_case")]
+#[serde(tag = "reason", rename_all = "kebab-case")]
 pub enum AdmissionRefusal {
     Offline,
     Unauthenticated,

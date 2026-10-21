@@ -26,6 +26,7 @@ impl MeshManager {
             .signed_in_account()
             .is_some_and(|account| self.links.bind_owner(account));
         self.account = state;
+        self.account_ready = true;
         if bound {
             if let Err(e) = self.save() {
                 log::warn!("[mesh/account] owner binding not persisted: {}", e);
@@ -63,7 +64,17 @@ impl MeshManager {
         self.links.owner_account.as_deref()
     }
 
+    /// Closes every edge until the account owner publishes its first state, so a persisted
+    /// sign-out is never bypassed during startup.
+    pub fn await_account_state(&mut self) {
+        self.account_ready = false;
+        self.bump_gate();
+    }
+
     pub fn traffic_decision(&self, peer_id: &str) -> TrafficDecision {
+        if !self.account_ready {
+            return TrafficDecision::Blocked(BlockReason::AccountPending);
+        }
         let Some(peer) = self.paired_peers.get(peer_id) else {
             return TrafficDecision::Blocked(BlockReason::NoProvenance);
         };

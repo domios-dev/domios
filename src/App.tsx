@@ -83,6 +83,7 @@ import { nativeFolderDialog as openDialog } from "./lib/nativeBridge";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
 import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
+import { useAccountMeshLimitNotice } from "./components/MeshPanel/accountMeshLimitNotice";
 import { precheckFreeLimit } from "./components/billing/freeLimitGate";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
@@ -371,6 +372,7 @@ function AppInner() {
   );
 
   useComposerDraftGc(state.tabs);
+  useAccountMeshLimitNotice();
   const configRef = useRef(config);
   configRef.current = config;
 
