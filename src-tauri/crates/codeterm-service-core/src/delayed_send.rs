@@ -11,11 +11,13 @@ use serde::{Deserialize, Serialize};
 use crate::persisted_state::{Loaded, StateFile};
 use crate::service::ServiceState;
 
+mod delivery;
 pub mod recurrence;
 mod system_entries;
 use recurrence::RecurrenceRule;
 pub use system_entries::{
-    system_entry_refusal, DeliveryTickView, MessageOrigin, SystemEntryRefusal,
+    list_views as system_heartbeat_views, system_entry_refusal, DeliveryTickView, MessageOrigin,
+    SystemEntryRefusal,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,6 +226,49 @@ impl DelayedSendQueue {
         team_id: Option<String>,
         last_tick_send_sequence: u64,
     ) -> Result<DelayedMessage, String> {
+        let msg = Self::prepare_message(
+            tab_id,
+            workspace_id,
+            session_id_at_create,
+            text,
+            scheduled_at_ms,
+            creator,
+            recurrence,
+            team_id,
+            last_tick_send_sequence,
+        )?;
+        self.insert(msg.clone())?;
+        Ok(msg)
+    }
+
+    fn insert(&self, msg: DelayedMessage) -> Result<(), String> {
+        log::debug!(
+            "[delayed_send] enqueue creator_tab={:?} creator_label={:?} lead_ms={} id={}",
+            msg.created_by_tab,
+            msg.created_by_label,
+            i128::from(msg.scheduled_at_ms) - i128::from(now_ms()),
+            msg.id
+        );
+        {
+            let mut inner = self.inner.lock();
+            inner.messages.push(msg);
+            sort_messages(&mut inner.messages);
+        }
+        self.persist()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_message(
+        tab_id: String,
+        workspace_id: Option<String>,
+        session_id_at_create: Option<String>,
+        text: String,
+        scheduled_at_ms: Option<u64>,
+        creator: ReminderCreator,
+        recurrence: Option<RecurrenceRule>,
+        team_id: Option<String>,
+        last_tick_send_sequence: u64,
+    ) -> Result<DelayedMessage, String> {
         if text.trim().is_empty() {
             return Err("Message text is empty".into());
         }
@@ -261,12 +306,6 @@ impl DelayedSendQueue {
             reason: None,
             ticks: Vec::new(),
         };
-        {
-            let mut inner = self.inner.lock();
-            inner.messages.push(msg.clone());
-            sort_messages(&mut inner.messages);
-        }
-        self.persist()?;
         Ok(msg)
     }
 
@@ -681,19 +720,21 @@ pub fn list_views(
         Some(tab_id) => Some(resolve_tab_id(svc, &tab_id)?),
         None => None,
     };
-    let mut views: Vec<_> = svc
+    let views: Vec<_> = svc
         .ext::<crate::delayed_send::DelayedSendQueue>()
         .list(resolved.as_deref())
         .into_iter()
+        .filter(|msg| {
+            msg.state != DelayedMessageState::Sending
+                && msg.origin == MessageOrigin::User
+                && !system_entries::is_system_entry_id(&msg.id)
+        })
         .map(|msg| to_view(svc, msg))
         .collect();
-    if let Some(tab_id) = resolved.as_deref() {
-        views.extend(system_entries::views_for_tab(svc, tab_id));
-    }
     Ok(views)
 }
 
-pub fn create_message(
+pub async fn create_message(
     svc: &crate::service::ServiceContext,
     tab_id: String,
     text: String,
@@ -701,6 +742,34 @@ pub fn create_message(
     created_by_tab: Option<String>,
     recurrence: Option<RecurrenceRule>,
 ) -> Result<DelayedMessageView, String> {
+    create_message_with_delivery(
+        svc,
+        tab_id,
+        text,
+        scheduled_at_ms,
+        created_by_tab,
+        recurrence,
+        now_ms(),
+        |service, message| async move { delivery::deliver(&service, &message).await },
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn create_message_with_delivery<F, Fut>(
+    svc: &crate::service::ServiceContext,
+    tab_id: String,
+    text: String,
+    scheduled_at_ms: Option<u64>,
+    created_by_tab: Option<String>,
+    recurrence: Option<RecurrenceRule>,
+    now: u64,
+    deliver: F,
+) -> Result<DelayedMessageView, String>
+where
+    F: FnOnce(ServiceState, DelayedMessage) -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
     let resolved = resolve_tab_id(svc, &tab_id)?;
     let (workspace_id, session_id_at_create) = tab_context(svc, &resolved);
     let team_source = created_by_tab
@@ -714,20 +783,52 @@ pub fn create_message(
         .and_then(|tab| tab.team_id.clone());
     let creator = resolve_creator(svc, created_by_tab);
     let last_tick_send_sequence = latest_ledger_sequence(svc, &resolved);
-    let msg = svc
-        .ext::<crate::delayed_send::DelayedSendQueue>()
-        .enqueue_with_recurrence_at_sequence(
-            resolved.clone(),
-            workspace_id,
-            session_id_at_create,
-            text,
-            scheduled_at_ms,
-            creator,
-            recurrence,
-            team_id,
-            last_tick_send_sequence,
-        )?;
-    emit_changed(svc, &resolved);
+    let mut msg = DelayedSendQueue::prepare_message(
+        resolved.clone(),
+        workspace_id,
+        session_id_at_create,
+        text,
+        scheduled_at_ms,
+        creator,
+        recurrence,
+        team_id,
+        last_tick_send_sequence,
+    )?;
+    if scheduled_at_ms.is_some_and(|at| at <= now.saturating_add(1_000)) {
+        msg.state = DelayedMessageState::Sending;
+        let service = svc
+            .weak_self()
+            .upgrade()
+            .ok_or("delivery service is unavailable")?;
+        let result = deliver(service, msg.clone()).await;
+        if let Some(rule) = &msg.recurrence {
+            let next = recurrence::after_tick(
+                msg.scheduled_at_ms,
+                rule,
+                0,
+                now_ms().saturating_add(1),
+                result.is_err(),
+            );
+            if let Some(at) = next.scheduled_at_ms {
+                let mut future = msg.clone();
+                future.scheduled_at_ms = at;
+                future.tick_index = next.tick_index;
+                future.skipped_ticks = next.skipped_ticks;
+                future.state = DelayedMessageState::Queued;
+                future.error = result.as_ref().err().cloned();
+                future.last_tick_unconfirmed = future
+                    .error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("submit_unconfirmed"));
+                svc.ext::<DelayedSendQueue>().insert(future)?;
+                emit_changed(svc, &resolved);
+            }
+        }
+        result?;
+    } else {
+        svc.ext::<DelayedSendQueue>().insert(msg.clone())?;
+        emit_changed(svc, &resolved);
+    }
     Ok(to_view(svc, msg))
 }
 
@@ -937,57 +1038,9 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
         }
         return Err(error);
     }
-    let ready = {
-        let service = svc.clone();
-        let tab_id = msg.tab_id.clone();
-        match tokio::task::spawn_blocking(move || {
-            service.ensure_tab_pty_for_send(&tab_id)?;
-            let deadline = std::time::Instant::now() + Duration::from_secs(120);
-            let ready = crate::service::boot_wait::wait_until(deadline, || {
-                service.mux.read().get_tab(&tab_id).is_some_and(|tab| {
-                    tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
-                })
-            });
-            if ready {
-                Ok(())
-            } else {
-                Err("recipient did not reach AgentReady before the delivery deadline".to_string())
-            }
-        })
-        .await
-        {
-            Ok(result) => result,
-            Err(error) => Err(format!("delayed readiness task failed: {error}")),
-        }
-    };
-    if let Err(error) = ready {
-        svc.ext::<crate::delayed_send::DelayedSendQueue>()
-            .finish_tick_at_sequence(&msg.id, now_ms(), Some(error.clone()), false, None)?;
-        return Err(error);
-    }
-
-    let envelope = reminder_envelope(&msg);
-    let svc_for_deliver = svc.clone();
+    let last_tick_send_sequence = latest_ledger_sequence(svc, &msg.tab_id);
     let tab_id = msg.tab_id.clone();
-    let last_tick_send_sequence = latest_ledger_sequence(svc, &tab_id);
-    let body = svc
-        .plan_store
-        .prepend_heartbeat_for_orchestrator_tab(&tab_id, &msg.text);
-    let body = svc
-        .plan_store
-        .prepend_worker_charter_for_tab(&tab_id, &body);
-    let deliver_tab_id = tab_id.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        svc_for_deliver.gateway_deliver(
-            &deliver_tab_id,
-            envelope,
-            &body,
-            crate::service::message_gateway::DeliveryClass::AgentTraffic,
-        )
-    })
-    .await
-    .map_err(|e| format!("delayed delivery task failed: {e}"))
-    .and_then(|res| res);
+    let result = delivery::deliver(svc, &msg).await;
     match result {
         Ok(_) => {
             svc.ext::<crate::delayed_send::DelayedSendQueue>()
