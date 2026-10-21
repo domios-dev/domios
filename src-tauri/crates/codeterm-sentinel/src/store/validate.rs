@@ -2,55 +2,7 @@
 
 use super::*;
 
-pub fn duration_ms(value: &str) -> Result<u64, String> {
-    if value.len() > 32
-        || !value
-            .chars()
-            .all(|c| c.is_ascii_digit() || matches!(c, 's' | 'm' | 'h' | 'd'))
-    {
-        return Err("duration: use seconds, minutes, hours or days, e.g. 20s or 1h30m".into());
-    }
-    if value.chars().any(|c| c.is_ascii_alphabetic())
-        && value.ends_with(|c: char| c.is_ascii_digit())
-    {
-        return Err("duration: every component needs a unit".into());
-    }
-    let mut number = String::new();
-    let mut bound = 0u64;
-    for c in value.chars() {
-        if c.is_ascii_digit() {
-            number.push(c);
-            continue;
-        }
-        let n: u64 = number.parse().map_err(|_| "duration: invalid number")?;
-        number.clear();
-        let factor = match c {
-            's' => 1000,
-            'm' => 60_000,
-            'h' => 3_600_000,
-            'd' => 86_400_000,
-            _ => unreachable!(),
-        };
-        bound = bound
-            .checked_add(n.checked_mul(factor).ok_or("duration: overflow")?)
-            .ok_or("duration: overflow")?;
-    }
-    if !number.is_empty() {
-        bound = bound
-            .checked_add(
-                number
-                    .parse::<u64>()
-                    .map_err(|_| "duration: invalid number")?
-                    .checked_mul(60_000)
-                    .ok_or("duration: overflow")?,
-            )
-            .ok_or("duration: overflow")?;
-    }
-    if bound == 0 || bound > 366 * 86_400_000 {
-        return Err("duration: must be positive and at most 366 days".into());
-    }
-    codeterm_cron::schedule::parse_oneshot_schedule_at(&format!("in {value}"), 0)
-}
+pub use codeterm_blueprint_types::blueprint_watch::duration_ms;
 
 /// Every stored-inventory invariant, shared by the legacy file and typed Storage loads.
 pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
@@ -88,13 +40,18 @@ pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
             || (!job.session && job.run_transitions > job.max_transitions)
             || (!job.session
                 && !matches!(job.observe(), Some(TabBinding::CronRun(_)))
-                && job.transitions.len().saturating_sub(job.cleanup.transition_offset) > usize::from(job.max_transitions))
+                && job
+                    .transitions
+                    .len()
+                    .saturating_sub(job.cleanup.transition_offset)
+                    > usize::from(job.max_transitions))
             || job
                 .transitions
                 .iter()
                 .flat_map(|t| &t.handlers)
                 .filter(|r| r.claim_id.is_some())
-                .count().saturating_sub(job.cleanup.action_offset)
+                .count()
+                .saturating_sub(job.cleanup.action_offset)
                 > super::action_limit(job)
         {
             return Err("invalid blueprint budgets or retention".into());
@@ -263,7 +220,7 @@ impl Store {
 
     fn prepare_definition(
         &self,
-        params: Create,
+        mut params: Create,
         owner: Owner,
         connected: bool,
         pipeline: Option<codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec>,
@@ -278,10 +235,21 @@ impl Store {
             workspace_id: workspace,
             cwd,
         } = owner;
+        params.normalize_handlers();
         let name = params.name.as_deref().ok_or_else(|| {
             "Blueprint graph name is required; use --name ci-green-watch or --name build-done-notify".to_string()
         })?;
         codeterm_blueprint_types::automation_name::validate_sentinel_name(name)?;
+        if pipeline.is_none() {
+            let errors = params.admission_errors();
+            if !errors.is_empty() {
+                return Err(errors
+                    .into_iter()
+                    .map(|(field, message)| format!("{field}: {message}"))
+                    .collect::<Vec<_>>()
+                    .join("; "));
+            }
+        }
         let (probe, observe, input) = if pipeline.is_some() {
             (String::new(), None, None)
         } else {
@@ -377,6 +345,10 @@ impl Store {
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         );
         let job = Sentinel {
+            creation_options: Some(codeterm_blueprint_types::blueprint_watch::CreationOptions {
+                timeout_ms: params.timeout.as_deref().map(duration_ms).transpose()?,
+                paused: params.paused,
+            }),
             source: super::super::stage_source::StageSource::from_parts(
                 probe,
                 observe,

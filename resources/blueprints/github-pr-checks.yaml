@@ -1,0 +1,38 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: GitHub PR {{repo}}#{{id}}
+note: Wait for one pull request check set to complete.
+owner: team
+inputs:
+  id:
+    type: integer
+    description: Positive run or pull request ID
+  interval:
+    type: string
+    default: 60s
+    description: Probe interval, at least 10s
+  repo:
+    type: string
+    description: GitHub owner/repository
+  timeout_ms:
+    type: integer
+    default: 60000
+    description: Probe timeout in milliseconds
+pipeline:
+  trigger:
+    type: schedule
+    every: '{{interval}}'
+  steps:
+  - name: Check source
+    input: text
+    uses: github
+    with:
+      repo: '{{repo}}'
+      resource: pr_checks
+      id: '{{id}}'
+      timeout_ms: '{{timeout_ms}}'
+    'on':
+      done: next
+      failed: stop
+  result:
+    to: owner

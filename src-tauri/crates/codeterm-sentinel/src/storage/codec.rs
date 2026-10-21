@@ -440,7 +440,7 @@ pub fn history_version(stored: StoredDefinition) -> DefinitionVersion {
             terminal,
             session: definition.session,
             name: definition.name,
-        note: definition.note,
+            note: definition.note,
             pipeline,
             probe,
             observe,
@@ -506,6 +506,7 @@ fn head_amendment(job: &Sentinel) -> Result<Option<AmendmentRecord>, String> {
 
 fn stage_identity(job: &Sentinel) -> Result<SentinelIdentity, String> {
     Ok(SentinelIdentity {
+        creation_options: job.creation_options.clone(),
         id: id(&job.id)?,
         scope: SentinelScope {
             creator_tab_id: job.creator_tab_id.clone(),
@@ -610,6 +611,7 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
     }
     let runtime = record.runtime;
     Sentinel {
+        creation_options: record.identity.creation_options,
         source: super::super::stage_source::StageSource::from_parts(
             probe, observe, input, terminal, pipeline,
         )
@@ -634,7 +636,11 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
         until: definition.until,
         expires_at: runtime.expires_at,
         next_run: runtime.next_run,
-        cleanup: crate::retention::Retention { transition_offset: runtime.transition_offset, action_offset: runtime.action_offset, ..crate::retention::Retention::from_stopped_at(runtime.stopped_at) },
+        cleanup: crate::retention::Retention {
+            transition_offset: runtime.transition_offset,
+            action_offset: runtime.action_offset,
+            ..crate::retention::Retention::from_stopped_at(runtime.stopped_at)
+        },
         machine: Machine {
             last_hash: runtime.last_hash,
             last_bucket: runtime.last_bucket,

@@ -1,0 +1,25 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: Prompt {{tab_id}}
+note: Request a safe response to a supported permission prompt on one observed agent tab.
+inputs:
+  permission_pattern:
+    type: string
+    description: Permission pattern
+  tab_id:
+    type: string
+    description: Tab id
+watch:
+  observe: tab:{{tab_id}}
+  question: classify-current-prompt
+  buckets:
+  - permission
+  matches:
+    permission: '{{permission_pattern}}'
+  until: permission
+  timeout: 1h
+  handlers:
+    permission:
+    - type: respond_prompt
+      parameters:
+        target: permission

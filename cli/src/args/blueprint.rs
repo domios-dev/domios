@@ -4,106 +4,27 @@ use clap::Subcommand;
 pub enum BlueprintAction {
     /// List built-in graph skeletons or print one ready-to-edit recipe
     Recipe { name: Option<String> },
-    /// Classify a bounded probe or same-Team agent observation
-    #[command(
-        after_help = "GitHub CI run example:\n  codeterm blueprint create --recipe github --set repo=cli/cli --set resource=run --set id=39652641013"
-    )]
-    #[command(group = clap::ArgGroup::new("input_source").args(["input_file", "input_url", "input_text"]).multiple(false).required(false))]
-    Create {
-        /// Plain-text Blueprint note, at most 200 characters
+    /// Validate a YAML file or built-in recipe without a daemon
+    Check {
+        source: String,
+        #[arg(long = "set")]
+        set: Vec<String>,
+    },
+    /// Create or update a YAML file or recipe by name in the caller's Team
+    #[command(alias = "create")]
+    Apply {
+        source: String,
+        #[arg(long = "set")]
+        set: Vec<String>,
         #[arg(long, value_parser = parse_blueprint_note)]
         note: Option<String>,
-        /// JSON or YAML pipeline specification, or `-` to read standard input
-        #[arg(long, conflicts_with = "recipe")]
-        spec: Option<std::path::PathBuf>,
-        /// Create from a named pipeline recipe
-        #[arg(long, conflicts_with = "spec")]
-        recipe: Option<String>,
-        /// Replace recipe placeholders with key=value pairs
-        #[arg(long = "set", value_parser = parse_assignment)]
-        set: Vec<String>,
-        /// Assign the pipeline to its creator tab or Team
-        #[arg(long, value_parser = ["tab", "team"])]
-        owner: Option<String>,
-        /// Short meaningful name describing what is watched and what happens
-        #[arg(long, value_parser = parse_blueprint_name, required_unless_present_any = ["spec", "recipe"])]
-        name: Option<String>,
-        #[arg(long, conflicts_with = "observe", required_unless_present_any = ["observe", "input", "spec", "recipe"])]
-        probe: Option<String>,
-        /// Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
-        #[arg(long, conflicts_with = "probe", required_unless_present_any = ["probe", "input", "spec", "recipe"], value_parser = parse_observe)]
-        observe: Option<String>,
-        /// Fire with the new terminal output delta when this regex matches
-        #[arg(long, requires = "observe")]
-        terminal_pattern: Option<String>,
-        /// Fire when terminal output settles for this many milliseconds (10..60000)
-        #[arg(long, requires = "observe", value_parser = clap::value_parser!(u64).range(10..=60000))]
-        output_settled: Option<u64>,
-        /// Keep exchanges outside transition/action budgets; stop at 16384 exchanges or 120/minute
-        #[arg(long)]
-        session: bool,
-        /// Watch data instead of a probe or observation: text|audio|video|image
-        #[arg(long, value_parser = parse_input_kind, requires = "input_source", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"])]
-        input: Option<String>,
-        /// Absolute or caller-cwd-relative path of the input data file
-        #[arg(long, value_name = "PATH", requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"])]
-        input_file: Option<std::path::PathBuf>,
-        /// http or https URL of the input data
-        #[arg(long, requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"], value_parser = parse_input_url)]
-        input_url: Option<String>,
-        /// Inline input text (only for --input text)
-        #[arg(long, requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"])]
-        input_text: Option<String>,
-        /// Convert the input to another kind once: text|audio
-        #[arg(long, value_name = "KIND", requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"], value_parser = parse_convert_to)]
-        convert_to: Option<String>,
-        /// Bound the one-time conversion, in the --every duration syntax
-        #[arg(long, value_name = "DURATION", requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"], value_parser = parse_convert_timeout)]
-        convert_timeout: Option<u64>,
-        #[arg(long, required_unless_present_any = ["spec", "recipe"])]
-        question: Option<String>,
-        #[arg(long, value_delimiter = ',', required_unless_present_any = ["spec", "recipe"])]
-        buckets: Option<Vec<String>>,
-        /// Owner-requested cadence (minimum 10s, default 20s)
-        #[arg(long)]
-        every: Option<String>,
-        /// Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
-        #[arg(long = "route", value_parser = parse_route)]
-        routes: Vec<String>,
-        /// Route again when this bucket's output changes without changing buckets
-        #[arg(long = "rearm-on-change", value_name = "BUCKET")]
-        rearm_on_change: Vec<String>,
-        /// JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
-        #[arg(long, conflicts_with = "routes")]
-        handlers_file: Option<std::path::PathBuf>,
-        /// Bound how long an `other` escalation may hold this stage, in milliseconds
-        #[arg(long)]
-        escalation_timeout_ms: Option<u64>,
-        /// Create a dormant downstream stage; its lifetime starts now
-        #[arg(long)]
-        paused: bool,
-        /// Finite accepted transition budget (maximum 256)
-        #[arg(long, value_parser = clap::value_parser!(u16).range(1..=256))]
-        max_transitions: Option<u16>,
-        /// Finite action-attempt budget (maximum 1024)
-        #[arg(long, value_parser = clap::value_parser!(u16).range(1..=1024))]
-        max_actions: Option<u16>,
-        /// Stop after this bucket's first confident transition
-        #[arg(long)]
-        until: Option<String>,
-        /// End the blueprint after this duration
-        #[arg(long)]
-        timeout: Option<String>,
-        /// Opt in to Supporter model classification when no patterns are declared
-        #[arg(long, conflicts_with = "matches")]
-        model_classification: bool,
-        /// Deterministic classification: unmatched output never calls the model; bucket=regex
-        #[arg(long = "match", value_parser = parse_assignment)]
-        matches: Vec<String>,
-        /// Validate and print the resulting graph without creating it
         #[arg(long)]
         dry_run: bool,
     },
+    /// Print a commented YAML scaffold from a recipe or node kind
+    New { kind: String },
+    /// Print the authoring JSON Schema for editors and agents
+    Schema,
     /// Export a portable recipe containing only the definition
     Export {
         id: String,
@@ -113,7 +34,7 @@ pub enum BlueprintAction {
     /// Import a portable recipe into the caller's Team (stopped by default)
     Import {
         file: std::path::PathBuf,
-        #[arg(long = "set", value_parser = parse_assignment)]
+        #[arg(long = "set")]
         set: Vec<String>,
         #[arg(long, conflicts_with = "start")]
         stopped: bool,
@@ -186,126 +107,6 @@ pub enum BlueprintAction {
 pub enum BlueprintEscalationAction {
     /// Release a held stage and re-evaluate its observation
     Resolve { id: String, transition_id: String },
-}
-
-fn parse_assignment(value: &str) -> Result<String, String> {
-    let (bucket, rhs) = value.split_once('=').ok_or("use bucket=value")?;
-    if bucket.is_empty() || rhs.is_empty() {
-        return Err("bucket and value must be nonempty".into());
-    }
-    Ok(value.into())
-}
-
-fn parse_blueprint_name(value: &str) -> Result<String, String> {
-    codeterm_blueprint_types::automation_name::validate_sentinel_name(value)?;
-    Ok(value.to_string())
-}
-
-fn parse_observe(value: &str) -> Result<String, String> {
-    let target = value
-        .strip_prefix("tab:")
-        .or_else(|| value.strip_prefix("cron-run:"))
-        .ok_or("use tab:<id> or cron-run:<id>")?;
-    if target.trim().is_empty() || target.len() > 256 || target.chars().any(char::is_control) {
-        return Err("--observe target must be nonempty and bounded".into());
-    }
-    Ok(value.into())
-}
-
-fn parse_input_kind(value: &str) -> Result<String, String> {
-    codeterm_blueprint_types::sentinel_input::MediaKind::parse(value)
-        .map(|kind| kind.as_str().to_string())
-        .ok_or_else(|| "--input: use text, audio, video or image".into())
-}
-
-fn parse_convert_to(value: &str) -> Result<String, String> {
-    match value {
-        "text" | "audio" => Ok(value.into()),
-        _ => Err("--convert-to: use text or audio".into()),
-    }
-}
-
-fn parse_input_url(value: &str) -> Result<String, String> {
-    use codeterm_blueprint_types::sentinel_input::{validate, DataRef, InputSpec, MediaKind};
-    let probe = InputSpec {
-        kind: MediaKind::Audio,
-        data: DataRef::Url(value.to_string()),
-        convert_to: None,
-        convert_timeout_ms: None,
-    };
-    validate(&probe).map_err(|error| format!("--input-url: {error}"))?;
-    Ok(value.into())
-}
-
-fn parse_convert_timeout(value: &str) -> Result<u64, String> {
-    if value.len() > 32
-        || !value
-            .chars()
-            .all(|c| c.is_ascii_digit() || matches!(c, 's' | 'm' | 'h' | 'd'))
-    {
-        return Err("duration: use seconds, minutes, hours or days, e.g. 30s or 15m".into());
-    }
-    if value.chars().any(|c| c.is_ascii_alphabetic())
-        && value.ends_with(|c: char| c.is_ascii_digit())
-    {
-        return Err("duration: every component needs a unit".into());
-    }
-    let mut number = String::new();
-    let mut bound = 0u64;
-    for c in value.chars() {
-        if c.is_ascii_digit() {
-            number.push(c);
-            continue;
-        }
-        let n: u64 = number.parse().map_err(|_| "duration: invalid number")?;
-        number.clear();
-        let factor = match c {
-            's' => 1000,
-            'm' => 60_000,
-            'h' => 3_600_000,
-            'd' => 86_400_000,
-            _ => unreachable!(),
-        };
-        bound = bound
-            .checked_add(n.checked_mul(factor).ok_or("duration: overflow")?)
-            .ok_or("duration: overflow")?;
-    }
-    if !number.is_empty() {
-        bound = bound
-            .checked_add(
-                number
-                    .parse::<u64>()
-                    .map_err(|_| "duration: invalid number")?
-                    .checked_mul(60_000)
-                    .ok_or("duration: overflow")?,
-            )
-            .ok_or("duration: overflow")?;
-    }
-    if bound == 0 {
-        return Err("duration: must be positive".into());
-    }
-    Ok(bound)
-}
-
-fn parse_route(value: &str) -> Result<String, String> {
-    let value = parse_assignment(value)?;
-    let (_, action) = value.split_once('=').ok_or("use bucket=action")?;
-    if action == "none"
-        || action == "notify"
-        || action == "stop"
-        || action
-            .strip_prefix("send:")
-            .or_else(|| action.strip_prefix("cron:"))
-            .or_else(|| action.strip_prefix("blueprint:"))
-            .is_some_and(|target| !target.trim().is_empty())
-    {
-        Ok(value)
-    } else {
-        Err(
-            "route must be notify, blueprint:<exact-id>, send:<tab>, cron:<name>, stop, or none"
-                .into(),
-        )
-    }
 }
 
 #[cfg(test)]
