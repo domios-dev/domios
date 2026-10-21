@@ -18,7 +18,7 @@ for (const provider of ["claude", "codex", "opencode", "plugin"]) {
   assert.equal(enrichTimelineItems([item(raw)], cache)[0], entries[0]);
   assert.equal(raw.content, screenshot.raw);
 }
-for (const name of ["fenced example", "unclosed tag", "inline frame has no provenance", "tool result is content"]) {
+for (const name of ["fenced example", "unclosed tag", "indented tag is content", "tool result is content", "opening tag cut before its close"]) {
   const fixture = fixtures.find((entry) => entry.name === name)!;
   const [entry] = enrichTimelineItems([item({ id: name, type: "user", content: fixture.raw, segments: fixture.segments })], new WeakMap());
   assert.equal(entry.origin, undefined);
