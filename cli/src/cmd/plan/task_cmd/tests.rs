@@ -94,6 +94,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
             authorized_gates: Vec::new(),
             canonical_writer: false,
             worker_kind: None,
+            speed: None,
             model: Some("gpt-9-bogus".into()),
             description: None,
             reasoning_effort: None,
@@ -136,6 +137,7 @@ fn dispatch_action(cwd: &str) -> PlanTaskAction {
         authorized_gates: Vec::new(),
         canonical_writer: false,
         worker_kind: None,
+        speed: None,
         model: None,
         description: None,
         reasoning_effort: None,
@@ -704,4 +706,24 @@ fn plan_task_dispatch_forwards_explicit_sandbox_choice() {
     *sandbox = Some("read-only".into());
     run_dispatch(&mut client, true, action, None).unwrap();
     assert_eq!(client.calls[1].1.as_ref().unwrap()["sandbox"], "read-only");
+}
+
+#[test]
+fn plan_task_dispatch_forwards_provider_speed() {
+    let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
+    let mut action = dispatch_action("lane");
+    let PlanTaskAction::Dispatch { speed, .. } = &mut action else {
+        unreachable!()
+    };
+    *speed = Some("opaque-tier".into());
+    run_dispatch(&mut client, true, action, None).unwrap();
+    let params = client
+        .calls
+        .iter()
+        .find(|(method, _)| method == "plan.task.dispatch")
+        .unwrap()
+        .1
+        .as_ref()
+        .unwrap();
+    assert_eq!(params["speed"], "opaque-tier");
 }

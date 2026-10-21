@@ -655,8 +655,6 @@ button,
 }
 
 .sidebar-tab-activation {
-  --ct-liquid-base-transform: translateZ(0);
-  transform: var(--ct-liquid-base-transform) scale(1);
   transform-origin: center;
   transition:
     transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
@@ -667,7 +665,7 @@ button,
 
 
 .sidebar-tab-activation:active {
-  transform: var(--ct-liquid-base-transform) scale(0.975);
+  transform: scale(0.975);
   transition-duration: var(--ct-duration-liquid-press);
   transition-timing-function: var(--ct-ease-liquid-settle);
 }
@@ -678,18 +676,23 @@ button,
 
 .ct-liquid-interactive[data-touch-mode="true"]:not(:disabled):active,
 [data-touch-mode="true"] .sidebar-tab-activation:active {
-  transform: var(--ct-liquid-base-transform) scale(0.965);
+  transform: scale(0.965);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ct-liquid-interactive,
   .ct-liquid-interactive:not(:disabled):hover,
   .ct-liquid-interactive:not(:disabled):active,
-  .ct-segmented-thumb,
+  .ct-segmented-thumb {
+    transform: var(--ct-liquid-base-transform);
+    transition: none;
+    animation: none;
+  }
+
   .sidebar-tab-activation,
   .sidebar-tab-activation:hover,
   .sidebar-tab-activation:active {
-    transform: var(--ct-liquid-base-transform);
+    transform: none;
     transition: none;
     animation: none;
   }
@@ -1700,14 +1703,6 @@ button,
 .sidebar-tab:hover .sidebar-tab-kebab,
 .sidebar-tab:focus-within .sidebar-tab-kebab {
   opacity: 1;
-  transform: translateX(0);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-tab-kebab {
-    transform: none;
-    transition: none;
-  }
 }
 
 .sidebar-tab-touch .sidebar-tab-badge {
@@ -2235,17 +2230,6 @@ button,
   outline-offset: 3px;
 }
 
-.sidebar-team-card-visual:is(:hover, :has(:focus-visible)) .sidebar-team-status-donut {
-  animation: sidebar-team-status-spring 0.5s var(--ct-ease-spring) both;
-}
-
-@keyframes sidebar-team-status-spring {
-  0%, 100% { transform: scale(1); }
-  24% { transform: scale(0.95, 1.025); }
-  52% { transform: scale(1.025, 0.98); }
-  76% { transform: scale(0.992, 1.005); }
-}
-
 .sidebar-team-status-donut > .ct-segmented-donut-hole {
   background: var(--team-surface);
 }
@@ -2479,11 +2463,9 @@ button,
   padding: 4px;
   background: transparent;
   color: var(--ct-muted-fg);
-  transform-origin: center;
   transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
 }
 
-.sidebar-workspace-card-select:hover { transform: scale(1.02); }
 .sidebar-workspace-card-select:active {
   transform: scale(.955);
   transition-duration: var(--ct-duration-instant);
@@ -2594,8 +2576,7 @@ button,
   border-radius: 7px;
   background: transparent;
   color: var(--ct-muted-fg);
-  transform-origin: center;
-  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform var(--ct-duration-liquid-press) var(--ct-ease-liquid-settle);
 }
 
 .sidebar-workspace-card-create:hover,
@@ -2603,7 +2584,6 @@ button,
   border-color: var(--ct-accent);
   background: color-mix(in srgb, var(--ct-accent) 9%, transparent);
   color: var(--ct-accent);
-  transform: scale(1.02);
 }
 
 .sidebar-workspace-card-create:active {
@@ -2905,7 +2885,6 @@ button,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-team-card-visual:is(:hover, :has(:focus-visible)) .sidebar-team-status-donut { animation: none; }
   .sidebar-team-readout .ct-plan-status-breakdown-item,
   .sidebar-team-card-visual:is(:hover, :has(:focus-visible)) .sidebar-team-readout .ct-plan-status-breakdown-item {
     transition: none;

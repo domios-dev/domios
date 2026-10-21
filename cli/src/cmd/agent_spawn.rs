@@ -197,6 +197,7 @@ pub(super) fn handle(
         workspace,
         model,
         reasoning_effort,
+        speed,
         system_prompt,
         preset,
         location,
@@ -230,6 +231,7 @@ pub(super) fn handle(
             || plan_task.is_some()
             || model.is_some()
             || reasoning_effort.is_some()
+            || speed.is_some()
             || system_prompt.is_some()
         {
             crate::cmd::print::fail(
@@ -316,6 +318,7 @@ pub(super) fn handle(
             ("--args", args.is_some()),
             ("--workspace", workspace.is_some()),
             ("--reasoning-effort", reasoning_effort.is_some()),
+            ("--speed", speed.is_some()),
             ("--system", system_prompt.is_some()),
             ("--preset", preset.is_some()),
             ("--charter", charter.is_some() || charter_file.is_some()),
@@ -511,6 +514,9 @@ pub(super) fn handle(
     }
     if let Some(m) = model {
         body["model"] = serde_json::json!(m);
+    }
+    if let Some(speed) = speed {
+        body["speed"] = serde_json::json!(speed);
     }
     if let Some(effort) = reasoning_effort {
         body["reasoning_effort"] = serde_json::json!(effort);

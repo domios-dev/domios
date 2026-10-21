@@ -2,7 +2,7 @@ import { useState, useCallback, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { NotificationBody } from "./NotificationBody";
 import { runNotificationAction } from "../../lib/notificationActions";
-import type { Notification, NotificationAction } from "../../lib/types";
+import type { Notification } from "../../lib/types";
 import { X } from "lucide-react";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
@@ -36,7 +36,11 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
   const runnable = notification.actions?.filter((action) =>
     action.type !== "answer" && action.type !== "respond_prompt_option",
   ) ?? [];
-  const hasActions = runnable.length > 0;
+  const toastActions = [
+    ...(notification.local_actions ?? []),
+    ...runnable.map((action) => ({ label: action.label, run: () => runNotificationAction(action) })),
+  ];
+  const hasActions = toastActions.length > 0;
   const dismiss = (event: React.MouseEvent) => {
     event.stopPropagation();
     lifetime.dismiss();
@@ -47,9 +51,9 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
     setExpanded(true);
   }, [notification.id, notification.read, onMarkRead]);
 
-  const runAction = async (action: NotificationAction) => {
-    await runNotificationAction(action);
+  const runAction = async (action: { run: () => void | Promise<void> }) => {
     lifetime.dismiss();
+    await action.run();
   };
 
   const level = notificationLevel(notification);
@@ -80,10 +84,9 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
           </div>
         )}
       </div>
-      {notification.local_actions?.map((action) => <button key={action.label} type="button" className="shrink-0 text-[10px] text-[var(--ct-accent)]" onClick={(event) => { event.stopPropagation(); void action.run(); lifetime.dismiss(); }}>{action.label}</button>)}
       {hasActions && (
         <div className="flex min-w-0 max-w-[60%] gap-1 overflow-x-auto">
-          {runnable.map((action, i) => (
+          {toastActions.map((action, i) => (
             <button
               key={i}
               onClick={(e) => { e.stopPropagation(); runAction(action); }}
@@ -165,7 +168,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate }: ToastIte
                     Show Tab
                   </button>
                 )}
-                {runnable.map((action, index) => (
+                {toastActions.map((action, index) => (
                   <button
                     type="button"
                     key={`${action.label}-${index}`}

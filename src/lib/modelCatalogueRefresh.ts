@@ -1,5 +1,5 @@
 import { invoke } from "./bridge";
-import type { Notification } from "./notificationTypes";
+import type { Notice } from "./notices";
 
 export interface ModelCatalogueRefreshOutcome {
   refreshed: boolean;
@@ -26,17 +26,14 @@ export function refreshFailureToast(
   providerId: string,
   reason: string | undefined,
   copy: (text: string) => void | Promise<void>,
-): Omit<Notification, "timestamp" | "read"> {
-  return {
-    id: `model-catalogue-refresh:${providerId}`,
-    tab_id: null,
-    workspace_id: null,
+): Notice {
+  return { kind: "toast", id: `model-catalogue-refresh:${providerId}`,
+    tabId: null,
+    workspaceId: null,
     title: "Couldn't refresh models",
-    body: null,
+    detail: null,
     severity: "Warning",
-    level: "verbose",
-    ...(reason ? { local_actions: [{ label: "Copy", run: () => copy(reason) }] } : {}),
-  };
+    ...(reason ? { actions: [{ label: "Copy", run: () => copy(reason) }] } : {}) };
 }
 
 const defaultApi: ModelCatalogueRefreshApi = {

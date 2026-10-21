@@ -44,11 +44,11 @@ use dispatch_failure::{
     cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
     DispatchFailureDisposition, DispatchWaitFailure,
 };
-use dispatch_helpers::verify_dispatched_task_binding;
 pub(super) use dispatch_helpers::{
     dispatch_reasoning_effort, owned_str, respawn_worker_params, set_local_task_name_description,
     task_tab_description,
 };
+use dispatch_helpers::{rollback_failed_dispatch, verify_dispatched_task_binding};
 use gates::dispatch_authorized_gates;
 use lane_commit::{
     dispatch_ready_event, dispatch_response_lane, lane_metadata_for_dispatch, DispatchEvidence,
@@ -717,6 +717,7 @@ where
         workspace_id: owned_str(p, "workspace_id"),
         model: selected_model.clone(),
         planned_model: detail.task.model.clone(),
+        speed: owned_str(p, "speed").or_else(|| detail.task.speed.clone()),
         planned_reasoning_effort,
         reasoning_effort,
         description: Some(worker_description),
@@ -725,6 +726,7 @@ where
         task: None,
         ..Default::default()
     };
+    let spawn_params_speed = spawn_params.speed.clone();
     set_dispatch_task_brief(&mut spawn_params, brief, &manifest);
 
     refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)?;
@@ -1131,6 +1133,11 @@ where
     if let Some(model_fallback) = model_fallback {
         result["model_fallback"] = json!(model_fallback);
     }
+    if let Some(speed) = spawn_params_speed.as_deref() {
+        store
+            .update_task_speed(&plan_id, &task_id, Some(speed), now)
+            .map_err(plan_rpc_err)?;
+    }
     Ok(result)
 }
 
@@ -1165,34 +1172,6 @@ where
             Err(cleanup) => format!("{attempt_id}; {cleanup}"),
         },
     ))
-}
-
-fn rollback_failed_dispatch<R, C>(
-    lane: Option<ProvisionedWorkerLane>,
-    revert_task: R,
-    close_tab: C,
-) -> Result<(), String>
-where
-    R: FnOnce() -> Result<(), String>,
-    C: FnOnce() -> Result<(), String>,
-{
-    let mut errors = Vec::new();
-    if let Err(error) = revert_task() {
-        errors.push(format!("task restore failed: {error}"));
-    }
-    if let Err(error) = close_tab() {
-        errors.push(format!("Tab close failed: {error}"));
-    }
-    if let Some(lane) = lane {
-        if let Err(error) = lane.cleanup() {
-            errors.push(format!("lane cleanup failed: {error}"));
-        }
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors.join("; "))
-    }
 }
 
 #[cfg(test)]

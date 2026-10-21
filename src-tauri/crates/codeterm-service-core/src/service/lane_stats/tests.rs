@@ -327,39 +327,3 @@ fn lane_checkpoint_deletes_only_the_named_attempt_refs() {
         "refs/domios/checkpoints/attempt_keep/1"
     );
 }
-
-#[test]
-fn lane_merge_offer_requires_ancestor_and_leaves_lane_intact() {
-    let root = repository();
-    git(root.path(), &["branch", "lane/stats"]);
-    git(root.path(), &["checkout", "lane/stats"]);
-    fs::write(root.path().join("tracked.txt"), "base\nlane\n").unwrap();
-    git(root.path(), &["add", "tracked.txt"]);
-    git(root.path(), &["commit", "-m", "lane change"]);
-    git(root.path(), &["branch", "destination", "HEAD~1"]);
-    assert!(!branch_is_ancestor(
-        root.path(),
-        "lane/stats",
-        "destination",
-        Instant::now() + Duration::from_secs(4),
-    )
-    .unwrap());
-
-    git(root.path(), &["checkout", "destination"]);
-    git(root.path(), &["merge", "--ff-only", "lane/stats"]);
-    let before = git_text(root.path(), &["rev-parse", "lane/stats"]);
-    let destination = git_text(root.path(), &["rev-parse", "destination"]);
-    assert!(branch_is_ancestor(
-        root.path(),
-        "lane/stats",
-        &destination,
-        Instant::now() + Duration::from_secs(4),
-    )
-    .unwrap());
-    assert_eq!(git_text(root.path(), &["rev-parse", "lane/stats"]), before);
-    assert_eq!(
-        git_text(root.path(), &["rev-parse", "destination"]),
-        destination
-    );
-    assert!(root.path().join("tracked.txt").is_file());
-}

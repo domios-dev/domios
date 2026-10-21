@@ -35,6 +35,9 @@ fn attempt_model_fields_round_trip() {
         })
         .unwrap();
 
+    store
+        .update_task_speed(&plan_id, &task_id, Some("opaque-tier"), 4)
+        .unwrap();
     let reloaded = PlanStore::new_for_test(dir.path());
     let saved = reloaded
         .list_task_attempts(&plan_id, &task_id)
@@ -62,6 +65,11 @@ fn attempt_model_fields_round_trip() {
         draft.execution_intent,
         crate::plan::ExecutionIntent::Mutating
     );
+    assert_eq!(
+        reloaded.show_task(&task_id).unwrap().task.speed.as_deref(),
+        Some("opaque-tier")
+    );
+    assert_eq!(draft.speed.as_deref(), Some("opaque-tier"));
     assert_eq!(draft.provider, "fixture-agent");
     assert_eq!(draft.model.as_deref(), Some("gpt-6-luna"));
     assert_eq!(draft.reasoning_effort.as_deref(), Some("xhigh"));

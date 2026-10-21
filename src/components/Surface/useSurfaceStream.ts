@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { acceptViewportFrame } from "./resizeFrameModel";
 import { createViewportResizer } from "./viewportResizer";
-import { DEV_BUILD } from "../../lib/devBuild";
+import { publishNotice } from "../../lib/notices";
 import { createFrameFeed, type FrameFeed } from "./frameFeed";
 import { type FrameMetadata, type StreamViewport } from "./streamModel";
 import { streamLifecycleAction } from "./streamLifecycle";
@@ -51,7 +51,7 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
     connection.current.sent = viewport;
     resizer.current ??= createViewportResizer(
       (next) => transport.invoke(SURFACE_METHOD.resize, resizeArgs(next)),
-      (error) => { if (DEV_BUILD) console.debug("Background surface resize failed", error); },
+      (error) => publishNotice({ kind: "debug", severity: "Warning", title: "Background surface resize failed", detail: String(error) }),
     );
     resizer.current.push(viewport);
   }, [resizer, transport]);

@@ -1091,6 +1091,16 @@
               "aliases": []
             },
             {
+              "name": "speed",
+              "positional": false,
+              "required": false,
+              "value_name": "TIER",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider-declared service tier for this launch",
+              "aliases": []
+            },
+            {
               "name": "system",
               "positional": false,
               "required": false,
@@ -12846,6 +12856,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "speed",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TIER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Provider-declared service tier for this launch",
+                  "aliases": []
+                },
+                {
                   "name": "task_id",
                   "positional": true,
                   "required": false,
@@ -13257,6 +13277,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "speed",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TIER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Provider-declared service tier for this launch",
                   "aliases": []
                 },
                 {
@@ -13827,6 +13857,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "speed",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TIER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Provider-declared service tier for this launch",
                   "aliases": []
                 },
                 {

@@ -257,6 +257,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
+- `--speed` — Provider-declared service tier for this launch
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
@@ -2780,6 +2781,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
+- `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--workspace`
 
@@ -2855,6 +2857,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--parent`
 - `<plan_id>`
 - `--provider`
+- `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--title`
 - `--workspace`
@@ -2933,6 +2936,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--role-guidance` — Replace initial worker conditioning. Cannot be emptied; presence alone is the machine contract
 - `--role-guidance-file`
 - `--sections`
+- `--speed` — Provider-declared service tier for this launch
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 - `--status-label`
 - `--tab`

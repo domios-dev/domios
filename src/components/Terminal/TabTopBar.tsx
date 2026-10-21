@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../../lib/notices";
 import { describeError } from "../../lib/describeError";
 import { useMultiplexer } from "../../store/multiplexer";
 import { tabActivity } from "../../lib/tabActivity";
@@ -117,21 +118,23 @@ export function TabTopBar({
 
   const reportFailure = useCallback((error: unknown, operation: string, retry?: () => void | Promise<void>) => {
     const description = describeError(error, { operation });
-    upsertToast({
-      id: `tab-header-action-failure-${tabId}`,
+    createNoticePublisher({ upsertToast })({ kind: "toast", id: `tab-header-action-failure-${tabId}`,
       title: description.title,
-      body: description.cause,
+      detail: description.cause,
       severity: "Warning",
-      level: "action_needed",
-      tab_id: tabId,
-      workspace_id: workspaceId ?? null,
-      local_actions: [
+      tabId: tabId,
+      workspaceId: workspaceId ?? null,
+      actions: [
         ...(description.raw ? [{ label: "Copy details", run: async () => {
-          try { await navigator.clipboard.writeText(description.raw); } catch { return; }
-        } }] : []),
+              try {
+                await navigator.clipboard.writeText(description.raw);
+              }
+              catch {
+                return;
+              }
+            } }] : []),
         ...(retry ? [{ label: "Retry", run: retry }] : []),
-      ],
-    });
+      ] });
   }, [tabId, upsertToast, workspaceId]);
 
   const runRetryable = useCallback(async (operation: string, action: () => Promise<unknown>): Promise<void> => {
