@@ -34,6 +34,12 @@ describe("build drift decision table", () => {
     expect(decide({ daemon: health("old"), record: { origin: ORIGIN, build: "old", at: 1 } })).toEqual({ action: "clear" });
     expect(decide({ daemon: { kind: "hint", build: "old" } })).toEqual({ action: "clear" });
   });
+  it("treats differently abbreviated hashes of one commit as the same build", () => {
+    expect(decide({ loadedBuild: "a77859de28b6", daemon: health("a77859de2") })).toEqual({ action: "clear" });
+    expect(decide({ loadedBuild: "a77859d", daemon: { kind: "hint", build: "a77859de28b6" } })).toEqual({ action: "clear" });
+    expect(decide({ loadedBuild: "a77859de28b6", daemon: health("a77859e") }).action).toBe("reload");
+    expect(decide({ loadedBuild: "a7785", daemon: health("a77859de2") }).action).toBe("reload");
+  });
   it("defers a reload while the page is hidden", () => {
     expect(decide({ visible: false })).toEqual({ action: "defer" });
     expect(decide({ visible: false, record: { origin: ORIGIN, build: "new", at: 1 } })).toEqual({ action: "banner", reason: "build" });
