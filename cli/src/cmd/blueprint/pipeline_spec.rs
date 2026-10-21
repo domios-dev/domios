@@ -20,6 +20,20 @@ pub(super) fn load(
         (None, Some(name)) => {
             let mut value = recipe_spec(name)?;
             substitute(&mut value, assignments)?;
+            if let Some(steps) = value.get_mut("steps").and_then(Value::as_array_mut) {
+                for step in steps {
+                    if step.pointer("/kind/kind").and_then(Value::as_str) == Some("github") {
+                        if let Some(id) = step.pointer_mut("/kind/probe/id") {
+                            if let Some(text) = id.as_str() {
+                                *id = Value::from(
+                                    text.parse::<u64>()
+                                        .map_err(|_| "GitHub id must be a positive integer")?,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             value
         }
         _ => return Err("choose exactly one of --spec or --recipe".into()),
@@ -71,35 +85,4 @@ fn recipe_spec(name: &str) -> Result<Value, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blueprint_spec_reader_parses_json_and_yaml_and_applies_owner() {
-        let dir = tempfile::tempdir().unwrap();
-        for (name, source) in [
-            (
-                "spec.json",
-                r#"{"name":"echo","trigger":{"type":"schedule","every":"20s"},"steps":[]}"#,
-            ),
-            (
-                "spec.yaml",
-                "name: echo\ntrigger:\n  type: schedule\n  every: 20s\nsteps: []\n",
-            ),
-        ] {
-            let path = dir.path().join(name);
-            std::fs::write(&path, source).unwrap();
-            let value = load(Some(&path), None, &[], Some("team")).unwrap();
-            assert_eq!(value["name"], "echo");
-            assert_eq!(value["owner"], "team");
-        }
-    }
-
-    #[test]
-    fn blueprint_recipe_set_replaces_declared_placeholders_once() {
-        let mut value = serde_json::json!({"command": "printf '{{message}}'"});
-        substitute(&mut value, &["message=ready".into()]).unwrap();
-        assert_eq!(value["command"], "printf 'ready'");
-        assert!(substitute(&mut value, &["missing=x".into()]).is_err());
-    }
-}
+mod tests;

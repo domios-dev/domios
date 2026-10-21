@@ -136,3 +136,40 @@ fn blueprint_import_persists_stopped_and_visible_in_scratch_team() {
     drop(store);
     super::close(restarted);
 }
+
+#[test]
+fn blueprint_github_create_show_json_retains_typed_source_after_restart() {
+    use crate::BlueprintExt;
+    let root = tempfile::tempdir().unwrap();
+    let (mut mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    mux.get_tab_mut(&tab).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
+    let instance = ServiceInstance::open_with_mux(root.path(), mux);
+    let handle = crate::scheduler::fixture_handle_with_ui(
+        Store::with_storage(
+            &instance.storage,
+            codeterm_service_core::cron::clock::system_clock(),
+        ),
+        instance.fixture.service.ui.clone(),
+    );
+    crate::manage_fixture_ports(&instance.fixture.service, &handle);
+    let service = &instance.fixture.service;
+    let caller = service.sentinel_caller(&tab, None).unwrap();
+    let probe = json!({"repo":"cli/cli", "resource":"run", "id":39652641013u64});
+    let created = service.blueprint_pipeline_create_stopped(&caller, serde_json::from_value(json!({
+        "name":"GitHub CI watch", "trigger":{"type":"schedule","every":"60s"},
+        "steps":[{"name":"GitHub check", "input":"text", "kind":{"kind":"github", "probe":probe}}]
+    })).unwrap(), true).unwrap();
+    let id = created["id"].as_str().unwrap();
+    let shown = serde_json::to_value(service.sentinel_show(&caller, id).unwrap()).unwrap();
+    assert_eq!(shown["pipeline"]["steps"][0]["kind"]["kind"], "github");
+    assert_eq!(shown["pipeline"]["steps"][0]["kind"]["probe"], probe);
+    let restarted = instance.restart(root.path());
+    let store = Store::with_storage(
+        &restarted.storage,
+        codeterm_service_core::cron::clock::system_clock(),
+    );
+    let persisted = serde_json::to_value(store.get(id).unwrap()).unwrap();
+    assert_eq!(persisted["pipeline"], shown["pipeline"]);
+    drop(store);
+    super::close(restarted);
+}
