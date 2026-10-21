@@ -43,7 +43,7 @@ fn command(name: &str, input: IoType) -> Step {
 
 fn spec(steps: Vec<Step>) -> BlueprintSpec {
     BlueprintSpec {
-            note: None,
+        note: None,
         name: "Echo chain".into(),
         owner: BlueprintOwner::Tab,
         trigger: Trigger::Schedule {
@@ -150,7 +150,7 @@ fn blueprint_pipeline_converter_chain_is_capability_ordered_and_bounded() {
         assert_eq!(converter_path(kind, kind, &[]), Some(vec![]));
     }
     let spec = BlueprintSpec {
-            note: None,
+        note: None,
         name: "Voice".into(),
         owner: BlueprintOwner::Tab,
         trigger: Trigger::Input {
@@ -343,12 +343,24 @@ fn github_step_round_trips_validates_scope_and_routes_query_failure() {
 
 #[test]
 fn http_step_validates_defaults_and_declares_health_routes() {
-    let kind: StepKind = serde_json::from_value(serde_json::json!({"kind":"http","probe":{"url":"https://example.com/health"}})).unwrap();
+    let kind: StepKind = serde_json::from_value(
+        serde_json::json!({"kind":"http","probe":{"url":"https://example.com/health"}}),
+    )
+    .unwrap();
     assert_eq!(kind.name(), "http");
     assert_eq!(kind.output_type(), IoType::Text);
-    assert_eq!(kind.outcomes().unwrap(), BTreeSet::from(["up".into(), "down".into(), "failed".into()]));
-    let mut step = command("health", IoType::Text); step.kind = kind;
+    assert_eq!(
+        kind.outcomes().unwrap(),
+        BTreeSet::from(["up".into(), "down".into(), "failed".into()])
+    );
+    let mut step = command("health", IoType::Text);
+    step.kind = kind;
     assert!(validate(&spec(vec![step.clone()]), &[]).is_ok());
-    if let StepKind::Http { probe } = &mut step.kind { probe.timeout_ms = 10001; }
-    assert!(validate(&spec(vec![step]), &[]).unwrap_err().iter().any(|error| error.field == "steps[0].http"));
+    if let StepKind::Http { probe } = &mut step.kind {
+        probe.timeout_ms = 10001;
+    }
+    assert!(validate(&spec(vec![step]), &[])
+        .unwrap_err()
+        .iter()
+        .any(|error| error.field == "steps[0].http"));
 }

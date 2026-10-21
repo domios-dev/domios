@@ -58,8 +58,7 @@ fn every_recipe_contains_handlers_and_a_dry_run_create_command() {
         let crate::args::cli::Commands::Blueprint { action } = cli.command else {
             panic!("recipe command did not parse as blueprint create")
         };
-        let crate::args::blueprint::BlueprintAction::Create { name, dry_run, .. } = &action
-        else {
+        let crate::args::blueprint::BlueprintAction::Create { name, dry_run, .. } = &action else {
             panic!("recipe command did not parse as blueprint create")
         };
         assert!(*dry_run, "recipe {} omitted --dry-run", recipe.name);
@@ -68,8 +67,7 @@ fn every_recipe_contains_handlers_and_a_dry_run_create_command() {
         )
         .unwrap_or_else(|error| panic!("recipe {}: {error}", recipe.name));
         let (method, params) =
-            super::super::request(action, Some("creator".into()), Some("nonce".into()))
-                .unwrap();
+            super::super::request(action, Some("creator".into()), Some("nonce".into())).unwrap();
         assert_eq!(method, "blueprint.validate.create");
         assert_eq!(params["create"]["handlers"], normalized);
     }
@@ -78,17 +76,57 @@ fn every_recipe_contains_handlers_and_a_dry_run_create_command() {
 #[test]
 fn source_recipes_expose_defaults_and_override_inputs_without_changing_kind() {
     for (name, assignments, expected_kind) in [
-        ("github", vec!["repo=owner/project", "id=42", "resource=pr_checks", "interval=20s", "timeout_ms=5000", "done=stop", "result=notify"], "github"),
-        ("github-failing", vec!["repo=owner/project", "id=42", "failing=stop"], "github"),
-        ("github-runners", vec!["repo=owner/project", "label=linux-build", "offline=stop"], "github"),
-        ("github-org-runners", vec!["org=owner", "online=stop"], "github"),
-        ("http-health", vec!["url=https://example.com/health", "expected_status=204", "timeout_ms=1000", "down=stop"], "http"),
+        (
+            "github",
+            vec![
+                "repo=owner/project",
+                "id=42",
+                "resource=pr_checks",
+                "interval=20s",
+                "timeout_ms=5000",
+                "done=stop",
+                "result=notify",
+            ],
+            "github",
+        ),
+        (
+            "github-failing",
+            vec!["repo=owner/project", "id=42", "failing=stop"],
+            "github",
+        ),
+        (
+            "github-runners",
+            vec!["repo=owner/project", "label=linux-build", "offline=stop"],
+            "github",
+        ),
+        (
+            "github-org-runners",
+            vec!["org=owner", "online=stop"],
+            "github",
+        ),
+        (
+            "http-health",
+            vec![
+                "url=https://example.com/health",
+                "expected_status=204",
+                "timeout_ms=1000",
+                "down=stop",
+            ],
+            "http",
+        ),
     ] {
-        let assignments = assignments.into_iter().map(str::to_string).collect::<Vec<_>>();
+        let assignments = assignments
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
         let spec = bound_pipeline_spec(name, &assignments).unwrap();
         assert_eq!(spec["steps"][0]["kind"]["kind"], expected_kind);
-        let parsed: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec = serde_json::from_value(spec.clone()).unwrap();
-        assert!(codeterm_blueprint_types::blueprint_pipeline::validate(&parsed, &[]).is_ok(), "{name}");
+        let parsed: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec =
+            serde_json::from_value(spec.clone()).unwrap();
+        assert!(
+            codeterm_blueprint_types::blueprint_pipeline::validate(&parsed, &[]).is_ok(),
+            "{name}"
+        );
         if name == "github" {
             assert_eq!(spec["trigger"]["every"], "20s");
             assert_eq!(spec["steps"][0]["kind"]["probe"]["timeout_ms"], 5000);

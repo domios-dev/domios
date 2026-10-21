@@ -13,7 +13,9 @@ pub(super) fn run(
         if let Err(reason) = probe.validate() {
             return failed_input_step(&reason);
         }
-        let remaining = lease.job.expires_at
+        let remaining = lease
+            .job
+            .expires_at
             .map(|at| at.saturating_sub(now(handle)))
             .unwrap_or(probe.timeout_ms);
         if remaining == 0 {
@@ -28,7 +30,10 @@ pub(super) fn run(
             Ok(client) => client,
             Err(_) => return failed_input_step("HTTP client unavailable"),
         };
-        let code = client.get(&probe.url).send().ok()
+        let code = client
+            .get(&probe.url)
+            .send()
+            .ok()
             .map(|response| response.status().as_u16());
         return reading_result(step, probe.reading(code));
     }
@@ -40,7 +45,9 @@ pub(super) fn run(
         },
         _ => unreachable!(),
     };
-    let remaining = lease.job.expires_at
+    let remaining = lease
+        .job
+        .expires_at
         .map(|at| Duration::from_millis(at.saturating_sub(now(handle))))
         .unwrap_or(runtime);
     let result = probe::run_with_budget(
@@ -58,10 +65,14 @@ pub(super) fn run(
                     if probe.resource != GithubResource::PrChecks {
                         let parsed = serde_json::from_str(&output.stdout_text())
                             .map_err(|_| "invalid GitHub JSON".to_string())
-                            .and_then(|value| codeterm_blueprint_types::blueprint_source::github_reading(probe, value));
+                            .and_then(|value| {
+                                codeterm_blueprint_types::blueprint_source::github_reading(
+                                    probe, value,
+                                )
+                            });
                         match parsed {
                             Ok(Some(reading)) => return reading_result(step, reading),
-                            Ok(None) => {},
+                            Ok(None) => {}
                             Err(reason) => return failed_input_step(&reason),
                         }
                     }
@@ -74,12 +85,23 @@ pub(super) fn run(
                 format!("command failed ({} output bytes)", output.bytes.len())
             };
             StepResult {
-                outcome: if success { StepOutcome::Done } else { StepOutcome::Failed },
+                outcome: if success {
+                    StepOutcome::Done
+                } else {
+                    StepOutcome::Failed
+                },
                 stored_outcome: if success { "done" } else { "failed" }.into(),
-                state: if success { JournalState::Done } else { JournalState::Failed },
+                state: if success {
+                    JournalState::Done
+                } else {
+                    JournalState::Failed
+                },
                 summary,
                 reason: (!success).then(|| "command_failed".into()),
-                next_text: output.stdout_text().trim_end_matches(&['\n', '\r'][..]).to_string(),
+                next_text: output
+                    .stdout_text()
+                    .trim_end_matches(&['\n', '\r'][..])
+                    .to_string(),
                 decision: None,
                 uncertain: false,
             }

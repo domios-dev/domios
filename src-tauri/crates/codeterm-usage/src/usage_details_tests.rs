@@ -17,5 +17,10 @@ fn usage_details_roundtrip() {
     let mut absent = UsageSample::empty("claude", "opaque", 1_000_000_000_001);
     absent.session_pct = Some(17.0);
     store.insert_snapshot(&absent).unwrap();
-    assert!(store.get_latest("claude", None).unwrap().unwrap().usage_details.is_none());
+    assert!(store
+        .get_latest("claude", None)
+        .unwrap()
+        .unwrap()
+        .usage_details
+        .is_none());
 }

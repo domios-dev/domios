@@ -614,7 +614,9 @@ fn run_step(
         return failed_input_step(reason);
     }
     match &step.kind {
-        StepKind::Command { .. } | StepKind::Github { .. } | StepKind::Http { .. } => sources::run(handle, svc, lease, step, previous),
+        StepKind::Command { .. } | StepKind::Github { .. } | StepKind::Http { .. } => {
+            sources::run(handle, svc, lease, step, previous)
+        }
         StepKind::Agent {
             provider,
             profile,

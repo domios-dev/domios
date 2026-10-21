@@ -359,8 +359,15 @@ pub struct NewTransition {
 /// Operational scheduling changes; never a new authored definition version.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScheduleUpdate {
-    Advance { id: SentinelId, next_run: u64 },
-    Stop { id: SentinelId, reason: String, stopped_at: u64 },
+    Advance {
+        id: SentinelId,
+        next_run: u64,
+    },
+    Stop {
+        id: SentinelId,
+        reason: String,
+        stopped_at: u64,
+    },
 }
 
 /// Why a fenced operation wrote nothing.
@@ -575,7 +582,8 @@ impl StageDefinition {
                 ));
             }
         }
-        codeterm_blueprint_types::automation_name::validate_note(self.note.as_deref()).map_err(|error| StorageError::invalid("blueprint note", error))?;
+        codeterm_blueprint_types::automation_name::validate_note(self.note.as_deref())
+            .map_err(|error| StorageError::invalid("blueprint note", error))?;
         optional_text("blueprint name", &self.name)?;
         match &self.source {
             StageSource::Probe(command) => text("blueprint probe", command)?,

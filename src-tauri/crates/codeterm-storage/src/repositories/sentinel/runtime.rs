@@ -757,7 +757,12 @@ pub(super) fn set_run_binding(
     finished(cx.conn, MutationOutcome::Applied, &[id.to_string()])
 }
 
-fn stop_row(cx: &mut WriteCx<'_>, id: &str, reason: &str, stopped_at: u64) -> Result<bool, StorageError> {
+fn stop_row(
+    cx: &mut WriteCx<'_>,
+    id: &str,
+    reason: &str,
+    stopped_at: u64,
+) -> Result<bool, StorageError> {
     let changed = cx.write(
         "UPDATE blueprint_runtime SET stopped = 1, generation = generation + 1, \
          last_reason = ?2, stopped_at = COALESCE(stopped_at, ?3) WHERE blueprint_id = ?1",
@@ -897,7 +902,11 @@ pub(super) fn schedule(
                     touched.push(id.as_str().to_string());
                 }
             }
-            ScheduleUpdate::Stop { id, reason, stopped_at } => {
+            ScheduleUpdate::Stop {
+                id,
+                reason,
+                stopped_at,
+            } => {
                 if stop_row(cx, id.as_str(), &reason, stopped_at)? {
                     touched.push(id.as_str().to_string());
                 }
@@ -963,7 +972,14 @@ pub(super) fn accept_transition(
         let per_run_spent = if live.run_id.is_some() {
             u64::from(live.run_transitions) >= max_transitions
         } else {
-            accepted.saturating_sub(from_sql_u64("transition offset", scalar(cx.conn, "SELECT transition_offset FROM blueprint_runtime WHERE blueprint_id = ?1", id)?)?) >= max_transitions
+            accepted.saturating_sub(from_sql_u64(
+                "transition offset",
+                scalar(
+                    cx.conn,
+                    "SELECT transition_offset FROM blueprint_runtime WHERE blueprint_id = ?1",
+                    id,
+                )?,
+            )?) >= max_transitions
         };
         (per_run_spent || accepted >= MAX_TRANSITIONS as u64).then_some(Fence::Budget)
     };
@@ -1008,7 +1024,15 @@ pub(super) fn claim_handler(
         id,
     )?;
     let (_, max_actions) = definitions::head_budgets(cx.conn, id)?;
-    if from_sql_u64("claim count", claimed)?.saturating_sub(from_sql_u64("action offset", scalar(cx.conn, "SELECT action_offset FROM blueprint_runtime WHERE blueprint_id = ?1", id)?)?) >= max_actions {
+    if from_sql_u64("claim count", claimed)?.saturating_sub(from_sql_u64(
+        "action offset",
+        scalar(
+            cx.conn,
+            "SELECT action_offset FROM blueprint_runtime WHERE blueprint_id = ?1",
+            id,
+        )?,
+    )?) >= max_actions
+    {
         return fenced(cx.conn, Fence::Budget, id);
     }
     let ordinal = next_result_ordinal(cx.conn, id, transition)?;

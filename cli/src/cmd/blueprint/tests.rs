@@ -953,16 +953,41 @@ fn blueprint_github_recipe_creates_typed_source_for_each_resource() {
 fn blueprint_note_overrides_reach_create_and_update_definitions() {
     use clap::Parser;
     let cli = crate::args::cli::Cli::try_parse_from([
-        "codeterm", "blueprint", "create", "--recipe", "echo", "--set", "message=ready", "--note", "Reports failed jobs",
-    ]).unwrap();
-    let crate::args::cli::Commands::Blueprint { action } = cli.command else { panic!("expected Blueprint"); };
+        "codeterm",
+        "blueprint",
+        "create",
+        "--recipe",
+        "echo",
+        "--set",
+        "message=ready",
+        "--note",
+        "Reports failed jobs",
+    ])
+    .unwrap();
+    let crate::args::cli::Commands::Blueprint { action } = cli.command else {
+        panic!("expected Blueprint");
+    };
     let (_, params) = request(action, Some("creator".into()), None).unwrap();
     assert_eq!(params["spec"]["note"], "Reports failed jobs");
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("definition.json");
-    std::fs::write(&path, r#"{"name":"updated","question":"Done?","buckets":["done"],"every":"1m"}"#).unwrap();
-    let (_, params) = request(BlueprintAction::Update {
-        id:"blueprint-a".into(), expect_version:1, from_file:path, cause:None, note:Some("Next release watcher".into()), dry_run:false,
-    }, Some("creator".into()), None).unwrap();
+    std::fs::write(
+        &path,
+        r#"{"name":"updated","question":"Done?","buckets":["done"],"every":"1m"}"#,
+    )
+    .unwrap();
+    let (_, params) = request(
+        BlueprintAction::Update {
+            id: "blueprint-a".into(),
+            expect_version: 1,
+            from_file: path,
+            cause: None,
+            note: Some("Next release watcher".into()),
+            dry_run: false,
+        },
+        Some("creator".into()),
+        None,
+    )
+    .unwrap();
     assert_eq!(params["update"]["note"], "Next release watcher");
 }

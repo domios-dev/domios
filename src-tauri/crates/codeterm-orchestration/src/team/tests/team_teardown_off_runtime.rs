@@ -24,7 +24,7 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
         .lock()
         .prepare(
             Create {
-            note: None,
+                note: None,
                 terminal: None,
                 session: false,
                 name: Some("Team teardown barrier".into()),

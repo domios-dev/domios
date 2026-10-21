@@ -68,20 +68,33 @@ impl Recipe {
         self.validate()?;
         let mut value = self.definition.clone();
         substitute(&mut value, assignments)?;
-        if let Some(spec) = value.get_mut("spec") { normalize_pipeline_inputs(spec)?; }
+        if let Some(spec) = value.get_mut("spec") {
+            normalize_pipeline_inputs(spec)?;
+        }
         Ok(value)
     }
 }
 
 pub fn normalize_pipeline_inputs(value: &mut Value) -> Result<(), String> {
-    let Some(steps) = value.get_mut("steps").and_then(Value::as_array_mut) else { return Ok(()) };
+    let Some(steps) = value.get_mut("steps").and_then(Value::as_array_mut) else {
+        return Ok(());
+    };
     for step in steps {
-        let kind = step.pointer("/kind/kind").and_then(Value::as_str).unwrap_or("").to_string();
+        let kind = step
+            .pointer("/kind/kind")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         if matches!(kind.as_str(), "github" | "http") {
             for key in ["id", "timeout_ms"] {
                 if let Some(value) = step.pointer_mut(&format!("/kind/probe/{key}")) {
                     if let Some(text) = value.as_str() {
-                        *value = Value::from(text.parse::<u64>().map_err(|_| format!("{} {key} must be a positive integer", if kind == "github" { "GitHub" } else { "HTTP" }))?);
+                        *value = Value::from(text.parse::<u64>().map_err(|_| {
+                            format!(
+                                "{} {key} must be a positive integer",
+                                if kind == "github" { "GitHub" } else { "HTTP" }
+                            )
+                        })?);
                     }
                 }
             }

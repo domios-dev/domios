@@ -334,7 +334,9 @@ const SELECT_HEADER: &str = r#"SELECT id, provider, account_id, captured_at, par
 
 fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
     Ok(UsageSnapshotRow {
-        usage_details: r.get::<_, Option<String>>(19)?.and_then(|raw| serde_json::from_str(&raw).ok()),
+        usage_details: r
+            .get::<_, Option<String>>(19)?
+            .and_then(|raw| serde_json::from_str(&raw).ok()),
         id: r.get(0)?,
         provider: r.get(1)?,
         account_id: r.get(2)?,

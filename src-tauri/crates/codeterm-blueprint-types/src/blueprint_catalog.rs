@@ -92,7 +92,10 @@ pub const STEPS: &[NodeDescriptor] = &[
         metadata: r#"{"params_schema":{"probe":{"repo":"owner/repo (or org for runners)","org":"organization for runners (exclusive with repo)","resource":"run|jobs|pr_checks|runners","id":"positive run or PR id (omit for runners)","label":"optional runner label","timeout_ms":"1..60000 (default 60000)"}},"timeout_ms":60000,"states":"done|failed|failing (run/jobs), online|offline|failed (runners)","fork":"override probe inputs and state routes without changing kind"}"#,
     },
     NodeDescriptor {
-        role: "source", kind: "step", name: "http", title: "HTTP: endpoint health",
+        role: "source",
+        kind: "step",
+        name: "http",
+        title: "HTTP: endpoint health",
         metadata: r#"{"params_schema":{"probe":{"url":"http or https URL","expected_status":"2xx (default) or exact status code","timeout_ms":"1..10000 (default 3000)"}},"states":"up|down|failed"}"#,
     },
 ];

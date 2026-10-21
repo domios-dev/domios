@@ -71,8 +71,14 @@ fn parse_catalog(source: &str) -> Result<Vec<Recipe>, String> {
             ));
         }
         let defaults = if pipeline {
-            fenced(body, "json").map(serde_json::from_str).transpose().map_err(|error| format!("recipe `{name}` defaults: {error}"))?.unwrap_or_default()
-        } else { std::collections::BTreeMap::new() };
+            fenced(body, "json")
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(|error| format!("recipe `{name}` defaults: {error}"))?
+                .unwrap_or_default()
+        } else {
+            std::collections::BTreeMap::new()
+        };
         recipes.push(Recipe {
             name: name.into(),
             summary: summary.into(),
@@ -95,17 +101,48 @@ pub(super) fn pipeline_spec(name: &str) -> Result<serde_json::Value, String> {
         .ok_or_else(|| format!("unknown pipeline recipe `{name}`"))
 }
 
-pub(super) fn bound_pipeline_spec(name: &str, assignments: &[String]) -> Result<serde_json::Value, String> {
-    let recipe = recipes()?.into_iter().find(|recipe| recipe.name == name).ok_or_else(|| format!("unknown pipeline recipe `{name}`"))?;
-    let mut value = recipe.spec.ok_or_else(|| format!("recipe `{name}` is not a pipeline"))?;
-    let mut merged = recipe.defaults.iter().filter(|(key, _)| !assignments.iter().any(|assignment| assignment.split_once('=').is_some_and(|(input, _)| input == key.as_str()))).map(|(key,value)| format!("{key}={value}")).collect::<Vec<_>>();
+pub(super) fn bound_pipeline_spec(
+    name: &str,
+    assignments: &[String],
+) -> Result<serde_json::Value, String> {
+    let recipe = recipes()?
+        .into_iter()
+        .find(|recipe| recipe.name == name)
+        .ok_or_else(|| format!("unknown pipeline recipe `{name}`"))?;
+    let mut value = recipe
+        .spec
+        .ok_or_else(|| format!("recipe `{name}` is not a pipeline"))?;
+    let mut merged = recipe
+        .defaults
+        .iter()
+        .filter(|(key, _)| {
+            !assignments.iter().any(|assignment| {
+                assignment
+                    .split_once('=')
+                    .is_some_and(|(input, _)| input == key.as_str())
+            })
+        })
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>();
     merged.extend_from_slice(assignments);
     codeterm_blueprint_types::blueprint_recipe::substitute(&mut value, &merged)?;
     codeterm_blueprint_types::blueprint_recipe::normalize_pipeline_inputs(&mut value)?;
-    if let Some(steps) = value.get_mut("steps").and_then(serde_json::Value::as_array_mut) {
+    if let Some(steps) = value
+        .get_mut("steps")
+        .and_then(serde_json::Value::as_array_mut)
+    {
         for step in steps {
-            if step.pointer("/kind/probe/resource").and_then(serde_json::Value::as_str) == Some("pr_checks") {
-                if let Some(on) = step.get_mut("on").and_then(serde_json::Value::as_object_mut) { on.remove("failing"); }
+            if step
+                .pointer("/kind/probe/resource")
+                .and_then(serde_json::Value::as_str)
+                == Some("pr_checks")
+            {
+                if let Some(on) = step
+                    .get_mut("on")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    on.remove("failing");
+                }
             }
         }
     }
@@ -140,7 +177,10 @@ pub(super) fn print(json_mode: bool, name: Option<&str>) {
             crate::cmd::print::print_json(&serde_json::to_value(recipe).unwrap_or_default());
         } else {
             if let Some(spec) = &recipe.spec {
-                println!("Defaults (override with --set): {}", serde_json::to_string(&recipe.defaults).unwrap_or_default());
+                println!(
+                    "Defaults (override with --set): {}",
+                    serde_json::to_string(&recipe.defaults).unwrap_or_default()
+                );
                 println!(
                     "Recipe: {}\n{}\n\nSpecification:\n{}\n\nDry-run command:\n{}",
                     recipe.name,

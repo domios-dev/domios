@@ -88,13 +88,18 @@ pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
             || (!job.session && job.run_transitions > job.max_transitions)
             || (!job.session
                 && !matches!(job.observe(), Some(TabBinding::CronRun(_)))
-                && job.transitions.len().saturating_sub(job.cleanup.transition_offset) > usize::from(job.max_transitions))
+                && job
+                    .transitions
+                    .len()
+                    .saturating_sub(job.cleanup.transition_offset)
+                    > usize::from(job.max_transitions))
             || job
                 .transitions
                 .iter()
                 .flat_map(|t| &t.handlers)
                 .filter(|r| r.claim_id.is_some())
-                .count().saturating_sub(job.cleanup.action_offset)
+                .count()
+                .saturating_sub(job.cleanup.action_offset)
                 > super::action_limit(job)
         {
             return Err("invalid blueprint budgets or retention".into());

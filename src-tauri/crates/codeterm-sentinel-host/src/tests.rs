@@ -275,7 +275,7 @@ fn sentinel_routes_are_closed_set() {
 
 fn create_params() -> super::store::Create {
     super::store::Create {
-            note: None,
+        note: None,
         terminal: None,
         session: false,
         name: Some("ci-result-watch".into()),

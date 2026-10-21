@@ -369,8 +369,7 @@ fn sentinel_input_flags_parse_and_conflict() {
         ],
     ] {
         assert!(
-            Cli::try_parse_from(input_prefix().into_iter().chain(invalid.iter().copied()))
-                .is_err(),
+            Cli::try_parse_from(input_prefix().into_iter().chain(invalid.iter().copied())).is_err(),
             "{invalid:?}"
         );
     }
@@ -468,8 +467,7 @@ fn blueprint_model_classification_is_explicit_and_conflicts_with_patterns() {
         "--buckets",
         "ready",
     ];
-    let parsed =
-        Cli::try_parse_from(base.into_iter().chain(["--model-classification"])).unwrap();
+    let parsed = Cli::try_parse_from(base.into_iter().chain(["--model-classification"])).unwrap();
     assert!(matches!(
         parsed.command,
         Commands::Blueprint {
@@ -500,13 +498,34 @@ fn blueprint_model_classification_is_explicit_and_conflicts_with_patterns() {
 #[test]
 fn blueprint_notes_parse_on_create_and_update_and_reject_unbounded_text() {
     let cli = Cli::try_parse_from([
-        "codeterm", "blueprint", "create", "--recipe", "echo", "--note", "Reports failed jobs",
-    ]).unwrap();
-    assert!(matches!(cli.command, Commands::Blueprint { action: BlueprintAction::Create { note: Some(note), .. } } if note == "Reports failed jobs"));
+        "codeterm",
+        "blueprint",
+        "create",
+        "--recipe",
+        "echo",
+        "--note",
+        "Reports failed jobs",
+    ])
+    .unwrap();
+    assert!(
+        matches!(cli.command, Commands::Blueprint { action: BlueprintAction::Create { note: Some(note), .. } } if note == "Reports failed jobs")
+    );
     let cli = Cli::try_parse_from([
-        "codeterm", "blueprint", "update", "blueprint-a", "--expect-version", "2", "--from-file", "definition.json", "--note", "Next release watcher",
-    ]).unwrap();
-    assert!(matches!(cli.command, Commands::Blueprint { action: BlueprintAction::Update { note: Some(note), .. } } if note == "Next release watcher"));
+        "codeterm",
+        "blueprint",
+        "update",
+        "blueprint-a",
+        "--expect-version",
+        "2",
+        "--from-file",
+        "definition.json",
+        "--note",
+        "Next release watcher",
+    ])
+    .unwrap();
+    assert!(
+        matches!(cli.command, Commands::Blueprint { action: BlueprintAction::Update { note: Some(note), .. } } if note == "Next release watcher")
+    );
     assert!(parse_blueprint_note(&"a".repeat(200)).is_ok());
     assert!(parse_blueprint_note(&"a".repeat(201)).is_err());
     assert!(parse_blueprint_note("line one\nline two").is_err());

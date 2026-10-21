@@ -218,9 +218,15 @@ fn stopped_cleanup_deadline_waits_for_the_whole_graph_and_keeps_team_scope() {
     foreign.scenario_id = Some(root.id.clone());
     foreign.team_id = Some("other-team".into());
     let mut jobs = vec![root.clone(), child, foreign];
-    assert_eq!(deletion_deadline(&jobs, &root, &BTreeSet::new()), Some(1_802_000));
+    assert_eq!(
+        deletion_deadline(&jobs, &root, &BTreeSet::new()),
+        Some(1_802_000)
+    );
     assert!(expired_roots(&jobs, &BTreeSet::new(), 1_801_000).is_empty());
-    assert_eq!(expired_roots(&jobs, &BTreeSet::new(), 1_802_000)[0].id, root.id);
+    assert_eq!(
+        expired_roots(&jobs, &BTreeSet::new(), 1_802_000)[0].id,
+        root.id
+    );
     assert!(expired_roots(&jobs, &BTreeSet::from(["cleanup-child".into()]), 1_802_000).is_empty());
     jobs[1].machine.stopped = false;
     jobs[1].cleanup.sync(false, 1_802_000);
