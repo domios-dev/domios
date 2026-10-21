@@ -2950,6 +2950,7 @@ button,
   align-items: center;
   gap: 5px;
   border: 0;
+  margin-top: 4px;
   padding: 5px 10px 2px 8px;
   background: transparent;
 }
@@ -2966,7 +2967,7 @@ button,
 }
 
 .sidebar-team-workers-toggle {
-  align-items: baseline;
+  align-items: center;
   line-height: 20px;
   text-decoration: none;
 }
