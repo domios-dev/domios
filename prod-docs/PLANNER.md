@@ -81,10 +81,7 @@ Orchestrator side: `codeterm docs LANES`.
 5. **Self-review** — `codeterm plan doctor <plan> --kind quality`; fix coverage
    gaps and vague briefs before handing structure back to the Orchestrator.
 
-The whole shape is the **EFFORT model**: GOAL ⟶ Spec (WHAT/WHY) ⊥ Plan (HOW,
-in sections) ⟶ Tasks ⟶ Strides. Spec and Plan are perpendicular surfaces —
-WHAT/WHY lives ONLY in the spec, HOW/phases ONLY in plan sections. Ingesting
-WHAT/WHY into plan sections is the classic mistake the approval gate blocks.
+WHAT/WHY lives only in the Spec, HOW only in plan sections; mixing them is the classic mistake the approval gate blocks.
 
 ## Task quality signals
 
@@ -101,31 +98,20 @@ Effort lineage links use `codeterm effort link --from <plan> --to <plan> --rel
 
 ## Milestones & validation
 
-Tasks are not a flat list — group them into **milestones** and keep later work
-parked until it reaches the frontier.
+Tasks are not a flat list: group them into **milestones**.
 
 ```bash
 codeterm plan kinds set <plan> --kinds "build,integration,release"   # milestone-kind columns
 codeterm plan milestone add <plan> <task> --kind <kind> --text "<what shipped>"
 ```
 
-At each boundary the Orchestrator reruns the merged wave's focused selectors as
-one canonical batch. `plan qa next` may record focused evidence for a group, but
-the optional record does not gate dispatch.
-
 Give each task its group with `--group` and sequence with `depends_on`, never by
-pausing tasks. Pending work in later groups stays parked until it reaches the
-frontier and appears once as a compact count in the plan reminder. Regression
-and retrospective records are optional advisories; they do not gate dispatch.
+pausing tasks. Later groups stay parked until they reach the frontier; group
+regression and retrospective records are optional and never gate dispatch.
 
 ## Reflection at wrap-up
 
-Plan archive succeeds without a retrospective; `plan retrospective` remains
-available for useful closeout notes. Keep `codeterm plan groups close --note` and
-`codeterm orchestrator learn` available for optional group notes and reusable
-lessons; mention them once at most during plan wrap-up, not after every group
-close. Also surface self-improving loops (`plan loop`) and the serialized QA
-queue for `in_review` tasks (`plan qa`).
+Retrospectives are optional (`plan retrospective`, `plan groups close --note`, `orchestrator learn`); mention them once at wrap-up at most.
 
 ## Plans carry their own skills
 
@@ -142,36 +128,26 @@ codeterm plan skill edit <slug> --body-file <path>   # record keep|discard|super
 A task-bound skill read is proven by the caller's live tab binding (API-PLAN), so
 a Worker reads its mandatory skills as soon as it launches.
 
-Promote the plan's skills in every worker brief. The canonical seed is a
-**gap-analysis / verify-before-claim** skill: before execution, list the
-structural claims each task makes and verify EACH against the codebase with
-grep/read (do parent dirs exist? do these model fields/related-names exist? is
-this really a single chokepoint?). `plan doctor` checks plan *structure*; it
-cannot check plan-vs-codebase *truth* — that gap is exactly what a
-verify-before-claim pass closes, and it belongs as a bundled plan skill so it
-runs between `structure_ready` and `approved` on every plan.
+Promote the plan's skills in every worker brief. Seed every plan with a
+**verify-before-claim** skill: before execution, check each structural claim a
+task makes against the code (paths, fields, chokepoints); `plan doctor` checks
+structure, not truth.
 
 ## Worker conditioning and routing
 
 Every task carries an executor role, a one-word persona, and worker
 conditioning. `--model` remains an optional routing choice.
 
-- `--personality <name>` — the executor's one-word name. **Required by
-  `plan task add`** (a task without one dispatches a worker titled `Worker`);
-  `plan task update` can set it and refuses to blank it. Pick a word a person can
-  easily say: when one word captures the work, use it (`Cartographer` for a
-  docs-map task); otherwise an ordinary, memorable Latin-script name, sometimes
-  a funny one if it sticks. Never a name hard to read or pronounce.
-- `--executor-role <role>` — the specialization (e.g. `rust-backend-dev`,
-  `frontend-dev`, `docs-sync`). Scopes what surface they own. **Required by
-  `plan task add`**, and `plan task update` refuses to blank it. The check is
-  presence only — no vocabulary is enforced, because any lexical floor is
-  satisfiable by a longer shrug. A plan holding a roleless task does not approve.
+All three are required by `plan task add`.
+
+- `--personality <name>` — the executor's one-word name a person can easily say:
+  a word that captures the work (`Cartographer` for a docs-map task) or an
+  ordinary, memorable Latin-script name.
+- `--executor-role <role>` — the specialization (`rust-backend-dev`,
+  `frontend-dev`, `docs-sync`) that scopes the surface they own.
 - `--role-guidance "<brief>"` — a **second-person brief**, not abstract
-  principles. It is **required by `plan task add`**, and `plan task update`
-  refuses to blank it. Presence alone is the machine contract; prose quality
-  remains a human judgment. Say who the worker IS, what EXACTLY they do on this
-  task, and their personal RED LINE (what counts as failing it):
+  principles: who the worker IS, what EXACTLY they do on this task, and their
+  personal RED LINE (what counts as failing it):
 
   > `You are Alex, a domain-algorithm engineer obsessed with provable
   > correctness. Property tests come BEFORE implementation; the contract is the
@@ -189,4 +165,4 @@ Never require a lane in a task; checkout placement is the Orchestrator's call.
 When blocked or unclear on intent, ask the Orchestrator with what you already
 tried; uncertainty routed early is planning working.
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
