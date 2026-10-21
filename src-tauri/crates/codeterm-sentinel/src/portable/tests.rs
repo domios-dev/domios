@@ -170,3 +170,31 @@ fn blueprint_import_accepts_legacy_export_handler_keys() {
     let public = definition(&job);
     assert_eq!(public["create"]["handlers"]["done"][0]["type"], "blueprint");
 }
+
+#[test]
+fn exported_source_recipes_keep_kind_when_inputs_and_routes_are_edited() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::new(dir.path().join("jobs.json"), codeterm_cron::clock::MockClock::starting_at(1000));
+    for kind in [
+        json!({"kind":"github", "probe":{"repo":"owner/project", "resource":"run", "id":42}}),
+        json!({"kind":"github", "probe":{"org":"owner", "resource":"runners", "label":"linux-build"}}),
+        json!({"kind":"http", "probe":{"url":"https://example.com/health", "expected_status":"204", "timeout_ms":1000}}),
+    ] {
+        let spec = serde_json::from_value(json!({"name":"Source watch", "trigger":{"type":"schedule","every":"20s"}, "steps":[{"name":"check", "input":"text", "kind":kind}]})).unwrap();
+        let job = store.prepare_pipeline(spec, owner("source-team"), false).unwrap();
+        let recipe = export(&job).unwrap();
+        let mut edited = Recipe::parse(&serde_json::to_string(&recipe).unwrap()).unwrap();
+        edited.definition["spec"]["name"] = "Customized exported watch".into();
+        edited.definition["spec"]["trigger"]["every"] = "30s".into();
+        let state = if kind["kind"] == "http" { "down" } else if kind["probe"]["resource"] == "runners" { "offline" } else { "failing" };
+        edited.definition["spec"]["steps"][0]["on"] = json!({});
+        edited.definition["spec"]["steps"][0]["on"][state] = "stop".into();
+        let bound = edited.bind(&bindings(&recipe, &definition(&job))).unwrap();
+        let imported = store.prepare_pipeline(serde_json::from_value(bound["spec"].clone()).unwrap(), owner("target-team"), false).unwrap();
+        let restored = serde_json::to_value(imported.pipeline().unwrap()).unwrap();
+        assert_eq!(restored["steps"][0]["kind"]["kind"], kind["kind"]);
+        assert_eq!(restored["steps"][0]["kind"]["probe"], serde_json::to_value(job.pipeline().unwrap()).unwrap()["steps"][0]["kind"]["probe"]);
+        assert_eq!(restored["trigger"]["every"], "30s");
+        assert_eq!(restored["steps"][0]["on"][state], "stop");
+    }
+}

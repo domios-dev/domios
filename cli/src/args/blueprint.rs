@@ -5,6 +5,9 @@ pub enum BlueprintAction {
     /// List built-in graph skeletons or print one ready-to-edit recipe
     Recipe { name: Option<String> },
     /// Classify a bounded probe or same-Team agent observation
+    #[command(
+        after_help = "GitHub CI run example:\n  codeterm blueprint create --recipe github --set repo=cli/cli --set resource=run --set id=39652641013"
+    )]
     #[command(group = clap::ArgGroup::new("input_source").args(["input_file", "input_url", "input_text"]).multiple(false).required(false))]
     Create {
         /// JSON or YAML pipeline specification, or `-` to read standard input

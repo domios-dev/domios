@@ -7,6 +7,7 @@ pub(super) struct Recipe {
     pub summary: String,
     pub handlers: String,
     pub command: String,
+    pub defaults: std::collections::BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spec: Option<serde_json::Value>,
 }
@@ -69,11 +70,15 @@ fn parse_catalog(source: &str) -> Result<Vec<Recipe>, String> {
                 "recipe `{name}` has a duplicate name or incomplete dry-run skeleton"
             ));
         }
+        let defaults = if pipeline {
+            fenced(body, "json").map(serde_json::from_str).transpose().map_err(|error| format!("recipe `{name}` defaults: {error}"))?.unwrap_or_default()
+        } else { std::collections::BTreeMap::new() };
         recipes.push(Recipe {
             name: name.into(),
             summary: summary.into(),
             handlers,
             command: command.into(),
+            defaults,
             spec,
         });
         remaining = rest;
@@ -81,12 +86,30 @@ fn parse_catalog(source: &str) -> Result<Vec<Recipe>, String> {
     Ok(recipes)
 }
 
+#[cfg(test)]
 pub(super) fn pipeline_spec(name: &str) -> Result<serde_json::Value, String> {
     recipes()?
         .into_iter()
         .find(|recipe| recipe.name == name)
         .and_then(|recipe| recipe.spec)
         .ok_or_else(|| format!("unknown pipeline recipe `{name}`"))
+}
+
+pub(super) fn bound_pipeline_spec(name: &str, assignments: &[String]) -> Result<serde_json::Value, String> {
+    let recipe = recipes()?.into_iter().find(|recipe| recipe.name == name).ok_or_else(|| format!("unknown pipeline recipe `{name}`"))?;
+    let mut value = recipe.spec.ok_or_else(|| format!("recipe `{name}` is not a pipeline"))?;
+    let mut merged = recipe.defaults.iter().filter(|(key, _)| !assignments.iter().any(|assignment| assignment.split_once('=').is_some_and(|(input, _)| input == key.as_str()))).map(|(key,value)| format!("{key}={value}")).collect::<Vec<_>>();
+    merged.extend_from_slice(assignments);
+    codeterm_blueprint_types::blueprint_recipe::substitute(&mut value, &merged)?;
+    codeterm_blueprint_types::blueprint_recipe::normalize_pipeline_inputs(&mut value)?;
+    if let Some(steps) = value.get_mut("steps").and_then(serde_json::Value::as_array_mut) {
+        for step in steps {
+            if step.pointer("/kind/probe/resource").and_then(serde_json::Value::as_str) == Some("pr_checks") {
+                if let Some(on) = step.get_mut("on").and_then(serde_json::Value::as_object_mut) { on.remove("failing"); }
+            }
+        }
+    }
+    Ok(value)
 }
 
 fn fenced<'a>(body: &'a str, language: &str) -> Option<&'a str> {
@@ -117,6 +140,7 @@ pub(super) fn print(json_mode: bool, name: Option<&str>) {
             crate::cmd::print::print_json(&serde_json::to_value(recipe).unwrap_or_default());
         } else {
             if let Some(spec) = &recipe.spec {
+                println!("Defaults (override with --set): {}", serde_json::to_string(&recipe.defaults).unwrap_or_default());
                 println!(
                     "Recipe: {}\n{}\n\nSpecification:\n{}\n\nDry-run command:\n{}",
                     recipe.name,
@@ -136,86 +160,9 @@ pub(super) fn print(json_mode: bool, name: Option<&str>) {
         for recipe in recipes {
             println!("{} â€” {}", recipe.name, recipe.summary);
         }
-        println!("\nPrint a ready handlers file and --dry-run command with `codeterm blueprint recipe <name>`.");
+        println!("\nPrint a ready-to-edit specification or handlers file and --dry-run command with `codeterm blueprint recipe <name>`.");
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::Value;
-
-    #[test]
-    fn blueprint_recipe_catalog_includes_echo_and_both_definition_kinds() {
-        let recipes = recipes().unwrap();
-        assert!(recipes.iter().any(|recipe| recipe.spec.is_none()));
-        let echo = recipes.iter().find(|recipe| recipe.name == "echo").unwrap();
-        assert_eq!(
-            echo.spec.as_ref().unwrap()["steps"][0]["kind"]["kind"],
-            "command"
-        );
-        assert_eq!(pipeline_spec("echo").unwrap(), *echo.spec.as_ref().unwrap());
-    }
-
-    #[test]
-    fn every_recipe_contains_handlers_and_a_dry_run_create_command() {
-        use clap::Parser;
-
-        for recipe in recipes()
-            .unwrap()
-            .into_iter()
-            .filter(|recipe| recipe.spec.is_none())
-        {
-            let handlers: Value = serde_json::from_str(&recipe.handlers).unwrap();
-            let dir = tempfile::tempdir().unwrap();
-            let path = dir.path().join("handlers.json");
-            std::fs::write(&path, &recipe.handlers).unwrap();
-            let mut command = recipe
-                .command
-                .split_whitespace()
-                .map(|part| part.trim_matches(|character| character == '\'' || character == '"'))
-                .map(str::to_string)
-                .collect::<Vec<_>>();
-            let handlers_arg = command
-                .windows(2)
-                .position(|pair| pair[0] == "--handlers-file")
-                .map(|index| index + 1)
-                .unwrap();
-            command[handlers_arg] = path.to_string_lossy().into_owned();
-            assert_eq!(command.first().map(String::as_str), Some("codeterm"));
-            assert_eq!(command.get(1).map(String::as_str), Some("blueprint"));
-            assert_eq!(command.get(2).map(String::as_str), Some("create"));
-            let buckets = command
-                .windows(2)
-                .find(|pair| pair[0] == "--buckets")
-                .map(|pair| pair[1].split(',').map(str::to_string).collect::<Vec<_>>())
-                .unwrap();
-            let normalized = super::super::handlers::validate_handler_file(handlers, &buckets)
-                .unwrap_or_else(|error| panic!("recipe {}: {error}", recipe.name));
-            assert!(normalized.is_object());
-            let cli = crate::args::cli::Cli::try_parse_from(command).unwrap();
-            assert!(
-                recipe.command.contains("--timeout "),
-                "recipe {} omitted the composition timeout",
-                recipe.name
-            );
-            let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-                panic!("recipe command did not parse as blueprint create")
-            };
-            let crate::args::blueprint::BlueprintAction::Create { name, dry_run, .. } = &action
-            else {
-                panic!("recipe command did not parse as blueprint create")
-            };
-            assert!(*dry_run, "recipe {} omitted --dry-run", recipe.name);
-            codeterm_blueprint_types::automation_name::validate_sentinel_name(
-                name.as_deref().unwrap_or(""),
-            )
-            .unwrap_or_else(|error| panic!("recipe {}: {error}", recipe.name));
-            let (method, params) =
-                super::super::request(action, Some("creator".into()), Some("nonce".into()))
-                    .unwrap();
-            assert_eq!(method, "blueprint.validate.create");
-            assert_eq!(params["create"]["handlers"], normalized);
-        }
-    }
-}
+mod tests;
