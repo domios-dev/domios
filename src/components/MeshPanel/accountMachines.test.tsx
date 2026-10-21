@@ -169,7 +169,7 @@ describe("My machines account transitions", () => {
     const root = createRoot(host);
     const render = (account: AccountPresence) => root.render(
       <AccountMeshClientProvider value={client}>
-        <MyMachines account={account} onSignIn={() => {}} onFailure={() => {}} onPlanLimit={() => {}} now={() => NOW} />
+        <MyMachines account={account} onSignIn={() => {}} onFailure={() => {}} now={() => NOW} />
       </AccountMeshClientProvider>,
     );
     try {

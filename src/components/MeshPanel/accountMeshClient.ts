@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import { invoke, listen } from "../../lib/bridge";
+import { AccountMeshRefusalError } from "../billing/accountMeshLimit";
 
 /** Exact registry slot identity the server checks before revoke or link. */
 export interface MeshTarget {
@@ -60,10 +61,13 @@ export interface AccountMeshSnapshot {
   pairs: LocalPairFact[];
 }
 
+type LinkResult = { ok: true } | { ok: false; request_id: string; failure: AccountMeshFailure };
+
 export interface AccountMeshClient {
   snapshot(): Promise<AccountMeshSnapshot>;
   subscribe(onChange: () => void): () => void;
-  link(target: MeshTarget): Promise<AccountMeshOutcome>;
+  /** Resolves after the authorized handshake; a server refusal rejects with `AccountMeshRefusalError`. */
+  link(target: MeshTarget): Promise<void>;
   renameSelf(expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
   revoke(target: MeshTarget): Promise<AccountMeshOutcome>;
   unpair(instanceId: string): Promise<void>;
@@ -95,7 +99,10 @@ export const bridgeAccountMeshClient: AccountMeshClient = {
       window.removeEventListener("domios:account-changed", onChange);
     };
   },
-  link: (target) => invoke<AccountMeshOutcome>(COMMANDS.link, { target }),
+  async link(target) {
+    const result = await invoke<LinkResult>(COMMANDS.link, { target });
+    if (!result.ok) throw new AccountMeshRefusalError({ requestId: result.request_id, refusal: result.failure });
+  },
   renameSelf: (expectedMetadataRevision, displayName) =>
     invoke<AccountMeshOutcome>(COMMANDS.renameSelf, { expectedMetadataRevision, displayName }),
   revoke: (target) => invoke<AccountMeshOutcome>(COMMANDS.revoke, { target }),
@@ -106,11 +113,16 @@ const AccountMeshClientContext = createContext<AccountMeshClient>(bridgeAccountM
 export const AccountMeshClientProvider = AccountMeshClientContext.Provider;
 export const useAccountMeshClient = () => useContext(AccountMeshClientContext);
 
-export function meshTarget(row: MeshTarget): MeshTarget {
-  return {
-    installation_id: row.installation_id,
-    key_id: row.key_id,
-    key_generation: row.key_generation,
-    slot_revision: row.slot_revision,
-  };
+const FAILURE_REASONS = new Set<string>([
+  "invalid", "unauthenticated", "app-check", "forbidden", "conflict", "authority-unavailable", "unavailable",
+  "rate-limited", "mesh.machines", "offline", "peer-unreachable", "handshake-failed", "signed-out",
+]);
+
+/** The typed failure a rejected link carries; anything unrecognized is reported as unavailable. */
+export function linkFailure(error: unknown): AccountMeshFailure {
+  if (!(error instanceof AccountMeshRefusalError)) return { reason: "unavailable" };
+  const refusal = error.notice.refusal as { reason?: unknown } | null;
+  return refusal && typeof refusal.reason === "string" && FAILURE_REASONS.has(refusal.reason)
+    ? refusal as AccountMeshFailure
+    : { reason: "unavailable" };
 }

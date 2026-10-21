@@ -11,7 +11,9 @@ import {
   type MachineStatus,
   type SelfRowView,
 } from "./accountMachines";
+import { openOnMeshRefusal } from "../billing/accountMeshLimit";
 import {
+  linkFailure,
   useAccountMeshClient,
   type AccountMeshFailure,
   type AccountMeshOutcome,
@@ -19,13 +21,10 @@ import {
   type MeshTarget,
 } from "./accountMeshClient";
 
-type PlanLimitFailure = Extract<AccountMeshFailure, { reason: "mesh.machines" }>;
-
 export interface MyMachinesProps {
   account: AccountPresence;
   onSignIn: () => void | Promise<void>;
   onFailure: (operation: string, failure: AccountMeshFailure) => void;
-  onPlanLimit: (failure: PlanLimitFailure) => void;
   onChanged?: () => void;
   now?: () => number;
 }
@@ -61,7 +60,7 @@ async function settle(run: () => Promise<AccountMeshOutcome>): Promise<AccountMe
   }
 }
 
-export default function MyMachines({ account, onSignIn, onFailure, onPlanLimit, onChanged, now = epochSeconds }: MyMachinesProps) {
+export default function MyMachines({ account, onSignIn, onFailure, onChanged, now = epochSeconds }: MyMachinesProps) {
   const client = useAccountMeshClient();
   const [snapshot, setSnapshot] = useState<AccountMeshSnapshot | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -119,11 +118,6 @@ export default function MyMachines({ account, onSignIn, onFailure, onPlanLimit, 
     else controls.current.delete(key);
   };
 
-  const report = (operation: string, failure: AccountMeshFailure) => {
-    if (failure.reason === "mesh.machines") onPlanLimit(failure);
-    else onFailure(operation, failure);
-  };
-
   const signIn = async () => {
     setSigningIn(true);
     try {
@@ -135,15 +129,21 @@ export default function MyMachines({ account, onSignIn, onFailure, onPlanLimit, 
 
   const add = async (row: MachineRowView, target: MeshTarget) => {
     setLinking((current) => new Set(current).add(target.installation_id));
-    const outcome = await settle(() => client.link(target));
-    if (!outcome.ok) {
+    let failure: AccountMeshFailure | null = null;
+    let planLimit = false;
+    try {
+      planLimit = await openOnMeshRefusal(async () => { await client.link(target); return true; }) === undefined;
+    } catch (error) {
+      failure = linkFailure(error);
+    }
+    if (failure || planLimit) {
       setLinking((current) => {
         const next = new Set(current);
         next.delete(target.installation_id);
         return next;
       });
-      report(`link ${row.name}`, outcome.failure);
     }
+    if (failure) onFailure(`link ${row.name}`, failure);
     onChanged?.();
     await load();
   };
@@ -153,7 +153,7 @@ export default function MyMachines({ account, onSignIn, onFailure, onPlanLimit, 
     const outcome = await settle(() => client.revoke(target));
     setBusy(null);
     if (!outcome.ok) {
-      report(`revoke ${row.name}`, outcome.failure);
+      onFailure(`revoke ${row.name}`, outcome.failure);
       refocus(`${row.key}:confirm-revoke`);
       return;
     }
@@ -258,7 +258,7 @@ export default function MyMachines({ account, onSignIn, onFailure, onPlanLimit, 
             if (!self) return false;
             const outcome = await settle(() => client.renameSelf(self.metadataRevision, name));
             if (!outcome.ok) {
-              report("rename this machine", outcome.failure);
+              onFailure("rename this machine", outcome.failure);
               return false;
             }
             await load();

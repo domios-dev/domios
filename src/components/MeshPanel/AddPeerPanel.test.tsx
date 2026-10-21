@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MyMachines, { type MyMachinesProps } from "./AddPeerPanel";
 import { SIGN_IN_COPY, SIGNED_OUT_COPY, type AccountPresence } from "./accountMachines";
 import { AccountMeshClientProvider, type AccountMeshSnapshot } from "./accountMeshClient";
+import { AccountMeshRefusalError } from "../billing/accountMeshLimit";
+import { freeLimitGate } from "../billing/freeLimitGate";
 import { airRow, deferred, FakeAccountMeshClient, lenovoRow, macRow, NOW, pair, selfRow, snapshot, targetOf } from "./accountMachines.testdata";
 
 let host: HTMLDivElement;
@@ -22,7 +24,7 @@ afterEach(async () => {
 });
 
 function handlers() {
-  return { onSignIn: vi.fn(), onFailure: vi.fn(), onPlanLimit: vi.fn(), onChanged: vi.fn() };
+  return { onSignIn: vi.fn(), onFailure: vi.fn(), onChanged: vi.fn() };
 }
 
 async function mount(client: FakeAccountMeshClient, account: AccountPresence, props: Partial<MyMachinesProps> = {}) {
@@ -70,7 +72,6 @@ describe("My machines sign-in surface", () => {
             now={() => NOW}
             onSignIn={() => { client.state = snapshot(); setPresence("signed_in"); }}
             onFailure={() => {}}
-            onPlanLimit={() => {}}
           />
         </AccountMeshClientProvider>
       );
@@ -112,7 +113,7 @@ describe("My machines Add", () => {
     expect(button("Add MacBook")?.getAttribute("aria-busy")).toBe("true");
     expect(button("Add Lenovo")?.disabled).toBe(false);
 
-    await act(async () => client.linkOutcome.resolve({ ok: true }));
+    await act(async () => client.linkOutcome.resolve());
     expect(account("MacBook")?.getAttribute("data-status")).toBe("linking");
 
     await act(async () => client.emit(snapshot({ pairs: [pair("mesh-mac", "mac.local", { installation_id: macRow.installation_id })] })));
@@ -136,22 +137,33 @@ describe("My machines Add", () => {
     const client = new FakeAccountMeshClient(snapshot());
     const spies = await mount(client, "signed_in");
     await click(button("Add MacBook"));
-    await act(async () => client.linkOutcome.resolve({ ok: false, failure: { reason: "peer-unreachable" } }));
+    await act(async () => client.linkOutcome.reject(new AccountMeshRefusalError({ requestId: "req-unreachable", refusal: { reason: "peer-unreachable" } })));
     expect(spies.onFailure).toHaveBeenCalledWith("link MacBook", { reason: "peer-unreachable" });
-    expect(spies.onPlanLimit).not.toHaveBeenCalled();
+    expect(freeLimitGate.current()).toBeNull();
     expect(account("MacBook")?.getAttribute("data-status")).toBe("unlinked");
     expect(button("Add MacBook")?.disabled).toBe(false);
+
+    client.linkOutcome = deferred<void>();
+    await click(button("Add MacBook"));
+    await act(async () => client.linkOutcome.reject(new Error("transport closed")));
+    expect(spies.onFailure).toHaveBeenLastCalledWith("link MacBook", { reason: "unavailable" });
+    expect(account("MacBook")?.getAttribute("data-status")).toBe("unlinked");
   });
 
-  it("routes a machine-limit refusal to the plans handler only", async () => {
+  it("opens the plans modal for the server's machine-limit refusal instead of a toast", async () => {
     const client = new FakeAccountMeshClient(snapshot());
     const spies = await mount(client, "signed_in");
     await click(button("Add Lenovo"));
     const refusal = { reason: "mesh.machines" as const, limit: 2, active_count: 2 };
-    await act(async () => client.linkOutcome.resolve({ ok: false, failure: refusal }));
-    expect(spies.onPlanLimit).toHaveBeenCalledWith(refusal);
-    expect(spies.onFailure).not.toHaveBeenCalled();
-    expect(account("Lenovo")).not.toBeNull();
+    try {
+      await act(async () => client.linkOutcome.reject(new AccountMeshRefusalError({ requestId: "req-limit", refusal })));
+      expect(freeLimitGate.current()).toEqual({ key: "mesh.machines", requestId: "req-limit", limit: 2, activeCount: 2 });
+      expect(spies.onFailure).not.toHaveBeenCalled();
+      expect(account("Lenovo")?.getAttribute("data-status")).toBe("unlinked");
+      expect(button("Add Lenovo")?.disabled).toBe(false);
+    } finally {
+      freeLimitGate.close();
+    }
   });
 
   it("refreshes from change events, not timers", async () => {

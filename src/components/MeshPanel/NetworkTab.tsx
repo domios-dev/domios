@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { Users } from "lucide-react";
 import MyMachines from "./AddPeerPanel";
-import { accountPresence, failureMessage, meshFailureToast } from "./accountMachines";
+import { accountPresence, meshFailureToast } from "./accountMachines";
 import type { AccountMeshFailure } from "./accountMeshClient";
 import { SettingsPage, SettingsCard } from "../Settings/shared";
 import { useAccount } from "../Settings/useAccount";
@@ -25,10 +25,6 @@ export function NetworkTab({ triggerRefresh }: Props) {
     upsertToast(meshFailureToast(operation, failure));
   }, [upsertToast]);
 
-  const onPlanLimit = useCallback((failure: Extract<AccountMeshFailure, { reason: "mesh.machines" }>) => {
-    upsertToast({ ...meshFailureToast("link another machine", failure), title: "Machine limit reached", body: `${failureMessage(failure)} Upgrade to link more machines.` });
-  }, [upsertToast]);
-
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6">
@@ -42,7 +38,6 @@ export function NetworkTab({ triggerRefresh }: Props) {
               account={accountPresence(account.model.kind)}
               onSignIn={signIn}
               onFailure={onFailure}
-              onPlanLimit={onPlanLimit}
               onChanged={triggerRefresh}
             />
           </SettingsCard>
