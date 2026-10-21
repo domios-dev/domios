@@ -264,5 +264,12 @@
   "src/components/shared/deferredComponent.memo.test.tsx",
   "src/store/multiplexer/muxFanout.test.ts",
   "src/components/Sidebar/sidebarRowMemo.test.tsx",
-  "src/store/multiplexer/freeLimitRefusal.test.ts"
+  "src/components/billing/freeLimitModel.test.ts",
+  "src/components/billing/FreeLimitPlansModal.test.tsx",
+  "src/components/billing/freeLimitTriggers.test.tsx",
+  "src/components/billing/scenarios/paid.test.tsx",
+  "src/components/billing/scenarios/grace.test.tsx",
+  "src/components/billing/scenarios/expired.test.tsx",
+  "src/components/billing/scenarios/admin.test.tsx",
+  "src/components/billing/scenarios/free.test.tsx"
 ]

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
+import { freeLimitGate } from "../billing/freeLimitGate";
 import { accountPlanModel, type AccountPlan, type PlanModel } from "./accountPlanModel";
 
 export function useAccountPlan(identityKey: string | null) {
@@ -17,7 +18,10 @@ export function useAccountPlan(identityKey: string | null) {
         const response = await localFetch(`/api/account/plan${focus ? "/refresh" : ""}`, {method:focus ? "POST" : "GET",signal:controller.signal});
         if (!response.ok) throw new Error(await response.text());
         const value = await response.json() as AccountPlan;
-        if (active.current === generation) setPlan(accountPlanModel(value));
+        if (active.current !== generation) return;
+        const model = accountPlanModel(value);
+        freeLimitGate.setLimits(model.limits);
+        setPlan(model);
       } catch (failure: unknown) {
         if (!controller.signal.aborted && active.current === generation) {
           if (DEV_BUILD) console.debug("Background account plan refresh failed", failure);
