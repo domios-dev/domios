@@ -4,7 +4,7 @@ use super::*;
 
 pub(super) fn provider_file(relative: &str) -> String {
     std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        crate::test_support::fixture_manifest_dir()
             .join("../../../plugins/provider-claude")
             .join(relative),
     )
