@@ -57,6 +57,7 @@ fn raw(root: &Path) -> Connection {
 
 fn identity(id: &str) -> SentinelIdentity {
     SentinelIdentity {
+        creation_options: None,
         id: SentinelId::new(id).unwrap(),
         scope: SentinelScope {
             creator_tab_id: "tab-author".into(),
@@ -489,4 +490,60 @@ fn blueprint_stage_source_storage_codec_round_trips_all_variants() {
             .unwrap();
         assert_eq!(stored.record.definition.definition.source, source);
     }
+}
+#[test]
+fn blueprint_names_are_unique_per_team_workspace_and_options_persist() {
+    let (_root, storage) = storage();
+    let repo = storage.sentinels();
+    let make = |id: &str, team: &str| {
+        let mut identity = identity(id);
+        identity.scope.team_id = Some(team.into());
+        identity.creation_options =
+            Some(codeterm_blueprint_types::blueprint_watch::CreationOptions {
+                timeout_ms: Some(3600000),
+                paused: true,
+            });
+        SentinelCreate {
+            identity,
+            scenario_id: None,
+            definition: definition(StageSource::Probe("echo done".into())),
+            runtime: runtime(),
+            associate: Vec::new(),
+        }
+    };
+    repo.create(make("blueprint_first", "team_a"))
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    assert!(repo
+        .create(make("blueprint_duplicate", "team_a"))
+        .wait(Duration::from_secs(5))
+        .is_err());
+    repo.create(make("blueprint_other_team", "team_b"))
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let stored = repo
+        .get(id("blueprint_first"))
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .value
+        .unwrap();
+    assert_eq!(
+        stored
+            .record
+            .identity
+            .creation_options
+            .as_ref()
+            .unwrap()
+            .timeout_ms,
+        Some(3600000)
+    );
+    assert!(
+        stored
+            .record
+            .identity
+            .creation_options
+            .as_ref()
+            .unwrap()
+            .paused
+    );
 }

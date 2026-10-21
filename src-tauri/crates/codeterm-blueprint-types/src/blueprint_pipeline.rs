@@ -265,12 +265,8 @@ pub fn validate(
             reason,
         });
     }
-    if spec.name.trim().is_empty() || spec.name.len() > 128 || has_control(&spec.name) {
-        error(
-            &mut errors,
-            "name",
-            "must be nonempty, bounded and printable",
-        );
+    if let Err(reason) = crate::automation_name::validate_sentinel_name(&spec.name) {
+        error(&mut errors, "name", &reason);
     }
     match &spec.trigger {
         Trigger::Schedule { every } if !valid_duration(every) => {
@@ -392,7 +388,9 @@ pub fn validate(
                 }
             }
             StepKind::Command { command }
-                if command.trim().is_empty() || command.len() > MAX_COMMAND_BYTES =>
+                if command.trim().is_empty()
+                    || command.len() > MAX_COMMAND_BYTES
+                    || command.contains('\0') =>
             {
                 error(
                     &mut errors,
@@ -641,45 +639,9 @@ fn has_control(value: &str) -> bool {
 }
 
 fn valid_duration(value: &str) -> bool {
-    if value.is_empty() || value.len() > 32 {
-        return false;
-    }
-    let mut number = 0u64;
-    let mut has_digits = false;
-    let mut total = 0u64;
-    for byte in value.bytes() {
-        if byte.is_ascii_digit() {
-            has_digits = true;
-            let Some(next) = number
-                .checked_mul(10)
-                .and_then(|value| value.checked_add((byte - b'0') as u64))
-            else {
-                return false;
-            };
-            number = next;
-            continue;
-        }
-        let factor = match byte {
-            b's' => 1,
-            b'm' => 60,
-            b'h' => 3_600,
-            b'd' => 86_400,
-            _ => return false,
-        };
-        if !has_digits {
-            return false;
-        }
-        let Some(next) = number
-            .checked_mul(factor)
-            .and_then(|value| total.checked_add(value))
-        else {
-            return false;
-        };
-        total = next;
-        number = 0;
-        has_digits = false;
-    }
-    !has_digits && total >= 10
+    value.ends_with(['s', 'm', 'h', 'd'])
+        && crate::blueprint_watch::duration_ms(value)
+            .is_ok_and(|duration| duration >= crate::blueprint_watch::MIN_INTERVAL_MS)
 }
 
 fn error(errors: &mut Vec<ValidationError>, field: &str, reason: &str) {

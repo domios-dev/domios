@@ -1,138 +1,112 @@
-use super::*;
-use serde_json::Value;
+use super::super::{authoring, recipe_files};
+use codeterm_blueprint_types::blueprint_document;
 
 #[test]
-fn blueprint_recipe_catalog_includes_echo_and_both_definition_kinds() {
-    let recipes = recipes().unwrap();
-    assert!(recipes.iter().any(|recipe| recipe.spec.is_none()));
-    let echo = recipes.iter().find(|recipe| recipe.name == "echo").unwrap();
-    assert_eq!(
-        echo.spec.as_ref().unwrap()["steps"][0]["kind"]["kind"],
-        "command"
-    );
-    assert_eq!(pipeline_spec("echo").unwrap(), *echo.spec.as_ref().unwrap());
-}
-
-#[test]
-fn every_recipe_contains_handlers_and_a_dry_run_create_command() {
-    use clap::Parser;
-
-    for recipe in recipes()
-        .unwrap()
-        .into_iter()
-        .filter(|recipe| recipe.spec.is_none())
-    {
-        let handlers: Value = serde_json::from_str(&recipe.handlers).unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("handlers.json");
-        std::fs::write(&path, &recipe.handlers).unwrap();
-        let mut command = recipe
-            .command
-            .split_whitespace()
-            .map(|part| part.trim_matches(|character| character == '\'' || character == '"'))
-            .map(str::to_string)
+fn every_shipped_recipe_checks_with_bindings_and_keeps_routes() {
+    for (name, raw) in recipe_files::FILES {
+        let document: blueprint_document::Document = serde_yaml::from_str(raw).unwrap();
+        let assignments = document
+            .inputs
+            .iter()
+            .filter(|(_, input)| input.default.is_none())
+            .map(|(key, input)| {
+                let value = if input.kind == "integer" {
+                    "42"
+                } else {
+                    match key.as_str() {
+                        "repo" => "owner/repository",
+                        "org" => "organization",
+                        "url" => "https://example.com/health",
+                        "path_to_voice_note" => {
+                            if cfg!(windows) {
+                                "C:/voice.ogg"
+                            } else {
+                                "/tmp/voice.ogg"
+                            }
+                        }
+                        "cron_name_or_id" => "nightly",
+                        "tab_id" => "agent_tab",
+                        _ => "ready",
+                    }
+                };
+                format!("{key}={value}")
+            })
             .collect::<Vec<_>>();
-        let handlers_arg = command
-            .windows(2)
-            .position(|pair| pair[0] == "--handlers-file")
-            .map(|index| index + 1)
-            .unwrap();
-        command[handlers_arg] = path.to_string_lossy().into_owned();
-        assert_eq!(command.first().map(String::as_str), Some("codeterm"));
-        assert_eq!(command.get(1).map(String::as_str), Some("blueprint"));
-        assert_eq!(command.get(2).map(String::as_str), Some("create"));
-        let buckets = command
-            .windows(2)
-            .find(|pair| pair[0] == "--buckets")
-            .map(|pair| pair[1].split(',').map(str::to_string).collect::<Vec<_>>())
-            .unwrap();
-        let normalized = super::super::handlers::validate_handler_file(handlers, &buckets)
-            .unwrap_or_else(|error| panic!("recipe {}: {error}", recipe.name));
-        assert!(normalized.is_object());
-        let cli = crate::args::cli::Cli::try_parse_from(command).unwrap();
-        assert!(
-            recipe.command.contains("--timeout "),
-            "recipe {} omitted the composition timeout",
-            recipe.name
+        let checked = blueprint_document::check(name, raw, &assignments);
+        assert!(checked.ok, "{name}: {:?}", checked.diagnostics);
+        let definition = checked.definition.unwrap();
+        if let Some(steps) = definition
+            .pointer("/spec/steps")
+            .and_then(serde_json::Value::as_array)
+        {
+            assert!(
+                steps.iter().any(|step| step["on"]
+                    .as_object()
+                    .is_some_and(|routes| !routes.is_empty())),
+                "{name}"
+            );
+        }
+        let printed = authoring::scaffold(name).unwrap();
+        assert!(printed.starts_with("# yaml-language-server: $schema="));
+        assert_eq!(
+            blueprint_document::check(name, &printed, &assignments).definition,
+            Some(definition)
         );
-        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-            panic!("recipe command did not parse as blueprint create")
-        };
-        let crate::args::blueprint::BlueprintAction::Create { name, dry_run, .. } = &action else {
-            panic!("recipe command did not parse as blueprint create")
-        };
-        assert!(*dry_run, "recipe {} omitted --dry-run", recipe.name);
-        codeterm_blueprint_types::automation_name::validate_sentinel_name(
-            name.as_deref().unwrap_or(""),
-        )
-        .unwrap_or_else(|error| panic!("recipe {}: {error}", recipe.name));
-        let (method, params) =
-            super::super::request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "blueprint.validate.create");
-        assert_eq!(params["create"]["handlers"], normalized);
     }
 }
 
 #[test]
-fn source_recipes_expose_defaults_and_override_inputs_without_changing_kind() {
-    for (name, assignments, expected_kind) in [
+fn custom_scaffolds_are_checkable_and_unknown_recipes_are_errors() {
+    for kind in ["watch", "pipeline", "command"] {
+        let raw = authoring::scaffold(kind).unwrap();
+        let checked = blueprint_document::check(kind, &raw, &[]);
+        assert!(checked.ok, "{kind}: {:?}", checked.diagnostics);
+    }
+    assert!(authoring::scaffold("unknown-recipe").is_err());
+}
+#[test]
+fn recipe_names_follow_the_target_and_remain_bounded() {
+    for (name, first, second) in [
         (
             "github",
-            vec![
-                "repo=owner/project",
-                "id=42",
-                "resource=pr_checks",
-                "interval=20s",
-                "timeout_ms=5000",
-                "done=stop",
-                "result=notify",
-            ],
-            "github",
-        ),
-        (
-            "github-failing",
-            vec!["repo=owner/project", "id=42", "failing=stop"],
-            "github",
-        ),
-        (
-            "github-runners",
-            vec!["repo=owner/project", "label=linux-build", "offline=stop"],
-            "github",
-        ),
-        (
-            "github-org-runners",
-            vec!["org=owner", "online=stop"],
-            "github",
+            vec!["repo=owner/first", "id=42"],
+            vec!["repo=owner/second", "id=42"],
         ),
         (
             "http-health",
-            vec![
-                "url=https://example.com/health",
-                "expected_status=204",
-                "timeout_ms=1000",
-                "down=stop",
-            ],
-            "http",
+            vec!["url=https://first.example.com/health"],
+            vec!["url=https://second.example.com/health"],
+        ),
+        (
+            "github-runners",
+            vec!["repo=owner/first"],
+            vec!["repo=owner/second"],
+        ),
+        (
+            "github-pr-checks",
+            vec!["repo=owner/first", "id=7"],
+            vec!["repo=owner/first", "id=8"],
         ),
     ] {
-        let assignments = assignments
-            .into_iter()
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        let spec = bound_pipeline_spec(name, &assignments).unwrap();
-        assert_eq!(spec["steps"][0]["kind"]["kind"], expected_kind);
-        let parsed: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec =
-            serde_json::from_value(spec.clone()).unwrap();
+        let raw = authoring::source(name).unwrap();
+        let bind = |values: Vec<&str>| {
+            blueprint_document::check(
+                name,
+                &raw,
+                &values.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+            )
+        };
+        let first = bind(first);
+        let second = bind(second);
         assert!(
-            codeterm_blueprint_types::blueprint_pipeline::validate(&parsed, &[]).is_ok(),
-            "{name}"
+            first.ok && second.ok,
+            "{name}: {:?}; {:?}",
+            first.diagnostics,
+            second.diagnostics
         );
-        if name == "github" {
-            assert_eq!(spec["trigger"]["every"], "20s");
-            assert_eq!(spec["steps"][0]["kind"]["probe"]["timeout_ms"], 5000);
-            assert_eq!(spec["steps"][0]["on"]["done"], "stop");
-            assert!(spec["steps"][0]["on"].get("failing").is_none());
-            assert_eq!(spec["result"]["to"], "notify");
-        }
+        let first = first.definition.unwrap();
+        let second = second.definition.unwrap();
+        assert_ne!(first["spec"]["name"], second["spec"]["name"]);
+        assert!(first["spec"]["name"].as_str().unwrap().chars().count() <= 40);
     }
 }
