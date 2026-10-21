@@ -37,9 +37,12 @@ impl AgentTodoStatus {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AgentTodoWriteItem {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
     content: String,
     status: AgentTodoStatus,
-    #[serde(rename = "activeForm")]
+    #[serde(default, rename = "activeForm")]
     active_form: String,
     #[serde(default)]
     link: Option<String>,
@@ -281,7 +284,7 @@ fn write_declared_todos(
 
 fn write_entry(item: AgentTodoWriteItem) -> Result<TabTodoWriteEntry, String> {
     let active_form = &item.active_form;
-    if active_form.trim().is_empty()
+    if (item.id.is_none() && active_form.trim().is_empty())
         || active_form.chars().count() > MAX_TAB_TODO_TITLE_CHARS
         || active_form.chars().any(char::is_control)
     {
@@ -290,6 +293,7 @@ fn write_entry(item: AgentTodoWriteItem) -> Result<TabTodoWriteEntry, String> {
         ));
     }
     let entry = TabTodoWriteEntry {
+        id: item.id,
         content: item.content,
         state: item.status.state(),
         link: item.link,

@@ -483,6 +483,16 @@ impl ServiceContext {
         }
 
         let mut notices: Vec<String> = Vec::new();
+        if task_status == Some("in_review") {
+            match crate::async_runtime::block_on(self.tab_todo_report_warning(tab_id)) {
+                Ok(Some(warning)) => notices.push(warning),
+                Ok(None) => {}
+                Err(error) => {
+                    notices.push(format!("WARNING: checklist review unavailable: {error}"))
+                }
+            }
+        }
+
         let mut binding_refused = false;
         let report_plan_hint = if matches!(
             plan_only_authority,
