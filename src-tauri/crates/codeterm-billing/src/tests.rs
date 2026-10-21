@@ -1075,3 +1075,6 @@ async fn refused_reply_keeps_the_cached_grant_and_store_bytes() {
         assert_reply_retains_cached_grant(reply).await;
     }
 }
+
+#[path = "plan_payload_tests.rs"]
+mod plan_payload;
