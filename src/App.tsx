@@ -42,6 +42,7 @@ import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
+import { StorageUnavailableToast } from "./components/StorageUnavailableToast";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
@@ -919,14 +920,7 @@ function AppInner() {
             </div>
           )}
           {state.storageUnavailable ? (
-            <div
-              className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm"
-              data-testid="storage-unavailable-empty"
-              role="alert"
-              style={{ color: "var(--ct-fg)" }}
-            >
-              Storage unavailable, your data is preserved, see the incident.
-            </div>
+            <div className="absolute inset-0" data-testid="storage-unavailable-empty" />
           ) : state.workspaces.length > 0 ? (
             state.workspaces.map((ws) => <WorkspacePaneState key={ws.id} workspace={ws} visible={mainView === "workspace" && !pluginViewId && ws.id === state.active_workspace_id}>
               {ws.tabs.map((tabId) => {
@@ -985,6 +979,8 @@ function AppInner() {
       <CommandPalette commands={paletteCommands} />
 
       <StaleBuildBanner />
+
+      <StorageUnavailableToast active={state.storageUnavailable === true} />
 
       <NavigationBackBar onBack={handleBackToMemory} />
 
