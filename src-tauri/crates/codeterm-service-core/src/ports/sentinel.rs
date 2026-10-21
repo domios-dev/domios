@@ -12,6 +12,14 @@ pub struct BlueprintRecord {
 }
 
 pub trait BlueprintStore: Send + Sync {
+    fn save_candidates(
+        &self,
+    ) -> std::collections::BTreeMap<
+        String,
+        codeterm_blueprint_types::blueprint_memory::curator::Candidate,
+    > {
+        Default::default()
+    }
     fn records(&self) -> Vec<BlueprintRecord>;
     fn scope_of(&self, id: &str) -> Option<(String, Option<String>)>;
     fn insert_restored(&self, record: &BlueprintRecord) -> Result<(), String>;

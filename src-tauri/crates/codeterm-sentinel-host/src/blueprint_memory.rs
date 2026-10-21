@@ -6,6 +6,7 @@ use crate::{
 use codeterm_blueprint_types::blueprint_memory::Evidence;
 use codeterm_service_core::service::ServiceContext;
 use serde_json::{json, Value};
+pub(crate) mod curator;
 
 fn area(workspace: &str) -> String {
     format!("blueprints:{workspace}")
@@ -99,6 +100,9 @@ impl BlueprintMemoryExt for ServiceContext {
             || when.chars().any(char::is_control)
         {
             return Err("When to use must contain 1..200 plain-text characters".into());
+        }
+        if self.is_curator_tab(&caller.tab) {
+            return curator::keep(self, caller, id, when);
         }
         let handle = self
             .host_extension::<Handle>()
