@@ -17,6 +17,7 @@ pub struct CuratorGrantScope {
 }
 mod digest_sources;
 mod movement_sources;
+mod resources;
 mod scheduling;
 #[cfg(test)]
 mod tests;
