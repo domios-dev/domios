@@ -39,7 +39,7 @@ cast clock.
 
 ```bash
 cd src-tauri
-cargo run --example render_timeline -- <session.cast> timeline-motion.json
+cargo run -p codeterm-devtools --example render_timeline -- <session.cast> timeline-motion.json
 ```
 
 (Use an isolated target dir; see `build.ps1 worktree-check` notes in

@@ -14,7 +14,7 @@ assert.equal(shortenPath("/home/ann", "/home/ann/"), "~");
 assert.equal(displayPath("src/a.ts", { cwd: "/repo", home: "/home/ann" }), "src/a.ts");
 assert.equal(displayPath("/repo/src/a.ts", { cwd: "/repo/", home: "/home/ann" }), "src/a.ts");
 assert.equal(displayPath("C:\\Repo\\src\\a.ts", { cwd: "c:/repo", home: null }), "src/a.ts");
-assert.equal(displayPath("C:\\Users\\Ann\\.codeterm-dev\\state\\x.json", { cwd: "C:/Repo", home: "C:\\Users\\Ann" }), "~/.codeterm-dev/state/x.json");
+assert.equal(displayPath("C:\\Users\\Ann\\.domios-dev\\state\\x.json", { cwd: "C:/Repo", home: "C:\\Users\\Ann" }), "~/.domios-dev/state/x.json");
 assert.equal(displayPath("/elsewhere/x.ts", { cwd: "/repo", home: null }), "/elsewhere/x.ts");
 assert.equal(pathName("C:\\a\\b.md"), "b.md");
 

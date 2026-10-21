@@ -6,7 +6,7 @@ const BACKUP_DIR: &str = "migration-backups";
 
 pub fn backup_dir(project_root: &Path, plan_id: &str) -> PathBuf {
     project_root
-        .join(".codeterm")
+        .join(".domios")
         .join("plans")
         .join(BACKUP_DIR)
         .join(plan_id)
@@ -58,7 +58,7 @@ pub fn restore(project_root: &Path, plan_id: &str) -> io::Result<PathBuf> {
 
 fn target_dir(project_root: &Path, status: &PlanStatus, plan_id: &str) -> PathBuf {
     project_root
-        .join(".codeterm")
+        .join(".domios")
         .join("plans")
         .join(super::paths::plan_bucket(status))
         .join(plan_id)

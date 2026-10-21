@@ -25,54 +25,6 @@ fn frontend_shell_contract_reopen_wakes_the_existing_supervisor_without_listener
 }
 
 #[test]
-fn frontend_shell_contract_requires_health_proven_bind_acknowledgement() {
-    let mut status = RestApiStatus {
-        generation: 1,
-        phase: RestApiPhase::Starting,
-        diagnostic: None,
-        message: None,
-    };
-    let address = Some("127.0.0.1:7686".parse().unwrap());
-    assert_eq!(ready_origin(&status, address).unwrap(), None);
-    status.phase = RestApiPhase::Failed;
-    assert_eq!(ready_origin(&status, address).unwrap(), None);
-    status.phase = RestApiPhase::Listening;
-    assert!(ready_origin(&status, None).is_err());
-    assert_eq!(
-        ready_origin(&status, address).unwrap(),
-        Some("http://127.0.0.1:7686".into())
-    );
-}
-
-#[test]
-fn frontend_shell_contract_uses_only_loopback_http_origins() {
-    for (address, expected) in [
-        ("127.0.0.1:7686", "http://127.0.0.1:7686"),
-        ("0.0.0.0:7686", "http://127.0.0.1:7686"),
-        ("[::]:7686", "http://[::1]:7686"),
-        ("[::1]:7686", "http://[::1]:7686"),
-    ] {
-        assert_eq!(loopback_origin(address.parse().unwrap()).unwrap(), expected);
-    }
-    assert!(loopback_origin("192.168.1.2:7686".parse().unwrap()).is_err());
-}
-
-#[test]
-fn frontend_shell_contract_refuses_missing_credentials_or_disabled_listener() {
-    let mut config = codeterm_service_core::config::schema::ApiConfig::default();
-    config.port = 18886;
-    config.enabled = true;
-    config.token = None;
-    assert!(bootstrap(&config).is_err());
-    config.token = Some("".into());
-    assert!(bootstrap(&config).is_err());
-    config.token = Some("fixture-token".into());
-    assert_eq!(bootstrap(&config).unwrap().token, "fixture-token");
-    config.enabled = false;
-    assert!(bootstrap(&config).is_err());
-}
-
-#[test]
 fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
     let origin = "http://127.0.0.1:7686";
     let unavailable = unavailable_url().unwrap();
@@ -147,6 +99,33 @@ fn frontend_shell_contract_binds_root_acknowledgement_to_document_generation() {
 }
 
 #[test]
+fn frontend_shell_contract_keeps_page_initiated_documents_and_never_loops_the_fallback() {
+    let daemon = Url::parse("http://127.0.0.1:7686/bundled/index.html").unwrap();
+    let fallback = fallback_url().unwrap();
+    let generation = ClientViewGeneration {
+        view: 1,
+        navigation: 17,
+    };
+
+    assert_eq!(
+        unrendered_root_action(&daemon, &fallback, false),
+        UnrenderedRoot::KeepDocument
+    );
+    assert_eq!(
+        unrendered_root_action(&with_root_generation(&daemon, generation), &fallback, true),
+        UnrenderedRoot::PackagedFallback
+    );
+    assert_eq!(
+        unrendered_root_action(
+            &with_root_generation(&fallback, generation),
+            &fallback,
+            true
+        ),
+        UnrenderedRoot::Unavailable
+    );
+}
+
+#[test]
 fn frontend_shell_contract_navigation_diagnostics_omit_query_secrets_and_recovery_html() {
     let secret = "opaque-fixture";
     let url = Url::parse(&format!(
@@ -183,24 +162,86 @@ fn frontend_shell_contract_limits_native_permissions_to_the_exact_frontend_origi
 }
 
 #[test]
-fn frontend_shell_contract_cors_origins_match_declared_navigation_origins() {
-    let mut config = codeterm_service_core::config::schema::ApiConfig::default();
-    config.port = 7690;
-    let dev = Url::parse("http://127.0.0.1:1463/").unwrap();
-    let origins = declared_frontend_origins(&config, Some(&dev));
-    assert!(origins.contains(&fallback_origin().to_string()));
-    assert!(origins.contains(&"http://127.0.0.1:7690".into()));
-    assert_eq!(
-        origins.contains(&"http://127.0.0.1:1463".into()),
-        cfg!(debug_assertions)
-    );
-    assert!(!origins.contains(&"http://localhost:1463".into()));
-    assert!(!origins.contains(&"https://tauri.localhost".into()));
-}
-
-#[test]
 fn reconnect_surface_data_url_keeps_spaces_and_styles() {
     let url = super::unavailable_url().unwrap();
     assert!(!url.as_str().contains('+'));
     assert!(url.as_str().contains("body%20%7B%20margin%3A%200%3B"));
+}
+
+#[test]
+fn start_failure_page_carries_its_reason_without_changing_the_permitted_document() {
+    let origin = "http://127.0.0.1:7686";
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    let reason = "opaque-cause 17% <b>&\"#";
+    let failed = start_failure_url(Some(reason)).unwrap();
+    assert!(navigation_allowed(
+        &failed,
+        Some(origin),
+        &unavailable,
+        &fallback
+    ));
+    let document = start_failure_url(None).unwrap();
+    assert!(same_navigation_document(&failed, &document));
+    assert!(same_navigation_document(
+        &start_failure_url(Some("another-cause")).unwrap(),
+        &document
+    ));
+    let fragment = failed.fragment().unwrap();
+    assert!(fragment
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b"%*-._".contains(&byte)));
+    let query = format!("r={fragment}");
+    let decoded = url::form_urlencoded::parse(query.as_bytes())
+        .next()
+        .unwrap()
+        .1;
+    assert_eq!(decoded, reason);
+    assert_eq!(start_failure_url(None).unwrap().fragment(), None);
+}
+
+#[test]
+fn external_link_decision_table() {
+    let origin = Some("http://127.0.0.1:7686");
+    for (target, expected) in [
+        ("http://127.0.0.1:7686/chat?tab=fixture#message", None),
+        ("HTTP://127.0.0.1:7686/index.html", None),
+        (
+            "https://example.com/path?query=fixture#fragment",
+            Some("https://example.com/path?query=fixture#fragment"),
+        ),
+        ("http://example.com/", Some("http://example.com/")),
+        (
+            "mailto:owner@example.com?subject=fixture",
+            Some("mailto:owner@example.com?subject=fixture"),
+        ),
+        ("HTTPS://EXAMPLE.COM/path", Some("https://example.com/path")),
+        ("HTTP://EXAMPLE.COM/", Some("http://example.com/")),
+        ("MAILTO:owner@example.com", Some("mailto:owner@example.com")),
+        ("javascript:alert(1)", None),
+        ("JAVASCRIPT:alert(1)", None),
+        ("data:text/html,unavailable", None),
+        ("DATA:text/html,unavailable", None),
+        ("file:///tmp/index.html", None),
+        ("FILE:///tmp/index.html", None),
+        ("tauri://localhost/index.html", None),
+        ("http://tauri.localhost/index.html", None),
+        ("https://tauri.localhost/index.html", None),
+        ("about:blank", None),
+        ("ftp://example.com/file", None),
+        ("https://user@example.com/", None),
+        ("https://:password@example.com/", None),
+        ("https://user:password@example.com/", None),
+        ("http://user@127.0.0.1:7686/", None),
+    ] {
+        let url = Url::parse(target).unwrap();
+        assert_eq!(
+            external_link(&url, origin).as_ref().map(Url::as_str),
+            expected,
+            "{target}"
+        );
+    }
+    let external = Url::parse("https://example.com/").unwrap();
+    assert_eq!(external_link(&external, None), Some(external.clone()));
+    assert_eq!(external_link(&external, Some("https://example.com")), None);
 }

@@ -358,7 +358,7 @@ pub fn project_index_dir(project_root: &Path) -> PathBuf {
     let root = super::paths::project_root(project_root);
     #[cfg(test)]
     if super::paths::test_project_root(&root).is_some() {
-        return root.join(".codeterm").join("test-plan-index");
+        return root.join(".domios").join("test-plan-index");
     }
     port()
         .data_dir()

@@ -33,6 +33,7 @@ export function normalizedMarkdown(source: string) {
   return { text, start: (offset: number) => original(offset), end: (offset: number) => original(offset) };
 }
 
+const MESSAGE_PARTS_CACHE_CHARS = 2_000_000;
 const cache = new Map<string, { source: string; parts: MessagePart[] }>();
 let cachedChars = 0;
 
@@ -48,10 +49,11 @@ export function messageParts(id: string, source: string): MessagePart[] {
     cache.delete(id);
   }
   const parts = parseMessageParts(id, source);
-  if (source.length <= 50_000) {
+  // Entries hold only a message's own source and its offsets, so long messages stay cached instead of re-parsing per render.
+  if (source.length <= MESSAGE_PARTS_CACHE_CHARS) {
     cache.set(id, { source, parts });
     cachedChars += source.length;
-    while (cache.size > 256 || cachedChars > 500_000) {
+    while (cache.size > 256 || cachedChars > MESSAGE_PARTS_CACHE_CHARS) {
       const oldest = cache.keys().next().value;
       if (oldest === undefined) break;
       cachedChars -= cache.get(oldest)!.source.length;

@@ -1,5 +1,5 @@
 //! LLM-driven re-cluster phase. Read-only against the graph, writes a
-//! markdown plan to `~/.codeterm/mem/dream-plans/<utc-ts>-recluster.md`.
+//! markdown plan to `~/.domios/mem/dream-plans/<utc-ts>-recluster.md`.
 //! User reviews and applies via `mem dream apply <file>`.
 //!
 //! Opt-in only — never invoked by the cron-driven Light/Deep/Normalize

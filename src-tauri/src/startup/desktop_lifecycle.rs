@@ -1,4 +1,4 @@
-use codeterm_host_runtime::app_runtime::{AppHandle, Window};
+use codeterm_client_shell::app_runtime::{AppHandle, Window};
 use parking_lot::Mutex;
 use tauri::Manager;
 
@@ -29,7 +29,7 @@ fn show_or_create_with(
     create_window: impl FnOnce(
         &AppHandle,
     ) -> Result<
-        codeterm_host_runtime::app_runtime::WebviewWindow,
+        codeterm_client_shell::app_runtime::WebviewWindow,
         Box<dyn std::error::Error>,
     >,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -61,7 +61,7 @@ fn show_or_create_with(
 }
 
 fn raise(
-    window: &codeterm_host_runtime::app_runtime::WebviewWindow,
+    window: &codeterm_client_shell::app_runtime::WebviewWindow,
 ) -> Result<(), Box<dyn std::error::Error>> {
     window.show()?;
     window.unminimize()?;
@@ -71,7 +71,7 @@ fn raise(
 
 fn create(
     app: &AppHandle,
-) -> Result<codeterm_host_runtime::app_runtime::WebviewWindow, Box<dyn std::error::Error>> {
+) -> Result<codeterm_client_shell::app_runtime::WebviewWindow, Box<dyn std::error::Error>> {
     let window = super::frontend_shell::create_window(app)?;
     super::window::setup_window_styling(&window);
     #[cfg(windows)]

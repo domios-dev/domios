@@ -13,7 +13,7 @@ const repo = fileURLToPath(new URL('../..', import.meta.url));
 test('client and build changes refuse a half reload, including deletions and previously dirty inputs', () => {
   for (const file of ['src-tauri/src/host_ports/native_client.rs', 'src-tauri/src/startup/frontend_shell.rs',
     'src-tauri/tauri.conf.json', 'src-tauri/tauri.dev.conf.json', 'src-tauri/Cargo.toml',
-    'src-tauri/build.rs', 'src-tauri/crates/codeterm-host-runtime/src/lib.rs',
+    'src-tauri/build.rs', 'src-tauri/crates/codeterm-client-shell/src/lib.rs', 'src-tauri/crates/codeterm-update/src/lib.rs',
     'src-tauri/crates/codeterm-types/src/server_bootstrap.rs', 'scripts/dev-build-configuration.mjs']) {
     assert.equal(changeKind(file), 'client');
     for (const [before, after] of [[{[file]: 'dirty-at-build'}, {[file]: 'edited'}], [{[file]: 'old'}, {}], [{}, {[file]: 'added'}]]) {

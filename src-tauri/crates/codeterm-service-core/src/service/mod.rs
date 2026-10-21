@@ -80,8 +80,6 @@ pub mod model_providers;
 pub mod notification;
 mod notification_desktop;
 pub(crate) mod notification_push;
-pub(crate) mod open_url;
-pub use open_url::open_url as open_url_open_url;
 mod paired_planner;
 pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
 pub(crate) mod orchestrator;
@@ -467,6 +465,8 @@ pub struct MuxEmitStats {
     pub requests: AtomicU64,
     pub fires: AtomicU64,
     pub suppressed: AtomicU64,
+    /// Snapshots whose content matched the published one, so nothing was sent.
+    pub unchanged: AtomicU64,
     pub pending_since_ms: AtomicU64,
     /// Debug-only deterministic freeze (fault injection): when set, every
     /// `emit_state_changed` early-returns, reproducing the latched-emit symptom
@@ -691,8 +691,8 @@ impl ServiceContext {
         );
     }
 
+    /// The bus hears `mux-state-changed` only after a changed snapshot is published.
     pub fn emit_state_changed(&self, cause: MuxEmitCause) {
-        publish_mux_state_changed(&self.events);
         self.emit_state_changed_after_bus_publish(cause);
     }
 
@@ -789,7 +789,7 @@ impl ServiceContext {
                     .as_millis() as u64,
             )?;
         }
-        let legacy_plans_dir = project_root.join(".codeterm").join("plans");
+        let legacy_plans_dir = project_root.join(".domios").join("plans");
         let mut watchers = self.ext::<crate::service::PlanWatchers>().0.lock();
         if legacy_plans_dir.is_dir() && !watchers.contains_key(&project_root) {
             match crate::service::plan::watcher::PlanWatcher::watch_project(

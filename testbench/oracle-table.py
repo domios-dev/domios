@@ -27,7 +27,7 @@ CLASSIFIER_SRC = [
     ROOT.parent / "src-tauri/crates/codeterm-service-core/src/agent/offline_state_classifier.rs",
     ROOT.parent / "src-tauri/crates/codeterm-service-core/src/agent/classify_input.rs",
     ROOT.parent / "src-tauri/crates/codeterm-service-core/src/agent/signal_extractor.rs",
-    ROOT.parent / "src-tauri/examples/render_timeline.rs",
+    ROOT.parent / "src-tauri/tools/codeterm-devtools/examples/render_timeline.rs",
 ]
 CANONICAL = (
     "provider_cli_question_probe_v1",

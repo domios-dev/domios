@@ -3,9 +3,12 @@
 use crate::routes::{check_auth, AppState};
 use axum::{
     extract::State as AxumState,
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     Json,
 };
+
+#[cfg(test)]
+mod version_tests;
 
 pub mod announce;
 pub mod connection;
@@ -35,6 +38,26 @@ pub use rpc::mesh_rpc;
 pub use worker_dispatch::{
     mesh_worker_dispatch, mesh_worker_dispatch_status, mesh_worker_lane_bundle,
 };
+
+pub(crate) fn require_current_peer_version(
+    headers: &HeaderMap,
+) -> Result<(), (StatusCode, String)> {
+    let version = headers
+        .get(codeterm_service_core::mesh::version::VERSION_HEADER)
+        .and_then(|value| value.to_str().ok());
+    codeterm_service_core::mesh::version::peer_version_error(version).map_or(Ok(()), |message| {
+        Err((StatusCode::UPGRADE_REQUIRED, message))
+    })
+}
+
+pub(crate) fn current_peer_version_header() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    if let Ok(value) = HeaderValue::from_str(codeterm_service_core::mesh::version::local_version())
+    {
+        headers.insert(codeterm_service_core::mesh::version::VERSION_HEADER, value);
+    }
+    headers
+}
 
 pub async fn mesh_ping() -> Json<serde_json::Value> {
     Json(serde_json::json!({"mesh": true}))

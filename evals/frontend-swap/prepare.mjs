@@ -13,12 +13,13 @@ export async function prepare(dist, output, origin) {
   const publicKey = await readFile(new URL('frontend-test.pub', fixture), 'utf8');
   const privateKey = await readFile(new URL('frontend-test.pem', fixture), 'utf8');
   await mkdir(output, { recursive: true });
-  // The app accepts only releases newer than its bundled frontend.
+  // The app embeds a frontend of its own version and accepts only releases newer than it.
   const contract = JSON.parse(await readFile(new URL('../../frontend-release-contract.json', import.meta.url), 'utf8'));
-  const [major, minor, patch] = contract.version.split('.').map(Number);
+  const app = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version;
+  const [major, minor, patch] = app.split('.').map(Number);
   const next = (step) => `${major}.${minor}.${patch + step}`;
   const api = contract.maxApiVersion;
-  for (const [name, version, minimum, broken] of [['good', next(1), api, false], ['incompatible', next(2), api + 1, false], ['broken', next(3), api, true], ['older', contract.version, api, false]]) {
+  for (const [name, version, minimum, broken] of [['good', next(1), api, false], ['incompatible', next(2), api + 1, false], ['broken', next(3), api, true], ['older', app, api, false]]) {
     const root = path.join(output, name, 'dist');
     await cp(dist, root, { recursive: true, errorOnExist: true, force: false });
     const html = await readFile(path.join(root, 'index.html'), 'utf8');

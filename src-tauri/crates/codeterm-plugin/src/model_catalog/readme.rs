@@ -147,7 +147,7 @@ For every provider with a model picker, CodeTerm drops a
 `<provider>.example.toml` here on each startup. To enable an override:
 
 ```bash
-cd ~/.codeterm/models/
+cd ~/.domios/models/
 cp claude.example.toml claude.toml
 # edit claude.toml — change models or reasoning efforts, set defaults
 ```

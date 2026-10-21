@@ -75,8 +75,8 @@ fn locate_cli_binary() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
 
     let candidates = [
-        home.join(".codeterm").join("bin").join(bin_name),
-        home.join(".codeterm-dev").join("bin").join(bin_name),
+        home.join(".domios").join("bin").join(bin_name),
+        home.join(".domios-dev").join("bin").join(bin_name),
     ];
 
     let self_exe = std::env::current_exe().ok();
@@ -118,7 +118,7 @@ fn exec_cli(cli_path: PathBuf) -> ! {
 fn exec_cli(cli_path: PathBuf) -> ! {
     let mut command = std::process::Command::new(&cli_path);
     command.args(std::env::args().skip(1));
-    codeterm_service_core::process_util::no_window_std(&mut command);
+    codeterm_util::process_util::no_window_std(&mut command);
     let status = command.status();
     match status {
         Ok(s) => std::process::exit(s.code().unwrap_or(1)),

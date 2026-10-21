@@ -34,7 +34,7 @@ pub(super) fn inspect_stray_sidecars(
             ["active", "archive"]
                 .into_iter()
                 .map(move |bucket| {
-                    root.join(".codeterm")
+                    root.join(".domios")
                         .join("plans")
                         .join(bucket)
                         .join(plan_stem(&plan_id))
@@ -54,7 +54,7 @@ pub(super) fn inspect_stray_sidecars(
                 "non-canonical plan sidecar copy; canonical project path is {}",
                 canonical_project.display()
             ),
-            fix: "remove the stray .codeterm/plans copy from the linked worktree after confirming canonical state".into(),
+            fix: "remove the stray .domios/plans copy from the linked worktree after confirming canonical state".into(),
         })
         .collect()
 }

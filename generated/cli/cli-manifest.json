@@ -17786,7 +17786,7 @@
         },
         {
           "name": "write",
-          "about": "Reconcile checklist statuses while retaining locked item ids",
+          "about": "Declare this tab's whole checklist: created on first write, then reconciled; locked items stay",
           "aliases": [],
           "args": [
             {

@@ -1,4 +1,4 @@
-//! Erasure of the retired `~/.codeterm/secrets/bitwarden-master.env` drop.
+//! Erasure of the retired `~/.domios/secrets/bitwarden-master.env` drop.
 //! No backend reads it, so every copy is a master password at rest with no consumer.
 
 use std::io::{Seek, SeekFrom, Write};
@@ -36,7 +36,7 @@ impl LegacyPurge {
 
 pub fn legacy_master_password_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| {
-        h.join(".codeterm")
+        h.join(".domios")
             .join("secrets")
             .join(LEGACY_MASTER_PASSWORD_FILE)
     })
@@ -90,10 +90,8 @@ mod tests {
     const PLACEHOLDER: &str = "BW_MASTER_PASSWORD=synthetic-not-a-credential\n";
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "codeterm-legacy-secret-{tag}-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("domios-legacy-secret-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir

@@ -1,4 +1,4 @@
-//! CodeTerm Mesh — peer-to-peer networking between CodeTerm instances.
+//! Domios Mesh — peer-to-peer networking between Domios instances.
 
 pub mod broadcast;
 pub mod contract;
@@ -19,6 +19,7 @@ pub mod serve_setup;
 pub mod toggle;
 pub mod transport;
 pub mod types;
+pub mod version;
 pub mod web_ui_endpoints;
 
 use std::sync::Arc;

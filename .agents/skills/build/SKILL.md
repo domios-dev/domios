@@ -205,9 +205,10 @@ These flows are deliberately separate. Full rebuilds, dev instances, full
 suites and gates run from the warm canonical checkout under Orchestrator
 authority. A Worker lane runs `./build.sh fmt` once per batch, then one
 verification pass: one `./build.sh lane-check <package>... [--tests]` call for
-all touched crates, changed TS/JS tests and `tsc` when TS changes, plus guards. List canonical selectors
-under GATES REQUESTED; Workers never run or attempt `check-queue`, `nextest`,
-`test-one` or Clippy.
+all touched crates, changed TS/JS tests and `tsc` when TS changes, plus guards. Workers run the focused
+`test-one` and Clippy commands their dispatch grants (`--authorized-gate`) and
+never `check-queue`, `nextest` or regressions; without a grant they list the
+selectors and the Orchestrator runs them, reporting straight to the Worker's tab.
 `check-tests` compiles app and CLI test
 targets without running them; its artifacts are reused by matching `test-one`
 app and CLI calls in the same worktree. These app builds are deferred to the
@@ -426,7 +427,8 @@ On eight, air, ubunta, ROG, BLACKSTAR and green, first run
 `domios-sccache-s3-access-key` and `domios-sccache-s3-secret-key`.
 Build setup resolves both directly into process environment variables
 `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; never write them to a file,
-argv, logs or memory. It exports `SCCACHE_ENDPOINT=http://100.64.10.5:9000`,
+argv, logs or memory. It exports `SCCACHE_ENDPOINT` from the single store endpoint in
+`scripts/ci-store.sh` (override: `CODETERM_CI_STORE_ENDPOINT`),
 `SCCACHE_BUCKET=sccache`, `SCCACHE_REGION=us-east-1` and
 `SCCACHE_S3_USE_SSL=false`. Setup reads the running server's actual location
 first. Matching S3 bucket or local disk storage is reused, even while
@@ -533,7 +535,7 @@ calls; a successful build alone is not cache-hit proof.
 | Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
 | Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
 
-The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in the script-catalog CI workflow. This also runs `scripts/check-crate-layering.sh` and its fixture tests: lower crates cannot import service-core or Tauri; two tracked Tauri violations must be removed when repaired.
+The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in the script-catalog CI workflow. This also runs `scripts/check-crate-layering.sh` and its fixture tests: lower crates cannot import service-core or Tauri, and the process layers in `scripts/crate-layers.json` hold: the native client (`codeterm`, `codeterm-client-shell`) links only client and shared crates, shared crates never reach a server crate, and nothing else depends on the client. Release-preflight and the file-sizes CI workflow run the same guard. Add a crate the window needs to `shared` only when its own normal dependencies are shared; otherwise move the needed item into a shared crate. Developer harnesses (`mem-bench`, `parser-eval`, `storage-verify`, `convert-plan-storage`, `mem_ab_bench`), the `render_timeline` example and cross-domain integration tests live in `src-tauri/tools/codeterm-devtools`; build a harness with `cargo run -p codeterm-devtools --features dev-tools --bin <name>`.
 
 ## Canonical integration check queue
 
@@ -638,8 +640,9 @@ Canonical shell policy verification: `bash scripts/check-build-gateway-policy.sh
 
 ## Local production build and self-install
 
-Use this only when testing a production-mode build on this Windows machine. It
-does not publish a release or alter GitHub assets.
+Use this only when testing a production-mode build on this machine. It does
+not publish a release or alter GitHub assets. Steps 1-4 describe Windows; step
+5 covers macOS.
 
 A build handed to the owner to install (an owner hotfix build such as
 `X.Y.Z-bs.N`) first needs a green core-journeys run on its exact SHA; the
@@ -716,9 +719,54 @@ gates skill's Release section owns that step.
    ```
 
    `build` always creates a fresh nonincremental target under
-   `%LOCALAPPDATA%\CodeTerm\build-gateway\targets\release\<job>\`. It remains
+   `targets\release\<job>\` under the gateway cache home
+   (`CODETERM_RUST_CACHE_ROOT`, else `%LOCALAPPDATA%\domios-build-gateway`). It remains
    intentionally slower and isolated. The updater helper stops only the
    current-user installed Domios, runs NSIS, and restarts it.
+
+   `build` packages through `bundle_common_stage`, the same shared stage the
+   release workflows use (`CODETERM_RELEASE_COMMON_STAGE=1`): one native client
+   compile, `release-stage.mjs stage-full` with the signed CLI and server, then
+   NSIS on Windows, deb and AppImage on Linux, or the signed app and DMG from
+   `release-macos-bundle.mjs` on macOS. It prints each `Local package ready:`
+   path. Focused proof: `node --test scripts/tests/package-stage.test.mjs`.
+
+5. macOS uses the same route, from the canonical checkout on the Mac:
+
+   ```bash
+   ./build.sh build                 # or: ./build.sh build --no-notarize
+   codeterm update install --from-file "<printed-dmg-path>"
+   ```
+
+   Signing uses the login keychain's single Developer ID Application identity
+   and its team; `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID` or `RELEASE_KEYCHAIN`
+   override it. Notarization uses the notarytool keychain profile `codeterm`
+   (`APPLE_KEYCHAIN_PROFILE` overrides) and is checked before compiling; a
+   missing profile refuses the build unless `--no-notarize` is passed. No CI job
+   keychain or updater key is needed: the local app carries no updater bundle.
+
+### Build gateway location (Windows)
+
+Gateway state lives in `%LOCALAPPDATA%\domios-build-gateway`, outside every
+per-user install folder. While a pre-existing `%LOCALAPPDATA%\CodeTerm\build-gateway`
+remains, gateway commands keep sharing it with older checkouts; each gateway
+acquisition tries to move it by one same-volume rename under its metadata mutex
+when no slot or queue ticket is held. A busy or held directory prints a notice
+and stays in use; nothing is ever copied or merged.
+
+`./build.sh gateway-relocate` performs the move on demand. It refuses while
+Cargo or rustc runs, stops the idle sccache server (its log is held open inside
+the directory), then exits 0 when moved or nothing remains, 75 while busy, and 3
+when both directories exist. Exit 3 means an older checkout recreated the legacy
+directory: delete it once no older checkout builds.
+
+**Before taking the 1.15.0 update on a 1.14.9 machine that builds Domios:** the
+1.14.9 updater registers every file of the install folder with Restart Manager
+and fails with `register install files: ... (os error 29)` when the gateway's
+tens of thousands of files sit there. Stop all builds, run
+`./build.ps1 gateway-relocate` from a checkout that has it, confirm
+`%LOCALAPPDATA%\CodeTerm\build-gateway` no longer exists, then update. From
+1.15.0 the updater registers only the install's executables and DLLs.
 
 ### Repairing a corrupted user PATH (Windows)
 
@@ -1473,7 +1521,7 @@ are `./build.sh test-one domios-server startup::` and core path arbitration is
 `--no-default-features --features domios-server/embeddings` and the explicit host
 target. Its Cargo artifact receipt pins the actual executable and digest; the
 matching normal/build dependency closure must exclude Tauri, Wry, WebView and
-codeterm-host-runtime. Packaging must record the shipped release artifact's
+codeterm-client-shell. Packaging must record the shipped release artifact's
 own feature/target closure too. Workspace/test feature unions do not establish
 this proof. A server built without the CLI digest refuses actual service startup.
 The resource is copied and reverified into a private lifetime lease before memory

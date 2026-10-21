@@ -41,9 +41,15 @@ on:
         description: arm64 or x86_64; each architecture is its own caller job and graph node
         required: true
         type: string
+      frontend_sha256:
+        description: Digest of the run's single frontend bundle; empty builds the frontend here
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
@@ -79,7 +85,6 @@ jobs:
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
-      CODETERM_RELEASE_FEATURES: embeddings
       CODETERM_RELEASE_COMMON_STAGE: '1'
       CARGO_INCREMENTAL: '0'
       ART: ${{ github.workspace }}/release-artifacts/macos-${{ matrix.arch }}
@@ -152,6 +157,12 @@ jobs:
       - name: Frozen dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Fetch the run's frontend bundle
+        if: ${{ inputs.frontend_sha256 != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-frontend-dist.mjs fetch "$GITHUB_RUN_ID" "${{ inputs.frontend_sha256 }}" "$RUNNER_TEMP/frontend-dist.tar"
+
       - name: Build signed and notarized macOS bundle
         id: compile
         run: |
@@ -212,11 +223,17 @@ jobs:
           complete: ${{ job.status == 'success' }}
           platform: release-macOS
           target: ${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
 
       # Without a compile step no sccache server ever started, so there is nothing to report.
       - name: Shared compile cache statistics
         if: ${{ always() && steps.compile.outcome != 'skipped' }}
         run: bash build.sh cache-stats
+      - name: Stop this job's local compile cache
+        if: always()
+        run: bash build.sh cache-release
       - name: Remove this job's Rust targets and archives
         if: always()
         continue-on-error: true

@@ -56,7 +56,7 @@ await captureBounded({ signal, persist: outcome => {
     return;
   }
   result.mode = 'force-owned-resumed-process-exit';
-  const log = join(process.env.CODETERM_DEV_DATA_DIR, 'logs/codeterm.log');
+  const log = join(process.env.CODETERM_DEV_DATA_DIR, 'logs/domios.log');
   let position = statSync(log).size, carry = '', total = 0;
   const recovered = new Promise((resolve, reject) => {
     watcher = watch(log, () => {

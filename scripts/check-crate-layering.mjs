@@ -5,9 +5,16 @@ import path from "node:path";
 const root = path.resolve(process.argv[2] ?? path.join(import.meta.dirname, ".."));
 const hosts = new Set([
   "domios-server",
-  "codeterm-service-core", "codeterm-api", "codeterm-commands", "codeterm-host-runtime",
+  "codeterm-service-core", "codeterm-api", "codeterm-commands",
   "codeterm-orchestration", "codeterm-sentinel-host", "codeterm-socket",
 ]);
+// Process layers: the native window links only client and shared crates, shared crates never reach
+// the server layer, and no other crate depends on the client. Every unlisted crate is server layer.
+const layers = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "crate-layers.json"), "utf8"));
+const clientCrates = new Set(layers.client);
+const sharedCrates = new Set(layers.shared);
+const serverOnly = layers.serverOnly;
+const layerOf = (name) => (clientCrates.has(name) ? "client" : sharedCrates.has(name) ? "shared" : "server");
 const leafTiers = [
   [],
   ["events", "config", "secrets", "keepawake", "crash", "cron", "shutdown", "prompts", "local-preview", "worker-services", "lanes"],
@@ -21,24 +28,28 @@ const tierByCrate = new Map(leafTiers.flatMap((names, tier) => names.map((name) 
 // Unlisted foundation crates are tier zero; extracted leaves must never become their dependencies.
 const tierFor = (name) => tierByCrate.get(name) ?? 0;
 
-function cargoDependencies(text) {
-  const dependencies = [];
+function cargoEdges(text) {
+  const edges = [];
   for (const section of text.replace(/#.*$/gm, "").split(/\r?\n(?=\s*\[)/)) {
     const table = /^\s*\[([^\n]+)\]\s*\r?\n([\s\S]*)/.exec(section);
     if (!table) continue;
-    const dependencyTable = /(?:^|\.)(?:dependencies|dev-dependencies|build-dependencies)(?:\.["']?([\w-]+)["']?)?$/.exec(table[1]);
+    const dependencyTable = /(?:^|\.)(dependencies|dev-dependencies|build-dependencies)(?:\.["']?([\w-]+)["']?)?$/.exec(table[1]);
     if (!dependencyTable) continue;
+    const kind = dependencyTable[1] === "dependencies" ? "normal" : dependencyTable[1];
     const packageName = (body, fallback) => /\bpackage\s*=\s*["']([^"']+)["']/.exec(body)?.[1] ?? fallback;
-    if (dependencyTable[1]) {
-      dependencies.push(packageName(table[2], dependencyTable[1]));
+    if (dependencyTable[2]) {
+      edges.push({ name: packageName(table[2], dependencyTable[2]), kind });
     } else {
       for (const entry of table[2].matchAll(/^\s*["']?([\w-]+)["']?\s*=\s*(\{[^}]*\}|[^\n]*)/gm)) {
-        dependencies.push(packageName(entry[2], entry[1]));
+        edges.push({ name: packageName(entry[2], entry[1]), kind });
       }
     }
   }
-  return dependencies;
+  return edges;
 }
+const cargoDependencies = (text) => cargoEdges(text).map((edge) => edge.name);
+const packageNameOf = (text, fallback) =>
+  /^\s*\[package\][^[]*?^\s*name\s*=\s*["']([^"']+)["']/m.exec(text.replace(/#.*$/gm, ""))?.[1] ?? fallback;
 const knownTauriViolations = new Map(
   (process.env.CODETERM_LAYERING_KNOWN_TAURI ?? "").split(/\s+/).filter(Boolean).map((entry) => entry.split(":")),
 );
@@ -54,6 +65,24 @@ function sources(directory) {
 
 const violations = [];
 const seenTauri = new Set();
+const graph = new Map();
+const relative = (file) => path.relative(root, file).replaceAll("\\", "/");
+const addToGraph = (manifest, fallback) => {
+  const text = fs.readFileSync(manifest, "utf8");
+  const name = packageNameOf(text, fallback);
+  graph.set(name, { manifest: relative(manifest), edges: cargoEdges(text) });
+  return name;
+};
+for (const base of ["src-tauri", "src-tauri/tools"]) {
+  const directory = path.join(root, base);
+  if (!fs.existsSync(directory)) continue;
+  const manifests = base === "src-tauri"
+    ? [path.join(directory, "Cargo.toml")]
+    : fs.readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(directory, entry.name, "Cargo.toml"));
+  for (const manifest of manifests.filter((file) => fs.existsSync(file))) addToGraph(manifest, path.basename(path.dirname(manifest)));
+}
 for (const base of ["src-tauri/crates", "crates"]) {
   const directory = path.join(root, base);
   if (!fs.existsSync(directory)) continue;
@@ -62,20 +91,17 @@ for (const base of ["src-tauri/crates", "crates"]) {
     const crate = path.join(directory, entry.name);
     const manifest = path.join(crate, "Cargo.toml");
     if (!fs.existsSync(manifest)) continue;
+    if (base === "src-tauri/crates") addToGraph(manifest, entry.name);
     const dependencies = cargoDependencies(fs.readFileSync(manifest, "utf8"));
-    if ((!hosts.has(entry.name) || ["codeterm-service-core", "domios-server"].includes(entry.name))
-        && dependencies.includes("codeterm-host-runtime")) {
-      violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: core or leaf crate depends on codeterm-host-runtime`);
-    }
     if (["codeterm-service-core", "domios-server"].includes(entry.name)) {
       for (const dependency of dependencies.filter((name) => /^tauri(?:-|$)/.test(name))) {
-        violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: service core depends on ${dependency}`);
+        violations.push(`${relative(manifest)}: service core depends on ${dependency}`);
       }
     }
-    if (hosts.has(entry.name)) continue;
+    if (hosts.has(entry.name) || clientCrates.has(entry.name)) continue;
     for (const dependency of dependencies) {
       if (tierFor(dependency) > tierFor(entry.name)) {
-        violations.push(`${path.relative(root, manifest).replaceAll("\\", "/")}: leaf tier inversion: ${entry.name} (tier ${tierFor(entry.name)}) -> ${dependency} (tier ${tierFor(dependency)})`);
+        violations.push(`${relative(manifest)}: leaf tier inversion: ${entry.name} (tier ${tierFor(entry.name)}) -> ${dependency} (tier ${tierFor(dependency)})`);
       }
     }
     const files = [manifest, path.join(crate, "build.rs"), ...sources(path.join(crate, "src")), ...sources(path.join(crate, "tests"))];
@@ -100,6 +126,36 @@ for (const base of ["src-tauri/crates", "crates"]) {
 }
 for (const [crate, task] of knownTauriViolations) {
   if (!seenTauri.has(crate)) violations.push(`${crate}: stale known tauri violation; remove entry (${task})`);
+}
+
+for (const name of serverOnly.filter((name) => layerOf(name) !== "server")) {
+  violations.push(`${name}: listed as ${layerOf(name)} layer but must stay in the server layer`);
+}
+for (const [name, crate] of graph) {
+  for (const edge of crate.edges.filter((edge) => clientCrates.has(edge.name) && !clientCrates.has(name))) {
+    violations.push(`${crate.manifest}: ${layerOf(name)} crate ${name} depends on client crate ${edge.name}`);
+  }
+}
+// Normal edges only: a crate links what its own [dependencies] and target dependency tables name.
+for (const [name, crate] of graph) {
+  const layer = layerOf(name);
+  if (layer === "server") continue;
+  const allowed = layer === "client" ? ["client", "shared"] : ["shared"];
+  const chains = new Map([[name, [name]]]);
+  const queue = [name];
+  while (queue.length) {
+    const current = queue.shift();
+    for (const edge of graph.get(current)?.edges ?? []) {
+      if (edge.kind !== "normal" || !graph.has(edge.name) || chains.has(edge.name)) continue;
+      const chain = [...chains.get(current), edge.name];
+      chains.set(edge.name, chain);
+      if (allowed.includes(layerOf(edge.name))) {
+        queue.push(edge.name);
+      } else {
+        violations.push(`${crate.manifest}: ${layer} crate ${name} links ${layerOf(edge.name)} crate ${edge.name} (${chain.join(" -> ")})`);
+      }
+    }
+  }
 }
 if (violations.length) {
   console.error(violations.join("\n"));

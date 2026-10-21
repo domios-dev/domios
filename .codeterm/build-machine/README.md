@@ -9,11 +9,14 @@ platform caller and both test stages, verifies downloaded draft artifact signatu
 
 | Runner | Machine | Workflow | Builds |
 |--------|---------|----------|--------|
-| **`codeterm-builder`** | this Mac (ARM64) | `release.yml` → `release-macos-build.yml` + `release-linux-arm64.yml` | independent macOS `x64`/`arm64` (Developer ID + notarized) and independent `arm64` Linux `.deb`+`.AppImage` (Docker) |
+| **`codeterm-builder`** | eight (`codeterm-builder-2`, macOS ARM64) | `release.yml` → `release-macos-build.yml` + `release-linux-arm64.yml` | macOS `arm64` (Developer ID + notarized) and independent `arm64` Linux `.deb`+`.AppImage` (Docker) |
+| **`macos-x64-build`** | build-mac (`build-mac-x64`, macOS Intel) | `release.yml` → `release-macos-build.yml` | macOS `x64`, native (Developer ID + notarized); selected by `RELEASE_MACOS_X64_LABEL` |
 | **`ROG-windows-build`** (`windows-build`) | ROG, Windows (x86_64) | `release.yml` → `release-windows.yml` | Windows `x64`+`arm64` NSIS, signed on the runner |
 | **`linux-build`** | ubunta, Ubuntu 24.04 (x86_64) | `release.yml` → `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native; also plugin publication and release preparation |
 | **`linux-ci`** | ubunta and BLACKSTAR-wsl-ci (WSL2 Ubuntu 24.04 on BLACKSTAR) | `tests.yml` Linux jobs and the PR lint workflows | test pool only: either idle runner takes the job; never packaging or signing |
 | **`windows-ci`** | ROG and BLACKSTAR-windows-x64 | `tests.yml` Windows lib and CLI jobs | test pool only; release packaging keeps `windows-build` (arm64 on ROG) and `windows-x64-build` (x64 on BLACKSTAR) |
+
+The full runner map (names, planned names, `host-<machine>` labels, jobs) lives in the github-release skill.
 
 Strength tiers (runner labels, independent of the release owners above): `heavy` = eight (`codeterm-builder-2`), BLACKSTAR-wsl-ci, BLACKSTAR-windows-x64; `medium` = ROG; `light` = ubunta, plus every heavy runner that can also take quick checks (eight, BLACKSTAR-wsl-ci). Platform-independent quick checks such as `guards` (file sizes, fmt, contracts) ask for `light` and run on any free one; release Rust tests wait for the fast gate like the builds; standalone test runs keep the guards prerequisite.
 
@@ -96,7 +99,7 @@ do not describe container compilations. Native CI only verifies its prestarted s
 | Repository variable | Default existing runner label | Artifact |
 |---|---|---|
 | `RELEASE_MACOS_ARM64_LABEL` | `codeterm-builder` | macOS arm64 |
-| `RELEASE_MACOS_X64_LABEL` | `codeterm-builder` | macOS x64 |
+| `RELEASE_MACOS_X64_LABEL` | `codeterm-builder` (set: `macos-x64-build`) | macOS x64 |
 | `RELEASE_LINUX_ARM64_LABEL` | `codeterm-builder` | Linux arm64 Docker |
 | `RELEASE_WINDOWS_X64_LABEL` | `windows-x64-build` | Windows x64 |
 | `RELEASE_WINDOWS_ARM64_LABEL` | `windows-build` | Windows arm64 cross-build |
@@ -209,7 +212,7 @@ do not change developer toolchain defaults.
 
 Run `codeterm mem secret sync` locally on each authorized builder. Build setup
 reads `domios-sccache-s3-access-key` and `domios-sccache-s3-secret-key` into process
-environment only, exports endpoint `http://100.64.10.5:9000`, bucket `sccache`,
+environment only, exports the endpoint defined once in `scripts/ci-store.sh`, bucket `sccache`,
 region `us-east-1`, SSL `false`, and reuses a running server whose storage
 matches. Missing keys never downgrade an existing S3 server; its own
 credentials keep serving builds. Local-to-S3 switches require resolved keys
@@ -259,7 +262,7 @@ claim cross-machine reuse.
   The build scripts and `release-windows.yml` stage the target-correct CLI.
 - **Release compilation uses one target contract.** Each platform job sets `CARGO_TARGET_DIR` to the
   checkout's `src-tauri/target`; cross-target lanes carry their target in `CARGO_BUILD_TARGET`,
-  and all jobs pin the `embeddings` features with `CARGO_INCREMENTAL=0`. `release-inputs` builds the application bin
+  and all jobs build with `CARGO_INCREMENTAL=0`; the server carries its `embeddings` feature and the client has none. `release-inputs` builds the application bin
   before Tauri bundles it, so the dependency graph is not compiled a second time. The three
   platform workflows intentionally have no Rust target-cache action or target upload.
 - **macOS architectures rerun independently.** Matrix siblings each build, notarize, staple and

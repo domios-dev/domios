@@ -130,7 +130,7 @@ impl ClientRootRenderLatch {
 
 #[tauri::command]
 pub(crate) async fn frontend_view_root_ready(
-    window: codeterm_host_runtime::app_runtime::WebviewWindow,
+    window: codeterm_client_shell::app_runtime::WebviewWindow,
     view_generation: u64,
     navigation_generation: u64,
 ) -> Result<bool, String> {
@@ -162,7 +162,7 @@ pub(crate) async fn frontend_view_root_ready(
 
 #[tauri::command]
 pub(crate) fn native_webview_diagnostics_snapshot(
-    window: codeterm_host_runtime::app_runtime::WebviewWindow,
+    window: codeterm_client_shell::app_runtime::WebviewWindow,
 ) -> Option<codeterm_types::native_host::NativeWebviewDiagnosticsSnapshot> {
     if window.label() != "main" {
         return None;
@@ -559,21 +559,25 @@ mod tests {
         assert!(HelperFailure::Exit {
             code: Some(codeterm_types::server_bootstrap::BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE),
             request_forwarded: true,
+            detail: None,
         }
         .allows_initial_server_launch());
         assert!(!HelperFailure::Exit {
             code: Some(codeterm_types::server_bootstrap::BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE),
             request_forwarded: false,
+            detail: None,
         }
         .allows_initial_server_launch());
         assert!(!HelperFailure::Exit {
             code: Some(1),
             request_forwarded: true,
+            detail: None,
         }
         .allows_initial_server_launch());
         assert!(!HelperFailure::Exit {
             code: Some(3),
             request_forwarded: true,
+            detail: None,
         }
         .allows_initial_server_launch());
         assert!(!HelperFailure::PreDispatch(
@@ -589,6 +593,26 @@ mod tests {
             request_forwarded: true,
         }
         .allows_initial_server_launch());
+    }
+
+    #[test]
+    fn stated_helper_refusal_reaches_the_startup_failure_text() {
+        use native_client::{ClientStartupFailure, HelperFailure};
+
+        let failure = ClientStartupFailure::launch(&HelperFailure::Exit {
+            code: Some(1),
+            request_forwarded: true,
+            detail: Some("opaque-cause-17".into()),
+        });
+        assert!(failure.stated_refusal());
+        assert!(failure.message().ends_with(": opaque-cause-17"));
+        assert!(!ClientStartupFailure::launch(&HelperFailure::Exit {
+            code: Some(1),
+            request_forwarded: true,
+            detail: None,
+        })
+        .stated_refusal());
+        assert!(!ClientStartupFailure::from("opaque-cause-17").stated_refusal());
     }
 
     #[test]

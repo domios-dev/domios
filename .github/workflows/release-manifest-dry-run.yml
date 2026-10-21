@@ -29,12 +29,13 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   validate:
     name: verify consolidated manifests against private CI bytes
     runs-on: [self-hosted, linux-build]
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
@@ -51,10 +52,17 @@ jobs:
           TAG: ${{ inputs.tag }}
           SOURCE_SHA: ${{ inputs.source_ref }}
           ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           work=$(mktemp -d "$RUNNER_TEMP/manifest-dry-run.XXXXXX")
           trap 'rm -rf "$work"' EXIT
           node scripts/release-dry-run-manifest.mjs aggregate "$TAG" "$SOURCE_SHA" "$ARTIFACT_RUN_ID" "$work/input" "$work/output"
           echo 'All six local updater platforms and both Debian platforms: PASS' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(jq -r .retained_via "$work/output/manifest-local-verification.json")" = ci-artifact ]; then
+            echo '::warning::Some evidence was retained as run artifacts while the private store was unreachable; manifest-local-verification.json names each location'
+          fi
           bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/manifest-dry-run/manifest-local-verification.json" "$work/output/manifest-local-verification.json"
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool

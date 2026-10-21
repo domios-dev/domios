@@ -8,6 +8,7 @@ import pty
 import re
 import secrets
 import select
+import shutil
 import signal
 import subprocess
 import sys
@@ -30,7 +31,9 @@ def security(*args):
     result = subprocess.run(['security', '-i'], input=' '.join(map(quote, args)) + '\n',
                             text=True, capture_output=True, timeout=30)
     if result.returncode or re.search(r'security:|SecKeychain.*:', result.stderr):
-        raise RuntimeError(f"security {args[0]} failed")
+        # Passwords travel only on stdin; security(1) stderr names the keychain and the OSStatus.
+        detail = ' '.join(result.stderr.split())[:300]
+        raise RuntimeError(f"security {args[0]} failed (exit {result.returncode}): {detail}")
 
 
 def search_list():
@@ -189,17 +192,36 @@ def cleanup():
     if path.parent != Path(required('RUNNER_TEMP')) or not path.name.startswith('release-signing-'):
         raise ValueError('Invalid cleanup directory')
     keychain = path / 'signing.keychain-db'
-    try:
+    failures = []
+
+    # Every step runs even when an earlier one fails; reruns of a finished cleanup are no-ops.
+    def step(operation, action):
+        try:
+            action()
+        except subprocess.CalledProcessError as error:
+            failures.append(f'{operation}: exit {error.returncode}: {(error.stderr or "").strip()[:300]}')
+        except Exception as error:
+            failures.append(f'{operation}: {type(error).__name__}: {error}')
+
+    def restore_search_list():
+        # Linux jobs and failed imports have no job keychain, and Linux has no security(1).
+        if not keychain.exists():
+            return
+        entries = search_list()
+        if str(keychain) in entries:
+            security('list-keychains', '-d', 'user', '-s', *[item for item in entries if item != str(keychain)])
+
+    def delete_keychain():
         if keychain.exists():
-            try:
-                security('list-keychains', '-d', 'user', '-s',
-                         *[item for item in search_list() if item != str(keychain)])
-            finally:
-                security('delete-keychain', str(keychain))
-    finally:
-        for name in ['updater.key', 'certificate.p12', 'notary-preflight.log']:
-            (path / name).unlink(missing_ok=True)
-    path.rmdir()
+            security('delete-keychain', str(keychain))
+
+    step('restore keychain search list', restore_search_list)
+    step('delete job keychain', delete_keychain)
+    for name in ['updater.key', 'certificate.p12', 'notary-preflight.log']:
+        step(f'remove {name}', lambda name=name: (path / name).unlink(missing_ok=True))
+    step('remove signing directory', lambda: shutil.rmtree(path) if path.exists() else None)
+    if failures:
+        raise RuntimeError('signing cleanup incomplete: ' + '; '.join(failures))
 
 
 if __name__ == '__main__':
@@ -213,5 +235,5 @@ if __name__ == '__main__':
             setup(sys.argv[1] == 'macos')
     except Exception as error:
         print(f'::error::{error}' if isinstance(error, RuntimeError) else
-              f'::error::{type(error).__name__}: release signing material operation failed', file=sys.stderr)
+              f'::error::{type(error).__name__}: release signing material {sys.argv[1]} failed', file=sys.stderr)
         sys.exit(1)

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertMachine, machine, checkContents, packagedExecutables } from '../release-bundle-smoke.mjs';
+import { assertMachine, machine, checkContents, packagedExecutables, canExecuteTarget } from '../release-bundle-smoke.mjs';
 
 test('package selection separates domios native client from codeterm CLI on every platform', () => {
   for (const [app, cli, server] of [
@@ -8,9 +8,10 @@ test('package selection separates domios native client from codeterm CLI on ever
     ['C:\\package\\domios.exe', 'C:\\package\\cli\\codeterm.exe', 'C:\\package\\domios-server\\domios-server.exe'],
     ['/CodeTerm.app/Contents/MacOS/domios', '/CodeTerm.app/Contents/Resources/cli/codeterm', '/CodeTerm.app/Contents/MacOS/domios-server'],
   ]) {
-    assert.deepEqual(packagedExecutables([app, cli, server]), { app, cli });
+    assert.deepEqual(packagedExecutables([app, cli, server]), { app, cli, server });
     assert.throws(() => packagedExecutables([cli, server]), /app executable, found 0/);
-    assert.throws(() => packagedExecutables([app, cli, app]), /app executable, found 2/);
+    assert.throws(() => packagedExecutables([app, cli, app, server]), /app executable, found 2/);
+    assert.throws(() => packagedExecutables([app, cli]), /packaged server, found 0/);
   }
 });
 function executable(format, arch) {
@@ -34,7 +35,15 @@ test('truncated, malformed and unknown executable headers fail closed', () => {
   for (const bytes of [Buffer.alloc(8),Buffer.alloc(128),Buffer.from('MZ'.padEnd(128,'x'))]) assert.throws(()=>machine(bytes));
   const pe=executable('PE','x64'); pe.writeUInt32LE(500,60); assert.throws(()=>machine(pe));
 });
-test('source SHA and embedded plugins must be present in the app itself', () => {
-  assert.throws(()=>checkContents(Buffer.from('app'), 'a'.repeat(40)), /source SHA/);
-  assert.throws(()=>checkContents(Buffer.from('a'.repeat(40)), 'a'.repeat(40)), /plugin/);
+test('the app carries the source SHA and the server it starts carries the embedded plugins', () => {
+  const sha = 'a'.repeat(40);
+  assert.throws(()=>checkContents(Buffer.from('app'), Buffer.from(sha), sha), /source SHA/);
+  assert.throws(()=>checkContents(Buffer.from(sha), Buffer.from('server'), sha), /plugin/);
+});
+test('the macOS x64 CLI must execute on Apple Silicon, so missing Rosetta fails; other cross targets are skipped', () => {
+  const silicon = { platform: 'darwin', arch: 'arm64' };
+  assert.equal(canExecuteTarget('arm64', silicon, false), true);
+  assert.equal(canExecuteTarget('x64', silicon, true), true);
+  assert.throws(() => canExecuteTarget('x64', silicon, false), /install Rosetta on this runner/);
+  assert.equal(canExecuteTarget('arm64', { platform: 'win32', arch: 'x64' }, true), false);
 });

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn connect_failure_diagnostic_names_the_caller_tab_and_distinguishes_denial() {
-    let path = "codeterm-fixture.sock";
+    let path = "domios-fixture.sock";
     let plain = connect_failure_message(path, false, None);
     let agent = connect_failure_message(path, false, Some("fixture-tab"));
     let denied_agent = connect_failure_message(path, true, Some("fixture-tab"));
@@ -20,8 +20,32 @@ fn connect_failure_diagnostic_names_the_caller_tab_and_distinguishes_denial() {
     assert_ne!(plain, denied);
 }
 
-// The helper under test only exists off Windows, where /tmp socket files do.
-#[cfg(not(target_os = "windows"))]
+#[test]
+fn server_internal_channels_are_not_daemon_sockets() {
+    let hash = "a".repeat(64);
+    assert!(!is_daemon_socket_name(&format!(
+        "domios-bootstrap-{hash}.sock"
+    )));
+    assert!(!is_daemon_socket_name(&format!(
+        "domios-native-host-{hash}.sock"
+    )));
+    assert!(is_daemon_socket_name("domios-49765.sock"));
+    assert!(is_daemon_socket_name("domios-dev.sock"));
+    assert!(is_daemon_socket_name("domios-dev-exp.sock"));
+    assert!(!is_daemon_socket_name("domios-.sock"));
+    assert!(!is_daemon_socket_name("domios-dev-.sock"));
+
+    let scanned: Vec<String> = [
+        format!("domios-bootstrap-{hash}.sock"),
+        format!("domios-native-host-{hash}.sock"),
+        "codeterm-4242.sock".to_string(),
+    ]
+    .into_iter()
+    .filter(|name| is_daemon_socket_name(name))
+    .collect();
+    assert_eq!(pick_preferred_socket_for(&scanned, false, None), None);
+}
+
 #[test]
 fn build_gateway_mutex_files_are_not_daemon_sockets() {
     assert!(!is_daemon_socket_name(
@@ -30,9 +54,9 @@ fn build_gateway_mutex_files_are_not_daemon_sockets() {
     assert!(!is_daemon_socket_name(
         "codeterm-gateway-mutex-13026-2189552-rustc.sock"
     ));
-    assert!(is_daemon_socket_name("codeterm-49765.sock"));
-    assert!(is_daemon_socket_name("codeterm-dev.sock"));
-    assert!(!is_daemon_socket_name("codeterm-49765"));
+    assert!(is_daemon_socket_name("domios-49765.sock"));
+    assert!(is_daemon_socket_name("domios-dev.sock"));
+    assert!(!is_daemon_socket_name("domios-49765"));
     assert!(!is_daemon_socket_name("other-49765.sock"));
 }
 
@@ -43,7 +67,7 @@ fn stale_socket_file_falls_through_to_live_probe() {
 
     let entry_names = vec![
         "codeterm-gateway-mutex-13026-2189552-cargo.sock".to_string(),
-        "codeterm-777.sock".to_string(),
+        "domios-777.sock".to_string(),
         "unrelated.sock".to_string(),
     ];
     let liveness_checked: RefCell<Vec<String>> = RefCell::new(Vec::new());
@@ -58,7 +82,7 @@ fn stale_socket_file_falls_through_to_live_probe() {
         &|candidates| pick_preferred_socket_for(candidates, false, None),
         &|| {
             *probe_calls.borrow_mut() += 1;
-            Some(((), "codeterm-4242.sock".to_string()))
+            Some(((), "domios-4242.sock".to_string()))
         },
     );
 
@@ -67,10 +91,10 @@ fn stale_socket_file_falls_through_to_live_probe() {
         1,
         "a stale socket file must not stop discovery before the live probe"
     );
-    assert_eq!(resolved, Ok(((), "codeterm-4242.sock".to_string())));
+    assert_eq!(resolved, Ok(((), "domios-4242.sock".to_string())));
     assert_eq!(
         *liveness_checked.borrow(),
-        vec!["codeterm-777.sock".to_string()],
+        vec!["domios-777.sock".to_string()],
         "only daemon-named candidates may reach the liveness check"
     );
 }
@@ -82,43 +106,43 @@ fn live_socket_file_wins_without_probing() {
 
     let probe_calls = RefCell::new(0usize);
     let resolved = resolve_scanned_socket(
-        vec!["codeterm-777.sock".to_string()].into_iter(),
+        vec!["domios-777.sock".to_string()].into_iter(),
         &|_| Some(()),
         &|candidates| pick_preferred_socket_for(candidates, false, None),
         &|| {
             *probe_calls.borrow_mut() += 1;
-            Some(((), "codeterm-4242.sock".to_string()))
+            Some(((), "domios-4242.sock".to_string()))
         },
     );
 
-    assert_eq!(resolved, Ok(((), "codeterm-777.sock".to_string())));
+    assert_eq!(resolved, Ok(((), "domios-777.sock".to_string())));
     assert_eq!(*probe_calls.borrow(), 0);
 }
 
 #[test]
 fn picks_dev_when_dev_preferred() {
-    let candidates = vec!["codeterm-1234".to_string(), "codeterm-dev.sock".to_string()];
+    let candidates = vec!["domios-1234".to_string(), "domios-dev.sock".to_string()];
     assert_eq!(
         pick_preferred_socket(&candidates, true),
-        Some("codeterm-dev.sock".to_string())
+        Some("domios-dev.sock".to_string())
     );
 }
 
 #[test]
 fn picks_prod_when_dev_not_preferred() {
-    let candidates = vec!["codeterm-1234".to_string(), "codeterm-dev.sock".to_string()];
+    let candidates = vec!["domios-1234".to_string(), "domios-dev.sock".to_string()];
     assert_eq!(
         pick_preferred_socket(&candidates, false),
-        Some("codeterm-1234".to_string())
+        Some("domios-1234".to_string())
     );
 }
 
 #[test]
 fn falls_back_when_only_other_kind_present() {
-    let candidates = vec!["codeterm-1234".to_string()];
+    let candidates = vec!["domios-1234".to_string()];
     assert_eq!(
         pick_preferred_socket(&candidates, true),
-        Some("codeterm-1234".to_string())
+        Some("domios-1234".to_string())
     );
 }
 
@@ -132,21 +156,21 @@ fn returns_none_when_nothing_found() {
 #[test]
 fn instance_socket_wins_over_plain_dev() {
     let candidates = vec![
-        "codeterm-dev.sock".to_string(),
-        "codeterm-dev-exp.sock".to_string(),
+        "domios-dev.sock".to_string(),
+        "domios-dev-exp.sock".to_string(),
     ];
     assert_eq!(
-        pick_preferred_socket_for(&candidates, true, Some("codeterm-dev-exp")),
-        Some("codeterm-dev-exp.sock".to_string())
+        pick_preferred_socket_for(&candidates, true, Some("domios-dev-exp")),
+        Some("domios-dev-exp.sock".to_string())
     );
 }
 
 #[test]
 fn instance_falls_back_to_dev_when_own_absent() {
-    let candidates = vec!["codeterm-dev.sock".to_string()];
+    let candidates = vec!["domios-dev.sock".to_string()];
     assert_eq!(
-        pick_preferred_socket_for(&candidates, true, Some("codeterm-dev-exp")),
-        Some("codeterm-dev.sock".to_string())
+        pick_preferred_socket_for(&candidates, true, Some("domios-dev-exp")),
+        Some("domios-dev.sock".to_string())
     );
 }
 
@@ -160,7 +184,7 @@ fn deterministic_socket_uses_named_instance() {
 
     assert_eq!(
         deterministic_socket_name().as_deref(),
-        Some("codeterm-dev-handoff.sock")
+        Some("domios-dev-handoff.sock")
     );
     assert_eq!(
         deterministic_socket_resolution().map(|resolved| resolved.source),
@@ -181,7 +205,7 @@ fn deterministic_socket_uses_plain_dev_port() {
 
     assert_eq!(
         deterministic_socket_name().as_deref(),
-        Some("codeterm-dev.sock")
+        Some("domios-dev.sock")
     );
     assert_eq!(
         deterministic_socket_resolution().map(|resolved| resolved.source),
@@ -201,7 +225,7 @@ fn custom_port_does_not_guess_the_default_dev_socket() {
     std::env::set_var("CODETERM_API_PORT", "7694");
 
     assert_eq!(deterministic_socket_name(), None);
-    assert!(!socket_path_matches_port_pref("codeterm-12345.sock", true));
+    assert!(!socket_path_matches_port_pref("domios-12345.sock", true));
 
     restore_env("CODETERM_INSTANCE", prev_instance);
     restore_env("CODETERM_API_PORT", prev_port);
@@ -212,36 +236,36 @@ fn socket_resolution_handles_each_environment_combination() {
     let cases = [
         (None, None, None, None),
         (
-            Some("codeterm-dev-coreqa.sock"),
+            Some("domios-dev-coreqa.sock"),
             None,
             None,
-            Some("codeterm-dev-coreqa.sock"),
+            Some("domios-dev-coreqa.sock"),
         ),
-        (None, None, Some("7686"), Some("codeterm-dev.sock")),
-        (None, Some("coreqa"), None, Some("codeterm-dev-coreqa.sock")),
+        (None, None, Some("7686"), Some("domios-dev.sock")),
+        (None, Some("coreqa"), None, Some("domios-dev-coreqa.sock")),
         (
-            Some("codeterm-dev-coreqa.sock"),
+            Some("domios-dev-coreqa.sock"),
             None,
             Some("7712"),
-            Some("codeterm-dev-coreqa.sock"),
+            Some("domios-dev-coreqa.sock"),
         ),
         (
-            Some("codeterm-dev-coreqa.sock"),
+            Some("domios-dev-coreqa.sock"),
             Some("coreqa"),
             None,
-            Some("codeterm-dev-coreqa.sock"),
+            Some("domios-dev-coreqa.sock"),
         ),
         (
             None,
             Some("coreqa"),
             Some("7712"),
-            Some("codeterm-dev-coreqa.sock"),
+            Some("domios-dev-coreqa.sock"),
         ),
         (
-            Some("codeterm-dev-coreqa.sock"),
+            Some("domios-dev-coreqa.sock"),
             Some("coreqa"),
             Some("7712"),
-            Some("codeterm-dev-coreqa.sock"),
+            Some("domios-dev-coreqa.sock"),
         ),
     ];
 
@@ -261,27 +285,27 @@ fn socket_resolution_handles_each_environment_combination() {
 
 #[test]
 fn explicit_socket_is_not_replaced_by_a_derived_socket() {
-    let resolved = resolve_socket_selection(Some("codeterm-dev-coreqa.sock"), None, Some("7712"))
+    let resolved = resolve_socket_selection(Some("domios-dev-coreqa.sock"), None, Some("7712"))
         .unwrap()
         .unwrap();
 
-    assert_eq!(resolved.path, "codeterm-dev-coreqa.sock");
+    assert_eq!(resolved.path, "domios-dev-coreqa.sock");
     assert_eq!(resolved.source, ResolutionSource::CodeTermSocketPath);
 }
 
 #[test]
 fn explicit_named_socket_supplies_the_instance_when_env_is_absent() {
     assert_eq!(
-        instance_socket_name_from_path("/tmp/codeterm-dev-coreqa.sock").as_deref(),
+        instance_socket_name_from_path("/tmp/domios-dev-coreqa.sock").as_deref(),
         Some("coreqa")
     );
     assert_eq!(
-        instance_socket_name_from_path("\\\\.\\pipe\\codeterm-dev-coreqa.sock").as_deref(),
+        instance_socket_name_from_path("\\\\.\\pipe\\domios-dev-coreqa.sock").as_deref(),
         Some("coreqa")
     );
-    assert_eq!(instance_socket_name_from_path("codeterm-dev.sock"), None);
+    assert_eq!(instance_socket_name_from_path("domios-dev.sock"), None);
     assert_eq!(
-        instance_socket_name_from_path("codeterm-dev-CoreQA.sock"),
+        instance_socket_name_from_path("domios-dev-CoreQA.sock"),
         None
     );
 }
@@ -289,17 +313,13 @@ fn explicit_named_socket_supplies_the_instance_when_env_is_absent() {
 #[test]
 fn conflicting_socket_instance_and_port_selectors_are_refused() {
     let mismatch_cases = [
-        (
-            Some("codeterm-dev-other.sock"),
-            Some("coreqa"),
-            Some("7712"),
-        ),
-        (Some("codeterm-dev-other.sock"), Some("coreqa"), None),
-        (Some("codeterm-12345.sock"), None, Some("7712")),
+        (Some("domios-dev-other.sock"), Some("coreqa"), Some("7712")),
+        (Some("domios-dev-other.sock"), Some("coreqa"), None),
+        (Some("domios-12345.sock"), None, Some("7712")),
         (Some("custom.sock"), None, Some("7712")),
-        (Some("codeterm-dev-coreqa.sock"), None, Some("7685")),
-        (Some("codeterm-dev-coreqa.sock"), None, Some("7686")),
-        (Some("codeterm-dev.sock"), None, Some("7712")),
+        (Some("domios-dev-coreqa.sock"), None, Some("7685")),
+        (Some("domios-dev-coreqa.sock"), None, Some("7686")),
+        (Some("domios-dev.sock"), None, Some("7712")),
         (None, Some("coreqa"), Some("7685")),
         (None, Some("coreqa"), Some("7686")),
         (None, None, Some("7712")),
@@ -315,33 +335,33 @@ fn conflicting_socket_instance_and_port_selectors_are_refused() {
 
 #[test]
 fn socket_pref_match_dev_pipe_with_dev_pref() {
-    assert!(socket_path_matches_port_pref("codeterm-dev.sock", true));
-    assert!(socket_path_matches_port_pref("codeterm-dev", true));
+    assert!(socket_path_matches_port_pref("domios-dev.sock", true));
+    assert!(socket_path_matches_port_pref("domios-dev", true));
 }
 
 #[test]
 fn socket_pref_match_prod_pid_with_prod_pref() {
-    assert!(socket_path_matches_port_pref("codeterm-12345.sock", false));
-    assert!(socket_path_matches_port_pref("codeterm-9876", false));
+    assert!(socket_path_matches_port_pref("domios-12345.sock", false));
+    assert!(socket_path_matches_port_pref("domios-9876", false));
 }
 
 #[test]
 fn socket_pref_mismatch_when_prod_pipe_but_dev_requested() {
-    assert!(!socket_path_matches_port_pref("codeterm-12345.sock", true));
+    assert!(!socket_path_matches_port_pref("domios-12345.sock", true));
 }
 
 #[test]
 fn socket_pref_mismatch_when_dev_pipe_but_prod_requested() {
-    assert!(!socket_path_matches_port_pref("codeterm-dev.sock", false));
+    assert!(!socket_path_matches_port_pref("domios-dev.sock", false));
 }
 
 #[test]
 fn is_dev_socket_does_not_match_pid_paths_with_dev_substring() {
-    // `contains("dev")` would have classified `codeterm-99987devops.sock` as dev — guard against that.
-    assert!(!is_dev_socket("codeterm-99987devops.sock"));
-    assert!(!is_dev_socket("codeterm-developerlaptop.sock"));
-    assert!(is_dev_socket("codeterm-dev"));
-    assert!(is_dev_socket("codeterm-dev.sock"));
+    // `contains("dev")` would have classified `domios-99987devops.sock` as dev — guard against that.
+    assert!(!is_dev_socket("domios-99987devops.sock"));
+    assert!(!is_dev_socket("domios-developerlaptop.sock"));
+    assert!(is_dev_socket("domios-dev"));
+    assert!(is_dev_socket("domios-dev.sock"));
 }
 
 fn method_not_found() -> SocketCallError {

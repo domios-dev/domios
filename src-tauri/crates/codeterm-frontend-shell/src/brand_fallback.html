@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Domios — {{TITLE}}</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, "Segoe UI", system-ui, sans-serif; background: #0d1117; color: #f0f6fc; --muted: #9da7b1; --border: #30363d; --accent: #58a6ff; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; display: grid; grid-template-rows: auto 1fr; background: #0d1117; color: #f0f6fc; overflow: hidden; }
+    header { display: flex; align-items: center; height: 36px; border-bottom: 1px solid var(--border); user-select: none; }
+    header .drag { flex: 1; align-self: stretch; }
+    header a { display: grid; place-items: center; width: 46px; height: 100%; color: var(--muted); text-decoration: none; font-size: 13px; }
+    header a:hover { color: #f0f6fc; background: rgba(127, 127, 127, .12); }
+    header a.close:hover { background: #c42b1c; color: #fff; }
+    .stage { position: relative; display: grid; place-items: center; padding: 2rem; }
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--accent); pointer-events: none; }
+    main { position: relative; width: min(100%, 30rem); display: grid; justify-items: center; gap: 1rem; text-align: center; }
+    svg { width: 4.75rem; height: 4.75rem; color: var(--accent); }
+    main[data-pulse] svg { animation: pulse 2.6s ease-in-out infinite; }
+    h1 { margin: .5rem 0 0; font-size: 1.2rem; font-weight: 600; }
+    p { max-width: 28rem; margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.6; }
+    .detail { max-width: 100%; padding: .6rem .8rem; border: 1px solid var(--border); border-radius: 8px; color: inherit; font: .8rem/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; text-align: left; overflow-wrap: anywhere; user-select: text; }
+    .detail[hidden] { display: none; }
+    .retry { margin-top: .5rem; display: inline-flex; align-items: center; gap: .5rem; padding: .45rem .9rem; border: 1px solid var(--border); border-radius: 8px; color: #f0f6fc; text-decoration: none; font-size: .85rem; }
+    /* Like the app's DeferredLoader: a fast hand-off only ever shows the matching background. */
+    header, .stage > * { animation: appear .25s ease-out .4s both; }
+    @keyframes appear { from { opacity: 0; } to { opacity: 1; } }
+    .retry:hover { border-color: var(--accent); }
+    /* Sharp rise (peak at 8%), short fall, rest; must match beatLevel in src/components/brand/useBrandMotion.ts. */
+    @keyframes pulse {
+      0% { opacity: .5; transform: scale(.94); animation-timing-function: cubic-bezier(.2, 0, 0, 1); }
+      8% { opacity: 1; transform: scale(1.04); animation-timing-function: cubic-bezier(.4, 0, .2, 1); }
+      35%, 100% { opacity: .5; transform: scale(.94); }
+    }
+    @media (prefers-color-scheme: light) {
+      :root, body { background: #f6f8fa; color: #1f2328; --muted: #57606a; --border: #d0d7de; --accent: #0969da; }
+      header a:hover, .retry { color: #1f2328; }
+    }
+    @media (prefers-reduced-motion: reduce) { main[data-pulse] svg { animation: none; opacity: .8; } }
+  </style>
+</head>
+<body>
+  {{CHROME}}
+  <div class="stage">
+    {{CANVAS}}
+    <main role="{{ROLE}}" aria-live="polite" aria-labelledby="fallback-title"{{PULSE}}>
+      <svg viewBox="-4 -4 72 72" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z"/></svg>
+      <h1 id="fallback-title">{{HEADING}}</h1>
+      <p>{{BODY}}</p>
+      {{ACTION}}
+    </main>
+  </div>
+  {{SCRIPT}}
+</body>
+</html>

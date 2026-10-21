@@ -82,7 +82,7 @@ pub struct AppState {
     pub cron: codeterm_service_core::CronState,
     pub cron_wake: codeterm_service_core::CronWake,
     pub api_port: u16,
-    pub update_state: codeterm_service_core::UpdateStateHandle,
+    pub update_state: codeterm_update::UpdateStateHandle,
     pub config: codeterm_service_core::config::ConfigState,
     pub mesh: codeterm_service_core::MeshStateHandle,
     pub keepawake: codeterm_service_core::KeepAwakeStateHandle,

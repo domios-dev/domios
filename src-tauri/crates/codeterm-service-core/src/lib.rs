@@ -3,10 +3,6 @@ pub mod agent_commands;
 pub mod api_support;
 pub mod async_runtime;
 pub use codeterm_util::attachments;
-mod autostart;
-pub use autostart::{
-    disable as disable_autostart, enable as enable_autostart, is_enabled as autostart_is_enabled,
-};
 pub mod bridge;
 pub mod bridge_host;
 pub mod bubble;
@@ -58,7 +54,6 @@ pub mod storage;
 mod telegram269_wire_contract;
 pub mod transcribe;
 pub mod transcribe_adapter;
-pub mod update_state;
 pub mod usage;
 pub mod user_last_activity;
 pub mod view;
@@ -83,7 +78,6 @@ pub type ShellCapabilityState = Arc<Mutex<agent::command_detection::ShellCapabil
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
 pub use cron::scheduler::{CronState, CronWake};
-pub type UpdateStateHandle = Arc<Mutex<update_state::UpdateState>>;
 pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 pub type ResizeOwnerState = resize_owner::ResizeOwnerState;

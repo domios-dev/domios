@@ -263,7 +263,7 @@ impl fmt::Display for SecretError {
 impl std::error::Error for SecretError {}
 
 /// Backend interface. Adapters implement this trait; everything else in
-/// CodeTerm talks to `dyn SecretStore`.
+/// Domios talks to `dyn SecretStore`.
 #[async_trait]
 pub trait SecretStore: Send + Sync {
     /// Stable backend id — `"mock"`, `"bitwarden"`, `"keychain"`, …. An
@@ -333,7 +333,7 @@ pub trait SecretStore: Send + Sync {
 
     /// Pull the latest state from the remote vault. Useful after changes
     /// made via another client (Bitwarden web, mobile app, another
-    /// CodeTerm machine). Default: no-op for backends with no remote
+    /// Domios machine). Default: no-op for backends with no remote
     /// (Local OS-keychain, Mock).
     async fn sync(&self) -> Result<(), SecretError> {
         Ok(())
@@ -415,7 +415,7 @@ pub fn is_valid_http_url(s: &str) -> bool {
 
 /// One-time carry-over of a pre-existing native-Bitwarden setup into the
 /// Bitwarden *plugin* namespace: server URL → `config.plugins.bitwarden.serverUrl`
-/// and saved session/master/email from `codeterm.secrets.bitwarden` →
+/// and saved session/master/email from `domios.secrets.bitwarden` →
 /// `codeterm.plugin.bitwarden`. Best-effort, idempotent. Returns true if config changed.
 pub fn migrate_native_bitwarden_to_plugin(config: &mut codeterm_config::schema::AppConfig) -> bool {
     let mut changed = false;
@@ -435,7 +435,7 @@ pub fn migrate_native_bitwarden_to_plugin(config: &mut codeterm_config::schema::
             changed = true;
         }
     }
-    let native = secret_file::SecretFile::new("codeterm.secrets.bitwarden");
+    let native = secret_file::SecretFile::new("domios.secrets.bitwarden");
     let plugin = capability::plugin_secret_bucket("bitwarden");
     for (from, to) in [
         ("session", "session"),

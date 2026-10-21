@@ -7,7 +7,7 @@ use super::{agent_access, dropped_keys, kpi_default, normalize_runtime_defaults,
 use codeterm_util::persisted_state::{Loaded, StateFile};
 
 pub(super) const SALVAGED_CONFIG_MARKER: &str =
-    "# CodeTerm salvaged config; remove this marker after reviewing or restoring the corrupt copy.";
+    "# Domios salvaged config; remove this marker after reviewing or restoring the corrupt copy.";
 
 /// Cache the parsed config, keyed by file mtime. `load_config()` runs on hot
 /// paths (mesh heartbeats, request handlers), so the file is re-parsed only when

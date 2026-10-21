@@ -53,6 +53,10 @@ For a plugin release, run `node scripts/release-plugin.mjs bump <id> <version>`,
 `--min-codeterm` only when a new host capability is required. Verify `release-plugin.mjs check`
 and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag the verified master
 commit `plugin-<id>-v<version>`. Verify the installed version through `codeterm plugin update-system`.
+The tag's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
+`plugins/` tree as `codeterm-core.tar.gz` (+ `.sha256`, `.source-commit`) to the public
+`rollacode/codeterm-releases` release `codeterm-core-latest`, skips an older master commit, and
+verifies the anonymous download. Every install refreshes `codeterm-core` from there.
 
 ## Application train
 
@@ -94,6 +98,10 @@ gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
   -f tag=<version-tag> -f dry_run=true -f mirror=false -f dry_run_tests=true
 ```
 
+Until repository variable `RELEASE_PUBLISH_ENABLED` is `true`, a `release/X.Y.Z` push runs as a
+full dry run of that branch (tests included, no drafts or uploads) in its own concurrency group, so
+it never cancels another version's run; its branch must carry version X.Y.Z.
+
 Verify the remote ref resolves to the reviewed SHA before dispatch. Capture the returned/new run
 ID and its workflow/source identity. Do not identify a run merely as the latest result in a list.
 `dry_run_tests=false` is an explicitly limited packaging diagnostic: skipped tests remain unverified.
@@ -107,6 +115,23 @@ entries and invokes the existing validator with `--local`. It refuses missing, c
 evidence; no public release, tag, channel asset or issue-closure boundary is created. Its direct
 dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
 An older run that did not retain those inputs cannot be retroactively called validated.
+
+With publication GO, a wholly green dry run of the exact `release/X.Y.Z` head can be promoted
+instead of rebuilt: dispatch release.yml on that branch with `-f tag=release/X.Y.Z -f
+promote_run_id=<dry-run run id>` (dry_run false). Prepare refuses unless the run is a completed,
+successful release.yml run of that SHA on that branch whose platform, test and manifest jobs all
+succeeded. `promote-evidence` re-runs the aggregate validator on the retained bytes, uploads them
+to the drafts exactly as the platform jobs would (fragments only to the source draft), reads every
+asset back against its receipt, and hands off to the unchanged manifest, verification and merge
+jobs. No platform or test job runs; missing, changed or foreign evidence refuses with the platform
+named. `RELEASE_PUBLISH_ENABLED` still gates it.
+
+The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
+`ci-artifact.sh put` spools the file with a warning and the job's `ci-artifact-spool` action uploads
+it as a run artifact; `get`/`get-prefix` read `<run-id>/...` keys back from that run's artifacts.
+`manifest-local-verification.json` records `retained_via` and a per-file `location`. Rust jobs then
+compile with a job-local sccache that `build.sh cache-release` stops at job end. A reachable store
+that refuses a request, and any digest or signature mismatch, still fail.
 
 For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
@@ -122,7 +147,12 @@ and workflow conditions; never call cancelled jobs passes or assume who cancelle
 
 ## One build, two distributions
 
-Per target, build frontend, CLI and release server once, then native client once. Both distributions
+A release run builds the platform-independent frontend once in its `frontend-dist` job; each
+platform job fetches that archive, checks its SHA-256 and installs it as `dist` through
+`CODETERM_FRONTEND_ARCHIVE`/`CODETERM_FRONTEND_SHA256` instead of building it. Direct platform
+dispatches, without that digest, still build their own frontend.
+
+Per target, build CLI and release server once, then native client once. Both distributions
 consume the same final server/CLI/resources; packaging must not compile them again.
 
 1. `release-inputs --for-bundle` builds inputs and stages the actual frontend at
@@ -215,6 +245,28 @@ never printed: `codeterm-tauri-minisign-private-key` (updater signing, empty pas
 key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-env`. The Developer ID
 certificate is backed up only as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` repo secrets.
 Windows updater signatures are not Authenticode: no Authenticode signing is currently configured.
+
+### Runner map
+
+Workflows select runners by label, never by name. Each runner carries `host-<machine>`, which no
+job routes on; `./build.sh runner-pause` keeps it and never lends it.
+
+| Runner (planned name) | Machine, OS/arch | Routing labels | Release / test jobs |
+|---|---|---|---|
+| `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | macOS arm64 build and Linux arm64 Docker build (default of `RELEASE_MACOS_ARM64_LABEL`, `RELEASE_LINUX_ARM64_LABEL`); quick checks |
+| `build-mac-x64` | build-mac, macOS x64 (Intel) | `macos-x64-build`, `host-dev` | macOS x64 build, native (`RELEASE_MACOS_X64_LABEL=macos-x64-build`); also the private store host |
+| `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `light`, `rust-shard`, `host-air` | tests only; no release builds |
+| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build` (lent by BLACKSTAR), `windows-ci`, `rust-shard`, `medium`, `host-rog` | Windows x64 and arm64 NSIS builds; Windows tests |
+| `green-windows-ci` (`green-windows-x64`) | green, Windows x64 | `windows-light`, `host-green` | Windows frontend quick check |
+| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `linux-ci`, `rust-shard`, `rust-tests`, `host-ubunta` | release prepare, Linux x64 build, dry-run manifest, full Rust tests |
+| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks |
+| `BLACKSTAR-windows-x64` (`blackstar-windows-x64`) | BLACKSTAR, Windows x64 | paused (saved: `windows-x64-build`, `heavy`, `windows-ci`, `rust-shard`), `host-blackstar` | Windows x64 build and tests when resumed |
+| `BLACKSTAR-wsl-ci`, `-wsl-light-1/2` (`blackstar-wsl-x64[-light-N]`) | BLACKSTAR, WSL2 Linux x64 | paused (saved: `linux-ci`/`light`/`heavy`), `host-blackstar` | Linux tests when resumed |
+
+Planned names follow `<machine>-<os>-<arch>[-role]`; renames re-register one machine at a time between
+runs, passing the current labels plus `host-<machine>`. Before dispatching on a new or changed macOS
+builder, run `gh workflow run release-credentials.yml -f macos_label=<label> -f notary_probe=true`:
+it checks only that runner and notarizes a trivial app there in minutes.
 
 Use the existing sccache policy and named cache-verify/cache-stats operations. Configured zero
 counters do not prove a live cache or reuse. Container evidence comes from its own cache server,

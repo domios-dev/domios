@@ -206,7 +206,7 @@ fn host_exec_env_overrides_plugin_env_for_identity() {
         ("CODETERM_TAB_ID".to_string(), "chat-tab".to_string()),
         (
             "CODETERM_SOCKET_PATH".to_string(),
-            "/tmp/codeterm.sock".to_string(),
+            "/tmp/domios.sock".to_string(),
         ),
     ]);
 
@@ -219,7 +219,7 @@ fn host_exec_env_overrides_plugin_env_for_identity() {
     );
     assert_eq!(
         merged.env.get("CODETERM_SOCKET_PATH").map(String::as_str),
-        Some("/tmp/codeterm.sock")
+        Some("/tmp/domios.sock")
     );
     assert_eq!(
         merged.env.get("PLUGIN_VAR").map(String::as_str),

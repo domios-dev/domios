@@ -22,8 +22,10 @@ pub(super) fn record_incoming_pairing_request(
 
 pub async fn mesh_pair_request(
     AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Json(request): Json<codeterm_service_core::mesh::types::PairingRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
+    crate::mesh_routes::require_current_peer_version(&headers)?;
     let (_request_id, peer_name, our_id) = {
         let mut mesh = state.mesh.lock();
         record_incoming_pairing_request(&mut mesh, request)
@@ -38,7 +40,10 @@ pub async fn mesh_pair_request(
         Some(format!("{} is waiting for owner approval.", peer_name)),
         Some("info"),
     );
-    Ok(Json(serde_json::json!({"ok": true, "instance_id": our_id})))
+    Ok((
+        crate::mesh_routes::current_peer_version_header(),
+        Json(serde_json::json!({"ok": true, "instance_id": our_id})),
+    ))
 }
 
 #[derive(Debug)]
@@ -136,7 +141,16 @@ pub async fn do_approve(
         async move {
             use codeterm_service_core::mesh::transport::TryNext;
             let resp =
-                match client.post(&url).json(&accept).send().await {
+                match client
+                    .post(&url)
+                    .header(
+                        codeterm_service_core::mesh::version::VERSION_HEADER,
+                        codeterm_service_core::mesh::version::local_version(),
+                    )
+                    .json(&accept)
+                    .send()
+                    .await
+                {
                     Ok(r) => r,
                     Err(e) => return TryNext::Retry(
                         codeterm_service_core::mesh::transport::TransportError::pairing_send_error(
@@ -145,10 +159,22 @@ pub async fn do_approve(
                         .to_string(),
                     ),
                 };
-            if resp.status().is_success() {
-                TryNext::Success(())
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return TryNext::Stop(format!("HTTP {status}: {body}"));
+            }
+            let peer_version = resp
+                .headers()
+                .get(codeterm_service_core::mesh::version::VERSION_HEADER)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            if let Some(error) =
+                codeterm_service_core::mesh::version::peer_version_error(peer_version.as_deref())
+            {
+                TryNext::Stop(error)
             } else {
-                TryNext::Stop(format!("HTTP {}", resp.status()))
+                TryNext::Success(())
             }
         }
     })
@@ -179,7 +205,7 @@ pub async fn do_approve(
             access_level: codeterm_service_core::mesh::types::AccessLevel::Full,
             version: None,
             web_ui: None,
-            relay_protocol_version: 0,
+            relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
             consecutive_misses: 0,
             last_active_ms: None,
         };
@@ -212,8 +238,10 @@ pub async fn do_approve(
 
 pub async fn mesh_pair_accept(
     AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Json(accept): Json<codeterm_service_core::mesh::types::PairingAccept>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
+    crate::mesh_routes::require_current_peer_version(&headers)?;
     let (b_address, b_port, b_instance_id) = {
         let mut mesh = state.mesh.lock();
         mesh.cleanup_expired_requests();
@@ -275,7 +303,7 @@ pub async fn mesh_pair_accept(
             access_level: codeterm_service_core::mesh::types::AccessLevel::Full,
             version: None,
             web_ui: None,
-            relay_protocol_version: 0,
+            relay_protocol_version: codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
             consecutive_misses: 0,
             last_active_ms: None,
         };
@@ -313,14 +341,22 @@ pub async fn mesh_pair_accept(
         });
     }
 
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok((
+        crate::mesh_routes::current_peer_version_header(),
+        Json(serde_json::json!({"ok": true})),
+    ))
 }
 
 pub async fn mesh_pair_confirm(
     AxumState(_state): AxumState<AppState>,
+    headers: HeaderMap,
     Json(_body): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    Ok(Json(serde_json::json!({"ok": true})))
+) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
+    crate::mesh_routes::require_current_peer_version(&headers)?;
+    Ok((
+        crate::mesh_routes::current_peer_version_header(),
+        Json(serde_json::json!({"ok": true})),
+    ))
 }
 
 /// Reject and block the requester; only a request still awaiting a decision

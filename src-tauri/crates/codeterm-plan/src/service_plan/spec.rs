@@ -432,11 +432,11 @@ mod tests {
 
         // Orphan (no owning plan) -> global yaml, bodies inline, no json/md fan-out.
         let yaml_path = root
-            .join(".codeterm")
+            .join(".domios")
             .join("specs")
             .join(format!("{}.yaml", spec.id));
         assert!(yaml_path.is_file());
-        assert!(!root.join(".codeterm/specs").join(&spec.id).exists());
+        assert!(!root.join(".domios/specs").join(&spec.id).exists());
         assert!(std::fs::read_to_string(&yaml_path)
             .unwrap()
             .contains("body text"));
@@ -462,9 +462,7 @@ mod tests {
         let psec = store
             .add_section(&plan.id, "Build", "", None, &[], None, None, 3)
             .unwrap();
-        let global = root
-            .join(".codeterm/specs")
-            .join(format!("{}.yaml", spec.id));
+        let global = root.join(".domios/specs").join(format!("{}.yaml", spec.id));
         assert!(global.is_file());
 
         store
@@ -608,7 +606,7 @@ mod tests {
             )
             .unwrap();
         let active_spec = root
-            .join(".codeterm/plans/active")
+            .join(".domios/plans/active")
             .join(&plan.id)
             .join("spec.yaml");
         assert!(active_spec.is_file());
@@ -616,7 +614,7 @@ mod tests {
         store.archive(&plan.id, 4).unwrap();
 
         let archived_spec = root
-            .join(".codeterm/plans/archive")
+            .join(".domios/plans/archive")
             .join(&plan.id)
             .join("spec.yaml");
         assert!(
@@ -666,9 +664,7 @@ mod tests {
         let spec = store
             .create_spec("Loose".into(), root.display().to_string(), 1)
             .unwrap();
-        let yaml = root
-            .join(".codeterm/specs")
-            .join(format!("{}.yaml", spec.id));
+        let yaml = root.join(".domios/specs").join(format!("{}.yaml", spec.id));
         assert!(yaml.is_file());
 
         store.delete_spec(&spec.id, 2).unwrap();

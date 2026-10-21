@@ -18,8 +18,14 @@ function inject(origin: string, frame = false, frontendOrigin?: string, href = o
 describe("native shell credential injection", () => {
   it("injects an opaque packaged origin only at the exact fallback document URL", () => {
     expect(inject("null", false, undefined, "tauri://localhost/index.html").__CODETERM_DAEMON__).toEqual(bootstrap);
-    for (const href of ["data:text/html,other", "tauri://localhost/other.html", "tauri://foreign/index.html"]) {
+    for (const href of ["data:text/html,other", "tauri://localhost/other.html", "tauri://foreign/index.html", "tauri://localhost/index.html.evil"]) {
       expect(inject("null", false, undefined, href)).not.toHaveProperty("__CODETERM_DAEMON__");
+    }
+  });
+  it("injects into the packaged fallback the shell navigates to with its root generation", () => {
+    for (const href of ["tauri://localhost/index.html?__codeterm_client_view=1%3A17", "http://tauri.localhost/index.html?__codeterm_client_view=1%3A17#relay=self"]) {
+      expect(inject(href.startsWith("http:") ? "http://tauri.localhost" : "null", false, "http://127.0.0.1:1420", href).__CODETERM_DAEMON__)
+        .toEqual({ ...bootstrap, frontendOrigin: "http://127.0.0.1:1420" });
     }
   });
   it("leaves main window creation to the shell in release and development", () => {

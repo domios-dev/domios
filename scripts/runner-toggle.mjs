@@ -32,7 +32,7 @@ export function planPause(runners, machine) {
   const borrowed = {};
   for (const runner of parked) {
     for (const label of customLabels(runner)) {
-      if (label === PAUSED_LABEL || others.some((other) => customLabels(other).includes(label))) continue;
+      if (label === PAUSED_LABEL || label.startsWith("host-") || others.some((other) => customLabels(other).includes(label))) continue;
       const lender = others.find((other) => osOf(other) === osOf(runner));
       if (!lender) throw new Error(`label ${label} would have no online runner and no ${osOf(runner)} runner can take it`);
       (borrowed[lender.name] ||= []).push(label);
@@ -71,7 +71,8 @@ function pause(machine) {
   const plan = planPause(runners, machine);
   fs.mkdirSync(STATE_DIR, { recursive: true });
   fs.writeFileSync(statePath(machine), `${JSON.stringify(plan, null, 2)}\n`);
-  for (const runner of plan.runners) setLabels(runner.id, [PAUSED_LABEL]);
+  // host-<machine> routes no job, so a parked runner keeps naming its machine.
+  for (const runner of plan.runners) setLabels(runner.id, [PAUSED_LABEL, ...runner.labels.filter((label) => label.startsWith("host-"))]);
   for (const [lenderName, labels] of Object.entries(plan.borrowed)) {
     const lender = runners.find((runner) => runner.name === lenderName);
     const args = ["api", "-X", "POST", `repos/${REPO}/actions/runners/${lender.id}/labels`];

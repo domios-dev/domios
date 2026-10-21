@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "../../lib/bridge";
+import { invoke, listen } from "../../lib/bridge";
+import {
+  applyAvailabilityChange,
+  PROVIDER_AVAILABILITY_CHANGED,
+  type ProviderAvailabilityChange,
+} from "../../lib/providerAvailability";
 import type { ProviderCliStatus } from "../../lib/providerCli";
 import type { ProviderDescriptor } from "../../lib/types";
 
@@ -22,14 +27,31 @@ function sameAvailability(a: ProviderDescriptor[], b: ProviderDescriptor[]): boo
   );
 }
 
+function availabilitySignature(providers: ProviderDescriptor[]): string {
+  return JSON.stringify(providers.map((p) => [p.id, p.availability, p.display_name, p.install_command]));
+}
+
 export function useProviderAvailability(providers: ProviderDescriptor[]) {
   const [observed, setObserved] = useState<ProviderDescriptor[]>(providers);
   const [state, setState] = useState<ProviderAvailabilityState>("ready");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Parents rebuild the list every render; only a changed answer may replace a fresher probe.
+  const signature = availabilitySignature(providers);
+  const [adopted, setAdopted] = useState(signature);
+  if (adopted !== signature) {
+    setAdopted(signature);
     setObserved(providers);
-  }, [providers]);
+  }
+
+  useEffect(() => {
+    let active = true;
+    let stop: (() => void) | undefined;
+    void listen<ProviderAvailabilityChange>(PROVIDER_AVAILABILITY_CHANGED, ({ payload }) => {
+      if (active) setObserved((current) => applyAvailabilityChange(current, payload));
+    }).then((unlisten) => { if (active) stop = unlisten; else unlisten(); }).catch(() => {});
+    return () => { active = false; stop?.(); };
+  }, []);
 
   const refresh = useCallback(async () => {
     setState("checking");

@@ -70,7 +70,7 @@ const outcome = await captureBounded({
     const state = await api('/api/mux/state', { signal });
     const workspace = state.workspaces.find(value => value.name === workspaceName);
     if (!workspace) throw Error('Workspace absent');
-    logPath = join(cliConnection.env.CODETERM_DEV_DATA_DIR, 'logs/codeterm.log');
+    logPath = join(cliConnection.env.CODETERM_DEV_DATA_DIR, 'logs/domios.log');
     logPosition = statSync(logPath).size;
     watcher = watch(logPath, () => {
       try { readLog(); } catch (error) { data.logError = String(error); controller.abort(error); }

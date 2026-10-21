@@ -20,10 +20,10 @@ fn source_plan_candidates(root: &Path, plan_id: &str) -> Vec<PathBuf> {
     } else {
         plan_id
     };
-    let plans_root = if root.ends_with(".codeterm/plans") || root.ends_with("plans") {
+    let plans_root = if root.ends_with(".domios/plans") || root.ends_with("plans") {
         root.to_path_buf()
-    } else if root.join(".codeterm").join("plans").is_dir() {
-        root.join(".codeterm").join("plans")
+    } else if root.join(".domios").join("plans").is_dir() {
+        root.join(".domios").join("plans")
     } else if root.join("plans").is_dir() {
         root.join("plans")
     } else {

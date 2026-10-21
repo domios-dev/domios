@@ -63,22 +63,19 @@ pub const GENERAL_WORKSPACE_NAME: &str = "General";
 pub const GENERAL_TAB_TITLE: &str = "Main";
 
 /// Get the General Agent workspace directory.
-/// `~/.codeterm/general/` (or `~/.codeterm-dev/general/` for dev builds).
+/// `~/.domios/general/` (or `~/.domios-dev/general/` for dev builds).
 pub fn general_dir() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(crate::paths::dir_name()).join("general")
+    crate::paths::data_dir_path().join("general")
 }
 
 /// Get the secrets directory.
 pub fn secrets_dir() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(crate::paths::dir_name()).join("secrets")
+    crate::paths::data_dir_path().join("secrets")
 }
 
 /// Get the integrations config directory.
 pub fn integrations_dir() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(crate::paths::dir_name()).join("integrations")
+    crate::paths::data_dir_path().join("integrations")
 }
 
 /// Ensure all General Agent directories exist.
@@ -107,19 +104,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_general_dir_under_home() {
-        let dir = general_dir();
-        let home = dirs::home_dir().unwrap();
-        assert!(dir.starts_with(home));
-        assert!(dir.ends_with("general"));
-    }
-
-    #[test]
-    fn test_secrets_dir_under_home() {
-        let dir = secrets_dir();
-        let home = dirs::home_dir().unwrap();
-        assert!(dir.starts_with(home));
-        assert!(dir.ends_with("secrets"));
+    fn general_agent_dirs_live_under_the_data_root() {
+        let root = crate::paths::data_dir_path();
+        assert_eq!(general_dir(), root.join("general"));
+        assert_eq!(secrets_dir(), root.join("secrets"));
+        assert_eq!(integrations_dir(), root.join("integrations"));
     }
 }
 

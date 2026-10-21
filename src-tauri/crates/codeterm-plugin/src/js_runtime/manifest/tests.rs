@@ -810,15 +810,31 @@ fn expand_home_handles_tilde() {
 }
 
 #[test]
-fn expand_home_resolves_codeterm_paths_in_the_instance_data_dir() {
+fn expand_home_resolves_domios_paths_in_the_instance_data_dir() {
+    let data = codeterm_paths::data_dir();
+    assert_eq!(PluginManifest::expand_home("~/.domios"), Some(data.clone()));
+    assert_eq!(
+        PluginManifest::expand_home("~/.domios/plugin-fixture-41/bin"),
+        Some(data.join("plugin-fixture-41/bin"))
+    );
+    if let Some(home) = dirs::home_dir() {
+        assert_eq!(
+            PluginManifest::expand_home("~/.domios-fixture-41/x"),
+            Some(home.join(".domios-fixture-41/x"))
+        );
+    }
+}
+
+#[test]
+fn expand_home_keeps_the_legacy_plugin_data_prefix_inside_the_instance_data_dir() {
     let data = codeterm_paths::data_dir();
     assert_eq!(
         PluginManifest::expand_home("~/.codeterm"),
         Some(data.clone())
     );
     assert_eq!(
-        PluginManifest::expand_home("~/.codeterm/plugin-fixture-41/bin"),
-        Some(data.join("plugin-fixture-41/bin"))
+        PluginManifest::expand_home("~/.codeterm/teams-client"),
+        Some(data.join("teams-client"))
     );
     if let Some(home) = dirs::home_dir() {
         assert_eq!(

@@ -17,7 +17,7 @@ version?" Covers the two shipped capability plugins: `transcriber` and `bitwarde
 ## Live daemon checks — `./run.sh` (run against dev on :7686)
 Requires dev up: `./build.sh dev --wait`. Uses the bench lib (`dc`, locked to dev).
 
-1. **Loaded + registered** — greps `~/.codeterm-dev/logs/codeterm.log` for
+1. **Loaded + registered** — greps `~/.domios-dev/logs/domios.log` for
    `transcriber registered as transcriber` and `bitwarden registered as secret backend`.
 2. **Transcriber works through the real daemon** — starts a fake transcribe daemon, points
    the daemon's `CODETERM_TRANSCRIBE_URL` at it (set before `build.sh dev`), POSTs a voice
@@ -26,7 +26,7 @@ Requires dev up: `./build.sh dev --wait`. Uses the bench lib (`dc`, locked to de
 
 ## Version-update drill — `./update-drill.sh`
 Proves a published new version is picked up and still works:
-1. Install `transcriber` v0.1.0 into `~/.codeterm-dev/plugins/transcriber/` (copy + set version).
+1. Install `transcriber` v0.1.0 into `~/.domios-dev/plugins/transcriber/` (copy + set version).
 2. Restart dev; assert it loads at 0.1.0 and transcribes.
 3. Bump the copy to v0.1.1 with a marker change; restart dev.
 4. Assert the log shows 0.1.1 and the new behaviour is active — **no break**.

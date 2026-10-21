@@ -47,7 +47,7 @@ fn on_crash(ctx: &crash_handler::CrashContext) {
         write_minidump(ctx, &dmp_path)
     });
 
-    crash_handler::write_stderr("\n[crash] native crash written, see ~/.codeterm/crashes/\n");
+    crash_handler::write_stderr("\n[crash] native crash written, see ~/.domios/crashes/\n");
 }
 
 fn record_native_dump(

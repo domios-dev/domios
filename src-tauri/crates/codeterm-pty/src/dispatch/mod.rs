@@ -725,6 +725,7 @@ pub fn build_tab_summary_json(
                 ),
                 "task_binding": tab.task_binding,
                 "roleless_tracked": tab.roleless_tracked,
+                "has_checklist": tab.has_checklist,
                 "role": tab.role,
                 "role_profile": tab.role_profile,
                 "ownership": tab.ownership,
