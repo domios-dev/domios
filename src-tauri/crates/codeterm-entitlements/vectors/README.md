@@ -39,6 +39,12 @@ Fixed issuance T=1700000000; test project demo-domios/env test, fixture-user/fix
 
 All dates are fixed Unix seconds. No cache refresh extends deadlines. refresh_after=T+86400 is consumer refresh metadata, not producer gating. Expired examples are generated at T where signGrant accepts, then evaluated later; validatePayload rejects signing them at expiry/grace equality. No backend accepts an already expired fresh grant. Admin/paid/free policy equations are in the actual validator and service.
 
+## Limit keys `teams` and `agent.tabs`
+`limits-vectors.json` is shared byte-for-byte with the producer (`functions/test/fixtures/limits-vectors.json`); both suites pin its SHA256. It is data, not a signed packet: the desktop signs each case with an ephemeral test key, and the producer runs `validatePayload` and `catalogLimits` on it.
+- Free: `teams` max 6 and `agent.tabs` max 35, both installation scope (live tabs of every kind count). Paid and admin: `null`.
+- The producer signs the two keys only when `policy_version >= 2` and never adds them to the schema-2 envelope, because released desktops parse signed `limits` and `application_access` with unknown fields refused.
+- The desktop accepts both shapes. An absent key takes the signed authority's catalog row: free gets the compiled baseline, paid and admin get `null`. The nine signed packet vectors above are the old shape and still verify unchanged.
+
 ## Commands / limitations
 Run `node regenerate.cjs C:/Developer/codeterm/codeterm-firebase` in this artifact folder (or pass another checkout containing pinned commit and existing functions/node_modules). Then `node verify-portable.cjs`. No package install/build/emulator required.
 

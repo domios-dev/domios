@@ -395,13 +395,14 @@ impl ServiceContext {
                 .unwrap_or(false),
         );
 
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
             let result = match params.existing_tab_id.as_deref() {
                 Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
-                None => {
-                    crate::service::spawn::create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?
-                }
+                None => crate::service::spawn::create_cleared_agent_tab(
+                    &mut mux, &ws_id, &clearance, &gate,
+                )?,
             };
             if let Some(ref dir) = params.cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
