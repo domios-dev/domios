@@ -6,5 +6,3 @@ Ask only if at least one holds, else `ASKED: none`:
 3. A carried NEXT-CHECK is contradicted by the digest and the contradiction blocks a learning.
 4. A learning would change how the next wave is dispatched or reviewed.
 Never ask: when the Orchestrator is `working` and no grant is needed; what `plan state` or `orchestrator status` answers; more than three things; anything you will not act on this round.
-
-

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub mod digest;
+pub mod movement;
 pub mod note;
 #[cfg(test)]
 mod tests;
@@ -113,11 +114,7 @@ impl PlanStore {
                     "mode_changed"
                 }
                 .into(),
-                summary: note
-                    .retro
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| note.reason.clone()),
+                summary: note.next_move.clone(),
                 next_delay_secs: curator_delay(Some(note.next_secs)),
                 reason: note.reason.clone(),
                 learnings: (note.retro.len() + note.learnings.len() + note.next_checks.len())

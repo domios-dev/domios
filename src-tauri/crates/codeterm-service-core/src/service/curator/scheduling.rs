@@ -95,6 +95,7 @@ impl ServiceContext {
             suspended.is_some(),
         );
         let mut loop_state = plan.control_loop.clone();
+        loop_state.agent_states = super::movement_sources::observed_agents(self, plan, now);
         if loop_state.cron_id.is_none() {
             loop_state.cron_id = cron
                 .lock()
@@ -140,6 +141,7 @@ impl ServiceContext {
                     section_sizes: run.section_sizes.clone(),
                     turns: run.turns,
                     output_tokens: run.output_tokens,
+                    save_id: run.save_id.clone(),
                     duration_ms: now.saturating_sub(run.started_at),
                     ..Default::default()
                 };
@@ -313,6 +315,21 @@ impl ServiceContext {
         {
             return Ok(None);
         }
+        let occupied = self.mux.read().tabs.values().any(|tab| {
+            tab.team_id == plan.team_id
+                && tab.role_profile.as_deref() == Some("curator")
+                && (tab.agent_type.is_some() || tab.agent_booting)
+        });
+        if occupied {
+            self.plan_store
+                .with_plan(&plan.id, now, |plan| {
+                    plan.control_loop.next_at =
+                        Some(now.saturating_add(curator_delay(None) * 1000));
+                    Ok(())
+                })
+                .map_err(|e| e.to_string())?;
+            return Ok(None);
+        }
         let owner = plan.owner.tab_id.as_deref().ok_or("orchestrator_absent")?;
         let tab = self
             .mux
@@ -339,6 +356,7 @@ impl ServiceContext {
             .map(|r| r.ended_at)
             .unwrap_or(now.saturating_sub(7_200_000));
         let mut rows = digest::plan_rows(&plan, since);
+        super::movement_sources::append(self, &plan, since, now, &mut rows)?;
         let candidates = self.curator_save_candidates(&plan.id, now)?;
         for (id, episodes) in candidates
             .into_iter()

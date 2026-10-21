@@ -166,4 +166,8 @@ Every created agent, utility shell, and schedule belongs to its Team. Bind utili
 
 Curator memory saves require a round grant for a repeated candidate and at most one save in the round. For a granted plan skill, use the candidate tag `curator:candidate:plan-skill:<slug>` on the normal memory save and provide the generalized skill body. A covering entry requires `--replace`; conflicting or uncertain existing matches refuse the save.
 
-<!-- revision: 16 -->
+
+
+Each non-quiet Curator finish note includes `MOVE: <one highest-leverage next step> [ids]` immediately after `NEXT`. The round summary and its Orchestrator result carry that move. Movement sections report task ages, review backlog, waits, decisions, open questions, observed agent-state minutes and accepted work without recorded owner notice evidence. These contain ids and numbers; lower-priority sections are trimmed within the shared 8 KiB limit.
+
+<!-- revision: 17 -->
