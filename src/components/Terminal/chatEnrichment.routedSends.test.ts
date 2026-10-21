@@ -6,7 +6,7 @@ import { enrichTimelineItems } from "./chatEnrichment";
 
 const body = "opaque routed payload";
 const wire = `<domios from="tab" label="Sender" tab="a1b2c3d4">${body} <tip>opaque reply hint</tip></domios>`;
-const segments: MessageSegment[] = [{ type: "frame", from: "tab", attrs: { from: "tab", label: "Sender", tab: "a1b2c3d4" }, body, tip: "opaque reply hint" }];
+const segments: MessageSegment[] = [{ type: "frame", kind: "tab", from: "tab", attrs: { from: "tab", label: "Sender", tab: "a1b2c3d4" }, body, tip: "opaque reply hint" }];
 const render = (rows: NormalizedChatMessage[]) => enrichTimelineItems(rows.map((message) => ({ kind: "message", message })), new WeakMap());
 
 for (const state of ["held", "written", "submit_unconfirmed", "delivered"] as const) {
