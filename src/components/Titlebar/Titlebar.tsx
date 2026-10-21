@@ -98,8 +98,8 @@ export function Titlebar({
         <button
           type="button"
           data-testid="web-sidebar-open"
-          aria-label="Open sidebar"
-          title="Open sidebar"
+          aria-label="Toggle sidebar"
+          title="Toggle sidebar"
           onClick={onToggleSidebar}
           className="inline-flex h-full w-8 shrink-0 items-center justify-center text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
         >

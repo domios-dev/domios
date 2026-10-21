@@ -716,7 +716,7 @@ function AppInner() {
       <Titlebar
         api={stableApiConfig}
         onToggleSidebar={sidebarRailCollapsed && sidebarOpen ? () => setSidebarExpandRequest((count) => count + 1) : toggleSidebar}
-        showSidebarToggle={phoneViewport || !sidebarOpen || sidebarRailCollapsed}
+        showSidebarToggle
         onNewTab={handleNewTab}
         theme={stableTheme}
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
