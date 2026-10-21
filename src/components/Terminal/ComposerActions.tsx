@@ -2,7 +2,6 @@ import { useRef, type ReactNode } from "react";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
 import { ComposerInputShell } from "./ComposerInputShell";
-import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import { useAttachmentUploads } from "./useAttachmentUploads";
 import { useComposerVoice } from "./voice/useComposerVoice";
 import { ComposerIssuesProvider, useHasComposerIssuesProvider } from "./ComposerIssuesContext";
@@ -85,8 +84,7 @@ function ComposerActionsBody({
       {voiceUploads.status}
       <div className="relative flex w-full items-end gap-1.5">
         {attachButton}
-        <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}
-          actions={voiceUi.mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>
+        <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}>
           {children}
         </ComposerInputShell>
         {!voiceUi.isPreview && (
