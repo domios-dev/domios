@@ -68,7 +68,7 @@ fn missing_prerequisites_are_named_with_setup_guidance_without_guessing_unknown(
 fn updater_arguments_are_not_command_prerequisites() {
     for command in [
         "grok update --version {version}",
-        "opencode upgrade {version}",
+        "fixture-cli upgrade {version}",
         "grok update --version latest",
         "grok update --message which imaginary",
         "grok update --message command -v imaginary",
@@ -78,8 +78,8 @@ fn updater_arguments_are_not_command_prerequisites() {
     ] {
         let expected = if command.contains("; other") {
             vec!["grok", "other"]
-        } else if command.starts_with("opencode") {
-            vec!["opencode"]
+        } else if command.starts_with("fixture-cli") {
+            vec!["fixture-cli"]
         } else {
             vec!["grok"]
         };

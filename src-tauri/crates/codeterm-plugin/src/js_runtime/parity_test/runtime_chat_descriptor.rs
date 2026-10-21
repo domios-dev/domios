@@ -40,11 +40,28 @@ impl ChatBackendProvider for RuntimeChatNativeStub {
     }
 }
 
+/// Chosen by capability, so the parity check never names a provider.
+fn bundled_manifest_declaring_agent_runtime() -> String {
+    let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let mut manifests: Vec<_> = std::fs::read_dir(&plugins)
+        .unwrap()
+        .filter_map(|entry| std::fs::read_to_string(entry.ok()?.path().join("plugin.json")).ok())
+        .collect();
+    manifests.sort();
+    manifests
+        .into_iter()
+        .find(|text| {
+            serde_json::from_str::<serde_json::Value>(text)
+                .is_ok_and(|value| value["capabilities"]["agentRuntime"].is_object())
+        })
+        .expect("a bundled plugin declares agentRuntime")
+}
+
 #[test]
 fn runtime_chat_descriptor_preserves_manifest_capability_native_js_parity() {
-    let manifest_text = include_str!("../../../../../../plugins/provider-codex/plugin.json");
+    let manifest_text = bundled_manifest_declaring_agent_runtime();
     for enabled in [false, true] {
-        let mut value: serde_json::Value = serde_json::from_str(manifest_text).unwrap();
+        let mut value: serde_json::Value = serde_json::from_str(&manifest_text).unwrap();
         value["id"] = serde_json::json!("runtime-chat-fixture");
         if !enabled {
             value["capabilities"]
