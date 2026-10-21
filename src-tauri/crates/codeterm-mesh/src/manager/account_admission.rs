@@ -31,7 +31,7 @@ pub struct PendingLink {
 /// Only a local, user-initiated Add may lift this machine's own removal of a peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkOrigin {
-    LocalAdd,
+    LocalAdd { removal_watermark: u64 },
     Remote,
 }
 
@@ -57,6 +57,7 @@ pub struct AdmissionContext {
     pub authority: Arc<dyn AccountMeshAuthority>,
     pub account_id: String,
     pub account_epoch: u64,
+    pub removal_watermark: u64,
     pub membership: SignedMembership,
     pub party: Party,
     pub private_key: String,
@@ -99,6 +100,7 @@ impl MeshManager {
             authority,
             account_id,
             account_epoch: self.account.account_epoch,
+            removal_watermark: self.removal_watermark(),
             membership,
             private_key,
         })
@@ -206,7 +208,9 @@ impl MeshManager {
             self.verify_peer_membership(&context, &hello.membership, &initiator.installation_id)?;
         self.prune_pending();
         if self.pending_links.len() >= MAX_PENDING {
-            return Err(AdmissionRefusal::RateLimited);
+            return Err(AdmissionRefusal::RateLimited {
+                retry_after_seconds: PENDING_TTL_SECS,
+            });
         }
         if self.pending_links.contains_key(&hello.link_id) {
             return Err(AdmissionRefusal::handshake("duplicate link id"));
@@ -389,8 +393,18 @@ impl MeshManager {
     ) -> Result<(), AdmissionRefusal> {
         let party = &peer.party;
         self.check_link_identity(&party.instance_id, &party.mesh_public_key)?;
-        if origin == LinkOrigin::Remote {
-            self.refuse_removed_peer(&party.instance_id)?;
+        match origin {
+            LinkOrigin::Remote => self.refuse_removed_peer(&party.instance_id)?,
+            LinkOrigin::LocalAdd { removal_watermark } => {
+                if self
+                    .revocation_list
+                    .tombstones
+                    .get(&party.instance_id)
+                    .is_some_and(|removed_at| *removed_at > removal_watermark)
+                {
+                    return Err(AdmissionRefusal::Cancelled);
+                }
+            }
         }
         let mut addresses = types::sanitize_addresses(preferred_addresses);
         for address in types::sanitize_addresses(&peer.addresses) {
@@ -431,7 +445,7 @@ impl MeshManager {
             record.addresses = addresses;
             record.api_port = peer.api_port;
         }
-        if origin == LinkOrigin::LocalAdd {
+        if matches!(origin, LinkOrigin::LocalAdd { .. }) {
             self.revocation_list
                 .revoked
                 .retain(|id| id != &party.instance_id);
@@ -460,7 +474,9 @@ impl MeshManager {
             self.verify_peer_membership(&context, &offer.membership, &offer.installation_id)?;
         self.prune_pending();
         if self.pending_adoptions.len() >= MAX_PENDING {
-            return Err(AdmissionRefusal::RateLimited);
+            return Err(AdmissionRefusal::RateLimited {
+                retry_after_seconds: PENDING_TTL_SECS,
+            });
         }
         let initiator = Party {
             instance_id: peer_id.to_string(),

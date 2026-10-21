@@ -67,12 +67,18 @@ impl MeshManager {
         let identity = peers::load_or_create_identity();
         let records = peers::load_mesh_records();
         let revocation_list = peers::load_revocation_list();
-        let (links, persist_now) = LinkLedger::migrate(
+        let load = if records.ledger_held {
+            super::account_mesh::ledger::PeersLoad::Held
+        } else {
+            records.load
+        };
+        let (links, migrate_now) = LinkLedger::migrate(
             records.ledger,
             &records.peers,
             &revocation_list,
-            records.load,
+            load,
         );
+        let persist_now = migrate_now || records.ledger_needs_persist;
 
         log::info!(
             "[mesh] Initialized: id={}, name={}, {} paired peers",
@@ -259,13 +265,11 @@ impl MeshManager {
     }
 
     fn tombstone_peer(&mut self, instance_id: &str) {
-        self.revocation_list.next_tombstone_generation = self
-            .revocation_list
-            .next_tombstone_generation
-            .saturating_add(1);
+        let generation = self.removal_watermark().saturating_add(1);
+        self.revocation_list.next_tombstone_generation = generation;
         self.revocation_list.tombstones.insert(
             instance_id.to_string(),
-            self.revocation_list.next_tombstone_generation,
+            generation,
         );
         if !self
             .revocation_list
@@ -274,6 +278,16 @@ impl MeshManager {
         {
             self.revocation_list.revoked.push(instance_id.to_string());
         }
+    }
+
+    pub(crate) fn removal_watermark(&self) -> u64 {
+        self.revocation_list
+            .tombstones
+            .values()
+            .copied()
+            .max()
+            .unwrap_or_default()
+            .max(self.revocation_list.next_tombstone_generation)
     }
 
     // ── Peer management ─────────────────────────────────────────────

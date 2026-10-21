@@ -16,4 +16,16 @@ describe("account mesh failure reasons", () => {
     expect(message).toBeTruthy();
     expect(message).not.toBe(failureMessage({ reason: "unavailable" }));
   });
+
+  it("preserves the mesh rate-limit retry delay in the UI message", () => {
+    const error = new AccountMeshRefusalError({
+      requestId: "req",
+      refusal: { reason: "rate-limited", retry_after_seconds: 60 },
+    });
+    const failure = linkFailure(error);
+
+    expect(failure).toEqual({ reason: "rate-limited", retry_after_seconds: 60 });
+    expect(failureMessage(failure)).toContain("60 seconds");
+    expect(failureMessage(failure)).not.toContain("undefined");
+  });
 });

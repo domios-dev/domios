@@ -254,7 +254,9 @@ pub async fn link_installation_with(
         &endpoint,
         remote,
         &context.account_id,
-        LinkOrigin::LocalAdd,
+        LinkOrigin::LocalAdd {
+            removal_watermark: context.removal_watermark,
+        },
     )?;
     manager
         .account_mesh_pairs()

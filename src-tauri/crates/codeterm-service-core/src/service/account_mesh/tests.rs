@@ -1,10 +1,18 @@
 use super::authority::{admission_refusal, membership_refusal};
 use super::*;
 use codeterm_account::account_mesh::{
-    Cleanup, MembershipRefusal, SignedMembership, VerifiedMembership,
+    AccountMeshConfig, AccountMeshPorts, AccountMeshStore, Clock, Cleanup, EndpointSource,
+    InstallationKeyStore, MembershipRefusal, MeshTransport, SessionSource, SignedMembership,
+    UnavailableRegistry, VerifiedMembership,
 };
+use async_trait::async_trait;
 use codeterm_mesh::account_mesh as mesh;
+use codeterm_mesh::types::{AccessLevel, MeshIdentity, PairedPeer, RELAY_PROTOCOL_VERSION};
 use serde_json::json;
+use std::io;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Notify;
 
 fn signed_in(epoch: u64) -> LifecycleState {
     LifecycleState {
@@ -205,4 +213,165 @@ fn account_mesh_not_before_skew_matches_across_account_and_mesh() {
         codeterm_account::account_mesh::NOT_BEFORE_SKEW_SECONDS,
         codeterm_mesh::account_mesh::ports::NOT_BEFORE_SKEW_SECONDS
     );
+}
+
+fn legacy_mesh() -> crate::MeshStateHandle {
+    let mut manager = codeterm_mesh::MeshManager::in_memory(
+        MeshIdentity {
+            instance_id: "local-machine".into(),
+            private_key: None,
+            public_key: None,
+        },
+        "local".into(),
+        7685,
+    );
+    manager.insert_legacy_pair_for_test(PairedPeer {
+        instance_id: "peer-a".into(),
+        instance_name: "Peer A".into(),
+        addresses: Vec::new(),
+        api_port: 7685,
+        public_key: "peer-key".into(),
+        paired_at: "before-upgrade".into(),
+        last_seen: None,
+        online: true,
+        is_primary: false,
+        access_level: AccessLevel::ReadOnly,
+        version: None,
+        web_ui: None,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+        consecutive_misses: 0,
+        last_active_ms: None,
+    });
+    Arc::new(parking_lot::Mutex::new(manager))
+}
+
+struct NoSession;
+
+#[async_trait]
+impl SessionSource for NoSession {
+    async fn session(&self) -> Option<codeterm_account::Session> {
+        None
+    }
+}
+
+struct NoKeys;
+
+#[async_trait]
+impl InstallationKeyStore for NoKeys {
+    async fn load(&self) -> codeterm_account::Result<Option<codeterm_account::Secret>> {
+        Ok(None)
+    }
+
+    async fn save(&self, _: &codeterm_account::Secret) -> codeterm_account::Result<()> {
+        Ok(())
+    }
+}
+
+struct NoEndpoint;
+
+impl EndpointSource for NoEndpoint {
+    fn ready_endpoint(&self) -> Option<codeterm_account::account_mesh::wire::MeshEndpoint> {
+        None
+    }
+}
+
+struct FixedClock;
+
+impl Clock for FixedClock {
+    fn now(&self) -> u64 {
+        100
+    }
+}
+
+#[derive(Default)]
+struct HeldSignOutStore {
+    record: parking_lot::Mutex<AccountMeshRecord>,
+    entered: Notify,
+    release: Notify,
+}
+
+#[async_trait]
+impl AccountMeshStore for HeldSignOutStore {
+    async fn load(&self) -> io::Result<AccountMeshRecord> {
+        Ok(self.record.lock().clone())
+    }
+
+    async fn save(&self, record: &AccountMeshRecord) -> io::Result<()> {
+        if record.signed_out {
+            self.entered.notify_one();
+            self.release.notified().await;
+        }
+        *self.record.lock() = record.clone();
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() {
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let mesh_state = legacy_mesh();
+    fixture.service.set_ext(mesh_state.clone()).unwrap();
+    let service = Arc::new(fixture.service.clone());
+    let transport = Arc::new(TransportBridge {
+        service: Arc::downgrade(&service),
+        mesh_state: watch::channel(mesh::AccountMeshState::default()).0,
+    });
+    let store = Arc::new(HeldSignOutStore::default());
+    let account_mesh = AccountMesh::new(
+        AccountMeshConfig {
+            installation_id: codeterm_account::InstallationId::parse("installation-a".into())
+                .unwrap(),
+            trust: None,
+            call_deadline: Duration::from_secs(1),
+            withdrawal_deadline: Duration::from_secs(1),
+            schedule_leases: false,
+        },
+        AccountMeshPorts {
+            registry: Arc::new(UnavailableRegistry),
+            sessions: Arc::new(NoSession),
+            keys: Arc::new(NoKeys),
+            store: store.clone(),
+            endpoint: Arc::new(NoEndpoint),
+            transport,
+            clock: Arc::new(FixedClock),
+        },
+    );
+    account_mesh.load().await;
+    account_mesh
+        .identity_changed(Some(&codeterm_account::Identity {
+            uid: "account-user".into(),
+            email: None,
+            display_name: None,
+            provider: "test".into(),
+            photo_url: None,
+        }))
+        .await;
+    assert!(mesh_state.lock().traffic_open("peer-a"));
+
+    let sign_out = tokio::spawn({
+        let account_mesh = account_mesh.clone();
+        async move { account_mesh.sign_out(std::future::pending::<()>()).await }
+    });
+    store.entered.notified().await;
+    assert!(!mesh_state.lock().traffic_open("peer-a"));
+    sign_out.abort();
+    let _ = sign_out.await;
+    assert!(!mesh_state.lock().traffic_open("peer-a"));
+}
+
+#[tokio::test]
+async fn failed_account_mesh_initialization_fallback_persists_sign_out_and_blocks_mesh() {
+    let mesh_state = legacy_mesh();
+    assert!(mesh_state.lock().traffic_open("peer-a"));
+    let temp = tempfile::tempdir().unwrap();
+    let store: Arc<dyn AccountMeshStore> = Arc::new(FileAccountMeshStore::new(temp.path().into()));
+
+    super::block_and_persist_sign_out(Some(mesh_state.clone()), store.clone())
+        .await
+        .unwrap();
+
+    assert!(!mesh_state.lock().traffic_open("peer-a"));
+    assert!(store.load().await.unwrap().signed_out);
+    assert!(mesh_state.lock().paired_peers.contains_key("peer-a"));
 }
