@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { imageMimeType, parseAttachmentMarkers } from "@codeterm/chat-core";
+import { VIDEO_SNIFF_BYTES, imageMimeType, parseAttachmentMarkers } from "@codeterm/chat-core";
 import { runtimePlan } from "../../../plugins/provider-codex/src/runtime";
 import type { RuntimeContext } from "@codeterm/plugin-sdk";
 import { capsuleSpans, capsuleToken, EMPTY_CAPSULES, serializeCapsuleDraft, type CapsuleRegistry } from "./composerCapsules";
@@ -120,4 +120,28 @@ test("unsupported HEIC retains the draft and a failed chip without storing or pe
   assert.equal(draftHasPendingUploads(h.draft(), h.registry()), true);
   assert.equal(capsuleSpans(h.draft()).length, 1);
   assert(h.draft().includes("left"));
+});
+
+
+test("video reserves an uploading capsule before bounded asynchronous header reading completes", async () => {
+  let finishRead!: (bytes: ArrayBuffer) => void;
+  let beganRead!: () => void;
+  const reading = new Promise<void>(resolve => { beganRead = resolve; });
+  const video = new Blob([new Uint8Array(1024 * 1024)], { type: "video/mp4" });
+  video.arrayBuffer = () => assert.fail("must not read the whole video");
+  video.slice = (_start, end) => {
+    assert.equal(end, VIDEO_SNIFF_BYTES);
+    return { arrayBuffer: () => { beganRead(); return new Promise<ArrayBuffer>(resolve => { finishRead = resolve; }); } } as Blob;
+  };
+  const h = fixture(async () => "/uploads/clip.mp4");
+  const result = h.controller.add(video, "clip.mp4");
+  assert.equal(capsuleSpans(h.draft()).length, 1);
+  assert.equal(h.uploads()[0].state, "uploading");
+  h.edit(`${h.draft()} typing remains available`);
+  await reading;
+  finishRead(new Uint8Array([0, 0, 0, 0x18, ...Buffer.from("ftypisom")]).buffer);
+  await result;
+  assert(h.draft().endsWith("typing remains available"));
+  assert.equal(h.uploads().length, 0);
+  assert.equal(parseAttachmentMarkers(serializeCapsuleDraft(h.draft(), h.registry())).attachments[0].label, "video1");
 });
