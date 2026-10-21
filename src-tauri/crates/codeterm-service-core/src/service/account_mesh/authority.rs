@@ -75,12 +75,11 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
     }
 }
 
-/// Expiry is a revocation boundary; every other verification failure fails the handshake.
+/// Expiry is a revocation boundary; every other verification failure, including a
+/// not-yet-valid one beyond the skew leeway, fails the handshake.
 pub fn membership_refusal(refusal: MembershipRefusal) -> mesh::AdmissionRefusal {
     match refusal {
-        MembershipRefusal::Expired | MembershipRefusal::NotYetValid => {
-            mesh::AdmissionRefusal::Revoked
-        }
+        MembershipRefusal::Expired => mesh::AdmissionRefusal::Revoked,
         other => mesh::AdmissionRefusal::handshake(format!("membership-{}", reason(&other))),
     }
 }

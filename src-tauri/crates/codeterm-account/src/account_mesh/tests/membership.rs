@@ -58,10 +58,16 @@ fn account_mesh_membership_accepts_only_its_exact_window() {
         verify(&valid_payload(), START + 3600),
         Err(MembershipRefusal::Expired)
     );
+    assert!(
+        verify(&valid_payload(), START - NOT_BEFORE_SKEW_SECONDS).is_ok(),
+        "a desktop clock behind the issuer still accepts a fresh membership"
+    );
+    assert!(verified.is_current(START - NOT_BEFORE_SKEW_SECONDS));
     assert_eq!(
-        verify(&valid_payload(), START - 1),
+        verify(&valid_payload(), START - NOT_BEFORE_SKEW_SECONDS - 1),
         Err(MembershipRefusal::NotYetValid)
     );
+    assert!(!verified.is_current(START - NOT_BEFORE_SKEW_SECONDS - 1));
     assert!(!verified.is_current(START + 3600));
     let long = with(valid_payload(), "expires_at", json!(START + 3601));
     assert_eq!(verify(&long, START), Err(MembershipRefusal::Window));

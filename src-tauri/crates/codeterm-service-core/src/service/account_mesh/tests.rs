@@ -107,6 +107,11 @@ fn account_mesh_only_the_machine_limit_reaches_the_gate_as_mesh_machines() {
         membership_refusal(MembershipRefusal::Signature),
         mesh::AdmissionRefusal::handshake("membership-signature")
     );
+    assert_eq!(
+        membership_refusal(MembershipRefusal::NotYetValid),
+        mesh::AdmissionRefusal::handshake("membership-not_yet_valid"),
+        "a clock behind the issuer is not a revocation"
+    );
 }
 
 #[test]

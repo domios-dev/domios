@@ -1,5 +1,5 @@
 use super::key::InstallationKey;
-use super::membership::{account_id, MembershipTrust};
+use super::membership::{account_id, MembershipTrust, MAX_MEMBERSHIP_SECONDS};
 use super::operations::request_id;
 use super::ports::{
     AccountMeshStore, Clock, EndpointSource, InstallationKeyStore, MeshRegistry, MeshTransport,
@@ -12,6 +12,7 @@ use super::state::{
 use super::wire::MeshTarget;
 use crate::{Identity, InstallationId};
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -55,12 +56,69 @@ impl Cancel {
             notified.await;
         }
     }
+    fn same(&self, other: &Cancel) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
+
+type Settled = Result<(), AccountMeshRefusal>;
 
 struct Flight {
     epoch: u64,
     cancel: Cancel,
     rerun: Option<EnrollTrigger>,
+    outcome: watch::Receiver<Option<Settled>>,
+}
+
+enum Start {
+    Owner(u64, Cancel, watch::Sender<Option<Settled>>),
+    Joined(watch::Receiver<Option<Settled>>),
+}
+
+const LEASE_RETRY_SECONDS: u64 = 30;
+const LEASE_RETRY_MAX_SECONDS: u64 = 300;
+
+/// Transient registry failures retry a renewal; any other refusal waits for a new trigger.
+fn lease_retry(refusal: AccountMeshRefusal, failures: u32) -> Option<u64> {
+    let backoff = (LEASE_RETRY_SECONDS << failures.min(4)).min(LEASE_RETRY_MAX_SECONDS);
+    match refusal {
+        AccountMeshRefusal::RateLimited {
+            retry_after_seconds,
+        } => Some(backoff.max(retry_after_seconds.min(MAX_MEMBERSHIP_SECONDS))),
+        AccountMeshRefusal::Offline
+        | AccountMeshRefusal::Unavailable
+        | AccountMeshRefusal::AuthorityUnavailable => Some(backoff),
+        _ => None,
+    }
+}
+
+/// Clears the sign-out guard however the release ends, so a failed or abandoned logout
+/// cannot wedge later sign-ins.
+struct LogoutWindow<'a>(&'a AccountMesh);
+impl Drop for LogoutWindow<'_> {
+    fn drop(&mut self) {
+        self.0.with(|inner| inner.awaiting_logout = false);
+    }
+}
+
+/// An owner dropped mid-run (its request cancelled) frees the flight instead of leaving later
+/// triggers joined to a run that never settles.
+struct FlightOwner<'a> {
+    mesh: &'a AccountMesh,
+    cancel: Cancel,
+}
+impl Drop for FlightOwner<'_> {
+    fn drop(&mut self) {
+        self.mesh.with(|inner| {
+            if inner
+                .flight
+                .as_ref()
+                .is_some_and(|flight| flight.cancel.same(&self.cancel))
+            {
+                inner.flight = None;
+            }
+        });
+    }
 }
 
 pub(super) struct Inner {
@@ -73,6 +131,8 @@ pub(super) struct Inner {
     flight: Option<Flight>,
     awaiting_logout: bool,
     notice_epoch: Option<u64>,
+    lease: u64,
+    lease_failures: u32,
 }
 
 impl Inner {
@@ -101,6 +161,7 @@ impl Inner {
     fn begin_epoch(&mut self) {
         self.cancel_flight();
         self.notice_epoch = None;
+        self.lease_failures = 0;
         self.metadata_revision = None;
         self.resolved.clear();
     }
@@ -146,6 +207,8 @@ impl AccountMesh {
                 flight: None,
                 awaiting_logout: false,
                 notice_epoch: None,
+                lease: 0,
+                lease_failures: 0,
             }),
             watch: watch::channel(state).0,
             persist_lock: tokio::sync::Mutex::new(()),
@@ -286,10 +349,16 @@ impl AccountMesh {
         });
     }
 
-    /// Explicit sign-out: block durably first, then one bounded withdrawal while the
-    /// account's credentials still exist. The caller releases credentials afterwards.
+    /// Explicit sign-out: block durably, withdraw once while the account's credentials still
+    /// exist, then `release` them. Only identity changes racing the release are ignored.
+    pub async fn sign_out<T>(&self, release: impl Future<Output = T>) -> (Cleanup, T) {
+        let _window = LogoutWindow(self);
+        let cleanup = self.block_and_withdraw().await;
+        (cleanup, release.await)
+    }
+
     /// Without a signed-in account there is nothing to sign out of, so legacy continuity stays.
-    pub async fn sign_out(&self) -> Cleanup {
+    async fn block_and_withdraw(&self) -> Cleanup {
         let session = self.ports.sessions.session().await;
         let Some((account, published)) = self.with(|inner| {
             let account = inner.state.signed_in_account()?.to_owned();
@@ -331,12 +400,10 @@ impl AccountMesh {
         cleanup
     }
 
-    /// Single-flight enrollment/renewal for the current account epoch. Concurrent triggers
-    /// join the running flight; sign-out or account change cancels it.
-    pub async fn refresh(
-        self: &Arc<Self>,
-        trigger: EnrollTrigger,
-    ) -> Result<(), AccountMeshRefusal> {
+    /// Single-flight enrollment/renewal for the current account epoch. Concurrent triggers join
+    /// the running flight and an explicit one awaits its outcome; sign-out or account change
+    /// cancels it.
+    pub async fn refresh(self: &Arc<Self>, trigger: EnrollTrigger) -> Settled {
         let started = self.with(|inner| {
             let Presence::SignedIn { .. } = inner.state.presence else {
                 return Err(match inner.state.presence {
@@ -348,22 +415,30 @@ impl AccountMesh {
             if let Some(flight) = inner.flight.as_mut() {
                 if flight.epoch == epoch && !flight.cancel.is_cancelled() {
                     flight.rerun = Some(merge(flight.rerun, trigger));
-                    return Ok(None);
+                    return Ok(Start::Joined(flight.outcome.clone()));
                 }
             }
             let cancel = Cancel::default();
+            let (outcome, settled) = watch::channel(None);
             inner.flight = Some(Flight {
                 epoch,
                 cancel: cancel.clone(),
                 rerun: None,
+                outcome: settled,
             });
             inner.update(&self.watch, |state| {
                 state.enrollment = Enrollment::Enrolling
             });
-            Ok(Some((epoch, cancel)))
+            Ok(Start::Owner(epoch, cancel, outcome))
         })?;
-        let Some((epoch, cancel)) = started else {
-            return Ok(());
+        let (epoch, cancel, outcome) = match started {
+            Start::Owner(epoch, cancel, outcome) => (epoch, cancel, outcome),
+            Start::Joined(_) if trigger != EnrollTrigger::Explicit => return Ok(()),
+            Start::Joined(settled) => return Self::joined(settled).await,
+        };
+        let _owner = FlightOwner {
+            mesh: &**self,
+            cancel: cancel.clone(),
         };
         self.push().await;
         let mut trigger = trigger;
@@ -377,13 +452,21 @@ impl AccountMesh {
             match next {
                 Some(rerun) => trigger = rerun,
                 None => {
-                    if result.is_ok() {
-                        self.schedule_lease(epoch);
-                    }
+                    self.schedule_lease(epoch, &result);
+                    outcome.send_replace(Some(result));
                     return result;
                 }
             }
         }
+    }
+
+    /// The outcome of the run a trigger joined, including any rerun it asked for.
+    async fn joined(mut settled: watch::Receiver<Option<Settled>>) -> Settled {
+        let outcome = match settled.wait_for(Option::is_some).await {
+            Ok(outcome) => *outcome,
+            Err(_) => None,
+        };
+        outcome.unwrap_or(Err(AccountMeshRefusal::Cancelled))
     }
 
     fn settle(
@@ -471,32 +554,45 @@ impl AccountMesh {
         cleared
     }
 
-    /// Renews at the server's refresh point; a newer membership or epoch retires the timer.
-    fn schedule_lease(self: &Arc<Self>, epoch: u64) {
+    /// One live lease timer: renew at the server's refresh point, or after a transient renewal
+    /// failure with bounded backoff. A newer timer or epoch retires it; it never proves readiness.
+    fn schedule_lease(self: &Arc<Self>, epoch: u64, result: &Settled) {
         if !self.config.schedule_leases {
             return;
         }
-        let Some((membership_epoch, due)) = self.with(|inner| {
-            let state = &inner.state;
-            state
-                .membership
-                .as_ref()
-                .map(|m| (state.membership_epoch, m.verified.refresh_after()))
+        let now = self.now();
+        let Some((lease, delay)) = self.with(|inner| {
+            if !inner.is_current(epoch) {
+                return None;
+            }
+            let delay = match result {
+                Ok(()) => {
+                    inner.lease_failures = 0;
+                    let membership = inner.state.membership.as_ref()?;
+                    membership.verified.refresh_after().saturating_sub(now)
+                }
+                Err(refusal) => {
+                    let account = inner.state.signed_in_account()?;
+                    if !inner.record.slots.contains_key(account) {
+                        return None;
+                    }
+                    let delay = lease_retry(*refusal, inner.lease_failures)?;
+                    inner.lease_failures = inner.lease_failures.saturating_add(1);
+                    delay
+                }
+            };
+            inner.lease += 1;
+            Some((inner.lease, delay))
         }) else {
             return;
         };
-        let delay = Duration::from_secs(due.saturating_sub(self.now()));
         let mesh = Arc::downgrade(self);
         tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
+            tokio::time::sleep(Duration::from_secs(delay)).await;
             let Some(mesh) = mesh.upgrade() else {
                 return;
             };
-            let current = mesh.with(|inner| {
-                inner.state.account_epoch == epoch
-                    && inner.state.membership_epoch == membership_epoch
-            });
-            if current {
+            if mesh.with(|inner| inner.lease == lease && inner.is_current(epoch)) {
                 let _ = mesh.refresh(EnrollTrigger::Lease).await;
             }
         });
