@@ -111,6 +111,7 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
 
 pub(super) struct Fixture {
     _service: ServiceFixture,
+    pad_data: tempfile::TempDir,
     pub app: Router,
     pub owner: String,
     pub sibling: String,
@@ -133,7 +134,8 @@ impl Fixture {
             tab.agent_type = Some("preview-fixture".into());
             tab.agent_session_id = Some(id.clone());
         }
-        let service = ServiceFixture::new(mux);
+        let pad_data = tempfile::tempdir().unwrap();
+        let service = ServiceFixture::new_at(mux, &pad_data.path().join(".domios"));
         let rows = Arc::new(Mutex::new(HashMap::new()));
         service
             .service
@@ -151,6 +153,7 @@ impl Fixture {
         );
         Self {
             _service: service,
+            pad_data,
             app,
             owner,
             sibling,
@@ -217,6 +220,18 @@ impl Fixture {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, bytes).unwrap();
         path
+    }
+
+    pub fn pad(&self, tab: &str) -> PathBuf {
+        self.pad_data
+            .path()
+            .join(".domios")
+            .join("runtime/agent-pads")
+            .join(tab)
+    }
+
+    pub fn state_data_secret(&self) -> PathBuf {
+        self.pad_data.path().join(".domios/secrets/store.json")
     }
 
     pub async fn post(
