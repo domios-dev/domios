@@ -5,6 +5,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
 codeterm-types = { path = "../codeterm-types" }
 codeterm-decision = { path = "../codeterm-decision" }
 codeterm-util = { path = "../codeterm-util" }

@@ -37,7 +37,7 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
         BlueprintAction::Schema => {
             crate::cmd::print::print_json(&blueprint_document::schema::schema())
         }
-        BlueprintAction::New { kind } => {
+        BlueprintAction::New { kind, like: None } => {
             let raw = scaffold(kind).unwrap_or_else(|error| crate::cmd::print::fail(2, error));
             if json_mode {
                 crate::cmd::print::print_json(&json!({"yaml":raw}));

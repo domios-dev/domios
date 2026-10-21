@@ -2,7 +2,8 @@ use serde_json::{json, Value};
 
 use super::{get_string_param, JsonRpcError};
 use codeterm_sentinel_host::{
-    BlueprintApplyExt, BlueprintExt, BlueprintPortableExt, SentinelDeleteExt, SentinelExt,
+    BlueprintApplyExt, BlueprintExt, BlueprintMemoryExt, BlueprintPortableExt, SentinelDeleteExt,
+    SentinelExt,
 };
 use codeterm_service_core::service::ServiceState;
 
@@ -47,6 +48,33 @@ pub(super) fn dispatch(
         .and_then(Value::as_str);
     let caller = svc.sentinel_caller(&tab, nonce).map_err(error)?;
     let result = match method {
+        "blueprint.keep" => svc
+            .blueprint_keep(
+                &caller,
+                &get_string_param(params, "id")?,
+                &get_string_param(params, "when")?,
+            )
+            .map_err(error),
+        "blueprint.recall" => svc
+            .blueprint_recall(&caller, &get_string_param(params, "intent")?)
+            .map_err(error),
+        "blueprint.apply_recipe" => {
+            let args = params
+                .as_ref()
+                .ok_or_else(|| error("parameters required"))?;
+            let set = serde_json::from_value::<Vec<String>>(
+                args.get("set").cloned().unwrap_or(json!([])),
+            )
+            .map_err(|e| error(e.to_string()))?;
+            svc.blueprint_apply_recipe(
+                &caller,
+                &get_string_param(params, "id")?,
+                &set,
+                args["note"].as_str(),
+                args["dry_run"].as_bool().unwrap_or(false),
+            )
+            .map_err(error)
+        }
         "blueprint.apply" => {
             let definition = params
                 .as_ref()

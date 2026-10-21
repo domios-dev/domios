@@ -26,7 +26,9 @@ Source admission policy: the owner admits and retains sources only when measurem
 
 ## Reversible hygiene
 
-The Dreamer consolidates memory through bounded, reviewable changes. A merge archives the lesser item, preserves its history and links it to the keeper; a conflict records which item supersedes the other. The keeper may receive a revised body in the same operation. Nothing is hard-deleted. Pinned items, skills, rules and preferences cannot be merged away.
+Explicitly kept Blueprint solutions form a project workspace library of generalised recipes stored as skills. Structural dedupe, a per-area active cap and bounded Dreamer consolidation keep it small. The [Blueprint contract](sentinels.md) owns authority, safety and reuse. Concrete graphs remain evidence rather than memory items.
+
+The Dreamer consolidates memory through bounded, reviewable changes. A merge archives the lesser item, preserves its history and links it to the keeper; a conflict records which item supersedes the other. The keeper may receive a revised body in the same operation. Nothing is hard-deleted. Pinned items, ordinary skills, rules and preferences cannot be merged away. Blueprint solution skills follow their dedicated consolidation and cap.
 
 Restoring an archived item returns its prior kind and invalidates the relation created by its merge while preserving the relation's history. Body versions remain separately restorable: restoring the lesser item does not silently undo a keeper-body revision. Dreamer merges and stale archives have separate daily caps enforced by the host.
 
