@@ -29,7 +29,7 @@ pub fn export(job: &Sentinel) -> Result<Recipe, String> {
     Ok(recipe)
 }
 
-fn definition(job: &Sentinel) -> Value {
+pub fn definition(job: &Sentinel) -> Value {
     if let Some(pipeline) = &job.pipeline().cloned() {
         json!({"spec": pipeline})
     } else {
@@ -46,6 +46,8 @@ fn definition(job: &Sentinel) -> Value {
         json!({"create": {
             "name": job.name,
             "note": job.note,
+            "timeout":job.creation_options.as_ref().and_then(|options|options.timeout_ms).map(|ms|format!("{}s",ms/1000)),
+            "paused":job.creation_options.as_ref().is_some_and(|options|options.paused),
             "terminal": job.terminal().cloned(),
             "session": job.session,
             "probe": if job.probe().is_empty() { None } else { Some(job.probe()) },

@@ -1,0 +1,39 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: HTTP health {{url}}
+note: Watch an HTTP endpoint and report up/down with the response code. Redirects are not followed.
+owner: team
+inputs:
+  expected_status:
+    type: string
+    default: 2xx
+    description: Expected status
+  interval:
+    type: string
+    default: 20s
+    description: Probe interval, at least 10s
+  timeout_ms:
+    type: integer
+    default: 3000
+    description: Probe timeout in milliseconds
+  url:
+    type: string
+    description: HTTP endpoint URL
+pipeline:
+  trigger:
+    type: schedule
+    every: '{{interval}}'
+  steps:
+  - name: Check source
+    input: text
+    uses: http
+    with:
+      url: '{{url}}'
+      expected_status: '{{expected_status}}'
+      timeout_ms: '{{timeout_ms}}'
+    'on':
+      up: next
+      down: next
+      failed: stop
+  result:
+    to: owner

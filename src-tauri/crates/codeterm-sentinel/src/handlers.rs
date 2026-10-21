@@ -34,64 +34,15 @@ impl Handler {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Definition {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub parameters: Parameters,
-}
+pub use codeterm_blueprint_types::blueprint_watch::{Definition, HandlerParameters as Parameters};
 
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Parameters {
-    pub target: Option<String>,
-    pub command: Option<String>,
-    pub label: Option<String>,
-    pub timeout_ms: Option<u64>,
-}
-
-impl Definition {
-    fn resolve(self) -> Result<Handler, String> {
-        let parameters = self.parameters;
-        let has_command = parameters.command.is_some()
-            || parameters.label.is_some()
-            || parameters.timeout_ms.is_some();
-        let action = if self.kind == "command" {
-            if parameters.target.is_some() {
-                return Err("command has no target parameter".into());
-            }
-            let command = super::command::Parameters {
-                command: parameters.command.ok_or("command text is required")?,
-                label: parameters.label.ok_or("command label is required")?,
-                timeout_ms: parameters
-                    .timeout_ms
-                    .ok_or("command timeout_ms is required")?,
-            };
-            command.validate()?;
-            Route::Command(command)
-        } else {
-            if has_command {
-                return Err("command parameters require type=command".into());
-            }
-            match (self.kind.as_str(), parameters.target) {
-                ("notify", None) => Route::Notify,
-                ("stop", None) => Route::Stop,
-                (
-                    kind @ ("blueprint" | "sentinel" | "send" | "cron" | "respond_prompt"),
-                    Some(target),
-                ) => Route::parse(&format!("{kind}:{target}"))?,
-                ("escalate", Some(target)) => Route::parse(&format!("escalate:{target}"))?,
-                _ => return Err("handler type or parameters are invalid".into()),
-            }
-        };
-        Ok(Handler {
-            id: self.id,
-            action,
-            target: None,
-        })
-    }
+fn resolve_definition(definition: Definition) -> Result<Handler, String> {
+    let (id, action) = definition.resolve()?;
+    Ok(Handler {
+        id,
+        action,
+        target: None,
+    })
 }
 
 pub fn definitions(
@@ -107,7 +58,7 @@ pub fn definitions(
         for (bucket, definitions) in declared {
             let handlers = definitions
                 .into_iter()
-                .map(Definition::resolve)
+                .map(resolve_definition)
                 .collect::<Result<_, _>>()?;
             result.insert(bucket, handlers);
         }

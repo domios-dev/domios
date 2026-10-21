@@ -340,6 +340,27 @@ impl Store {
         authored_at: u64,
         update: PreparedUpdate,
     ) -> Staged<Sentinel> {
+        self.stage_definition(expect_version, author_tab_id, authored_at, update, false)
+    }
+
+    pub fn stage_apply_definition(
+        &mut self,
+        expect_version: u64,
+        author_tab_id: &str,
+        authored_at: u64,
+        update: PreparedUpdate,
+    ) -> Staged<Sentinel> {
+        self.stage_definition(expect_version, author_tab_id, authored_at, update, true)
+    }
+
+    fn stage_definition(
+        &mut self,
+        expect_version: u64,
+        author_tab_id: &str,
+        authored_at: u64,
+        update: PreparedUpdate,
+        retarget: bool,
+    ) -> Staged<Sentinel> {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
         }
@@ -352,12 +373,25 @@ impl Store {
         if current.creator_tab_id != update.job.creator_tab_id
             || current.workspace_id != update.job.workspace_id
             || current.team_id != update.job.team_id
-            || current.observe().cloned() != update.job.observe().cloned()
-            || current.probe() != update.job.probe()
-            || current.input().map(|input| input.kind) != update.job.input().map(|input| input.kind)
+            || (!retarget
+                && (current.observe().cloned() != update.job.observe().cloned()
+                    || current.probe() != update.job.probe()
+                    || current.input().map(|input| input.kind)
+                        != update.job.input().map(|input| input.kind)))
         {
             return Staged::ready(Err(
                 "blueprint identity and observation source are immutable".into(),
+            ));
+        }
+        if self.jobs.iter().any(|job| {
+            job.id != current.id
+                && job.workspace_id == current.workspace_id
+                && job.team_id == current.team_id
+                && job.name == update.job.name
+                && job.name.is_some()
+        }) {
+            return Staged::ready(Err(
+                "Blueprint name already exists in this Team and workspace".into(),
             ));
         }
         let Some(next_version) = current.definition_version.checked_add(1) else {
@@ -383,6 +417,7 @@ impl Store {
             next.expires_at = None;
             next.next_run = authored_at;
         }
+        next.session = update.job.session;
         next.name = update.job.name;
         next.note = update.job.note;
         next.source = update.job.source;
