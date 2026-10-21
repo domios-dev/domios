@@ -39,7 +39,7 @@ export function BlueprintNodeDetails({ node, graph, onClose, panelRef, presence 
     </section>}
     {view.code && <section aria-label="Node code" className="ct-detail__block">
       <h4 className={SECTION}>{node.type === "source" ? "Probe command" : "Command"}</h4>
-      <CodeBlock text={view.code.text} language={view.code.language} fullscreenScope="viewport" wrapLines />
+      <CodeBlock text={view.code.text} language={view.code.language} wrapLines />
       {view.code.truncated && <p className="ct-job-note">Code preview truncated at the source.</p>}
     </section>}
     {view.command && <section aria-label="Last command result" className="ct-detail__block"><h4 className={SECTION}>Last result</h4><CommandResultFacts handlerId={view.command.handler.id} handler={view.command.handler} result={view.command.result} /></section>}
