@@ -92,13 +92,19 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
         retained_from: 0,
       };
     }
-    if (command === "list_agent_providers" || command === "delayed_send_list") return [];
+    if (command === "delayed_send_list") return delayedMessages;
+    if (command === "list_agent_providers" || command === "system_heartbeat_list") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
+  // Several subscribers may share one event (the delayed and heartbeat feeds both follow delayed-send-changed).
+  const subscribers = new Map<string, Set<BridgeListener>>();
   __setListenForTest((async (event: string, handler: BridgeListener) => {
-    listeners.set(event, handler);
-    return () => listeners.delete(event);
+    const set = subscribers.get(event) ?? new Set<BridgeListener>();
+    set.add(handler);
+    subscribers.set(event, set);
+    listeners.set(event, ((payload: unknown) => { for (const each of set) each(payload as never); }) as BridgeListener);
+    return () => { set.delete(handler); };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
 
@@ -195,9 +201,12 @@ function keydownEvent(opts: { key: string; keyCode: number; isComposing?: boolea
 }
 
 /** Force a re-render unrelated to typing (delayed-send change → setDelayedMessages). */
+// The delayed feed publishes only changed lists, so each forced re-render brings one new scheduled message.
+let delayedMessages: unknown[] = [];
 async function forceUnrelatedRerender(h: Harness, tabId: string): Promise<void> {
   const handler = h.listeners.get("delayed-send-changed");
   assert(handler, "delayed-send-changed listener registered");
+  delayedMessages = [...delayedMessages, { id: `scheduled-${delayedMessages.length}`, tabId, text: "opaque", scheduledAtMs: 4_102_444_800_000, createdAtMs: 0, state: "pending", sessionChanged: false }];
   await act(async () => {
     handler({ payload: { tabId } });
   });
