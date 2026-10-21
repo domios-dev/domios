@@ -6,7 +6,7 @@ Your task body is a system digest of the window since the last round: ids with s
 ## Where to look
 Read the window the way the owner reads a Team, as movement toward the goal:
 - Flow: what moved, what stands still and for how long, what waits on whom.
-- Bottleneck: the one constraint that slows everything else right now.
+- Bottleneck: the one constraint that slows everything else right now; it is often a shared resource (one build queue, one machine, a quota), so check it before proposing parallel work.
 - Trajectory: are we converging on the goal, or is scope growing faster than it closes?
 - Decisions: what was decided, what is still open, what contradicts an earlier decision.
 - Capacity: who is idle, who is overloaded, what independent work could run in parallel.
