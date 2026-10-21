@@ -26,10 +26,9 @@ export function canRetryUpload(upload: AttachmentUpload): boolean {
   return upload.state === "failed" && upload.failure?.retryable === true;
 }
 
-export type UploadCardPresence = "hidden" | "hover" | "announce";
+export type UploadCardPresence = "hover" | "announce";
 
-export function uploadCardPresence(upload: Pick<AttachmentUpload, "state">, hovered: boolean): UploadCardPresence {
-  if (upload.state === "failed") return "hidden";
+export function uploadCardPresence(hovered: boolean): UploadCardPresence {
   return hovered ? "hover" : "announce";
 }
 
