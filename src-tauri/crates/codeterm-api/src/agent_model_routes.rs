@@ -289,7 +289,8 @@ pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode 
         ModelSwitchError::ModelMismatch { .. } => StatusCode::BAD_GATEWAY,
         ModelSwitchError::LiveSwitchFailed(_)
         | ModelSwitchError::LiveCommandFailed(_)
-        | ModelSwitchError::InputNotReady(_) => StatusCode::BAD_GATEWAY,
+        | ModelSwitchError::InputNotReady(_)
+        | ModelSwitchError::DuringTurnIncident { .. } => StatusCode::BAD_GATEWAY,
     }
 }
 
@@ -307,6 +308,7 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         ModelSwitchError::ModelMismatch { .. } => "model_mismatch",
         ModelSwitchError::LiveSwitchFailed(_) => "live_switch_failed",
         ModelSwitchError::LiveCommandFailed(_) => "live_command_failed",
+        ModelSwitchError::DuringTurnIncident { .. } => "during_turn_switch_incident",
         ModelSwitchError::InputNotReady(_) => "input_not_ready",
         ModelSwitchError::RuntimeControlRefused(_) => "runtime_control_refused",
     };
@@ -329,6 +331,12 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         body["restart_fallback_available"] = true.into();
     }
     match error {
+        ModelSwitchError::DuringTurnIncident { stage, screen, .. } => {
+            body["mode_used"] = "live_command".into();
+            body["stage"] = stage.clone().into();
+            body["screen"] = screen.clone().into();
+            body["restart_fallback_available"] = false.into();
+        }
         ModelSwitchError::BackgroundWork { items } => {
             body["running_items"] = serde_json::json!(items);
         }

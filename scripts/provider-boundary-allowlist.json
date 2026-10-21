@@ -7091,7 +7091,7 @@
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/agent_restart/model_switch/live_command/tests.rs",
       "token": "provider-claude",
-      "count": 2,
+      "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
