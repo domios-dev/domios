@@ -961,10 +961,18 @@ pub async fn list_agent_providers(
 async fn list_agent_providers_blocking(
     registry: std::sync::Arc<codeterm_service_core::provider::ProviderRegistry>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let started = std::time::Instant::now();
     tokio::task::spawn_blocking(move || {
-        Json(serde_json::Value::Array(list_agent_provider_values(
+        let queue_us = started.elapsed().as_micros();
+        let result = Json(serde_json::Value::Array(list_agent_provider_values(
             &registry,
-        )))
+        )));
+        log::debug!(
+            "[providers.route] queue_us={} total_us={}",
+            queue_us,
+            started.elapsed().as_micros()
+        );
+        result
     })
     .await
     .map_err(|error| {

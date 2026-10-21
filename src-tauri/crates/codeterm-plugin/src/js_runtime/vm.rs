@@ -1025,7 +1025,8 @@ impl Drop for VmEntry<'_> {
                 "{}",
                 timing_line(&self.vm.plugin_id, self.method, self.waited, held)
             );
-        } else if self.waited > std::time::Duration::from_millis(100)
+        } else if self.method == "sessionJsonlPath"
+            || self.waited > std::time::Duration::from_millis(100)
             || held > std::time::Duration::from_millis(50)
         {
             log::debug!(
