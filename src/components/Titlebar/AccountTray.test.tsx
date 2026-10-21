@@ -1,13 +1,19 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
+import type { Notification } from "../../lib/types";
+import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
+import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openUrl: vi.fn(),
   state: { signedIn: false, sessionOnly: false },
 }));
-vi.mock("../Settings/useAccount", () => ({useAccount: () => ({model: state.signedIn
-  ? {kind:"signed_in",sessionOnly:state.sessionOnly,identity:{uid:"user",display_name:"Ada",email:"ada@example.test",provider:"fake"}}
-  : {kind:"signed_out"}, signIn, signOut})}));
+vi.mock("../Settings/useAccount", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../Settings/useAccount")>(),
+  useAccount: () => ({model: state.signedIn
+    ? {kind:"signed_in",sessionOnly:state.sessionOnly,identity:{uid:"user",display_name:"Ada",email:"ada@example.test",provider:"fake"}}
+    : {kind:"signed_out"}, signIn, signOut}),
+}));
 vi.mock("../Settings/useAccountPlan", () => ({useAccountPlan: () => ({
   plan:{plan:"pro",status:"active",stale:false,periodEnd:null,cancelAtPeriodEnd:false},error:null,manage,
 })}));
@@ -16,6 +22,21 @@ import { siteLinks } from "../../../shared/siteLinks";
 import { AccountTray } from "./AccountTray";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => {vi.clearAllMocks();});
+
+function AccountTrayWithToasts() {
+  const [toasts, setToasts] = useState<Notification[]>([]);
+  const actions = {
+    upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => setToasts((current) => [
+      ...current.filter((item) => item.id !== toast.id),
+      { ...toast, timestamp: 1, read: false },
+    ]),
+  } as unknown as MultiplexerActionsContextType;
+  return <MultiplexerActionsContext.Provider value={actions}>
+    <AccountTray />
+    <NotificationToastContainer toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
+  </MultiplexerActionsContext.Provider>;
+}
+
 it("opens the existing account menu and starts login once from its sign-in item", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
@@ -30,6 +51,27 @@ it("opens the existing account menu and starts login once from its sign-in item"
     await act(async () => signin!.click());
     expect(signIn).toHaveBeenCalledTimes(1);
     expect(signIn).toHaveBeenCalledWith({mode:"signin"});
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("shows a stage-named toast with a retry after sign-in fails", async () => {
+  signIn.mockResolvedValueOnce({ stage: "redemption", error: "provider" });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithToasts />));
+    const trigger = host.querySelector("button")!;
+    await act(async () => trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((entry) => entry.textContent === "Sign in");
+    await act(async () => item!.click());
+    const toast = host.querySelector<HTMLElement>('[data-testid="notification-toast"]');
+    expect(toast?.getAttribute("role")).toBe("status");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    const retry = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Retry");
+    expect(retry).toBeDefined();
+    await act(async () => retry!.click());
+    expect(signIn).toHaveBeenCalledTimes(2);
+    expect(signIn).toHaveBeenNthCalledWith(2, { mode: "signin" });
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 it("shows identity and plan and wires subscription and sign out", async () => {

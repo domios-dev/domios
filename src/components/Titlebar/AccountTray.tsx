@@ -1,23 +1,39 @@
-import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { UserRound } from "lucide-react";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
-import { useAccount } from "../Settings/useAccount";
+import { signInFailureToastMessage, useAccount } from "../Settings/useAccount";
 import { useAccountPlan } from "../Settings/useAccountPlan";
 import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
 import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { UI_TRAY_BTN } from "../shared/design";
 import { communityMenu } from "../shared/CommunityLinks";
 import { accountTrayModel } from "./accountTrayModel";
+import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 
 export function AccountTray() {
   const account = useAccount();
+  const actions = useContext(MultiplexerActionsContext);
   const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
   const model = accountTrayModel(account.model, billing.plan);
   const [open, setOpen] = useState(false);
   const pending = model.kind === "pending";
+  const startSignIn = async (hint: SignInOption["hint"]) => {
+    const failure = await account.signIn(hint);
+    if (!failure) return;
+    actions?.upsertToast({
+      id: "account-sign-in-failure",
+      title: "Sign-in could not be completed",
+      body: signInFailureToastMessage(failure),
+      severity: "Warning",
+      level: "action_needed",
+      tab_id: null,
+      workspace_id: null,
+      local_actions: [{ label: "Retry", run: async () => { await startSignIn(hint); } }],
+    });
+  };
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
-    ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void account.signIn(option.hint) });
+    ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
     { label: model.identity, description: model.email ?? undefined, disabled: true },
     { label: model.plan, disabled: true },
@@ -34,7 +50,6 @@ export function AccountTray() {
     items.unshift({label: "Signed in for this session only", description: "Secure storage is unavailable. Sign in again after restarting Domios.", disabled: true});
   }
   items.push({separator:true,key:"community"},communityMenu());
-  const error = model.kind === "signed_in" ? billing.actionError : model.error;
   return <div className="flex items-center">
     <DropdownMenu menuLabel="Account" items={items} onOpenChange={setOpen} trigger={
       <button type="button" className={UI_TRAY_BTN} aria-label={model.name} title={model.name}
@@ -50,6 +65,6 @@ export function AccountTray() {
             </span>}
       </button>
     } />
-    {error && <InlineErrorNotice error={error} operation="signing in" blocking />}
+    {model.kind === "signed_in" && billing.actionError && <InlineErrorNotice error={billing.actionError} operation="managing your subscription" blocking />}
   </div>;
 }
