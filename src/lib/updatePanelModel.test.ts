@@ -84,3 +84,21 @@ console.log("later offers remain actionable after a completed run: 1 assertion p
   const installed = [{ ...plugin, installed: plugin.latest }];
   assert.equal(updateRunRows(unavailable, unavailable, installed, null, null, {})[0].state, "failed");
 }
+
+import { summarizeUpdatePanel, type UpdateRow } from "./updatePanelModel";
+{
+  const row = (id: string, state: UpdateRow["state"], channelError?: string): UpdateRow =>
+    ({ id, name: id, group: "Plugins", currentVersion: "1.0.0", targetVersion: "2.0.0", state, alreadyCurrent: false, channelError });
+  const idle = { busy: false, failed: false };
+  assert.deepEqual(summarizeUpdatePanel([row("a", "available"), row("b", "available")], idle),
+    { tone: "accent", label: "Updates available", chip: "updates available", sentence: "2 updates available" });
+  assert.equal(summarizeUpdatePanel([row("a", "completed"), row("b", "active"), row("c", "queued")], { busy: true, failed: false }).sentence, "Updating 2 of 3");
+  assert.equal(summarizeUpdatePanel([], { busy: true, failed: false }).sentence, "Updating components");
+  const failed = summarizeUpdatePanel([row("a", "failed"), row("b", "failed", "opaque")], { busy: false, failed: true });
+  assert.deepEqual([failed.tone, failed.label, failed.sentence], ["red", "Update sources or actions failed", "1 update failed"]);
+  assert.equal(summarizeUpdatePanel([row("b", "failed", "opaque")], { busy: false, failed: true }).sentence, "An update source is unavailable");
+  assert.equal(summarizeUpdatePanel([row("a", "completed")], idle).chip, "updated");
+  assert.equal(summarizeUpdatePanel([], idle).sentence, "Everything is up to date");
+  assert.equal(summarizeUpdatePanel([row("a", "available", "opaque")], idle).label, "No applicable updates");
+}
+console.log("update panel summary: 8 assertions passed");
