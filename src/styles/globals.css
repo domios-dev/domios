@@ -3380,7 +3380,8 @@ button,
   pointer-events: none;
   transition: color 120ms ease;
 }
-.ct-capsule__kind { position: absolute; left: 0; top: 50%; transform: translateY(-50%); font-size: 0.75rem; line-height: 1; }
+/* The kind label is narrower than the hidden token that sizes the capsule, so it is centred in that box rather than left-pinned. */
+.ct-capsule__kind { position: absolute; inset-inline: 0; top: 50%; transform: translateY(-50%); font-size: 0.75rem; line-height: 1; text-align: center; white-space: nowrap; }
 .ct-capsule__detail { color: var(--ct-muted-fg, #8b949e); }
 .ct-capsule[data-hovered="true"] > .ct-capsule__plate,
 .ct-capsule-button:not(:disabled):hover .ct-capsule__plate {
