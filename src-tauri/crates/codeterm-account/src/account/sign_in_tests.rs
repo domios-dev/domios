@@ -1,5 +1,5 @@
 use super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 struct NoBrowser;
 #[async_trait]
@@ -28,12 +28,85 @@ impl CredentialStore for Store {
         Ok(())
     }
 }
+
+struct RefreshStore;
+#[async_trait]
+impl CredentialStore for RefreshStore {
+    async fn load(&self, _: &str) -> Result<Option<Secret>> {
+        Ok(Some(Secret::new("refresh-credential")))
+    }
+    async fn save(&self, _: &str, _: &Secret) -> Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _: &str) -> Result<()> {
+        Ok(())
+    }
+}
+
+struct RefreshProvider {
+    refreshes: AtomicUsize,
+    reject: bool,
+}
+impl RefreshProvider {
+    fn tokens() -> Tokens {
+        Tokens {
+            session: Session {
+                identity: Identity {
+                    uid: "refreshed-user".into(),
+                    email: None,
+                    display_name: None,
+                    provider: "refresh-test".into(),
+                    photo_url: None,
+                },
+                id_token: Secret::new("fresh-id-token"),
+                expires_at: Some(u64::MAX),
+            },
+            refresh_token: Secret::new("refresh-credential"),
+        }
+    }
+}
+#[async_trait]
+impl IdentityProvider for RefreshProvider {
+    fn id(&self) -> &str {
+        "refresh-test"
+    }
+    async fn start_login(&self, _: &LoginFlow) -> Result<LoginStart> {
+        Err(Error::Provider)
+    }
+    async fn redeem(&self, _: Redemption) -> Result<Tokens> {
+        Err(Error::Provider)
+    }
+    async fn refresh(&self, token: &Secret) -> Result<Tokens> {
+        self.refreshes.fetch_add(1, Ordering::SeqCst);
+        if self.reject || token.expose() != "refresh-credential" {
+            return Err(Error::Credentials);
+        }
+        Ok(Self::tokens())
+    }
+    async fn revoke(&self, _: &Secret) -> Result<()> {
+        Ok(())
+    }
+}
 fn account(store: Arc<Store>) -> Arc<Account> {
     Arc::new(Account::new(
         Arc::new(adapters::local::Local),
         store,
         Duration::from_secs(1),
     ))
+}
+
+fn expired_session() -> Session {
+    Session {
+        identity: Identity {
+            uid: "refreshed-user".into(),
+            email: None,
+            display_name: None,
+            provider: "refresh-test".into(),
+            photo_url: None,
+        },
+        id_token: Secret::new("expired-id-token"),
+        expires_at: Some(0),
+    }
 }
 
 #[tokio::test]
@@ -117,4 +190,42 @@ async fn generation_refusal_is_attributed_to_publication_before_saving() {
         })
     );
     assert!(account.session().await.is_none());
+}
+
+#[tokio::test]
+async fn current_session_refreshes_an_expired_id_token_with_the_saved_credential() {
+    let provider = Arc::new(RefreshProvider {
+        refreshes: AtomicUsize::new(0),
+        reject: false,
+    });
+    let account = Account::new(
+        provider.clone(),
+        Arc::new(RefreshStore),
+        Duration::from_secs(1),
+    );
+    account.state.lock().await.session = Some(expired_session());
+
+    let current = account.current_session().await.unwrap().unwrap();
+
+    assert_eq!(current.id_token.expose(), "fresh-id-token");
+    assert_eq!(provider.refreshes.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn current_session_returns_one_refresh_failure_without_using_the_expired_token() {
+    let provider = Arc::new(RefreshProvider {
+        refreshes: AtomicUsize::new(0),
+        reject: true,
+    });
+    let account = Account::new(
+        provider.clone(),
+        Arc::new(RefreshStore),
+        Duration::from_secs(1),
+    );
+    account.state.lock().await.session = Some(expired_session());
+
+    assert_eq!(account.current_session().await.unwrap_err(), Error::Credentials);
+    assert_eq!(provider.refreshes.load(Ordering::SeqCst), 1);
+    assert!(account.session().await.is_none());
+    assert!(account.status().await.identity.is_none());
 }

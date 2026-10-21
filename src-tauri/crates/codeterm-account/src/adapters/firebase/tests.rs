@@ -25,7 +25,7 @@ impl super::Transport for Transport {
         let mut requests = self.0.lock().await;
         let response = match requests.len() {
             0 => serde_json::json!({"custom_token":"custom-fixture"}),
-            1 => serde_json::json!({"idToken":"id-fixture", "refreshToken":"refresh-fixture"}),
+            1 => serde_json::json!({"idToken":"id-fixture", "refreshToken":"refresh-fixture", "expiresIn":"3600"}),
             2 => {
                 serde_json::json!({"users":[{"localId":"uid-fixture","email":"fixture@example.test","displayName":"Fixture"}]})
             }
@@ -49,6 +49,7 @@ async fn redeem_and_token_exchange_produce_session() {
         Some("fixture@example.test")
     );
     assert_eq!(tokens.session.id_token.expose(), "id-fixture");
+    assert!(tokens.session.expires_at.is_some());
     let requests = transport.0.lock().await;
     assert_eq!(requests[0].2, Some(RequestDiagnostic::BackendRedeem));
     assert_eq!(
@@ -87,7 +88,7 @@ impl super::Transport for RefreshTransport {
                     ("refresh_token".into(), "refresh-before".into())
                 ]
             );
-            Ok(json!({"id_token":"id-after", "refresh_token":"refresh-after"}))
+            Ok(json!({"id_token":"id-after", "refresh_token":"refresh-after", "expires_in":"3600"}))
         } else {
             let Body::Json(body) = body else { panic!() };
             assert_eq!(body["idToken"], "id-after");
@@ -103,6 +104,7 @@ async fn refresh_posts_form_and_replaces_tokens() {
         .await
         .unwrap();
     assert_eq!(tokens.session.id_token.expose(), "id-after");
+    assert!(tokens.session.expires_at.is_some());
     assert_eq!(tokens.refresh_token.expose(), "refresh-after");
     assert_eq!(tokens.session.identity.uid, "uid-after");
 }
@@ -111,7 +113,7 @@ struct LookupTransport(Value);
 impl super::Transport for LookupTransport {
     async fn post(&self, url: &str, _: Body, _: Option<RequestDiagnostic>) -> Result<Value> {
         if url.starts_with("https://securetoken.googleapis.com/") {
-            Ok(json!({"id_token":"id-after", "refresh_token":"refresh-after"}))
+            Ok(json!({"id_token":"id-after", "refresh_token":"refresh-after", "expires_in":"3600"}))
         } else {
             Ok(json!({ "users": [self.0.clone()] }))
         }

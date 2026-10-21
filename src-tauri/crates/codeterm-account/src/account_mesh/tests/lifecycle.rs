@@ -50,8 +50,84 @@ async fn account_mesh_sign_in_enrolls_once_and_restart_renews_the_same_slot() {
     assert_eq!(harness.calls("enroll_key"), 1);
     assert_eq!(harness.calls("enroll"), 1);
     assert_eq!(harness.calls("renew"), 2);
-    assert_eq!(harness.registry.slot(UID), Some(1));
+    assert_eq!(harness.registry.slot(UID), Some(3));
     assert!(harness.state().current_membership(START).is_some());
+}
+
+#[tokio::test]
+async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry() {
+    let harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    harness.registry.script.lock().unwrap().lose_membership_reply = Some(RegistryRefusal::Offline);
+
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Automatic).await,
+        Err(AccountMeshRefusal::Offline)
+    );
+    assert_eq!(harness.registry.slot(UID), Some(1));
+    assert!(!harness
+        .store
+        .record
+        .lock()
+        .unwrap()
+        .slots
+        .contains_key(&account_id(UID)));
+
+    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    assert_eq!(harness.registry.slot(UID), Some(2));
+    assert_eq!(
+        harness.store.record.lock().unwrap().slots.get(&account_id(UID)),
+        Some(&2)
+    );
+
+    harness.registry.script.lock().unwrap().lose_membership_reply = Some(RegistryRefusal::Offline);
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Automatic).await,
+        Err(AccountMeshRefusal::Offline)
+    );
+    assert_eq!(harness.registry.slot(UID), Some(3));
+    assert_eq!(
+        harness.store.record.lock().unwrap().slots.get(&account_id(UID)),
+        Some(&2)
+    );
+
+    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    assert_eq!(harness.registry.slot(UID), Some(4));
+    assert_eq!(
+        harness.store.record.lock().unwrap().slots.get(&account_id(UID)),
+        Some(&4)
+    );
+}
+
+#[tokio::test]
+async fn account_mesh_recovers_a_memory_only_key_after_restart_and_renews() {
+    let mut harness = enrolled().await;
+    let old_binding = harness
+        .store
+        .record
+        .lock()
+        .unwrap()
+        .keys
+        .get(&account_id(UID))
+        .cloned()
+        .unwrap();
+    let seed = harness.keys.0.lock().unwrap().clone().unwrap();
+    assert!(!serde_json::to_string(&*harness.store.record.lock().unwrap())
+        .unwrap()
+        .contains(seed.expose()));
+
+    *harness.keys.0.lock().unwrap() = None;
+    harness.restart().await;
+    harness.sign_in(UID).await;
+    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+
+    assert_eq!(harness.calls("recover_key"), 1);
+    assert_eq!(harness.registry.slot(UID), Some(2));
+    let state = harness.state();
+    let recovered = state.self_installation.as_ref().unwrap();
+    assert_ne!(recovered.key_id, old_binding.key_id);
+    assert_eq!(recovered.key_generation, old_binding.generation + 1);
+    assert_eq!(recovered.slot_revision, 2);
 }
 
 #[tokio::test]
@@ -431,6 +507,18 @@ async fn account_mesh_rename_and_list_are_observations() {
         (1, Some("Desk"))
     );
     assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
+}
+
+#[tokio::test]
+async fn account_mesh_internal_registry_reads_update_the_snapshot() {
+    let harness = enrolled().await;
+    assert!(harness.state().registry.is_none());
+
+    harness.mesh.resolve_link_identity(PEER).await.unwrap();
+
+    let observation = harness.state().registry.clone().expect("stored registry read");
+    assert_eq!(observation.rows.len(), 2);
+    assert_eq!(observation.rows[0].installation_id, INSTALLATION);
 }
 
 #[tokio::test]

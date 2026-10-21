@@ -58,6 +58,7 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
             photo_url: None,
         },
         id_token: codeterm_account::Secret::new("private-token"),
+        expires_at: None,
     };
     let now = std::time::Instant::now();
     billing
@@ -102,6 +103,7 @@ async fn product_checkout_started_records_browser_open_with_closed_plan_only() {
             photo_url: None,
         },
         id_token: codeterm_account::Secret::new("private-token"),
+        expires_at: None,
     };
     billing
         .checkout_url(&session, codeterm_billing::CheckoutKey::ProMonthly)

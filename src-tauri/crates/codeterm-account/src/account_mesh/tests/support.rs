@@ -58,6 +58,7 @@ pub fn session(uid: &str) -> Session {
     Session {
         identity: identity(uid),
         id_token: Secret::new(format!("token-{uid}")),
+        expires_at: None,
     }
 }
 
@@ -139,6 +140,7 @@ impl Clock for TestClock {
 #[derive(Default)]
 pub struct Script {
     pub membership: Option<RegistryRefusal>,
+    pub lose_membership_reply: Option<RegistryRefusal>,
     pub publication: Option<RegistryRefusal>,
     pub permit: Option<RegistryRefusal>,
     pub gate: Option<Arc<Notify>>,
@@ -150,6 +152,7 @@ pub struct Script {
 #[derive(Default)]
 struct Account {
     key: Option<String>,
+    key_generation: u64,
     slot: Option<u64>,
     metadata_revision: u64,
     endpoint: Option<MeshEndpointObservation>,
@@ -253,6 +256,7 @@ impl FakeRegistry {
             None,
         );
         own.key_id = key_id.to_owned();
+        own.key_generation = account.map_or(1, |a| a.key_generation.max(1));
         own.slot_revision = account.and_then(|a| a.slot).unwrap_or(1);
         own.endpoint = account.and_then(|a| a.endpoint.clone());
         let mut peer = row(PEER, 0, Some("Laptop"));
@@ -287,7 +291,11 @@ impl MeshRegistry for FakeRegistry {
         session: &Session,
         request: &InstallationEnrollment,
     ) -> RegistryResult<KeyEnrollment> {
-        self.admit(session, "enroll_key");
+        let label = match &request.body.operation {
+            KeyOperation::Enroll => "enroll_key",
+            KeyOperation::Recover => "recover_key",
+        };
+        self.admit(session, label);
         let spki = request.body.public_key_spki_base64.clone();
         self.verify(
             session,
@@ -296,14 +304,29 @@ impl MeshRegistry for FakeRegistry {
             &request.proof,
             Some(&spki),
         )?;
-        self.accounts
-            .lock()
-            .unwrap()
+        let generation = request
+            .body
+            .expected_generation
+            .checked_add(1)
+            .ok_or(RegistryRefusal::Invalid)?;
+        if request.proof.generation != generation {
+            return Err(RegistryRefusal::Invalid);
+        }
+        let mut accounts = self.accounts.lock().unwrap();
+        let account = accounts
             .entry(session.identity.uid.clone())
-            .or_default()
-            .key = Some(spki);
+            .or_default();
+        match &request.body.operation {
+            KeyOperation::Enroll if account.key.is_none() && request.body.expected_generation == 0 => {}
+            KeyOperation::Recover
+                if account.key.is_some()
+                    && account.key_generation == request.body.expected_generation => {}
+            _ => return Err(RegistryRefusal::Conflict),
+        }
+        account.key = Some(spki);
+        account.key_generation = generation;
         Ok(KeyEnrollment {
-            generation: 1,
+            generation,
             key_id: request.proof.key_id.clone(),
         })
     }
@@ -347,6 +370,11 @@ impl MeshRegistry for FakeRegistry {
                 script.issuer_ahead,
             )
         };
+        let lost_membership_reply = if membership_op {
+            self.script.lock().unwrap().lose_membership_reply.take()
+        } else {
+            None
+        };
         let uid = session.identity.uid.clone();
         let now = self.clock.now() + script.3;
         let mut accounts = self.accounts.lock().unwrap();
@@ -357,22 +385,36 @@ impl MeshRegistry for FakeRegistry {
                     return Err(refusal);
                 }
                 let slot = match &envelope.request.operation {
+                    MeshOperation::Enroll {
+                        expected_slot_revision: 0,
+                    } if account.slot.is_none() => 1,
+                    MeshOperation::Enroll { .. } => return Err(RegistryRefusal::Conflict),
                     MeshOperation::Renew {
                         expected_slot_revision,
-                    } if account.slot == Some(*expected_slot_revision) => *expected_slot_revision,
+                    } if account.slot == Some(*expected_slot_revision) => {
+                        expected_slot_revision + 1
+                    }
                     MeshOperation::Renew { .. } => return Err(RegistryRefusal::Conflict),
-                    _ => account.slot.unwrap_or(0) + 1,
+                    _ => return Err(RegistryRefusal::Invalid),
                 };
                 account.slot = Some(slot);
                 let payload =
                     Issuer::membership_payload(&uid, &proof.key_id, proof.generation, slot, now);
-                Ok(MeshResult::Membership(MembershipResult {
-                    operation: MembershipOperation::Enroll,
+                let result = MeshResult::Membership(MembershipResult {
+                    operation: match &envelope.request.operation {
+                        MeshOperation::Enroll { .. } => MembershipOperation::Enroll,
+                        MeshOperation::Renew { .. } => MembershipOperation::Renew,
+                        _ => return Err(RegistryRefusal::Invalid),
+                    },
                     installation_id: INSTALLATION.into(),
                     slot_revision: slot,
                     registry_revision: slot,
                     membership: self.issuer.sign(&payload),
-                }))
+                });
+                if let Some(refusal) = lost_membership_reply {
+                    return Err(refusal);
+                }
+                Ok(result)
             }
             MeshOperation::Publish {
                 expected_metadata_revision,
@@ -502,8 +544,8 @@ pub fn row(id: &str, metadata_revision: u64, name: Option<&str>) -> MeshManageme
 pub struct FakeSessions(pub Mutex<Option<Session>>);
 #[async_trait]
 impl SessionSource for FakeSessions {
-    async fn session(&self) -> Option<Session> {
-        self.0.lock().unwrap().clone()
+    async fn session(&self) -> Result<Option<Session>, AccountMeshRefusal> {
+        Ok(self.0.lock().unwrap().clone())
     }
 }
 
