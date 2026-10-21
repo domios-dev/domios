@@ -323,7 +323,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       <PillIcon size={12} aria-hidden="true" className="ct-ctx-pill__icon" data-kind={plan ? "plan" : kinds[0]} />
       <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (heartbeats.length > 0 ? "Heartbeat" : hasGoal ? "Session goal" : hasPluginError ? "Plugin removed" : "Subagents")}</span>
       {total > 0 && <span className="ct-ctx-pill__count">+{total}</span>}
-      <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />
+      {total > 0 && <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />}
       {Object.values(alerts).some(Boolean) && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
     </button>
   );
