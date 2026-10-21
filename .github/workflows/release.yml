@@ -204,9 +204,11 @@ jobs:
   # The platform-independent frontend is built once; every platform job installs these bytes by digest.
   frontend-dist:
     name: frontend bundle
-    needs: prepare
+    needs: [prepare, builds-tier]
     if: >-
-      needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+      !cancelled() && needs.prepare.result == 'success'
+      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
+      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 20
     env:
@@ -242,7 +244,9 @@ jobs:
         if: always()
         uses: ./.github/actions/ci-artifact-spool
 
-  # Builds on machines no fast check uses start at once; the first failed fast check cancels the run.
+  # Tiers run in priority order: fast checks, tests, builds. A tier opens once every job of the tier above
+  # is claimed by a runner or finished, so tiers overlap but a free runner never takes a lower tier first.
+  # The first failed fast check cancels the run.
   quick-checks:
     name: Fast checks
     needs: prepare
@@ -261,11 +265,62 @@ jobs:
     secrets: inherit
 
   # The full suite shares ubunta and WSL-ci with clippy, so it never starts ahead of the fast checks.
+  tests-tier:
+    name: tests tier opens
+    needs: prepare
+    if: needs.prepare.outputs.run_tests == 'true' && needs.prepare.outputs.published != 'true'
+    runs-on: [self-hosted, Linux, light]
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
+    steps: &tier-gate-steps
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          sparse-checkout: |
+            scripts
+            .github
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Wait until every job of the tier above is claimed or finished
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-tier-gate.mjs "$TIER_PREFIX" "$TIER_ANCHOR" 45
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      TIER_PREFIX: 'Fast checks / '
+      TIER_ANCHOR: Fast checks / guards
+
+  builds-tier:
+    name: builds tier opens
+    needs: [prepare, tests-tier]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' && needs.tests-tier.result == 'success'
+      && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+    runs-on: [self-hosted, Linux, light]
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
+    steps: *tier-gate-steps
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      TIER_PREFIX: 'Rust tests / '
+      TIER_ANCHOR: Rust tests / tree is new
+
   tests:
     name: Rust tests
-    needs: [prepare, quick-checks]
+    needs: [prepare, tests-tier]
     if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.quick-checks.result == 'success'
+      !cancelled() && needs.prepare.result == 'success' && needs.tests-tier.result == 'success'
       && needs.prepare.outputs.run_tests == 'true' && needs.prepare.outputs.published != 'true'
     uses: ./.github/workflows/tests.yml
     with:
@@ -326,13 +381,11 @@ jobs:
       frontend_sha256: ${{ needs.frontend-dist.outputs.sha256 }}
     secrets: inherit
 
-  # Linux x64 builds on the linux-ci machines the fast checks use, so it waits for them.
   linux-x86_64:
     name: Linux x64
-    needs: [prepare, quick-checks, frontend-dist]
+    needs: [prepare, frontend-dist]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
-      && (needs.quick-checks.result == 'success' || needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux.yml
     with:
