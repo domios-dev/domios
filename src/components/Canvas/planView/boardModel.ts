@@ -150,7 +150,7 @@ export const PLANNING_STATE_LABEL: Record<PlanningState, string> = {
 export type PlanDraftState = Exclude<PlanningState, "approved">;
 
 /** Non-null while the plan still waits for approval; approval through setPlanMode clears it. */
-export function planDraftState(plan: Plan): PlanDraftState | null {
+export function planDraftState(plan: Pick<Plan, "mode" | "planning_state">): PlanDraftState | null {
   const state = plan.mode === "planning" ? plan.planning_state ?? "drafting" : plan.mode === "paused" ? plan.planning_state : null;
   return state && state !== "approved" ? state : null;
 }
