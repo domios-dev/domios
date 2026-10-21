@@ -14,6 +14,17 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
   const localJson = client.localJson.bind(client);
   const currentToken = client.currentToken.bind(client);
   return {
+    account_mesh_state: () => localJson("GET", "/api/account/mesh"),
+    account_mesh_enroll: () => localJson("POST", "/api/account/mesh/enroll"),
+    account_mesh_list: () => localJson("POST", "/api/account/mesh/list"),
+    account_mesh_rename_self: (a) =>
+      localJson("POST", "/api/account/mesh/rename", {
+        expected_metadata_revision: a.expectedMetadataRevision,
+        display_name: a.displayName,
+      }),
+    account_mesh_revoke: (a) => localJson("POST", "/api/account/mesh/revoke", { target: a.target }),
+    account_mesh_acknowledge_limit: (a) =>
+      localJson("POST", "/api/account/mesh/limit-notice/ack", { request_id: s(a, "requestId") }),
     answer_notification: (a) =>
       webJson("POST", `/api/notifications/${enc(s(a, "id"))}/answer`, { label: s(a, "label") }),
     restore_provider_integration: (a) =>

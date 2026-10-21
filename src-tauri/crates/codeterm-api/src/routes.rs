@@ -748,6 +748,7 @@ pub(super) fn create_router_with_preview_admission(
             )),
         )
         .route("/api/account/logout", post(super::account_routes::logout))
+        .merge(super::account_mesh_routes::router())
         .route("/api/update/check", get(updater_routes::check_update))
         .route(
             "/api/update/availability",
