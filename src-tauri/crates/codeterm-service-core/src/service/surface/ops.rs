@@ -54,8 +54,10 @@ impl ServiceContext {
             resume_url: None,
             resume_profile: None,
         };
+        let gate = self.limit_gate();
         let row = {
             let mut mux = self.mux.write();
+            crate::service::billing::admit_new_tab(&gate, &mux).map_err(SurfaceError::Placement)?;
             place_surface_tab(&mut mux, &request, &target, &surface.title, backing)?
         };
         self.emit_state_changed(MuxEmitCause::Surface);

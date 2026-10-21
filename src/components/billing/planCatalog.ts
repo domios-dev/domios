@@ -39,14 +39,14 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
       id: "free",
       name: "Free",
       tagline: "Everything you need on one or two machines.",
-      features: ["2 machines in your mesh", "2 workspaces", "Agents, memory, teams and plans"],
+      features: ["2 machines in your mesh", "2 workspaces", "6 Teams and 35 open tabs", "Agents, memory, teams and plans"],
       prices: {},
     },
     {
       id: "pro",
       name: "Pro",
       tagline: "No limits on machines or workspaces.",
-      features: ["Unlimited machines in your mesh", "Unlimited workspaces", "Everything in Free"],
+      features: ["Unlimited machines in your mesh", "Unlimited workspaces", "Unlimited Teams and tabs", "Everything in Free"],
       prices: {
         month: { planKey: "pro_monthly", amount: 5, currency: "USD" },
         year: { planKey: "pro_yearly", amount: 33.6, currency: "USD" },

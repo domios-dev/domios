@@ -1076,5 +1076,31 @@ async fn refused_reply_keeps_the_cached_grant_and_store_bytes() {
     }
 }
 
+#[test]
+fn limit_gate_binds_only_under_phase_b_enforcement() {
+    use codeterm_entitlements::{LimitKey, Phase};
+    let (_, clock) = clock(1_700_000_060);
+    let gated = |phase, enabled| {
+        let mut activation = activation(phase, "fixture-phase-b");
+        activation.enforcement.enabled = enabled;
+        Billing::new(GrantReplies::new(vec![])).with_test_grants(
+            activation,
+            "fixture-installation",
+            Arc::new(MemoryGrants::default()),
+            clock.clone(),
+        )
+    };
+    let unpinned = Billing::new(GrantReplies::new(vec![])).limit_gate();
+    assert_eq!(unpinned.admit(LimitKey::Teams, 100), Ok(()));
+    let phase_a = gated(Phase::A, true).limit_gate();
+    assert_eq!(phase_a.admit(LimitKey::Teams, 100), Ok(()));
+    let switched_off = gated(Phase::B, false).limit_gate();
+    assert_eq!(switched_off.admit(LimitKey::Teams, 100), Ok(()));
+    let enforced = gated(Phase::B, true).limit_gate();
+    assert_eq!(enforced.admit(LimitKey::Teams, 5), Ok(()));
+    let refusal = enforced.admit(LimitKey::AgentTabs, 35).unwrap_err();
+    assert_eq!((refusal.count, refusal.max), (35, 35));
+}
+
 #[path = "plan_payload_tests.rs"]
 mod plan_payload;

@@ -1,0 +1,174 @@
+{
+  "contract": "domios-entitlements signed limits",
+  "tab_team_limits_policy_version": 2,
+  "compiled_free": {
+    "mesh.machines": {"max": 2, "scope": "account"},
+    "workspaces": {"max": 2, "scope": "installation"},
+    "mem.items": {"max": 1000, "scope": "installation"},
+    "teams": {"max": 6, "scope": "installation"},
+    "agent.tabs": {"max": 35, "scope": "installation"}
+  },
+  "cases": [
+    {
+      "id": "old-shape-free",
+      "policy_version": 1,
+      "authority": "free",
+      "limits": {
+        "mesh.machines": {"max": 2, "scope": "account"},
+        "workspaces": {"max": 2, "scope": "installation"},
+        "mem.items": {"max": 1000, "scope": "installation"}
+      },
+      "producer": "valid",
+      "consumer": {"mesh.machines": 2, "workspaces": 2, "mem.items": 1000, "teams": 6, "agent.tabs": 35}
+    },
+    {
+      "id": "old-shape-paid",
+      "policy_version": 1,
+      "authority": "billing",
+      "limits": {
+        "mesh.machines": {"max": null, "scope": "account"},
+        "workspaces": {"max": null, "scope": "installation"},
+        "mem.items": {"max": null, "scope": "installation"}
+      },
+      "producer": "valid",
+      "consumer": {"mesh.machines": null, "workspaces": null, "mem.items": null, "teams": null, "agent.tabs": null}
+    },
+    {
+      "id": "old-shape-admin",
+      "policy_version": 1,
+      "authority": "admin",
+      "limits": {
+        "mesh.machines": {"max": null, "scope": "account"},
+        "workspaces": {"max": null, "scope": "installation"},
+        "mem.items": {"max": null, "scope": "installation"}
+      },
+      "producer": "valid",
+      "consumer": {"mesh.machines": null, "workspaces": null, "mem.items": null, "teams": null, "agent.tabs": null}
+    },
+    {
+      "id": "new-shape-free",
+      "policy_version": 2,
+      "authority": "free",
+      "limits": {
+        "mesh.machines": {"max": 2, "scope": "account"},
+        "workspaces": {"max": 2, "scope": "installation"},
+        "mem.items": {"max": 1000, "scope": "installation"},
+        "teams": {"max": 6, "scope": "installation"},
+        "agent.tabs": {"max": 35, "scope": "installation"}
+      },
+      "producer": "valid",
+      "consumer": {"mesh.machines": 2, "workspaces": 2, "mem.items": 1000, "teams": 6, "agent.tabs": 35}
+    },
+    {
+      "id": "new-shape-paid",
+      "policy_version": 2,
+      "authority": "billing",
+      "limits": {
+        "mesh.machines": {"max": null, "scope": "account"},
+        "workspaces": {"max": null, "scope": "installation"},
+        "mem.items": {"max": null, "scope": "installation"},
+        "teams": {"max": null, "scope": "installation"},
+        "agent.tabs": {"max": null, "scope": "installation"}
+      },
+      "producer": "valid",
+      "consumer": {"mesh.machines": null, "workspaces": null, "mem.items": null, "teams": null, "agent.tabs": null}
+    },
+    {
+      "id": "new-shape-admin",
+      "policy_version": 2,
+      "authority": "admin",
+      "limits": {
+        "mesh.machines": {"max": null, "scope": "account"},
+        "workspaces": {"max": null, "scope": "installation"},
+        "mem.items": {"max": null, "scope": "installation"},
+        "teams": {"max": null, "scope": "installation"},
+        "agent.tabs": {"max": null, "scope": "installation"}
+      },
+      "producer": "valid",
+      "consumer": {"mesh.machines": null, "workspaces": null, "mem.items": null, "teams": null, "agent.tabs": null}
+    },
+    {
+      "id": "new-keys-under-old-policy",
+      "policy_version": 1,
+      "authority": "free",
+      "limits": {
+        "mesh.machines": {"max": 2, "scope": "account"},
+        "workspaces": {"max": 2, "scope": "installation"},
+        "mem.items": {"max": 1000, "scope": "installation"},
+        "teams": {"max": 6, "scope": "installation"},
+        "agent.tabs": {"max": 35, "scope": "installation"}
+      },
+      "producer": "invalid",
+      "consumer": {"mesh.machines": 2, "workspaces": 2, "mem.items": 1000, "teams": 6, "agent.tabs": 35}
+    },
+    {
+      "id": "old-shape-under-new-policy",
+      "policy_version": 2,
+      "authority": "billing",
+      "limits": {
+        "mesh.machines": {"max": null, "scope": "account"},
+        "workspaces": {"max": null, "scope": "installation"},
+        "mem.items": {"max": null, "scope": "installation"}
+      },
+      "producer": "invalid",
+      "consumer": {"mesh.machines": null, "workspaces": null, "mem.items": null, "teams": null, "agent.tabs": null}
+    },
+    {
+      "id": "free-raised-teams",
+      "policy_version": 2,
+      "authority": "free",
+      "limits": {
+        "mesh.machines": {"max": 2, "scope": "account"},
+        "workspaces": {"max": 2, "scope": "installation"},
+        "mem.items": {"max": 1000, "scope": "installation"},
+        "teams": {"max": 7, "scope": "installation"},
+        "agent.tabs": {"max": 35, "scope": "installation"}
+      },
+      "producer": "invalid",
+      "consumer": "invalid"
+    },
+    {
+      "id": "agent-tabs-account-scope",
+      "policy_version": 2,
+      "authority": "billing",
+      "limits": {
+        "mesh.machines": {"max": null, "scope": "account"},
+        "workspaces": {"max": null, "scope": "installation"},
+        "mem.items": {"max": null, "scope": "installation"},
+        "teams": {"max": null, "scope": "installation"},
+        "agent.tabs": {"max": null, "scope": "account"}
+      },
+      "producer": "invalid",
+      "consumer": "invalid"
+    },
+    {
+      "id": "teams-null-object",
+      "policy_version": 2,
+      "authority": "billing",
+      "limits": {
+        "mesh.machines": {"max": null, "scope": "account"},
+        "workspaces": {"max": null, "scope": "installation"},
+        "mem.items": {"max": null, "scope": "installation"},
+        "teams": null,
+        "agent.tabs": {"max": null, "scope": "installation"}
+      },
+      "producer": "invalid",
+      "consumer": "invalid"
+    },
+    {
+      "id": "unknown-limit-key",
+      "policy_version": 2,
+      "authority": "billing",
+      "limits": {
+        "mesh.machines": {"max": null, "scope": "account"},
+        "workspaces": {"max": null, "scope": "installation"},
+        "mem.items": {"max": null, "scope": "installation"},
+        "teams": {"max": null, "scope": "installation"},
+        "agent.tabs": {"max": null, "scope": "installation"},
+        "plans": {"max": null, "scope": "installation"}
+      },
+      "producer": "invalid",
+      "consumer": "invalid"
+    }
+  ]
+}

@@ -1,10 +1,23 @@
 use super::ServiceContext;
 use codeterm_billing::{adapters, Billing, Entitlements, RefreshEvent, Snapshot};
+pub use codeterm_entitlements::{LimitGate, LimitKey, LimitRefusal, FREE_LIMIT_REACHED};
 use std::{sync::Arc, time::Instant};
 
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
 
 impl ServiceContext {
+    /// Capture before taking the mux lock. Dormant unless this build pins Phase B enforcement;
+    /// before billing starts it is the compiled free baseline, as Phase B grants without a verdict.
+    pub fn limit_gate(&self) -> LimitGate {
+        if !codeterm_entitlements::enforcing(codeterm_entitlements::ACTIVATION.as_ref()) {
+            return LimitGate::dormant();
+        }
+        self.ext::<BillingCell>().0.get().map_or_else(
+            || LimitGate::new(codeterm_entitlements::compiled_free(), true),
+            |billing| billing.limit_gate(),
+        )
+    }
+
     pub async fn installation_id(&self) -> Result<codeterm_account::InstallationId, String> {
         tokio::task::spawn_blocking(|| {
             codeterm_account::Account::installation_id(
@@ -148,4 +161,20 @@ async fn snapshot_off_runtime(
     tokio::task::spawn_blocking(move || billing.snapshot(session.as_ref()))
         .await
         .map_err(|error| error.to_string())
+}
+
+/// Every live tab counts toward `agent.tabs`, whatever its role or purpose.
+pub fn admit_new_tab(
+    gate: &LimitGate,
+    mux: &crate::multiplexer::state::MultiplexerState,
+) -> Result<(), String> {
+    gate.admit(LimitKey::AgentTabs, mux.all_tabs().count())
+        .map_err(|refusal| refusal.to_string())
+}
+
+pub fn admit_new_team(gate: &LimitGate) -> impl FnOnce(usize) -> Result<(), String> + '_ {
+    move |teams| {
+        gate.admit(LimitKey::Teams, teams)
+            .map_err(|refusal| refusal.to_string())
+    }
 }

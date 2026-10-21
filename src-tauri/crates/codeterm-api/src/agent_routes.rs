@@ -597,6 +597,10 @@ pub async fn set_tab_role(
             let mux = state.svc.mux.read();
             mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)
         };
+        if becomes_anchor {
+            codeterm_orchestration::admit_anchor_promotion(&state.svc, &id)
+                .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+        }
         let plan_binding: Option<String> = None;
         let destination = match parsed_role {
             AgentRole::Manager if becomes_anchor => {

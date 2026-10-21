@@ -22,6 +22,7 @@ import {
 import { mountWebLifecycle } from "../../lib/lifecycle";
 import { uid } from "../../lib/uid";
 import { reorderFailureToast } from "./reorderFailure";
+import { freeLimitToast, upgradeToPro } from "./freeLimitRefusal";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
 import { defaultSpawnProviderId, getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import {atomicSpawnPreset} from "../../lib/remoteExecution";
@@ -652,6 +653,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const raiseFreeLimit = useCallback((error: unknown, workspaceId: string | null): boolean => {
+    const toast = freeLimitToast(error, workspaceId, upgradeToPro);
+    if (toast) dispatch({ type: "UPSERT_TOAST", toast });
+    return toast !== null;
+  }, []);
+
   const createTab = useCallback(async (workspaceId: string, cwd?: string, shell?: string) => {
     try {
       guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
@@ -674,9 +681,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       refreshFromBackend();
       return { id: tabInfo.id };
     } catch (e) {
-      console.error("Failed to create tab:", e);
+      if (!raiseFreeLimit(e, workspaceId)) console.error("Failed to create tab:", e);
     }
-  }, [refreshFromBackend, guardedInvoke]);
+  }, [refreshFromBackend, guardedInvoke, raiseFreeLimit]);
 
   const reopenClosed = useCallback(async (workspaceId: string, index = 0) => {
     try {
@@ -733,10 +740,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       if (s && s.workspaces.length > 0) applyBackendState(s);
       return info;
     } catch (e) {
-      console.error("Failed to create workspace:", e);
+      if (!raiseFreeLimit(e, null)) console.error("Failed to create workspace:", e);
       return undefined;
     }
-  }, [guardedInvoke, applyBackendState]);
+  }, [guardedInvoke, applyBackendState, raiseFreeLimit]);
 
   const setActiveWorkspace = useCallback((id: string) => {
     guardedInvoke("mux_set_active_workspace", { workspaceId: id }).catch(() => {});
@@ -888,14 +895,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   // from the descriptor registry rather than hardcoding a vendor id.
   const spawnClaudeTab = useCallback(async (workspaceId: string, cwd?: string) => {
     void spawnAgentTab(workspaceId, defaultSpawnProviderId(), cwd).catch((error) => {
-      if (isWorkspaceCwdRefusal(error)) return;
+      if (isWorkspaceCwdRefusal(error) || raiseFreeLimit(error, workspaceId)) return;
       dispatch({ type: "UPSERT_TOAST", toast: {
         id: uid(), tab_id: null, workspace_id: workspaceId, title: "Session start failed",
         body: spawnErrorMessage(error), severity: "Error", level: "failure",
         timestamp: Date.now(), read: false, sticky: true,
       } });
     });
-  }, [spawnAgentTab]);
+  }, [spawnAgentTab, raiseFreeLimit]);
 
   const createOrchestrationPair = useCallback(
     async (input: OrchestrationPairInput): Promise<OrchestrationPairResult> => {
@@ -910,11 +917,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         title: input.title,
         existing_tab_id: input.existingTabId,
       };
-      const result = await guardedInvoke<OrchestrationPairResult>("mux_create_orchestration_pair", { params: body });
+      const result = await guardedInvoke<OrchestrationPairResult>("mux_create_orchestration_pair", { params: body })
+        .catch((error: unknown) => {
+          raiseFreeLimit(error, input.workspaceId ?? null);
+          throw error;
+        });
       refreshFromBackend();
       return result;
     },
-    [guardedInvoke, refreshFromBackend],
+    [guardedInvoke, refreshFromBackend, raiseFreeLimit],
   );
 
   const closeTab = useCallback(

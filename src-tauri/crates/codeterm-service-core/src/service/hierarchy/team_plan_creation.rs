@@ -4,6 +4,7 @@ use codeterm_types::team::general_agent_membership::MembershipAttempt;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{MilestoneKind, OrchestratorRef, Plan};
+use crate::service::billing::LimitGate;
 use crate::service::plan::PlanError;
 use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
@@ -65,6 +66,7 @@ impl ServiceContext {
         let outcome = create_team_plan_for_orchestrator(
             &self.mux,
             &self.plan_store,
+            &self.limit_gate(),
             title,
             project_path,
             owner,
@@ -93,6 +95,7 @@ impl ServiceContext {
         let mut outcome = create_team_plan_for_caller(
             &self.mux,
             &self.plan_store,
+            &self.limit_gate(),
             title,
             project_path,
             requested_owner,
@@ -128,6 +131,7 @@ impl ServiceContext {
 pub fn create_team_plan_for_caller(
     mux: &MuxState,
     plan_store: &PlanStore,
+    gate: &LimitGate,
     title: String,
     project_path: String,
     requested_owner: OrchestratorRef,
@@ -141,6 +145,7 @@ pub fn create_team_plan_for_caller(
         return create_team_plan_for_orchestrator(
             mux,
             plan_store,
+            gate,
             title,
             project_path,
             requested_owner,
@@ -158,6 +163,7 @@ pub fn create_team_plan_for_caller(
         return create_team_plan_for_orchestrator(
             mux,
             plan_store,
+            gate,
             title,
             project_path,
             requested_owner,
@@ -304,9 +310,11 @@ fn wait_for_team_planner_binding(
     .unwrap_or(Err(TeamPlanCreationError::SessionBindingPending))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_team_plan_for_orchestrator(
     mux: &MuxState,
     plan_store: &PlanStore,
+    gate: &LimitGate,
     title: String,
     project_path: String,
     owner: OrchestratorRef,
@@ -343,7 +351,10 @@ pub fn create_team_plan_for_orchestrator(
     )
     .map_err(|refusal| TeamPlanCreationError::Team(refusal.to_string()))?;
     let team = state
-        .resolve_or_mint_team_for_parent(&owner_tab_id)
+        .resolve_or_mint_team_for_parent_admitted(
+            &owner_tab_id,
+            crate::service::billing::admit_new_team(gate),
+        )
         .map_err(TeamPlanCreationError::Team)?;
     let create = if let Some(spec_id) = from_spec {
         plan_store.create_plan_from_spec_for_team(
