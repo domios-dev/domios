@@ -29,7 +29,15 @@ fn curator_save_preserves_uid_and_bumps_confidence_in_later_round() {
         .unwrap()
         .unwrap();
     let first = mem.get(&id).unwrap().unwrap();
-    assert!(first.tags.contains(&"confidence:low".into()));
+    assert_eq!(
+        mem.solution_metadata(&id)
+            .unwrap()
+            .unwrap()
+            .curator
+            .unwrap()
+            .confidence,
+        crate::solution_metadata::Confidence::Low
+    );
     assert!(first.tags.contains(&"curator".into()));
     assert!(first.body.contains("blueprint:a"));
     let again = mem
@@ -37,12 +45,15 @@ fn curator_save_preserves_uid_and_bumps_confidence_in_later_round() {
         .unwrap()
         .unwrap();
     assert_eq!(again, id);
-    assert!(mem
-        .get(&id)
-        .unwrap()
-        .unwrap()
-        .tags
-        .contains(&"confidence:medium".into()));
+    assert_eq!(
+        mem.solution_metadata(&id)
+            .unwrap()
+            .unwrap()
+            .curator
+            .unwrap()
+            .confidence,
+        crate::solution_metadata::Confidence::Medium
+    );
 }
 
 #[test]
@@ -93,7 +104,15 @@ fn repeated_keep_counts_new_evidence_only() {
         proof.clone(),
     )
     .unwrap();
-    assert_eq!(mem.get(&id).unwrap().unwrap().recurrence_count, 3);
+    assert_eq!(
+        mem.solution_metadata(&id)
+            .unwrap()
+            .unwrap()
+            .blueprint
+            .unwrap()
+            .successes,
+        3
+    );
     mem.save_blueprint(
         "project",
         document("done"),
@@ -104,7 +123,15 @@ fn repeated_keep_counts_new_evidence_only() {
         },
     )
     .unwrap();
-    assert_eq!(mem.get(&id).unwrap().unwrap().recurrence_count, 4);
+    assert_eq!(
+        mem.solution_metadata(&id)
+            .unwrap()
+            .unwrap()
+            .blueprint
+            .unwrap()
+            .successes,
+        4
+    );
 }
 
 #[test]
@@ -136,8 +163,26 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
     assert_eq!(id, again);
     let item = mem.get(&id).unwrap().unwrap();
     assert_eq!(item.kind, "skill");
-    assert_eq!(item.title, "Watch CI failure");
-    assert_eq!(item.recurrence_count, 2);
+    assert_eq!(
+        mem.solution_metadata(&id)
+            .unwrap()
+            .unwrap()
+            .blueprint
+            .unwrap()
+            .when_to_use,
+        "Watch CI failure"
+    );
+    assert_eq!(
+        mem.solution_metadata(&id)
+            .unwrap()
+            .unwrap()
+            .blueprint
+            .unwrap()
+            .successes,
+        2
+    );
+    assert_eq!(item.recurrence_count, 0);
+    assert!(item.tags.iter().all(|tag| !tag.contains(':')));
     assert!(!item.body.contains("different-instance"));
     assert!(!item.body.contains("echo ready"));
     let yaml = model::parse_document(&item.body).unwrap();
@@ -225,6 +270,8 @@ fn blueprint_dreamer_only_merges_existing_solutions_and_preserves_stats() {
             pinned: false,
         })
         .unwrap();
+    let record = mem.solution_metadata(&id).unwrap().unwrap();
+    metadata::write(&mem.conn.lock(), &other, &record).unwrap();
     assert_eq!(mem.dream_blueprints().unwrap(), 1);
     let kinds = [
         mem.get(&id).unwrap().unwrap().kind,
@@ -255,4 +302,46 @@ fn owner_list_does_not_count_recall_and_archive_is_project_scoped() {
         .list_blueprint_solutions("project-a")
         .unwrap()
         .is_empty());
+}
+
+#[test]
+fn enqueue_refuses_qualification_before_starting_the_worker() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let definition = json!({"create":{"name":"ci-watch","probe":"echo ready","question":"Ready?","buckets":["done"],"every":"20s","routes":{"done":"notify"},"until":"done","timeout":"1h"}});
+    assert!(mem
+        .enqueue_blueprint(
+            "project".into(),
+            definition.clone(),
+            "token=private-token".into(),
+            evidence()
+        )
+        .unwrap_err()
+        .contains("unsafe_template"));
+    assert!(mem
+        .enqueue_blueprint(
+            "project".into(),
+            definition,
+            "Watch CI".into(),
+            Evidence::default()
+        )
+        .unwrap_err()
+        .contains("no_success"));
+    assert!(mem.blueprint_queue.lock().is_none());
+    assert!(mem.list_blueprint_solutions("project").unwrap().is_empty());
+}
+
+#[test]
+fn memory_access_counters_do_not_change_blueprint_statistics() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let id = mem
+        .save_blueprint("project", document("done"), "Watch CI", evidence())
+        .unwrap()
+        .unwrap();
+    mem.conn.lock().execute("UPDATE mem_items SET access_count=999,recurrence_count=888,title='Search title' WHERE id=?1",[&id]).unwrap();
+    let entries = mem.list_blueprint_solutions("project").unwrap();
+    assert_eq!(entries[0].uses, 0);
+    assert_eq!(entries[0].successes, 1);
+    assert_eq!(entries[0].when_to_use, "Watch CI");
+    mem.reuse_blueprints(&[id.clone()]).unwrap();
+    assert_eq!(mem.list_blueprint_solutions("project").unwrap()[0].uses, 1);
 }

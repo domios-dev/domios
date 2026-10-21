@@ -35,6 +35,7 @@ pub mod prompt_text;
 pub mod rerank;
 pub mod search;
 pub mod seed;
+pub mod solution_metadata;
 pub mod store;
 pub mod supervisor;
 pub mod worker_agent;
@@ -163,6 +164,7 @@ impl MemManager {
 
         // WAL + synchronous=NORMAL pragmas come from store::init_schema.
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
+        solution_metadata::initialize(&conn)?;
 
         if let Err(e) = embeddings::init_extension(&conn) {
             log::warn!(
@@ -195,6 +197,7 @@ impl MemManager {
     pub fn open_in_memory() -> Result<Arc<Self>, String> {
         let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
+        solution_metadata::initialize(&conn)?;
         let tmp = std::env::temp_dir().join(format!("mem-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(tmp.join("blobs")).ok();
         let layout = graph_layout::LayoutState::load(&tmp);
@@ -239,6 +242,7 @@ impl MemManager {
             .map_err(|e| format!("set busy_timeout: {}", e))?;
 
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
+        solution_metadata::initialize(&conn)?;
 
         // Non-fatal: offline mode is allowed to run FTS5-only without vectors.
         let _ = embeddings::init_extension(&conn);
