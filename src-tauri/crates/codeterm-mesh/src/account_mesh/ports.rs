@@ -78,7 +78,8 @@ impl AccountMeshState {
 pub enum AdmissionRefusal {
     Offline,
     Unauthenticated,
-    MachineLimit { limit: u32 },
+    #[serde(rename = "mesh.machines")]
+    MachineLimit { limit: u32, active_count: u32 },
     RateLimited,
     Revoked,
     SignedOut,
@@ -98,7 +99,7 @@ impl AdmissionRefusal {
         match self {
             Self::Offline => "offline",
             Self::Unauthenticated => "unauthenticated",
-            Self::MachineLimit { .. } => "machine_limit",
+            Self::MachineLimit { .. } => "mesh.machines",
             Self::RateLimited => "rate_limited",
             Self::Revoked => "revoked",
             Self::SignedOut => "signed-out",
@@ -113,7 +114,10 @@ impl std::fmt::Display for AdmissionRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::HandshakeFailed { detail } => write!(f, "handshake-failed: {detail}"),
-            Self::MachineLimit { limit } => write!(f, "machine_limit: {limit}"),
+            Self::MachineLimit {
+                limit,
+                active_count,
+            } => write!(f, "mesh.machines: {active_count}/{limit}"),
             other => f.write_str(other.code()),
         }
     }
