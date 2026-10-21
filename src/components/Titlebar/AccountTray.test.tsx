@@ -15,7 +15,7 @@ vi.mock("../Settings/useAccount", async (importOriginal) => ({
     : {kind:"signed_out"}, signIn, signOut}),
 }));
 vi.mock("../Settings/useAccountPlan", () => ({useAccountPlan: () => ({
-  plan:{plan:"pro",status:"active",stale:false,periodEnd:null,cancelAtPeriodEnd:false},error:null,manage,
+  plan:{authority:"billing",fullAccess:false,plan:"pro",status:"active",stale:false,periodEnd:null,cancelAtPeriodEnd:false},error:null,manage,
 })}));
 vi.mock("../../lib/nativeBridge", () => ({nativeBridge:{openUrl}}));
 import { siteLinks } from "../../../shared/siteLinks";
