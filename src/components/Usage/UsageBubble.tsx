@@ -1,3 +1,4 @@
+import {hasExpiringCredits} from "./creditExpiry";
 import {uid} from "../../lib/uid";
 import {invoke} from "../../lib/bridge";
 import {DEV_BUILD} from "../../lib/devBuild";
@@ -182,6 +183,7 @@ export function UsageBubble({
         ) : (
           <span>{usagePillText(active)}</span>
         )}
+        {hasExpiringCredits(active.resets, active.usage_details, now) && <span className="ct-usage-credit-alert" role="img" aria-label="Unused credits expire within 3 days" />}
         {isStale && <span className="stale-age">·{formatAge(active.captured_at, now)}</span>}
       </button>
 
