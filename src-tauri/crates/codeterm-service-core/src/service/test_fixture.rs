@@ -529,6 +529,7 @@ impl ServiceFixture {
             ),
         )));
         extensions.insert(crate::service::mux_emitter::MuxEmitter::default());
+        extensions.insert(crate::service::hierarchy::PlannerReplayCoalescer::default());
         extensions.insert(crate::service::MuxEmitPending(Arc::new(AtomicBool::new(
             false,
         ))));

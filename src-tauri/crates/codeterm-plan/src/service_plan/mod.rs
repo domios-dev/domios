@@ -32,6 +32,7 @@ pub mod pause;
 pub mod pause_operation;
 pub mod peer_mandate;
 pub mod plan_skills;
+pub mod planner_replay;
 pub mod planner_requests;
 mod planner_session;
 pub mod ports;
