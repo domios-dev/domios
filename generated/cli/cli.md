@@ -3846,9 +3846,28 @@ Save a custom theme from a TOML file
 
 Read or update the current agent tab's bounded checklist
 
+#### `codeterm todo amend`
+
+Review and amend a child's checklist; seeded criteria stay locked
+
+- `--from-pad`
+- `--note-from-pad`
+- `--tab`
+
+#### `codeterm todo approve`
+
+Mark a child's shared checklist reviewed
+
+- `--note-from-pad`
+- `--tab`
+
 #### `codeterm todo list`
 
 Read this agent tab's current bounded checklist
+
+#### `codeterm todo submit`
+
+Share this tab's checklist with its parent; work may continue immediately
 
 #### `codeterm todo write`
 
