@@ -1,6 +1,6 @@
 {
   "license": "Apache-2.0",
-  "name": "@codeterm/chat-preprocessor",
+  "name": "@domios/chat-preprocessor",
   "version": "1.4.6",
   "private": true,
   "type": "module",
@@ -11,6 +11,6 @@
     ".": "./src/plugin.ts"
   },
   "devDependencies": {
-    "@codeterm/plugin-sdk": "workspace:*"
+    "@domios/plugin-sdk": "workspace:*"
   }
 }

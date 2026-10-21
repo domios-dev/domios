@@ -8,30 +8,30 @@ import test from 'node:test';
 import { checkQueuePlan } from './check-queue-plan.mjs';
 
 const root = path.resolve('fixture');
-const names = ['codeterm', 'codeterm-service-core', 'codeterm-opaque'];
+const names = ['domios', 'domios-service-core', 'domios-opaque'];
 const metadata = {
   workspace_members: names,
-  packages: names.map(name => ({ id: name, name, manifest_path: path.join(root, 'src-tauri', ...(name === 'codeterm' ? [] : ['crates', name]), 'Cargo.toml'), targets: [{ kind: ['lib'] }] })),
+  packages: names.map(name => ({ id: name, name, manifest_path: path.join(root, 'src-tauri', ...(name === 'domios' ? [] : ['crates', name]), 'Cargo.toml'), targets: [{ kind: ['lib'] }] })),
 };
 
 test('deleted and non-workspace packages cannot reach Cargo selection', () => {
-  const plan = checkQueuePlan(metadata, 'app codeterm-deleted\napp codeterm-opaque', 'D\tsrc-tauri/crates/codeterm-deleted/Cargo.toml', root);
-  assert.deepEqual(plan.map(pkg => pkg.name), ['codeterm-opaque']);
+  const plan = checkQueuePlan(metadata, 'app domios-deleted\napp domios-opaque', 'D\tsrc-tauri/crates/domios-deleted/Cargo.toml', root);
+  assert.deepEqual(plan.map(pkg => pkg.name), ['domios-opaque']);
 });
 
 test('test paths and moved crates select tests, while core tests remain batch-only', () => {
   for (const file of ['src/tests.rs', 'src/opaque_tests.rs', 'tests/opaque.rs', 'Cargo.toml']) {
-    const changes = `${file === 'Cargo.toml' ? 'R100\told/Cargo.toml\t' : 'M\t'}src-tauri/crates/codeterm-opaque/${file}\nM\tsrc-tauri/crates/codeterm-service-core/src/tests.rs`;
-    const plan = checkQueuePlan(metadata, 'app codeterm-opaque\napp codeterm-service-core', changes, root);
-    assert.equal(plan.find(pkg => pkg.name === 'codeterm-opaque').tests, true);
-    assert.equal(plan.find(pkg => pkg.name === 'codeterm-service-core').tests, false);
+    const changes = `${file === 'Cargo.toml' ? 'R100\told/Cargo.toml\t' : 'M\t'}src-tauri/crates/domios-opaque/${file}\nM\tsrc-tauri/crates/domios-service-core/src/tests.rs`;
+    const plan = checkQueuePlan(metadata, 'app domios-opaque\napp domios-service-core', changes, root);
+    assert.equal(plan.find(pkg => pkg.name === 'domios-opaque').tests, true);
+    assert.equal(plan.find(pkg => pkg.name === 'domios-service-core').tests, false);
   }
 });
 
 test('ordinary package changes select only their library, with root bins only on root selection', () => {
-  const leaf = checkQueuePlan(metadata, 'app codeterm-opaque', 'M\tsrc-tauri/crates/codeterm-opaque/src/lib.rs', root);
-  assert.deepEqual(leaf, [{ name: 'codeterm-opaque', tests: false, bins: false, lib: true }]);
-  assert.equal(checkQueuePlan(metadata, 'app codeterm', '', root)[0].bins, true);
+  const leaf = checkQueuePlan(metadata, 'app domios-opaque', 'M\tsrc-tauri/crates/domios-opaque/src/lib.rs', root);
+  assert.deepEqual(leaf, [{ name: 'domios-opaque', tests: false, bins: false, lib: true }]);
+  assert.equal(checkQueuePlan(metadata, 'app domios', '', root)[0].bins, true);
 });
 
 test('lane dispatch uses Clippy libraries, touched root bins and isolated leaf tests without all-targets', () => {
@@ -42,7 +42,7 @@ test('lane dispatch uses Clippy libraries, touched root bins and isolated leaf t
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lane-clippy-'));
   try {
     for (const rootTouched of [false, true]) {
-      fs.writeFileSync(path.join(directory, 'plan'), `codeterm-service-core\t0\t0\t1\ncodeterm-opaque\t1\t0\t1\n${rootTouched ? 'codeterm\t0\t1\t1\n' : ''}`);
+      fs.writeFileSync(path.join(directory, 'plan'), `domios-service-core\t0\t0\t1\ndomios-opaque\t1\t0\t1\n${rootTouched ? 'domios\t0\t1\t1\n' : ''}`);
       const result = spawnSync(process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash', ['-c', `
         set -euo pipefail
         lane=1; plan=plan; cw="$PWD"; out=pass.log; status=0
@@ -65,15 +65,15 @@ test('lane dispatch uses Clippy libraries, touched root bins and isolated leaf t
         assert.doesNotMatch(call, /--all-targets/);
       }
       assert.equal(calls[0].includes('--bins'), rootTouched);
-      assert.ok(calls[0].includes('-p codeterm-service-core'));
+      assert.ok(calls[0].includes('-p domios-service-core'));
       assert.ok(calls[0].includes('--no-default-features'));
-      assert.ok(calls[0].includes('--features codeterm-service-core/embeddings'));
-      assert.doesNotMatch(calls[0], /--features codeterm\//);
+      assert.ok(calls[0].includes('--features domios-service-core/embeddings'));
+      assert.doesNotMatch(calls[0], /--features domios\//);
       assert.doesNotMatch(calls[0], /--tests/);
-      assert.match(calls[1], /-p codeterm-opaque --lib --tests/);
+      assert.match(calls[1], /-p domios-opaque --lib --tests/);
     }
     const cli = source.match(/^  if \[ "\$cli" = 1 \]; then[\s\S]*?^  fi/m)[0];
-    assert.match(cli, /cli_targets=\(-p codeterm-cli --bins\)/);
+    assert.match(cli, /cli_targets=\(-p domios-cli --bins\)/);
     assert.doesNotMatch(cli, /--lib/);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });

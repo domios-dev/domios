@@ -1,8 +1,0 @@
-[package]
-license = "AGPL-3.0-only"
-name = "codeterm-build-info"
-version = "0.0.0"
-edition = "2021"
-
-[lints]
-workspace = true

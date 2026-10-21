@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { allowlistPath, baselineRevision, checkBoundary, detectOccurrences, isCoreSource, readBaseline, scanWorkingTree, seedAllowlist, validateAllowlist } from '../check-provider-boundary.mjs';
+import { allowlistPath, baselineRevision, canonicalizeAllowlistPaths, checkBoundary, detectOccurrences, isCoreSource, readBaseline, scanWorkingTree, seedAllowlist, validateAllowlist } from '../check-provider-boundary.mjs';
 
 const checker = fileURLToPath(new URL('../check-provider-boundary.mjs', import.meta.url));
 const file = 'src-tauri/src/runtime.rs';
@@ -42,6 +42,17 @@ test('detects literal ids, casing, identifier and environment variants', () => {
   const source = tokens.map(token => `let value = "${token}";`).join('\n');
   assert.deepEqual(detectOccurrences(file, source).map(hit => hit.token), tokens);
   assert.equal(detectOccurrences(file, 'let agent_runtime = "chat_backend";').length, 0);
+});
+
+test('renamed crate paths resolve through the legacy allowlist bridge', () => {
+  const canonical = canonicalizeAllowlistPaths({
+    version: 1,
+    splits: [{ from: 'src-tauri/crates/codeterm-service-core/src/lib.rs', to: ['src-tauri/crates/codeterm-service-core/src/agent.rs'] }], // rename-bridge
+    entries: [{ file: 'src-tauri/crates/codeterm-plugin/src/lib.rs', token: 'codex', count: 1, justification: 'fixture', removalSlice: 'fixture' }], // rename-bridge
+  });
+  assert.equal(canonical.splits[0].from, 'src-tauri/crates/domios-service-core/src/lib.rs');
+  assert.deepEqual(canonical.splits[0].to, ['src-tauri/crates/domios-service-core/src/agent.rs']);
+  assert.equal(canonical.entries[0].file, 'src-tauri/crates/domios-plugin/src/lib.rs');
 });
 
 test('migration anchor replaces only an older ancestor baseline and retains the ratchet', () => repository(({ root, git, commit, seedBase }) => {

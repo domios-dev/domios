@@ -1,0 +1,12 @@
+[package]
+license = "AGPL-3.0-only"
+name = "domios-shutdown"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+
+[lints]
+workspace = true

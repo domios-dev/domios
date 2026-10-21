@@ -1,0 +1,34 @@
+[package]
+license = "AGPL-3.0-only"
+name = "domios-supporter"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+domios-decision = { path = "../domios-decision" }
+domios-mem = { path = "../domios-mem", default-features = false }
+domios-plugin = { path = "../domios-plugin" }
+domios-worker-services = { path = "../domios-worker-services" }
+domios-paths = { path = "../domios-paths" }
+domios-util = { path = "../domios-util" }
+domios-types = { path = "../domios-types" }
+domios-notification-core = { path = "../domios-notification-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+parking_lot = "0.12"
+log = "0.4"
+chrono = "0.4"
+regex = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+toml = "0.8"
+tempfile = "3"
+domios-decision = { path = "../domios-decision", features = ["decision-fixture-clock"] }
+
+[features]
+test-support = []

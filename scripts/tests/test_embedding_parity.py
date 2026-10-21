@@ -25,7 +25,7 @@ class EmbeddingParityTests(unittest.TestCase):
                     ORACLE.compare_vectors(valid, invalid, 1)
 
     def test_golden_matches_the_fixed_inputs_and_has_unit_vectors(self):
-        fixture = json.loads((ROOT / "src-tauri/crates/codeterm-mem/tests/fixtures/embed_parity.json").read_text(encoding="utf-8"))
+        fixture = json.loads((ROOT / "src-tauri/crates/domios-mem/tests/fixtures/embed_parity.json").read_text(encoding="utf-8"))
         inputs = json.loads((ROOT / "scripts/fixtures/embedding-parity.json").read_text(encoding="utf-8"))
         self.assertEqual([case["text"] for case in fixture["cases"]], inputs)
         vectors = [case["vector"] for case in fixture["cases"]]

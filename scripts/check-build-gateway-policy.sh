@@ -155,10 +155,10 @@ expect_log 'enter_build_gateway "$@"' <<< "$cargo_entry_flow"
 expect_log 'ct_configure_sccache' <<< "$cargo_entry_flow"
 
 test_one_flow="$(sed -n '/^  test-one)/,/^  verify)/p' build.sh)"
-expect_log 'types) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter"' <<< "$test_one_flow"
+expect_log 'types|domios-types|codeterm-types) scripts/test-capped.sh --no-default-features --manifest-path src-tauri/crates/domios-types/Cargo.toml -p domios-types --all-targets "$test_filter"' <<< "$test_one_flow" # rename-bridge
 expect_log 'configure_app_test_cargo test-one' <<< "$test_one_flow"
 expect_log 'scripts/test-capped.sh "${CT_APP_TEST_ARGS[@]}" "$test_filter"' <<< "$test_one_flow"
-expect_log 'cli) scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml --all-targets "$test_filter"' <<< "$test_one_flow"
+expect_log 'cli|domios-cli|codeterm-cli) scripts/test-capped.sh --no-default-features --manifest-path cli/Cargo.toml -p domios-cli --all-targets "$test_filter"' <<< "$test_one_flow" # rename-bridge
 
 nextest_flow="$(sed -n '/^  nextest)/,/^  verify)/p' build.sh)"
 expect_log 'run_nextest_scope "${@:2}"' <<< "$nextest_flow"

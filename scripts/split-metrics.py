@@ -9,7 +9,7 @@ import datetime, glob, json, os, re, subprocess, sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 TAURI = os.path.join(ROOT, "src-tauri")
-CANDIDATES = ("src-tauri/crates/codeterm-service-core/src", "src-tauri/src")
+CANDIDATES = ("src-tauri/crates/domios-service-core/src", "src-tauri/src")
 
 def resolve_root(argv):
     if "--root" in argv:

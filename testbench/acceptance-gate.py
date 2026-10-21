@@ -4,7 +4,7 @@
 Operationalizes the runbook acceptance checks
 (docs/plans/detection-rebuild-deepening-loop.md, "Final ChatUI acceptance checks")
 as measurable PASS/FAIL over committed `timeline.json` files. The `detector`
-field in each timeline is produced by `src-tauri/tools/codeterm-devtools/examples/render_timeline.rs`,
+field in each timeline is produced by `src-tauri/tools/domios-devtools/examples/render_timeline.rs`,
 which runs the SAME `offline_state_classifier` the live path uses — so a green
 gate here is the offline proof for a classifier change before the live re-check.
 

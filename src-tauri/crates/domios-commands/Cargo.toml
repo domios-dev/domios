@@ -1,0 +1,41 @@
+[package]
+license = "AGPL-3.0-only"
+name = "domios-commands"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "domios_commands"
+
+[dependencies]
+domios-build-info = { path = "../domios-build-info" }
+domios-service-core = { path = "../domios-service-core", default-features = false }
+domios-orchestration = { path = "../domios-orchestration" }
+domios-analytics = { path = "../domios-analytics" }
+domios-frontend-bundle = { path = "../domios-frontend-bundle" }
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+domios-types = { path = "../domios-types" }
+domios-events = { path = "../domios-events" }
+domios-util = { path = "../domios-util" }
+domios-mesh = { path = "../domios-mesh" }
+domios-plugin = { path = "../domios-plugin" }
+log = { version = "0.4", features = ["release_max_level_info"] }
+parking_lot = "0.12"
+axum = { version = "0.8", features = ["multipart"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
+url = "2"
+async-trait = "0.1"
+which = "7"
+domios-plugins = { path = "../domios-plugins" }
+domios-update = { path = "../domios-update" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+domios-service-core = { path = "../domios-service-core", default-features = false, features = ["test-support"] }

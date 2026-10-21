@@ -1,0 +1,14 @@
+[package]
+license = "AGPL-3.0-only"
+name = "domios-cron"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4"
+chrono-tz = "0.10"
+cron = "0.13"
+rand = "0.8"
+
+[lints]
+workspace = true

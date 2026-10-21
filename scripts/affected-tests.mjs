@@ -7,30 +7,30 @@ import { discoverTests, selectRelatedTests } from "./run-ts-unit-tests.mjs";
 
 const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scopeAliases = new Map([
-  ["codeterm", "app"],
-  ["codeterm-agent-detect", "agent-detect"],
-  ["codeterm-analytics", "analytics"],
-  ["codeterm-sentinel", "sentinel"],
-  ["codeterm-notification-core", "notification-core"],
-  ["codeterm-account", "account"],
-  ["codeterm-billing", "billing"],
-  ["codeterm-cli", "cli"],
-  ["codeterm-plan", "plan"],
-  ["codeterm-repowatch", "repowatch"],
-  ["codeterm-frontend-bundle", "frontend-bundle"],
-  ["codeterm-pty", "pty"],
-  ["codeterm-plugin", "plugin"],
-  ["codeterm-plugins", "plugins"],
-  ["codeterm-types", "types"],
-  ["codeterm-decision", "decision"],
-  ["codeterm-provider-signals", "provider-signals"],
-  ["codeterm-util", "util"],
-  ["codeterm-browser", "browser"],
-  ["codeterm-usage", "usage"],
-  ["codeterm-mem", "mem"],
-  ["codeterm-mesh", "mesh"],
-  ["codeterm-blueprint-types", "codeterm-blueprint-types"],
-  ["codeterm-local-recording", "codeterm-local-recording"],
+  ["domios", "app"],
+  ["domios-agent-detect", "agent-detect"],
+  ["domios-analytics", "analytics"],
+  ["domios-sentinel", "sentinel"],
+  ["domios-notification-core", "notification-core"],
+  ["domios-account", "account"],
+  ["domios-billing", "billing"],
+  ["domios-cli", "cli"],
+  ["domios-plan", "plan"],
+  ["domios-repowatch", "repowatch"],
+  ["domios-frontend-bundle", "frontend-bundle"],
+  ["domios-pty", "pty"],
+  ["domios-plugin", "plugin"],
+  ["domios-plugins", "plugins"],
+  ["domios-types", "types"],
+  ["domios-decision", "decision"],
+  ["domios-provider-signals", "provider-signals"],
+  ["domios-util", "util"],
+  ["domios-browser", "browser"],
+  ["domios-usage", "usage"],
+  ["domios-mem", "mem"],
+  ["domios-mesh", "mesh"],
+  ["domios-blueprint-types", "blueprint-types"],
+  ["domios-local-recording", "local-recording"],
 ]);
 
 function parseArgs(argv) {
@@ -127,7 +127,7 @@ function packageForPath(repoRoot, file, packages) {
 
 function packageScope(pkg, file) {
   if (file.startsWith("src-tauri/pty-fork/")) return "pty-fork";
-  if (pkg.name === "codeterm") return "shell";
+  if (pkg.name === "domios") return "shell";
   return scopeAliases.get(pkg.name) || pkg.name;
 }
 
@@ -290,7 +290,7 @@ function renderParallelCommands(repoRoot, files) {
   commands.push(...pluginCommands(repoRoot, files));
   if (files.some((file) => file.startsWith("essences/"))) {
     commands.push({
-      command: "codeterm essence-map validate --root .",
+      command: "domios essence-map validate --root .",
       reason: "essence sources changed",
     });
   }
@@ -374,22 +374,22 @@ function printSelection(options, files) {
   };
 
   for (const file of files.filter((candidate) => candidate.startsWith("src-tauri/prompts/"))) {
-    contract("codeterm-prompts", "test(/^prompts::tests::/)", `${file} changes the prompt contract suite`);
-    contract("codeterm-service-core", "test(/^prompts::/)", `${file} changes the onboarding prompt contract suite`);
+    contract("domios-prompts", "test(/^prompts::tests::/)", `${file} changes the prompt contract suite`);
+    contract("domios-service-core", "test(/^prompts::/)", `${file} changes the onboarding prompt contract suite`);
   }
   for (const file of files.filter((candidate) => candidate.startsWith("prod-docs/"))) {
     contract(
-      "codeterm-cli",
+      "domios-cli",
       "test(/registered_documents_have_one_title_and_fit_the_reading_boundary/)",
       `${file} changes the embedded production-doc boundary`,
     );
   }
 
   const providerChanged = files.some((file) =>
-    file.startsWith("plugins/provider-") || file.startsWith("src-tauri/crates/codeterm-plugin/"),
+    file.startsWith("plugins/provider-") || file.startsWith("src-tauri/crates/domios-plugin/"),
   );
   if (providerChanged) {
-    contract("codeterm-plugin", "test(/parity_test/)", "provider/plugin code changed; run native parity coverage");
+    contract("domios-plugin", "test(/parity_test/)", "provider/plugin code changed; run native parity coverage");
   }
 
   const rustCommands = renderRustCommands(groups);

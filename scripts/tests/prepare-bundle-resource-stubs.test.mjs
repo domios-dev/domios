@@ -6,7 +6,7 @@ import test from 'node:test';
 import { assertNoCompileBundleStubs, prepareCompileBundleStubs } from '../prepare-bundle-resource-stubs.mjs';
 
 function fixture(target, action) {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'codeterm-compile-stubs-'));
+  const root = mkdtempSync(path.join(os.tmpdir(), 'domios-compile-stubs-'));
   try { action(root, target); } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
@@ -36,7 +36,7 @@ test('a complete real stage stays unmarked and package eligible', () => {
   fixture('x86_64-unknown-linux-gnu', (root, target) => {
     const stage = path.join(root, 'target/domios-package');
     for (const relative of [
-      'server-component.json', 'cli/codeterm', 'dist/index.html', 'skills/readme.md',
+      'server-component.json', 'cli/domios', 'dist/index.html', 'skills/readme.md',
       'LICENSE', 'NOTICE', 'domios-server/domios-server',
     ]) {
       const file = path.join(stage, relative);

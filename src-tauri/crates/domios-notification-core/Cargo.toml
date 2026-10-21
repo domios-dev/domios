@@ -1,0 +1,20 @@
+[package]
+license = "AGPL-3.0-only"
+name = "domios-notification-core"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+domios-types = { path = "../domios-types" }
+domios-notify-types = { path = "../domios-notify-types" }
+domios-util = { path = "../domios-util" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+log = { version = "0.4", features = ["release_max_level_info"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

@@ -47,10 +47,10 @@ jobs:
 
       - name: cli manifest + doctor tests
         working-directory: cli
-        run: cargo test -p codeterm-cli cmd::manifest
+        run: cargo test -p domios-cli cmd::manifest
       - name: plugin clap contract test
         working-directory: cli
-        run: cargo test -p codeterm-cli plugin_subcommands_parse
+        run: cargo test -p domios-cli plugin_subcommands_parse
 
   chat-card-tests:
     runs-on: [self-hosted, linux-ci]

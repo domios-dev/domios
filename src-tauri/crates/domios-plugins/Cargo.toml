@@ -1,0 +1,27 @@
+[package]
+license = "AGPL-3.0-only"
+name = "domios-plugins"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+domios-util = { path = "../domios-util" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+semver = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+chrono = "0.4"
+dirs = "5"
+uuid = { version = "1", features = ["v4"] }
+flate2 = "1"
+tar = "0.4"
+
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+log = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

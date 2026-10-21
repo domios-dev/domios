@@ -67,7 +67,7 @@ for variable in \
   grep -Fq -- "-u $variable" build.sh
 done
 
-grep -Fq 'FRESH_CLI="$(ls src-tauri/bundled-cli/codeterm*.exe' build.sh
+grep -Fq 'FRESH_CLI="$(ls src-tauri/bundled-cli/domios*.exe' build.sh
 grep -Fq '"$FRESH_CLI" "${INSTALL_ARGS[@]}"' build.sh
 
 gateway_release_line="$(grep -n '^[[:space:]]*complete_build_gateway_before_handoff$' build.sh | tail -1 | cut -d: -f1)"

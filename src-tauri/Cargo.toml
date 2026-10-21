@@ -1,13 +1,12 @@
 [package]
 license = "AGPL-3.0-only"
-name = "codeterm"
+name = "domios"
 version = "1.15.0"
 edition = "2021"
-default-run = "codeterm"
+default-run = "domios"
 
 [workspace]
-members = ["crates/codeterm-process-identity", "crates/codeterm-paths", "crates/domios-server", "crates/codeterm-crash", "crates/codeterm-worker-services", "crates/codeterm-local-preview", "crates/codeterm-lanes", "crates/codeterm-api", ".", "crates/codeterm-input-macos", "crates/codeterm-input-windows", "crates/codeterm-account", "crates/codeterm-billing", "crates/codeterm-analytics", "crates/codeterm-frontend-bundle", "crates/codeterm-types", "crates/codeterm-wire", "crates/codeterm-sentinel", "crates/codeterm-decision", "crates/codeterm-provider-signals", "crates/codeterm-util", "crates/codeterm-browser", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage", "crates/codeterm-agent-detect", "crates/codeterm-notification-core", "crates/codeterm-repowatch", "crates/codeterm-usage", "crates/codeterm-blueprint-types", "crates/codeterm-local-recording", "crates/codeterm-notify-types", "crates/codeterm-events", "crates/codeterm-config", "crates/codeterm-secrets", "crates/codeterm-keepawake", "crates/codeterm-cron", "crates/codeterm-shutdown", "crates/codeterm-service-core", "crates/codeterm-surface", "crates/codeterm-notifications",
-    "crates/codeterm-provider-ops", "crates/codeterm-recall", "crates/codeterm-supporter", "crates/codeterm-socket", "crates/codeterm-commands", "crates/codeterm-sentinel-host", "crates/codeterm-orchestration", "crates/codeterm-build-info", "crates/codeterm-prompts", "crates/codeterm-agent-model", "crates/codeterm-entitlements", "crates/codeterm-update", "crates/codeterm-client-shell", "crates/codeterm-frontend-shell", "tools/codeterm-devtools"]
+members = ["crates/*", ".", "tools/domios-devtools"]
 exclude = ["pty-fork", "vendor/tauri-runtime-wry"]
 resolver = "2"
 
@@ -18,14 +17,14 @@ warnings = "deny"
 workspace = true
 
 [dependencies]
-codeterm-build-info = { path = "crates/codeterm-build-info" }
-codeterm-client-shell = { path = "crates/codeterm-client-shell" }
-codeterm-frontend-shell = { path = "crates/codeterm-frontend-shell" }
-codeterm-paths = { path = "crates/codeterm-paths" }
-codeterm-process-identity = { path = "crates/codeterm-process-identity" }
-codeterm-types = { path = "crates/codeterm-types" }
-codeterm-update = { path = "crates/codeterm-update" }
-codeterm-util = { path = "crates/codeterm-util" }
+domios-build-info = { path = "crates/domios-build-info" }
+domios-client-shell = { path = "crates/domios-client-shell" }
+domios-frontend-shell = { path = "crates/domios-frontend-shell" }
+domios-paths = { path = "crates/domios-paths" }
+domios-process-identity = { path = "crates/domios-process-identity" }
+domios-types = { path = "crates/domios-types" }
+domios-update = { path = "crates/domios-update" }
+domios-util = { path = "crates/domios-util" }
 tauri = { version = "2", features = ["tray-icon", "test", "webview-data-url"] }
 # tauri-build reads plugin ACL manifests only from direct dependencies.
 tauri-plugin-deep-link = "2"
@@ -50,7 +49,7 @@ url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-codeterm-crash = { path = "crates/codeterm-crash" }
+domios-crash = { path = "crates/domios-crash" }
 core-foundation = "0.10"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
@@ -59,10 +58,10 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponde
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [features]
-dev-updater-allowlocal = ["codeterm-client-shell/dev-updater-allowlocal"]
+dev-updater-allowlocal = ["domios-client-shell/dev-updater-allowlocal"]
 
 [dev-dependencies]
-codeterm-client-shell = { path = "crates/codeterm-client-shell", features = ["test-support"] }
+domios-client-shell = { path = "crates/domios-client-shell", features = ["test-support"] }
 tempfile = "3"
 
 [build-dependencies]
@@ -70,7 +69,7 @@ tauri-build = { version = "2", features = [] }
 sha2 = "0.10"
 
 [lib]
-name = "codeterm_lib"
+name = "domios_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 # Build-speed profiles (round-16 build audit). dev: unpacked split-debuginfo
