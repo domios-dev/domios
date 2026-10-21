@@ -183,6 +183,11 @@ fn edit_skill(
 ) -> Result<Option<Value>, String> {
     let (plan_id, plan_dir) = resolve_local(client, plan)?;
     let slug = store::slugify(&slug);
+    let mut authorization = plan_rpc_params(Some(plan_id.clone()))?;
+    apply_caller_identity(&mut authorization)?;
+    authorization["slug"] = json!(slug);
+    authorization["verdict"] = json!(verdict);
+    call(client, "plan.skills.authorize_edit", authorization)?;
     let skill_md = store::skill_md_path(&plan_dir, &slug);
     if !skill_md.is_file() {
         return Err(format!(

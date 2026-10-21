@@ -17,6 +17,60 @@ pub fn grant_matches(grant: &CuratorGrant, identity: &CuratorIdentity) -> bool {
 }
 
 impl ServiceContext {
+    pub(crate) fn curator_message(
+        &self,
+        sender: &str,
+        target: &str,
+        body: &str,
+    ) -> Result<Option<String>, String> {
+        if !self.is_curator_tab(sender) {
+            return Ok(None);
+        }
+        if body.len() > 2048 {
+            return Err("Curator questions exceed 2 KiB".into());
+        }
+        let tab = self
+            .mux
+            .read()
+            .get_tab(sender)
+            .cloned()
+            .ok_or("Curator tab absent")?;
+        let identity = self.curator_identity(&AuthenticatedPlanCaller {
+            tab_id: Some(sender.into()),
+            session_id: tab.agent_session_id,
+            binding_nonce: tab.session_binding_nonce,
+        })?;
+        let plan = self
+            .plan_store
+            .get(&identity.plan_id)
+            .ok_or("plan absent")?;
+        if plan.owner.tab_id.as_deref() != Some(target) {
+            return Err("Curator may message only its Orchestrator".into());
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        self.plan_store
+            .with_plan(&identity.plan_id, now, |plan| {
+                let run = plan
+                    .control_loop
+                    .running
+                    .as_mut()
+                    .ok_or_else(|| crate::service::plan::PlanError::Io("round ended".into()))?;
+                if run.asked {
+                    return Err(crate::service::plan::PlanError::Io(
+                        "Curator already used its one message".into(),
+                    ));
+                }
+                run.asked = true;
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
+        let prefix = self.curator_heartbeat_body(&plan);
+        Ok(Some(format!("{prefix}\n\n{body}")))
+    }
+
     pub fn is_curator_tab(&self, tab: &str) -> bool {
         self.mux
             .read()

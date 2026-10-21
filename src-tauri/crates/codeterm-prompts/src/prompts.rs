@@ -204,6 +204,8 @@ pub const NOTIFY_UNSEEN_CLAUSE: &str = "A send that reports `unseen` surfaces un
 /// Standalone Manager contract for project-specific normative essences.
 /// It carries its own bounded authority and canonical verification discipline.
 pub const CARTOGRAPHER_SUFFIX: &str = include_str!("../../../prompts/cartographer_suffix.md");
+pub const CURATOR_SUFFIX: &str = include_str!("../../../prompts/curator_suffix.md");
+pub const CURATOR_RUBRIC: &str = include_str!("../../../prompts/curator_rubric.md");
 
 pub const QA_ROLE_PROMPT: &str = include_str!("../../../prompts/qa.md");
 pub const RELEASE_MANAGER_ROLE_PROMPT: &str = include_str!("../../../prompts/release_manager.md");
