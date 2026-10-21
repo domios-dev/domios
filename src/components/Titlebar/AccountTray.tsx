@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useState } from "react";
 import { UserRound } from "lucide-react";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
 import { useAccount } from "../Settings/useAccount";
@@ -9,11 +9,11 @@ import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { UI_TRAY_BTN } from "../shared/design";
 import { communityMenu } from "../shared/CommunityLinks";
 import { accountTrayModel } from "./accountTrayModel";
-import { MultiplexerActionsContext } from "../../store/multiplexer/context";
+import { useMultiplexer } from "../../store/multiplexer/context";
 
 export function AccountTray() {
   const account = useAccount();
-  const actions = useContext(MultiplexerActionsContext);
+  const { upsertToast } = useMultiplexer();
   const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
   const model = accountTrayModel(account.model, billing.plan);
   const [open, setOpen] = useState(false);
@@ -21,12 +21,12 @@ export function AccountTray() {
   const startSignIn = async (hint: SignInOption["hint"]) => {
     const failure = await account.signIn(hint);
     if (!failure) return;
-    actions?.upsertToast(signInFailureToast(failure, () => startSignIn(hint)));
+    upsertToast(signInFailureToast(failure, () => startSignIn(hint)));
   };
   const manageSubscription = async () => {
     const failure = await billing.manage();
     if (!failure) return;
-    actions?.upsertToast(billingFailureToast(failure, "managing your subscription", billing.plan?.status,
+    upsertToast(billingFailureToast(failure, "managing your subscription", billing.plan?.status,
       () => manageSubscription()));
   };
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>

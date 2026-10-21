@@ -216,6 +216,7 @@
   "src/components/Settings/generalAgentSettingsModel.test.ts",
   "src/components/Settings/GeneralAgentCard.test.tsx",
   "src/components/Titlebar/AccountTray.test.tsx",
+  "src/components/Titlebar/Titlebar.messages.test.tsx",
   "src/components/Settings/AccountTab.toast.test.tsx",
   "src/components/Settings/useAccount.test.tsx",
   "src/components/shared/CommunityLinks.test.tsx",
