@@ -42,8 +42,9 @@ Sleeping tabs read their own persisted transcript without waking or starting a r
 
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| GET | `/api/tabs/{id}/delayed-messages` | — | List queued and failed delayed Chat UI messages for this tab |
-| POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs, createdByTab?, recurrence?: {everyMs, untilMs?, count?}}` | Queue a one-shot or recurring message for this tab. Recurrence starts at `scheduledAtMs`, repeats at an anchored interval of at least one minute, with at most one stop condition. Normal send is unaffected. |
+| GET | `/api/tabs/{id}/delayed-messages` | — | List queued, stashed and failed messages for this tab. Sending messages and system heartbeat projections are excluded. |
+| GET | `/api/tabs/{id}/system-heartbeats` | — | Read-only system heartbeat projections, including cadence, reason and delivery ticks. These are separate from delayed messages. |
+| POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs?, createdByTab?, recurrence?: {everyMs, untilMs?, count?}}` | Past times and times up to one second ahead deliver immediately without entering the queue; later times queue a message. Omit `scheduledAtMs` to stash. Recurrence starts at `scheduledAtMs`, repeats at an anchored interval of at least one minute, with at most one stop condition. After an immediate recurring delivery, only its future occurrence is queued. |
 | PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?, recurrence?: {everyMs, untilMs?, count?}}` | Edit a queued or failed delayed message, including its recurrence rule |
 | DELETE | `/api/delayed-messages/{id}` | — | Delete a queued or failed delayed message |
 | POST | `/api/delayed-messages/{id}/send-now` | — | Deliver a queued or failed delayed message immediately |
@@ -72,4 +73,4 @@ The enum is open for future element types. The frontend renders each as a clicka
 
 Backfill accepts `offset_kind` (`bytes` or `items`) alongside `before_offset`; preserve the snapshot's unit across runtime startup. Providers declaring native stored runtime history can serve recorded messages before their runtime starts; live updates reconcile by the same native item ids.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

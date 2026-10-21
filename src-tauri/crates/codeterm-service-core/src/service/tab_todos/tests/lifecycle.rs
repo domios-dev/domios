@@ -295,3 +295,56 @@ fn a_list_beyond_twelve_items_is_refused_with_split_guidance() {
     .unwrap_err();
     assert!(error.contains("propose a task split"));
 }
+
+#[test]
+fn review_warns_accept_closes_and_bounce_reopens_locked_criteria() {
+    let team = team();
+    let seeded = team.seed(&["Build", "Test"]);
+    let warning = block_on(team.fixture.service.tab_todo_report_warning(&team.worker))
+        .unwrap()
+        .unwrap();
+    assert!(warning.starts_with("WARNING:"));
+    for item in &seeded.items {
+        assert!(warning.contains(&item.id) && warning.contains(&item.title));
+    }
+    block_on(team.fixture.service.tab_todo_apply_review(
+        &team.worker,
+        Some(&team.orchestrator),
+        true,
+    ))
+    .unwrap();
+    let closed = block_on(
+        team.fixture
+            .service
+            .tab_todo_list(&team.worker, Some(&team.worker)),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(closed
+        .items
+        .iter()
+        .all(|item| item.state == TabTodoState::Done
+            && item.reason.as_deref() == Some("accepted by review")));
+    assert!(
+        block_on(team.fixture.service.tab_todo_report_warning(&team.worker))
+            .unwrap()
+            .is_none()
+    );
+    block_on(team.fixture.service.tab_todo_apply_review(
+        &team.worker,
+        Some(&team.orchestrator),
+        false,
+    ))
+    .unwrap();
+    let reopened = block_on(
+        team.fixture
+            .service
+            .tab_todo_list(&team.worker, Some(&team.worker)),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(reopened
+        .items
+        .iter()
+        .all(|item| item.state == TabTodoState::Open));
+}

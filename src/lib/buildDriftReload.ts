@@ -44,6 +44,14 @@ function knownBuild(build: string | null | undefined): build is string {
   return typeof build === "string" && build !== "" && build !== "dev" && build !== "unknown";
 }
 
+const MIN_BUILD_PREFIX = 7;
+
+/** The bundle and the daemon abbreviate the same commit hash to different lengths. */
+export function sameBuild(a: string, b: string): boolean {
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short === long || (short.length >= MIN_BUILD_PREFIX && long.startsWith(short));
+}
+
 export function decideBuildDrift(input: DriftInput): DriftDecision {
   const { daemon } = input;
   if (daemon.kind === "health" && !daemon.apiCompatible) return { action: "banner", reason: "api" };
@@ -52,11 +60,11 @@ export function decideBuildDrift(input: DriftInput): DriftDecision {
   const record = input.record?.origin === input.origin ? input.record : null;
   if (daemon.kind === "unreachable") {
     if (!record) return NONE;
-    return record.build === input.loadedBuild ? { action: "clear" } : { action: "banner", reason: "build-unreachable" };
+    return sameBuild(record.build, input.loadedBuild) ? { action: "clear" } : { action: "banner", reason: "build-unreachable" };
   }
   if (!knownBuild(daemon.build)) return NONE;
-  if (daemon.build === input.loadedBuild) return { action: "clear" };
-  if (record?.build === daemon.build) return { action: "banner", reason: "build" };
+  if (sameBuild(daemon.build, input.loadedBuild)) return { action: "clear" };
+  if (record && sameBuild(record.build, daemon.build)) return { action: "banner", reason: "build" };
   if (!input.visible) return { action: "defer" };
   return { action: "reload", record: { origin: input.origin, build: daemon.build, at: input.now } };
 }

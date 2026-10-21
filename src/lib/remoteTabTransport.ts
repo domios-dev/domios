@@ -138,9 +138,10 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "chat_send_status": return call("GET", "/chat-send");
     case "shell_command_snapshot": return call("GET", "/shell-commands");
     case "delayed_send_list": return call("GET", "/delayed-messages");
+    case "system_heartbeat_list": return call("GET", "/system-heartbeats");
     case "delayed_send_create": return call("POST", "/delayed-messages", {
       text: args.text,
-      scheduled_at_ms: args.scheduledAtMs,
+      scheduledAtMs: args.scheduledAtMs,
     });
     case "mux_respond_prompt": return call("POST", "/prompt/respond", args, (value) =>
       isPromptNotOnScreenResponse(value) ? undefined : value,

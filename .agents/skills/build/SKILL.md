@@ -535,7 +535,7 @@ calls; a successful build alone is not cache-hit proof.
 | Gateway policy fixture expects `CARGO_TEST_BUILD_CMD="cargo nextest run"` | The guard predates nextest inventory compilation and metadata reuse | Check `cargo nextest list` and the reuse execution command separately; rerun `bash scripts/check-build-gateway-policy.sh`. |
 | Same SHA has few cross-machine Rust hits | Physical checkout, registry, toolchain, target or build environment differs | Compare the path contract and `rustc -vV`; do not enable BASEDIRS to conceal Rust path differences. |
 
-The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions run through `./build.sh script-guards` in the script-catalog CI workflow. This also runs `scripts/check-crate-layering.sh` and its fixture tests: lower crates cannot import service-core or Tauri, and the process layers in `scripts/crate-layers.json` hold: the native client (`codeterm`, `codeterm-client-shell`) links only client and shared crates, shared crates never reach a server crate, and nothing else depends on the client. Release-preflight and the file-sizes CI workflow run the same guard. Add a crate the window needs to `shared` only when its own normal dependencies are shared; otherwise move the needed item into a shared crate. Developer harnesses (`mem-bench`, `parser-eval`, `storage-verify`, `convert-plan-storage`, `mem_ab_bench`), the `render_timeline` example and cross-domain integration tests live in `src-tauri/tools/codeterm-devtools`; build a harness with `cargo run -p codeterm-devtools --features dev-tools --bin <name>`.
+The gateway mutex, four-client queue, metadata/readers, cache-start, owner-reap and failed-Cargo regressions, the four `check-build-gateway-*.sh` guards (serialization, policy with the release-signing and source-clean checks, mutex cleanup, owner reap) run through `./build.sh script-guards`, which `./build.sh release-preflight` runs; no PR workflow runs them. This also runs `scripts/check-crate-layering.sh` and its fixture tests: lower crates cannot import service-core or Tauri, and the process layers in `scripts/crate-layers.json` hold: the native client (`codeterm`, `codeterm-client-shell`) links only client and shared crates, shared crates never reach a server crate, and nothing else depends on the client. Release-preflight and the file-sizes CI workflow run the same guard. Add a crate the window needs to `shared` only when its own normal dependencies are shared; otherwise move the needed item into a shared crate. Developer harnesses (`mem-bench`, `parser-eval`, `storage-verify`, `convert-plan-storage`, `mem_ab_bench`), the `render_timeline` example and cross-domain integration tests live in `src-tauri/tools/codeterm-devtools`; build a harness with `cargo run -p codeterm-devtools --features dev-tools --bin <name>`.
 
 ## Canonical integration check queue
 
@@ -1248,7 +1248,10 @@ with the same names. Empty or missing secrets do not fail compilation.
 
 `install-local` resolves all four Firebase account entries together, preferring
 the CodeTerm secret store and falling back to a complete existing build
-environment. It scopes them to the packaged app build. Complete values print
+environment. The optional billing functions URL independently prefers the secret store, then
+the existing environment. It scopes all five values to the packaged app build;
+a missing billing URL never fails the build. Billing logs only present or absent,
+without printing the URL. Complete account values print
 `Firebase config: cloud-auth enabled`; missing or partial values print
 `Firebase config: local-only`. That line reports compiled config availability,
 not whether a Firebase provider is enabled. Separately confirm Google and
@@ -1260,6 +1263,7 @@ codeterm mem secret save --name DOMIOS_FIREBASE_API_KEY
 codeterm mem secret save --name DOMIOS_FIREBASE_PROJECT_ID
 codeterm mem secret save --name DOMIOS_FIREBASE_APP_ID
 codeterm mem secret save --name DOMIOS_ACCOUNT_REDEEM_URL
+codeterm mem secret save --name DOMIOS_BILLING_FUNCTIONS_URL
 ```
 
 Run each command and provide that value through stdin; omit `--value` so it

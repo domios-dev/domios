@@ -41,3 +41,20 @@ test.each(["uploading", "failed"] as const)("%s capsule exposes removal and retr
     host.remove();
   }
 });
+
+test("a touch opens the capsule preview, touch leave keeps it open and X closes it", async () => {
+  const host = document.createElement("div");document.body.append(host);const root = createRoot(host);
+  const textareaRef = createRef<HTMLTextAreaElement>();
+  try {
+    await act(async () => root.render(<ComposerCapsuleField tabId="opaque" value={capsuleToken("image1")} active registry={{ image1: { label: "image1", kind: "image", path: "" } }} textareaRef={textareaRef} marginPx={0} onRemove={() => {}}><textarea ref={textareaRef} aria-label="Message" /></ComposerCapsuleField>));
+    const capsule = host.querySelector<HTMLElement>("[data-capsule-start]")!;
+    capsule.getClientRects = () => [{ left: 350, right: 385, top: 50, bottom: 70 }] as unknown as DOMRectList;
+    await act(async () => textareaRef.current!.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "touch", clientX: 360, clientY: 60 })));
+    const close = document.querySelector<HTMLButtonElement>('[aria-label="Close attachment preview"]');
+    expect(close).not.toBeNull();
+    await act(async () => textareaRef.current!.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "touch" })));
+    expect(document.querySelector('[aria-label="Close attachment preview"]')).not.toBeNull();
+    await act(async () => close!.click());
+    expect(document.querySelector('[aria-label="Close attachment preview"]')).toBeNull();
+  } finally { await act(async () => root.unmount());host.remove(); }
+});
