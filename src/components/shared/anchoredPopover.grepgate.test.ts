@@ -18,6 +18,7 @@ const ALLOWED: Record<string, { count: number; reason: string }> = {
   "src/components/Terminal/composerContext.css": { count: 1, reason: "context pill riding on the composer" },
   "src/components/Terminal/tabTopBar.css": { count: 1, reason: "scroll shadow under a header" },
   "src/components/Usage/styles.css": { count: 1, reason: "tip arrow drawn on the tip's own edge" },
+  "src/styles/agent-state.css": { count: 1, reason: "phone Stop button riding above the composer bar" },
 };
 
 const TAILWIND = /\babsolute\b.*\b(?:top|bottom)-full\b|\b(?:top|bottom)-full\b.*\babsolute\b/;

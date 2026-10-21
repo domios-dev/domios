@@ -13,7 +13,7 @@ async function main() {
   await act(async () => opener.click());
   const dialog = document.querySelector('[role="dialog"][aria-label="Image photo.png"]')!;
   assert.equal(dialog.parentElement, document.body);
-  assert(dialog.querySelector('[aria-label="Close fullscreen viewer"]'));
+  assert(dialog.querySelector('[aria-label="Close image"]'));
   assert.equal(host.contains(dialog), false);
   await act(async () => window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", code: "Escape", cancelable: true })));
   assert.equal(document.querySelector('[role="dialog"]'), null);

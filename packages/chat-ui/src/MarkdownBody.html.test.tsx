@@ -464,12 +464,12 @@ test("html fullscreen survives a markdown parent rerender", async () => {
   await act(async () => {
     openButton.dispatchEvent(new testWindow.MouseEvent("click", { bubbles: true }));
   });
-  assert(testWindow.document.querySelector("button[aria-label='Close fullscreen viewer']"), "fullscreen opened");
+  assert(testWindow.document.querySelector("[role='dialog'][aria-label='Fullscreen HTML page']"), "fullscreen opened");
 
   await act(async () => {
     root.render(<RichMarkdown text={text} fontScale={1.25} />);
   });
-  assert(testWindow.document.querySelector("button[aria-label='Close fullscreen viewer']"), "fullscreen survives a parent rerender");
+  assert(testWindow.document.querySelector("[role='dialog'][aria-label='Fullscreen HTML page']"), "fullscreen survives a parent rerender");
 });
 
 test("preview document CSP blocks network egress", () => {
