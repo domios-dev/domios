@@ -141,7 +141,8 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   color: var(--ct-fg);
 }
 
-.ct-ctx-kind__alert {
+.ct-ctx-kind__alert,
+.ct-usage-credit-alert {
   position: absolute;
   top: -2px;
   right: -2px;

@@ -21,6 +21,7 @@ mod sessions;
 mod signals;
 mod switch_confirmation;
 mod usage_sources;
+mod usage_limits;
 
 fn pair() -> (ClaudeProvider, JsProvider) {
     (ClaudeProvider::new(), load_js("claude"))
