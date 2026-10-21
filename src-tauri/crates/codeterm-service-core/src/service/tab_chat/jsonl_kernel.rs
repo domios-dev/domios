@@ -7,39 +7,28 @@ pub fn delta(
     from: u64,
     budget: u64,
 ) -> Option<SessionDelta> {
+    try_delta(provider, path, from, budget).ok().flatten()
+}
+
+pub fn try_delta(
+    provider: &dyn AgentProvider,
+    path: &Path,
+    from: u64,
+    budget: u64,
+) -> Result<Option<SessionDelta>, String> {
     if budget == 0 {
-        return None;
+        return Ok(None);
     }
     let Some(source) = provider.record_source("sessionTranscript") else {
-        let started = std::time::Instant::now();
-        let result = provider.parse_session_delta_bounded(path, from, budget);
-        log::debug!(
-            "[chat.jsonl] mode=provider combined_us={} found={}",
-            started.elapsed().as_micros(),
-            result.is_some()
-        );
-        return result;
+        return provider
+            .parse_session_delta_bounded(path, from, budget)
+            .map(Some)
+            .ok_or_else(|| "Could not read session transcript".to_owned());
     };
-    let started = std::time::Instant::now();
     let window =
         codeterm_plugin::jsonl_window::records::read_records(path, from, budget, source, None)
-            .ok()?;
-    let read_us = started.elapsed().as_micros();
-    let parse_started = std::time::Instant::now();
-    let result = provider
-        .parse_session_records(&window)
-        .map_err(|reason| {
-            log::warn!("[jsonl-kernel] session record projection failed: {reason}");
-        })
-        .ok();
-    log::debug!(
-        "[chat.jsonl] mode=records read_records_us={} projection_us={} total_us={} found={}",
-        read_us,
-        parse_started.elapsed().as_micros(),
-        started.elapsed().as_micros(),
-        result.is_some()
-    );
-    result
+            .map_err(|error| error.to_string())?;
+    provider.parse_session_records(&window).map(Some)
 }
 
 pub fn stored_window(

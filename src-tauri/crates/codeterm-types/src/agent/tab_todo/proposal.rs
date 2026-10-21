@@ -12,6 +12,16 @@ pub enum TabTodoProposalState {
     Amended,
 }
 
+impl TabTodoProposalState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Proposed => "shared",
+            Self::Approved => "approved",
+            Self::Amended => "amended",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabTodoProposal {
     pub state: TabTodoProposalState,
