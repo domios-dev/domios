@@ -373,18 +373,40 @@ fn guardrail_group_includes_the_orchestrator() {
 }
 
 #[test]
-fn runtime_task_is_separate_and_preamble_is_preserved() {
+fn runtime_task_without_instructions_keeps_preamble() {
     let mut agent = crate::service::spawn::AgentSpawnSpec {
         task: Some("opaque-task".into()),
         task_preamble: Some("opaque-prefix".into()),
         ..Default::default()
     };
     assert_eq!(
-        super::runtime_initial_payload(&agent).as_deref(),
-        Some("opaque-prefixopaque-task")
+        super::runtime_initial_payload(&agent, None),
+        Some(super::RuntimeFirstTurn::Task(
+            "opaque-prefixopaque-task".into()
+        ))
     );
     agent.task = Some("  ".into());
-    assert!(super::runtime_initial_payload(&agent).is_none());
+    assert!(super::runtime_initial_payload(&agent, None).is_none());
+}
+
+#[test]
+fn runtime_brief_rides_instructions_when_manifest_declares_system_prompt() {
+    let agent = crate::service::spawn::AgentSpawnSpec {
+        task: Some("opaque-brief".into()),
+        ..Default::default()
+    };
+    let provider =
+        crate::agent::test_provider::MockProvider::with_system_prompt_flag("opaque", "--opaque");
+    let Some(super::RuntimeFirstTurn::Starter(turn)) =
+        super::runtime_initial_payload(&agent, Some(&provider))
+    else {
+        panic!("system-prompt provider must receive the starter only");
+    };
+    assert!(!turn.contains("opaque-brief"));
+    let prefix = crate::agent::provider::StarterPrompt::AssignedTask
+        .system_prefix()
+        .expect("assigned-task starter is system-framed");
+    assert!(turn.starts_with(prefix));
 }
 
 #[test]
