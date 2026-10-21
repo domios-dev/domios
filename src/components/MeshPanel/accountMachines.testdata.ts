@@ -78,7 +78,7 @@ export class FakeAccountMeshClient implements AccountMeshClient {
   revokeCalls: MeshTarget[] = [];
   renameCalls: Array<[number, string]> = [];
   unpairCalls: string[] = [];
-  linkOutcome = deferred<AccountMeshOutcome>();
+  linkOutcome = deferred<void>();
   revokeOutcomes: AccountMeshOutcome[] = [];
   renameOutcomes: AccountMeshOutcome[] = [];
   unpairFailure: Error | null = null;
@@ -103,7 +103,7 @@ export class FakeAccountMeshClient implements AccountMeshClient {
     for (const listener of this.listeners) listener();
   }
 
-  link(target: MeshTarget): Promise<AccountMeshOutcome> {
+  link(target: MeshTarget): Promise<void> {
     this.linkCalls.push(target);
     return this.linkOutcome.promise;
   }
