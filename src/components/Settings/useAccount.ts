@@ -4,6 +4,9 @@ import { localFetch } from "../../lib/webApi";
 import { accountFailure, accountModel, accountLoginPath, type LoginHint, type AccountModel, type AccountStatus, type SignInFailure } from "./accountModel";
 
 export function signInFailureToastMessage(failure: SignInFailure): string {
+  if (failure.error === "transport") {
+    return "Sign-in could not be completed: Domios could not connect to complete sign-in. Check your connection and try again.";
+  }
   const stageMessage: Record<SignInFailure["stage"], string> = {
     preparation: "sign-in setup failed",
     browser: "opening the sign-in page failed",
@@ -69,6 +72,8 @@ export function useAccount() {
             changed = true;
           }
         } catch { failure = accountFailure(error); }
+        signInFailure ??= { stage: "preparation", error: "transport" };
+        failure = { kind: "error", message: signInFailureToastMessage(signInFailure), failure: signInFailure };
       }
       if (generation === active.current) setModel(failure);
     } finally {

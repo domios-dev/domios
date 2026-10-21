@@ -1,5 +1,7 @@
 import { useTeamClose } from "./useTeamClose";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
+import { precheckFreeLimit } from "../billing/freeLimitGate";
+import { isFreeLimitRefusal } from "../billing/freeLimitModel";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { nativeFolderDialog as open } from "../../lib/nativeBridge";
@@ -180,8 +182,9 @@ export const Sidebar = memo(function Sidebar({
     workspaceCwd: string | null,
   ) => {
     if (state.workspaces.find((workspace) => workspace.id === workspaceId)?.cwd_missing) return;
+    if (precheckFreeLimit(["agent.tabs"])) return;
     const reportFailure = (error: unknown) => {
-      if (isWorkspaceCwdRefusal(error)) return;
+      if (isWorkspaceCwdRefusal(error) || isFreeLimitRefusal(error)) return;
       upsertToast({
         id: `spawn:${workspaceId}`, tab_id: null, workspace_id: workspaceId,
         title: "Session start failed", body: spawnErrorMessage(error), severity: "Error", level: "failure", sticky: true,
@@ -227,6 +230,7 @@ export const Sidebar = memo(function Sidebar({
     createOrchestrationPair({ ...result, workspaceId }).then((created) => {
       void selectTabByTab(workspaceId, created.orchestrator_tab_id);
     }).catch((e) => {
+      if (isFreeLimitRefusal(e)) return;
       addNotification({
         tab_id: null,
         workspace_id: workspaceId,
@@ -325,6 +329,7 @@ export const Sidebar = memo(function Sidebar({
   }, [expandedWorkspaces, state.workspaces]);
 
   const handleNewWorkspace = useCallback(async () => {
+    if (precheckFreeLimit(["workspaces"])) return;
     let folder: string | null;
     if (IS_WEB) {
       setFolderPicker({

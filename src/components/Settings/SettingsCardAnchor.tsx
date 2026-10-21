@@ -5,19 +5,22 @@ import type { SettingsCardAnchorId } from "./sections";
 export function SettingsCardAnchor({
   id,
   focused,
+  focusRequest = 0,
   children,
 }: {
   id: SettingsCardAnchorId;
   focused: boolean;
+  /** Bump to land on the card again while it is already shown. */
+  focusRequest?: number;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!focused) return;
+    if (!focused && !focusRequest) return;
     ref.current?.scrollIntoView?.({ block: "start" });
     ref.current?.focus({ preventScroll: true });
-  }, [focused]);
+  }, [focused, focusRequest]);
 
   return (
     <div

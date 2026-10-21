@@ -391,11 +391,12 @@ impl ServiceContext {
         );
         let tab_created_by_spawn = agent.existing_tab_id.is_none();
 
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
             let result = match agent.existing_tab_id.as_deref() {
                 Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
-                None => create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?,
+                None => create_cleared_agent_tab(&mut mux, &ws_id, &clearance, &gate)?,
             };
             if let Some(ref dir) = resolved_cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {
@@ -838,9 +839,10 @@ impl ServiceContext {
             .or(ws_cwd)
             .map(|cwd| ServiceContext::normalize_resolved_agent_cwd(&cwd));
 
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
-            let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?;
+            let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance, &gate)?;
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.hidden = true;
                 tab.show_in_tabbar = false;

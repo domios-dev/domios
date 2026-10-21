@@ -97,8 +97,8 @@ pub fn paid() -> Value {
         "schema_version": 1, "iss": "domios-entitlements",
         "aud": {"project": PROJECT, "env": "test"},
         "sub": UID, "inst": INST, "revision": 10, "policy_version": 1, "policy_epoch": EPOCH,
-        "issued_at": T, "not_before": T, "refresh_after": T + 86_400,
-        "expires_at": T + 604_800, "grace_until": T + 1_209_600,
+        "issued_at": T, "not_before": T, "refresh_after": T + 1_800,
+        "expires_at": T + 3_600, "grace_until": T + 3_600,
         "authority": "billing", "label": "pro",
         "enforcement": {"enabled": false, "rollback": false},
         "limits": {
@@ -116,8 +116,7 @@ pub fn admin() -> Value {
     patch(
         &mut value,
         json!({
-            "authority": "admin", "label": "admin", "period_end": null,
-            "expires_at": T + 86_400, "grace_until": T + 259_200, "revision": 1
+            "authority": "admin", "label": "admin", "period_end": null, "revision": 1
         }),
     );
     value
@@ -129,7 +128,6 @@ pub fn free() -> Value {
         &mut value,
         json!({
             "authority": "free", "label": "free", "period_end": null, "revision": 11,
-            "expires_at": T + 604_800, "grace_until": T + 1_814_400,
             "perks": {"sponsor": false, "priority_support": false},
             "limits": {
                 "mesh.machines": {"max": 2, "scope": "account"},

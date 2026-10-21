@@ -2053,6 +2053,7 @@ dependencies = [
  "codeterm-crash",
  "codeterm-cron",
  "codeterm-decision",
+ "codeterm-entitlements",
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-frontend-shell",

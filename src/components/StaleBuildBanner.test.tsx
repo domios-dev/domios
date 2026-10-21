@@ -1,7 +1,10 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { BuildMismatch } from "../lib/buildMismatchGuard";
+import type { Notification } from "../lib/types";
+import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../store/multiplexer/context";
+import { NotificationToastContainer } from "./Notifications/NotificationToast";
 import { StaleBuildBanner } from "./StaleBuildBanner";
 
 const fakes = vi.hoisted(() => ({
@@ -21,6 +24,20 @@ const mismatch = (reason: BuildMismatch["reason"]): BuildMismatch => ({
   reason, apiVersion: 3, minApiVersion: 3, maxApiVersion: 3,
 });
 
+function Harness() {
+  const [toasts, setToasts] = useState<Notification[]>([]);
+  const actions = {
+    upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => setToasts((current) => [
+      ...current.filter((item) => item.id !== toast.id), { ...toast, timestamp: 1, read: false },
+    ]),
+    dismissToast: (id: string) => setToasts((current) => current.filter((toast) => toast.id !== id)),
+  } as unknown as MultiplexerActionsContextType;
+  return <MultiplexerActionsContext.Provider value={actions}>
+    <StaleBuildBanner />
+    <NotificationToastContainer toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
+  </MultiplexerActionsContext.Provider>;
+}
+
 let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
@@ -35,38 +52,41 @@ afterEach(() => {
   host.remove();
 });
 
-test.each(["build", "build-unreachable"] as const)("renders the %s reason with the reload action", async reason => {
-  act(() => root.render(<StaleBuildBanner />));
-  expect(host.querySelector("[data-testid=stale-build-banner]")).toBeNull();
-  act(() => fakes.listener?.(mismatch(reason)));
-  expect(host.querySelector("[data-testid=stale-build-banner]")).not.toBeNull();
-  const reload = host.querySelector<HTMLButtonElement>('button[aria-label="Reload interface"]');
-  expect(reload).not.toBeNull();
-  await act(async () => reload?.click());
+test.each(["build", "build-unreachable"] as const)("shows the %s mismatch as a toast with a reload action", async (reason) => {
+  await act(async () => root.render(<Harness />));
+  await act(async () => fakes.listener?.(mismatch(reason)));
+  expect(host.querySelector('[data-testid="notification-toast"]')?.getAttribute("role")).toBe("status");
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  const reloadAction = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Reload interface");
+  expect(reloadAction).toBeDefined();
+  await act(async () => reloadAction!.click());
   expect(fakes.reload).toHaveBeenLastCalledWith("new");
-  act(() => root.unmount());
+  await act(async () => root.unmount());
   expect(fakes.uninstall).toHaveBeenCalled();
   root = createRoot(host);
 });
 
-test("details and dismissal are explicit actions", () => {
-  act(() => root.render(<StaleBuildBanner />));
-  act(() => fakes.listener?.(mismatch("build")));
-  expect(host.querySelector('[aria-label="Interface build details"]')).toBeNull();
-  act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Interface update details"]')?.click());
-  expect(host.querySelector('[aria-label="Interface build details"]')).not.toBeNull();
-  act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Dismiss interface update"]')?.click());
-  expect(host.querySelector('[aria-label="Interface update"]')).toBeNull();
+test("dismissal stays cleared across a rerender", async () => {
+  await act(async () => root.render(<Harness />));
+  await act(async () => fakes.listener?.(mismatch("build")));
+  expect(Array.from(host.querySelectorAll("button")).some((button) => button.textContent === "Copy details")).toBe(true);
+  await act(async () => fakes.listener?.(null));
+  expect(host.querySelector('[data-testid="notification-toast"]')).toBeNull();
+  await act(async () => fakes.listener?.(mismatch("build")));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')!.click());
+  await act(async () => root.render(<Harness />));
+  expect(host.querySelector('[data-testid="notification-toast"]')).toBeNull();
 });
 
-test("a failed worker update remains retryable", async () => {
+test("a failed interface reload is retryable from a toast", async () => {
   fakes.reload.mockRejectedValueOnce(new Error("offline"));
-  act(() => root.render(<StaleBuildBanner />));
-  act(() => fakes.listener?.(mismatch("build")));
-  const button = host.querySelector<HTMLButtonElement>('button[aria-label="Reload interface"]')!;
-  await act(async () => button.click());
-  expect(host.querySelector('[role="alert"]')).not.toBeNull();
-  expect(button.disabled).toBe(false);
-  await act(async () => button.click());
+  await act(async () => root.render(<Harness />));
+  await act(async () => fakes.listener?.(mismatch("build")));
+  const reload = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Reload interface")!;
+  await act(async () => reload.click());
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  const retry = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Retry");
+  expect(retry).toBeDefined();
+  await act(async () => retry!.click());
   expect(fakes.reload).toHaveBeenCalledTimes(2);
 });

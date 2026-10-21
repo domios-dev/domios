@@ -11,7 +11,7 @@ import { ExtensionsTray } from "./ExtensionsTray";
 import { AnalyticsTray } from "./AnalyticsTray";
 import { AccountTray } from "./AccountTray";
 import { SettingsMenu } from "./SettingsMenu";
-import type { SectionId } from "../Settings/sections";
+import type { SettingsLinkId } from "../Settings/sections";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import type { Notification } from "../../lib/types";
 import { NotificationBell } from "../Notifications/NotificationBell";
@@ -30,7 +30,7 @@ interface TitlebarProps {
   analyticsOpen?: boolean;
   onToggleAnalytics?: () => void;
   analyticsButtonRef?: Ref<HTMLButtonElement>;
-  onOpenSettings?: (section?: SectionId) => void;
+  onOpenSettings?: (section?: SettingsLinkId) => void;
   notifications?: Notification[];
   notificationsLoaded?: boolean;
   /** The master bell switch. False removes the indicator; nothing about what is
@@ -120,9 +120,7 @@ export function Titlebar({
         {buildLabel && <DevBuildDot label={buildLabel} version={__APP_VERSION__} />}
       </div>
 
-      <div className="min-w-0 flex-1 self-stretch" data-tauri-drag-region />
-
-      <div className="flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
         <div className="relative flex items-center">
           {onDismissToast && <NotificationToastContainer toasts={toasts} onDismiss={onDismissToast} onMarkRead={onMarkNotificationRead} onNavigate={onNavigateToast} />}
           {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
@@ -146,7 +144,7 @@ export function Titlebar({
         {onOpenSettings && (
           <>
             <span className={UI_TRAY_DIVIDER} aria-hidden />
-            <SettingsMenu onOpenSection={onOpenSettings} afterGear={<AccountTray />} />
+            <SettingsMenu onOpenSection={onOpenSettings} afterGear={<AccountTray onOpenPlans={() => onOpenSettings("plans")} />} />
           </>
         )}
       </div>
