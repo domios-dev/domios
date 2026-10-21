@@ -3266,7 +3266,6 @@ EOF
     sg_run node scripts/rename-guard.mjs --scope all --report
     sg_run bash scripts/check-crate-layering.sh
     sg_run node --test scripts/tests/crate-layering.test.mjs
-    sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
     sg_run node --test scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
     sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
@@ -3289,6 +3288,7 @@ EOF
       sg_run bash scripts/check-build-dev-port-overrides.sh
       sg_run bash scripts/check-cache-provenance.sh
       sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-cargo
+      sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
     fi
     exit "$sg_failed"
     ;;

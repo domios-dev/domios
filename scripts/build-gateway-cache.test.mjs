@@ -176,7 +176,7 @@ test('cache reset metadata failure stops server restart before compile', { timeo
 test('mixed build verbs share one cache startup and persist four completed history rows', { timeout: 60000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-mixed-verbs-'));
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
-  const dispatch = '\ncase "$CMD" in\n  lane-wrapper-check|';
+  const dispatch = '\ncase "$CMD" in\n  process-probe|lane-wrapper-check|';
   assert.equal(source.split('ct_configure_sccache\n').length - 1, 1);
   assert.ok(source.includes(dispatch));
   const fixture = `
