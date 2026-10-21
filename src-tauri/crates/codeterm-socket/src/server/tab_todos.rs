@@ -17,6 +17,36 @@ pub(super) fn dispatch(
     let actor = opt_string_param(params, "caller_tab_id");
     let result =
         match method {
+            "tab.todo.submit" => {
+                let actor = actor
+                    .as_deref()
+                    .ok_or_else(|| invalid("caller_tab_id is required"))?;
+                let checklist = codeterm_service_core::async_runtime::block_on(
+                    svc.tab_todo_submit(&target, actor),
+                )
+                .map_err(service_error)?;
+                serde_json::to_value(checklist)
+            }
+            "tab.todo.approve" | "tab.todo.review_amend" => {
+                let actor = actor
+                    .as_deref()
+                    .ok_or_else(|| invalid("caller_tab_id is required"))?;
+                let entries = if method == "tab.todo.review_amend" {
+                    Some(write_entries(params)?)
+                } else {
+                    None
+                };
+                let checklist =
+                    codeterm_service_core::async_runtime::block_on(svc.tab_todo_review_proposal(
+                        &target,
+                        Some(actor),
+                        entries,
+                        opt_string_param(params, "note"),
+                        None,
+                    ))
+                    .map_err(service_error)?;
+                serde_json::to_value(checklist)
+            }
             "tab.todo.create" => {
                 let actor_id = actor.as_deref().ok_or_else(|| {
                     invalid("caller_tab_id is required for checklist dispatch seeding")
