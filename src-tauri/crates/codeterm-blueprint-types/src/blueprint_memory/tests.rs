@@ -2,7 +2,7 @@ use super::*;
 use crate::blueprint_document::Input;
 
 fn graph(repo: &str, id: u64) -> Document {
-    Document::from_definition(&json!({"spec":{"name":"CI run 12345 owner/service","note":"Concrete instance","owner":"team","trigger":{"type":"schedule","every":"1m"},"steps":[{"name":"Check instance","input":"text","kind":{"kind":"github","probe":{"resource":"run","repo":repo,"id":id}},"on":{"done":"stop","failing":"stop","failed":"stop"}}],"result":{"to":"notify"}}})).unwrap()
+    Document::from_definition(&json!({"spec":{"name":"CI watcher","note":"Concrete instance","owner":"team","trigger":{"type":"schedule","every":"1m"},"steps":[{"name":"Check instance","input":"text","kind":{"kind":"github","probe":{"resource":"run","repo":repo,"id":id}},"on":{"done":"stop","failing":"stop","failed":"stop"}}],"result":{"to":"notify"}}})).unwrap()
 }
 fn entry(id: &str, uses: u64) -> Entry {
     Entry {
@@ -123,14 +123,11 @@ fn generalisation_removes_instances_and_keeps_described_typed_required_inputs() 
     let yaml = doc.yaml().unwrap();
     assert!(!yaml.contains("owner/service"));
     assert!(!yaml.contains("12345"));
-    assert_eq!(doc.inputs["pipeline_steps_0_with_repo"].default, None);
-    assert_eq!(doc.inputs["pipeline_steps_0_with_id"].kind, "integer");
+    assert_eq!(doc.inputs["repo"].default, None);
+    assert_eq!(doc.inputs["id"].kind, "integer");
     assert!(doc.inputs.values().all(|input| input.description.is_some()));
     let bound = doc
-        .bind(&[
-            "pipeline_steps_0_with_repo=another/service".into(),
-            "pipeline_steps_0_with_id=999".into(),
-        ])
+        .bind(&["repo=another/service".into(), "id=999".into()])
         .unwrap();
     assert_eq!(bound["spec"]["steps"][0]["kind"]["probe"]["id"], 999);
     assert!(crate::blueprint_document::definition_errors(&bound).is_empty());
