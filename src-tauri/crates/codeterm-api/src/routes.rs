@@ -22,7 +22,7 @@ use super::{
 
 mod frontend_missing;
 
-const FRONTEND_REQUEST_HEADERS: [&str; 10] = [
+const FRONTEND_REQUEST_HEADERS: [&str; 11] = [
     "authorization",
     "if-none-match",
     "content-type",
@@ -33,6 +33,7 @@ const FRONTEND_REQUEST_HEADERS: [&str; 10] = [
     "x-codeterm-binding-nonce",
     "x-codeterm-session-binding-nonce",
     "x-codeterm-plan-confirmation",
+    "x-codeterm-blueprint-confirmation",
 ];
 
 fn configured_origin(origin: &str) -> Option<axum::http::HeaderValue> {
@@ -142,6 +143,18 @@ pub(super) fn create_router_with_preview_admission(
                 post(super::local_preview_routes::check),
                 &preview_check_admission,
             ),
+        )
+        .route(
+            "/api/automation/blueprints/solutions/list",
+            post(super::blueprint_solution_routes::list),
+        )
+        .route(
+            "/api/automation/blueprints/solutions/save",
+            post(super::blueprint_solution_routes::save),
+        )
+        .route(
+            "/api/automation/blueprints/solutions/archive",
+            post(super::blueprint_solution_routes::archive),
         )
         .route("/api/health", get(health_routes::health))
         .route("/api/identify", get(health_routes::identify))
