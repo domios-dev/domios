@@ -12,6 +12,16 @@ fn area(workspace: &str) -> String {
 }
 
 pub trait BlueprintMemoryExt {
+    fn blueprint_save_solution_host(
+        &self,
+        workspace: &str,
+        team: Option<&str>,
+        id: &str,
+        when: &str,
+    ) -> Result<Value, String>;
+    fn blueprint_solutions_host(&self, workspace: &str) -> Result<Value, String>;
+    fn blueprint_archive_solution_host(&self, workspace: &str, id: &str) -> Result<Value, String>;
+
     fn blueprint_keep(
         &self,
         caller: &SentinelCaller,
@@ -33,6 +43,51 @@ pub trait BlueprintMemoryExt {
 mod tests;
 
 impl BlueprintMemoryExt for ServiceContext {
+    fn blueprint_save_solution_host(
+        &self,
+        workspace: &str,
+        team: Option<&str>,
+        id: &str,
+        when: &str,
+    ) -> Result<Value, String> {
+        crate::graph::validate_scope(&self.mux.read(), workspace, team)?;
+        let handle = self
+            .host_extension::<Handle>()
+            .ok_or("blueprints not initialized")?;
+        let job = {
+            let store = handle.store.lock();
+            store.ensure_available()?;
+            store
+                .get(id)
+                .filter(|job| job.workspace_id == workspace && job.team_id.as_deref() == team)
+                .cloned()
+                .ok_or("Blueprint not found in this scope")?
+        };
+        let evidence = evidence(&handle, &job)?;
+        if evidence.successes == 0 {
+            return Err("Only a successful Blueprint can be saved as a solution".into());
+        }
+        let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
+            &crate::portable::definition(&job),
+        )?;
+        let saved_id = self
+            .mem
+            .save_blueprint(&area(workspace), document, when, evidence)?
+            .ok_or("Blueprint solution was not saved")?;
+        self.mem.blueprint_recipe(&area(workspace), &saved_id)?;
+        Ok(json!({"id":saved_id,"status":"saved"}))
+    }
+    fn blueprint_solutions_host(&self, workspace: &str) -> Result<Value, String> {
+        crate::graph::validate_scope(&self.mux.read(), workspace, None)?;
+        let entries = self.mem.list_blueprint_solutions(&area(workspace))?;
+        Ok(json!(entries.into_iter().map(|entry| json!({"id":entry.id,"when_to_use":entry.when_to_use,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used})).collect::<Vec<_>>()))
+    }
+    fn blueprint_archive_solution_host(&self, workspace: &str, id: &str) -> Result<Value, String> {
+        crate::graph::validate_scope(&self.mux.read(), workspace, None)?;
+        self.mem.archive_blueprint_solution(&area(workspace), id)?;
+        Ok(json!({"id":id,"status":"archived"}))
+    }
+
     fn blueprint_keep(
         &self,
         caller: &SentinelCaller,
@@ -66,63 +121,7 @@ impl BlueprintMemoryExt for ServiceContext {
                 .cloned()
                 .ok_or("Blueprint not found in this Team")?
         };
-        let mut successes =
-            job.transitions
-                .iter()
-                .filter(|transition| {
-                    transition.bucket != "other"
-                        && (job.until.as_ref() == Some(&transition.bucket)
-                            || transition.handlers.iter().any(|handler| {
-                                handler.status == crate::handlers::Status::Completed
-                            }))
-                })
-                .count() as u64;
-        let mut failures = job
-            .transitions
-            .iter()
-            .flat_map(|transition| &transition.handlers)
-            .filter(|handler| {
-                matches!(
-                    handler.status,
-                    crate::handlers::Status::Failed | crate::handlers::Status::Unconfirmed
-                )
-            })
-            .count() as u64;
-        if job.pipeline().is_some() {
-            let completion = handle.store.lock().typed_pipeline_log(&job.id, 200)?;
-            let journal = completion
-                .wait(crate::storage::COMMIT_DEADLINE)
-                .map_err(|error| error.to_string())?
-                .value;
-            successes = journal
-                .iter()
-                .filter(|entry| entry.step_name == "$run" && entry.state == "done")
-                .count() as u64;
-            failures = journal
-                .iter()
-                .filter(|entry| entry.step_name == "$run" && entry.state == "failed")
-                .count() as u64;
-        }
-        let evidence = Evidence {
-            origin: Some(format!("{}@{}", job.id, job.definition_version)),
-            kept: true,
-            successes,
-            failures,
-            recognized: job
-                .transitions
-                .iter()
-                .filter(|transition| transition.bucket != "other")
-                .count() as u64,
-            unclassified: job
-                .transitions
-                .iter()
-                .filter(|transition| transition.bucket == "other")
-                .count() as u64,
-            runs: job.transitions.len() as u64,
-            name: job.name.clone().unwrap_or_default(),
-            note: job.note.clone().unwrap_or_default(),
-            ..Evidence::default()
-        };
+        let evidence = evidence(&handle, &job)?;
         self.mem.enqueue_blueprint(
             area(&caller.workspace),
             crate::portable::definition(&job),
@@ -169,4 +168,65 @@ impl BlueprintMemoryExt for ServiceContext {
         }
         Ok(result)
     }
+}
+
+fn evidence(handle: &Handle, job: &crate::store::Sentinel) -> Result<Evidence, String> {
+    let mut successes = job
+        .transitions
+        .iter()
+        .filter(|transition| {
+            transition.bucket != "other"
+                && (job.until.as_ref() == Some(&transition.bucket)
+                    || transition
+                        .handlers
+                        .iter()
+                        .any(|handler| handler.status == crate::handlers::Status::Completed))
+        })
+        .count() as u64;
+    let mut failures = job
+        .transitions
+        .iter()
+        .flat_map(|transition| &transition.handlers)
+        .filter(|handler| {
+            matches!(
+                handler.status,
+                crate::handlers::Status::Failed | crate::handlers::Status::Unconfirmed
+            )
+        })
+        .count() as u64;
+    if job.pipeline().is_some() {
+        let completion = handle.store.lock().typed_pipeline_log(&job.id, 200)?;
+        let journal = completion
+            .wait(crate::storage::COMMIT_DEADLINE)
+            .map_err(|error| error.to_string())?
+            .value;
+        successes = journal
+            .iter()
+            .filter(|entry| entry.step_name == "$run" && entry.state == "done")
+            .count() as u64;
+        failures = journal
+            .iter()
+            .filter(|entry| entry.step_name == "$run" && entry.state == "failed")
+            .count() as u64;
+    }
+    Ok(Evidence {
+        origin: Some(format!("{}@{}", job.id, job.definition_version)),
+        kept: true,
+        successes,
+        failures,
+        recognized: job
+            .transitions
+            .iter()
+            .filter(|transition| transition.bucket != "other")
+            .count() as u64,
+        unclassified: job
+            .transitions
+            .iter()
+            .filter(|transition| transition.bucket == "other")
+            .count() as u64,
+        runs: job.transitions.len() as u64,
+        name: job.name.clone().unwrap_or_default(),
+        note: job.note.clone().unwrap_or_default(),
+        ..Evidence::default()
+    })
 }
