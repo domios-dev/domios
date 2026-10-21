@@ -3,7 +3,7 @@ import { createLatestWins } from "./latestWins";
 import type { DecodedFrame, FrameDecoder, FrameFeed } from "./frameFeed";
 import {
   canvasToPage,
-  layoutStream,
+  letterboxRect,
   sameViewport,
   stageRectToPage,
   viewportRequest,
@@ -56,17 +56,14 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
     const canvas = canvasRef.current;
     const decoded = frame.current;
     if (!canvas) return;
-    const layout = layoutStream(decoded ?? { width: 0, height: 0 }, css.current, dpr.current);
-    if (canvas.width !== layout.backing.width) canvas.width = layout.backing.width;
-    if (canvas.height !== layout.backing.height) canvas.height = layout.backing.height;
-    drawCss.current = layout.drawCss;
+    drawCss.current = letterboxRect(decoded ?? { width: 0, height: 0 }, css.current);
+    if (!decoded) return;
+    if (canvas.width !== decoded.width) canvas.width = decoded.width;
+    if (canvas.height !== decoded.height) canvas.height = decoded.height;
     const context = canvas.getContext("2d");
     if (!context) return;
-    context.fillStyle = "#000";
-    context.fillRect(0, 0, layout.backing.width, layout.backing.height);
-    if (!decoded || layout.draw.width <= 0) return;
     context.imageSmoothingQuality = "high";
-    context.drawImage(decoded.image, layout.draw.x, layout.draw.y, layout.draw.width, layout.draw.height);
+    context.drawImage(decoded.image, 0, 0, decoded.width, decoded.height);
   };
   const paintRef = useRef(paint);
   paintRef.current = paint;
@@ -75,7 +72,7 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
     let active = true;
     const queue = createLatestWins<StreamFrame>(async (next) => {
       const decoded = await decode(next);
-      if (!active) {
+      if (!active || (frames.accepts && !frames.accepts(next))) {
         decoded.close();
         return;
       }
@@ -122,7 +119,7 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
       scheduled = 0;
       dpr.current = currentDpr();
       const request = viewportRequest(css.current, dpr.current);
-      if (request) paintRef.current();
+      if (request) drawCss.current = letterboxRect(frame.current ?? { width: 0, height: 0 }, css.current);
       if (!request) {
         // The shared server viewport may change while hidden, so the next visible size must be re-sent.
         if (reported.current) {

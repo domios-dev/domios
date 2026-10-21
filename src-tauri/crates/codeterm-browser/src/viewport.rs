@@ -109,82 +109,26 @@ impl ViewportModel {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[derive(Default)]
+pub(crate) struct ResizeModel {
+    applied: Option<Viewport>,
+    in_flight: Option<Viewport>,
+}
 
-    fn request(width: f64, height: f64, dpr: f64) -> ViewportRequest {
-        ViewportRequest { width, height, dpr }
+impl ResizeModel {
+    pub fn begin(&mut self, latest: Viewport) -> Option<Viewport> {
+        if self.in_flight.is_some() || self.applied == Some(latest) {
+            return None;
+        }
+        self.in_flight = Some(latest);
+        Some(latest)
     }
 
-    #[test]
-    fn browser_viewport_clamps_size_and_dpr() {
-        assert_eq!(
-            clamp(request(100.4, 50.0, 5.0)),
-            Some(Viewport {
-                width: MIN_WIDTH,
-                height: MIN_HEIGHT,
-                dpr: MAX_DPR
-            })
-        );
-        assert_eq!(
-            clamp(request(1280.6, 720.2, 1.5)),
-            Some(Viewport {
-                width: 1281,
-                height: 720,
-                dpr: 1.5
-            })
-        );
-        assert_eq!(
-            clamp(request(99999.0, 99999.0, 0.5)).unwrap().width,
-            MAX_WIDTH
-        );
-        assert_eq!(clamp(request(800.0, 600.0, 0.5)).unwrap().dpr, MIN_DPR);
-        assert_eq!(clamp(request(800.0, 600.0, f64::NAN)).unwrap().dpr, MIN_DPR);
-    }
-
-    #[test]
-    fn browser_viewport_rejects_non_positive_or_non_finite_size() {
-        assert_eq!(clamp(request(0.0, 600.0, 1.0)), None);
-        assert_eq!(clamp(request(800.0, -1.0, 1.0)), None);
-        assert_eq!(clamp(request(f64::INFINITY, 600.0, 1.0)), None);
-        assert_eq!(clamp(request(f64::NAN, 600.0, 1.0)), None);
-    }
-
-    #[test]
-    fn browser_viewport_device_size_scales_by_dpr() {
-        let viewport = Viewport {
-            width: 1280,
-            height: 721,
-            dpr: 1.5,
-        };
-        assert_eq!(viewport.device_size(), (1920, 1082));
-    }
-
-    #[test]
-    fn browser_viewport_owned_mode_resizes_once_per_change() {
-        let mut model = ViewportModel::new(ViewportMode::Owned, Viewport::default());
-        let first = model.apply(request(1280.0, 720.0, 2.0));
-        assert!(matches!(first, ViewportDecision::Resize(v) if v.width == 1280 && v.dpr == 2.0));
-        assert_eq!(
-            model.apply(request(1280.0, 720.0, 2.0)),
-            ViewportDecision::Unchanged
-        );
-        assert_eq!(
-            model.apply(request(0.0, 0.0, 1.0)),
-            ViewportDecision::Invalid
-        );
-        assert_eq!(model.current().width, 1280);
-    }
-
-    #[test]
-    fn browser_viewport_attach_mode_never_resizes() {
-        let initial = Viewport::default();
-        let mut model = ViewportModel::new(ViewportMode::Attached, initial);
-        assert_eq!(
-            model.apply(request(800.0, 600.0, 1.0)),
-            ViewportDecision::RefusedAttached
-        );
-        assert_eq!(model.current(), initial);
+    pub fn acknowledge(&mut self, success: bool) {
+        let finished = self.in_flight.take();
+        self.applied = if success { finished } else { None };
     }
 }
+
+#[cfg(test)]
+mod tests;
