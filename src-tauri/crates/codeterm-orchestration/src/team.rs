@@ -655,15 +655,9 @@ pub fn transfer_team_plan(
 pub fn validate_active_team_plan_bindings(svc: &ServiceContext) -> Result<(), TeamPlanError> {
     let mux = svc.mux.read();
     let mut claimed_teams = std::collections::BTreeMap::<String, String>::new();
-    for plan in svc
-        .plan_store
-        .list_full()
-        .into_iter()
-        .filter(|plan| plan.status == codeterm_service_core::plan::PlanStatus::Active)
-        .filter(|plan| !plan.is_orphaned_active())
-    {
-        let team_id = valid_live_plan_team(svc, &mux, &plan.id)?;
-        if let Some(existing_plan_id) = claimed_teams.insert(team_id.clone(), plan.id.clone()) {
+    for plan_id in svc.plan_store.live_active_plan_ids() {
+        let team_id = valid_live_plan_team(svc, &mux, &plan_id)?;
+        if let Some(existing_plan_id) = claimed_teams.insert(team_id.clone(), plan_id) {
             return Err(TeamPlanError::Plan(PlanError::TeamAlreadyHasActivePlan {
                 team_id,
                 existing_plan_id,
