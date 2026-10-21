@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 pub mod digest;
 pub mod movement;
 pub mod note;
+pub mod synthesis;
 #[cfg(test)]
 mod tests;
 
@@ -90,6 +91,11 @@ impl PlanStore {
                 .filter(|r| r.number == number)
                 .ok_or_else(|| PlanError::Io("Curator round is no longer active".into()))?
                 .clone();
+            if note.ready.is_some() && !run.synthesis {
+                return Err(PlanError::Io(
+                    "READY is only valid in a synthesis round".into(),
+                ));
+            }
             for (tag, lines) in [
                 ("curator", &note.retro),
                 ("curator", &note.learnings),
@@ -114,7 +120,15 @@ impl PlanStore {
                     "mode_changed"
                 }
                 .into(),
-                summary: note.next_move.clone(),
+                summary: note.ready.as_ref().map_or_else(
+                    || note.next_move.clone(),
+                    |ready| format!("{}\nREADY: {ready}", note.next_move),
+                ),
+                synthesis: run.synthesis,
+                move_line: note.next_move.clone(),
+                retro: note.retro.clone(),
+                learn: note.learnings.clone(),
+                ready: note.ready.clone(),
                 next_delay_secs: curator_delay(Some(note.next_secs)),
                 reason: note.reason.clone(),
                 learnings: (note.retro.len() + note.learnings.len() + note.next_checks.len())

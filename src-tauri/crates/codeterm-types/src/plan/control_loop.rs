@@ -24,6 +24,16 @@ pub struct CuratorCounts {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct CuratorRound {
+    #[serde(default)]
+    pub synthesis: bool,
+    #[serde(default)]
+    pub move_line: String,
+    #[serde(default)]
+    pub retro: Vec<String>,
+    #[serde(default)]
+    pub learn: Vec<String>,
+    #[serde(default)]
+    pub ready: Option<String>,
     pub number: u64,
     pub started_at: u64,
     pub ended_at: u64,
@@ -55,6 +65,10 @@ pub struct CuratorGrant {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct CuratorRun {
+    #[serde(default)]
+    pub synthesis: bool,
+    #[serde(default)]
+    pub synthesis_group_close_at: Option<u64>,
     pub number: u64,
     pub started_at: u64,
     pub tab_id: Option<String>,
@@ -81,6 +95,8 @@ pub struct CuratorAgentState {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct ControlLoop {
+    pub real_rounds_started: u64,
+    pub last_synthesis_group_close_at: Option<u64>,
     pub mode: ControlLoopMode,
     pub heartbeat_interval_secs: Option<u64>,
     pub next_at: Option<u64>,
