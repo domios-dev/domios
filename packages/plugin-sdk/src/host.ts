@@ -425,6 +425,8 @@ export interface Host {
   commandTranscriptStdout(recordJson: string, declarationJson: string): string | null;
   platform(): string;
   homeDir(): string | null;
+  /** Instance data root; returning the path grants no filesystem access. */
+  dataDir(): string;
   expandHome(path: string): string | null;
   envGet(name: string): string | null;
   providerVersionJson(): string;
