@@ -235,6 +235,7 @@ export interface Tab {
   agent_session_id?: string | null;
   /** Launch-scoped proof used to reject chat events emitted by a prior tab binding. */
   session_binding_nonce?: string | null;
+  reported_session_binding_nonce?: string | null;
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   agent_requested_model?: string | null;
