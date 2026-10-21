@@ -50,35 +50,11 @@ pub async fn mesh_sync(
     // If parsing fails, fail soft so new token formats don't disrupt gossip.
     let sender_id = sender_id_from_headers(&state, &headers);
 
+    // Sync only refreshes metadata of already-paired peers; it never discovers new ones.
     let mut mesh = state.mesh.lock();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    if !full_access {
-        if let Some(voucher) = sender_id.as_deref() {
-            for own_info in sync_input_for_access(false, Some(voucher), &payload.peers) {
-                mesh.apply_gossip_peer_info(own_info);
-            }
-        }
-    } else if let Some(voucher) = sender_id.as_deref() {
-        // Log only newly-learned peers — announcing every peer on every gossip
-        // exchange once put 550k redundant lines in a single machine's log.
-        let known_before = mesh.known_public_keys();
-        mesh.apply_gossip_snapshot(voucher, payload.generation, &payload.peers, now);
-        for peer_info in &payload.peers {
-            if known_before.contains_key(&peer_info.instance_id) {
-                continue;
-            }
-            log::info!(
-                "[mesh/gossip] Learned about peer {} ({})",
-                peer_info.instance_name,
-                peer_info.instance_id
-            );
-        }
-    } else {
-        for peer_info in &payload.peers {
-            mesh.apply_gossip_peer_info(peer_info);
+    if let Some(voucher) = sender_id.as_deref() {
+        for info in sync_input_for_access(full_access, Some(voucher), &payload.peers) {
+            mesh.apply_gossip_peer_info(info);
         }
     }
     drop(mesh);
@@ -1052,6 +1028,7 @@ pub async fn mesh_relay_stream(
             ),
         ))
     };
+    let body = super::account_link::fence_body(body, state.mesh.clone(), q.peer.clone());
     let mut out = Response::new(body);
     out.headers_mut().insert(header::CONTENT_TYPE, content_type);
     out.headers_mut()

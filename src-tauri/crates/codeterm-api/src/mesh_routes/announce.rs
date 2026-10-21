@@ -75,17 +75,44 @@ pub async fn mesh_announce_inbound(
             codeterm_service_core::mesh::version::peer_upgrade_message(),
         ));
     }
+    let membership = headers
+        .get(codeterm_service_core::mesh::account_mesh::protocol::MEMBERSHIP_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     let mesh = state.mesh.lock();
-    let mut known_keys = mesh.known_public_keys();
-    if let Some(ref pk) = mesh.ident.identity.public_key {
-        known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
-    }
+    let identity_keys = mesh.paired_identity_keys();
     drop(mesh);
 
-    let sender_id = codeterm_service_core::mesh::crown::verify_signed_request(token, &known_keys)
-        .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Unauthorized: {}", e)))?;
+    let sender_id =
+        codeterm_service_core::mesh::crown::verify_signed_request(token, &identity_keys)
+            .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Unauthorized: {}", e)))?;
 
     let mut mesh = state.mesh.lock();
+    if let Some(membership) = membership.as_deref() {
+        mesh.refresh_peer_membership(&sender_id, membership);
+    }
+    if !mesh.traffic_open(&sender_id) {
+        let reason = format!("{:?}", mesh.traffic_decision(&sender_id));
+        return Err((StatusCode::FORBIDDEN, reason));
+    }
+    let adopt =
+        membership.is_some() && mesh.is_legacy_link(&sender_id) && mesh.admission_context().is_ok();
+    if adopt {
+        let mesh_state = state.mesh.clone();
+        let peer_id = sender_id.clone();
+        codeterm_service_core::async_runtime::spawn(async move {
+            if let Err(refusal) =
+                codeterm_service_core::mesh::account_mesh::link::adopt_peer(&mesh_state, &peer_id)
+                    .await
+            {
+                log::debug!(
+                    "[mesh/account] adoption of {} deferred: {}",
+                    peer_id,
+                    refusal
+                );
+            }
+        });
+    }
     match mesh.apply_announce(&sender_id, &ann) {
         Ok(change) if change.changed() => {
             log::info!(

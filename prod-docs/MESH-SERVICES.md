@@ -10,7 +10,7 @@ The Mesh tab is the UI surface for the local service registry and peer services.
 
 - **Map** — peer terminals with connection lines that reflect recent push traffic.
 - **Activity** — the activity log with `source` and `level` filters. Mesh-relayed pushes carry `source_peer` so cross-peer traffic is distinguishable from local pushes.
-- **Settings** — mesh enable/disable, broadcast toggle, paired-peer access levels, instance name.
+- **Settings** — mesh enable/disable, paired-peer access levels, instance name.
 
 Below the canvas, two tables share the surface: **Crons** (`kind = cron`, columns: name / next-run / status) and **Services** (`kind = daemon`, columns: name / health / mode / push). Peer cards on the canvas list their services.
 
@@ -74,12 +74,9 @@ The add-service wizard handles manual daemon registration. Smart-Add inspects ru
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/mesh/peers/add-manual` | Read the signed identity at IP + port and register a `Manual` discovery sighting (skips mDNS / UDP scan; no trust granted). Body `{address, port}`. Returns `{ok, instance_id}`. Used by the +Peer popup auto-discovery. |
-| `POST` | `/api/mesh/peers/approve/{id}` | Path-style alias for `POST /api/mesh/approve {request_id}`. |
-| `POST` | `/api/mesh/peers/reject/{id}` | Path-style alias for `POST /api/mesh/reject {request_id}`. |
 | `POST` | `/api/mesh/peers/disconnect/{id}` | Path-style alias for `POST /api/mesh/disconnect {instance_id}`. |
-| `DELETE` | `/api/mesh/peers/{id}` | Remove peer (used internally by disconnect broadcast). |
+| `DELETE` | `/api/mesh/peers/{id}` | Remove peer (signed by that peer over an open edge, used by `mesh exit`). |
 
 All four respond `503` when `mesh.enabled=false` (see top of doc).
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

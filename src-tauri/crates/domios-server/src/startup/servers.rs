@@ -441,12 +441,9 @@ pub(crate) fn start_servers(
                     if let Some(mesh) = weak_mesh.upgrade() {
                         let changed = {
                             let mut state = mesh.lock();
-                            let changed = state.ready_listeners != ready;
-                            state.ready_listeners = ready;
-                            changed
+                            state.set_ready_listeners(ready)
                         };
                         if changed {
-                            codeterm_service_core::mesh::discovery::stop_broadcast(&mesh);
                             if mesh_config.lock().mesh.enabled {
                                 codeterm_service_core::async_runtime::spawn(async move {
                                     let report = codeterm_service_core::mesh::broadcast_announce(
@@ -525,16 +522,12 @@ pub(crate) fn start_servers(
         start_restored_pty_backends(service_state.clone(), restore_initialized);
     }
 
-    // Start mesh listeners if enabled (no broadcasting — user triggers that manually)
     {
         let mesh_config = states.config.lock().mesh.clone();
         if mesh_config.enabled {
             let mesh = states.mesh.clone();
             mesh::discovery::detect_tailscale(&mesh);
             mesh::discovery::detect_local_ip(&mesh);
-            if let Err(e) = mesh::discovery::start_listeners(mesh) {
-                log::error!("[mesh] Listener start failed: {}", e);
-            }
         }
     }
 
