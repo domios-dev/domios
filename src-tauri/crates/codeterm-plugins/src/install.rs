@@ -342,11 +342,7 @@ pub(super) fn install_from_dir(
         fs::write(tmp.join(".codeterm-install.json"), body).map_err(|e| e.to_string())?;
     }
     carry_user_config(&dest, &tmp)?;
-    if dest.exists() {
-        fs::remove_dir_all(&dest).map_err(|e| format!("replace {}: {e}", dest.display()))?;
-    }
-    fs::rename(&tmp, &dest).map_err(|e| format!("install {}: {e}", dest.display()))?;
-    Ok(())
+    super::install_swap::activate(&tmp, &dest)
 }
 
 pub(super) fn copy_dir_filtered(source: &Path, dest: &Path) -> Result<(), String> {
