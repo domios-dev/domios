@@ -1,5 +1,7 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useCallback, useEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
+import { describeError } from "../../lib/describeError";
+import { MultiplexerActionsContext } from "../../store/multiplexer/context";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { ChevronLeft, ChevronRight, ClipboardList, LogOut, Pencil, UserPlus } from "lucide-react";
 import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
 import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
@@ -118,6 +120,7 @@ export function useTeamPlanMotion(buckets: TeamTaskBucket[]) {
 }
 
 interface TeamMenuProps {
+  teamId: string;
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   contextMenuTargetRef: RefObject<HTMLElement | null>;
@@ -129,6 +132,7 @@ interface TeamMenuProps {
 }
 
 function TeamMenu({
+  teamId,
   providers,
   providersLoading = false,
   contextMenuTargetRef,
@@ -147,7 +151,7 @@ function TeamMenu({
     () => providers.find((provider) => provider.id === selectedProviderId) ?? null,
     [providers, selectedProviderId],
   );
-  const [actionError, setActionError] = useState<string | null>(null);
+  const actions = useContext(MultiplexerActionsContext);
   const [addingMember, setAddingMember] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
   const [contextPoint, setContextPoint] = useState<{ x: number; y: number } | null>(null);
@@ -164,7 +168,6 @@ function TeamMenu({
     setContextPoint(point);
     setProviderRole(null);
     setSelectedProviderId(null);
-    setActionError(null);
     setOpen(true);
   }, []);
 
@@ -204,14 +207,28 @@ function TeamMenu({
     if (!onAddMember || addingMemberRef.current) return;
     addingMemberRef.current = true;
     setAddingMember(true);
-    setActionError(null);
     try {
       await onAddMember(role, providerId, model);
       setOpen(false);
       setProviderRole(null);
       setSelectedProviderId(null);
     } catch (error) {
-      setActionError(refusalText(error, "Could not add team member."));
+      const description = describeError(error, { operation: "adding a Team member" });
+      actions?.upsertToast({
+        id: `team-member-add-failure-${teamId}`,
+        title: description.title,
+        body: description.cause,
+        severity: "Warning",
+        level: "action_needed",
+        tab_id: null,
+        workspace_id: null,
+        local_actions: [
+          ...(description.raw ? [{ label: "Copy details", run: async () => {
+            try { await navigator.clipboard.writeText(description.raw); } catch { return; }
+          } }] : []),
+          { label: "Retry", run: () => addMember(role, providerId, model) },
+        ],
+      });
     } finally {
       addingMemberRef.current = false;
       setAddingMember(false);
@@ -390,7 +407,6 @@ function TeamMenu({
               </>}
             </>
           )}
-          {actionError && <div data-testid="team-menu-error"><InlineErrorNotice error={actionError} operation="updating this Team" blocking /></div>}
         </div>
       </AnchoredPopover>
     </div>
@@ -671,6 +687,7 @@ export function TeamUnit({
               <ClipboardList size={13} strokeWidth={1.6} aria-hidden="true" />
             </button>
             <TeamMenu
+              teamId={team.id}
               providers={providers}
               providersLoading={providersLoading}
               contextMenuTargetRef={headerRef}

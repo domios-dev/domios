@@ -1,9 +1,9 @@
 import { useContext, useState } from "react";
 import { UserRound } from "lucide-react";
-import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
-import { signInFailureToastMessage, useAccount } from "../Settings/useAccount";
+import { useAccount } from "../Settings/useAccount";
 import { useAccountPlan } from "../Settings/useAccountPlan";
+import { billingFailureToast, signInFailureToast } from "../Settings/accountFailureToast";
 import { DropdownMenu, type DropdownMenuEntry } from "../shared/DropdownMenu";
 import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { UI_TRAY_BTN } from "../shared/design";
@@ -21,23 +21,20 @@ export function AccountTray() {
   const startSignIn = async (hint: SignInOption["hint"]) => {
     const failure = await account.signIn(hint);
     if (!failure) return;
-    actions?.upsertToast({
-      id: "account-sign-in-failure",
-      title: "Sign-in could not be completed",
-      body: signInFailureToastMessage(failure),
-      severity: "Warning",
-      level: "action_needed",
-      tab_id: null,
-      workspace_id: null,
-      local_actions: [{ label: "Retry", run: async () => { await startSignIn(hint); } }],
-    });
+    actions?.upsertToast(signInFailureToast(failure, () => startSignIn(hint)));
+  };
+  const manageSubscription = async () => {
+    const failure = await billing.manage();
+    if (!failure) return;
+    actions?.upsertToast(billingFailureToast(failure, "managing your subscription", billing.plan?.status,
+      () => manageSubscription()));
   };
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
     ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
     { label: model.identity, description: model.email ?? undefined, disabled: true },
     { label: model.plan, disabled: true },
-    { label: "Manage subscription", onClick: () => void billing.manage() },
+    { label: "Manage subscription", onClick: () => void manageSubscription() },
     { label: "Sign out", onClick: () => void account.signOut() },
   ] : pending ? [
     { label: "Loading account…", disabled: true },
@@ -65,6 +62,5 @@ export function AccountTray() {
             </span>}
       </button>
     } />
-    {model.kind === "signed_in" && billing.actionError && <InlineErrorNotice error={billing.actionError} operation="managing your subscription" blocking />}
   </div>;
 }
