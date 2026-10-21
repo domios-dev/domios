@@ -1,7 +1,7 @@
 {
   "license": "PolyForm-Shield-1.0.0",
   "name": "@codeterm/chat-ui",
-  "version": "1.15.0",
+  "version": "1.15.1",
   "private": true,
   "type": "module",
   "description": "Shared React chat rendering primitives for CodeTerm providers.",

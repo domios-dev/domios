@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { memo, useState } from "react";
 import { ChevronRight, Moon, Network, Plus, RefreshCw } from "lucide-react";
 import type { ApiConfig, AppConfig, GraphWorkerInfo } from "../../lib/types";
@@ -133,7 +134,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
                   <summary className="cursor-pointer">
                     Worker status unavailable. Refresh to try again.
                   </summary>
-                  <pre className="whitespace-pre-wrap break-words mt-2">{error}</pre>
+                  <InlineErrorNotice error={error} operation="loading worker status" />
                 </details>
               )}
               <div className="rounded-lg border border-[var(--ct-border)] overflow-hidden divide-y divide-[var(--ct-border)]">
@@ -274,7 +275,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
                       {activity.crons.error && (
                         <details>
                           <summary>Schedule error</summary>
-                          {activity.crons.error}
+                          <InlineErrorNotice error={activity.crons.error} operation="loading schedules" />
                         </details>
                       )}
                     </div>
@@ -304,7 +305,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
                   {actionError && (
                     <details open className="text-xs text-red-400">
                       <summary>Could not stop worker</summary>
-                      <pre className="whitespace-pre-wrap break-words">{actionError}</pre>
+                      <InlineErrorNotice error={actionError} operation="stopping the worker" />
                     </details>
                   )}
                 </section>
