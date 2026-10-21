@@ -1,4 +1,4 @@
-import type { ChatSend, SendEcho, NormalizedChatMessage } from "@codeterm/chat-core";
+import type { ChatSend, FrameKind, SendEcho, NormalizedChatMessage } from "@codeterm/chat-core";
 import { matchesMatchedRow, normalizeChatText, parseDomiosMessage, timestampMs } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
 import type { TabActivity } from "../../lib/tabActivity";
@@ -123,7 +123,7 @@ export function deliveryProjectionSends(
       const frame = send.status?.system_send ? parseDomiosMessage(send.content) : null;
       return {
         ...send,
-        segments: frame ? [{ type: "frame" as const, from: frame.attrs.from, attrs: frame.attrs, body: frame.body, tip: null }] : send.segments,
+        segments: frame ? [{ type: "frame" as const, kind: frame.attrs.from as FrameKind, from: frame.attrs.from, attrs: frame.attrs, body: frame.body, tip: null }] : send.segments,
         echoEligible: deliveryState(send) !== "failed",
         flowAtMs: send.sentAtMs,
       };

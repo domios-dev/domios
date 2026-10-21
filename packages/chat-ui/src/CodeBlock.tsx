@@ -1,7 +1,6 @@
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import { FullscreenOverlay, useFullscreenKeyboard } from "./FullscreenOverlay";
-import { createPortal } from "react-dom";
+import { FullscreenOverlay } from "./FullscreenOverlay";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2, RotateCcw, Scan } from "lucide-react";
 import { copyCodeText } from "./copyCodeText";
 import { SyntaxHighlighter } from "./syntaxHighlighter";
@@ -35,12 +34,6 @@ let mobileMediaQuery: MediaQueryList | null = null;
 let mediaQueryListener: (() => void) | null = null;
 let mobileViewport = false;
 const mobileViewportSubscribers = new Set<(value: boolean) => void>();
-type RectLike = {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-};
 type PointLike = {
   x: number;
   y: number;
@@ -106,25 +99,6 @@ function midpointBetween(a: PointLike, b: PointLike): PointLike {
     x: (a.x + b.x) / 2,
     y: (a.y + b.y) / 2,
   };
-}
-
-export function findScrollableContainer(start: HTMLElement | null): HTMLElement | null {
-  if (typeof window === "undefined" || !start) {
-    return null;
-  }
-  let current: HTMLElement | null = start.parentElement;
-  while (current) {
-    const style = window.getComputedStyle(current);
-    const overflowY = style.overflowY;
-    const overflowX = style.overflowX;
-    const hasYScroll = overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay";
-    const hasXScroll = overflowX === "auto" || overflowX === "scroll" || overflowX === "overlay";
-    if (hasYScroll || hasXScroll) {
-      return current;
-    }
-    current = current.parentElement;
-  }
-  return null;
 }
 
 export function lineCount(text: string): number {
@@ -304,7 +278,6 @@ export function CodeBlock({
   maxHeight = CODE_BLOCK_DEFAULT_MAX_HEIGHT,
   collapsible = false,
   collapseAfterLines = 20,
-  fullscreenScope = "container",
   wrapLines = false,
   showLineNumbers = false,
 }: {
@@ -313,7 +286,6 @@ export function CodeBlock({
   maxHeight?: string;
   collapsible?: boolean;
   collapseAfterLines?: number;
-  fullscreenScope?: "container" | "viewport";
   wrapLines?: boolean;
   showLineNumbers?: boolean;
 }) {
@@ -336,12 +308,8 @@ export function CodeBlock({
   const highlightEligible = highlightSourceEligible(normalizedText, richRequested || isFullscreen);
   const shouldUsePlainRenderer = (!mermaidMode && (normalizedText.length > CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD || isToolTraceLanguage(language) || !highlightEligible))
     || (mermaidMode && (mermaidCandidates[0]?.length ?? 0) > MERMAID_RENDER_LENGTH_LIMIT);
-  const [fullscreenBounds, setFullscreenBounds] = useState<RectLike | null>(null);
   const copyTimer = useRef<number | null>(null);
-  const fullscreenBoundsRaf = useRef<number | null>(null);
-  const blockRef = useRef<HTMLDivElement>(null);
   const fullscreenRef = useRef<HTMLDivElement>(null);
-  const scrollHostRef = useRef<HTMLElement | null>(null);
   const mermaidPointerRef = useRef<Map<number, PointLike>>(new Map());
   const mermaidGestureRef = useRef<MermaidGesture | null>(null);
   const mermaidViewportRef = useRef<HTMLDivElement>(null);
@@ -373,48 +341,10 @@ export function CodeBlock({
     });
   }, []);
 
-  const updateFullscreenBounds = useCallback(() => {
-    const host = scrollHostRef.current;
-    if (!host) {
-      return;
-    }
-    const rect = host.getBoundingClientRect();
-    setFullscreenBounds((previous) => {
-      if (
-        previous &&
-        previous.top === rect.top &&
-        previous.left === rect.left &&
-        previous.width === rect.width &&
-        previous.height === rect.height
-      ) {
-        return previous;
-      }
-      return {
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-      };
-    });
-  }, []);
-
-  const scheduleBoundsUpdate = useCallback(() => {
-    if (fullscreenBoundsRaf.current !== null) {
-      return;
-    }
-    fullscreenBoundsRaf.current = window.requestAnimationFrame(() => {
-      fullscreenBoundsRaf.current = null;
-      updateFullscreenBounds();
-    });
-  }, [updateFullscreenBounds]);
-
   useEffect(() => {
     return () => {
       if (copyTimer.current) {
         window.clearTimeout(copyTimer.current);
-      }
-      if (fullscreenBoundsRaf.current !== null) {
-        window.cancelAnimationFrame(fullscreenBoundsRaf.current);
       }
     };
   }, []);
@@ -520,27 +450,6 @@ export function CodeBlock({
   }, [mermaidMode, expanded, shouldUsePlainRenderer, mermaidRenderKey, mermaidNodeId, mermaidCandidates.length]);
 
   const dismissFullscreen = useCallback(() => setIsFullscreen(false), []);
-  useFullscreenKeyboard(isFullscreen, fullscreenRef, dismissFullscreen);
-
-  useEffect(() => {
-    if (!isFullscreen) {
-      return;
-    }
-    const host = scrollHostRef.current;
-    if (!host) {
-      return;
-    }
-    const onScrollOrResize = () => {
-      scheduleBoundsUpdate();
-    };
-    host.addEventListener("scroll", onScrollOrResize, { passive: true });
-    window.addEventListener("resize", onScrollOrResize);
-    updateFullscreenBounds();
-    return () => {
-      host.removeEventListener("scroll", onScrollOrResize);
-      window.removeEventListener("resize", onScrollOrResize);
-    };
-  }, [isFullscreen, scheduleBoundsUpdate, updateFullscreenBounds]);
 
   useEffect(() => {
     if (!canCollapse) {
@@ -563,16 +472,6 @@ export function CodeBlock({
   const showMermaidFallback = mermaidMode && !shouldUsePlainRenderer && !mermaidError && !mermaidSvg;
   const shouldDisplayMermaid = mermaidMode && !shouldUsePlainRenderer && expanded && mermaidSvg !== null;
   const suppressMermaidErrorOutput = mermaidMode && !shouldUsePlainRenderer && mermaidError !== null && mermaidSvg === null;
-  const needsFullscreenSafeTop = !fullscreenBounds || fullscreenBounds.top <= 0;
-  const fullscreenHostStyle = fullscreenBounds
-    ? {
-      top: `${fullscreenBounds.top}px`,
-      left: `${fullscreenBounds.left}px`,
-      width: `${fullscreenBounds.width}px`,
-      height: `${fullscreenBounds.height}px`,
-    }
-    : undefined;
-
   const setMermaidMode = useCallback((mode: "fit" | "reset" | "custom") => {
     mermaidViewModeRef.current = mode;
     setMermaidViewMode(mode);
@@ -600,7 +499,7 @@ export function CodeBlock({
 
   useLayoutEffect(() => {
     if (isFullscreen && mermaidMode && shouldDisplayMermaid) fitMermaidView();
-  }, [fitMermaidView, fullscreenBounds, isFullscreen, mermaidMode, shouldDisplayMermaid]);
+  }, [fitMermaidView, isFullscreen, mermaidMode, shouldDisplayMermaid]);
 
   useEffect(() => {
     if (!isFullscreen || !mermaidMode || !shouldDisplayMermaid || typeof ResizeObserver === "undefined") return;
@@ -613,9 +512,9 @@ export function CodeBlock({
     return () => observer.disconnect();
   }, [fitMermaidView, isFullscreen, mermaidMode, shouldDisplayMermaid]);
 
-  const fullscreenSurface = (content: React.ReactNode) => fullscreenScope === "viewport" ? createPortal(content, document.body) : content;
 
   const openFullscreen = (event?: React.MouseEvent) => {
+    if (event?.currentTarget instanceof HTMLElement) event.currentTarget.focus();
     event?.stopPropagation();
     if (mermaidMode) {
       mermaidPointerRef.current.clear();
@@ -625,19 +524,6 @@ export function CodeBlock({
       setMermaidMode("fit");
     }
     setExpanded(true);
-    const host = fullscreenScope === "viewport" ? null : findScrollableContainer(blockRef.current);
-    scrollHostRef.current = host;
-    if (host) {
-      const rect = host.getBoundingClientRect();
-      setFullscreenBounds({
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-      });
-    } else {
-      setFullscreenBounds(null);
-    }
     setIsFullscreen(true);
   };
 
@@ -647,8 +533,6 @@ export function CodeBlock({
       resetMermaidView();
     }
     setIsFullscreen(false);
-    setFullscreenBounds(null);
-    scrollHostRef.current = null;
   };
 
   const startMermaidGesture = useCallback(() => {
@@ -788,12 +672,10 @@ export function CodeBlock({
     };
   }, [isFullscreen, mermaidMode, setMermaidMode, shouldDisplayMermaid]);
 
-  const fullscreenHeaderTopPadding = needsFullscreenSafeTop
-    ? "calc(0.5rem + var(--ct-safe-top, 0px))"
-    : undefined;
+
 
   return (
-    <div ref={blockRef} className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
+    <div className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
       <div className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
         <div data-testid="chat-code-toolbar" className="flex select-none items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
           <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
@@ -869,13 +751,13 @@ export function CodeBlock({
           </div>
         )}
       </div>
-      {isFullscreen && fullscreenSurface(
-        <FullscreenOverlay panelRef={fullscreenRef} style={fullscreenHostStyle ?? undefined} onClose={dismissFullscreen} label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"}>
+      {isFullscreen && (
+        <FullscreenOverlay panelRef={fullscreenRef} onClose={dismissFullscreen} label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"}>
             <div
               className="flex select-none items-center gap-1.5 px-2 py-1.5 text-xs"
               style={{
                 color: "var(--ct-muted-fg)",
-                paddingTop: fullscreenHeaderTopPadding,
+                paddingTop: "4px",
               }}
             >
               <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
@@ -963,7 +845,7 @@ export function CodeBlock({
                 onMermaidDoubleClick={fitMermaidView}
               />
             </div>
-        </FullscreenOverlay>,
+        </FullscreenOverlay>
       )}
     </div>
   );

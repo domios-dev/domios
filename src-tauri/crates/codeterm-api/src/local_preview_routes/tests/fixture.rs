@@ -275,8 +275,8 @@ pub(super) fn directory_link(target: &Path, link: &Path) {
         codeterm_service_core::process_util::no_window_std(&mut command);
         let result = command
             .args(["/D", "/C", "mklink", "/J"])
-            .arg(link)
-            .arg(target)
+            .arg(link.to_string_lossy().replace('/', "\\"))
+            .arg(target.to_string_lossy().replace('/', "\\"))
             .output()
             .unwrap();
         assert!(

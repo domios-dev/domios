@@ -1,7 +1,6 @@
 import { useRef, type RefObject } from "react";
-import { createPortal } from "react-dom";
 import { Download, FolderOpen, Image as ImageIcon, X } from "lucide-react";
-import { FullscreenOverlay, useFullscreenHostBounds, useFullscreenKeyboard } from "./FullscreenOverlay";
+import { FullscreenOverlay } from "./FullscreenOverlay";
 import { localArtifactOpeningAvailable, openLocalArtifact } from "./localArtifactLoader";
 
 export interface FullscreenImage {
@@ -25,11 +24,9 @@ export function ImageFullscreen({ image, anchorRef, onClose }: {
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
-  useFullscreenKeyboard(true, panelRef, onClose);
-  const { bounds } = useFullscreenHostBounds(true, anchorRef);
   const path = image.path;
-  return createPortal(
-    <FullscreenOverlay panelRef={panelRef} label={`Image ${image.name}`} onClose={onClose} style={bounds}>
+  return (
+    <FullscreenOverlay panelRef={panelRef} label={`Image ${image.name}`} onClose={onClose} returnFocusRef={anchorRef}>
       <header className="flex min-w-0 items-center gap-2 px-1.5 pb-2 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
         <ImageIcon size={14} aria-hidden className="shrink-0" />
         <span className="shrink-0 font-medium" style={{ color: "var(--ct-fg)" }}>{image.name}</span>
@@ -61,7 +58,6 @@ export function ImageFullscreen({ image, anchorRef, onClose }: {
           draggable={false}
         />
       </div>
-    </FullscreenOverlay>,
-    document.body,
+    </FullscreenOverlay>
   );
 }

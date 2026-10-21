@@ -3,6 +3,7 @@ use crate::agent::{TabTodoChecklistStatus, TabTodoCounters};
 
 fn entry(content: &str, state: TabTodoState) -> TabTodoWriteEntry {
     TabTodoWriteEntry {
+        id: None,
         content: content.into(),
         state,
         link: None,
@@ -248,4 +249,35 @@ fn a_new_entry_link_becomes_a_url_or_a_task_reference() {
         task.draft().link,
         Some(TabTodoLinkDraft::DomiosTask { task_ref, .. }) if task_ref == "task_abc"
     ));
+}
+
+#[test]
+fn id_write_changes_only_status_and_preserves_locked_items() {
+    let current = checklist(vec![item(
+        "seeded",
+        "Long criterion",
+        TabTodoState::Open,
+        true,
+    )]);
+    let mut update = entry("", TabTodoState::Done);
+    update.id = Some("seeded".into());
+    let plan = plan_tab_todo_write(Some(&current), &[update.clone()]).unwrap();
+    assert!(plan.appends.is_empty() && plan.removals.is_empty());
+    assert_eq!(plan.state_changes[0].target, existing("seeded"));
+    assert_eq!(plan.state_changes[0].state, TabTodoState::Done);
+    update.content = "Changed title".into();
+    assert!(plan_tab_todo_write(Some(&current), &[update.clone()])
+        .unwrap_err()
+        .contains("retitle"));
+    update.id = Some("unknown".into());
+    assert!(plan_tab_todo_write(Some(&current), &[update]).is_err());
+    let omitted = plan_tab_todo_write(Some(&current), &[]).unwrap();
+    assert!(omitted.removals.is_empty());
+    assert_eq!(omitted.omitted_locked_items, 1);
+    let fallback = plan_tab_todo_write(
+        Some(&current),
+        &[entry("Long criterion", TabTodoState::Done)],
+    )
+    .unwrap();
+    assert_eq!(fallback.state_changes[0].target, existing("seeded"));
 }

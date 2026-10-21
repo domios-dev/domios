@@ -6,7 +6,7 @@ import { MultiplexerActionsContext, type MultiplexerActionsContextType } from ".
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false, planStatus: "active" },
+  state: { signedIn: false, sessionOnly: false, planStatus: "active", planAuthority: "billing", fullAccess: false },
 }));
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
   ...await importOriginal<typeof import("../Settings/useAccount")>(),
@@ -15,7 +15,7 @@ vi.mock("../Settings/useAccount", async (importOriginal) => ({
     : {kind:"signed_out"}, signIn, signOut}),
 }));
 vi.mock("../Settings/useAccountPlan", () => ({useAccountPlan: () => ({
-  plan:{plan:"pro",status:state.planStatus,stale:false,periodEnd:null,cancelAtPeriodEnd:false},manage,
+  plan:{authority:state.planAuthority,fullAccess:state.fullAccess,plan:"pro",status:state.planStatus,stale:false,periodEnd:null,cancelAtPeriodEnd:false},error:null,manage,
 })}));
 vi.mock("../../lib/nativeBridge", () => ({nativeBridge:{openUrl}}));
 import { siteLinks } from "../../../shared/siteLinks";
@@ -122,6 +122,23 @@ it("reports unavailable subscription management without offering a crashing retr
     state.signedIn = false; state.planStatus = "active";
   }
 });
+
+it("shows the Admin plan line from server-authoritative billing state", async () => {
+  state.signedIn = true;
+  state.planAuthority = "admin";
+  state.fullAccess = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTray />));
+    await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("Admin · pro (active)");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.planAuthority = "billing"; state.fullAccess = false;
+  }
+});
+
 it("shows identity and plan and wires subscription and sign out", async () => {
   state.signedIn = true;
   const host = document.createElement("div"); document.body.append(host);

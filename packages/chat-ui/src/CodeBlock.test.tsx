@@ -195,11 +195,11 @@ test("fullscreen Mermaid fits its viewport and exposes accessible view controls"
   assert(fullscreen, "Mermaid block exposes fullscreen");
   await act(async () => fullscreen.click());
 
-  const dialog = host.querySelector('[role="dialog"]');
-  const viewport = host.querySelector<HTMLElement>('[data-testid="mermaid-fullscreen-viewport"]');
-  const canvas = host.querySelector<HTMLElement>('[data-testid="mermaid-fullscreen-canvas"]');
-  const fit = host.querySelector<HTMLButtonElement>('[aria-label="Fit Mermaid diagram to viewport"]');
-  const reset = host.querySelector<HTMLButtonElement>('[aria-label="Reset Mermaid diagram to 100%"]');
+  const dialog = document.querySelector('[role="dialog"]');
+  const viewport = document.querySelector<HTMLElement>('[data-testid="mermaid-fullscreen-viewport"]');
+  const canvas = document.querySelector<HTMLElement>('[data-testid="mermaid-fullscreen-canvas"]');
+  const fit = document.querySelector<HTMLButtonElement>('[aria-label="Fit Mermaid diagram to viewport"]');
+  const reset = document.querySelector<HTMLButtonElement>('[aria-label="Reset Mermaid diagram to 100%"]');
   assert(dialog?.getAttribute("aria-label") === "Fullscreen Mermaid diagram", "fullscreen has dialog semantics");
   assert(canvas?.style.transform.includes("scale(2.42)"), "diagram fits and centers on open");
   assert(fit?.getAttribute("aria-pressed") === "true", "Fit exposes its active state");

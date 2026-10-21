@@ -145,7 +145,3 @@ export function summarizeGroupCounts(counts: GroupSectionCounts): string {
   if (counts.workers > 0) parts.push(plural(counts.workers, "worker"));
   return parts.join(" · ");
 }
-
-export function summarizeWorkers(total: number, working: number): string {
-  return `${plural(total, "worker")} · ${working} working`;
-}

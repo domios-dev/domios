@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Caller: CI build-gateway.yml; skill build
+# Caller: build.sh script-guards; CI tests.yml (guards); skill build
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

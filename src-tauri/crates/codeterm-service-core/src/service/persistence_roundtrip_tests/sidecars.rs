@@ -44,14 +44,14 @@ fn delayed_send_create_update_delete_round_trip_expected_pass() {
         .service
         .create_named_tab(&workspace_id, "delayedSendTarget")
         .unwrap();
-    let created = crate::delayed_send::create_message(
+    let created = crate::async_runtime::block_on(crate::delayed_send::create_message(
         &instance.fixture.service,
         tab_id,
         "initial delayed body".into(),
         Some(crate::delayed_send::now_ms() + 60_000),
         None,
         None,
-    )
+    ))
     .expect("create delayed send through ServiceContext");
     crate::delayed_send::update_message(
         &instance.fixture.service,

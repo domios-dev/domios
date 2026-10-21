@@ -2,6 +2,13 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("routes heartbeat projections independently from the peer's queue", () => {
+    expect(remoteTransportCall("system_heartbeat_list", { tabId: "mesh:peer/owned" })).toMatchObject({ peerId: "peer", remoteTabId: "owned", method: "GET", suffix: "/system-heartbeats" });
+    expect(remoteTransportCall("delayed_send_list", { tabId: "mesh:peer/owned" })).toMatchObject({ peerId: "peer", remoteTabId: "owned", method: "GET", suffix: "/delayed-messages" });
+  });
+  it("preserves an immediate timestamp in the peer's camelCase request", () => {
+    expect(remoteTransportCall("delayed_send_create", { tabId: "mesh:peer/owned", text: "opaque body", scheduledAtMs: 1 })).toMatchObject({ method: "POST", suffix: "/delayed-messages", body: { text: "opaque body", scheduledAtMs: 1 } });
+  });
   it("resolves child authority from the owning peer's current tab",()=>{
     const call=remoteTransportCall("agent_runtime_child_authority",{tabId:"mesh:peer/owned"});
     expect(call).toMatchObject({peerId:"peer",method:"GET",suffix:"/runtime-authority"});

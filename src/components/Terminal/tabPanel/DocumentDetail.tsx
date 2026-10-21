@@ -32,7 +32,7 @@ export function DocumentDetail({ tabId, document, home, onBack }: { tabId: strin
   </>} />}>
     {error && <InlineErrorNotice error={error} operation="opening this document" blocking />}
     <div ref={readerRef} className="tab-panel__reader">
-      <LocalArtifactScope tabId={tabId}><LocalArtifactBlock key={document.path} bare directive={document} fullscreenRequest={fullscreenRequest} fullscreenHostSelector={`[data-tab-id="${tabId}"]`}
+      <LocalArtifactScope tabId={tabId}><LocalArtifactBlock key={document.path} bare directive={document} fullscreenRequest={fullscreenRequest}
         renderMarkdown={(markdown) => <RichMarkdown text={markdown} />} onLoaded={setSource} /></LocalArtifactScope>
       <SelectionBar selection={selection} onCopy={(selected) => void copyText(selected).catch(fail)} onAddToChat={addSelection} />
     </div>

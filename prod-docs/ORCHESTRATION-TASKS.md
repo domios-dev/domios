@@ -102,9 +102,11 @@ whole list as a JSON array to your pad and declare it:
 codeterm todo write --from-pad todos.json
 ```
 
-Each entry is `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "link?", "reason?" }`.
+Each entry is `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "id?", "link?", "reason?" }`.
 The first write creates the checklist. Later writes reconcile it: an entry
-whose `content` matches a title keeps that item, its attempts and history; a new
+matches by `id` from `codeterm todo list`, falling back to exact `content` title matching.
+An id entry may omit `content` and `activeForm`; it changes only status/reason,
+preserving the title, links, attempts and history. A new
 `content` appends an item; an omitted item you added is removed. Items a
 dispatch seeded from acceptance criteria, or a QA Worker appended, are locked:
 omitting one leaves it unchanged and the reply counts it. At most one item is
@@ -113,6 +115,10 @@ offending items. `blocked` and `skipped` need a `reason`. A checklist holds at
 most 12 items; a larger list is refused, and the remedy is a task split. A
 new item's `link` is an http(s) URL or a task reference; an existing item's
 `link` must match its current label, URL or task id.
+
+An `in_review` report warns about remaining open locked criteria without refusing
+the report. Review acceptance completes them with reason "accepted by review";
+a bounce reopens locked criteria.
 
 The sidebar shows a checklist disclosure on every agent row whose tab holds a
 checklist, including rows of paired peers that report one.
@@ -140,4 +146,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

@@ -60,7 +60,7 @@ async function run() {
   assert(bold.includes("Page:") && bold.includes("User says:"), "markdown bold renders after the marker line");
   assert(!snipCard.textContent?.includes("**Page:**"), "no raw markdown asterisks remain");
   assert(snipCard.querySelector("code")?.textContent === "https://developer.apple.com/", "inline code renders");
-  assert(fileCard?.querySelector('button[aria-label="Reveal file run.log"]'), "a notice's file marker renders as a file chip");
+  assert(fileCard?.querySelector('button[aria-label="Preview file run.log"]'), "a notice's file marker renders as a file chip");
 
   await act(async () => root.unmount());
   host.remove();

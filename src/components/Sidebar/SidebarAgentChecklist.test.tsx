@@ -112,6 +112,21 @@ test("a checklist disclosure reads the store only when opened and shows titles w
   store.restore();
 });
 
+test("seeded criteria display completed after review updates the checklist", async () => {
+  const record = checklistRecord("worker", 1, 1, [["Acceptance criterion", "open"]]);
+  const store = checklistStore({ ...record, items: record.items.map((item) => ({ ...item, locked: true })) });
+  const { host, root } = await renderSidebar({ tabs: checklistTeam() });
+  const toggle = toggleFor(host, "Mica");
+  assert(toggle, "worker checklist disclosure exists");
+  await open(toggle);
+  store.set({ ...record, revision: 2, status: "complete", items: record.items.map((item) => ({ ...item, locked: true, revision: 2, state: "done", reason: "accepted by review" })) });
+  await store.emit({ tab_id: "worker", generation: 1, revision: 2 });
+  const region = regionFor(host, "Mica");
+  assert(region && JSON.stringify(checklistRows(region)) === JSON.stringify(["Acceptance criterionDone"]), "the persisted completion replaces Open in the sidebar");
+  await act(async () => root.unmount());
+  store.restore();
+});
+
 test("an Orchestrator row shows the checklist it wrote for itself", async () => {
   const store = checklistStore(checklistRecord("orchestrator", 1, 2, [["Merge wave one", "in_progress"], ["Release", "open"]]));
   const tabs = checklistTeam();
