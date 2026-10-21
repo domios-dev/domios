@@ -74,6 +74,7 @@ fn role_message(transcript: &[u8; 32], role: &[u8]) -> Vec<u8> {
 
 pub const INITIATOR_ROLE: &[u8] = b"initiator";
 pub const RESPONDER_ROLE: &[u8] = b"responder";
+pub const COMMIT_ROLE: &[u8] = b"initiator-commit";
 
 /// Mesh-key possession over the transcript, role-separated so one side's proof cannot be reflected.
 pub fn sign_mesh(

@@ -20,6 +20,9 @@ pub enum AccountPresence {
     SignedOut,
 }
 
+/// Same not-before tolerance as the account verifier, so a slightly fast issuer clock never blocks P2P.
+pub const NOT_BEFORE_SKEW_SECONDS: u64 = 120;
+
 /// Membership facts that the account verifier already checked
 /// (issuer, audience, project, environment, epoch, subject, key, slot, signature).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,7 +39,7 @@ pub struct VerifiedMembership {
 
 impl VerifiedMembership {
     pub fn is_current(&self, now: u64) -> bool {
-        self.issued_at <= now && now < self.expires_at
+        self.issued_at <= now.saturating_add(NOT_BEFORE_SKEW_SECONDS) && now < self.expires_at
     }
 }
 

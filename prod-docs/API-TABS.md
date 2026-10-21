@@ -166,7 +166,8 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | GET | `/api/mesh/peers` | — | List paired peers |
 | POST | `/api/mesh/link` | `{installation_id, request_id?}` | Local only. Link a same-account machine from the registry; resolves after the bilateral handshake with `{ok, request_id, pair}` or `{ok:false, request_id, failure}` (`failure.reason` such as `mesh.machines`, `signed-out`, `offline`, `peer-unreachable`, `handshake-failed`) |
 | POST | `/api/mesh/link/hello` | `LinkHello` | Inbound handshake step 1: verifies the caller's signed membership and answers with this side's membership, nonce and transcript proofs; stores nothing durable |
-| POST | `/api/mesh/link/confirm` | `LinkConfirm` | Inbound handshake step 2: verifies the caller's proofs and online permit, obtains this side's own permit, then records the pair and returns that permit |
+| POST | `/api/mesh/link/confirm` | `LinkConfirm` | Inbound handshake step 2: verifies the caller's proofs and online permit, obtains this side's own permit and returns it; records nothing yet |
+| POST | `/api/mesh/link/commit` | `LinkCommit` | Inbound handshake step 3: the caller proves it verified our permit; only now is the pair recorded. An uncommitted link expires and never carries traffic. A peer this machine unpaired is refused until it is added from this machine |
 | POST | `/api/mesh/adopt/offer` | `AdoptOffer` | Signed by an open legacy edge: begins in-place account adoption |
 | POST | `/api/mesh/adopt/commit` | `AdoptCommit` | Signed by an open legacy edge: verifies the caller's proofs and adopts the edge in place |
 | POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (local tombstone; frees no account slot) |
@@ -200,4 +201,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 63 -->
+<!-- revision: 64 -->

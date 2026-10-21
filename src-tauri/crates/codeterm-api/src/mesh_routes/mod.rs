@@ -23,7 +23,9 @@ pub mod worker_dispatch;
 pub mod worker_observation;
 pub use worker_observation::mesh_worker_observation;
 
-pub use account_link::{mesh_adopt_commit, mesh_adopt_offer, mesh_link_confirm, mesh_link_hello};
+pub use account_link::{
+    mesh_adopt_commit, mesh_adopt_offer, mesh_link_commit, mesh_link_confirm, mesh_link_hello,
+};
 pub use announce::{mesh_announce_all, mesh_announce_inbound, mesh_refresh, mesh_set_peer_addr};
 pub use connection::{mesh_account_link, mesh_disconnect_peer, mesh_disconnect_peer_by_id};
 pub use pairing::{mesh_unpair, mesh_unrevoke};

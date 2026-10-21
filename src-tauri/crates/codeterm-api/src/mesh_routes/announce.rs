@@ -89,6 +89,7 @@ pub async fn mesh_announce_inbound(
 
     let mut mesh = state.mesh.lock();
     if let Some(membership) = membership.as_deref() {
+        mesh.note_advertised_membership(&sender_id, membership);
         mesh.refresh_peer_membership(&sender_id, membership);
     }
     if !mesh.traffic_open(&sender_id) {

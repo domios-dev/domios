@@ -6,8 +6,8 @@ use parking_lot::Mutex;
 
 use crate::account_mesh::link::LinkTransport;
 use crate::account_mesh::protocol::{
-    AdoptCommit, AdoptOffer, LinkConfirm, LinkConfirmReply, LinkHello, ADOPT_COMMIT_PATH,
-    ADOPT_OFFER_PATH, LINK_CONFIRM_PATH, LINK_HELLO_PATH,
+    AdoptCommit, AdoptOffer, LinkCommit, LinkCommitReply, LinkConfirm, LinkConfirmReply, LinkHello,
+    ADOPT_COMMIT_PATH, ADOPT_OFFER_PATH, LINK_COMMIT_PATH, LINK_CONFIRM_PATH, LINK_HELLO_PATH,
 };
 use crate::account_mesh::{
     AccountMeshAuthority, AccountMeshState, AccountPresence, AdmissionRefusal, BoxFuture,
@@ -265,6 +265,8 @@ type AfterStep = Arc<dyn Fn(&'static str) + Send + Sync>;
 pub struct Loopback {
     routes: HashMap<(String, u16), MeshState>,
     after: Option<AfterStep>,
+    pub posts: AtomicUsize,
+    lose_reply_of: Option<&'static str>,
 }
 
 impl Loopback {
@@ -275,7 +277,15 @@ impl Loopback {
                 .map(|m| ((m.ip.clone(), m.port), m.mesh.clone()))
                 .collect(),
             after: None,
+            posts: AtomicUsize::new(0),
+            lose_reply_of: None,
         }
+    }
+
+    /// The responder handles `path`, but its reply never reaches the initiator.
+    pub fn lose_reply_of(mut self, path: &'static str) -> Self {
+        self.lose_reply_of = Some(path);
+        self
     }
 
     pub fn after_each(mut self, after: AfterStep) -> Self {
@@ -315,6 +325,8 @@ impl LinkTransport for Loopback {
     ) -> BoxFuture<'_, Result<serde_json::Value, AdmissionRefusal>> {
         let target = self.routes.get(&(ip.to_string(), port)).cloned();
         let after = self.after.clone();
+        let lost = self.lose_reply_of == Some(path);
+        self.posts.fetch_add(1, Ordering::SeqCst);
         Box::pin(async move {
             let mesh = target.ok_or(AdmissionRefusal::PeerUnreachable)?;
             let reply = match path {
@@ -333,6 +345,11 @@ impl LinkTransport for Loopback {
                     mesh.lock().finish_link_confirm(confirmation)?;
                     encode(LinkConfirmReply { permit })
                 }
+                LINK_COMMIT_PATH => {
+                    let commit: LinkCommit = decode(body)?;
+                    mesh.lock().commit_link(&commit)?;
+                    encode(LinkCommitReply { committed: true })
+                }
                 ADOPT_OFFER_PATH => {
                     let peer = caller(&mesh, bearer)?;
                     let offer: AdoptOffer = decode(body)?;
@@ -349,6 +366,9 @@ impl LinkTransport for Loopback {
             };
             if let Some(after) = after {
                 after(path);
+            }
+            if lost {
+                return Err(AdmissionRefusal::PeerUnreachable);
             }
             reply
         })

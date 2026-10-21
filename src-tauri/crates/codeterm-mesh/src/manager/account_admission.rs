@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use super::MeshManager;
 use crate::account_mesh::protocol::{
-    AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkConfirm, LinkHello,
+    AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkCommit, LinkConfirm, LinkHello,
     LinkHelloReply, PartyDescriptor,
 };
 use crate::account_mesh::transcript::{
-    self, possession_digest, Party, Purpose, INITIATOR_ROLE, RESPONDER_ROLE,
+    self, possession_digest, Party, Purpose, COMMIT_ROLE, INITIATOR_ROLE, RESPONDER_ROLE,
 };
 use crate::account_mesh::{
     AccountMeshAuthority, AdmissionRefusal, LinkAuthorizationRequest, LinkPermitExpectation,
@@ -24,6 +24,15 @@ pub struct PendingLink {
     account_id: String,
     account_epoch: u64,
     created_at: u64,
+    /// Both permits are held; the pair is recorded only on the initiator's commit.
+    confirmed: bool,
+}
+
+/// Only a local, user-initiated Add may lift this machine's own removal of a peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkOrigin {
+    LocalAdd,
+    Remote,
 }
 
 pub struct PendingAdoption {
@@ -192,6 +201,7 @@ impl MeshManager {
         let context = self.admission_context()?;
         let initiator = &hello.initiator.party;
         self.check_link_identity(&initiator.instance_id, &initiator.mesh_public_key)?;
+        self.refuse_removed_peer(&initiator.instance_id)?;
         let membership =
             self.verify_peer_membership(&context, &hello.membership, &initiator.installation_id)?;
         self.prune_pending();
@@ -224,6 +234,7 @@ impl MeshManager {
                 account_id: context.account_id.clone(),
                 account_epoch: context.account_epoch,
                 created_at: self.now(),
+                confirmed: false,
             },
         );
         Ok(LinkHelloReply {
@@ -242,6 +253,13 @@ impl MeshManager {
         confirm: &LinkConfirm,
     ) -> Result<LinkConfirmation, AdmissionRefusal> {
         self.prune_pending();
+        if self
+            .pending_links
+            .get(&confirm.link_id)
+            .is_some_and(|pending| pending.confirmed)
+        {
+            return Err(AdmissionRefusal::handshake("link already confirmed"));
+        }
         let pending = self
             .pending_links
             .remove(&confirm.link_id)
@@ -294,23 +312,70 @@ impl MeshManager {
         })
     }
 
-    /// Responder, step 2b: both permits are held; persist only if the account is unchanged.
+    /// Responder, step 2b: both permits are held. Nothing is recorded or traffic-open until
+    /// the initiator commits; an uncommitted link expires with the pending window.
     pub fn finish_link_confirm(
         &mut self,
         confirmation: LinkConfirmation,
     ) -> Result<(), AdmissionRefusal> {
-        let pending = confirmation.pending;
+        let mut pending = confirmation.pending;
         if self.account.account_epoch != pending.account_epoch
             || self.account.signed_in_account() != Some(pending.account_id.as_str())
         {
             return Err(AdmissionRefusal::Cancelled);
+        }
+        pending.confirmed = true;
+        pending.created_at = self.now();
+        self.pending_links
+            .insert(confirmation.request.link_nonce.clone(), pending);
+        Ok(())
+    }
+
+    /// Responder, step 3: the initiator proved it verified our permit; record the pair.
+    pub fn commit_link(&mut self, commit: &LinkCommit) -> Result<(), AdmissionRefusal> {
+        self.prune_pending();
+        if !self
+            .pending_links
+            .get(&commit.link_id)
+            .is_some_and(|pending| pending.confirmed)
+        {
+            return Err(AdmissionRefusal::handshake("unknown or unconfirmed link"));
+        }
+        let pending = self
+            .pending_links
+            .remove(&commit.link_id)
+            .ok_or_else(|| AdmissionRefusal::handshake("unknown or unconfirmed link"))?;
+        if self.account.account_epoch != pending.account_epoch
+            || self.account.signed_in_account() != Some(pending.account_id.as_str())
+        {
+            return Err(AdmissionRefusal::Cancelled);
+        }
+        if !transcript::verify_mesh(
+            &pending.initiator.party.mesh_public_key,
+            &pending.transcript,
+            COMMIT_ROLE,
+            &commit.mesh_signature,
+        ) {
+            return Err(AdmissionRefusal::handshake(
+                "initiator commit proof invalid",
+            ));
         }
         self.admit_new_link(
             &pending.initiator,
             &[],
             pending.initiator_membership,
             &pending.account_id,
+            LinkOrigin::Remote,
         )
+    }
+
+    fn refuse_removed_peer(&self, instance_id: &str) -> Result<(), AdmissionRefusal> {
+        if self.is_revoked(instance_id) {
+            return Err(AdmissionRefusal::handshake(
+                "peer was removed on this machine; add it from here to link again",
+            ));
+        }
+        Ok(())
     }
 
     /// Persists an account-admitted edge. Existing records keep their access policy.
@@ -320,9 +385,13 @@ impl MeshManager {
         preferred_addresses: &[types::PeerAddress],
         membership: SignedMembership,
         account_id: &str,
+        origin: LinkOrigin,
     ) -> Result<(), AdmissionRefusal> {
         let party = &peer.party;
         self.check_link_identity(&party.instance_id, &party.mesh_public_key)?;
+        if origin == LinkOrigin::Remote {
+            self.refuse_removed_peer(&party.instance_id)?;
+        }
         let mut addresses = types::sanitize_addresses(preferred_addresses);
         for address in types::sanitize_addresses(&peer.addresses) {
             if !addresses.iter().any(|known| known.ip == address.ip) {
@@ -362,10 +431,12 @@ impl MeshManager {
             record.addresses = addresses;
             record.api_port = peer.api_port;
         }
-        self.revocation_list
-            .revoked
-            .retain(|id| id != &party.instance_id);
-        self.revocation_list.tombstones.remove(&party.instance_id);
+        if origin == LinkOrigin::LocalAdd {
+            self.revocation_list
+                .revoked
+                .retain(|id| id != &party.instance_id);
+            self.revocation_list.tombstones.remove(&party.instance_id);
+        }
         self.save().map_err(AdmissionRefusal::handshake)?;
         self.bump_gate();
         log::info!("[mesh/account] linked {}", party.instance_id);

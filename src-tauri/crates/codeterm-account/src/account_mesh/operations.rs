@@ -594,6 +594,25 @@ impl AccountMesh {
         Ok(revoked)
     }
 
+    /// Fresh online slot identity of an active, eligible installation; no endpoint needed.
+    pub async fn resolve_link_identity(&self, installation_id: &str) -> Outcome<MeshTarget> {
+        let signed = self.signed(None).await?;
+        let observation = self.read_registry(&signed).await?;
+        let row = observation
+            .rows
+            .iter()
+            .find(|row| row.installation_id == installation_id)
+            .ok_or(AccountMeshRefusal::Invalid)?;
+        if !row.active || row.eligibility != Eligibility::Eligible {
+            return Err(AccountMeshRefusal::Revoked);
+        }
+        let target = row.target();
+        if !self.with(|inner| inner.is_current(signed.epoch)) {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        Ok(target)
+    }
+
     /// Fresh online registry read; the only source of a new-link address.
     pub async fn resolve_link_target(&self, installation_id: &str) -> Outcome<LinkTarget> {
         let signed = self.signed(None).await?;
@@ -652,12 +671,12 @@ impl AccountMesh {
         }
         let resolved =
             self.with(|inner| inner.resolved.get(&request.peer_installation_id).cloned());
+        // A responder authorizes on the initiator's slot identity; it never dials that peer.
         let peer = match resolved {
             Some(peer) => peer,
             None => {
-                self.resolve_link_target(&request.peer_installation_id)
+                self.resolve_link_identity(&request.peer_installation_id)
                     .await?
-                    .target
             }
         };
         let signed = self.signed(Some(epoch)).await?;

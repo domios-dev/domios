@@ -142,6 +142,7 @@ pub struct Script {
     pub publication: Option<RegistryRefusal>,
     pub permit: Option<RegistryRefusal>,
     pub gate: Option<Arc<Notify>>,
+    pub peer_unpublished: bool,
 }
 
 #[derive(Default)]
@@ -241,6 +242,7 @@ impl FakeRegistry {
     }
 
     fn rows(&self, uid: &str, key_id: &str) -> Vec<MeshManagementRow> {
+        let peer_unpublished = self.script.lock().unwrap().peer_unpublished;
         let accounts = self.accounts.lock().unwrap();
         let account = accounts.get(uid);
         let mut own = row(
@@ -252,7 +254,7 @@ impl FakeRegistry {
         own.slot_revision = account.and_then(|a| a.slot).unwrap_or(1);
         own.endpoint = account.and_then(|a| a.endpoint.clone());
         let mut peer = row(PEER, 0, Some("Laptop"));
-        peer.endpoint = Some(MeshEndpointObservation {
+        peer.endpoint = (!peer_unpublished).then(|| MeshEndpointObservation {
             tailnet_ip: "100.101.102.103".into(),
             api_port: 7685,
             expires_at: self.clock.now() + 600,

@@ -56,6 +56,7 @@ pub(crate) const PUBLIC_PATHS: &[&str] = &[
     "/api/mesh/ping",
     "/api/mesh/link/hello",
     "/api/mesh/link/confirm",
+    "/api/mesh/link/commit",
 ];
 
 fn bearer_exempt(method: &Method, path: &str) -> bool {

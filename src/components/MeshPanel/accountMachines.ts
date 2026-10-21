@@ -235,6 +235,9 @@ export function failureMessage(failure: AccountMeshFailure): string {
     case "peer-unreachable": return "That machine could not be reached. Both machines must be online.";
     case "handshake-failed": return "The machines could not complete an authorized handshake.";
     case "signed-out": return SIGNED_OUT_COPY;
+    case "revoked": return "That machine was removed from your account.";
+    case "cancelled": return "The account changed before the request finished. Try again.";
+    case "verification-unavailable": return "Machine membership could not be verified right now. Try again later.";
     case "unauthenticated":
     case "app-check": return "Your account session could not be verified. Sign in again.";
     case "forbidden": return "Your account does not allow this action.";

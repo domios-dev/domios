@@ -10,7 +10,9 @@ use super::types::{self, MeshPeersResponse, MeshStatus, PairedPeer, RevocationLi
 use super::{crown, identity, peer_services, peers, transport};
 
 mod announce;
-pub use account_admission::{AdmissionContext, LinkConfirmation, PendingAdoption, PendingLink};
+pub use account_admission::{
+    AdmissionContext, LinkConfirmation, LinkOrigin, PendingAdoption, PendingLink,
+};
 pub use account_gate::{blocked_message, wait_until_blocked};
 pub use announce::PeerAnnounceChange;
 
@@ -44,6 +46,8 @@ pub struct MeshManager {
     pending_links: HashMap<String, account_admission::PendingLink>,
     pending_adoptions: HashMap<String, account_admission::PendingAdoption>,
     account_ready: bool,
+    adoptions: HashMap<String, account_gate::AdoptionAttempt>,
+    advertised_memberships: HashMap<String, String>,
 }
 
 impl MeshManager {
@@ -119,6 +123,8 @@ impl MeshManager {
             pending_links: HashMap::new(),
             pending_adoptions: HashMap::new(),
             account_ready: true,
+            adoptions: HashMap::new(),
+            advertised_memberships: HashMap::new(),
         }
     }
 
