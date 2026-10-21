@@ -45,20 +45,14 @@ impl ServiceContext {
                 let Some(worktree_path) = lane.worktree_path.as_deref() else {
                     continue;
                 };
-                if lane.branch.is_none()
-                    || lane.destination.is_none()
-                    || lane.cleanup_status.as_deref().is_some_and(|status| {
-                        status.eq_ignore_ascii_case("offered")
-                            || status.eq_ignore_ascii_case("done")
-                    })
-                {
+                if task.status.is_terminal() || lane.cleanup_status.is_some() {
                     continue;
                 }
                 if let Err(error) = self
                     .ext::<crate::repowatch::RepoWatchRegistryHandle>()
                     .retain_lane_watch(worktree_path, Path::new(canonical_path))
                 {
-                    log::warn!("[lane-cleanup-offer] repository watch unavailable: {error}");
+                    log::warn!("[lane-watch] repository watch unavailable: {error}");
                 }
             }
         }
@@ -66,29 +60,26 @@ impl ServiceContext {
 
     pub(crate) fn record_lane_turn_boundary(&self, tab_id: &str) {
         let service = self.clone();
-        let store = self.plan_store.clone();
-        let repo_watch = self
-            .ext::<crate::repowatch::RepoWatchRegistryHandle>()
-            .clone();
-        let ui = self.ui.clone();
         let tab_id = tab_id.to_string();
-        crate::async_runtime::spawn(async move {
-            let capture = tokio::task::spawn_blocking(move || {
-                record_lane_turn(&service, &store, &repo_watch, ui.as_ref(), &tab_id)
-            });
-            match tokio::time::timeout(TURN_CAPTURE_DEADLINE, capture).await {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => log::warn!("[lane-turn-stats] capture worker failed: {error}"),
-                Err(_) => log::warn!("[lane-turn-stats] capture exceeded its deadline"),
-            }
-        });
-    }
-
-    pub(crate) fn offer_merged_lane_cleanup(&self, repository_identity: String) {
-        let store = self.plan_store.clone();
-        let ui = self.ui.clone();
         crate::async_runtime::spawn_blocking(move || {
-            offer_merged_lanes(&store, ui.as_ref(), &repository_identity)
+            let Some(target) = find_lane_attempt(&service.plan_store, &tab_id) else {
+                return;
+            };
+            let repository = target.canonical_path.clone();
+            let worker = service.clone();
+            service.enqueue_lane_git(
+                &repository,
+                format!("turn:{tab_id}"),
+                Box::new(move || {
+                    record_lane_turn(
+                        &worker,
+                        &worker.plan_store,
+                        worker.ext::<crate::repowatch::RepoWatchRegistryHandle>(),
+                        worker.ui.as_ref(),
+                        &tab_id,
+                    )
+                }),
+            );
         });
     }
 }
@@ -463,100 +454,6 @@ fn unix_time_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
-}
-
-fn offer_merged_lanes(
-    store: &PlanStore,
-    ui: &dyn crate::ports::host::UiEvents,
-    repository_identity: &str,
-) {
-    let deadline = Instant::now() + TURN_CAPTURE_DEADLINE;
-    let mut checked = 0usize;
-    for plan in store.list_full() {
-        let canonical_path = if plan.canonical_project_path.trim().is_empty() {
-            &plan.project_path
-        } else {
-            &plan.canonical_project_path
-        };
-        if !super::worker_lane::same_path(canonical_path, repository_identity) {
-            continue;
-        }
-        for task in &plan.tasks {
-            if checked >= 32 {
-                return;
-            }
-            let lane = &task.lane;
-            let Some(branch) = lane.branch.as_deref().filter(|value| !value.is_empty()) else {
-                continue;
-            };
-            let Some(destination) = lane
-                .destination
-                .as_deref()
-                .filter(|value| !value.is_empty())
-            else {
-                continue;
-            };
-            if lane.cleanup_status.as_deref().is_some_and(|status| {
-                status.eq_ignore_ascii_case("offered") || status.eq_ignore_ascii_case("done")
-            }) {
-                continue;
-            }
-            checked += 1;
-            match branch_is_ancestor(Path::new(canonical_path), branch, destination, deadline) {
-                Ok(true) => {
-                    let worktree = lane.worktree_path.as_deref().unwrap_or_default();
-                    let command = super::lane_removal::lane_remove_command(
-                        worktree,
-                        Some(branch),
-                        canonical_path,
-                    );
-                    let update = crate::service::plan::TaskLaneUpdate {
-                        cleanup_status: Some(Some("offered".into())),
-                        cleanup_hints: Some(vec![command.clone()]),
-                        ..Default::default()
-                    };
-                    if store
-                        .update_task_lane(&plan.id, &task.id, update, unix_time_millis())
-                        .is_ok()
-                    {
-                        ui.emit("plan-changed", serde_json::json!({ "plan_id": plan.id }));
-                        ui.emit(
-                            "plan-lane-cleanup-offer",
-                            serde_json::json!({
-                                "plan_id": plan.id,
-                                "task_id": task.id,
-                                "branch": branch,
-                                "destination": destination,
-                                "command": command,
-                            }),
-                        );
-                    }
-                }
-                Ok(false) => {}
-                Err(error) => log::warn!("[lane-cleanup-offer] ancestry check failed: {error:?}"),
-            }
-        }
-    }
-}
-
-fn branch_is_ancestor(
-    cwd: &Path,
-    branch: &str,
-    destination: &str,
-    deadline: Instant,
-) -> Result<bool, CaptureFailure> {
-    let output = run_git_status(
-        cwd,
-        &["merge-base", "--is-ancestor", branch, destination],
-        deadline,
-    )?;
-    match output.status.code() {
-        Some(0) => Ok(true),
-        Some(1) => Ok(false),
-        _ => Err(CaptureFailure::Git(
-            String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        )),
-    }
 }
 
 #[cfg(test)]

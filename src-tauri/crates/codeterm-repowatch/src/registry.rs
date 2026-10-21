@@ -304,33 +304,9 @@ fn dispatch(
     paths: &[PathBuf],
 ) {
     match batch_is_relevant(identity, half, paths) {
-        Ok(true) => {
-            sink.repository_changed(&identity.id);
-            if head_ref_changed(identity, half, paths) {
-                sink.repository_head_changed(&identity.id);
-            }
-        }
+        Ok(true) => sink.repository_changed(&identity.id),
         Ok(false) => {}
         Err(e) => sink.repository_unavailable(&e.identity, e.reason),
-    }
-}
-
-pub(super) fn head_ref_changed(
-    identity: &RepoIdentity,
-    half: WatchHalf,
-    paths: &[PathBuf],
-) -> bool {
-    match half {
-        WatchHalf::SharedRefs => true,
-        WatchHalf::Worktree => paths.iter().any(|path| {
-            let Ok(relative) = path.strip_prefix(&identity.gitdir) else {
-                return identity.ignore_case
-                    && path
-                        .to_string_lossy()
-                        .eq_ignore_ascii_case(&identity.gitdir.join("HEAD").to_string_lossy());
-            };
-            relative == Path::new("HEAD")
-        }),
     }
 }
 
