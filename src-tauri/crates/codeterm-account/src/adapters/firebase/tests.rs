@@ -13,10 +13,15 @@ fn callback(state: &str) -> Callback {
         state: state.into(),
     }
 }
-struct Transport(Mutex<Vec<(String, Body)>>);
+struct Transport(Mutex<Vec<(String, Body, Option<RequestDiagnostic>)>>);
 #[async_trait]
 impl super::Transport for Transport {
-    async fn post(&self, url: &str, body: Body) -> Result<serde_json::Value> {
+    async fn post(
+        &self,
+        url: &str,
+        body: Body,
+        diagnostic: Option<RequestDiagnostic>,
+    ) -> Result<serde_json::Value> {
         let mut requests = self.0.lock().await;
         let response = match requests.len() {
             0 => serde_json::json!({"custom_token":"custom-fixture"}),
@@ -26,7 +31,7 @@ impl super::Transport for Transport {
             }
             _ => return Err(Error::Transport),
         };
-        requests.push((url.into(), body));
+        requests.push((url.into(), body, diagnostic));
         Ok(response)
     }
 }
@@ -45,6 +50,11 @@ async fn redeem_and_token_exchange_produce_session() {
     );
     assert_eq!(tokens.session.id_token.expose(), "id-fixture");
     let requests = transport.0.lock().await;
+    assert_eq!(requests[0].2, Some(RequestDiagnostic::BackendRedeem));
+    assert_eq!(
+        requests[1].2,
+        Some(RequestDiagnostic::FirebaseCustomTokenExchange)
+    );
     let Body::Json(body) = &requests[0].1 else {
         panic!()
     };
@@ -55,13 +65,19 @@ async fn redeem_and_token_exchange_produce_session() {
         panic!()
     };
     assert_eq!(body["token"], "custom-fixture");
-    assert!(requests.iter().all(|(url, _)| !url.contains("fixture")));
+    assert!(requests.iter().all(|(url, _, _)| !url.contains("fixture")));
 }
 
 struct RefreshTransport;
 #[async_trait]
 impl super::Transport for RefreshTransport {
-    async fn post(&self, url: &str, body: Body) -> Result<Value> {
+    async fn post(
+        &self,
+        url: &str,
+        body: Body,
+        diagnostic: Option<RequestDiagnostic>,
+    ) -> Result<Value> {
+        assert_eq!(diagnostic, None);
         if url.starts_with("https://securetoken.googleapis.com/") {
             let Body::Form(form) = body else { panic!() };
             assert_eq!(
@@ -93,7 +109,7 @@ async fn refresh_posts_form_and_replaces_tokens() {
 struct RefusingTransport;
 #[async_trait]
 impl super::Transport for RefusingTransport {
-    async fn post(&self, _: &str, _: Body) -> Result<Value> {
+    async fn post(&self, _: &str, _: Body, _: Option<RequestDiagnostic>) -> Result<Value> {
         Err(Error::Provider)
     }
 }
@@ -106,6 +122,31 @@ async fn rejected_redemption_cannot_create_session() {
             .await,
         Err(Error::Provider)
     ));
+}
+
+#[test]
+fn backend_error_codes_are_logged_only_when_they_match_the_safe_pattern() {
+    assert_eq!(
+        safe_backend_error_code(Some(&json!({"error":{"message":"INVALID_CUSTOM_TOKEN"}}))),
+        "INVALID_CUSTOM_TOKEN"
+    );
+    assert_eq!(
+        safe_backend_error_code(Some(&json!({"error":"Unable to complete desktop sign-in"}))),
+        "unrecognized"
+    );
+    assert_eq!(
+        safe_backend_error_code(Some(&json!({"error":{"message":"bad-code"}}))),
+        "unrecognized"
+    );
+    assert_eq!(
+        safe_backend_error_code(Some(&json!({"error":{"message":"A".repeat(65)}}))),
+        "unrecognized"
+    );
+    assert_eq!(
+        safe_backend_error_code(Some(&json!({"code":"A".repeat(43)}))),
+        "unrecognized"
+    );
+    assert_eq!(safe_backend_error_code(None), "unrecognized");
 }
 
 fn fixture_config() -> Config {
