@@ -1641,7 +1641,6 @@ dependencies = [
 name = "codeterm-mesh"
 version = "0.0.0"
 dependencies = [
- "aes-gcm",
  "base64 0.22.1",
  "chrono",
  "codeterm-build-info",
@@ -1653,7 +1652,6 @@ dependencies = [
  "hostname",
  "if-addrs",
  "log",
- "mdns-sd",
  "parking_lot",
  "rand 0.8.5",
  "reqwest 0.12.28",
@@ -1663,7 +1661,6 @@ dependencies = [
  "sha2",
  "tokio",
  "uuid",
- "x25519-dalek",
 ]
 
 [[package]]

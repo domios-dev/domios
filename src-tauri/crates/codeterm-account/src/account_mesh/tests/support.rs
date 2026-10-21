@@ -50,6 +50,7 @@ pub fn identity(uid: &str) -> Identity {
         email: None,
         display_name: None,
         provider: "test".into(),
+        photo_url: None,
     }
 }
 
