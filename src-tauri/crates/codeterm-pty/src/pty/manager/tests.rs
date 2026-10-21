@@ -530,17 +530,41 @@ fn shell_exit_ends_the_pty_stream_with_its_exit_code() {
         .take()
         .expect("fresh session owns its reader");
     let (eof_tx, eof_rx) = mpsc::channel();
+    let output = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = output.clone();
     std::thread::spawn(move || {
         let mut buf = vec![0u8; 4096];
-        while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
-        let _ = eof_tx.send(());
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => {
+                    let _ = eof_tx.send(Ok(()));
+                    break;
+                }
+                Ok(n) => {
+                    let mut output = captured.lock().unwrap();
+                    output.extend_from_slice(&buf[..n]);
+                    let discard = output.len().saturating_sub(16384);
+                    output.drain(..discard);
+                }
+                Err(error) => {
+                    let _ = eof_tx.send(Err(error));
+                    break;
+                }
+            }
+        }
     });
 
     manager.write(&pty_id, b"exit 3\r").expect("type exit");
 
-    eof_rx
-        .recv_timeout(std::time::Duration::from_secs(30))
-        .expect("the stream must end once the shell process exits");
+    let stream_end = eof_rx.recv_timeout(std::time::Duration::from_secs(30));
+    assert!(
+        stream_end.is_ok(),
+        "PTY stream end={stream_end:?}, shell={}, child_exit={:?}, child_status={:?}, output={:?}",
+        detect_default_shell(),
+        session.child_exit.resolved(),
+        session.child.lock().unwrap().try_wait(),
+        String::from_utf8_lossy(&output.lock().unwrap())
+    );
     // On Unix the stream can end before the watcher records the code; wait on its signal.
     assert_eq!(
         session
