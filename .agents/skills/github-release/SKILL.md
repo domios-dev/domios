@@ -275,8 +275,15 @@ job routes on; `./build.sh runner-pause` keeps it and never lends it.
 | `BLACKSTAR-windows-x64` (`blackstar-windows-x64`) | BLACKSTAR, Windows x64 | `windows-ci`, `rust-shard`, `heavy`, `host-blackstar` | tests: Windows Rust platform and Windows test jobs |
 | `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: release prepare, frontend bundle, Linux x64, dry-run manifest, publication |
 | `BLACKSTAR-wsl-ci` (`blackstar-wsl-x64`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `heavy`, `light`, `host-blackstar` | tests: Rust full suite, embeddings, Linux platform, clippy |
-| `ubunta-light-1/2`, `BLACKSTAR-wsl-light-1/2` | ubunta / BLACKSTAR, Linux x64 | `light`, `host-<machine>` | quick checks and tier gates |
+| `BLACKSTAR-wsl-light-1/2` (`blackstar-wsl-x64-light-1/2`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `light`, `host-blackstar` | tests: second and third Linux Rust test runners; quick checks |
+| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks and tier gates |
 | `green-windows-ci` (`green-windows-x64`) | green, Windows x64 | `windows-light`, `host-green` | Windows frontend quick check |
+
+The BLACKSTAR WSL runners (distro `BLACKSTAR-CI`, user `ci`) share one toolchain: rustup with the
+pinned channel from `rust-toolchain.toml` plus clippy/rustfmt in `~/.cargo`, `cargo-nextest`, and
+sccache in `~/.local/bin` on one Unix-socket server. `~/start-runner.sh` and
+`~/start-light-runner.sh <n>` export that PATH and cache environment before `run.sh`, so a light
+runner takes Linux test jobs without further setup.
 
 Release builds and Rust tests never share a machine: build labels live only on builders and test
 labels only on test machines. Pausing a test machine (`./build.sh runner-pause <machine>`) lends its
