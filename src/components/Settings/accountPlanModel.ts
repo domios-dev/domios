@@ -16,6 +16,12 @@ export function accountPlanModel(value: AccountPlan): PlanModel {
   return {authority:value.access?.authority ?? null,fullAccess:value.access?.full_access ?? false,plan:value.entitlements.plan,status:value.entitlements.status,stale:value.stale,
     periodEnd:value.entitlements.current_period_end || null,cancelAtPeriodEnd:value.entitlements.cancel_at_period_end};
 }
+
+// The portal needs a Paddle customer: billing authority, or any paid record (past due, canceled, or an admin who also pays).
+export function manageActionForPlan(plan: PlanModel | null): "portal" | "plans" {
+  return plan && (plan.authority === "billing" || plan.plan !== "free") ? "portal" : "plans";
+}
+
 export function planFailure(previous: PlanModel | null): PlanModel | null {
   return previous ? {...previous,stale:true} : null;
 }

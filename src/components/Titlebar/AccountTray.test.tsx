@@ -4,9 +4,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { Notification } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
-const { signIn, signOut, manage, openUrl, state } = vi.hoisted(() => ({
-  signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false },
+const { signIn, signOut, manage, openPlans, openUrl, state } = vi.hoisted(() => ({
+  signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openPlans: vi.fn(), openUrl: vi.fn(),
+  state: { signedIn: false, sessionOnly: false, billingPending: false },
 }));
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
   ...await importOriginal<typeof import("../Settings/useAccount")>(),
@@ -16,6 +16,7 @@ vi.mock("../Settings/useAccount", async (importOriginal) => ({
 }));
 vi.mock("../Settings/useAccountPlan", () => ({useAccountPlan: () => ({
   plan:{authority:"billing",fullAccess:false,plan:"pro",status:"active",stale:false,periodEnd:null,cancelAtPeriodEnd:false},error:null,manage,
+  pending:state.billingPending,
 })}));
 vi.mock("../../lib/nativeBridge", () => ({nativeBridge:{openUrl}}));
 import { siteLinks } from "../../../shared/siteLinks";
@@ -32,7 +33,7 @@ function AccountTrayWithToasts() {
     ]),
   } as unknown as MultiplexerActionsContextType;
   return <MultiplexerActionsContext.Provider value={actions}>
-    <AccountTray />
+    <AccountTray onOpenPlans={openPlans} />
     <NotificationToastContainer toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
   </MultiplexerActionsContext.Provider>;
 }
@@ -41,7 +42,7 @@ it("opens the existing account menu and starts login once from its sign-in item"
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray />));
+    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
     const button = host.querySelector("button");
     expect(button?.getAttribute("aria-label")).toBe("Account");
     await act(async () => button!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
@@ -79,7 +80,7 @@ it("shows identity and plan and wires subscription and sign out", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray />));
+    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
     const button = host.querySelector("button");
     expect(button?.getAttribute("aria-label")).toBe("Account: Ada");
     await act(async () => button!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
@@ -88,12 +89,29 @@ it("shows identity and plan and wires subscription and sign out", async () => {
     expect(menu?.textContent).toContain("pro (active)");
     const manageItem = Array.from(menu!.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.includes("Manage subscription"));
     await act(async () => manageItem!.click());
-    expect(manage).toHaveBeenCalledTimes(1);
+    expect(manage).toHaveBeenCalledExactlyOnceWith(openPlans);
     await act(async () => button!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
     const signOutItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.includes("Sign out"));
     await act(async () => signOutItem!.click());
     expect(signOut).toHaveBeenCalledTimes(1);
   } finally { await act(async () => root.unmount()); host.remove(); state.signedIn = false; }
+});
+
+it("marks the tray busy and disables Manage subscription while billing opens", async () => {
+  state.signedIn = true;
+  state.billingPending = true;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
+    const button = host.querySelector("button")!;
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    await act(async () => button.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
+    const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(entry => entry.textContent?.includes("Opening subscription"));
+    expect(item instanceof HTMLButtonElement && item.disabled).toBe(true);
+    await act(async () => item!.click());
+    expect(manage).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); state.signedIn = false; state.billingPending = false; }
 });
 
 for (const [label, hint] of [
@@ -105,7 +123,7 @@ for (const [label, hint] of [
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray />));
+    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
     await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true})));
     const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === label);
     await act(async () => item!.click());
@@ -117,7 +135,7 @@ for (const signedIn of [false,true]) it(`opens community links in the system bro
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray />));
+    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
     for (const [label,url] of [["Telegram",siteLinks.telegram],["Discord",siteLinks.discord]]) {
       await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true})));
       const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === label);
@@ -134,7 +152,7 @@ it("exposes the session-only storage warning in the account menu", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTray />));
+    await act(async () => root.render(<AccountTray onOpenPlans={openPlans} />));
     await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
     const warning = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
       .find(item => item.textContent?.includes("Signed in for this session only"));

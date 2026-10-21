@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { CreditCard, UserRound } from "lucide-react";
 import { Button } from "../shared/Button";
@@ -6,6 +7,8 @@ import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignIn
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
 import { useAccountPlan } from "./useAccountPlan";
 import { useAccount } from "./useAccount";
+import { SettingsCardAnchor } from "./SettingsCardAnchor";
+import type { SettingsCardAnchorId } from "./sections";
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
 
@@ -14,10 +17,12 @@ function initialsOf(name: string): string {
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase();
 }
 
-export function AccountTab() {
+export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) {
   const { model, signIn, signOut } = useAccount();
   const billing = useAccountPlan(model.kind === "signed_in" ? model.identity.uid : null);
+  const [plansRequest, setPlansRequest] = useState(0);
   const signedIn = model.kind === "signed_in";
+  const revealPlans = () => setPlansRequest((count) => count + 1);
   return <SettingsPage title="Account">
     <SettingsCard icon={<UserRound size={16} />} title="Domios account">
       {model.kind === "signed_in" ? (() => {
@@ -58,7 +63,8 @@ export function AccountTab() {
         <div className="flex w-full items-center gap-2">
           <span className="text-xl font-semibold capitalize text-[var(--ct-fg)]">{billing.plan?.plan ?? "free"}</span>
           {billing.plan && <SettingsPill tone={billing.plan.status === "active" ? "green" : "muted"}>{billing.plan.status}</SettingsPill>}
-          {signedIn && <Button size="sm" variant="ghost" className="ml-auto text-xs" onClick={() => void billing.manage()}>Manage subscription</Button>}
+          {signedIn && <Button size="sm" variant="ghost" className="ml-auto text-xs" disabled={billing.pending} aria-busy={billing.pending}
+            onClick={() => void billing.manage(revealPlans)}>{billing.pending ? "Opening subscription…" : "Manage subscription"}</Button>}
         </div>
         {billing.plan?.periodEnd && <p className={MUTED}>
           {billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
@@ -67,7 +73,9 @@ export function AccountTab() {
         {billing.actionError && <InlineErrorNotice error={billing.actionError} operation="loading your plan" blocking />}
         {!signedIn && <p className={MUTED}>Sign in to change your plan.</p>}
         <div className="w-full">
-          <PlanCards currentPlan={billing.plan?.plan ?? null} canPurchase={signedIn} onChoose={(planKey) => void billing.upgrade(planKey)} />
+          <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
+            <PlanCards currentPlan={billing.plan?.plan ?? null} canPurchase={signedIn && !billing.pending} onChoose={(planKey) => void billing.upgrade(planKey)} />
+          </SettingsCardAnchor>
         </div>
       </div>
     </SettingsCard>
