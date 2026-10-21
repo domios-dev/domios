@@ -703,6 +703,8 @@ pub struct Plan {
     #[serde(default)]
     pub heartbeat: OrchestratorHeartbeat,
     #[serde(default)]
+    pub control_loop: super::ControlLoop,
+    #[serde(default)]
     pub review_policy: ReviewPolicy,
     #[serde(default)]
     pub evidence_reporters: Vec<PlanEvidenceReporterGrant>,
@@ -764,6 +766,7 @@ impl Plan {
             lineage: vec![],
             goal: None,
             heartbeat: OrchestratorHeartbeat::default(),
+            control_loop: super::ControlLoop::default(),
             review_policy: ReviewPolicy::default(),
             evidence_reporters: vec![],
             canvas: PlanCanvas::default(),
