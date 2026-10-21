@@ -317,6 +317,7 @@ mod tests {
 
     fn empty() -> PlanStateSnapshot {
         PlanStateSnapshot {
+            control_loop: Default::default(),
             plan_id: "pl".into(),
             title: "T".into(),
             status: crate::plan::PlanStatus::Active,
