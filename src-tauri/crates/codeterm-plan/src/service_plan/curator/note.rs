@@ -2,6 +2,7 @@
 pub struct CuratorNote {
     pub next_secs: u64,
     pub reason: String,
+    pub next_move: String,
     pub retro: Vec<String>,
     pub learnings: Vec<String>,
     pub next_checks: Vec<String>,
@@ -57,6 +58,7 @@ pub fn parse(text: &str, requested_secs: u64) -> Result<CuratorNote, String> {
         if let Some((head, value)) = raw.split_once(':') {
             if [
                 "NEXT",
+                "MOVE",
                 "RETRO",
                 "LEARN",
                 "NEXT-CHECK",
@@ -88,6 +90,13 @@ pub fn parse(text: &str, requested_secs: u64) -> Result<CuratorNote, String> {
                     }
                     asked_seen = true;
                     note.asked = line.into();
+                    continue;
+                }
+                if head == "MOVE" {
+                    if !note.next_move.is_empty() || !has_ids(line) {
+                        return Err("MOVE requires one next step with cited ids".into());
+                    }
+                    note.next_move = line.into();
                     continue;
                 }
             }
@@ -126,8 +135,8 @@ pub fn parse(text: &str, requested_secs: u64) -> Result<CuratorNote, String> {
             _ => return Err("unknown Curator note line".into()),
         }
     }
-    if !next_seen || !asked_seen {
-        return Err("NEXT and ASKED are required".into());
+    if !next_seen || !asked_seen || note.next_move.is_empty() {
+        return Err("NEXT, MOVE and ASKED are required".into());
     }
     if note.retro.len() > 5
         || note.learnings.len() > 3

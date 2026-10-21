@@ -20,6 +20,7 @@ pub mod loops;
 pub mod milestones;
 pub mod plans;
 pub mod project;
+pub mod router;
 pub mod sections;
 pub mod skills;
 pub mod spec;

@@ -16,6 +16,7 @@ pub struct CuratorGrantScope {
     pub saves: Vec<String>,
 }
 mod digest_sources;
+mod movement_sources;
 mod scheduling;
 #[cfg(test)]
 mod tests;
@@ -74,6 +75,9 @@ impl ServiceContext {
                     next_delay_secs: curator_delay(None),
                     turns: run.turns,
                     output_tokens: tokens,
+                    save_id: run.save_id.clone(),
+                    digest_hash: run.digest_hash.clone(),
+                    section_sizes: run.section_sizes.clone(),
                     duration_ms: now.saturating_sub(run.started_at),
                     ..Default::default()
                 };
@@ -182,6 +186,24 @@ impl ServiceContext {
             .finish_curator_round(&identity.plan_id, identity.number, &note, now)
             .map_err(|e| e.to_string())?;
         self.journal_curator(&identity.plan_id, &round);
+        let mut result_delivery_error = None;
+        if let Some(owner) = self
+            .plan_store
+            .get(&identity.plan_id)
+            .and_then(|plan| plan.owner.tab_id)
+        {
+            let body = format!(
+                "Curator round {} {}. MOVE: {}",
+                round.number, round.outcome, round.summary
+            );
+            result_delivery_error = self
+                .deliver_cron_report(
+                    &owner,
+                    crate::service::messenger::MessageEnvelope::default(),
+                    &body,
+                )
+                .err();
+        }
         if let Some(cron) = self.extensions.try_get::<crate::CronState>() {
             let run = cron
                 .lock()
@@ -199,6 +221,11 @@ impl ServiceContext {
         }
         self.ui
             .emit("plan-changed", json!({"plan_id":identity.plan_id}));
+        if let Some(error) = result_delivery_error {
+            return Err(format!(
+                "round finalized; Orchestrator result delivery failed: {error}"
+            ));
+        }
         Ok(round)
     }
 

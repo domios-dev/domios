@@ -3,12 +3,20 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const MAX_DIGEST_BYTES: usize = 8192;
-pub const SECTIONS: [(&str, usize); 10] = [
+pub const SECTIONS: [(&str, usize); 18] = [
+    ("decisions", 10),
+    ("owner questions", 10),
+    ("waits", 10),
+    ("review backlog", 1),
+    ("time in state", 10),
+    ("done but not shown", 10),
+    ("agent capacity", 15),
     ("actionable", 20),
     ("tasks moved", 20),
     ("reports", 10),
     ("review verdicts", 10),
     ("incidents", 10),
+    ("queues", 1),
     ("blueprints", 10),
     ("memory", 10),
     ("owner messages", 1),
@@ -54,17 +62,28 @@ pub fn build_bounded(header: &str, rows: &BTreeMap<String, Vec<Row>>, limit: usi
     let limit = limit.clamp(1, MAX_DIGEST_BYTES);
     let mut body = format!("{}\n", bounded_text(header, limit.saturating_sub(1)));
     let mut sizes = BTreeMap::new();
-    let mut activity = false;
+    let activity = SECTIONS.iter().any(|(name, _)| {
+        !matches!(
+            *name,
+            "actionable"
+                | "owner questions"
+                | "waits"
+                | "review backlog"
+                | "time in state"
+                | "agent capacity"
+                | "queues"
+        ) && rows.get(*name).is_some_and(|rows| !rows.is_empty())
+    });
     for (name, cap) in SECTIONS {
         let Some(rows) = rows.get(name).filter(|r| !r.is_empty()) else {
             continue;
         };
-        if name != "actionable" {
-            activity = true;
-        }
         let mut rows = rows.clone();
         rows.sort();
         rows.dedup();
+        if name == "time in state" {
+            rows.sort_by(|a, b| b.summary.cmp(&a.summary).then_with(|| a.id.cmp(&b.id)));
+        }
         let start = body.len();
         let title = format!("\n{name}:\n");
         if body.len() + title.len() + 16 > limit {
