@@ -5,7 +5,7 @@ import { tierAfterModelChange } from "./serviceTierPickerModel";
 import { ServiceTierPicker } from "./ServiceTierPicker";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import { Check, ChevronDown, RotateCw, Search } from "lucide-react";
+import { Check, ChevronDown, RotateCw, Search, X } from "lucide-react";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
@@ -306,6 +306,19 @@ export function ModelPickerPopover({
 
   function chooseModel(model: string) {
     choose({ ...staged, model, serviceTier:tierAfterModelChange(staged?.serviceTier,serviceTierAvailability?.[model]), effort: effortAfterModelChange(descriptor, model, staged?.effort ?? currentEffort) });
+    closeSearch();
+  }
+
+  // Searching swaps the settings for results inside the same box, so the picker keeps the height it opened with.
+  const [frozenHeight, setFrozenHeight] = useState<number | null>(null);
+  function openSearch() {
+    setFrozenHeight(popoverRef.current?.getBoundingClientRect().height ?? null);
+    setSearchOpen(true);
+  }
+  function closeSearch() {
+    setSearchOpen(false);
+    setQuery("");
+    setFrozenHeight(null);
   }
 
   async function refresh() {
@@ -345,7 +358,7 @@ export function ModelPickerPopover({
       aria-labelledby={titleId}
       data-testid="status-model-picker"
       className="ct-menu ct-model-picker"
-      style={{ width: PICKER_WIDTH, maxHeight: 440, overflowY: "auto" }}
+      style={{ width: PICKER_WIDTH, maxHeight: 440, overflowY: "auto", ...(frozenHeight ? { height: frozenHeight } : {}) }}
       onKeyDown={(event) => {
         if (event.code !== "Escape" && event.code !== "Enter" && event.code !== "NumpadEnter") return;
         if (event.code !== "Escape" && (event.target as HTMLElement).closest("button")) return;
@@ -364,7 +377,7 @@ export function ModelPickerPopover({
             className="ct-model-picker__refresh"
             aria-label="Search models"
             title="Search models"
-            onClick={() => setSearchOpen(true)}
+            onClick={openSearch}
           >
             <Search size={13} aria-hidden />
           </button>
@@ -381,26 +394,39 @@ export function ModelPickerPopover({
         </button>
       </div>
       {searchable && searchOpen && (
-        <input
-          ref={searchRef}
-          type="search"
-          className="ct-model-picker__search"
-          aria-label="Search models"
-          placeholder="Search models"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && !query) {
+        <div className="relative">
+          <input
+            ref={searchRef}
+            type="text"
+            className="ct-model-picker__search"
+            style={{ paddingRight: 30 }}
+            aria-label="Search models"
+            placeholder="Search models"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                closeSearch();
+                return;
+              }
+              if (event.key !== "ArrowDown") return;
               event.preventDefault();
-              event.stopPropagation();
-              setSearchOpen(false);
-              return;
-            }
-            if (event.key !== "ArrowDown") return;
-            event.preventDefault();
-            popoverRef.current?.querySelector<HTMLElement>(OPTION_SELECTOR)?.focus();
-          }}
-        />
+              popoverRef.current?.querySelector<HTMLElement>(OPTION_SELECTOR)?.focus();
+            }}
+          />
+          <button
+            type="button"
+            className="ct-model-picker__refresh"
+            aria-label="Close search"
+            title="Close search"
+            style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)" }}
+            onClick={closeSearch}
+          >
+            <X size={13} aria-hidden />
+          </button>
+        </div>
       )}
       <div role="listbox" aria-label="Models" className="ct-model-picker__list" onKeyDown={onListKeyDown}>
         {groups.length === 0 && <p className="ct-model-picker__empty">No model matches “{query.trim()}”.</p>}
@@ -436,7 +462,7 @@ export function ModelPickerPopover({
           </div>
         ))}
       </div>
-      {pickerHasPrimaryModels(descriptor) && (
+      {!searchOpen && pickerHasPrimaryModels(descriptor) && (
         <button
           type="button"
           className="ct-menu-row ct-model-picker__toggle"
@@ -451,7 +477,7 @@ export function ModelPickerPopover({
         </button>
       )}
       <div role="separator" className="ct-menu-separator" />
-      {staged && (hasRuntimeModes || efforts.length > 0 || hasServiceTiers) && (
+      {!searchOpen && staged && (hasRuntimeModes || efforts.length > 0 || hasServiceTiers) && (
         <div className="ct-model-picker__settings">
           {hasRuntimeModes && (
             <label className="ct-model-picker__effort">

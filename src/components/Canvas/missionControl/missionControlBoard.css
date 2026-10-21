@@ -481,12 +481,10 @@
   color: var(--ct-muted-fg);
   overflow-wrap: break-word;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
 }
 
-.mc-board-plan-goal[data-expanded="true"] {
-  -webkit-line-clamp: unset;
-}
+button.mc-board-plan-goal { width: 100%; color: var(--ct-muted-fg); font-size: var(--mc-text-body); }
 
 .mc-board-plan-list > li {
   display: flex;

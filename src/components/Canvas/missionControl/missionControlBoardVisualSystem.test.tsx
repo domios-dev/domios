@@ -244,7 +244,7 @@ describe("mission control board visual system", () => {
     const { host, plan, unmount } = await renderAt(OWNER_WIDTH);
 
     expect(plan.querySelector('[data-testid="mc-board-plan-heading"]')?.textContent).toBe(FIXTURE_PLAN.title);
-    expect(plan.querySelector('[data-testid="mc-board-tasks-amount"]')?.textContent).toBe("4");
+    expect(plan.querySelector('[data-testid="mc-board-task-statuses"] [role="img"]')?.getAttribute("aria-label")).toMatch(/^4 tasks/);
     const statuses = Array.from(plan.querySelectorAll('[data-testid="mc-board-task-statuses"] li')) as HTMLElement[];
     expect(statuses.map((status) => status.getAttribute("data-testid"))).toEqual(["mc-board-task-status-paused"]);
     expect(plan.querySelector('[data-testid="mc-board-progress-stats"]')?.textContent).toBe(

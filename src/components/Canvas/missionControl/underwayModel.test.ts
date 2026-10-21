@@ -39,6 +39,7 @@ test("bounded segments preserve checklist order and all five states, excluding s
 });
 
 test("resize stays within small bounded viewer preferences", () => {
-  assert.deepEqual(boundedUnderwaySize({ width: 1, height: 10 }), { width: 280, height: 160 });
+  assert.deepEqual(boundedUnderwaySize({ width: 1, height: 10 }), { width: 320, height: 200 });
   assert.deepEqual(boundedUnderwaySize({ width: 9000, height: 9000 }), { width: 1600, height: 800 });
+  assert.deepEqual(boundedUnderwaySize({ width: 900, height: 300 }, 700), { width: 700, height: 300 });
 });

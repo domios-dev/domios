@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import type { ReactNode } from "react";
 import { AnimatedNumber } from "./AnimatedNumber";
 import {
   doneCaption,
@@ -10,51 +10,14 @@ import {
 } from "./missionControlBoardModel";
 import type { BounceSummary } from "./missionControlState";
 
-function useLineClamped(ref: RefObject<HTMLElement | null>, text: string): boolean {
-  const [clamped, setClamped] = useState(false);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const measure = () => setClamped(el.scrollHeight > el.clientHeight + 1);
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    measure();
-    return () => observer.disconnect();
-  }, [ref, text]);
-  return clamped;
-}
-
-/** The goal at reading size, cut to three lines until the owner asks for the rest. */
-export function PlanGoal({ goal }: { goal: string }) {
-  const ref = useRef<HTMLParagraphElement | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  const clamped = useLineClamped(ref, goal);
-  const goalId = useId();
-  return (
-    <>
-      <p
-        ref={ref}
-        id={goalId}
-        data-testid="mc-board-plan-goal"
-        data-expanded={expanded ? "true" : undefined}
-        className="mc-board-plan-goal"
-        title={goal}
-      >
-        {goal}
-      </p>
-      {(clamped || expanded) && (
-        <button
-          type="button"
-          data-testid="mc-board-plan-goal-toggle"
-          className="mc-board-more"
-          aria-expanded={expanded}
-          aria-controls={goalId}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? "Show less" : "Read the whole goal"}
-        </button>
-      )}
-    </>
+/** The goal cut to two lines; the whole of it lives in the plan the goal opens. */
+export function PlanGoal({ goal, onOpen }: { goal: string; onOpen?: () => void }) {
+  return onOpen ? (
+    <button type="button" data-testid="mc-board-plan-goal" className="mc-board-plan-goal mc-board-plan-link" title={goal} onClick={onOpen}>
+      {goal}
+    </button>
+  ) : (
+    <p data-testid="mc-board-plan-goal" className="mc-board-plan-goal" title={goal}>{goal}</p>
   );
 }
 

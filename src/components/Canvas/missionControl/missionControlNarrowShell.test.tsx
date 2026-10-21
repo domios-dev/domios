@@ -308,7 +308,7 @@ describe("mission control narrow shell", () => {
     expect(text(narrow.host, "mc-board-plan-heading").length).toBeGreaterThan(0);
     expect(taskStatusValues(narrow.host)).toEqual([10, 2, 1, 1, 1, 1]);
     expect(taskStatusValues(narrow.host).reduce((sum, value) => sum + value, 0)).toBe(
-      Number(text(narrow.host, "mc-board-tasks-amount").replace(/,/g, "")),
+      Number((/^([\d,]+) tasks/.exec(narrow.host.querySelector('[data-testid="mc-board-task-statuses"] [role="img"]')?.getAttribute("aria-label") ?? "")?.[1] ?? "").replace(/,/g, "")),
     );
     expect(text(narrow.host, "mc-board-progress-stats")).toBe("done67%10 of 15blocked1of 5 openfirst try83%1 bounced");
     expect(text(narrow.host, "mc-board-plan")).not.toContain("5.3M");

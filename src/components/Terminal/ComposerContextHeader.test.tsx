@@ -116,7 +116,7 @@ async function main() {
     /></MuxStateStoreContext.Provider>,
   );
   await act(async () => { render("tab-a", [stashed, delayed, system]); });
-  assert.equal(host.querySelector('[data-kind="delayed"]')?.getAttribute("aria-label"), "2 delayed messages, plan heartbeat");
+  assert.equal(host.querySelector('[data-kind="delayed"]')?.getAttribute("aria-label"), "3 delayed messages, plan heartbeat", "the heartbeat counts as a delayed message");
   assert.equal(host.querySelectorAll('button[title="Heartbeat"]').length, 0);
   const delayedChip = requireControl<HTMLButtonElement>('button[title="Delayed messages"]');
   await act(async () => { delayedChip.click(); });
@@ -128,7 +128,7 @@ async function main() {
   assert.equal(document.querySelector('[role="dialog"][aria-labelledby="system-heartbeat-title"]')?.textContent?.includes("Plan reminder"), true);
   await act(async () => { document.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click(); });
   await act(async () => { render("tab-a", [system, { ...delayed, id: "due", scheduledAtMs: 0 }, { ...delayed, id: "sending", state: "sending" }]); });
-  assert.equal(delayedChip.getAttribute("aria-label"), "0 delayed messages, plan heartbeat");
+  assert.equal(delayedChip.getAttribute("aria-label"), "1 delayed messages, plan heartbeat");
   assert.equal(requireControl('[aria-label="Plan heartbeat: Plan reminder"]'), heartbeatRow, "queue transitions preserve the heartbeat row");
   assert.equal(document.querySelectorAll('[aria-label="Cancel delayed message"]').length, 0);
   await act(async () => { render("tab-a", [stashed, delayed, system]); });

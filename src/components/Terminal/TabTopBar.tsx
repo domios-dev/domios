@@ -236,14 +236,27 @@ export function TabTopBar({
   useLayoutEffect(() => {
     const row = bubblesRef.current;
     if (!row) return;
-    const check = () => setHiddenBubbles(Array.from(row.children)
-      .filter((child) => child instanceof HTMLElement && !child.dataset.bubblesToggle && child.offsetWidth > 0 && child.offsetTop - row.offsetTop >= TAB_BAR_CONTROL_H).length);
-    check();
-    const observer = new ResizeObserver(check);
-    observer.observe(row);
-    for (const child of Array.from(row.children)) observer.observe(child);
-    return () => observer.disconnect();
-  });
+    // Bubbles mount and resize on their own (plugins load late), so both child changes and child sizes re-measure.
+    const sizes = new ResizeObserver(() => check());
+    const check = () => {
+      const top = row.getBoundingClientRect().top;
+      setHiddenBubbles(Array.from(row.children).filter((child) => {
+        if (!(child instanceof HTMLElement) || child.dataset.bubblesToggle) return false;
+        const box = child.getBoundingClientRect();
+        return box.width > 0 && box.top - top >= TAB_BAR_CONTROL_H;
+      }).length);
+    };
+    const watch = () => {
+      sizes.disconnect();
+      sizes.observe(row);
+      for (const child of Array.from(row.children)) sizes.observe(child);
+      check();
+    };
+    const mutations = new MutationObserver(watch);
+    mutations.observe(row, { childList: true, subtree: true, characterData: true });
+    watch();
+    return () => { sizes.disconnect(); mutations.disconnect(); };
+  }, []);
 
   return (
     <div
@@ -276,7 +289,9 @@ export function TabTopBar({
       <div
         ref={bubblesRef}
         className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 overflow-hidden sm:gap-1.5"
-        style={bubblesOpen ? undefined : { maxHeight: TAB_BAR_CONTROL_H }}
+        style={bubblesOpen
+          ? { background: "var(--ct-bg)", rowGap: 8, paddingBottom: 8, marginBottom: -8, boxShadow: "0 12px 12px -6px var(--ct-bg)", position: "relative", zIndex: 3 }
+          : { maxHeight: TAB_BAR_CONTROL_H }}
       >
         {(hiddenBubbles > 0 || bubblesOpen) && (
           <button

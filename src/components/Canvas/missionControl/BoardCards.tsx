@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { AnchoredPopover } from "../../shared/AnchoredPopover";
 import type { Plan } from "../types";
+import type { ApiConfig } from "../../../lib/types";
+import { PlanModeControls } from "../planView/PlanModeControls";
 import { PLANNING_STATE_LABEL, planDraftState } from "../planView/boardModel";
 import {
   formatCount,
@@ -265,46 +267,25 @@ export function PlanCard({
   previousPlans = [],
   onOpenPlan,
   onOpenPlanView,
-  onOpenTasksView,
+  api,
 }: {
   plan: Plan;
+  api?: ApiConfig;
   counts: PlanTaskCounts;
   bounces: BounceSummary;
   previousPlans?: readonly Plan[];
   onOpenPlan?: (planId: string) => void;
   onOpenPlanView?: () => void;
-  onOpenTasksView?: () => void;
 }) {
   const progress = progressReading(counts);
   const heading = plan.title;
   const goal = planGoal(plan);
   const draft = planDraftState(plan);
-  const taskCount = (
-    <>
-      <span data-testid="mc-board-tasks-amount" className="mc-board-num">
-        <AnimatedNumber value={progress.total} format={formatCount} />
-      </span>
-      {progress.total === 1 ? " task" : " tasks"}
-    </>
-  );
   return (
     <BoardPanel
       testId="mc-board-plan"
       title="Plan"
-      meta={
-        onOpenTasksView ? (
-          <button
-            type="button"
-            data-testid="mc-board-plan-tasks-link"
-            className="mc-board-meta-link"
-            onClick={onOpenTasksView}
-          >
-            {taskCount}
-          </button>
-        ) : (
-          taskCount
-        )
-      }
+      meta={<PlanModeControls plan={plan} api={api} reason="Paused from Mission Control" />}
     >
       <BoardPanelSection>
         {onOpenPlanView ? (
@@ -329,7 +310,7 @@ export function PlanCard({
             </span>
           </p>
         )}
-        {goal && <PlanGoal goal={goal} />}
+        {goal && <PlanGoal goal={goal} onOpen={onOpenPlanView} />}
       </BoardPanelSection>
       <BoardPanelSection>
         <PlanProgressStats progress={progress} bounces={bounces} />

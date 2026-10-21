@@ -64,7 +64,10 @@ export function UnderwayBoardRow({ api, teamId, plans, refs, deepLinks }: {
   const views = useAgentChecklists(rows.map(({ tab }) => tab.id));
   const { size, handle } = useUnderwayResize();
   return <div className="mc-board-live-row">
-    {api && <BoardPanel testId="mc-board-reflexes" title="Spinal-cord activity" className="mc-board-reflexes"><div className="mc-board-sub"><ActivityFeed api={api} teamId={teamId} embedded /></div></BoardPanel>}
+    {api && <div className="mc-reflexes-frame" style={{ height: size ? `${size.height}px` : undefined }}>
+      <BoardPanel testId="mc-board-reflexes" title="Spinal-cord activity" className="mc-board-reflexes"><div className="mc-board-sub mc-reflexes-list"><ActivityFeed api={api} teamId={teamId} embedded /></div></BoardPanel>
+      <button type="button" className="mc-underway-resize mc-underway-resize--right" aria-label="Resize activity and Underway; use arrow keys" title="Drag to resize" {...handle} />
+    </div>}
     <div className="mc-underway-frame" style={{ flexBasis: size ? `${size.width}px` : undefined, height: size ? `${size.height}px` : undefined }}>
       <BoardPanel testId="mc-board-underway" title="Underway" meta={<span className="inline-flex items-center gap-1.5">{rows.length ? `${rows.length} with checklists` : "none"}<ActivityDots size="small" tone="muted" active={rows.some(({ tab }) => tab.agent_state?.state === "working")} /></span>}>
         <div className="mc-underway-list">

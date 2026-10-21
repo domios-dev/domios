@@ -13,7 +13,7 @@ import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionA
 import { canStopJob, jobStateLabel, tabJobKey, type MergedJob, type TabJob } from "../Jobs/jobsModel";
 import { requestOpenJob } from "../Jobs/openJobEvent";
 import { openTabJob, useTabJobs } from "../Jobs/useTabJobs";
-import { formatScheduledTime, type DelayedMessage } from "./delayedSend";
+import { formatClock, formatScheduledTime, type DelayedMessage } from "./delayedSend";
 import { composerDelayedModel } from "./composerDelayedModel";
 import { formatCadence } from "./systemHeartbeatProjection";
 import { SystemHeartbeatDetail } from "./SystemHeartbeatDetail";
@@ -186,7 +186,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const counts: Record<ContextKind, number> = {
     blueprints: blueprintChips.length + blueprints.length,
     crons: cronChips.length,
-    delayed: delayedModel.count,
+    delayed: delayedModel.count + heartbeats.length,
     goal: Number(hasGoal),
     background: backgroundBubble?.count ?? 0,
   };
@@ -266,7 +266,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
           <ContextBubble key={message.id} tone="heartbeat" label={`Plan heartbeat: ${message.text}`} onOpen={() => setHeartbeatId(message.id)}>
             <HeartPulse size={13} aria-hidden="true" />
             <span className="ct-ctx-bubble__title">Plan heartbeat</span>
-            <span className="ct-ctx-bubble__meta">{message.recurrence ? formatCadence(message.recurrence.everyMs) : "unset"} · next {formatScheduledTime(message.scheduledAtMs)}</span>
+            <span className="ct-ctx-bubble__meta">{message.recurrence ? formatCadence(message.recurrence.everyMs) : "unset"} · next {formatClock(message.scheduledAtMs)}</span>
           </ContextBubble>
         ))}
         {delayed.map((message) => {
@@ -304,7 +304,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     return next ? <ContextTitle kind="delayed" prefix="Next:" primary={delayedWhen(next)} secondary={next.text} /> : null;
   };
 
-  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0) + heartbeats.length + Number(hasPluginError);
+  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0) + Number(hasPluginError);
   const PillIcon = plan ? Map : kinds.length > 0 ? KIND_ICON[kinds[0]] : heartbeats.length > 0 ? HeartPulse : hasGoal ? Target : TriangleAlert;
   const pill = phone && (
     <button
@@ -358,9 +358,8 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
               onClick={() => toggle(kind)}
             >
               <Icon size={13} aria-hidden="true" />
-              {(phone || kind === "delayed") && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
+              {!phone && kind === "delayed" && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
               {(phone || kind === "delayed" || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
-              {kind === "delayed" && heartbeats.length > 0 && <HeartPulse size={13} aria-label="Plan heartbeat" className="text-[var(--ct-accent)]" />}
               {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
             </ComposerContextChip>
           );
