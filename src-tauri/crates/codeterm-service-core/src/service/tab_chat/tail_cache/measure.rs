@@ -59,7 +59,12 @@ fn timed(step: &'static str, run: impl FnOnce() -> u64) -> Cost {
     }
 }
 
-fn scroll_back(registry: &Arc<AgentRegistry>, provider_id: &str, path: &Path, mut until: u64) -> u64 {
+fn scroll_back(
+    registry: &Arc<AgentRegistry>,
+    provider_id: &str,
+    path: &Path,
+    mut until: u64,
+) -> u64 {
     let mut bytes = 0;
     for _ in 0..SCROLL_PAGES {
         let page = session_window::parse_page_before(registry, provider_id, path, until).unwrap();
