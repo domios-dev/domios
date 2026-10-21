@@ -60,7 +60,7 @@ test("resize controls persist the changed size across viewer remount", async () 
   const host = document.createElement("div");
   let root = createRoot(host);
   await act(async () => root.render(<Harness />));
-  await act(async () => host.querySelector("button")?.dispatchEvent(new dom.KeyboardEvent("keydown", { bubbles: true, code: "ArrowRight" }) as unknown as Event));
+  await act(async () => host.querySelector("button")?.dispatchEvent(new dom.KeyboardEvent("keydown", { bubbles: true, code: "ArrowLeft" }) as unknown as Event));
   assert.equal(host.querySelector("output")?.textContent, '{"width":552,"height":292}');
   await act(async () => root.unmount());
   root = createRoot(host);
