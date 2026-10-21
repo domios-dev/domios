@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { Notice } from "../../lib/notices";
 import { Window } from "happy-dom";
 
 const window = new Window({ url: "http://localhost/" });
@@ -11,7 +12,7 @@ async function main() {
   const [{ act, useState }, { createRoot }, { useTeamClose }, { GroupCloseConfirmDialog }, bridge] = await Promise.all([
     import("react"), import("react-dom/client"), import("./useTeamClose"), import("./GroupCloseConfirmDialog"), import("../../lib/bridge"),
   ]);
-  const notices: Array<{ severity: string; body: string | null; local_actions?: { label: string }[] }> = [];
+  const notices: Notice[] = [];
   const notify = (notice: typeof notices[number]) => { notices.push(notice); };
   const empty = { removed: [], kept: [], orphan_branches: [] };
   type Inventory = import("../../lib/teamActions").TeamCloseInventory;
@@ -50,7 +51,7 @@ async function main() {
   root = await mount();
   await act(async () => settle({ ...empty, kept: [{ path: "C:/lanes/preserved", branch: "lane/work", reason: "dirty" }] }));
   assert.equal(notices[0].severity, "Info");
-  assert.equal(notices[0].body, "C:/lanes/preserved");
+  assert.equal(notices[0].detail, "C:/lanes/preserved");
   await act(async () => root.unmount());
   notices.length = 0;
   const { configureOrchestrationTransport } = await import("../../lib/transport/orchestrationRuntime");
@@ -76,8 +77,8 @@ async function main() {
   root = await mount();
   await act(async () => reject(new Error("partial teardown")));
   assert.equal(notices[0].severity, "Error");
-  assert.equal(notices[0].body, "Tab: Worker\npartial teardown");
-  assert.equal(notices[0].local_actions?.[0].label, "Retry");
+  assert.equal(notices[0].detail, "Tab: Worker\npartial teardown");
+  assert.equal(notices[0].actions?.[0].label, "Retry");
   await act(async () => root.unmount());
   bridge.__setInvokeForTest(null);
 }

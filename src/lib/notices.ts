@@ -6,9 +6,12 @@ export interface Notice {
   kind: "toast" | "debug";
   severity: Notification["severity"];
   title: string;
-  detail?: string;
+  detail?: string | null;
   actions?: Notification["local_actions"];
   id?: string;
+  tabId?: string | null;
+  workspaceId?: string | null;
+  lifetimeMs?: number;
 }
 
 export type ToastInput = Omit<Notification, "timestamp" | "read">;
@@ -45,8 +48,9 @@ export function createNoticePublisher({ upsertToast, debug = debugNotice }: Noti
       title: notice.title,
       body: notice.detail ?? null,
       local_actions: notice.actions,
-      tab_id: null,
-      workspace_id: null,
+      tab_id: notice.tabId ?? null,
+      workspace_id: notice.workspaceId ?? null,
+      lifetime_ms: notice.lifetimeMs,
     });
   };
 }

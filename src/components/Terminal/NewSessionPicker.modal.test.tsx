@@ -15,7 +15,7 @@ const fixture = vi.hoisted(() => {
       spawnAgentTab: vi.fn(async () => null),
       createOrchestrationPair: vi.fn(async () => ({ orchestrator_tab_id: "lead-tab" })),
       selectTabByTab: vi.fn(async () => undefined),
-      addNotification: vi.fn(),
+      upsertToast: vi.fn(),
       setWorkspaceCwd: vi.fn(async () => ({ warnings: [] })),
     },
     folderDialog: vi.fn(async () => "/relocated"),
@@ -72,7 +72,7 @@ beforeEach(() => {
   localStorage.clear();
   localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "opencode" }));
   fixture.workspace.cwd_missing = false;
-  fixture.actions.addNotification.mockClear();
+  fixture.actions.upsertToast.mockClear();
   fixture.actions.setWorkspaceCwd.mockReset();
   fixture.actions.setWorkspaceCwd.mockResolvedValue({ warnings: [] });
   fixture.actions.spawnAgentTab.mockReset();
@@ -295,8 +295,8 @@ it("dismisses a team request before it resolves and preserves its eventual error
   const message = "opaque backend workspace/path/recovery sentence";
   await act(async () => reject(new TransportError(422, "/api/orchestration/new",
     JSON.stringify({ error: { code: "workspace_cwd_missing", message } }))));
-  expect(fixture.actions.addNotification).toHaveBeenCalledTimes(1);
-  expect(fixture.actions.addNotification.mock.calls[0][0].body).toContain(message);
+  expect(fixture.actions.upsertToast).toHaveBeenCalledTimes(1);
+  expect(fixture.actions.upsertToast.mock.calls[0][0].body).toContain(message);
   expect(start.disabled).toBe(false);
   expect(onClose).toHaveBeenCalledTimes(1);
 });
@@ -308,8 +308,8 @@ it("preserves a single-agent failure after dismissal", async () => {
   const onClose = vi.fn();
   await renderPicker({ fullAccess: false, onClose });
   await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
-  expect(fixture.actions.addNotification).toHaveBeenCalledTimes(1);
-  expect(fixture.actions.addNotification.mock.calls[0][0].body).toContain(message);
+  expect(fixture.actions.upsertToast).toHaveBeenCalledTimes(1);
+  expect(fixture.actions.upsertToast.mock.calls[0][0].body).toContain(message);
 });
 
 it("offers folder relocation instead of session or team start for a missing workspace", async () => {

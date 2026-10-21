@@ -6,10 +6,13 @@ afterEach(() => vi.restoreAllMocks());
 it("publishes local notices with their actions into the toast port", async () => {
   const upsertToast = vi.fn();
   const run = vi.fn();
-  createNoticePublisher({ upsertToast })({ kind: "toast", severity: "Warning", title: "opaque", detail: "detail", actions: [{ label: "Retry", run }] });
+  createNoticePublisher({ upsertToast })({ kind: "toast", severity: "Warning", title: "opaque", detail: "detail", tabId: "tab", workspaceId: "workspace", lifetimeMs: 1000, actions: [{ label: "Retry", run }] });
   const toast = upsertToast.mock.calls[0][0];
   expect(toast.title).toBe("opaque");
   expect(toast.body).toBe("detail");
+  expect(toast.tab_id).toBe("tab");
+  expect(toast.workspace_id).toBe("workspace");
+  expect(toast.lifetime_ms).toBe(1000);
   expect(toast.actions).toBeUndefined();
   await toast.local_actions[0].run();
   expect(run).toHaveBeenCalledOnce();
