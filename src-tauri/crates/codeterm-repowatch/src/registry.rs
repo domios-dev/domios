@@ -2,6 +2,7 @@ use super::backend::{ActiveWatch, NotifyBackend, WatchBackend, WatchSignal, Watc
 use super::events::{RepoEventSink, RepoWatchError, RepoWatchUnavailable};
 use super::filter::{batch_is_relevant, WatchHalf};
 use super::identity::RepoIdentity;
+use super::unresolved::{PathShape, UnresolvedPaths};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
@@ -44,6 +45,7 @@ pub struct RepoWatchRegistry {
     backend: Arc<dyn WatchBackend>,
     inner: Mutex<Inner>,
     lane_tokens: Mutex<HashMap<String, String>>,
+    unresolved: Mutex<UnresolvedPaths>,
     next_token: AtomicU64,
 }
 
@@ -58,16 +60,27 @@ impl RepoWatchRegistry {
             backend,
             inner: Mutex::new(Inner::default()),
             lane_tokens: Mutex::new(HashMap::new()),
+            unresolved: Mutex::new(UnresolvedPaths::default()),
             next_token: AtomicU64::new(1),
         }
     }
 
     /// Take a reference on the watch for this path's repository identity.
     /// Failure is loud on both channels: an error here and an unavailable event.
+    /// A path already refused as no repository fails quietly until its shape changes.
     pub fn subscribe(&self, path: &Path) -> Result<RepoWatchSubscription, RepoWatchError> {
+        let key = path_key(&path.to_string_lossy());
+        let shape = PathShape::probe(path);
+        if let Some(refusal) = self.unresolved.lock().refusal(&key, shape) {
+            return Err(refusal);
+        }
         let identity = match RepoIdentity::resolve(path) {
-            Ok(identity) => identity,
+            Ok(identity) => {
+                self.unresolved.lock().resolved(&key);
+                identity
+            }
             Err(e) => {
+                self.unresolved.lock().refuse(key, shape, e.clone());
                 self.sink.repository_unavailable(&e.identity, e.reason);
                 return Err(e);
             }
@@ -144,7 +157,7 @@ impl RepoWatchRegistry {
         lane_path: &str,
         canonical_path: &Path,
     ) -> Result<(), RepoWatchError> {
-        let key = lane_watch_key(lane_path);
+        let key = path_key(lane_path);
         if self.lane_tokens.lock().contains_key(&key) {
             return Ok(());
         }
@@ -163,7 +176,7 @@ impl RepoWatchRegistry {
     }
 
     pub fn release_lane_watch(&self, lane_path: &str) -> bool {
-        let token = self.lane_tokens.lock().remove(&lane_watch_key(lane_path));
+        let token = self.lane_tokens.lock().remove(&path_key(lane_path));
         token.is_some_and(|token| self.release(&token))
     }
 
@@ -310,7 +323,7 @@ fn dispatch(
     }
 }
 
-fn lane_watch_key(path: &str) -> String {
+fn path_key(path: &str) -> String {
     let path = path.trim().replace('\\', "/");
     if cfg!(windows) || cfg!(target_os = "macos") {
         path.to_lowercase()

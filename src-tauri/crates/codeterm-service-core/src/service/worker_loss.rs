@@ -23,6 +23,7 @@ mod tests;
 pub(crate) enum WorkerLossCause {
     TabGone,
     ProcessExited,
+    AgentUnavailable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -79,6 +80,7 @@ impl WorkerLoss {
         let cause = match self.cause {
             WorkerLossCause::TabGone => "its tab is gone",
             WorkerLossCause::ProcessExited => "its agent process exited",
+            WorkerLossCause::AgentUnavailable => "its tab has no verified live agent session",
         };
         format!(
             "[worker lost: {task}] Worker {tab} stopped ({cause}) while task {task} \"{name}\" of plan {plan} was in_progress.\n\

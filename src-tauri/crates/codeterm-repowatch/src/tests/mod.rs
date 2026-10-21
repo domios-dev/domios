@@ -7,4 +7,5 @@ mod refcount;
 mod rescan;
 mod silence;
 mod support;
+mod unresolved;
 mod working_tree;
