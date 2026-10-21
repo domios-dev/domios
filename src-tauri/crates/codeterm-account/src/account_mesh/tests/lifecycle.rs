@@ -366,6 +366,25 @@ async fn account_mesh_new_links_need_the_online_permit_and_the_registry_address(
 }
 
 #[tokio::test]
+async fn account_mesh_responder_authorizes_an_initiator_without_a_published_endpoint() {
+    let harness = enrolled().await;
+    harness.registry.script.lock().unwrap().peer_unpublished = true;
+    assert_eq!(
+        harness.mesh.resolve_link_target(PEER).await.err(),
+        Some(AccountMeshRefusal::Unavailable),
+        "dialing still needs the published endpoint"
+    );
+    let request = LinkAuthorization {
+        transcript: [7u8; 32],
+        local_installation_id: INSTALLATION.into(),
+        peer_installation_id: PEER.into(),
+        account_id: account_id(UID),
+    };
+    assert!(harness.mesh.authorize_link(request).await.is_ok());
+    assert_eq!(harness.calls("link"), 1);
+}
+
+#[tokio::test]
 async fn account_mesh_peer_membership_and_possession_follow_the_signed_in_account() {
     let harness = enrolled().await;
     let state = harness.state();

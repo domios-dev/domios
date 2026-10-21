@@ -10,9 +10,10 @@ use codeterm_account::account_mesh::wire::{
     MeshEndpoint, MeshTarget, RevokedResult, UpdatedResult,
 };
 use codeterm_account::account_mesh::{
-    AccountMesh, AccountMeshConfig, AccountMeshPorts, AccountMeshRefusal, AccountMeshView,
-    EndpointSource, EnrollTrigger, FileAccountMeshStore, LifecycleState, MembershipTrust,
-    MeshRegistry, MeshTransport, Presence, SessionSource, SystemClock, UnavailableRegistry,
+    AccountMesh, AccountMeshConfig, AccountMeshPorts, AccountMeshRecord, AccountMeshRefusal,
+    AccountMeshStore, AccountMeshView, EndpointSource, EnrollTrigger, FileAccountMeshStore,
+    LifecycleState, MembershipTrust, MeshRegistry, MeshTransport, Presence, SessionSource,
+    SystemClock, UnavailableRegistry,
 };
 use codeterm_account::Session;
 use serde::Serialize;
@@ -73,7 +74,7 @@ struct TransportBridge {
 #[async_trait]
 impl MeshTransport for TransportBridge {
     async fn apply(&self, state: &LifecycleState) {
-        self.mesh_state.send_replace(mesh_state(state));
+        publish_mesh_state(&self.mesh_state, mesh_state(state));
         if let Some(service) = self.service.upgrade() {
             service.ui.emit(
                 ACCOUNT_MESH_CHANGED,
@@ -260,9 +261,8 @@ impl ServiceContext {
             .collect()
     }
 
-    /// Binds the Mesh gate to the account lifecycle once and keeps them in step: every
-    /// account state reaches the gate before adoption runs, and the ready listener reaches
-    /// enrollment. The gate stays closed until the first state is applied.
+    /// Binds the Mesh gate to the account lifecycle and the ready listener to enrollment;
+    /// each account state reaches the gate before adoption runs.
     pub fn start_account_mesh_transport(&self) {
         let Some(service) = self.weak_self().upgrade() else {
             return;
@@ -275,8 +275,14 @@ impl ServiceContext {
             let account_mesh = match service.account_mesh().await {
                 Ok(account_mesh) => account_mesh,
                 Err(error) => {
-                    log::warn!("[account-mesh] unavailable; legacy pairs keep working: {error}");
-                    mesh.lock().apply_account_state(Default::default());
+                    log::warn!(
+                        "[account-mesh] unavailable; gating on the persisted sign-out: {error}"
+                    );
+                    let persisted = FileAccountMeshStore::new(crate::paths::data_dir())
+                        .load()
+                        .await;
+                    mesh.lock()
+                        .apply_account_state(fallback_mesh_state(persisted));
                     return;
                 }
             };
@@ -350,6 +356,38 @@ impl ServiceContext {
             .mesh
             .acknowledge_limit_notice(request_id)
             .await)
+    }
+}
+
+/// Wakes the gate only when the projection changes, so lifecycle pushes cannot storm announces.
+fn publish_mesh_state(
+    sender: &watch::Sender<codeterm_mesh::account_mesh::AccountMeshState>,
+    next: codeterm_mesh::account_mesh::AccountMeshState,
+) -> bool {
+    sender.send_if_modified(|current| {
+        if *current == next {
+            return false;
+        }
+        *current = next;
+        true
+    })
+}
+
+/// Gate state without a running account service: never open past a persisted or unreadable sign-out.
+fn fallback_mesh_state(
+    persisted: std::io::Result<AccountMeshRecord>,
+) -> codeterm_mesh::account_mesh::AccountMeshState {
+    use codeterm_mesh::account_mesh::{AccountMeshState, AccountPresence};
+    match persisted {
+        Ok(record) if !record.signed_out => AccountMeshState {
+            presence: AccountPresence::NeverSignedIn,
+            revoked_installations: record.revoked_installations,
+            ..AccountMeshState::default()
+        },
+        _ => AccountMeshState {
+            presence: AccountPresence::SignedOut,
+            ..AccountMeshState::default()
+        },
     }
 }
 

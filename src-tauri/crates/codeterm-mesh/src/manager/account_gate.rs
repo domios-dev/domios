@@ -5,8 +5,18 @@ use super::MeshManager;
 use crate::account_mesh::gate::{self, BlockReason, TrafficDecision};
 use crate::account_mesh::ledger::{LinkAdmission, LinkRecord};
 use crate::account_mesh::protocol::AccountMeshPair;
-use crate::account_mesh::{AccountMeshAuthority, AccountMeshState, SignedMembership};
+use crate::account_mesh::{
+    AccountMeshAuthority, AccountMeshState, AdmissionRefusal, SignedMembership,
+};
 use crate::MeshState;
+
+pub(super) enum AdoptionAttempt {
+    InFlight,
+    Refused {
+        account_epoch: u64,
+        advertised: Option<String>,
+    },
+}
 
 pub(super) fn system_now() -> u64 {
     std::time::SystemTime::now()
@@ -220,6 +230,52 @@ impl MeshManager {
             .collect();
         pairs.sort_by(|a, b| a.name.cmp(&b.name).then(a.instance_id.cmp(&b.instance_id)));
         pairs
+    }
+
+    /// Remembers the membership a peer last advertised; a change re-enables adoption offers.
+    pub fn note_advertised_membership(&mut self, peer_id: &str, token: &str) {
+        self.advertised_memberships
+            .insert(peer_id.to_string(), token.to_string());
+    }
+
+    pub(crate) fn begin_adoption(&mut self, peer_id: &str) -> bool {
+        let advertised = self.advertised_memberships.get(peer_id).cloned();
+        let blocked = match self.adoptions.get(peer_id) {
+            Some(AdoptionAttempt::InFlight) => true,
+            Some(AdoptionAttempt::Refused {
+                account_epoch,
+                advertised: seen,
+            }) => *account_epoch == self.account.account_epoch && *seen == advertised,
+            None => false,
+        };
+        if !blocked {
+            self.adoptions
+                .insert(peer_id.to_string(), AdoptionAttempt::InFlight);
+        }
+        !blocked
+    }
+
+    /// Transport loss may be retried on the next event; a refusal waits for a change.
+    pub(crate) fn finish_adoption(
+        &mut self,
+        peer_id: &str,
+        outcome: &Result<(), AdmissionRefusal>,
+    ) {
+        match outcome {
+            Ok(())
+            | Err(AdmissionRefusal::PeerUnreachable)
+            | Err(AdmissionRefusal::Offline)
+            | Err(AdmissionRefusal::Cancelled) => {
+                self.adoptions.remove(peer_id);
+            }
+            Err(_) => {
+                let refused = AdoptionAttempt::Refused {
+                    account_epoch: self.account.account_epoch,
+                    advertised: self.advertised_memberships.get(peer_id).cloned(),
+                };
+                self.adoptions.insert(peer_id.to_string(), refused);
+            }
+        }
     }
 
     pub fn is_legacy_link(&self, peer_id: &str) -> bool {

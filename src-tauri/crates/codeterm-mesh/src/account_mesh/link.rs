@@ -4,12 +4,14 @@ use serde::Serialize;
 use super::ledger::LinkAdmission;
 use super::ports::{AdmissionRefusal, BoxFuture, LinkAuthorizationRequest, LinkPermitExpectation};
 use super::protocol::{
-    AccountMeshPair, AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkConfirm,
-    LinkConfirmReply, LinkHello, LinkHelloReply, PartyDescriptor, ADOPT_COMMIT_PATH,
-    ADOPT_OFFER_PATH, LINK_CONFIRM_PATH, LINK_HELLO_PATH,
+    AccountMeshPair, AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkCommit,
+    LinkCommitReply, LinkConfirm, LinkConfirmReply, LinkHello, LinkHelloReply, PartyDescriptor,
+    ADOPT_COMMIT_PATH, ADOPT_OFFER_PATH, LINK_COMMIT_PATH, LINK_CONFIRM_PATH, LINK_HELLO_PATH,
 };
-use super::transcript::{self, possession_digest, Party, Purpose, INITIATOR_ROLE, RESPONDER_ROLE};
-use crate::manager::AdmissionContext;
+use super::transcript::{
+    self, possession_digest, Party, Purpose, COMMIT_ROLE, INITIATOR_ROLE, RESPONDER_ROLE,
+};
+use crate::manager::{AdmissionContext, LinkOrigin};
 use crate::types::PeerAddress;
 use crate::MeshState;
 
@@ -206,24 +208,54 @@ pub async fn link_installation_with(
             .await?,
     )?;
 
+    {
+        let manager = mesh.lock();
+        manager.fence_admission(&context)?;
+        context.authority.verify_link_permit(
+            &confirmed.permit,
+            &LinkPermitExpectation {
+                transcript: digest,
+                holder_installation_id: responder.installation_id.clone(),
+                peer_installation_id: context.party.installation_id.clone(),
+                account_id: context.account_id.clone(),
+            },
+            manager.now(),
+        )?;
+    }
+    let commit = LinkCommit {
+        link_id: link_id.clone(),
+        mesh_signature: transcript::sign_mesh(&context.private_key, &digest, COMMIT_ROLE)
+            .map_err(AdmissionRefusal::handshake)?,
+    };
+    let committed: LinkCommitReply = decode(
+        transport
+            .post(
+                &target.ip,
+                target.api_port,
+                LINK_COMMIT_PATH,
+                None,
+                encode(&commit)?,
+            )
+            .await?,
+    )?;
+    if !committed.committed {
+        return Err(AdmissionRefusal::handshake("peer did not commit the link"));
+    }
+
     let mut manager = mesh.lock();
     manager.fence_admission(&context)?;
-    context.authority.verify_link_permit(
-        &confirmed.permit,
-        &LinkPermitExpectation {
-            transcript: digest,
-            holder_installation_id: responder.installation_id.clone(),
-            peer_installation_id: context.party.installation_id.clone(),
-            account_id: context.account_id.clone(),
-        },
-        manager.now(),
-    )?;
     let endpoint = [PeerAddress::from_ip(&target.ip)];
     let descriptor = PartyDescriptor {
         api_port: target.api_port,
         ..reply.responder
     };
-    manager.admit_new_link(&descriptor, &endpoint, remote, &context.account_id)?;
+    manager.admit_new_link(
+        &descriptor,
+        &endpoint,
+        remote,
+        &context.account_id,
+        LinkOrigin::LocalAdd,
+    )?;
     manager
         .account_mesh_pairs()
         .into_iter()
@@ -285,7 +317,21 @@ pub async fn adopt_peer(mesh: &MeshState, peer_id: &str) -> Result<(), Admission
 }
 
 /// Bilateral in-place adoption of an open legacy edge over its existing authenticated channel.
+/// Single-flight per peer; a peer that refused is not offered again until something changes.
 pub async fn adopt_peer_with(
+    mesh: &MeshState,
+    transport: &dyn LinkTransport,
+    peer_id: &str,
+) -> Result<(), AdmissionRefusal> {
+    if !mesh.lock().begin_adoption(peer_id) {
+        return Ok(());
+    }
+    let outcome = offer_adoption(mesh, transport, peer_id).await;
+    mesh.lock().finish_adoption(peer_id, &outcome);
+    outcome
+}
+
+async fn offer_adoption(
     mesh: &MeshState,
     transport: &dyn LinkTransport,
     peer_id: &str,

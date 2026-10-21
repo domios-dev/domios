@@ -5,6 +5,7 @@ use crate::types::PeerAddress;
 
 pub const LINK_HELLO_PATH: &str = "/api/mesh/link/hello";
 pub const LINK_CONFIRM_PATH: &str = "/api/mesh/link/confirm";
+pub const LINK_COMMIT_PATH: &str = "/api/mesh/link/commit";
 pub const ADOPT_OFFER_PATH: &str = "/api/mesh/adopt/offer";
 pub const ADOPT_COMMIT_PATH: &str = "/api/mesh/adopt/commit";
 
@@ -12,7 +13,7 @@ pub const ADOPT_COMMIT_PATH: &str = "/api/mesh/adopt/commit";
 pub const MEMBERSHIP_HEADER: &str = "x-domios-account-membership";
 
 /// Handshake routes authenticate by membership and transcript proof, never by a pairing key.
-pub const LINK_PATHS: [&str; 2] = [LINK_HELLO_PATH, LINK_CONFIRM_PATH];
+pub const LINK_PATHS: [&str; 3] = [LINK_HELLO_PATH, LINK_CONFIRM_PATH, LINK_COMMIT_PATH];
 
 /// Metadata a side reveals about itself; addresses never carry authority.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +55,18 @@ pub struct LinkConfirm {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkConfirmReply {
     pub permit: String,
+}
+
+/// The initiator verified the responder's permit and is about to record the pair.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkCommit {
+    pub link_id: String,
+    pub mesh_signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkCommitReply {
+    pub committed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

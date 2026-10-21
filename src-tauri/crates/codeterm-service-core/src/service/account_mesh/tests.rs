@@ -156,3 +156,40 @@ fn account_mesh_snapshot_and_outcomes_match_the_desktop_client() {
         json!({"ok": true, "result": null})
     );
 }
+
+#[test]
+fn account_mesh_start_failure_never_opens_past_a_persisted_sign_out() {
+    let signed_out = AccountMeshRecord {
+        signed_out: true,
+        ..AccountMeshRecord::default()
+    };
+    assert_eq!(
+        fallback_mesh_state(Ok(signed_out)).presence,
+        mesh::AccountPresence::SignedOut
+    );
+    assert_eq!(
+        fallback_mesh_state(Err(std::io::Error::other("corrupt"))).presence,
+        mesh::AccountPresence::SignedOut,
+        "an unreadable record fails closed"
+    );
+    assert_eq!(
+        fallback_mesh_state(Ok(AccountMeshRecord::default())).presence,
+        mesh::AccountPresence::NeverSignedIn,
+        "an upgrade that never signed out keeps legacy pairs"
+    );
+}
+
+#[test]
+fn account_mesh_unchanged_lifecycle_pushes_do_not_wake_the_gate() {
+    let sender = watch::channel(mesh::AccountMeshState::default()).0;
+    let mut receiver = sender.subscribe();
+    assert!(publish_mesh_state(&sender, mesh_state(&signed_in(1))));
+    assert!(receiver.has_changed().unwrap());
+    drop(receiver.borrow_and_update());
+    assert!(!publish_mesh_state(&sender, mesh_state(&signed_in(1))));
+    assert!(
+        !receiver.has_changed().unwrap(),
+        "same projection, no wakeup"
+    );
+    assert!(publish_mesh_state(&sender, mesh_state(&signed_in(2))));
+}

@@ -780,6 +780,7 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/link/confirm",
             post(mesh_routes::mesh_link_confirm),
         )
+        .route("/api/mesh/link/commit", post(mesh_routes::mesh_link_commit))
         .route("/api/mesh/adopt/offer", post(mesh_routes::mesh_adopt_offer))
         .route(
             "/api/mesh/adopt/commit",

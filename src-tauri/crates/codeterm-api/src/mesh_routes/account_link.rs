@@ -12,8 +12,8 @@ use futures_util::StreamExt;
 use super::connection::refusal_status;
 use crate::routes::AppState;
 use codeterm_service_core::mesh::account_mesh::protocol::{
-    AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkConfirm, LinkConfirmReply,
-    LinkHello, LinkHelloReply,
+    AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkCommit, LinkCommitReply,
+    LinkConfirm, LinkConfirmReply, LinkHello, LinkHelloReply,
 };
 use codeterm_service_core::mesh::account_mesh::AdmissionRefusal;
 
@@ -93,11 +93,19 @@ pub async fn mesh_link_confirm(
         .lock()
         .finish_link_confirm(confirmation)
         .map_err(refused)?;
+    Ok(Json(LinkConfirmReply { permit }))
+}
+
+pub async fn mesh_link_commit(
+    AxumState(state): AxumState<AppState>,
+    Json(commit): Json<LinkCommit>,
+) -> Result<Json<LinkCommitReply>, Refused> {
+    state.mesh.lock().commit_link(&commit).map_err(refused)?;
     state
         .svc
         .ui
         .emit("mesh-state-changed", serde_json::Value::Null);
-    Ok(Json(LinkConfirmReply { permit }))
+    Ok(Json(LinkCommitReply { committed: true }))
 }
 
 pub async fn mesh_adopt_offer(
