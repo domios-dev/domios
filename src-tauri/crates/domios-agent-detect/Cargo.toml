@@ -1,0 +1,22 @@
+[package]
+license = "PolyForm-Shield-1.0.0"
+name = "domios-agent-detect"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+domios-paths = { path = "../domios-paths" }
+domios-types = { path = "../domios-types" }
+domios-pty = { path = "../domios-pty" }
+domios-plugin = { path = "../domios-plugin" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+vt100 = "0.16"
+log = "0.4"
+
+[dev-dependencies]
+parking_lot = "0.12"
+
+[lints]
+workspace = true

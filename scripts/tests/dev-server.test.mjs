@@ -13,8 +13,8 @@ const repo = fileURLToPath(new URL('../..', import.meta.url));
 test('client and build changes refuse a half reload, including deletions and previously dirty inputs', () => {
   for (const file of ['src-tauri/src/host_ports/native_client.rs', 'src-tauri/src/startup/frontend_shell.rs',
     'src-tauri/tauri.conf.json', 'src-tauri/tauri.dev.conf.json', 'src-tauri/Cargo.toml',
-    'src-tauri/build.rs', 'src-tauri/crates/codeterm-client-shell/src/lib.rs', 'src-tauri/crates/codeterm-update/src/lib.rs',
-    'src-tauri/crates/codeterm-types/src/server_bootstrap.rs', 'scripts/dev-build-configuration.mjs']) {
+    'src-tauri/build.rs', 'src-tauri/crates/domios-client-shell/src/lib.rs', 'src-tauri/crates/domios-update/src/lib.rs',
+    'src-tauri/crates/domios-types/src/server_bootstrap.rs', 'scripts/dev-build-configuration.mjs']) {
     assert.equal(changeKind(file), 'client');
     for (const [before, after] of [[{[file]: 'dirty-at-build'}, {[file]: 'edited'}], [{[file]: 'old'}, {}], [{}, {[file]: 'added'}]]) {
       assert.throws(() => reloadPlan(before, after, []), /run \.\/build.sh dev instead/);
@@ -39,10 +39,10 @@ test('server-only changes retain CLI; frontend changes stay with the watcher', (
 test('CLI closure includes transitive local dependencies and rebuilds on their source changes', () => {
   const roots = cliSourceRoots(repo);
   assert.ok(roots.includes('cli'));
-  assert.ok(roots.includes('src-tauri/crates/codeterm-plugin'));
-  assert.ok(roots.includes('crates/mem-store'));
+  assert.ok(roots.includes('src-tauri/crates/domios-plugin'));
+  assert.ok(roots.includes('src-tauri/crates/mem-store'));
   assert.ok(!roots.includes('src-tauri/crates/domios-server'));
-  for (const file of ['cli/src/main.rs', 'crates/mem-store/src/lib.rs', 'src-tauri/crates/codeterm-plugin/src/lib.rs']) {
+  for (const file of ['cli/src/main.rs', 'src-tauri/crates/mem-store/src/lib.rs', 'src-tauri/crates/domios-plugin/src/lib.rs']) {
     assert.equal(reloadPlan({[file]: 'old'}, {[file]: 'new'}, roots).cli, true);
   }
 });
@@ -102,7 +102,7 @@ reload_dev_server
 `], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stderr, /cargo:build .* -p domios-server --bin domios-server/);
-  assert.doesNotMatch(result.stderr, /manifest-path cli\/Cargo.toml|-p codeterm --bin/);
+  assert.doesNotMatch(result.stderr, /manifest-path cli\/Cargo.toml|-p domios --bin/);
   assert.match(result.stdout, /dev-server.mjs stop record data 7887/);
   assert.match(result.stdout, /dev-server.mjs start record data 7887/);
   assert.ok(result.stdout.indexOf('check-dev-server') < result.stdout.indexOf('dev-server.mjs stop'));

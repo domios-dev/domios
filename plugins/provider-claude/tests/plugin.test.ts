@@ -864,14 +864,14 @@ for (const [name, fixture] of [
   assert(installed.foreign === true, "Claude install preserves foreign settings");
   const stopCommand = installed.hooks.Stop[0].hooks[0].command;
   assert(stopCommand.includes('--data-binary "@-"'), "Stop forwards the provider completion payload");
-  assert(stopCommand.includes('--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"'),
+  assert(stopCommand.includes('--header "X-Domios-Binding-Nonce: $DOMIOS_SESSION_BINDING_NONCE"'),
     "Stop authenticates the exact launch binding");
   assert(!installed.hooks.PreCompact, "Claude never installs raw memory export");
   assert(p.restoreIntegration().ok === true, "Claude restore succeeds");
   eq(files.get(settingsPath), original, "Claude restore reproduces exact original bytes");
   installed.hooks.Stop[0].hooks[0].command = stopCommand
     .replace('--data-binary "@-"', '--data-binary "{}"')
-    .replace('--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"', "");
+    .replace('--header "X-Domios-Binding-Nonce: $DOMIOS_SESSION_BINDING_NONCE"', "");
   files.set(settingsPath, JSON.stringify(installed));
   assert(p.checkIntegration().hook_contract_current === false,
     "the empty unverified Stop request requires repair");
@@ -906,7 +906,7 @@ console.log("--- permission_request ingestion ---");
     assert((cmd as string).indexOf('--data-binary "@-"') !== -1, `${key} forwards the stdin payload`);
     assert((cmd as string).indexOf("-d '{}'") === -1, `${key} never posts an empty body`);
     assert((cmd as string).indexOf("/hook/permission") !== -1, `${key} targets the existing permission route`);
-    assert((cmd as string).indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1, `${key} carries the binding nonce`);
+    assert((cmd as string).indexOf("DOMIOS_SESSION_BINDING_NONCE") !== -1, `${key} carries the binding nonce`);
   }
   eq(installed.hooks?.PermissionRequest?.[0]?.matcher, "*", "PermissionRequest fires per tool");
   eq(installed.hooks?.Notification?.[0]?.matcher, "permission_prompt", "Notification keeps the vendor matcher");
@@ -1188,7 +1188,7 @@ console.log("\n--- Claude primary alias catalog ---\n");
   const commands = sessionStart.flatMap((entry: any) => entry.hooks ?? []);
   eq(commands.length, 2, "both the foreign and owned SessionStart commands survive");
   assert(
-    commands.some((command: any) => command._source && String(command._source).indexOf("codeterm-hook-") === 0),
+    commands.some((command: any) => command._source && String(command._source).indexOf("domios-hook-") === 0),
     "the added hook carries a versioned ownership marker",
   );
 }

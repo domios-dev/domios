@@ -37,7 +37,7 @@ export function parseContextUsage(record: any): TurnContext | null {
 
 import {modelSettings} from "./modelCapabilities";
 export const STATUSLINE_FLAG = "--codeterm-statusline";
-export const STATUSLINE_FORWARD = 'payload=$(cat); if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then printf \'%s\' "$payload" | curl -s --max-time 2 -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/context" -H \'Content-Type: application/json\' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE:-}" --data-binary @- || true; fi';
+export const STATUSLINE_FORWARD = 'payload=$(cat); if [ -n "${DOMIOS_API_URL:-}" ] && [ -n "${DOMIOS_API_TOKEN:-}" ] && [ -n "${DOMIOS_TAB_ID:-}" ]; then printf \'%s\' "$payload" | curl -s --max-time 2 -o /dev/null -X POST "$DOMIOS_API_URL/api/tabs/$DOMIOS_TAB_ID/hook/context" -H \'Content-Type: application/json\' -H "Authorization: Bearer $DOMIOS_API_TOKEN" -H "X-Domios-Binding-Nonce: ${DOMIOS_SESSION_BINDING_NONCE:-}" --data-binary @- || true; fi';
 
 export function statuslineSettings(settings: unknown): string | null {
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) return null;

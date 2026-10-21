@@ -128,7 +128,7 @@ run() {
   fi
   (
     cd "$ROOT_DIR/src-tauri"
-    cargo run -p codeterm-devtools --manifest-path "$ROOT_DIR/src-tauri/Cargo.toml" --features dev-tools --bin mem-bench --release -- \
+    cargo run -p domios-devtools --manifest-path "$ROOT_DIR/src-tauri/Cargo.toml" --features dev-tools --bin mem-bench --release -- \
       --fixture "$BENCHMARK_JSON" \
       --output-dir "$RESULT_DIR" \
       --report-dir "$REPORT_DIR" \

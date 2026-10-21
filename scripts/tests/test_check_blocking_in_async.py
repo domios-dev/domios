@@ -124,9 +124,9 @@ class AsyncBlockingGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
             roots = [repo / "src-tauri/crates" / name / "src" for name in (
-                "codeterm-api", "codeterm-commands", "codeterm-socket",
-                "codeterm-sentinel-host")]
-            roots += [repo / "src-tauri/crates/codeterm-service-core/src" / name
+                "domios-api", "domios-commands", "domios-socket",
+                "domios-sentinel-host")]
+            roots += [repo / "src-tauri/crates/domios-service-core/src" / name
                       for name in ("api_support", "startup")]
             for root in roots:
                 root.mkdir(parents=True)

@@ -1,5 +1,5 @@
 // Codex remains the trust-hash authority because its private hash algorithm can change across releases.
-import { CODETERM_CODEX_HOOK_MARKER } from "./hooks";
+import { DOMIOS_CODEX_HOOK_MARKER_HEADER, is1149CodexHookCommand } from "./hooks";
 
 declare const host: {
   platform(): string;
@@ -121,7 +121,7 @@ function runAppServerSession(requests: RpcRequest[], then: (session: SessionOutc
       method: "initialize",
       id: 1,
       params: {
-        clientInfo: { name: "codeterm", title: "CodeTerm", version: "0.0.0" },
+        clientInfo: { name: "domios", title: "Domios", version: "0.0.0" },
         capabilities: { experimentalApi: true },
       },
     });
@@ -205,20 +205,17 @@ function keyMatchesManagedLabel(key: string, hooksPath: string, label: string): 
   return slashNormalize(key).indexOf(slashNormalize(hooksPath) + ":" + label + ":") === 0;
 }
 
-function isCodetermManagedHookCommand(command: string | null): boolean {
+function isDomiosManagedHookCommand(command: string | null): boolean {
   const c = String(command || "");
-  return c.indexOf("/hook/session_start") !== -1
-    || c.indexOf("/hook/stop") !== -1
-    || c.indexOf("codeterm-session-start.ps1") !== -1
-    || (c.indexOf("codeterm-session-hook.cmd") !== -1
-      && c.indexOf("X-CodeTerm-Hook: " + CODETERM_CODEX_HOOK_MARKER) !== -1);
+  return c.indexOf(DOMIOS_CODEX_HOOK_MARKER_HEADER) !== -1
+    || is1149CodexHookCommand(c);
 }
 
 function managedListings(listings: HookListing[], hooksPath: string, labels: string[]): HookListing[] {
   const out: HookListing[] = [];
   for (let i = 0; i < listings.length; i++) {
     const listing = listings[i];
-    if (!isCodetermManagedHookCommand(listing.command)) continue;
+    if (!isDomiosManagedHookCommand(listing.command)) continue;
     for (let j = 0; j < labels.length; j++) {
       if (keyMatchesManagedLabel(listing.key, hooksPath, labels[j])) {
         out.push(listing);
@@ -310,7 +307,7 @@ function outcome(partial: Partial<CodexTrustGrantOutcome>): CodexTrustGrantOutco
 }
 
 /**
- * Grants Codex hook trust for exactly the managed CodeTerm hook entries via
+ * Grants Codex hook trust for exactly the managed Domios hook entries via
  * one bounded RPC lane: hooks/list → config/batchWrite → hooks/list re-verify.
  * The upserted hash is always the hash Codex itself reported on hooks/list.
  * Failure paths never write config directly: Codex owns every trust-hash edit.

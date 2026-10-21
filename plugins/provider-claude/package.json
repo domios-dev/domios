@@ -1,6 +1,6 @@
 {
   "license": "PolyForm-Shield-1.0.0",
-  "name": "@codeterm/provider-claude",
+  "name": "@domios/provider-claude",
   "version": "1.14.14",
   "private": true,
   "type": "module",
@@ -16,10 +16,10 @@
     "test": "bash ../../scripts/plugin-tests.sh provider-claude"
   },
   "dependencies": {
-    "@codeterm/chat-ui": "workspace:*"
+    "@domios/chat-ui": "workspace:*"
   },
   "devDependencies": {
-    "@codeterm/plugin-sdk": "workspace:*"
+    "@domios/plugin-sdk": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0"

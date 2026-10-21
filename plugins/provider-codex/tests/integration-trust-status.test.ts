@@ -10,10 +10,12 @@ const configPath = `${home}/.codex/config.toml`;
 const sessionKey = `${hooksPath}:session_start:0:0`;
 const stopKey = `${hooksPath}:stop:0:0`;
 const command = (event: string) =>
-  `curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/${event}" `
-    + '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" '
-    + '-H "X-CodeTerm-Hook: codeterm-codex-session-binding-v1" '
-    + '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
+  "if [ -n \"${DOMIOS_API_URL:-}\" ] && [ -n \"${DOMIOS_API_TOKEN:-}\" ] && [ -n \"${DOMIOS_TAB_ID:-}\" ] && [ -n \"${DOMIOS_SESSION_BINDING_NONCE:-}\" ]; then "
+    + "curl -s -X POST \"$DOMIOS_API_URL/api/tabs/$DOMIOS_TAB_ID/hook/" + event + "\" "
+    + "-H 'Content-Type: application/json' -H 'X-Domios-Agent-Provider: codex' "
+    + '-H "X-Domios-Hook: domios-hook-v4" '
+    + '-H "X-Domios-Binding-Nonce: ${DOMIOS_SESSION_BINDING_NONCE}" '
+    + '-H "Authorization: Bearer ${DOMIOS_API_TOKEN}" --data-binary @- > /dev/null 2>&1 || true; fi';
 
 function fixtureFiles() {
   return new Map<string, string>([

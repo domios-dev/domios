@@ -1,0 +1,53 @@
+[package]
+license = "PolyForm-Shield-1.0.0"
+name = "domios-socket"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "domios_socket"
+
+[dependencies]
+domios-build-info = { path = "../domios-build-info" }
+domios-service-core = { path = "../domios-service-core", default-features = false }
+domios-orchestration = { path = "../domios-orchestration" }
+domios-sentinel-host = { path = "../domios-sentinel-host" }
+domios-blueprint-types = { path = "../domios-blueprint-types" }
+domios-bridge = { path = "../domios-bridge" }
+domios-events = { path = "../domios-events" }
+domios-mem = { path = "../domios-mem", default-features = false }
+domios-notification-core = { path = "../domios-notification-core" }
+domios-paths = { path = "../domios-paths" }
+domios-plan = { path = "../domios-plan" }
+domios-plugin = { path = "../domios-plugin" }
+domios-sentinel = { path = "../domios-sentinel" }
+domios-types = { path = "../domios-types" }
+domios-util = { path = "../domios-util" }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+log = { version = "0.4", features = ["release_max_level_info"] }
+parking_lot = "0.12"
+interprocess = "2"
+sha2 = "0.10"
+base64 = "0.22"
+axum = { version = "0.8", features = ["multipart"] }
+tower = "0.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
+chrono = { version = "0.4", features = ["serde"] }
+tempfile = "3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+domios-api = { path = "../domios-api", features = ["test-support"] }
+domios-service-core = { path = "../domios-service-core", default-features = false, features = ["test-support"] }
+domios-sentinel-host = { path = "../domios-sentinel-host", features = ["test-support"] }

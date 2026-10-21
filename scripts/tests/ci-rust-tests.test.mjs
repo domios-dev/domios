@@ -58,14 +58,14 @@ test('the full suite runs the catalogue release set and leaves the native input 
   assert.deepEqual(MODES.full.map((lane) => lane.lane), ['workspace', 'cli']);
   assert.deepEqual(MODES.platform.map((lane) => lane.lane), ['workspace', 'cli', 'input']);
   const workspace = MODES.full[0].targets;
-  for (const pkg of ['codeterm', 'codeterm-mem-store', 'codeterm-paths', 'codeterm-sentinel']) assert.ok(workspace.includes(pkg), pkg);
-  assert.ok(!workspace.includes('codeterm-input-macos') && !workspace.includes('portable-pty'));
+  for (const pkg of ['domios', 'mem-store', 'domios-paths', 'domios-sentinel']) assert.ok(workspace.includes(pkg), pkg);
+  assert.ok(!workspace.includes('domios-input-macos') && !workspace.includes('portable-pty'));
   assert.deepEqual(workspace.slice(-3), ['--lib', '--test', 'main']);
   assert.equal(MODES.platform[2].whole, true);
   assert.ok(workspace.includes('--no-default-features'));
   assert.deepEqual(MODES.embeddings.map(lane => lane.lane), ['embeddings']);
   const features = MODES.embeddings[0].targets;
-  assert.equal(features[features.indexOf('--features') + 1], 'codeterm-service-core/embeddings,codeterm-mem/embeddings');
+  assert.equal(features[features.indexOf('--features') + 1], 'domios-service-core/embeddings,domios-mem/embeddings');
 });
 
 test('build-script output directories come from cargo JSON messages', () => {
@@ -106,7 +106,7 @@ test('advisory audits pass on parallel timings while enforce requires serial con
   try {
     const log = join(directory, 'parallel.log');
     const summary = join(directory, 'summary.md');
-    writeFileSync(log, 'PASS [ 5.000s] codeterm_lib advisory_fixture_token\nSummary [ 5.000s] 1 tests run: 1 passed\n');
+    writeFileSync(log, 'PASS [ 5.000s] domios_lib advisory_fixture_token\nSummary [ 5.000s] 1 tests run: 1 passed\n');
     const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', 'HEAD'];
     const run = (policy) => spawnSync(process.execPath, timingAuditArgs(guard, undefined, policy), { encoding: 'utf8', env: { ...process.env, GITHUB_STEP_SUMMARY: summary } });
     const advisory = run('advisory');
@@ -158,7 +158,7 @@ test('failed, timed-out and killed executions are fatal; leaky passes warn', () 
     assert.throws(() => requireTestSuccess(result, 'PASS [ 0.1s] crate case', 'alone'));
   }
   const warnings = [];
-  requireTestSuccess({ status: 0 }, 'LEAK [ 1.4s] codeterm_mem dreaming::tests::fixture', 'primary', { warn: (value) => warnings.push(value), summary: '' });
+  requireTestSuccess({ status: 0 }, 'LEAK [ 1.4s] domios_mem dreaming::tests::fixture', 'primary', { warn: (value) => warnings.push(value), summary: '' });
   assert.equal(warnings.length, 1);
   assert.ok(warnings[0].startsWith('::warning::'));
 });

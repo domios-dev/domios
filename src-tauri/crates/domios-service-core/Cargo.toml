@@ -1,0 +1,174 @@
+[package]
+license = "PolyForm-Shield-1.0.0"
+name = "domios-service-core"
+version = "0.0.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[lib]
+name = "domios_service_core"
+
+[dependencies]
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+shell-words = "1"
+domios-crash = { path = "../domios-crash" }
+domios-surface = { path = "../domios-surface" }
+domios-notifications = { path = "../domios-notifications" }
+domios-provider-ops = { path = "../domios-provider-ops" }
+domios-recall = { path = "../domios-recall" }
+domios-supporter = { path = "../domios-supporter" }
+domios-worker-services = { path = "../domios-worker-services" }
+domios-local-preview = { path = "../domios-local-preview" }
+domios-lanes = { path = "../domios-lanes" }
+domios-agent-model = { path = "../domios-agent-model" }
+
+domios-prompts = { path = "../domios-prompts" }
+domios-agent-detect = { path = "../domios-agent-detect" }
+domios-notification-core = { path = "../domios-notification-core" }
+domios-repowatch = { path = "../domios-repowatch" }
+domios-account = { path = "../domios-account" }
+domios-billing = { path = "../domios-billing" }
+domios-analytics = { path = "../domios-analytics" }
+domios-frontend-bundle = { path = "../domios-frontend-bundle" }
+tempfile = "3"
+# Embedded JavaScript runtime for plugin code (provider TS bundles run
+# here when called from headless / background Rust code paths). Features chosen to keep
+# binary size minimal — no parallel/multi-context, no async, just the
+# core eval surface + ES modules.
+rquickjs = { version = "0.11", features = ["loader", "macro", "parallel"] }
+portable-pty = { path = "../../pty-fork" }
+tokio = { version = "1", features = ["full", "test-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+serde_yaml = "0.9"
+uuid = { version = "1", features = ["v4", "serde"] }
+domios-types = { path = "../domios-types" }
+domios-blueprint-types = { path = "../domios-blueprint-types" }
+domios-local-recording = { path = "../domios-local-recording" }
+domios-wire = { path = "../domios-wire" }
+domios-sentinel = { path = "../domios-sentinel" }
+domios-decision = { path = "../domios-decision" }
+domios-provider-signals = { path = "../domios-provider-signals" }
+domios-events = { path = "../domios-events" }
+domios-config = { path = "../domios-config" }
+domios-secrets = { path = "../domios-secrets" }
+domios-keepawake = { path = "../domios-keepawake" }
+domios-cron = { path = "../domios-cron" }
+domios-shutdown = { path = "../domios-shutdown" }
+domios-util = { path = "../domios-util" }
+domios-browser = { path = "../domios-browser" }
+domios-mesh = { path = "../domios-mesh" }
+domios-mem = { path = "../domios-mem", default-features = false }
+domios-plan = { path = "../domios-plan" }
+domios-bridge = { path = "../domios-bridge" }
+domios-pty = { path = "../domios-pty" }
+domios-plugin = { path = "../domios-plugin" }
+domios-storage = { path = "../domios-storage" }
+domios-usage = { path = "../domios-usage" }
+domios-build-info = { path = "../domios-build-info" }
+log = { version = "0.4", features = ["release_max_level_info"] }
+fern = "0.7"
+parking_lot = "0.12"
+arc-swap = "1"
+bytes = "1"
+base64 = "0.22"
+interprocess = "2"
+sha2 = "0.10"
+# Embedded bundled-plugin bytes for the first-launch bootstrap. The
+# Dir struct is built at compile time from <repo>/plugins/ so a fresh
+# binary on an air-gapped machine still has working providers.
+include_dir = "0.7"
+md-5 = "0.10"
+toml = "0.8"
+dirs = "6"
+axum = { version = "0.8", features = ["multipart"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["catch-panic", "compression-gzip", "cors", "fs", "set-header"] }
+git2 = { version = "0.19", features = ["vendored-openssl"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
+async-stream = "0.3"
+futures-core = "0.3"
+futures-util = "0.3"
+# Native async WebSocket framing shares Tokio's runtime; sidecars use loopback without TLS.
+tokio-tungstenite = "0.28"
+futures-executor = "0.3"
+png = "0.17"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+cron = "0.13"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+vt100 = "0.16"
+semver = "1"
+hostname = "0.4.2"
+notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
+notify-debouncer-mini = "0.5"
+mdns-sd = "0.11"
+if-addrs = "0.13"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+aes-gcm = "0.10"
+url = "2"
+rand = "0.8"
+rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
+regex = "1"
+ulid = "1"
+async-trait = "0.1"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+which = "7"
+wait-timeout = "0.2"
+sqlite-vec = { version = "0.1.9", optional = true }
+ndarray = { version = "0.17", optional = true }
+hnsw_rs = { version = "0.3", optional = true }
+domios-mem-store = { path = "../mem-store" }
+domios-paths = { path = "../domios-paths" }
+domios-plugins = { path = "../domios-plugins" }
+domios-update = { path = "../domios-update" }
+domios-frontend-shell = { path = "../domios-frontend-shell" }
+
+[features]
+default = ["embeddings"]
+# annembed (UMAP graph layout) is macOS-only: its LAPACK backend is the
+# Accelerate framework; Windows/Linux have no provider wired and fail at
+# link time. Declared in the macOS target section below.
+embeddings = ["domios-mem/embeddings", "dep:sqlite-vec", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
+dev-updater-allowlocal = []
+test-support = ["domios-provider-ops/test-support", "domios-recall/test-support", "domios-worker-services/test-support", "domios-lanes/test-support", "domios-local-preview/test-support", "domios-plugin/test-support", "domios-plan/test-support", "domios-storage/test-support", "domios-sentinel/test-support", "domios-decision/decision-fixture-clock", "domios-agent-model/test-support", "domios-supporter/test-support"]
+
+# Low-level syscalls (e.g. fd-limit raise in fdlimit.rs) on all Unix incl Linux.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# macOS uses the system Accelerate framework for the annembed LAPACK path.
+[target.'cfg(target_os = "macos")'.dependencies]
+domios-input-macos = { path = "../domios-input-macos" }
+annembed = { version = "0.1.6", optional = true, default-features = false, features = ["macos-accelerate"] }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
+objc2-foundation = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+domios-input-windows = { path = "../domios-input-windows" }
+conpty = "0.7"
+clipboard-win = "5"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_RestartManager", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+domios-provider-ops = { path = "../domios-provider-ops", features = ["test-support"] }
+domios-recall = { path = "../domios-recall", features = ["test-support"] }
+domios-supporter = { path = "../domios-supporter", features = ["test-support"] }
+domios-worker-services = { path = "../domios-worker-services", features = ["test-support"] }
+domios-lanes = { path = "../domios-lanes", features = ["test-support"] }
+domios-agent-model = { path = "../domios-agent-model", features = ["test-support"] }
+domios-plugin = { path = "../domios-plugin", features = ["test-support"] }
+domios-sentinel = { path = "../domios-sentinel", features = ["test-support"] }
+domios-decision = { path = "../domios-decision", features = ["decision-fixture-clock"] }
+domios-paths = { path = "../domios-paths", features = ["isolated-data-root"] }
+mockito = "1"
+filetime = "0.2.29"
+vt100 = "0.16"
+# Enables PlanStore::new_for_test + TestSearchPort in the app's test build only.
+domios-plan = { path = "../domios-plan", features = ["test-support"] }
+# Writer hold gates and fault injection for the storage_contract_ tests only.
+domios-storage = { path = "../domios-storage", features = ["test-support"] }

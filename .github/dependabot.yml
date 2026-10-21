@@ -18,9 +18,9 @@ updates:
       minor-patch:
         dependency-type: minor-or-patch
 
-  # Cargo updates (crates/mem-store)
+  # Cargo updates (src-tauri/crates/mem-store)
   - package-ecosystem: cargo
-    directory: /crates/mem-store
+    directory: /src-tauri/crates/mem-store
     schedule:
       interval: weekly
     groups:
