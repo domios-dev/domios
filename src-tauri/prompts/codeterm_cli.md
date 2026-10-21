@@ -63,7 +63,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Plugin app tabs (surfaces) | `surface list`, `surface open <plugin>:<surface>`, `surface close --tab <ID>`; surfaces take no `send` | `docs SURFACES` |
 | Model endpoints, presets | `model-provider --help`; keys go in on stdin only | `docs INTEGRATIONS` |
 | Account sign-in and identity | `account login|status|logout` (local machine; hosted sign-in opens the system browser) | `codeterm docs CONFIG` |
-| Updates | `update check`, `update install --auto` | — |
+| Updates | `update check`, `update install --auto`; automatic installation requires an attached native desktop host. A headless server returns a typed refusal with recovery instructions; on macOS/Windows use `update install --from-file <installer-path>` with the official installer on the target machine, and on Linux use the package manager or official package. | — |
 | Payload between machines | `paste put`, `paste get <id>` (not `mem save`) | — |
 | Services registry | `service --help` | `docs MESH` |
 | REST listener status/recovery while HTTP is down | `rest-api status`, `rest-api restart` through the local socket | `docs CONFIG` |
