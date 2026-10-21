@@ -217,12 +217,24 @@ impl Firebase {
             email: optional("email"),
             display_name: optional("displayName"),
             provider: self.id().into(),
+            photo_url: photo_url(user),
         };
         Ok(Tokens {
             session: Session { identity, id_token },
             refresh_token,
         })
     }
+}
+fn photo_url(user: &Value) -> Option<String> {
+    let linked = user
+        .get("providerUserInfo")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten();
+    std::iter::once(user)
+        .chain(linked)
+        .filter_map(|entry| entry.get("photoUrl").and_then(Value::as_str))
+        .find_map(accepted_photo_url)
 }
 fn required(value: &Value, key: &str) -> Result<String> {
     value
