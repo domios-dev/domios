@@ -10,6 +10,10 @@ export interface AgentChecklistItem {
   title: string;
   state: AgentChecklistState;
   reason?: string;
+  description?: string;
+  activeForm?: string;
+  locked?: boolean;
+  link?: { kind: "url"; url: string; label: string } | { kind: "domios_task"; plan_id: string; task_id: string; label: string };
 }
 
 export interface AgentChecklist {
@@ -65,6 +69,10 @@ export function boundedChecklist(raw: unknown): AgentChecklist | null {
       id: item.id as string,
       title: item.title as string,
       state: item.state as AgentChecklistState,
+      ...(item.locked === true ? { locked: true } : {}),
+      ...(typeof item.description === "string" ? { description: item.description } : {}),
+      ...(typeof item.activeForm === "string" ? { activeForm: item.activeForm } : {}),
+      ...(checklistLink(item.link) ? { link: checklistLink(item.link) } : {}),
       ...(typeof item.reason === "string" && item.reason.trim() ? { reason: item.reason.trim() } : {}),
     }));
   return { tabId: record.tab_id, generation: record.generation, revision: record.revision, items };
@@ -82,4 +90,17 @@ export function eventNeedsReread(tabId: string, shown: AgentChecklist | null, ev
   if (!shown) return true;
   if (event.generation !== shown.generation) return event.generation > shown.generation;
   return event.revision > shown.revision;
+}
+
+function checklistLink(raw: unknown): AgentChecklistItem["link"] {
+  if (!raw || typeof raw !== "object") return undefined;
+  const link = raw as Record<string, unknown>;
+  if (typeof link.label !== "string") return undefined;
+  if (link.kind === "domios_task" && typeof link.plan_id === "string" && typeof link.task_id === "string") {
+    return { kind: link.kind, plan_id: link.plan_id, task_id: link.task_id, label: link.label };
+  }
+  if (link.kind === "url" && typeof link.url === "string" && /^https?:\/\//i.test(link.url)) {
+    return { kind: link.kind, url: link.url, label: link.label };
+  }
+  return undefined;
 }
