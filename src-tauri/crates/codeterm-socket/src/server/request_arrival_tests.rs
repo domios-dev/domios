@@ -165,7 +165,10 @@ fn spawn_cli_request_marks_precede_pty_starting_without_starting_a_pty() {
         let mut mux = fixture.service.mux.write();
         let workspace = mux.list_workspaces()[0].id.clone();
         codeterm_service_core::service::spawn::create_cleared_agent_tab(
-            &mut mux, &workspace, &clearance,
+            &mut mux,
+            &workspace,
+            &clearance,
+            &codeterm_service_core::service::billing::LimitGate::dormant(),
         )
         .unwrap()
     };
