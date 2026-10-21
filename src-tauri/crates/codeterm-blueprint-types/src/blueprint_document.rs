@@ -212,7 +212,12 @@ impl Document {
                         if !matches!(parsed.scheme(), "http" | "https") {
                             return None;
                         }
-                        Some(json!(parsed.host_str()?))
+                        let host = parsed.host_str()?;
+                        let port = parsed
+                            .port()
+                            .map(|port| format!(":{port}"))
+                            .unwrap_or_default();
+                        Some(json!(format!("{host}{port}{}", parsed.path())))
                     })
                     .unwrap_or_else(|| value.clone());
                 (key.clone(), safe)
@@ -243,11 +248,13 @@ impl Document {
                 })
                 .take(33)
                 .collect::<String>();
-            document["name"] = json!(format!(
-                "{}-{:06x}",
-                prefix.trim_matches('-'),
-                hash & 0xffffff
-            ));
+            let prefix = prefix.trim_matches('-');
+            let prefix = if prefix.is_empty() {
+                "blueprint"
+            } else {
+                prefix
+            };
+            document["name"] = json!(format!("{prefix}-{:06x}", hash & 0xffffff));
         }
         let mut definition =
             if let Some(pipeline) = document.get_mut("pipeline").filter(|p| p.is_object()) {
