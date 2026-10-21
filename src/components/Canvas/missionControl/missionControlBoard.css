@@ -1,3 +1,5 @@
+@import "./underway.css";
+
 /* Board system: three text sizes, a 4px spacing step, and raised panels on the Board ground.
    Layers portaled out of the Board carry the same scale. */
 .mc-board,
