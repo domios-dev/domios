@@ -114,11 +114,11 @@ export function targetInstalled(item: UpdateItem, snapshot: readonly UpdateAvail
 
 export function updateRunRows(runItems: readonly UpdateItem[], items: readonly UpdateItem[], snapshot: readonly UpdateAvailabilityItem[],
   intent: UpdateIntent | null, activeId: string | null, outcomes: Readonly<Record<string, UpdateOutcome>>): UpdateRow[] {
-  return [...runItems, ...items.filter(item => !runItems.some(row => row.id === item.id))].map(item => {
+  return [...runItems.filter(item => item.group !== "Plugins" || snapshot.some(current => current.kind === "plugin" && current.id === item.id && current.installed !== null) || outcomes[item.id] !== undefined), ...items.filter(item => !runItems.some(row => row.id === item.id))].map(item => {
     const current = items.find(row => row.id === item.id) ?? item;
     const alreadyCurrent = targetInstalled(current, snapshot);
     const outcome = current.targetVersion === item.targetVersion ? outcomes[item.id] : undefined;
-    const state = alreadyCurrent ? "completed" : outcome ?? (current.channelError ? "failed" : activeId === item.id ? "active"
+    const state = outcome === "failed" ? "failed" : alreadyCurrent ? "completed" : outcome ?? (current.channelError ? "failed" : activeId === item.id ? "active"
       : intent && (intent.pluginIds.includes(item.id) || (item.group === "Interface" && intent.interfaceRequested)) ? "queued" : "available");
     return { ...current, state, alreadyCurrent };
   });
