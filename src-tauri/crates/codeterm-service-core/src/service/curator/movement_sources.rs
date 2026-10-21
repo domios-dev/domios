@@ -9,8 +9,7 @@ pub(super) fn observed_agents(
     let tabs = svc
         .mux
         .read()
-        .tabs
-        .values()
+        .all_tabs()
         .filter(|tab| tab.team_id == plan.team_id && tab.agent_type.is_some())
         .cloned()
         .collect::<Vec<_>>();
@@ -56,8 +55,7 @@ pub(super) fn append(
     let team_tabs = svc
         .mux
         .read()
-        .tabs
-        .values()
+        .all_tabs()
         .filter(|tab| tab.team_id == plan.team_id)
         .map(|tab| tab.id.clone())
         .collect::<BTreeSet<_>>();
