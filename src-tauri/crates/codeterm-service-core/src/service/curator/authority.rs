@@ -144,10 +144,14 @@ impl ServiceContext {
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
         tab_id: &str,
-        blueprints: Vec<String>,
-        plan_skills: Vec<String>,
+        scope: super::CuratorGrantScope,
         now: u64,
     ) -> Result<CuratorGrant, String> {
+        let super::CuratorGrantScope {
+            blueprints,
+            plan_skills,
+            saves,
+        } = scope;
         self.authorize_plan_orchestrator(plan_id, caller)?;
         let tab = self
             .mux
@@ -163,8 +167,8 @@ impl ServiceContext {
         if identity.plan_id != plan_id {
             return Err("Curator belongs to another plan".into());
         }
-        if blueprints.is_empty() && plan_skills.is_empty() {
-            return Err("grant needs a Blueprint or plan skill".into());
+        if blueprints.is_empty() && plan_skills.is_empty() && saves.is_empty() {
+            return Err("grant needs a Blueprint, plan skill or save candidate".into());
         }
         self.plan_store
             .with_plan(plan_id, now, |plan| {
@@ -208,6 +212,22 @@ impl ServiceContext {
                 grant.plan_skills.extend(plan_skills);
                 grant.plan_skills.sort();
                 grant.plan_skills.dedup();
+                if saves
+                    .iter()
+                    .any(|id| id.trim().is_empty() || id.len() > 200)
+                {
+                    return Err(crate::service::plan::PlanError::Io(
+                        "invalid save candidate".into(),
+                    ));
+                }
+                grant.save_candidates.extend(saves);
+                grant.save_candidates.sort();
+                grant.save_candidates.dedup();
+                if grant.save_candidates.len() > 1 {
+                    return Err(crate::service::plan::PlanError::Io(
+                        "one save candidate per round".into(),
+                    ));
+                }
                 if grant.plan_skills.len() > 1 {
                     return Err(crate::service::plan::PlanError::Io(
                         "a Curator round may touch one plan skill".into(),
