@@ -56,7 +56,7 @@ Checking, scaffolding and schema output require no daemon or network. Plugin/con
 
 ## Apply by name
 
-Built-in recipe names include identifying inputs, so different targets create different graphs; long expanded names keep a readable prefix and a stable suffix within the 40-character name bound.
+Built-in recipe names use short identities. HTTP names use the host only; applying another path on that host retargets it. Use a custom file with an explicit name for multiple endpoints on one host. Probe-based watch recipes require a short `name` input. Long expanded names use a slug prefix and a stable six-character hash within the 40-character bound.
 
 `apply` requires a live caller in a Team. An exact name in that Team and workspace identifies the existing Blueprint. Applying an identical definition returns `unchanged` without adding a version; a change updates that ID through versioned admission. Ambiguous names and unauthorized updates refuse. A watch and a pipeline cannot replace each other under the same name. Watch source and route changes retarget the existing graph. Watch `timeout` and `paused` apply only at creation. Applying changed creation settings refuses with a source-positioned diagnostic; delete and re-apply to change them. Original settings persist through restart. Preexisting watches without recorded original settings require recreation before apply can compare these options.
 
@@ -140,4 +140,4 @@ Both the UI and CLI export and import the same YAML. Export writes the same auth
 
 Stopped graphs and their history remain for 30 minutes before cleanup. Changed definitions create an immutable version; an unchanged apply reactivates a stopped graph under the same ID. Import uses the same name lookup and keeps the result stopped unless explicitly started. Advanced `update` accepts an internal definition file with `--expect-version` for explicit version/cause control. `history` definitions can be restored through that path, and `escalation resolve <id> <transition>` releases a held unknown case after repair. Recipe examples: `codeterm docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->
