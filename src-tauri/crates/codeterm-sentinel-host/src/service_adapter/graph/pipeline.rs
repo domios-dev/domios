@@ -124,7 +124,7 @@ pub(super) fn project_pipeline_contract(
             codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team => ("team", None),
         };
         let mut blueprint = json!({
-            "id":job.id,"name":spec.name,
+            "id":job.id,"name":spec.name,"note":job.note,"stopped_at":job.cleanup.stopped_at,"deletes_at":job.cleanup.deletes_at,
             "owner":{"kind":owner_kind,"tab_id":owner_tab,"team_id":job.team_id},
             "state":state,"run_id":latest["id"],"current_step":latest["current_step"],
             "last_event_at_ms":latest["last_event_at_ms"],"trigger":trigger_view(&spec.trigger),

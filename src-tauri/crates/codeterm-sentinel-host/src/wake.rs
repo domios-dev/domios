@@ -70,6 +70,7 @@ mod tests {
         let job = store
             .create(
                 Create {
+            note: None,
                     terminal: None,
                     session: false,
                     name: Some("agent-state-watch".into()),

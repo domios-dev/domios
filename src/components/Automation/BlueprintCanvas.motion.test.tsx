@@ -3,6 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { BlueprintCanvas } from "./BlueprintCanvas";
+import { BlueprintPipelineCanvas } from "./BlueprintPipelineCanvas";
+import { pipelineModel } from "./pipelineModel";
 import { layoutBlueprint } from "./blueprintLayout";
 import { blueprintModel } from "./blueprintModel";
 import { typedGraph } from "./blueprintModel.testdata";
@@ -35,7 +37,9 @@ async function main() {
     requestAnimationFrame: (next: FrameRequestCallback) => { callback = next; return ++scheduled; },
     cancelAnimationFrame: () => { cancelled++; callback = null; },
   });
-  const layout = layoutBlueprint(blueprintModel(typedGraph()));
+  const graph = typedGraph();
+  const note = "Watches release jobs and reports failures";
+  const layout = layoutBlueprint(blueprintModel({ ...graph, nodes: graph.nodes.map((node, index) => index === 0 ? { ...node, note } : node) }));
   const wire = layout.wires[0].wire;
   const steps: ReplayStep[] = [
     { nodes: [wire.from.node], wires: [] },
@@ -55,6 +59,7 @@ async function main() {
   const root = createRoot(host);
   try {
     await act(async () => root.render(<Replay />));
+    assert.ok(host.textContent?.includes(note), "the graph shows its authored note above the nodes");
     assert.ok(callback, "motion-enabled replay starts its clock");
     await act(async () => { callback?.(0); });
     await act(async () => { callback?.(780); });
@@ -98,6 +103,7 @@ async function main() {
     reduced = false;
     document.body.setAttribute("data-motion", "paused");
     await act(async () => root.render(<Replay />));
+    assert.ok(host.textContent?.includes(note), "the graph shows its authored note above the nodes");
     assert.equal(host.querySelector("output")?.textContent, "done");
     assert.equal(host.querySelectorAll("[data-replay-motion], animate, animateMotion").length, 0);
     assert.equal(scheduled, before, "paused motion renders a static path without a replay clock");
@@ -111,6 +117,9 @@ async function main() {
     assert.ok(stopped, "the stopped node exposes its outcome in its accessible name");
     assert.ok(stopped.textContent?.includes("Error"), "the stopped node renders its error badge");
     assert.equal(host.querySelectorAll("[data-replay-motion]").length, 0);
+    const pipelineNote = "Watches the pipeline release";
+    await act(async () => root.render(<BlueprintPipelineCanvas pipeline={pipelineModel({ id: "annotated", name: "Annotated pipeline", note: pipelineNote, state: "stopped", run_id: null, current_step: null, last_event_at_ms: null })} />));
+    assert.ok(host.textContent?.includes(pipelineNote), "the pipeline canvas shows its authored note");
   } finally {
     await act(async () => root.unmount());
     host.remove();

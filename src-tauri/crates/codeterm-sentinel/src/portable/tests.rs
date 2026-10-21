@@ -86,7 +86,7 @@ fn blueprint_recipe_round_trip_into_another_team_preserves_definition() {
         codeterm_cron::clock::MockClock::starting_at(1000),
     );
     let job = store.prepare(serde_json::from_value(json!({
-        "name":"Portable watcher", "probe":"cat /scratch/status", "question":"State?", "buckets":["done"], "matches":{"done":"^done$"}, "timeout":"1h"
+        "name":"Portable watcher", "note":"Watches the release", "probe":"cat /scratch/status", "question":"State?", "buckets":["done"], "matches":{"done":"^done$"}, "timeout":"1h"
     })).unwrap(), owner("original-team"), false).unwrap();
     let recipe = Recipe::parse(&serde_json::to_string(&export(&job).unwrap()).unwrap()).unwrap();
     assert_eq!(
@@ -105,6 +105,7 @@ fn blueprint_recipe_round_trip_into_another_team_preserves_definition() {
         DefinitionSnapshot::from_job(&job),
         DefinitionSnapshot::from_job(&imported)
     );
+    assert_eq!(imported.note.as_deref(), Some("Watches the release"));
     assert_ne!(job.team_id, imported.team_id);
     assert_ne!(job.id, imported.id);
 }
@@ -117,7 +118,7 @@ fn blueprint_pipeline_export_round_trip_preserves_trigger_steps_and_result() {
         codeterm_cron::clock::MockClock::starting_at(1000),
     );
     let spec = serde_json::from_value(json!({
-        "name":"Portable pipeline", "owner":"team",
+        "name":"Portable pipeline", "note":"Reports failed runs", "owner":"team",
         "trigger":{"type":"input","kind":"text","source":{"text":"private-input-token"}},
         "steps":[{"name":"run","input":"text","kind":{"kind":"command","command":"cat /private/path --token private-token"}}],
         "result":{"to":"tab:private-destination"}

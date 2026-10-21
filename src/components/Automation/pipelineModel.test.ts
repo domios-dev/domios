@@ -64,3 +64,7 @@ for (const [kind, source, state, expected] of [
   assert.equal(model.nodes[1].sourceState, state);
   assert.equal(model.nodes[1].summary, expected);
 }
+
+const annotated = pipelineModel(blueprint({ note: "Reports failed jobs", state: "stopped", stopped_at: 1_000, deletes_at: 1_801_000 }));
+assert.equal(annotated.note, "Reports failed jobs");
+assert.equal(annotated.deletesAt, 1_801_000);
