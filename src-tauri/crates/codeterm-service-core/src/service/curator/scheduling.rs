@@ -233,13 +233,13 @@ impl ServiceContext {
                             .ok_or("Team workspace absent")?;
                         let params: CronCreateParams = serde_json::from_value(json!({"name":format!("curator:{}",plan.id),"workspace_id":workspace,"team_id":plan.team_id,"schedule":next.to_string(),"task":plan.id,"agent":"mirror:orchestrator","role":"curator","oneshot":true,"enabled":true,"timeout_seconds":900,"jitter_max_ms":0,"creator_tab_id":plan.owner.tab_id,"cwd":plan.project_path})).map_err(|e|e.to_string())?;
                         let job = commit(cron, |store| {
-                            if let Some(mut job) = existing {
+                            if let Some(mut job) = existing.clone() {
                                 job.enabled = true;
                                 job.next_run = Some(next);
                                 job.schedule = next.to_string();
                                 Ok(Prepared::new(CronChange::Patch(job.clone()), job))
                             } else {
-                                let mut prepared = store.prepare_create(params)?;
+                                let mut prepared = store.prepare_create(params.clone())?;
                                 prepared.value.protected = true;
                                 prepared.changes = vec![CronChange::Create(prepared.value.clone())];
                                 Ok(prepared)
