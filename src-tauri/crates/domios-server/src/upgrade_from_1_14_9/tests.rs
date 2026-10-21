@@ -443,6 +443,59 @@ fn upgrade_from_1_14_9_never_moves_project_directories_in_dev() {
     let _ = std::fs::remove_dir_all(&fixture.registry);
 }
 
+fn workspace_cwds(root: &Path) -> Vec<String> {
+    let connection = Connection::open(root.join("storage").join("state.db")).unwrap();
+    let mut statement = connection
+        .prepare("SELECT cwd FROM workspaces ORDER BY cwd")
+        .unwrap();
+    let rows = statement.query_map([], |row| row.get(0)).unwrap();
+    rows.collect::<rusqlite::Result<Vec<_>>>().unwrap()
+}
+
+#[test]
+fn upgrade_from_1_14_9_rebases_stored_paths_after_relocation_and_on_later_starts() {
+    let fixture = fixture(STORAGE_SCHEMA_VERSION);
+    let insert = |root: &Path, cwd: PathBuf| {
+        Connection::open(root.join("storage").join("state.db"))
+            .unwrap()
+            .execute(
+                "INSERT INTO workspaces (cwd, provisioned_cwd) VALUES (?1, NULL)",
+                [cwd.display().to_string()],
+            )
+            .unwrap();
+    };
+    insert(&fixture.old, fixture.old.join("general"));
+    let secrets = MockSecretItems::default();
+
+    let (owner, notices) =
+        migrate(fixture.identity.clone(), &fixture.registry, false, &secrets).unwrap();
+    drop(owner);
+
+    assert!(notices.is_empty(), "{notices:?}");
+    let mut expected = vec![
+        fixture.new.join("general").display().to_string(),
+        fixture.project.display().to_string(),
+    ];
+    expected.sort();
+    assert_eq!(workspace_cwds(&fixture.new), expected);
+
+    insert(&fixture.new, fixture.old.join("provisioned-workspaces"));
+    let (owner, notices) = migrate(fixture.identity, &fixture.registry, false, &secrets).unwrap();
+
+    assert!(notices.is_empty(), "{notices:?}");
+    expected.push(
+        fixture
+            .new
+            .join("provisioned-workspaces")
+            .display()
+            .to_string(),
+    );
+    expected.sort();
+    assert_eq!(workspace_cwds(&fixture.new), expected);
+    drop(owner);
+    let _ = std::fs::remove_dir_all(&fixture.registry);
+}
+
 #[test]
 fn secret_file_migration_moves_namespaces_and_legacy_service_files() {
     let root = tempfile::tempdir().unwrap();
