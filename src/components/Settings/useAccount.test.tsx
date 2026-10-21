@@ -25,9 +25,23 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
   return {ok:true,json:async () => ({identity:state.identity,pending:false,last_sign_in_failure:state.failure})};
   },
 }));
-import { useAccount } from "./useAccount";
+import { signInFailureToastMessage, useAccount } from "./useAccount";
 import { AccountTab } from "./AccountTab";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT = true;
+
+it.each([
+  ["preparation", "sign-in setup failed"],
+  ["browser", "opening the sign-in page failed"],
+  ["callback", "the callback could not be validated"],
+  ["redemption", "the code exchange failed"],
+  ["credential_save", "saving sign-in credentials failed"],
+  ["publication", "publishing the signed-in session failed"],
+] as const)("names the %s stage and offers retry", (stage, expected) => {
+  const message = signInFailureToastMessage({ stage, error: "provider" });
+  expect(message).toContain(expected);
+  expect(message).toContain("Retry");
+});
+
 function Surface({name}:{name:string}) {
   const {model,signIn,signOut} = useAccount();
   return <section aria-label={name}><output>{model.kind === "signed_in" ? model.identity.uid : model.kind}</output>
