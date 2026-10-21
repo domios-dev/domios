@@ -41,12 +41,21 @@ fn tab_policy(
     tab_id: &str,
     configured: &[String],
 ) -> Result<PreviewPolicy, String> {
+    let started = std::time::Instant::now();
     let authority = tab_authority(svc, tab_id)?;
+    let authority_us = started.elapsed().as_micros();
+    let transcript_started = std::time::Instant::now();
     let (messages, _) = super::tab_chat::tab_chat_snapshot(svc, tab_id, 0)?;
+    let transcript_us = transcript_started.elapsed().as_micros();
+    let binding_started = std::time::Instant::now();
     if authority != tab_authority(svc, tab_id)? {
         return Err("Preview session changed".into());
     }
+    let binding_us = binding_started.elapsed().as_micros();
+    let references_started = std::time::Instant::now();
     let references = references::referenced_paths(&messages, authority.cwd.as_deref());
+    let references_us = references_started.elapsed().as_micros();
+    let policy_started = std::time::Instant::now();
     let configured: Vec<_> = configured.iter().map(PathBuf::from).collect();
     let mut denied = configured.clone();
     let data_dir = crate::paths::data_dir();
@@ -66,6 +75,11 @@ fn tab_policy(
     if let Some(pad) = agent_pad_root(svc, tab_id) {
         policy = policy.with_own_pad(&pad, &evidence_denied)?;
     }
+    log::debug!(
+        "[preview.policy] tab={} authority_us={} transcript_us={} binding_us={} references_us={} roots_us={} total_us={} messages={}",
+        tab_id, authority_us, transcript_us, binding_us, references_us,
+        policy_started.elapsed().as_micros(), started.elapsed().as_micros(), messages.len()
+    );
     Ok(policy)
 }
 
@@ -97,8 +111,16 @@ pub fn check(
     paths: Vec<String>,
 ) -> Result<LocalPreviewFiles, String> {
     let policy = tab_policy(svc, tab_id, configured)?;
-    Ok(check_local_preview_files_guarded(
-        paths,
-        |path, canonical| policy.authorize(path, canonical),
-    ))
+    let count = paths.len();
+    let started = std::time::Instant::now();
+    let result = check_local_preview_files_guarded(paths, |path, canonical| {
+        policy.authorize(path, canonical)
+    });
+    log::debug!(
+        "[preview.files] tab={} count={} elapsed_us={}",
+        tab_id,
+        count,
+        started.elapsed().as_micros()
+    );
+    Ok(result)
 }
