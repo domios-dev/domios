@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../../lib/notices";
 import type { RuntimeServiceTierSelection as ServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import { confirmedTabServiceTier, serviceTierLabel, tabServiceTierAvailability, tabMetaParts } from "../../lib/tabMetaLabel";
 import { tierAfterModelChange } from "./serviceTierPickerModel";
@@ -124,13 +125,14 @@ export function StatusLineModelPicker({
     } catch (error) {
       setApplied(previous);
       const failure = modelSwitchFailure(error, descriptor?.transport === "chat_backend");
-      actions?.upsertToast({
-        id: `model-switch:${tabId}`, tab_id: tabId, workspace_id: null,
+      actions && createNoticePublisher(actions)({ kind: "toast", id: `model-switch:${tabId}`,
+        tabId: tabId,
+        workspaceId: null,
         title: "Model switch did not apply",
-        body: failure.message,
-        severity: "Warning", level: "verbose", lifetime_ms: 15_000,
-        local_actions: restart || !failure.restartAvailable ? undefined : [{ label: "Restart and resume", run: () => void commitRef.current(selection, true) }],
-      });
+        detail: failure.message,
+        severity: "Warning",
+        lifetimeMs: 15000,
+        actions: restart || !failure.restartAvailable ? undefined : [{ label: "Restart and resume", run: () => void commitRef.current(selection, true) }] });
     } finally {
       setApplying(false);
     }
@@ -300,9 +302,7 @@ export function ModelPickerPopover({
 
   async function refresh() {
     setRefreshing(true);
-    const raise = (reason: string | undefined) => actions?.upsertToast(
-      refreshFailureToast(descriptor.id, reason, (text) => navigator.clipboard?.writeText(text)),
-    );
+    const raise = (reason: string | undefined) => actions && createNoticePublisher(actions)(refreshFailureToast(descriptor.id, reason, (text) => navigator.clipboard?.writeText(text)));
     try {
       const outcome = await getModelCatalogueRefreshApi().refresh(descriptor.id);
       if (!outcome.refreshed) raise(outcome.reason);

@@ -113,7 +113,6 @@ function muxActions(): MultiplexerActionsContextType {
     selectTabByTab: noopAsync,
     setFocusedTab: noop,
     setTabPty: noop,
-    addNotification: noop,
     upsertToast: noop,
     markRead: noop,
     markAllRead: noop,
@@ -159,7 +158,7 @@ async function renderChat(tabId = "delivery-tab", runtimeState?: AgentRuntimeSta
         subscription_id: "delivery-subscription",
       };
     }
-    if (command === "delayed_send_list" || command === "chat_send_status") return [];
+    if (command === "delayed_send_list" || command === "system_heartbeat_list" || command === "chat_send_status") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);

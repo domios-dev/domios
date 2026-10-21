@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../../lib/notices";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import type { AppConfig } from "../../lib/types";
@@ -50,7 +51,7 @@ export function NewSessionPicker({
   onClose: () => void;
 }) {
   const { providers, loading: providersLoading, refetch: refreshProviders } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, selectTabByTab, addNotification } = useMultiplexer();
+  const { spawnAgentTab, createOrchestrationPair, selectTabByTab, upsertToast } = useMultiplexer();
   const state = useMuxState();
   const { presets, loading: presetsLoading, error: presetsError } = useModelPresets();
   const menuProviders = useMemo(
@@ -178,18 +179,14 @@ export function NewSessionPicker({
         const wsId = res.workspace_id ?? state.active_workspace_id;
         if (wsId && res?.tab_id) await selectTabByTab(wsId, res.tab_id).catch(() => {});
       } catch (e) {
-        addNotification({
-          tab_id: null,
-          workspace_id: workspaceId,
+        createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
+          workspaceId: workspaceId,
           title: "Install failed to start",
-          body: e instanceof Error ? e.message : String(e),
-          severity: "Error",
-          level: "failure",
-          sticky: true,
-        });
+          detail: e instanceof Error ? e.message : String(e),
+          severity: "Error" });
       }
     })();
-  }, [addNotification, selectTabByTab, state.active_workspace_id, workspaceId]);
+  }, [upsertToast, selectTabByTab, state.active_workspace_id, workspaceId]);
 
   const finishSpawn = useCallback(async (
     runner: () => Promise<{ workspaceId: string; tabId: string } | null>,
@@ -202,12 +199,15 @@ export function NewSessionPicker({
       }
     } catch (e) {
       if (isFreeLimitRefusal(e)) return;
-      addNotification({ tab_id: null, workspace_id: workspaceId, title: "Session could not start",
-        body: e instanceof Error ? e.message : String(e), severity: "Error", level: "failure", sticky: true });
+      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
+        workspaceId: workspaceId,
+        title: "Session could not start",
+        detail: e instanceof Error ? e.message : String(e),
+        severity: "Error" });
     } finally {
       setBusy(false);
     }
-  }, [addNotification, workspaceId, selectTabByTab]);
+  }, [upsertToast, workspaceId, selectTabByTab]);
 
   const runProviderSpawn = useCallback(async (
     providerId: string,
@@ -290,18 +290,14 @@ export function NewSessionPicker({
       })
       .catch((error) => {
         setBusy(false);
-        addNotification({
-          tab_id: null,
-          workspace_id: workspaceId,
+        createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
+          workspaceId: workspaceId,
           title: "Agent access was not saved",
-          body: error instanceof Error ? error.message : String(error),
-          severity: "Error",
-          level: "failure",
-          sticky: true,
-        });
+          detail: error instanceof Error ? error.message : String(error),
+          severity: "Error" });
       });
   }, [
-    addNotification,
+    upsertToast,
     busy,
     dismissing,
     onClose,

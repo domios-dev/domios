@@ -28,13 +28,13 @@ __setInvokeForTest(async (command) => {
     source_session_id: state.tabs.grok.agent_session_id, session_binding_nonce: state.tabs.grok.session_binding_nonce,
     subscription_id: "activity-subscription", messages: [], offset: 0, text: "",
   } as never;
-  if (command === "delayed_send_list" || command === "chat_send_status") return [] as never;
+  if (command === "delayed_send_list" || command === "system_heartbeat_list" || command === "chat_send_status") return [] as never;
   return {} as never;
 });
 __setListenForTest(async () => () => {});
 const noop = () => {};
 const actions = {
-  setFocusedTab: noop, selectTabByTab: async () => {}, addNotification: noop, answerNotification: noop,
+  setFocusedTab: noop, selectTabByTab: async () => {}, upsertToast: noop, answerNotification: noop,
 } as unknown as MultiplexerActionsContextType;
 const host = document.createElement("div");
 document.body.append(host);
