@@ -186,6 +186,12 @@ pub enum PlanTaskAction {
         model: Option<String>,
         #[arg(
             long,
+            value_name = "TIER",
+            help = "Provider-declared service tier for this launch"
+        )]
+        speed: Option<String>,
+        #[arg(
+            long,
             allow_hyphen_values = true,
             help = "Routing rationale; stored as model_rationale in task JSON."
         )]
@@ -377,6 +383,12 @@ pub enum PlanTaskAction {
         model: Option<String>,
         #[arg(
             long,
+            value_name = "TIER",
+            help = "Provider-declared service tier for this launch"
+        )]
+        speed: Option<String>,
+        #[arg(
+            long,
             allow_hyphen_values = true,
             help = "Worker tab description (defaults to a short summary of the task name)"
         )]
@@ -468,6 +480,12 @@ pub enum PlanTaskAction {
         provider: Option<String>,
         #[arg(long)]
         model: Option<String>,
+        #[arg(
+            long,
+            value_name = "TIER",
+            help = "Provider-declared service tier for this launch"
+        )]
+        speed: Option<String>,
         #[arg(long)]
         parent: Option<String>,
         #[arg(long)]

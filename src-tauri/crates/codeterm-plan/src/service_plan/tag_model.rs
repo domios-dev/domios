@@ -406,6 +406,7 @@ mod tests {
             name: "Pan Zoom".into(),
             kind: "implement".into(),
             model: None,
+            speed: None,
             model_rationale: None,
             acceptance_criteria: vec![],
             external_refs: vec![],

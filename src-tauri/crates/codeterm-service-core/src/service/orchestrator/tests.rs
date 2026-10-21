@@ -283,6 +283,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         creator_tab_id: None,
         ownership: None,
         model: None,
+        speed: None,
         planned_model: None,
         planned_reasoning_effort: None,
         reasoning_effort: None,

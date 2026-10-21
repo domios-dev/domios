@@ -261,6 +261,7 @@ mod tests {
             name: id.into(),
             kind: kind.into(),
             model: None,
+            speed: None,
             model_rationale: None,
             acceptance_criteria: vec![],
             external_refs: vec![],
