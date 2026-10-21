@@ -29,7 +29,17 @@ assert.equal(pattern(modelPicker.targetRegex, "sonnet").exec(modelScreen)?.group
 assert.equal(pattern(modelPicker.targetRegex, "absent").exec(modelScreen), null);
 assert.equal(commands.model.confirmationPromptKind, "switch_confirmation");
 assert.equal(commands.effort.confirmationPromptKind, "switch_confirmation");
-assert.equal(commands.model.prompt, undefined);
+assert.equal(commands.duringTurn, true);
+assert.deepEqual(commands.model.prompt.responseKeys, ["\r"]);
+for (const file of ["sonnet-confirmation.txt", "cached-sonnet-confirmation.txt"]) {
+  const screen = fixture(file);
+  assert.ok(pattern(commands.model.prompt.screenRegex, "sonnet").test(screen));
+  assert.equal(pattern(commands.model.prompt.screenRegex, "foreign").test(screen), false);
+  assert.equal(pattern(commands.model.prompt.screenRegex, "sonnet").test(`${screen}\n❯ `), false);
+}
+const busy = fs.readFileSync(path.join(root, "tests/fixtures/tab-state/normal-working.txt"), "utf8");
+assert.equal(pattern(commands.model.prompt.screenRegex, "sonnet").test(busy), false);
+assert.equal(pattern(modelPicker.screenRegex, "sonnet").test(busy), false);
 assert.ok(pattern(commands.model.confirmation, "sonnet").test("Set model to `Sonnet 5.5` for this session only"));
 assert.equal(pattern(commands.model.confirmation, "sonnet").test("Set model to `Sonnet 5.5` and saved as your default for new sessions"), false);
 
@@ -41,7 +51,9 @@ for (const screen of [modelScreen.replaceAll("\r\n", "\n"), modelScreen.replaceA
 
 assert.equal(commands.effort.command.replace("{effort}", "high"), "/effort high");
 assert.equal(commands.effort.picker, undefined);
-assert.equal(commands.effort.prompt, undefined);
+assert.deepEqual(commands.effort.prompt.responseKeys, ["\r"]);
+assert.ok(pattern(commands.effort.prompt.screenRegex, "opus", "high")
+  .test("Opaque question?\nOpaque context\n❯ 1. opaque high\n  2. opaque alternate"));
 for (const output of [
   fixture("effort-direct-confirmation.txt").split("\n").find(line => line.startsWith("Set effort level to high"))!,
   "Set effort level to high (this session only): details",

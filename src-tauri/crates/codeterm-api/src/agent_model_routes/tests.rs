@@ -1,6 +1,21 @@
 use super::*;
 
 #[test]
+fn during_turn_failure_is_an_incident_with_stage_and_screen_without_fallback() {
+    let error = ModelSwitchError::DuringTurnIncident {
+        stage: "effort:UnknownPrompt".into(),
+        screen: "opaque frame".into(),
+        reason: "undeclared prompt".into(),
+    };
+    let body = model_switch_error_body(&error);
+    assert_eq!(body["reason"], "during_turn_switch_incident");
+    assert_eq!(body["stage"], "effort:UnknownPrompt");
+    assert_eq!(body["screen"], "opaque frame");
+    assert_eq!(body["restart_fallback_available"], false);
+    assert!(body.get("restart").is_none());
+}
+
+#[test]
 fn staged_switch_exposes_pending_selection_without_restart_or_observation() {
     let body = model_switch_success_body(&ModelSwitchOutcome {
         tab_id: "tab".into(),

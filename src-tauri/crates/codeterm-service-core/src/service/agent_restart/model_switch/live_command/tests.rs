@@ -2,19 +2,23 @@ use std::cell::Cell;
 
 use super::*;
 
+pub(super) fn provider_file(relative: &str) -> String {
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../plugins/provider-claude")
+            .join(relative),
+    )
+    .unwrap()
+}
+
 #[test]
 fn captured_switch_outputs_confirm_model_and_effort_from_exact_records() {
-    let manifest: serde_json::Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-claude/plugin.json"
-    )))
-    .unwrap();
+    let manifest: serde_json::Value = serde_json::from_str(&provider_file("plugin.json")).unwrap();
     let commands: crate::agent::provider::ModelSwitchCommands =
         serde_json::from_value(manifest["commands"]["modelSwitchCommands"].clone()).unwrap();
-    let records: Vec<serde_json::Value> = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../plugins/provider-claude/tests/fixtures/model-switch/live-command-records.json"
-    )))
+    let records: Vec<serde_json::Value> = serde_json::from_str(&provider_file(
+        "tests/fixtures/model-switch/live-command-records.json",
+    ))
     .unwrap();
     let bytes = records
         .iter()
@@ -299,6 +303,7 @@ fn invalid_prompt_declarations_refuse_before_injection() {
 #[test]
 fn effort_only_plan_sends_only_effort_and_preserves_model_identity() {
     let commands = crate::agent::provider::ModelSwitchCommands {
+        during_turn: false,
         turn_completion: None,
         ready_input_regex: None,
         confirmation_source: Default::default(),
