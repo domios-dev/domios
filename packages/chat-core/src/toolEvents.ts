@@ -1,6 +1,7 @@
 import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree, type AgentNode } from "./agentActivity";
 import { groupCommandBatches } from "./commandBatches";
 import { wellFormedFileDiffs } from "./fileDiffs";
+import { parseUnifiedDiff } from "./unifiedDiff";
 import { assignedCommand, toolCommand, unwrapShellLauncher } from "./shellComposition";
 import { normalizeToolRichResult } from "./toolRichResult";
 import type { AgentActivity, FileDiff, NormalizedChatMessage, ToolEdit, ToolEventKind, ToolRichResult } from "./types";
@@ -104,9 +105,10 @@ function eventStatus(message: NormalizedChatMessage, phase: ToolEvent["phase"]):
 export function materializeToolEvent(message: NormalizedChatMessage): ToolEvent | null {
   if (message.type !== "tool_call" && message.type !== "tool_result") return null;
   const phase = message.type === "tool_call" ? "call" : "result";
-  const summary = text(message.toolSummary);
+  const parsedDiffs = message.toolKind === "edit" && !message.fileDiffs?.length ? parseUnifiedDiff(message.toolResult ?? "") : [];
+  const summary = text(message.toolSummary) || parsedDiffs.map(diff => diff.path).join("\n");
   const embeddedResult = phase === "call" ? firstNonEmpty(message.toolResult) : undefined;
-  const fileDiffs = wellFormedFileDiffs(message.fileDiffs);
+  const fileDiffs = wellFormedFileDiffs(message.fileDiffs) ?? wellFormedFileDiffs(parsedDiffs);
   return {
     id: message.id,
     toolId: message.toolId,

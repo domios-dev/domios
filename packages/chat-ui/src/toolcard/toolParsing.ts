@@ -1,5 +1,11 @@
-import type { EditPair, NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
+import type { EditPair, NormalizedChatMessage as ChatMessage, ToolEvent } from "@codeterm/chat-core";
 import { parseCodexPatch, patchTextFromToolInput } from "@codeterm/chat-core";
+
+export function rawToolPayload(event: ToolEvent): string {
+  const input = event.message.toolInput;
+  if (input && Object.keys(input).length) return JSON.stringify(input, null, 2);
+  return event.detail || event.result || event.summary || JSON.stringify(event.message, null, 2);
+}
 
 export function extractFilePath(message: ChatMessage): string | null {
   const input = message.toolInput ?? parseArgs(message.toolArgs);
