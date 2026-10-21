@@ -1,7 +1,9 @@
+use super::super::membership::RENEW_AFTER_SECONDS;
 use super::support::*;
 use crate::account_mesh::wire::RegistryRefusal;
 use crate::account_mesh::*;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Notify;
 
 const UID: &str = "user-1";
@@ -190,8 +192,11 @@ async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_re
     });
     harness.registry.entered.notified().await;
 
-    assert_eq!(harness.mesh.sign_out().await, Cleanup::Confirmed);
-    harness.mesh.identity_changed(Some(&identity(UID))).await;
+    let racing_refresh = harness.mesh.identity_changed(Some(&identity(UID)));
+    assert_eq!(
+        harness.mesh.sign_out(racing_refresh).await.0,
+        Cleanup::Confirmed
+    );
     gate.notify_one();
     assert_eq!(flight.await.unwrap(), Err(AccountMeshRefusal::Cancelled));
     let state = harness.state();
@@ -286,7 +291,7 @@ async fn account_mesh_upgrade_without_account_is_not_a_sign_out() {
     let harness = Harness::new().await;
     assert_eq!(harness.state().presence, Presence::NeverSignedIn);
     assert_eq!(harness.state().traffic(), Traffic::Open);
-    assert_eq!(harness.mesh.sign_out().await, Cleanup::None);
+    assert_eq!(harness.mesh.sign_out(async {}).await.0, Cleanup::None);
     harness.mesh.identity_changed(None).await;
     assert_eq!(harness.state().presence, Presence::NeverSignedIn);
     assert!(!harness.store.record.lock().unwrap().signed_out);
@@ -406,4 +411,155 @@ async fn account_mesh_rename_and_list_are_observations() {
         (1, Some("Desk"))
     );
     assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
+}
+
+#[tokio::test]
+async fn account_mesh_clock_behind_the_issuer_still_enrolls_without_a_longer_lease() {
+    let harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    harness.registry.script.lock().unwrap().issuer_ahead = 2;
+    assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Ok(()));
+    let state = harness.state();
+    let membership = state
+        .current_membership(START)
+        .expect("a fresh membership is current on a clock 2 s behind");
+    assert_eq!(membership.verified.issued_at, START + 2);
+    assert!(
+        state.current_membership(START + 2 + 3600).is_none(),
+        "expiry is never extended"
+    );
+}
+
+async fn next_renewal(harness: &Harness) -> Duration {
+    let started = tokio::time::Instant::now();
+    tokio::time::timeout(
+        Duration::from_secs(3600),
+        harness.registry.entered.notified(),
+    )
+    .await
+    .expect("a renewal is scheduled");
+    started.elapsed()
+}
+
+#[tokio::test(start_paused = true)]
+async fn account_mesh_failed_lease_renewal_retries_with_bounded_backoff() {
+    let harness = Harness::with_leases().await;
+    harness.sign_in(UID).await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    harness.registry.entered.notified().await;
+    harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unavailable);
+
+    assert_eq!(
+        next_renewal(&harness).await,
+        Duration::from_secs(RENEW_AFTER_SECONDS)
+    );
+    assert_eq!(harness.state().enrollment, Enrollment::Refused);
+    assert_eq!(
+        next_renewal(&harness).await,
+        Duration::from_secs(30),
+        "a failed renewal re-arms before expiry"
+    );
+    harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::RateLimited {
+        retry_after_seconds: 900,
+    });
+    assert_eq!(
+        next_renewal(&harness).await,
+        Duration::from_secs(60),
+        "backoff grows"
+    );
+    harness.registry.script.lock().unwrap().membership = None;
+    assert_eq!(
+        next_renewal(&harness).await,
+        Duration::from_secs(900),
+        "the server's retry-after is honoured"
+    );
+    assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
+    assert_eq!(harness.calls("renew"), 4);
+    assert_eq!(
+        next_renewal(&harness).await,
+        Duration::from_secs(RENEW_AFTER_SECONDS),
+        "a renewed membership returns to the lease cadence"
+    );
+}
+
+#[tokio::test]
+async fn account_mesh_explicit_enroll_answers_with_the_run_it_joins() {
+    let harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    let gate = Arc::new(Notify::new());
+    {
+        let mut script = harness.registry.script.lock().unwrap();
+        script.gate = Some(gate.clone());
+        script.membership = Some(RegistryRefusal::MachineLimit {
+            limit: 2,
+            active_count: 2,
+        });
+    }
+    let first = tokio::spawn({
+        let mesh = harness.mesh.clone();
+        async move { mesh.refresh(EnrollTrigger::Automatic).await }
+    });
+    harness.registry.entered.notified().await;
+    let explicit = harness.mesh.refresh(EnrollTrigger::Explicit);
+    tokio::pin!(explicit);
+    assert!(
+        tokio::time::timeout(Duration::ZERO, &mut explicit)
+            .await
+            .is_err(),
+        "an explicit enroll does not answer before the flight it joined settles"
+    );
+    harness.registry.script.lock().unwrap().gate = None;
+    gate.notify_one();
+
+    let refusal = AccountMeshRefusal::MachineLimit {
+        limit: 2,
+        active_count: 2,
+    };
+    assert_eq!(explicit.await, Err(refusal));
+    assert_eq!(first.await.unwrap(), Err(refusal));
+    assert_eq!(
+        harness.calls("enroll"),
+        2,
+        "the explicit trigger reran once"
+    );
+    let notice = harness
+        .state()
+        .limit_notice
+        .clone()
+        .expect("the explicit refusal carries its notice");
+    assert_eq!(notice.trigger, EnrollTrigger::Explicit);
+    assert_eq!(notice.refusal, refusal);
+}
+
+#[tokio::test]
+async fn account_mesh_abandoned_logout_stays_blocked_until_the_next_sign_in() {
+    let harness = enrolled().await;
+    let mut states = harness.mesh.subscribe();
+    let logout = tokio::spawn({
+        let mesh = harness.mesh.clone();
+        async move { mesh.sign_out(std::future::pending::<()>()).await }
+    });
+    states
+        .wait_for(|state| state.presence == Presence::SignedOut)
+        .await
+        .unwrap();
+    logout.abort();
+    assert!(logout.await.unwrap_err().is_cancelled());
+    assert_eq!(
+        harness.state().traffic(),
+        Traffic::BlockedSignedOut,
+        "an abandoned logout fails closed"
+    );
+
+    harness.mesh.identity_changed(Some(&identity(UID))).await;
+    assert_eq!(
+        harness.state().signed_in_account(),
+        Some(account_id(UID).as_str()),
+        "a later sign-in reopens Mesh"
+    );
+    assert_eq!(harness.mesh.refresh(EnrollTrigger::Explicit).await, Ok(()));
 }

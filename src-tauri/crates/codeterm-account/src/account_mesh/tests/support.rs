@@ -142,6 +142,8 @@ pub struct Script {
     pub publication: Option<RegistryRefusal>,
     pub permit: Option<RegistryRefusal>,
     pub gate: Option<Arc<Notify>>,
+    /// Seconds the issuer's clock runs ahead of the desktop's.
+    pub issuer_ahead: u64,
 }
 
 #[derive(Default)]
@@ -336,10 +338,15 @@ impl MeshRegistry for FakeRegistry {
         self.verify(session, "meshAdmission", &envelope.request, proof, None)?;
         let script = {
             let script = self.script.lock().unwrap();
-            (script.membership, script.publication, script.permit)
+            (
+                script.membership,
+                script.publication,
+                script.permit,
+                script.issuer_ahead,
+            )
         };
         let uid = session.identity.uid.clone();
-        let now = self.clock.now();
+        let now = self.clock.now() + script.3;
         let mut accounts = self.accounts.lock().unwrap();
         let account = accounts.entry(uid.clone()).or_default();
         match &envelope.request.operation {
@@ -581,6 +588,7 @@ pub struct Harness {
     pub clock: Arc<TestClock>,
     pub log: Log,
     trust: Option<MembershipTrust>,
+    leases: bool,
 }
 
 impl Harness {
@@ -593,6 +601,15 @@ impl Harness {
     }
 
     pub async fn build(trust: Option<MembershipTrust>, corrupt: bool) -> Self {
+        Self::build_with(trust, corrupt, false).await
+    }
+
+    /// Lease timers armed, for tests that run on paused tokio time.
+    pub async fn with_leases() -> Self {
+        Self::build_with(Some(Issuer::new().trust()), false, true).await
+    }
+
+    async fn build_with(trust: Option<MembershipTrust>, corrupt: bool, leases: bool) -> Self {
         let log: Log = Arc::default();
         let clock = Arc::new(TestClock::default());
         clock.set(START);
@@ -608,7 +625,10 @@ impl Harness {
             last: Mutex::default(),
         });
         let mut harness = Self {
-            mesh: AccountMesh::new(config(None), ports(&registry, &store, &transport, &clock)),
+            mesh: AccountMesh::new(
+                config(None, false),
+                ports(&registry, &store, &transport, &clock),
+            ),
             registry,
             sessions: Arc::default(),
             keys: Arc::default(),
@@ -618,6 +638,7 @@ impl Harness {
             clock,
             log,
             trust,
+            leases,
         };
         harness.mesh = harness.controller();
         harness.mesh.load().await;
@@ -626,7 +647,7 @@ impl Harness {
 
     fn controller(&self) -> Arc<AccountMesh> {
         AccountMesh::new(
-            config(self.trust.clone()),
+            config(self.trust.clone(), self.leases),
             AccountMeshPorts {
                 registry: self.registry.clone(),
                 sessions: self.sessions.clone(),
@@ -652,10 +673,11 @@ impl Harness {
 
     /// The service order: Mesh sign-out first, then the account releases its credentials.
     pub async fn logout(&self) -> Cleanup {
-        let cleanup = self.mesh.sign_out().await;
-        *self.sessions.0.lock().unwrap() = None;
-        self.mesh.identity_changed(None).await;
-        cleanup
+        let release = async {
+            *self.sessions.0.lock().unwrap() = None;
+            self.mesh.identity_changed(None).await;
+        };
+        self.mesh.sign_out(release).await.0
     }
 
     pub fn calls(&self, label: &str) -> usize {
@@ -667,13 +689,13 @@ impl Harness {
     }
 }
 
-fn config(trust: Option<MembershipTrust>) -> AccountMeshConfig {
+fn config(trust: Option<MembershipTrust>, schedule_leases: bool) -> AccountMeshConfig {
     AccountMeshConfig {
         installation_id: InstallationId::parse(INSTALLATION.into()).unwrap(),
         trust,
         call_deadline: Duration::from_secs(30),
         withdrawal_deadline: Duration::from_secs(30),
-        schedule_leases: false,
+        schedule_leases,
     }
 }
 
