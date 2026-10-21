@@ -96,7 +96,7 @@ function SidebarAgentChecklist({ item, plans, tabId }: { item: AgentChecklistIte
       }
     }}>
     <StateGlyph state={item.state} />
-    <span className="sidebar-agent-checklist__title">{item.title}</span>
+    <span className="sidebar-agent-checklist__title" title={item.reason ? `${item.title} — ${item.reason}` : item.title}>{item.title}</span>
     <span className="sidebar-agent-checklist__state">{checklistStateLabel(item.state)}</span>
     <AnchoredPopover open={open} anchor={anchor} placement="bottom-start" width={300} onClose={() => setOpen(false)}>
       <section id={detailId} role="region" aria-label="Checklist item details" className="ct-menu p-3 text-xs whitespace-normal break-words space-y-2"
