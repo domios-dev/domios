@@ -164,7 +164,7 @@ async function startSnip(options: MountOptions = {}) {
   view.fake.respond(SURFACE_METHOD.snipSend, () => ({ markdown: "", delivered: true }));
   await resizeStages(400, 300);
   await act(async () => view.fake.emitState(state));
-  await act(async () => view.fake.emitFrame({ data: "", metadata: { deviceWidth: 1280, deviceHeight: 960, scrollOffsetX: 0, scrollOffsetY: 640 } }));
+  await act(async () => view.fake.emitFrame({ data: "", metadata: { deviceWidth: 400, deviceHeight: 300, scrollOffsetX: 0, scrollOffsetY: 640 } }));
   await flushAsync();
   const control = watchControl(view.fake);
   await act(async () => getByRole(view.region(), "button", "Snip and ask").click());
@@ -176,7 +176,7 @@ async function dragArea(scope: ParentNode) {
   assert.ok(overlay, "the camera opens the area selection over the stream");
   await act(async () => { overlay.dispatchEvent(pointer("pointerdown", 100, 75)); });
   await act(async () => { overlay.dispatchEvent(pointer("pointermove", 200, 150)); });
-  assert.equal(overlay.querySelector("[data-testid='surface-snip-size']")?.textContent, "320 × 240", "the live size is in page CSS px");
+  assert.equal(overlay.querySelector("[data-testid='surface-snip-size']")?.textContent, "100 × 75", "the live size is in page CSS px");
   await act(async () => { overlay.dispatchEvent(pointer("pointerup", 200, 150)); });
   await flushAsync();
 }
@@ -193,14 +193,14 @@ suite.test("snip and ask works beside the agent: drag, capture in page coords, o
   const { fake, region, host, control, unmount } = await startSnip();
   await dragArea(region());
   assert.equal(snipOverlay(region()), null, "release finishes the selection");
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCapture).map((call) => call.args), [{ x: 320, y: 880, w: 320, h: 240 }], "canvas rect maps to the scrolled page");
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCapture).map((call) => call.args), [{ x: 100, y: 715, w: 100, h: 75 }], "canvas rect maps to the scrolled page");
   assertFrameAtSelection(region());
   assertNoLargeImage(host);
   const dialog = getByRole(host, "dialog", SNIP_DIALOG_LABEL);
   const chip = dialog.querySelector<HTMLElement>("[data-testid='attachment-chip']");
   assert.equal(chip?.textContent, SNIP_IMAGE_LABEL, "the snip sits in the input as a screenshot chip");
   assert.equal(chip?.querySelector("img")?.getAttribute("src"), capture.thumbnail);
-  assert.ok(dialog.textContent?.includes("Area 320×240 at (320, 880) · Login · https://a.test/"));
+  assert.ok(dialog.textContent?.includes("Area 100×75 at (100, 715) · Login · https://a.test/"));
   await ask(host, "why is this cut off?");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend).map((call) => call.args), [{ id: "s1", comment: "why is this cut off?", image: true }]);
   assert.equal(fake.callsTo(SURFACE_METHOD.snipCancel).length, 0, "a sent capture is not discarded");
@@ -235,7 +235,7 @@ suite.test("removing the screenshot chip sends the question with only the area c
   const dialog = getByRole(host, "dialog", SNIP_DIALOG_LABEL);
   await act(async () => getByRole(dialog, "button", `Remove ${SNIP_IMAGE_LABEL}`).click());
   assert.equal(dialog.querySelector("[data-testid='attachment-chip']"), null, "x removes the chip");
-  assert.ok(dialog.textContent?.includes("Area 320×240 at (320, 880)"), "the context stays");
+  assert.ok(dialog.textContent?.includes("Area 100×75 at (100, 715)"), "the context stays");
   await ask(host, "what is this?");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend).map((call) => call.args), [{ id: "s1", comment: "what is this?", image: false }]);
   control.assertUntouched(region());
@@ -340,7 +340,7 @@ suite.test("point and ask works beside the agent: selects, sends the annotation 
   fake.respond(SURFACE_METHOD.grabSelect, () => selection);
   await resizeStages(400, 300);
   await act(async () => fake.emitState(state));
-  await act(async () => fake.emitFrame({ data: "", metadata: { deviceWidth: 1280, deviceHeight: 960 } }));
+  await act(async () => fake.emitFrame({ data: "", metadata: { deviceWidth: 400, deviceHeight: 300 } }));
   await flushAsync();
   const control = watchControl(fake);
   await act(async () => getByRole(region(), "button", "Pick element").click());
@@ -481,6 +481,26 @@ suite.test("a viewport mismatch heals once until a matching frame arrives", asyn
   await act(async () => fake.emitFrame(frameAt(640, 480)));
   await act(async () => fake.emitFrame(frameAt(1280, 960)));
   assert.equal(resizes().length, 2, "a new mismatch after recovery heals again");
+  await flushAsync();
+  await unmount();
+});
+
+suite.test("resize acknowledgements drain only the latest measured viewport", async () => {
+  const { fake, unmount } = await mount();
+  const acknowledgements: Array<() => void> = [];
+  fake.respond(SURFACE_METHOD.resize, () => new Promise<void>((resolve) => acknowledgements.push(resolve)));
+  await resizeStages(640, 480);
+  await resizeStages(800, 600);
+  await resizeStages(900, 650);
+  await resizeStages(1000, 700);
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio })]);
+  acknowledgements.shift()!();
+  await flushAsync();
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [
+    resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio }),
+    resizeArgs({ w: 1000, h: 700, dpr: window.devicePixelRatio }),
+  ]);
+  acknowledgements.shift()!();
   await flushAsync();
   await unmount();
 });
