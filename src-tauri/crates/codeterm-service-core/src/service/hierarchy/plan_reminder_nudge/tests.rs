@@ -17,6 +17,7 @@ pub fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> Plan {
         OrchestratorRef::from_tab(owner),
     );
     plan.id = id.into();
+    plan.control_loop.mode = crate::plan::ControlLoopMode::Heartbeat;
     plan.mode = mode;
     plan.tasks = tasks;
     plan

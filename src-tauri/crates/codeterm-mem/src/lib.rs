@@ -2,6 +2,7 @@
 
 pub mod activity;
 pub mod auto_extract;
+pub mod blueprint_library;
 #[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
 mod chunking;
 pub mod curation;
@@ -90,6 +91,7 @@ pub fn model_cache_dir() -> PathBuf {
 const HEAVY_OPS_PERMITS: usize = 2;
 
 pub struct MemManager {
+    blueprint_queue: Mutex<Option<std::sync::mpsc::SyncSender<blueprint_library::Pending>>>,
     pub(crate) conn: Mutex<Connection>,
     pub(crate) db_path: PathBuf,
     pub(crate) blobs_dir: PathBuf,
@@ -178,6 +180,7 @@ impl MemManager {
         );
 
         Ok(Arc::new(Self {
+            blueprint_queue: Mutex::new(None),
             conn: Mutex::new(conn),
             db_path,
             blobs_dir,
@@ -196,6 +199,7 @@ impl MemManager {
         std::fs::create_dir_all(tmp.join("blobs")).ok();
         let layout = graph_layout::LayoutState::load(&tmp);
         Ok(Arc::new(Self {
+            blueprint_queue: Mutex::new(None),
             conn: Mutex::new(conn),
             db_path: tmp.join("knowledge.db"),
             blobs_dir: tmp.join("blobs"),
@@ -241,6 +245,7 @@ impl MemManager {
 
         let layout = graph_layout::LayoutState::load(data_dir);
         Ok(Arc::new(Self {
+            blueprint_queue: Mutex::new(None),
             conn: Mutex::new(conn),
             db_path,
             blobs_dir,

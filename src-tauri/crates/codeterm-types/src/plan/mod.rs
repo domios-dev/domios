@@ -1,4 +1,6 @@
 pub mod attempt;
+pub mod control_loop;
+pub use control_loop::*;
 pub mod execution;
 pub mod execution_sandbox;
 pub mod external_refs;

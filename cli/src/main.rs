@@ -176,10 +176,10 @@ fn main_impl() {
     }
 
     if let Commands::Blueprint {
-        action: args::blueprint::BlueprintAction::Recipe { name },
+        action: args::blueprint::BlueprintAction::Recipe { name: Some(name) },
     } = &cli.command
     {
-        cmd::blueprint::handle_recipe(cli.json, name.as_deref());
+        cmd::blueprint::handle_recipe(cli.json, Some(name));
         return;
     }
 
@@ -301,6 +301,8 @@ fn main_impl() {
                 Err(e) => Err(e),
             }
         }
+
+        Commands::Curator { action } => cmd::curator::handle(&mut client, action),
 
         Commands::Persona { action } => match cmd::persona::handle(&mut client, cli.json, action) {
             Ok(Some(value)) => Ok(value),

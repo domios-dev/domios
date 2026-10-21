@@ -222,6 +222,8 @@ fn run_plan(
     action: PlanAction,
 ) -> Result<Option<Value>, String> {
     let result = match action {
+        PlanAction::ControlLoop { action } => super::plan_curator::control_loop(client, action)?,
+        PlanAction::Curator { action } => super::plan_curator::grant(client, action)?,
         PlanAction::Create {
             title,
             from_spec,

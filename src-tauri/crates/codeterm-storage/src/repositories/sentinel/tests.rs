@@ -470,12 +470,14 @@ fn blueprint_stage_source_storage_codec_round_trips_all_variants() {
     ];
     for (index, source) in sources.into_iter().enumerate() {
         let key = format!("blueprint_codec_{index}");
+        let mut definition = definition(source.clone());
+        definition.name = Some(format!("source-round-trip-{index}"));
         storage
             .sentinels()
             .create(SentinelCreate {
                 identity: identity(&key),
                 scenario_id: None,
-                definition: definition(source.clone()),
+                definition,
                 runtime: runtime(),
                 associate: vec![],
             })

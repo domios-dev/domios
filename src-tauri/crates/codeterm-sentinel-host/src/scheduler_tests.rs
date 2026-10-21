@@ -31,7 +31,7 @@ fn blueprint_owner_team_survives_creator_close_and_stops_with_team() {
 
 fn create(store: &mut Store, paused: bool, handlers: serde_json::Value) -> Sentinel {
     store.create(serde_json::from_value(json!({
-        "name":"scheduler-result-watch",
+        "name":format!("scheduler-result-watch-{}",store.list().len()),
         "probe":"status", "question":"state", "buckets":["done","failed"], "every":"10s", "timeout":"1h",
         "paused":paused, "handlers":handlers, "matches":{"done":"^done$"}
     })).unwrap(), owner(), false).unwrap()

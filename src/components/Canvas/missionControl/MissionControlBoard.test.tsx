@@ -350,6 +350,7 @@ describe("mission control board panels", () => {
     expect(host.querySelector('[data-testid="mission-control-board-actions"]')).toBeNull();
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(Array.from(root.children).map((child) => child.getAttribute("data-testid"))).toEqual([
+      "mc-plan-settings",
       "mc-board-row",
       "mc-board-event-log",
     ]);
@@ -373,6 +374,7 @@ describe("mission control board panels", () => {
     expect(host.querySelector('[data-testid="mc-board-needs-you"]')).toBeNull();
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(Array.from(root.children).map((child) => child.getAttribute("data-testid"))).toEqual([
+      "mc-plan-settings",
       "mc-board-row",
       "mc-board-event-log",
     ]);
@@ -389,8 +391,8 @@ describe("mission control board panels", () => {
     const goalLine = host.querySelector('[data-testid="mc-board-plan-goal"]') as HTMLElement;
     expect(goalLine.textContent).toBe("Ship a readable Snake game");
     expect(goalLine.getAttribute("title")).toBe("Ship a readable Snake game");
-    expect(host.querySelector('[data-testid="mc-board-plan-meta"] [data-testid="plan-park-button"]')).not.toBeNull();
-    expect(text(host, "mc-board-plan-meta")).not.toContain("tasks");
+    expect(host.querySelector('[data-testid="mc-plan-settings"] [data-testid="plan-park-button"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="mc-board-plan"] [data-testid="plan-mode-controls"]')).toBeNull();
     expect(text(host, "mc-board-bounces-amount")).toBe("1");
     expect(text(host, "mc-board-progress-stats")).toBe("done67%10 of 15blocked1of 5 openfirst try83%1 bounced");
     const plan = text(host, "mc-board-plan");
