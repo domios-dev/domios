@@ -8,7 +8,6 @@ import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
 import { cachedSlashCommands, slashCommandsEqual } from "../../lib/providerCapabilities";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from "react";
 import { ComposerBubbleRow } from "./ComposerBubbles";
-import { ComposerUploadNotices } from "./ComposerUploadNotices";
 import { ComposerDock } from "./ComposerDock";
 import { useComposerLayout } from "./useComposerLayout";
 import { evaluateWhen } from "../../lib/evaluateWhen";
@@ -604,6 +603,7 @@ function ChatComposerImpl({
             marginPx={composerLayout.editorPx > COMPOSER_MIN_HEIGHT ? 8 : 0}
             onRemove={capsules.remove}
             uploads={capsules.uploads.uploads}
+            onRetry={(id) => { void capsules.uploads.retry(id); }}
           >
             <ComposerTextInput
               data-testid="chat-composer"
@@ -726,7 +726,6 @@ function ChatComposerImpl({
             />
           </ComposerCapsuleField>
         </ComposerActions>
-        <ComposerUploadNotices value={input} registry={capsules.registry} uploads={capsules.uploads.uploads} onRemove={capsules.remove} />
       </div>
     </ComposerDock>
   );
