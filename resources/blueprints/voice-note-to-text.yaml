@@ -1,8 +1,11 @@
 # Check and apply this file with codeterm blueprint.
 schema_version: 1
-name: Voice {{path_to_voice_note}}
+name: '{{name}}'
 note: Convert a voice note to text and classify the transcript.
 inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
   path_to_voice_note:
     type: string
     description: Path to voice note
