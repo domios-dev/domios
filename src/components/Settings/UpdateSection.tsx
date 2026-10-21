@@ -110,7 +110,7 @@ export function UpdateSection({ config, onUpdate }: {
               {measuredProgress !== null && <span>{Math.round(measuredProgress)}%</span>}
             </div>
             <progress aria-label="Domios update progress" max={100} value={measuredProgress ?? undefined}
-              className="mt-2 h-1.5 w-full accent-[var(--ct-accent)]" />
+              className="ct-progress mt-2" />
             {downloadTotalBytes && downloadTotalBytes > 0 && (
               <div className="mt-1.5 text-[10px] text-[var(--ct-muted-fg)]">
                 {formatBytes(downloadedBytes)} / {formatBytes(downloadTotalBytes)}

@@ -108,6 +108,36 @@ export function availabilityIntent(items: readonly UpdateAvailabilityItem[]): Up
 export type UpdateOutcome = "completed" | "failed";
 export type UpdateRow = UpdateItem & { state: UpdateOutcome | "active" | "queued" | "available"; alreadyCurrent: boolean };
 
+export interface UpdatePanelSummary {
+  tone: "red" | "accent" | "green" | "muted";
+  label: string;
+  chip: string;
+  sentence: string;
+}
+
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+export function summarizeUpdatePanel(rows: readonly UpdateRow[], { busy, failed }: { busy: boolean; failed: boolean }): UpdatePanelSummary {
+  const available = rows.filter(row => !row.channelError && row.state === "available").length;
+  const completed = rows.filter(row => row.state === "completed").length;
+  if (busy) {
+    const run = rows.filter(row => row.state === "active" || row.state === "queued").length + completed;
+    return { tone: "accent", label: "Updating components", chip: "updating",
+      sentence: run > 0 ? `Updating ${Math.min(completed + 1, run)} of ${run}` : "Updating components" };
+  }
+  if (failed) {
+    const attempted = rows.filter(row => row.state === "failed" && !row.channelError).length;
+    const unreachable = rows.some(row => row.channelError);
+    return { tone: "red", label: "Update sources or actions failed", chip: "failed",
+      sentence: attempted ? `${count(attempted, "update")} failed` : unreachable ? "An update source is unavailable" : "Update failed" };
+  }
+  if (available) return { tone: "accent", label: "Updates available", chip: "updates available", sentence: `${count(available, "update")} available` };
+  return { tone: completed ? "green" : "muted", label: "No applicable updates", chip: completed ? "updated" : "up to date",
+    sentence: completed ? "Everything is updated" : "Everything is up to date" };
+}
+
 export function targetInstalled(item: UpdateItem, snapshot: readonly UpdateAvailabilityItem[]): boolean {
   return snapshot.some(current => current.id === item.id && current.installed === item.targetVersion);
 }
