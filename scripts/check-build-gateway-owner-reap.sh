@@ -85,7 +85,9 @@ ACQUIRE_BODY='
 run_acquire() {
   local out="$1"
   ACQUIRE_RC=0
-  env CT_BUILD_GATEWAY_SCOPE=fixture CT_BUILD_GATEWAY_FIXTURE_DIR="$STATE" \
+  # A guard run inside a gateway job must not hand that job's identity to the probe acquire.
+  env -u CT_BUILD_JOB_ID -u CT_GATEWAY_ACTIVE -u CT_GATEWAY_OWNER_PID -u CT_GATEWAY_PROCESS_START \
+      CT_BUILD_GATEWAY_SCOPE=fixture CT_BUILD_GATEWAY_FIXTURE_DIR="$STATE" \
       CODETERM_BUILD_GATEWAY_MODE=fail-fast CODETERM_BUILD_OWNER_ID=reap-probe \
       bash -c "$ACQUIRE_BODY" > "$out" 2>&1 || ACQUIRE_RC=$?
   return 0
