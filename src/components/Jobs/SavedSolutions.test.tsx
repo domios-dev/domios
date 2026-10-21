@@ -37,7 +37,7 @@ async function main() {
   await render(<SavedSolutions sources={["w"]} revision={0} api={api} />);
   assert.match(container.textContent!, /7 uses.*6 successes/);
   assert.match(container.textContent!, /Watch failing jobs/);
-  await act(async () => { (container.querySelector('button[aria-label="Actions for Watch failing jobs"]') as HTMLButtonElement).click(); });
+  await act(async () => { container.querySelector('button[aria-label="Actions for Watch failing jobs"]')!.dispatchEvent(new win.PointerEvent("pointerdown", { bubbles: true, button: 0 }) as unknown as Event); });
   const archive = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("Archive"));
   assert.ok(archive);
   await act(async () => { archive.click(); });
