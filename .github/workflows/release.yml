@@ -204,11 +204,9 @@ jobs:
   # The platform-independent frontend is built once; every platform job installs these bytes by digest.
   frontend-dist:
     name: frontend bundle
-    needs: [prepare, builds-tier]
+    needs: prepare
     if: >-
-      !cancelled() && needs.prepare.result == 'success'
-      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
-      && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+      needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 20
     env:
@@ -244,8 +242,8 @@ jobs:
         if: always()
         uses: ./.github/actions/ci-artifact-spool
 
-  # Tiers run in priority order: fast checks, tests, builds. A tier opens once every job of the tier above
-  # is claimed by a runner or finished, so tiers overlap but a free runner never takes a lower tier first.
+  # Builds run on builder machines and start at once. Tests run on test machines and open once every fast
+  # check is claimed by a runner or finished, so a free test runner never takes a test before a fast check.
   # The first failed fast check cancels the run.
   quick-checks:
     name: Fast checks
@@ -274,7 +272,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    steps: &tier-gate-steps
+    steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
@@ -297,24 +295,6 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       TIER_PREFIX: 'Fast checks / '
       TIER_ANCHOR: Fast checks / guards
-
-  builds-tier:
-    name: builds tier opens
-    needs: [prepare, tests-tier]
-    if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.tests-tier.result == 'success'
-      && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
-    runs-on: [self-hosted, Linux, light]
-    timeout-minutes: 50
-    permissions:
-      contents: read
-      actions: read
-    steps: *tier-gate-steps
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
-      TIER_PREFIX: 'Rust tests / '
-      TIER_ANCHOR: Rust tests / tree is new
 
   tests:
     name: Rust tests

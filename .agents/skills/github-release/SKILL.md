@@ -116,12 +116,12 @@ evidence; no public release, tag, channel asset or issue-closure boundary is cre
 dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
 An older run that did not retain those inputs cannot be retroactively called validated.
 
-The dry run schedules three tiers in priority order: fast checks, then the Rust tests, then the
-frontend bundle and the six builds. `tests-tier` and `builds-tier` (`scripts/release-tier-gate.mjs`)
-open the next tier once every job of the tier above is claimed by a runner or finished, so tiers
-overlap without a free runner ever taking a lower tier first. A tier still unclaimed after 45 minutes
-opens the next one anyway with a `tier order fallback` warning, a run-summary line and the receipt
-`<run-id>/release-tiers/<tier>.json`; a red fast check still cancels the run.
+Builds run on builder machines and start as soon as the frontend bundle exists. Rust tests run on
+test machines and open through `tests-tier` (`scripts/release-tier-gate.mjs`) once every fast check is
+claimed by a runner or finished, so a free test runner never takes a test before a fast check. A fast
+check still unclaimed after 45 minutes opens the tests anyway with a `tier order fallback` warning, a
+run-summary line and the receipt `<run-id>/release-tiers/fast-checks.json`; a red fast check still
+cancels the run.
 
 Publish a wholly green dry run with `release-publish.yml`, never by rebuilding. Its tooling comes from
 the default branch, so fixing publication never invalidates a qualified run:
