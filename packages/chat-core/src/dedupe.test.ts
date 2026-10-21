@@ -142,7 +142,7 @@ const T0 = 1_700_000_000_000;
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
     [echo("opt-1", "check the cursor ordering bug", T0)],
-    [{ ...user("a-0", markTab("Andrey", "abc12345", "check the cursor ordering bug"), T0 + 500), segments: [{ type: "frame", from: "tab", attrs: { from: "tab", label: "Andrey", tab: "abc12345" }, body: "check the cursor ordering bug", tip: null }] }],
+    [{ ...user("a-0", markTab("Andrey", "abc12345", "check the cursor ordering bug"), T0 + 500), segments: [{ type: "frame", kind: "tab", from: "tab", attrs: { from: "tab", label: "Andrey", tab: "abc12345" }, body: "check the cursor ordering bug", tip: null }] }],
   );
   eq(matchedIds, ["opt-1"], "transport-prefixed stored echo matches optimistic body");
   eq(pendingIds, [], "transport-prefixed echo leaves no duplicate pending bubble");
