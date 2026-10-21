@@ -5,7 +5,7 @@ import { tierAfterModelChange } from "./serviceTierPickerModel";
 import { ServiceTierPicker } from "./ServiceTierPicker";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import { Check, ChevronDown, RotateCw } from "lucide-react";
+import { Check, ChevronDown, RotateCw, Search } from "lucide-react";
 import { MultiplexerActionsContext } from "../../store/multiplexer/context";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
@@ -254,6 +254,7 @@ export function ModelPickerPopover({
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [showAll, setShowAll] = useState(() => readPickerShowAll(descriptor.id));
   const [staged, setStaged] = useState<PickerSelection | null>(
     failure?.selection ?? (currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentServiceTier, currentRuntimeMode) : null),
@@ -268,14 +269,15 @@ export function ModelPickerPopover({
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
   const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
 
+  // Picking a model is the intent; search is opt-in, so the list takes focus and the field only when opened.
   useLayoutEffect(() => {
-    if (searchable) {
+    if (searchOpen) {
       searchRef.current?.focus({ preventScroll: true });
       return;
     }
     const selected = popoverRef.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]');
     (selected ?? popoverRef.current?.querySelector<HTMLElement>(OPTION_SELECTOR))?.focus({ preventScroll: true });
-  }, [searchable]);
+  }, [searchOpen]);
 
   function apply(selection: PickerSelection, restart = false) {
     if (busy) return;
@@ -350,6 +352,17 @@ export function ModelPickerPopover({
     >
       <div className="ct-model-picker__head">
         <span id={titleId} className="ct-model-picker__title">{descriptor.display_name}</span>
+        {searchable && !searchOpen && (
+          <button
+            type="button"
+            className="ct-model-picker__refresh"
+            aria-label="Search models"
+            title="Search models"
+            onClick={() => setSearchOpen(true)}
+          >
+            <Search size={13} aria-hidden />
+          </button>
+        )}
         <button
           type="button"
           className="ct-model-picker__refresh"
@@ -361,7 +374,7 @@ export function ModelPickerPopover({
           <BusySpinner icon={RotateCw} size={13} spinning={refreshing} />
         </button>
       </div>
-      {searchable && (
+      {searchable && searchOpen && (
         <input
           ref={searchRef}
           type="search"
@@ -371,6 +384,12 @@ export function ModelPickerPopover({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
+            if (event.key === "Escape" && !query) {
+              event.preventDefault();
+              event.stopPropagation();
+              setSearchOpen(false);
+              return;
+            }
             if (event.key !== "ArrowDown") return;
             event.preventDefault();
             popoverRef.current?.querySelector<HTMLElement>(OPTION_SELECTOR)?.focus();
