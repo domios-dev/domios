@@ -65,7 +65,7 @@ export function SettingsCard({
     <section
       role="group"
       aria-labelledby={titleId}
-      className={`ct-card ct-card--static ct-settings-card ${backdrop ? "ct-settings-card--backdrop" : ""} ${className ?? ""}`}
+      className={`ct-card ct-card--static ct-settings-card ${backdrop ? "brand-dot-stage" : ""} ${className ?? ""}`}
       data-testid="settings-card"
     >
       {backdrop}

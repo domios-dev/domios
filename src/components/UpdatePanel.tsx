@@ -7,9 +7,9 @@ import { UpdateChannelNotice } from "./shared/UpdateChannelNotice";
 import { SettingsCard, SettingsPill } from "./Settings/shared";
 import { BusySpinner } from "./shared/BusyState";
 import { Button } from "./shared/Button";
-import { useCallback, useEffect, useRef } from "react";
 import { BrandMark } from "./brand/BrandMark";
-import { DotMatrixCanvas, type DotMatrixCanvasHandle } from "./brand/DotMatrixCanvas";
+import { DotMatrixCanvas } from "./brand/DotMatrixCanvas";
+import { useBusyWaves } from "./brand/useBusyWaves";
 import { usePrefersReducedMotion } from "./brand/usePrefersReducedMotion";
 
 const STATE_TEXT: Record<UpdateRow["state"], string> = {
@@ -47,13 +47,7 @@ function UpdatePanelSummaryLine() {
 export function UpdatePanel() {
   const { busy, error } = useUpdatePanel();
   const reducedMotion = usePrefersReducedMotion();
-  const matrix = useRef<DotMatrixCanvasHandle>(null);
-  const emitWave = useCallback((releasedAt: number) => matrix.current?.emitRelease(releasedAt), []);
-  const wasBusy = useRef(busy);
-  useEffect(() => {
-    if (wasBusy.current && !busy && !error) emitWave(performance.now());
-    wasBusy.current = busy;
-  }, [busy, error, emitWave]);
+  const { matrix, emitWave } = useBusyWaves(busy, Boolean(error));
   return <SettingsCard
     backdrop={<DotMatrixCanvas ref={matrix} mode="loading" reducedMotion={reducedMotion} intensity={0.35} />}
     icon={<span data-dot-origin className="inline-flex">{busy ? <BrandMark motion="load" onRelease={emitWave} /> : <Download size={16} />}</span>}

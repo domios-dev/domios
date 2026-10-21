@@ -46,7 +46,7 @@ function UpdateBlockingOverlay() {
 export function UpdateScreen({ view, contained = false }: { view: RestoreStageView; contained?: boolean }) {
   return (
     <div data-testid="update-screen" className={`${contained ? "absolute" : "fixed"} inset-0 z-[90] bg-[var(--ct-bg)]`}>
-      <RestoreStatePanel view={view} />
+      <RestoreStatePanel view={view} pulse />
     </div>
   );
 }
