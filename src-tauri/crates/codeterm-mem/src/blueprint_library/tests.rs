@@ -39,7 +39,14 @@ fn curator_save_preserves_uid_and_bumps_confidence_in_later_round() {
         crate::solution_metadata::Confidence::Low
     );
     assert!(first.tags.contains(&"curator".into()));
-    assert!(first.body.contains("blueprint:a"));
+    assert!(mem
+        .solution_metadata(&id)
+        .unwrap()
+        .unwrap()
+        .curator
+        .unwrap()
+        .episodes
+        .contains("blueprint:a"));
     let again = mem
         .save_blueprint("project", document("done"), "Watch CI failure", proof(2))
         .unwrap()
@@ -344,4 +351,47 @@ fn memory_access_counters_do_not_change_blueprint_statistics() {
     assert_eq!(entries[0].when_to_use, "Watch CI");
     mem.reuse_blueprints(&[id.clone()]).unwrap();
     assert_eq!(mem.list_blueprint_solutions("project").unwrap()[0].uses, 1);
+}
+
+#[test]
+fn kept_solution_round_trips_through_recall_and_memory_recipe() {
+    let mem = std::sync::Arc::new(MemManager::open_in_memory().unwrap());
+    for routed in [false, true] {
+        let mut step = json!({"name":"Echo ready","input":"text","kind":{"kind":"command","command":"Write-Output ready"}});
+        if routed {
+            step["on"] = json!({"done":"stop","failed":"stop"});
+        }
+        let original = Document::from_definition(&json!({"spec":{
+            "name":"echo-test", "note":"Print readiness and stop", "owner":"team",
+            "trigger":{"type":"schedule","every":"1m"}, "steps":[step], "result":{"to":"notify"}
+        }}))
+        .unwrap();
+        let expected = original.bind(&[]).unwrap();
+        let area = if routed { "routed" } else { "unrouted" };
+        let id = mem
+            .save_blueprint(area, original, "echo-test readiness", evidence())
+            .unwrap()
+            .unwrap();
+        let offered = mem.recall_blueprints(area, "echo-test", 3).unwrap();
+        assert_eq!(offered[0].id, id);
+        let recipe = mem.blueprint_recipe(area, &id).unwrap();
+        assert_eq!(
+            recipe.inputs.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec!["command"]
+        );
+        let exported = recipe.yaml().unwrap();
+        let restored = model::parse_document(&exported).unwrap();
+        let applied = restored
+            .bind(&["command=Write-Output ready".into()])
+            .unwrap();
+        assert_eq!(applied, expected);
+        assert!(
+            codeterm_blueprint_types::blueprint_document::definition_errors(&applied).is_empty()
+        );
+        if !routed {
+            assert!(restored.pipeline.as_ref().unwrap()["steps"][0]
+                .get("on")
+                .is_none());
+        }
+    }
 }
