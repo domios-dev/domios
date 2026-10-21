@@ -262,3 +262,20 @@ fn undeclared_simple_inputs_warn_but_command_templates_remain_opaque() {
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].message.contains("typo"));
 }
+
+#[test]
+fn separator_only_derived_names_have_a_readable_prefix() {
+    let raw = PIPELINE.replace("name: Endpoint health", "name: '{{url}}'");
+    let checked = check(
+        "separators.yaml",
+        &raw,
+        &[format!("url={}", "-".repeat(80))],
+    );
+    // Bind independently: the HTTP probe intentionally receives an invalid URL here.
+    let document: Document = serde_yaml::from_str(&raw).unwrap();
+    let definition = document.bind(&[format!("url={}", "-".repeat(80))]).unwrap();
+    let name = definition["spec"]["name"].as_str().unwrap();
+    assert!(name.starts_with("blueprint-"));
+    assert_eq!(name.len(), 16);
+    assert!(!checked.ok);
+}
