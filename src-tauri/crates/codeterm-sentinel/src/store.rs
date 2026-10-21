@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::amend::{self, Amendment};
 use super::escalation;
-use super::handlers::{self, Definition, Handler, Transition};
+use super::handlers::{self, Handler, Transition};
 use super::machine::{self, Machine, Route};
 use super::probe::cancellation::Cancellation;
 use super::source::{self, RunBinding, TabBinding};
@@ -19,51 +19,12 @@ pub const MAX_LIFETIME_TRANSITIONS: usize = 65_536;
 
 pub type ScopeKey = (String, Option<String>);
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Create {
-    #[serde(default)]
-    pub terminal: Option<codeterm_blueprint_types::blueprint_terminal::Config>,
-    #[serde(default)]
-    pub session: bool,
-    #[serde(default)]
-    pub note: Option<String>,
-    pub name: Option<String>,
-    #[serde(default)]
-    pub probe: Option<String>,
-    #[serde(default)]
-    pub observe: Option<TabBinding>,
-    #[serde(default)]
-    pub input: Option<InputSpec>,
-    pub question: String,
-    pub buckets: Vec<String>,
-    #[serde(default = "default_every")]
-    pub every: String,
-    #[serde(default)]
-    pub routes: BTreeMap<String, String>,
-    #[serde(default)]
-    pub matches: BTreeMap<String, String>,
-    #[serde(default)]
-    pub model_classification: bool,
-    #[serde(default)]
-    pub rearm_on_change: BTreeSet<String>,
-    pub until: Option<String>,
-    pub timeout: Option<String>,
-    #[serde(default)]
-    pub paused: bool,
-    pub handlers: Option<BTreeMap<String, Vec<Definition>>>,
-    #[serde(default)]
-    pub escalation_timeout_ms: Option<u64>,
-    pub max_transitions: Option<u16>,
-    pub max_actions: Option<u16>,
-}
-
-fn default_every() -> String {
-    "20s".into()
-}
+pub use codeterm_blueprint_types::blueprint_watch::Create;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Sentinel {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creation_options: Option<codeterm_blueprint_types::blueprint_watch::CreationOptions>,
     #[serde(flatten)]
     pub source: super::stage_source::StageSource,
     #[serde(default)]
@@ -275,6 +236,16 @@ impl Store {
             return Staged::ready(Err(format!(
                 "blueprint_capability_unavailable: {capability} is not executable yet"
             )));
+        }
+        if self.jobs.iter().any(|current| {
+            current.name == job.name
+                && job.name.is_some()
+                && current.team_id == job.team_id
+                && current.workspace_id == job.workspace_id
+        }) {
+            return Staged::ready(Err(
+                "Blueprint name already exists in this Team and workspace; use apply".into(),
+            ));
         }
         if self.get(&job.id).is_some() {
             return Staged::ready(Err("duplicate blueprint ID".into()));
@@ -881,7 +852,9 @@ impl Store {
             .iter()
             .flat_map(|job| {
                 if job.machine.stopped {
-                    return super::cleanup::deletion_deadline(&self.jobs, job, &leased).into_iter().collect::<Vec<_>>();
+                    return super::cleanup::deletion_deadline(&self.jobs, job, &leased)
+                        .into_iter()
+                        .collect::<Vec<_>>();
                 }
                 let active = self.active.contains_key(&job.id);
                 let waiting_for_run =

@@ -123,7 +123,9 @@ pub struct Step {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepKind {
-    Http { probe: crate::blueprint_http::HttpProbe },
+    Http {
+        probe: crate::blueprint_http::HttpProbe,
+    },
     Github {
         probe: crate::blueprint_github::GithubProbe,
     },
@@ -183,8 +185,16 @@ impl StepKind {
     pub fn outcomes(&self) -> Result<BTreeSet<String>, String> {
         match self {
             Self::Http { .. } => Ok(["up".into(), "down".into(), "failed".into()].into()),
-            Self::Github { probe } if probe.resource == crate::blueprint_github::GithubResource::Runners => Ok(["online".into(), "offline".into(), "failed".into()].into()),
-            Self::Github { probe } if probe.resource != crate::blueprint_github::GithubResource::PrChecks => Ok(["done".into(), "failed".into(), "failing".into()].into()),
+            Self::Github { probe }
+                if probe.resource == crate::blueprint_github::GithubResource::Runners =>
+            {
+                Ok(["online".into(), "offline".into(), "failed".into()].into())
+            }
+            Self::Github { probe }
+                if probe.resource != crate::blueprint_github::GithubResource::PrChecks =>
+            {
+                Ok(["done".into(), "failed".into(), "failing".into()].into())
+            }
             Self::Github { .. }
             | Self::Command { .. }
             | Self::Convert { .. }
@@ -250,14 +260,13 @@ pub fn validate(
 ) -> Result<(), Vec<ValidationError>> {
     let mut errors = Vec::new();
     if let Err(reason) = crate::automation_name::validate_note(spec.note.as_deref()) {
-        errors.push(ValidationError { field: "note".into(), reason });
+        errors.push(ValidationError {
+            field: "note".into(),
+            reason,
+        });
     }
-    if spec.name.trim().is_empty() || spec.name.len() > 128 || has_control(&spec.name) {
-        error(
-            &mut errors,
-            "name",
-            "must be nonempty, bounded and printable",
-        );
+    if let Err(reason) = crate::automation_name::validate_sentinel_name(&spec.name) {
+        error(&mut errors, "name", &reason);
     }
     match &spec.trigger {
         Trigger::Schedule { every } if !valid_duration(every) => {
@@ -329,8 +338,16 @@ pub fn validate(
         }
         match &step.kind {
             StepKind::Http { probe } => {
-                if step.input != IoType::Text { error(&mut errors, &format!("{field}.input"), "HTTP requires text input"); }
-                if let Err(reason) = probe.validate() { error(&mut errors, &format!("{field}.http"), &reason); }
+                if step.input != IoType::Text {
+                    error(
+                        &mut errors,
+                        &format!("{field}.input"),
+                        "HTTP requires text input",
+                    );
+                }
+                if let Err(reason) = probe.validate() {
+                    error(&mut errors, &format!("{field}.http"), &reason);
+                }
             }
             StepKind::Github { probe } => {
                 if step.input != IoType::Text {
@@ -371,7 +388,9 @@ pub fn validate(
                 }
             }
             StepKind::Command { command }
-                if command.trim().is_empty() || command.len() > MAX_COMMAND_BYTES =>
+                if command.trim().is_empty()
+                    || command.len() > MAX_COMMAND_BYTES
+                    || command.contains('\0') =>
             {
                 error(
                     &mut errors,
@@ -620,45 +639,9 @@ fn has_control(value: &str) -> bool {
 }
 
 fn valid_duration(value: &str) -> bool {
-    if value.is_empty() || value.len() > 32 {
-        return false;
-    }
-    let mut number = 0u64;
-    let mut has_digits = false;
-    let mut total = 0u64;
-    for byte in value.bytes() {
-        if byte.is_ascii_digit() {
-            has_digits = true;
-            let Some(next) = number
-                .checked_mul(10)
-                .and_then(|value| value.checked_add((byte - b'0') as u64))
-            else {
-                return false;
-            };
-            number = next;
-            continue;
-        }
-        let factor = match byte {
-            b's' => 1,
-            b'm' => 60,
-            b'h' => 3_600,
-            b'd' => 86_400,
-            _ => return false,
-        };
-        if !has_digits {
-            return false;
-        }
-        let Some(next) = number
-            .checked_mul(factor)
-            .and_then(|value| total.checked_add(value))
-        else {
-            return false;
-        };
-        total = next;
-        number = 0;
-        has_digits = false;
-    }
-    !has_digits && total >= 10
+    value.ends_with(['s', 'm', 'h', 'd'])
+        && crate::blueprint_watch::duration_ms(value)
+            .is_ok_and(|duration| duration >= crate::blueprint_watch::MIN_INTERVAL_MS)
 }
 
 fn error(errors: &mut Vec<ValidationError>, field: &str, reason: &str) {

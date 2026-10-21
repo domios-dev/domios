@@ -322,6 +322,17 @@ pub(super) fn insert_version(
         ));
     }
     let sql_version = to_sql_u64("definition version", version)?;
+    if let Some(name) = &definition.name {
+        let conflict:bool=cx.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM blueprints candidate JOIN blueprint_heads h ON h.blueprint_id=candidate.id JOIN blueprint_definitions d ON d.blueprint_id=h.blueprint_id AND d.version=h.version JOIN blueprints own ON own.id=?1 WHERE candidate.id<>?1 AND candidate.workspace_id=own.workspace_id AND candidate.team_id IS own.team_id AND d.name=?2)",
+            params![id,name],|row|row.get(0)).map_err(|error|sqlite_error("check Blueprint name",error))?;
+        if conflict {
+            return Err(StorageError::invalid(
+                "name",
+                "Blueprint name already exists in this Team and workspace; use apply",
+            ));
+        }
+    }
     let created = to_sql_u64("revision", cx.revision.0)?;
     let source = source_columns(&definition.source)?;
     let pipeline_spec = definition

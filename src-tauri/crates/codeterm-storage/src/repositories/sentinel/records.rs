@@ -53,6 +53,7 @@ pub struct SentinelScope {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SentinelIdentity {
+    pub creation_options: Option<codeterm_blueprint_types::blueprint_watch::CreationOptions>,
     pub id: SentinelId,
     pub scope: SentinelScope,
     pub cwd: String,
@@ -359,8 +360,15 @@ pub struct NewTransition {
 /// Operational scheduling changes; never a new authored definition version.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScheduleUpdate {
-    Advance { id: SentinelId, next_run: u64 },
-    Stop { id: SentinelId, reason: String, stopped_at: u64 },
+    Advance {
+        id: SentinelId,
+        next_run: u64,
+    },
+    Stop {
+        id: SentinelId,
+        reason: String,
+        stopped_at: u64,
+    },
 }
 
 /// Why a fenced operation wrote nothing.
@@ -460,6 +468,17 @@ impl SentinelIdentity {
         identifier("creator tab id", &self.scope.creator_tab_id)?;
         identifier("workspace id", &self.scope.workspace_id)?;
         optional_identifier("team id", &self.scope.team_id)?;
+        if self
+            .creation_options
+            .as_ref()
+            .and_then(|options| options.timeout_ms)
+            .is_some_and(|timeout| timeout == 0 || timeout > 366 * 86400000)
+        {
+            return Err(StorageError::invalid(
+                "creation timeout",
+                "must be positive and at most 366 days",
+            ));
+        }
         if self.cwd.is_empty() {
             return Err(StorageError::invalid("blueprint cwd", "must be nonempty"));
         }
@@ -575,7 +594,8 @@ impl StageDefinition {
                 ));
             }
         }
-        codeterm_blueprint_types::automation_name::validate_note(self.note.as_deref()).map_err(|error| StorageError::invalid("blueprint note", error))?;
+        codeterm_blueprint_types::automation_name::validate_note(self.note.as_deref())
+            .map_err(|error| StorageError::invalid("blueprint note", error))?;
         optional_text("blueprint name", &self.name)?;
         match &self.source {
             StageSource::Probe(command) => text("blueprint probe", command)?,
