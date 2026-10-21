@@ -25,25 +25,120 @@ Each pattern names the source, buckets and handlers; put silent buckets as `[]` 
 8. **Watching a whole Team.** A General Agent probes `codeterm tab status --tab <orchestrator-tab>` (it reports `not found` once the tab is gone; `orchestrator status` does not) and `codeterm orchestrator status --plan <plan> --tab <orchestrator-tab>` filtered to its `live_lanes` and `drift` lines (the reminder line changes every tick). Buckets `healthy,stuck,needs_owner,lost` in `--handlers-file`: `"healthy": []`; `stuck`, `needs_owner` and `lost` each `notify` the creator once per change; leave `other` quiet, since an escalation hold would hide later changes. A `send` target must share the creator's Team, so the General Agent relays `stuck` to the Team Orchestrator with `codeterm send` and takes `needs_owner` to the owner.
 
 ## Built-in recipes
-`codeterm blueprint recipe` lists these skeletons. `codeterm blueprint recipe <name>` prints the handlers JSON and create command; fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph. Creation proves admission only: confirm one real probe run and its recognized bucket with `blueprint show`. Patterns see `exit=N`, stdout, then stderr, so anchor per line with `(?m)` and allow CRLF with `\r?$`.
+`codeterm blueprint recipe` lists these skeletons. `codeterm blueprint recipe <name>` prints an editable pipeline spec with defaults or handlers JSON and a create command; override pipeline inputs with `--set`, or fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph. Creation proves admission only: confirm one real probe run and its recognized bucket with `blueprint show`. Patterns see `exit=N`, stdout, then stderr, so anchor per line with `(?m)` and allow CRLF with `\r?$`.
 <!-- blueprint-pipeline-recipe:github -->
 ### github
-**Purpose:** Watch a CI run or PR checks with the typed GitHub source; query run, jobs or pr_checks every minute and deliver the latest JSON to the owner.
+**Purpose:** Watch run, jobs or PR checks; report failed jobs early while CI is in progress.
+```json
+{"name":"GitHub CI watch","resource":"run","interval":"60s","timeout_ms":"60000","done":"next","failed":"stop","failing":"next","result":"owner"}
+```
 ```yaml
-name: GitHub CI watch
-trigger: {type: schedule, every: 60s}
+name: "{{name}}"
+trigger: {type: schedule, every: "{{interval}}"}
 steps:
-  - name: GitHub check
+  - name: Check source
     input: text
     kind:
       kind: github
-      probe: {repo: "{{repo}}", resource: "{{resource}}", id: "{{id}}"}
-result: {to: owner}
+      probe: {repo: "{{repo}}", resource: "{{resource}}", id: "{{id}}", timeout_ms: "{{timeout_ms}}"}
+    on: {done: "{{done}}", failed: "{{failed}}", failing: "{{failing}}"}
+result: {to: "{{result}}"}
 ```
 ```bash
-codeterm blueprint create --recipe github --set repo=cli/cli --set resource=run --set id=39652641013 --dry-run
+codeterm blueprint create --recipe github --set repo=cli/cli --set id=39652641013 --dry-run
 ```
-Remove `--dry-run` to create. Use `resource=pr_checks` and the PR number as `id` for PR checks, or `resource=jobs` for job details. Query success means the GitHub request completed, not that CI passed. Stop the watch explicitly when finished.
+<!-- /blueprint-pipeline-recipe -->
+
+<!-- blueprint-pipeline-recipe:github-failing -->
+### github-failing
+**Purpose:** Watch a CI run for failing jobs before it finishes.
+```json
+{"name":"GitHub CI watch","resource":"run","interval":"60s","timeout_ms":"60000","done":"next","failed":"stop","failing":"next","result":"owner"}
+```
+```yaml
+name: "{{name}}"
+trigger: {type: schedule, every: "{{interval}}"}
+steps:
+  - name: Check source
+    input: text
+    kind:
+      kind: github
+      probe: {repo: "{{repo}}", resource: "{{resource}}", id: "{{id}}", timeout_ms: "{{timeout_ms}}"}
+    on: {done: "{{done}}", failed: "{{failed}}", failing: "{{failing}}"}
+result: {to: "{{result}}"}
+```
+```bash
+codeterm blueprint create --recipe github-failing --set repo=cli/cli --set id=39652641013 --dry-run
+```
+<!-- /blueprint-pipeline-recipe -->
+
+<!-- blueprint-pipeline-recipe:github-runners -->
+### github-runners
+**Purpose:** Watch labelled self-hosted runner availability and its online count.
+```json
+{"name":"GitHub runners watch","label":"self-hosted","interval":"60s","timeout_ms":"60000","online":"next","offline":"next","failed":"stop","result":"owner"}
+```
+```yaml
+name: "{{name}}"
+trigger: {type: schedule, every: "{{interval}}"}
+steps:
+  - name: Check source
+    input: text
+    kind:
+      kind: github
+      probe: {repo: "{{repo}}", resource: runners, label: "{{label}}", timeout_ms: "{{timeout_ms}}"}
+    on: {online: "{{online}}", offline: "{{offline}}", failed: "{{failed}}"}
+result: {to: "{{result}}"}
+```
+```bash
+codeterm blueprint create --recipe github-runners --set repo=cli/cli --set label=linux-build --dry-run
+```
+<!-- /blueprint-pipeline-recipe -->
+
+<!-- blueprint-pipeline-recipe:github-org-runners -->
+### github-org-runners
+**Purpose:** Watch labelled self-hosted runner availability and its online count.
+```json
+{"name":"GitHub runners watch","label":"self-hosted","interval":"60s","timeout_ms":"60000","online":"next","offline":"next","failed":"stop","result":"owner"}
+```
+```yaml
+name: "{{name}}"
+trigger: {type: schedule, every: "{{interval}}"}
+steps:
+  - name: Check source
+    input: text
+    kind:
+      kind: github
+      probe: {org: "{{org}}", resource: runners, label: "{{label}}", timeout_ms: "{{timeout_ms}}"}
+    on: {online: "{{online}}", offline: "{{offline}}", failed: "{{failed}}"}
+result: {to: "{{result}}"}
+```
+```bash
+codeterm blueprint create --recipe github-org-runners --set org=github --set label=linux-build --dry-run
+```
+<!-- /blueprint-pipeline-recipe -->
+
+<!-- blueprint-pipeline-recipe:http-health -->
+### http-health
+**Purpose:** Watch an HTTP endpoint and report up/down with the response code. Redirects are not followed.
+```json
+{"name":"HTTP health watch","interval":"20s","timeout_ms":"3000","expected_status":"2xx","up":"next","down":"next","failed":"stop","result":"owner"}
+```
+```yaml
+name: "{{name}}"
+trigger: {type: schedule, every: "{{interval}}"}
+steps:
+  - name: Check source
+    input: text
+    kind:
+      kind: http
+      probe: {url: "{{url}}", expected_status: "{{expected_status}}", timeout_ms: "{{timeout_ms}}"}
+    on: {up: "{{up}}", down: "{{down}}", failed: "{{failed}}"}
+result: {to: "{{result}}"}
+```
+```bash
+codeterm blueprint create --recipe http-health --set url=https://example.com/health --dry-run
+```
 <!-- /blueprint-pipeline-recipe -->
 
 <!-- blueprint-recipe:github-pr-ci-watch -->
@@ -257,4 +352,4 @@ codeterm blueprint create --name "Marker and review" --probe "printf passed" --q
 ```json
 {"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}
 ```
-<!-- revision: 11 -->
+<!-- revision: 12 -->

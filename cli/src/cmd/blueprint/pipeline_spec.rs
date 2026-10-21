@@ -1,3 +1,4 @@
+#[cfg(test)]
 use codeterm_blueprint_types::blueprint_recipe::substitute;
 use serde_json::Value;
 use std::path::Path;
@@ -17,25 +18,7 @@ pub(super) fn load(
             }
             parse_spec(&read_spec(path)?)?
         }
-        (None, Some(name)) => {
-            let mut value = recipe_spec(name)?;
-            substitute(&mut value, assignments)?;
-            if let Some(steps) = value.get_mut("steps").and_then(Value::as_array_mut) {
-                for step in steps {
-                    if step.pointer("/kind/kind").and_then(Value::as_str) == Some("github") {
-                        if let Some(id) = step.pointer_mut("/kind/probe/id") {
-                            if let Some(text) = id.as_str() {
-                                *id = Value::from(
-                                    text.parse::<u64>()
-                                        .map_err(|_| "GitHub id must be a positive integer")?,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-            value
-        }
+        (None, Some(name)) => super::recipes::bound_pipeline_spec(name, assignments)?,
         _ => return Err("choose exactly one of --spec or --recipe".into()),
     };
     if let Some(owner) = owner {
@@ -78,10 +61,6 @@ fn parse_spec(raw: &str) -> Result<Value, String> {
             format!("invalid pipeline specification: JSON ({json_error}); YAML ({yaml_error})")
         }),
     }
-}
-
-fn recipe_spec(name: &str) -> Result<Value, String> {
-    super::recipes::pipeline_spec(name)
 }
 
 #[cfg(test)]
