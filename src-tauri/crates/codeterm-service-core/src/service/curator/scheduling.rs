@@ -274,8 +274,10 @@ impl ServiceContext {
             if let Some(mut job) = job.filter(|job| job.enabled) {
                 job.enabled = false;
                 job.next_run = None;
-                commit(cron, |_| Ok(Prepared::new(CronChange::Patch(job.clone()), ())))
-                    .map_err(|e| e.to_string())?;
+                commit(cron, |_| {
+                    Ok(Prepared::new(CronChange::Patch(job.clone()), ()))
+                })
+                .map_err(|e| e.to_string())?;
             }
         }
         if loop_state != plan.control_loop {
