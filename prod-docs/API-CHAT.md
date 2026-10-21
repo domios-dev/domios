@@ -73,4 +73,8 @@ The enum is open for future element types. The frontend renders each as a clicka
 
 Backfill accepts `offset_kind` (`bytes` or `items`) alongside `before_offset`; preserve the snapshot's unit across runtime startup. Providers declaring native stored runtime history can serve recorded messages before their runtime starts; live updates reconcile by the same native item ids.
 
-<!-- revision: 7 -->
+#### History gaps
+
+A transcript read that starts after its source's first record begins with a gap row: `type: "system"`, `systemSubtype: "history_gap"`, `timelineMarker: {kind: "history_gap", source, session_id, before_offset}` with `source` `provider_session` (an archived context epoch) or `chat_backend` (a chat-backend log). `POST /api/tabs/{id}/chat-raw/history` with `{source, session_id, before_offset}` returns `{messages}`: the older page ending at that offset, led by a new gap row while older records remain. The session must be the Tab's own chat-backend session or one of its archived epochs; any other session is refused with 409.
+
+<!-- revision: 8 -->

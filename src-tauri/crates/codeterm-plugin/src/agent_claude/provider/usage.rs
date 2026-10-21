@@ -3,34 +3,94 @@
 //! Each line in `~/.claude/projects/<encoded>/<session>.jsonl` is one event.
 //! Token counts live at `message.usage.{input,output,cache_creation_input,
 //! cache_read_input}_tokens`. Timestamp at top-level `timestamp` (RFC3339).
-//!
-//! Phase 1: re-parse the whole file on each call. Phase 3 will cache by
-//! mtime + last byte offset.
+//! Totals fold forward from a per-file offset, so a call reads only appended bytes.
 
-use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+
+use parking_lot::Mutex;
 
 use crate::provider::UsageSnapshot;
 
 use super::sessions;
+
+const MAX_CURSORS: usize = 64;
+
+static CURSORS: LazyLock<UsageCursors> = LazyLock::new(UsageCursors::default);
 
 pub(super) fn read(cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
     let path = sessions::session_file_path(cwd, session_id)?;
     if !path.exists() {
         return None;
     }
-    Some(read_from_path(&path))
+    Some(CURSORS.read(&path))
 }
 
-fn read_from_path(path: &Path) -> UsageSnapshot {
-    let Ok(file) = std::fs::File::open(path) else {
-        return UsageSnapshot::default();
-    };
-    let reader = BufReader::new(file);
-    let mut snap = UsageSnapshot::default();
+#[derive(Clone, Default)]
+struct UsageCursor {
+    offset: u64,
+    snap: UsageSnapshot,
+}
 
-    for (line_no, line) in reader.lines().enumerate() {
-        let Ok(line) = line else { continue };
+#[derive(Default)]
+struct UsageCursors {
+    cursors: Mutex<HashMap<PathBuf, UsageCursor>>,
+}
+
+impl UsageCursors {
+    fn read(&self, path: &Path) -> UsageSnapshot {
+        let opened = std::fs::File::open(path)
+            .and_then(|file| file.metadata().map(|metadata| (file, metadata.len())));
+        let Ok((mut file, length)) = opened else {
+            self.cursors.lock().remove(path);
+            return UsageSnapshot::default();
+        };
+        let mut cursor = self
+            .cursors
+            .lock()
+            .get(path)
+            .filter(|cursor| cursor.offset <= length)
+            .cloned()
+            .unwrap_or_default();
+        if cursor.offset < length && file.seek(SeekFrom::Start(cursor.offset)).is_ok() {
+            cursor.offset += fold(&mut cursor.snap, BufReader::new(file), path);
+        }
+        let snap = cursor.snap.clone();
+        let mut cursors = self.cursors.lock();
+        if cursors.len() >= MAX_CURSORS && !cursors.contains_key(path) {
+            cursors.clear();
+        }
+        cursors.insert(path.to_owned(), cursor);
+        snap
+    }
+
+    #[cfg(test)]
+    fn offset(&self, path: &Path) -> Option<u64> {
+        self.cursors.lock().get(path).map(|cursor| cursor.offset)
+    }
+}
+
+#[cfg(test)]
+fn read_from_path(path: &Path) -> UsageSnapshot {
+    UsageCursors::default().read(path)
+}
+
+/// Folds complete lines into `snap`; a trailing partial line stays unread.
+fn fold(snap: &mut UsageSnapshot, mut reader: impl BufRead, path: &Path) -> u64 {
+    let mut consumed = 0;
+    let mut bytes = Vec::new();
+    loop {
+        bytes.clear();
+        let Ok(count) = reader.read_until(b'\n', &mut bytes) else {
+            break;
+        };
+        if count == 0 || bytes.last() != Some(&b'\n') {
+            break;
+        }
+        consumed += count as u64;
+        let line = String::from_utf8_lossy(&bytes);
         if line.trim().is_empty() {
             continue;
         }
@@ -38,8 +98,7 @@ fn read_from_path(path: &Path) -> UsageSnapshot {
             Ok(v) => v,
             Err(e) => {
                 log::debug!(
-                    "[claude-usage] skip malformed line {} in {}: {}",
-                    line_no + 1,
+                    "[claude-usage] skip malformed line in {}: {}",
                     path.display(),
                     e
                 );
@@ -69,8 +128,7 @@ fn read_from_path(path: &Path) -> UsageSnapshot {
             snap.last_activity_at = Some(ts);
         }
     }
-
-    snap
+    consumed
 }
 
 fn token_field(usage: &serde_json::Value, name: &str) -> u64 {
@@ -178,6 +236,56 @@ mod tests {
         assert_eq!(snap.output_tokens, 0);
         assert_eq!(snap.cache_creation_input_tokens, 0);
         assert_eq!(snap.cache_read_input_tokens, 0);
+        assert_eq!(snap.message_count, 1);
+    }
+
+    fn usage_line(input: u64) -> String {
+        format!(
+            "{{\"timestamp\":\"2026-05-07T10:00:00Z\",\"message\":{{\"usage\":{{\"input_tokens\":{input}}}}}}}\n"
+        )
+    }
+
+    #[test]
+    fn rereads_fold_only_appended_complete_lines() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().unwrap();
+        let first = usage_line(10);
+        let path = write_fixture(tmp.path(), "growing", &first);
+        let cursors = UsageCursors::default();
+        assert_eq!(cursors.read(&path).input_tokens, 10);
+        assert_eq!(cursors.offset(&path), Some(first.len() as u64));
+
+        let second = usage_line(5);
+        let (complete, partial) = second.split_at(second.len() - 3);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(complete.as_bytes()).unwrap();
+        let held = cursors.read(&path);
+        assert_eq!(held.input_tokens, 10);
+        assert_eq!(cursors.offset(&path), Some(first.len() as u64));
+
+        file.write_all(partial.as_bytes()).unwrap();
+        let folded = cursors.read(&path);
+        assert_eq!(folded.input_tokens, 15);
+        assert_eq!(folded.message_count, 2);
+        assert_eq!(
+            cursors.offset(&path),
+            Some((first.len() + second.len()) as u64)
+        );
+        assert_eq!(cursors.read(&path), folded);
+    }
+
+    #[test]
+    fn a_truncated_file_refolds_from_the_start() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = write_fixture(tmp.path(), "rewritten", &(usage_line(7) + &usage_line(8)));
+        let cursors = UsageCursors::default();
+        assert_eq!(cursors.read(&path).input_tokens, 15);
+        std::fs::write(&path, usage_line(3)).unwrap();
+        let snap = cursors.read(&path);
+        assert_eq!(snap.input_tokens, 3);
         assert_eq!(snap.message_count, 1);
     }
 }

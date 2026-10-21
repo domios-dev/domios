@@ -3,6 +3,7 @@ export { MessageBubble } from "./MessageBubble";
 export { CodeBlock } from "./CodeBlock";
 export {
   ChatSessionIntentLine,
+  HistoryGapProvider,
   isSessionIntentOnlyMessage,
   normalizedTimelineMarker,
   sessionIntentFromMessages,
