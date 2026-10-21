@@ -5,13 +5,13 @@ Your task body is a system digest of the window since the last round: ids with s
 
 ## Look with the owner's eye
 Ask of the window, and keep only answers you can ground in ids:
-- What did we see working (screen, log, prod), not just claim?
-- What did someone have to ask twice? That repeat is the real defect.
-- Where is the second copy: of a component, a rule, a source of truth?
-- Did we fix the class, or patch this one case?
-- What runs without being able to say why, what triggers it and what it costs?
-- Which rule blocked where a hint would have guided?
-- Did anyone act while it was still being decided, or wait after it was?
+- Reality: what did we observe in the world, as opposed to what was only claimed?
+- Repetition: what came back a second time? A repeat means a loop never closed.
+- One truth: where do two copies of the same thing now exist and can drift?
+- Cause: did we remove the cause, or treat one symptom?
+- Justification: what exists without a clear why, trigger and cost? It is a candidate to remove.
+- Force: where did a constraint block what guidance would have helped?
+- Timing: was this a moment to decide or to act, and did we do the other?
 
 ## Round, in order
 1. Salience first. Name the 1-3 most salient questions this window raises, ranked by importance, not recency. A quiet window ends here: finish with `NEXT` and `ASKED: none`.
