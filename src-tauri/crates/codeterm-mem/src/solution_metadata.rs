@@ -223,7 +223,10 @@ impl MemManager {
             .retain(|tag| !tag.starts_with("curator:candidate:"));
         item.tags.extend(["curator".into(), proof.plan]);
         let id = if let Some(id) = improve {
-            if !store::update(
+            if store::get(&tx, id, &self.blobs_dir)?.is_none() {
+                return Err("covered skill disappeared".into());
+            }
+            store::update(
                 &tx,
                 id,
                 &store::MemUpdate {
@@ -232,9 +235,7 @@ impl MemManager {
                     ..Default::default()
                 },
                 &self.blobs_dir,
-            )? {
-                return Err("covered skill disappeared".into());
-            }
+            )?;
             id.to_owned()
         } else {
             store::insert(&tx, &item, &self.blobs_dir)?
