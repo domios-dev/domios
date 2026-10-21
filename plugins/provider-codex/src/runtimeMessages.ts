@@ -75,12 +75,14 @@ export function runtimeItem(raw: unknown, seq: number, previous?: ChatMsg): Chat
       if (typeof item.exitCode === "number") row.toolExitCode = item.exitCode;
       if (item.status === "interrupted") row.toolInterrupted = true;
       break;
-    case "fileChange":
-      row.toolKind = "edit"; row.fileDiffs = runtimeFileDiffs(item.changes);
-      row.toolEdits = diffEdits(row.fileDiffs as import("./fileDiffs").FileDiff[]);
-      row.toolSummary = list(item.changes).map(object).map(p => p.path).join("\n");
-      row.toolDetail = row.toolSummary;
+    case "fileChange": {
+      const diffs = runtimeFileDiffs(item.changes);
+      row.toolKind = "edit"; row.fileDiffs = diffs;
+      row.toolEdits = diffEdits(diffs);
+      row.toolSummary = diffs.map(diff => diff.path).join("\n") || "File change";
+      row.toolDetail = display(item);
       break;
+    }
     case "mcpToolCall": case "dynamicToolCall": {
       const prefix = text(item.server) ?? text(item.namespace);
       row.toolKind = "generic"; row.toolName = [prefix,text(item.tool)].filter(Boolean).join(" · ");

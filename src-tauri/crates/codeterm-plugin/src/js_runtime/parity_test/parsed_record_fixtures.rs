@@ -116,6 +116,7 @@ fn bundled_captured_runtime_records_match_text_sibling_after_host_filter() {
         for name in [
             "recorded-runtime-history.json",
             "reference-runtime-history.json",
+            "captured-edit-history.json",
         ] {
             let fixture_path = directory.join("tests/fixtures").join(name);
             if !fixture_path.exists() {
