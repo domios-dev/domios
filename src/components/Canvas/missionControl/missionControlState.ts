@@ -184,11 +184,13 @@ export interface PlanBoardState {
   mission_control: MissionControlState;
 }
 
+export type TeamPlanSummary = Pick<Plan, "id" | "title" | "team_id" | "status" | "mode" | "planning_state" | "goal" | "updated_at"> & { task_counts?: PlanTaskCounts };
+
 export interface TeamMissionControlState {
   team_id: string;
   team: Team;
-  active_plan: Plan | null;
-  archived_plans: Plan[];
+  active_plan: TeamPlanSummary | null;
+  archived_plans: TeamPlanSummary[];
   events: TeamMissionControlEvent[];
   next_cursor: string | null;
 }

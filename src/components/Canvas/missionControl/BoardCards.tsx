@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { AnchoredPopover } from "../../shared/AnchoredPopover";
-import type { Plan } from "../types";
+import type { TeamPlanSummary } from "./missionControlState";
 import type { ApiConfig } from "../../../lib/types";
 import { PlanModeControls } from "../planView/PlanModeControls";
 import { PLANNING_STATE_LABEL, planDraftState } from "../planView/boardModel";
@@ -92,7 +92,7 @@ function PreviousPlanList({
   onOpenPlan,
 }: {
   id: string;
-  plans: readonly Plan[];
+  plans: readonly TeamPlanSummary[];
   onOpenPlan?: (planId: string) => void;
 }) {
   return (
@@ -125,7 +125,7 @@ function PreviousPlansMenu({
   plans,
   onOpenPlan,
 }: {
-  plans: readonly Plan[];
+  plans: readonly TeamPlanSummary[];
   onOpenPlan?: (planId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -229,7 +229,7 @@ export function NoActivePlanCard({
   previousPlans,
   onOpenPlan,
 }: {
-  previousPlans: readonly Plan[];
+  previousPlans: readonly TeamPlanSummary[];
   onOpenPlan?: (planId: string) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
@@ -269,11 +269,11 @@ export function PlanCard({
   onOpenPlanView,
   api,
 }: {
-  plan: Plan;
+  plan: TeamPlanSummary;
   api?: ApiConfig;
   counts: PlanTaskCounts;
   bounces: BounceSummary;
-  previousPlans?: readonly Plan[];
+  previousPlans?: readonly TeamPlanSummary[];
   onOpenPlan?: (planId: string) => void;
   onOpenPlanView?: () => void;
 }) {

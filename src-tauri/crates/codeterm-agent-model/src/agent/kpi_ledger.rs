@@ -10,11 +10,13 @@ use serde::{Deserialize, Serialize};
 pub use codeterm_plan::service_plan::state::analytics::TabCreatedKind;
 
 mod analytics;
+mod board_queries;
 mod usage_rows;
+pub use board_queries::DailyTokenUsage;
 
 pub use usage_rows::{CumulativeUsage, RebuiltResponse, UsageCursorState, UsageRebuildOutcome};
 
-const CURRENT_KPI_SCHEMA_VERSION: u32 = 5;
+const CURRENT_KPI_SCHEMA_VERSION: u32 = 6;
 
 const EVENT_COLUMNS: &str = r#"
     schema_version, plan_id, task_id, tab_id, role, provider, model,
@@ -271,6 +273,17 @@ impl KpiLedger {
                 4 => {
                     Self::add_v5_response_identity(conn)?;
                     version = 5;
+                }
+                5 => {
+                    conn.execute_batch(
+                        "BEGIN IMMEDIATE;
+                         CREATE INDEX IF NOT EXISTS idx_kpi_plan_totals ON kpi_events(plan_id, kind, bytes, input_tokens, uncached_input_tokens, output_tokens);
+                         CREATE INDEX IF NOT EXISTS idx_kpi_token_days ON kpi_events(kind, ts / 86400, plan_id, provider, model, ts, input_tokens, uncached_input_tokens, output_tokens);
+                         CREATE INDEX IF NOT EXISTS idx_kpi_model_totals ON kpi_events(kind, provider, model, input_tokens, uncached_input_tokens, output_tokens);
+                         PRAGMA user_version = 6;
+                         COMMIT;"
+                    )?;
+                    version = 6;
                 }
                 CURRENT_KPI_SCHEMA_VERSION => return Ok(()),
                 _ if version > CURRENT_KPI_SCHEMA_VERSION => {
@@ -615,6 +628,30 @@ impl KpiLedger {
             .filter_map(Result::ok)
             .collect();
         Ok(rows)
+    }
+
+    pub fn aggregate_for_plan(&self, plan_id: &str) -> Result<Option<PlanAggregate>, String> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN input_tokens IS NULL THEN bytes END), 0),
+             COUNT(input_tokens), COALESCE(SUM(input_tokens), 0),
+             COALESCE(SUM(uncached_input_tokens), 0), COALESCE(SUM(output_tokens), 0)
+             FROM kpi_events WHERE plan_id = ?1 AND kind != 'tab_created'",
+            params![plan_id],
+            |r| {
+                Ok(PlanAggregate {
+                    plan_id: Some(plan_id.to_string()),
+                    count: r.get::<_, i64>(0)? as u64,
+                    total_bytes: r.get::<_, i64>(1)? as u64,
+                    turns: r.get::<_, i64>(2)? as u64,
+                    input_tokens: r.get::<_, i64>(3)? as u64,
+                    uncached_input_tokens: r.get::<_, i64>(4)? as u64,
+                    output_tokens: r.get::<_, i64>(5)? as u64,
+                })
+            },
+        )
+        .map(|row| (row.count > 0).then_some(row))
+        .map_err(|e| format!("kpi ledger plan aggregate: {e}"))
     }
 
     /// Tab creation is not plan activity, so it never enters a plan bucket.

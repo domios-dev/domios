@@ -313,6 +313,35 @@ beforeEach(() => {
 });
 
 describe("mission control board panels", () => {
+  it("shows skeletons until each card has its own reading", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const spend = { team_id: "team-a", metric: "tokens", units: "tokens", scope: "team_plan", model: "all", from: "2026-10-14", to: "2026-10-21", state: "recording", not_recording_reason: null, plans: [], attribution: { team_plan_count: 0, unknown_plan_rows: 0, unassigned_plan_rows: 0, foreign_plan_rows_excluded: 0 }, daily: [], weekly_limit_points: [], weekly_limit_days: [] } as const;
+    await act(async () => root.render(<MissionControlBoard plan={PLAN} state={null} loading spendLoading />));
+    for (const title of ["Spend", "Models", "Plan", "Event log"]) {
+      expect(host.querySelector(`[role="status"][aria-label="Loading ${title}"]`)).not.toBeNull();
+    }
+    await act(async () => root.render(<MissionControlBoard plan={PLAN} state={null} loading teamSpend={{ ...spend, plans: [], daily: [], weekly_limit_points: [], weekly_limit_days: [] }} />));
+    expect(host.querySelector('[aria-label="Loading Spend"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Loading Models"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Loading Plan"]')).not.toBeNull();
+    await act(async () => root.render(<MissionControlBoard plan={PLAN} state={boardState(recordingState())} />));
+    expect(host.querySelector('[aria-label="Loading Plan"]')).toBeNull();
+    expect(text(host, "mc-board-plan-heading")).toBe(PLAN.title);
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("ends the team skeletons when the read fails while retaining independent spend", async () => {
+    const { host, unmount } = await render(<MissionControlTeamBoard team={null} error="Board read failed" />);
+    expect(host.querySelector('[aria-label="Loading Plan"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Loading Event log"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="mc-board-spend"]')).not.toBeNull();
+    await unmount();
+  });
+
   it("opens on the spend, models and plan row with the log under it when nothing needs the owner", async () => {
     const { host, unmount } = await render(board(recordingState()));
 

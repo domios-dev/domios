@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::agent::kpi_ledger::{KpiEventKind, KpiEventRecord};
-use codeterm_service_core::plan::{Plan, PlanStatus};
+use codeterm_service_core::agent::kpi_ledger::DailyTokenUsage;
+use codeterm_service_core::plan::PlanStatus;
 use codeterm_service_core::service::ServiceContext;
 use codeterm_service_core::usage::UsageSnapshotRow;
 
@@ -223,6 +223,14 @@ pub(crate) struct WeeklyLimitScope {
 }
 
 #[derive(Debug, Clone)]
+struct SpendPlan {
+    id: String,
+    title: String,
+    team_id: Option<String>,
+    status: PlanStatus,
+}
+
+#[derive(Debug, Clone)]
 struct TeamPlanRow {
     summary: TeamPlanSummary,
 }
@@ -253,7 +261,7 @@ struct TokenProjection {
 }
 
 fn plan_summaries(
-    plans: &[Plan],
+    plans: &[SpendPlan],
     team_id: &str,
 ) -> (
     Vec<TeamPlanSummary>,
@@ -305,8 +313,8 @@ fn include_model(model: Option<&str>, selector: ModelSelector<'_>) -> bool {
 }
 
 fn project_tokens(
-    plans: &[Plan],
-    events: &[KpiEventRecord],
+    plans: &[SpendPlan],
+    events: &[DailyTokenUsage],
     team_id: &str,
     range: SpendRange,
     model: ModelSelector<'_>,
@@ -319,12 +327,7 @@ fn project_tokens(
     };
 
     for event in events {
-        if event.kind != KpiEventKind::TokenUsage {
-            continue;
-        }
-        let Some(tokens) = event.tokens else {
-            continue;
-        };
+        let tokens = event.tokens;
         let Some(day) = event_day(event.timestamp) else {
             continue;
         };
@@ -333,15 +336,15 @@ fn project_tokens(
         }
 
         let Some(plan_id) = event.plan_id.as_deref() else {
-            attribution.unassigned_plan_rows += 1;
+            attribution.unassigned_plan_rows += event.turns;
             continue;
         };
         if foreign.contains(plan_id) {
-            attribution.foreign_plan_rows_excluded += 1;
+            attribution.foreign_plan_rows_excluded += event.turns;
             continue;
         }
         let Some(plan) = team.get(plan_id) else {
-            attribution.unknown_plan_rows += 1;
+            attribution.unknown_plan_rows += event.turns;
             continue;
         };
         let plan_id = Some(plan_id.to_string());
@@ -367,7 +370,7 @@ fn project_tokens(
             .uncached_input_tokens
             .saturating_add(tokens.uncached_input);
         value.output_tokens = value.output_tokens.saturating_add(tokens.output);
-        value.turns = value.turns.saturating_add(1);
+        value.turns = value.turns.saturating_add(event.turns);
     }
 
     let daily = values
@@ -554,7 +557,17 @@ pub(crate) fn project_team_spend(
 ) -> Result<TeamSpendResponse, ProjectionError> {
     let (metric, model, range) =
         parse_request(team_id, query).map_err(ProjectionError::BadRequest)?;
-    let plans_snapshot = svc.plan_store.list_full();
+    let plans_snapshot: Vec<SpendPlan> = svc
+        .plan_store
+        .list_index()
+        .into_iter()
+        .map(|entry| SpendPlan {
+            id: entry.plan_id,
+            title: entry.title,
+            team_id: entry.team_id,
+            status: entry.status,
+        })
+        .collect();
     let (plans, team_plans, _) = plan_summaries(&plans_snapshot, team_id);
     let base = |state, reason: Option<String>, attribution| TeamSpendResponse {
         team_id: team_id.to_string(),
@@ -598,7 +611,22 @@ pub(crate) fn project_team_spend(
                     },
                 ));
             };
-            let events = ledger.list_all().map_err(ProjectionError::Internal)?;
+            let from = range
+                .from
+                .and_time(chrono::NaiveTime::MIN)
+                .and_utc()
+                .timestamp()
+                .max(0) as u64;
+            let to = range
+                .to
+                .and_time(chrono::NaiveTime::MIN)
+                .and_utc()
+                .timestamp()
+                .saturating_add(86400)
+                .max(0) as u64;
+            let events = ledger
+                .daily_token_usage(from, to)
+                .map_err(ProjectionError::Internal)?;
             let projection = project_tokens(&plans_snapshot, &events, team_id, range, model);
             let state = if projection.daily.is_empty() {
                 TeamSpendState::NotRecording
@@ -651,7 +679,14 @@ pub(crate) async fn team_spend(
 ) -> Result<Json<TeamSpendResponse>, (StatusCode, Json<Value>)> {
     check_auth(&state, &headers)
         .map_err(|(status, message)| (status, Json(serde_json::json!({ "error": message }))))?;
-    project_team_spend(&state.svc, &team_id, &query)
+    tokio::task::spawn_blocking(move || project_team_spend(&state.svc, &team_id, &query))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": error.to_string() })),
+            )
+        })?
         .map(Json)
         .map_err(|error| match error {
             ProjectionError::BadRequest(message) => (
@@ -666,448 +701,4 @@ pub(crate) async fn team_spend(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use codeterm_service_core::agent::kpi_ledger::TokenCounts;
-    use codeterm_service_core::plan::OrchestratorRef;
-
-    fn range(from: &str, to: &str) -> SpendRange {
-        SpendRange::from_query(&TeamSpendQuery {
-            metric: Some("tokens".into()),
-            model: Some("all".into()),
-            from: Some(from.into()),
-            to: Some(to.into()),
-        })
-        .unwrap()
-    }
-
-    fn plan(id: &str, title: &str, team_id: Option<&str>, status: PlanStatus) -> Plan {
-        let mut plan = Plan::new(
-            title.into(),
-            "C:/workspace/project".into(),
-            OrchestratorRef {
-                tab_id: None,
-                session_id: None,
-                title: None,
-            },
-        );
-        plan.id = id.into();
-        plan.team_id = team_id.map(str::to_string);
-        plan.status = status;
-        plan
-    }
-
-    fn event(
-        plan_id: Option<&str>,
-        provider: &str,
-        model: Option<&str>,
-        day: &str,
-        input: u64,
-        uncached_input: u64,
-        output: u64,
-    ) -> KpiEventRecord {
-        let timestamp = NaiveDate::parse_from_str(day, "%Y-%m-%d")
-            .unwrap()
-            .and_hms_opt(12, 0, 0)
-            .unwrap()
-            .and_utc()
-            .timestamp() as u64;
-        KpiEventRecord {
-            id: 1,
-            schema_version: 3,
-            plan_id: plan_id.map(str::to_string),
-            task_id: None,
-            tab_id: "tab".into(),
-            role: None,
-            provider: provider.into(),
-            model: model.map(str::to_string),
-            timestamp,
-            kind: KpiEventKind::TokenUsage,
-            bytes: input + output,
-            tokens: Some(TokenCounts {
-                input,
-                uncached_input,
-                output,
-            }),
-            dedup_key: None,
-            workspace_id: None,
-            tab_kind: None,
-        }
-    }
-
-    fn usage_row(
-        provider: &str,
-        account_id: Option<&str>,
-        day: &str,
-        weekly_pct: Option<f32>,
-    ) -> UsageSnapshotRow {
-        let captured_at = NaiveDate::parse_from_str(day, "%Y-%m-%d")
-            .unwrap()
-            .and_hms_opt(12, 0, 0)
-            .unwrap()
-            .and_utc()
-            .timestamp_millis();
-        UsageSnapshotRow {
-            billing_mode: Default::default(),
-            limits_reported: false,
-            id: 1,
-            provider: provider.into(),
-            account_id: account_id.map(str::to_string),
-            captured_at,
-            parsed_ok: true,
-            session_pct: None,
-            session_resets_at: None,
-            weekly_pct,
-            weekly_resets_at: Some(2_000),
-            spend_cents: None,
-            spend_limit_cents: None,
-            spend_remaining_cents: None,
-            spend_resets_at: None,
-            failure_reason: None,
-            probe_command: None,
-            raw_excerpt: None,
-            debug_json: None,
-        }
-    }
-
-    #[test]
-    fn team_spend_rejects_malformed_or_unbounded_inputs() {
-        let malformed = TeamSpendQuery {
-            metric: Some("invalid".into()),
-            model: Some("all".into()),
-            from: Some("2026-01-01".into()),
-            to: Some("2026-01-01".into()),
-        };
-        assert_eq!(
-            parse_request("team-a", &malformed).unwrap_err(),
-            "unsupported metric: invalid"
-        );
-        assert!(parse_request(
-            "team-a",
-            &TeamSpendQuery {
-                metric: Some("tokens".into()),
-                model: Some("all".into()),
-                from: Some("2026-02-01".into()),
-                to: Some("2026-01-01".into()),
-            }
-        )
-        .unwrap_err()
-        .contains("earlier"));
-        assert!(parse_request(
-            "team-a",
-            &TeamSpendQuery {
-                metric: Some("tokens".into()),
-                model: Some("all".into()),
-                from: Some("2026-01-01".into()),
-                to: Some("2026-02-02".into()),
-            }
-        )
-        .unwrap_err()
-        .contains("31 days"));
-        assert!(parse_request(
-            " team-a",
-            &TeamSpendQuery {
-                metric: Some("tokens".into()),
-                model: Some("all".into()),
-                from: Some("2026-01-01".into()),
-                to: Some("2026-01-01".into()),
-            }
-        )
-        .unwrap_err()
-        .contains("whitespace"));
-    }
-
-    #[test]
-    fn team_spend_aggregates_active_archived_and_excludes_unknown_rows_without_foreign_data() {
-        let plans = vec![
-            plan("pl-active", "Active", Some("team-a"), PlanStatus::Active),
-            plan(
-                "pl-archived",
-                "Archived",
-                Some("team-a"),
-                PlanStatus::Archived,
-            ),
-            plan("pl-foreign", "Foreign", Some("team-b"), PlanStatus::Active),
-        ];
-        let events = vec![
-            event(
-                Some("pl-active"),
-                "codex",
-                Some("gpt"),
-                "2026-01-01",
-                100,
-                60,
-                20,
-            ),
-            event(
-                Some("pl-active"),
-                "codex",
-                Some("gpt"),
-                "2026-01-01",
-                25,
-                5,
-                10,
-            ),
-            event(Some("pl-active"), "", None, "2026-01-01", 30, 10, 5),
-            event(
-                Some("pl-archived"),
-                "claude",
-                Some("opus"),
-                "2026-01-02",
-                200,
-                100,
-                40,
-            ),
-            event(
-                Some("pl-foreign"),
-                "codex",
-                Some("gpt"),
-                "2026-01-01",
-                900,
-                900,
-                900,
-            ),
-            event(
-                Some("pl-missing"),
-                "codex",
-                Some("gpt"),
-                "2026-01-01",
-                9,
-                4,
-                1,
-            ),
-            event(None, "", None, "2026-01-01", 7, 3, 2),
-        ];
-        let projection = project_tokens(
-            &plans,
-            &events,
-            "team-a",
-            range("2026-01-01", "2026-01-02"),
-            ModelSelector::All,
-        );
-        assert_eq!(projection.attribution.team_plan_count, 2);
-        assert_eq!(projection.attribution.foreign_plan_rows_excluded, 1);
-        assert_eq!(projection.attribution.unknown_plan_rows, 1);
-        assert_eq!(projection.attribution.unassigned_plan_rows, 1);
-        assert_eq!(projection.daily.len(), 3);
-        assert!(projection.daily.iter().all(|row| matches!(
-            row.plan_id.as_deref(),
-            Some("pl-active") | Some("pl-archived")
-        )));
-        let archived = projection
-            .daily
-            .iter()
-            .find(|row| row.plan_id.as_deref() == Some("pl-archived"))
-            .unwrap();
-        assert_eq!(archived.plan_status, Some(PlanStatus::Archived));
-        assert_eq!(archived.output_tokens, 40);
-        let active = projection
-            .daily
-            .iter()
-            .find(|row| {
-                row.plan_id.as_deref() == Some("pl-active") && row.model.as_deref() == Some("gpt")
-            })
-            .unwrap();
-        assert_eq!(active.input_tokens, 125);
-        assert_eq!(active.uncached_input_tokens, 65);
-        assert_eq!(active.output_tokens, 30);
-        assert_eq!(active.turns, 2);
-        assert!(projection
-            .daily
-            .iter()
-            .all(|row| row.plan_id.as_deref() != Some("pl-missing")));
-    }
-
-    #[test]
-    fn team_spend_excludes_planless_rows_and_counts_unassigned_attribution() {
-        let plans = vec![plan(
-            "pl-active",
-            "Active",
-            Some("team-a"),
-            PlanStatus::Active,
-        )];
-        let events = vec![event(None, "", None, "2026-01-01", 7, 3, 2)];
-        let projection = project_tokens(
-            &plans,
-            &events,
-            "team-a",
-            range("2026-01-01", "2026-01-01"),
-            ModelSelector::All,
-        );
-        assert!(projection.daily.is_empty());
-        assert_eq!(projection.attribution.unassigned_plan_rows, 1);
-        assert_eq!(projection.attribution.unknown_plan_rows, 0);
-        assert_eq!(projection.attribution.foreign_plan_rows_excluded, 0);
-    }
-
-    #[test]
-    fn team_spend_model_filters_keep_all_unknowns_only_in_all_selector() {
-        let plans = vec![plan(
-            "pl-active",
-            "Active",
-            Some("team-a"),
-            PlanStatus::Active,
-        )];
-        let events = vec![
-            event(
-                Some("pl-active"),
-                "codex",
-                Some("gpt"),
-                "2026-01-01",
-                100,
-                50,
-                20,
-            ),
-            event(
-                Some("pl-active"),
-                "codex",
-                Some("other"),
-                "2026-01-01",
-                200,
-                100,
-                40,
-            ),
-            event(Some("pl-active"), "codex", None, "2026-01-01", 300, 150, 60),
-        ];
-        let all = project_tokens(
-            &plans,
-            &events,
-            "team-a",
-            range("2026-01-01", "2026-01-01"),
-            ModelSelector::All,
-        );
-        assert_eq!(all.daily.len(), 3);
-        let selected = project_tokens(
-            &plans,
-            &events,
-            "team-a",
-            range("2026-01-01", "2026-01-01"),
-            ModelSelector::One("gpt"),
-        );
-        assert_eq!(selected.daily.len(), 1);
-        assert_eq!(selected.daily[0].model.as_deref(), Some("gpt"));
-        assert_eq!(selected.daily[0].input_tokens, 100);
-    }
-
-    #[test]
-    fn team_spend_date_bounds_exclude_outside_days() {
-        let plans = vec![plan(
-            "pl-active",
-            "Active",
-            Some("team-a"),
-            PlanStatus::Active,
-        )];
-        let events = vec![
-            event(
-                Some("pl-active"),
-                "codex",
-                Some("gpt"),
-                "2026-01-01",
-                1,
-                1,
-                1,
-            ),
-            event(
-                Some("pl-active"),
-                "codex",
-                Some("gpt"),
-                "2026-01-02",
-                2,
-                2,
-                2,
-            ),
-            event(
-                Some("pl-active"),
-                "codex",
-                Some("gpt"),
-                "2026-01-03",
-                4,
-                4,
-                4,
-            ),
-        ];
-        let projection = project_tokens(
-            &plans,
-            &events,
-            "team-a",
-            range("2026-01-02", "2026-01-02"),
-            ModelSelector::All,
-        );
-        assert_eq!(projection.daily.len(), 1);
-        assert_eq!(projection.daily[0].day, "2026-01-02");
-    }
-
-    #[test]
-    fn team_spend_weekly_points_preserve_provider_account_and_machine_scope() {
-        let rows = vec![
-            usage_row("codex", Some("account-a"), "2026-01-02", Some(35.5)),
-            usage_row("codex", Some("account-a"), "2026-01-01", Some(25.0)),
-            usage_row("claude", None, "2026-01-01", Some(80.0)),
-            usage_row("claude", None, "2026-01-03", Some(90.0)),
-        ];
-        let points = weekly_limit_points_from_rows(rows, range("2026-01-01", "2026-01-02"));
-        assert_eq!(points.len(), 2);
-        let account = points
-            .iter()
-            .find(|point| point.provider == "codex")
-            .unwrap();
-        assert_eq!(account.weekly_limit_points, 35.5);
-        assert_eq!(account.scope.kind, "provider_account");
-        assert_eq!(account.scope.account_id.as_deref(), Some("account-a"));
-        assert_eq!(account.team_attribution, "unavailable");
-        assert_eq!(account.model_attribution, "unavailable");
-        let machine = points
-            .iter()
-            .find(|point| point.provider == "claude")
-            .unwrap();
-        assert_eq!(machine.scope.kind, "machine");
-        assert_eq!(machine.scope.account_id, None);
-    }
-
-    #[test]
-    fn team_spend_weekly_days_count_points_used_per_day_across_a_reset() {
-        let mut later = usage_row("codex", Some("account-a"), "2026-01-03", Some(45.0));
-        later.captured_at += 3_600_000;
-        let mut reset = usage_row("codex", Some("account-a"), "2026-01-04", Some(5.0));
-        reset.weekly_resets_at = Some(2_000 + 7 * 86_400_000);
-        let rows = vec![
-            usage_row("codex", Some("account-a"), "2026-01-01", Some(10.0)),
-            usage_row("codex", Some("account-a"), "2026-01-02", Some(25.0)),
-            usage_row("codex", Some("account-a"), "2026-01-03", Some(40.0)),
-            later,
-            reset,
-            usage_row("claude", None, "2026-01-03", Some(80.0)),
-        ];
-        let days = weekly_limit_days_from_rows(&rows, range("2026-01-02", "2026-01-04"));
-        let codex: Vec<_> = days
-            .iter()
-            .map(|day| (day.day.as_str(), day.points_used, day.weekly_limit_points))
-            .collect();
-        assert_eq!(
-            codex,
-            vec![
-                ("2026-01-02", 15.0, 25.0),
-                ("2026-01-03", 20.0, 45.0),
-                ("2026-01-04", 5.0, 5.0),
-            ],
-            "a first reading has no baseline, so claude has no day"
-        );
-        assert!(days.iter().all(|day| day.scope.kind == "provider_account"
-            && day.team_attribution == "unavailable"
-            && day.model_attribution == "unavailable"));
-    }
-
-    #[test]
-    fn team_spend_weekly_model_filter_is_rejected_without_attribution() {
-        let query = TeamSpendQuery {
-            metric: Some("weekly_limit_points".into()),
-            model: Some("gpt".into()),
-            from: Some("2026-01-01".into()),
-            to: Some("2026-01-01".into()),
-        };
-        assert!(parse_request("team-a", &query)
-            .unwrap_err()
-            .contains("no model attribution"));
-    }
-}
+mod tests;

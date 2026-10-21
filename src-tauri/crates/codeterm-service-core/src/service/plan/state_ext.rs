@@ -15,7 +15,7 @@ impl ServiceContext {
     ) -> Result<PlanStateSnapshot, PlanError> {
         let plan = self.plan_store.get(plan_id).ok_or(PlanError::NotFound)?;
         let coverage = compute_coverage_report(&plan);
-        let reconcile = self.reconcile_plan(plan_id, false, None, now_ms)?;
+        let reconcile = self.reconcile_plan_record(&plan, false, None, now_ms)?;
         let drift = reconcile.drift;
         let cleanup_debt = reconcile.cleanup_debt;
 
