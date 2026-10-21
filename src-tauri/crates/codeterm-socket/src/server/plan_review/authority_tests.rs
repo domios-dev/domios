@@ -203,7 +203,7 @@ fn acceptance_removes_only_the_assigned_workers_completion_watches() {
     let creator = fixture.service.sentinel_caller(&worker, None).unwrap();
     let create = |until: Option<&str>| {
         serde_json::from_value(json!({
-            "name":"completion-watch", "probe":"status", "question":"Ready?", "buckets":["done"],
+            "name":if until.is_some(){"completion-watch"}else{"recurring-watch"}, "probe":"status", "question":"Ready?", "buckets":["done"],
             "every":"10s", "matches":{"done":"done"}, "until":until
         }))
         .unwrap()
