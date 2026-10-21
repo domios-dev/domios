@@ -523,6 +523,11 @@ fn shell_exit_ends_the_pty_stream_with_its_exit_code() {
             .map(|built| manager.register_session(None, built))
     }
     .expect("spawn default shell");
+    #[cfg(target_os = "windows")]
+    crate::pty::windows_test_support::print_pty_environment(
+        &detect_default_shell(),
+        session.child.lock().unwrap().process_id(),
+    );
     let mut reader = session
         .reader
         .lock()
@@ -557,6 +562,10 @@ fn shell_exit_ends_the_pty_stream_with_its_exit_code() {
     manager.write(&pty_id, b"exit 3\r").expect("type exit");
 
     let stream_end = eof_rx.recv_timeout(std::time::Duration::from_secs(30));
+    eprintln!(
+        "PTY stream end={stream_end:?}, child_exit={:?}",
+        session.child_exit.resolved()
+    );
     assert!(
         stream_end.is_ok(),
         "PTY stream end={stream_end:?}, shell={}, child_exit={:?}, child_status={:?}, output={:?}",

@@ -4,6 +4,8 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use wait_timeout::ChildExt;
+mod diagnostics;
+pub(super) use diagnostics::print_pty_environment;
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_NO_MORE_FILES, HANDLE, INVALID_HANDLE_VALUE,
 };
