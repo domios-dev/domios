@@ -74,6 +74,8 @@ export function deferred<T>(): Deferred<T> {
 export class FakeAccountMeshClient implements AccountMeshClient {
   state: AccountMeshSnapshot;
   snapshotCalls = 0;
+  listCalls = 0;
+  listRows: AccountMachineRow[] | null = null;
   linkCalls: MeshTarget[] = [];
   revokeCalls: MeshTarget[] = [];
   renameCalls: Array<[number, string]> = [];
@@ -91,6 +93,14 @@ export class FakeAccountMeshClient implements AccountMeshClient {
   async snapshot(): Promise<AccountMeshSnapshot> {
     this.snapshotCalls++;
     return structuredClone(this.state);
+  }
+
+  async list(): Promise<AccountMeshOutcome> {
+    this.listCalls++;
+    if (this.listRows !== null) {
+      this.state = { ...this.state, registry: { observed_at: NOW, rows: this.listRows }, registry_failure: null };
+    }
+    return { ok: true };
   }
 
   subscribe(onChange: () => void): () => void {

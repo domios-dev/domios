@@ -99,6 +99,21 @@ describe("My machines sign-in surface", () => {
 });
 
 describe("My machines Add", () => {
+  it("loads the registry on mount and Refresh before showing remote Add rows", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ registry: null }));
+    client.listRows = [selfRow, macRow];
+
+    await mount(client, "signed_in");
+
+    expect(client.listCalls).toBe(1);
+    expect(account("MacBook")?.getAttribute("data-status")).toBe("unlinked");
+    expect(button("Add MacBook")).not.toBeNull();
+
+    await click(button("Refresh My machines"));
+    expect(client.listCalls).toBe(2);
+    expect(account("MacBook")?.getAttribute("data-status")).toBe("unlinked");
+  });
+
   it("links one unlinked machine and shows linked only after the handshake is observed", async () => {
     const client = new FakeAccountMeshClient(snapshot());
     const spies = await mount(client, "signed_in");

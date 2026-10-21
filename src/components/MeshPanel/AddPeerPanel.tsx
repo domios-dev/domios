@@ -76,6 +76,7 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
     const current = ++generation.current;
     setRefreshing(true);
     try {
+      if (account === "signed_in") await client.list();
       const next = await client.snapshot();
       if (current !== generation.current) return;
       setSnapshot(next);
@@ -85,7 +86,7 @@ export default function MyMachines({ account, onSignIn, onFailure, onChanged, no
     } finally {
       if (current === generation.current) setRefreshing(false);
     }
-  }, [client]);
+  }, [account, client]);
 
   useEffect(() => {
     void load();

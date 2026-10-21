@@ -18,6 +18,7 @@ impl Fake {
                     photo_url: None,
                 },
                 id_token: Secret::new(format!("fake-id-{n}")),
+                expires_at: None,
             },
             refresh_token: Secret::new("fake-refresh"),
         }
