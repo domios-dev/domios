@@ -2956,6 +2956,8 @@ EOF
     cargo check --manifest-path src-tauri/Cargo.toml
     cargo check --manifest-path cli/Cargo.toml
     node scripts/check-release-locks.mjs
+    # The script, gateway and release-signing fixture guards run here, not in a PR workflow.
+    bash ./build.sh script-guards
     bash scripts/clippy-gate.sh
     run_release_rust_tests
     node node_modules/typescript/bin/tsc --noEmit
@@ -3279,6 +3281,10 @@ EOF
     done
     sg_run bash scripts/tests/firebase-build-config.test.sh
     if [ "$(uname -s)" = Linux ]; then
+      # POSIX process and file-descriptor fixtures; policy also covers release signing and source-clean.
+      for sg in check-build-gateway-serialization.sh check-build-gateway-policy.sh check-build-gateway-mutex-cleanup.sh; do
+        sg_run bash "scripts/$sg"
+      done
       sg_run bash scripts/check-build-dev-port-overrides.sh
       sg_run bash scripts/check-cache-provenance.sh
       sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-cargo
