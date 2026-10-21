@@ -6,7 +6,7 @@ assert.equal(out.disabled, false);
 assert.equal(accountTrayModel({kind:"pending"}, null).disabled, true);
 assert.equal(accountTrayModel({kind:"error",message:"Request failed"}, null).error, "Request failed");
 const identity = {uid:"user",display_name:"Ada",email:"ada@example.test",provider:"fake"};
-const signedIn = accountTrayModel({kind:"signed_in",identity}, {authority:"billing",fullAccess:false,plan:"pro",status:"active",stale:false,periodEnd:null,cancelAtPeriodEnd:false});
+const signedIn = accountTrayModel({kind:"signed_in",identity}, {authority:"billing",fullAccess:false,plan:"pro",status:"active",stale:false,periodEnd:null,cancelAtPeriodEnd:false,limits:null});
 assert.equal(signedIn.initial, "A");
 assert.equal(signedIn.identity, "Ada");
 assert.equal(signedIn.plan, "pro (active)");
@@ -14,7 +14,7 @@ assert.equal(accountTrayModel({kind:"signed_in",identity:{...identity,display_na
 
 for (const authority of ["admin", "billing", "free"] as const) {
   for (const stale of [false, true]) {
-    const result = accountTrayModel({kind:"signed_in",identity}, {authority,fullAccess:authority === "admin",plan:"free",status:"active",stale,periodEnd:null,cancelAtPeriodEnd:false});
+    const result = accountTrayModel({kind:"signed_in",identity}, {authority,fullAccess:authority === "admin",plan:"free",status:"active",stale,periodEnd:null,cancelAtPeriodEnd:false,limits:null});
     assert.equal(result.plan, `${authority === "admin" ? "Admin · " : ""}free (active)${stale ? " · stale" : ""}`);
   }
 }

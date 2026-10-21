@@ -82,6 +82,8 @@ import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { nativeFolderDialog as openDialog } from "./lib/nativeBridge";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 import { DEV_BUILD } from "./lib/devBuild";
+import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
+import { precheckFreeLimit } from "./components/billing/freeLimitGate";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
 /** One stable empty list, so a config still loading does not hand the chime a
@@ -590,6 +592,7 @@ function AppInner() {
         newTab: handleNewTab,
         closeTab: handleCloseCurrentTab,
         newWorkspace: () => {
+          if (precheckFreeLimit(["workspaces"])) return;
           openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
             .then((folder) => {
               if (!folder) return;
@@ -602,7 +605,7 @@ function AppInner() {
         toggleSidebar,
         spawnClaude: async () => {
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
-          if (!wsId) return;
+          if (!wsId || precheckFreeLimit(["agent.tabs"])) return;
           if (config.agent.full_access === undefined) {
             const workspace = stateRef.current.workspaces.find((candidate) => candidate.id === wsId);
             openNewSessionPicker({
@@ -985,6 +988,7 @@ function AppInner() {
       <NavigationBackBar onBack={handleBackToMemory} />
 
       <UpdateProgressLayer />
+      <FreeLimitPlansModal />
     </div>
     </ChatBlockHostProvider>
     </GuideNavigationProvider>

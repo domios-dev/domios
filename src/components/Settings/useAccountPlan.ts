@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
+import { freeLimitGate } from "../billing/freeLimitGate";
 import { accountPlanModel, manageActionForPlan, type AccountPlan, type PlanModel } from "./accountPlanModel";
 
 async function fetchPlan(focus: boolean, signal?: AbortSignal): Promise<PlanModel> {
@@ -27,7 +28,10 @@ export function useAccountPlan(identityKey: string | null) {
     async function refresh(focus = false): Promise<PlanModel | null> {
       try {
         const current = await fetchPlan(focus, controller.signal);
-        if (active.current === generation) setPlan(current);
+        if (active.current === generation) {
+          freeLimitGate.setLimits(current.limits);
+          setPlan(current);
+        }
         return current;
       } catch (failure: unknown) {
         if (!controller.signal.aborted && active.current === generation) {
