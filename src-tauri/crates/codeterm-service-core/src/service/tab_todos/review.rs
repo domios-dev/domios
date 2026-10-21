@@ -6,7 +6,10 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Result<Option<String>, String> {
-        let Some(checklist) = self.todo_store()?.get(tab_id.to_owned()).await? else {
+        let Some(store) = self.optional_todo_store() else {
+            return Ok(None);
+        };
+        let Some(checklist) = store.get(tab_id.to_owned()).await? else {
             return Ok(None);
         };
         let open: Vec<_> = checklist
@@ -27,7 +30,9 @@ impl ServiceContext {
         actor_tab_id: Option<&str>,
         accepted: bool,
     ) -> Result<(), String> {
-        let store = self.todo_store()?;
+        let Some(store) = self.optional_todo_store() else {
+            return Ok(());
+        };
         let Some(checklist) = store.get(tab_id.to_owned()).await? else {
             return Ok(());
         };
