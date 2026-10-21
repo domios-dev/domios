@@ -2,6 +2,12 @@
 
 A Blueprint graph is an agent's recurring action written once as a program. It runs along its own pre-planned cycle without a reasoning agent's turn, judges where judgment is needed, and hands any case it cannot handle to an explicit escalation recipient. Each case a Team member resolves can become a case the graph handles next time, so a graph improves with use. The [Supporter Agent](supporter-agent.md) supplies the judgments; the [capability map](capabilities.md) records what is in rollout and what is planned.
 
+## Authoring and validation
+
+A Blueprint has one versioned YAML authoring document: a name and purpose note, typed reusable inputs, and either a watch or a pipeline. Built-in recipes use that same format. Offline checking reports source positions and hints for all recoverable authoring errors; warnings do not reject the file. Editor schema output supports authoring, while live admission owns plugin availability, target scope and permissions.
+
+Applying a recipe or document resolves an exact name within the caller's Team and workspace. An unchanged running definition keeps its identity and version; applying a stopped definition reactivates it under that identity through versioned admission. Names are unique in each Team/workspace across creation and import paths. Immutable watch creation settings cannot change through apply. A dry run shows the proposed change without mutation. Export and import use the same authoring format with explicit inputs for sensitive commands, data and local targets. Import starts stopped unless explicitly started.
+
 ## Shape and cost
 
 A graph is made of deterministic steps and decision points. A decision point offers a finite set of options, each defined in code before the graph runs. The connected decision model chooses one, and code executes exactly the chosen option. The model never constructs an option, command, target, key sequence or text, and observed output never becomes one. Without a connected adapter, author-declared match rules choose; a graph with neither is refused.

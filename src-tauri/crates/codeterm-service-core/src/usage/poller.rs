@@ -684,6 +684,7 @@ mod tests {
         let data_dir = tempfile::tempdir().unwrap();
         let store = crate::usage::UsageStore::open(data_dir.path()).unwrap();
         let snapshot = UsageSnapshot {
+            usage_details: None,
             provider: "fixture".into(),
             billing_mode: codeterm_usage::contract::BillingMode::Subscription,
             limits_reported: true,

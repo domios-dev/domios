@@ -506,6 +506,7 @@ fn head_amendment(job: &Sentinel) -> Result<Option<AmendmentRecord>, String> {
 
 fn stage_identity(job: &Sentinel) -> Result<SentinelIdentity, String> {
     Ok(SentinelIdentity {
+        creation_options: job.creation_options.clone(),
         id: id(&job.id)?,
         scope: SentinelScope {
             creator_tab_id: job.creator_tab_id.clone(),
@@ -610,6 +611,7 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
     }
     let runtime = record.runtime;
     Sentinel {
+        creation_options: record.identity.creation_options,
         source: super::super::stage_source::StageSource::from_parts(
             probe, observe, input, terminal, pipeline,
         )

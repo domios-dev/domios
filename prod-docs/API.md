@@ -50,8 +50,8 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/health` | — | Health check. Returns `version`, `build` (git short hash), `name`, `platform`, `status`. |
-| POST | `/api/automation/blueprints/export` | `{workspace_id, team_id, id}` | Local host portable recipe; see BLUEPRINTS. |
-| POST | `/api/automation/blueprints/import` | `{caller_tab_id, recipe, assignments}` | Local host create stopped; see BLUEPRINTS. |
+| POST | `/api/automation/blueprints/export` | `{workspace_id, team_id, id}` | Local host `{name, yaml}` authoring file; see BLUEPRINTS. |
+| POST | `/api/automation/blueprints/import` | `{caller_tab_id, recipe, assignments}` | Local host apply by name, stopped; recipe is YAML text or the matching document object; see BLUEPRINTS. |
 | GET | `/api/identify` | — | Version, platform, features |
 | POST | `/api/cli/rpc` | `{method, params?, protocol_version}` | Internal CLI fallback for authenticated loopback callers only. It dispatches the same RPC methods as the local socket; mesh peer tokens are refused. See API-CLI. |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
@@ -174,4 +174,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 211 -->
+<!-- revision: 212 -->

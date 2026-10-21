@@ -55,6 +55,7 @@ fn journal_refusal_prevented_effect(error: &std::io::Error) -> bool {
 #[derive(Clone)]
 pub struct Handle {
     pub store: Arc<Mutex<Store>>,
+    pub(super) apply_lock: Arc<Mutex<()>>,
     pub(super) inbox: Arc<Mutex<super::terminal::Inbox>>,
     pending_run_bindings: Arc<Mutex<BTreeMap<String, super::run_binding::PendingRunBinding>>>,
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
@@ -168,6 +169,7 @@ pub fn fixture_handle_with_ui(
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         ui: Some(ui),
         _shutdown: None,
+        apply_lock: Arc::new(Mutex::new(())),
     }
 }
 
@@ -198,6 +200,7 @@ pub fn start(
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         ui: Some(svc.ui.clone()),
         _shutdown: None,
+        apply_lock: Arc::new(Mutex::new(())),
     };
     let callback = shutdown_callback(&handle);
     match codeterm_service_core::crash::shutdown::subscribe_sentinel_shutdown(callback) {
@@ -264,6 +267,7 @@ pub fn start(
                     probe_owner: owner.clone(),
                     ui: Some(svc.ui.clone()),
                     _shutdown: None,
+                    apply_lock: Arc::new(Mutex::new(())),
                 };
                 super::run_binding::process_pending(&svc, &run_handle);
                 super::run_binding::reconcile_runs(&svc, &run_handle);
@@ -288,6 +292,7 @@ pub fn start(
                                 probe_owner: owner,
                                 ui: Some(svc.ui.clone()),
                                 _shutdown: None,
+                                apply_lock: Arc::new(Mutex::new(())),
                             };
                             if worker_handle.probe_owner.is_closing() {
                                 return;
@@ -711,6 +716,7 @@ pub(super) fn fixture_handle_without_app(store: Store) -> Handle {
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         ui: None,
         _shutdown: None,
+        apply_lock: Arc::new(Mutex::new(())),
     }
 }
 

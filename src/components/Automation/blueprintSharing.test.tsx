@@ -4,10 +4,13 @@ import { Window } from "happy-dom";
 import { parseBlueprintRecipe, type BlueprintRecipe, type BlueprintSharingApi } from "./blueprintSharing";
 
 async function main() {
-  const recipe: BlueprintRecipe = { schema_version: 1, placeholders: { destination: "Destination tab" }, definition: { create: { name: "Fixture watcher", observe: { kind: "tab", id: "{{destination}}" } } } };
+  const recipe: BlueprintRecipe = { schema_version: 1, name: "Fixture watcher", inputs: { destination: { type: "string", description: "Destination tab" } }, watch: { observe: "tab:{{destination}}", question: "Ready?", buckets: ["done"] } };
+  const source = "schema_version: 1\nname: Fixture watcher\ninputs:\n  destination: {type: string, description: Destination tab}\nwatch:\n  observe: 'tab:{{destination}}'\n  question: Ready?\n  buckets: [done]\n";
+  assert.deepEqual(parseBlueprintRecipe(source), recipe);
+  assert.throws(() => parseBlueprintRecipe("schema_version: 1\nname: First\nname: Second\nwatch: {}"), /unique|duplicate/i);
   assert.deepEqual(parseBlueprintRecipe(JSON.stringify(recipe)), recipe);
   assert.throws(() => parseBlueprintRecipe(JSON.stringify({ ...recipe, schema_version: 99 })), /schema version/);
-  assert.throws(() => parseBlueprintRecipe(JSON.stringify({ ...recipe, placeholders: { destination: 1 } })), /placeholder/);
+  assert.throws(() => parseBlueprintRecipe(JSON.stringify({ ...recipe, inputs: { destination: 1 } })), /input/);
 
   const win = new Window({ url: "http://localhost/" });
   for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLButtonElement", "HTMLInputElement", "HTMLSelectElement", "Element", "Node", "Event", "MouseEvent"]) {
@@ -23,7 +26,7 @@ async function main() {
   const saved: unknown[] = [];
   const imports: unknown[] = [];
   const api: BlueprintSharingApi = {
-    export: async (...args) => { exports.push(args); return recipe; },
+    export: async (...args) => { exports.push(args); return { name: "Fixture watcher", yaml: source }; },
     save: (value) => { saved.push(value); },
     import: async (...args) => { imports.push(args); return { id: "created", machine: { stopped: true } }; },
   };
@@ -35,13 +38,13 @@ async function main() {
   await act(async () => root.render(<BlueprintExportButton workspaceId="workspace" teamId="team" id="watcher" api={api} />));
   await act(async () => button("Export Blueprint").click());
   assert.deepEqual(exports, [["workspace", "team", "watcher"]]);
-  assert.deepEqual(saved, [recipe]);
+  assert.deepEqual(saved, [{ name: "Fixture watcher", yaml: source }]);
 
   let created = 0;
   await act(async () => root.render(<BlueprintImportForm creators={[{ id: "scratch-creator", label: "Scratch Team" }]} onCreated={() => { created++; }} onCancel={() => undefined} api={api} />));
   const fileInput = host.querySelector<HTMLInputElement>('input[type="file"]');
   assert(fileInput);
-  Object.defineProperty(fileInput, "files", { configurable: true, value: [{ size: 100, text: async () => JSON.stringify(recipe) }] });
+  Object.defineProperty(fileInput, "files", { configurable: true, value: [{ size: 100, text: async () => source }] });
   await act(async () => fileInput.dispatchEvent(new Event("change", { bubbles: true })));
   const field = host.querySelector<HTMLInputElement>('input:not([type="file"])');
   assert(field, "placeholder field must be presented");
@@ -51,8 +54,8 @@ async function main() {
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  await act(async () => button("Create stopped Blueprint").click());
-  assert.deepEqual(imports, [["scratch-creator", recipe, ["destination=scratch-target"]]]);
+  await act(async () => button("Import stopped Blueprint").click());
+  assert.deepEqual(imports, [["scratch-creator", source, ["destination=scratch-target"]]]);
   assert.equal(created, 1);
 
   await act(async () => root.unmount());
