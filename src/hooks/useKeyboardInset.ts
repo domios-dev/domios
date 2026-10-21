@@ -28,7 +28,15 @@ export function useKeyboardInset(): KeyboardState {
       return;
     }
     const vv = window.visualViewport;
+    let layoutHeight = window.innerHeight;
+    let layoutWidth = window.innerWidth;
     const update = () => {
+      if (window.innerWidth !== layoutWidth) {
+        layoutWidth = window.innerWidth;
+        layoutHeight = window.innerHeight;
+      } else {
+        layoutHeight = Math.max(layoutHeight, window.innerHeight);
+      }
       // actual shell height — measuring against innerHeight would double-subtract the keyboard.
       document.documentElement.style.setProperty(
         "--vv-height",
@@ -36,7 +44,7 @@ export function useKeyboardInset(): KeyboardState {
       );
       const rootHeight =
         document.getElementById("root")?.clientHeight ?? window.innerHeight;
-      const state = keyboardViewportState({ rootHeight, layoutHeight: window.innerHeight, visualHeight: vv.height, offsetTop: vv.offsetTop });
+      const state = keyboardViewportState({ rootHeight, layoutHeight, visualHeight: vv.height, offsetTop: vv.offsetTop });
       setInset(state.inset);
       setKeyboardOpen(state.keyboardOpen);
       const style = document.documentElement.style;
