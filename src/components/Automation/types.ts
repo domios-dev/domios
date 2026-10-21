@@ -99,6 +99,9 @@ export interface AutomationNode {
   schedule: string | null;
   cadence_ms: number | null;
   expires_at: number | null;
+  stopped_at?: number | null;
+  deletes_at?: number | null;
+  note?: string | null;
   outcomes: readonly AutomationOutcome[];
   last_result: { bucket: string; accepted_at: number; handlers: readonly (AutomationHandlerResult & { handler_id: string })[] } | null;
   stop: { allowed: boolean; reason: string | null };
@@ -210,6 +213,9 @@ export interface BlueprintRunSnapshot {
 }
 
 export interface BlueprintSnapshot {
+  note?: string | null;
+  stopped_at?: number | null;
+  deletes_at?: number | null;
   runs?: readonly BlueprintRunSnapshot[];
   id: string;
   name: string;

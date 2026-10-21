@@ -13,6 +13,8 @@ pub const MAX_RESULT_SUMMARY_CHARS: usize = 200;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlueprintSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
     pub name: String,
     #[serde(default)]
     pub owner: BlueprintOwner,
@@ -247,6 +249,9 @@ pub fn validate(
     converters: &[ConverterEdge],
 ) -> Result<(), Vec<ValidationError>> {
     let mut errors = Vec::new();
+    if let Err(reason) = crate::automation_name::validate_note(spec.note.as_deref()) {
+        errors.push(ValidationError { field: "note".into(), reason });
+    }
     if spec.name.trim().is_empty() || spec.name.len() > 128 || has_control(&spec.name) {
         error(
             &mut errors,

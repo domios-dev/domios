@@ -54,12 +54,32 @@ fn terminal_graph(jobs: &[Sentinel], root: &Sentinel, leased: &BTreeSet<String>)
 }
 
 pub fn remove_terminal(store: &Arc<Mutex<Store>>) -> Result<(), String> {
+    let missing_times = store.lock().list().iter().filter(|job| job.machine.stopped && job.cleanup.stopped_at.is_none()).map(|job| job.id.clone()).collect::<Vec<_>>();
+    for id in missing_times {
+        storage::commit(store, |current| {
+            if !current.get(&id).is_some_and(|job| job.machine.stopped && job.cleanup.stopped_at.is_none()) { return storage::Staged::ready(Ok(())); }
+            let reason = current.get(&id).and_then(|job| job.last_reason.clone()).unwrap_or_else(|| "stopped".into());
+            current.stage_stop(&id, &reason).map(|_| ())
+        })?;
+    }
     let roots = {
         let current = store.lock();
         current.ensure_available()?;
-        terminal_roots(current.list(), &current.active.keys().cloned().collect())
+        expired_roots(current.list(), &current.active.keys().cloned().collect(), current.clock.now_ms())
     };
-    remove(store, roots, false)
+    for root in roots {
+        storage::commit(store, |current| {
+            let eligible = expired_roots(current.list(), &current.active.keys().cloned().collect(), current.clock.now_ms())
+                .iter().any(|job| job.id == root.id && job.same_owner(&root));
+            if !eligible { return storage::Staged::ready(Ok(())); }
+            let caller = super::delete::DeleteCaller { tab: &root.creator_tab_id, workspace: &root.workspace_id, team: root.team_id.as_deref(), team_owner: false };
+            match super::delete::stage_delete(current, &caller, super::delete::DeleteTarget::One(&root.id), false) {
+                Ok(mut staged) => staged.pop().map(|(_, staged)| staged).unwrap_or_else(|| storage::Staged::ready(Ok(()))),
+                Err(error) => storage::Staged::ready(Err(error)),
+            }
+        })?;
+    }
+    Ok(())
 }
 
 pub fn remove_owned(store: &Arc<Mutex<Store>>, tab: &str) -> Result<(), String> {
@@ -107,3 +127,14 @@ fn remove(store: &Arc<Mutex<Store>>, roots: Vec<Sentinel>, owned: bool) -> Resul
 
 #[cfg(test)]
 mod tests;
+
+pub fn deletion_deadline(jobs: &[Sentinel], root: &Sentinel, leased: &BTreeSet<String>) -> Option<u64> {
+    if root.scenario_id.as_deref().is_some_and(|id| id != root.id) { return None; }
+    let members = jobs.iter().filter(|job| job.workspace_id == root.workspace_id && job.team_id == root.team_id && (job.id == root.id || job.scenario_id.as_deref() == Some(&root.id))).collect::<Vec<_>>();
+    if members.iter().any(|job| !job.machine.stopped || leased.contains(&job.id)) { return None; }
+    members.iter().map(|job| job.cleanup.deletes_at).collect::<Option<Vec<_>>>()?.into_iter().max()
+}
+
+fn expired_roots(jobs: &[Sentinel], leased: &BTreeSet<String>, now: u64) -> Vec<Sentinel> {
+    jobs.iter().filter(|root| deletion_deadline(jobs, root, leased).is_some_and(|at| now >= at)).cloned().collect()
+}

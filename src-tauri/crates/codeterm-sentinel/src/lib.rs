@@ -13,6 +13,7 @@ pub mod pipeline_journal;
 pub mod portable;
 pub mod probe;
 pub mod progress;
+pub mod retention;
 pub mod provenance;
 pub mod public_definition;
 mod run_binding;

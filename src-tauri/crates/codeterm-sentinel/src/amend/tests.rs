@@ -15,6 +15,7 @@ fn fixture() -> (tempfile::TempDir, Store, Sentinel) {
     let job = store
         .create(
             Create {
+            note: None,
                 terminal: None,
                 session: false,
                 name: Some("initial".into()),

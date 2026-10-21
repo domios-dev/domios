@@ -61,6 +61,7 @@ fn blueprint_pipeline_refused_claim_skips_the_effect() {
 
 fn result_spec(owner: BlueprintOwner, target: ResultTarget) -> BlueprintSpec {
     BlueprintSpec {
+            note: None,
         name: "result-delivery-test".into(),
         owner,
         trigger: Trigger::Schedule {

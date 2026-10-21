@@ -326,7 +326,7 @@ impl SentinelExt for ServiceContext {
             max_transitions: Some(snapshot.max_transitions),
             max_actions: Some(snapshot.max_actions),
             cause,
-            note: None,
+            note: snapshot.note.clone(),
         };
         let connected = update.model_classification
             && update.matches.is_empty()
@@ -411,7 +411,7 @@ impl SentinelExt for ServiceContext {
                 || (tab.agent_type.is_some() && tab.session_binding_nonce.is_some());
             handle.store.lock().stage_insert(job.clone())
         };
-        staged.settle(&handle.store)?;
+        let job = staged.settle(&handle.store)?;
         handle.notify();
         self.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
         Ok(job)
@@ -845,6 +845,7 @@ pub mod tests {
             codeterm_service_core::cron::clock::MockClock::starting_at(1000),
         );
         let params = crate::store::Create {
+            note: None,
             terminal: None,
             session: false,
             name: Some("service-state-watch".into()),
@@ -1007,6 +1008,7 @@ pub mod tests {
         let mut pipeline = legacy;
         pipeline.set_pipeline(Some(
             codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec {
+            note: None,
                 name: "owned-pipeline".into(),
                 owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team,
                 trigger: codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule {
