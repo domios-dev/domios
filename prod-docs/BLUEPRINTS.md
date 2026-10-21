@@ -12,6 +12,14 @@ codeterm blueprint apply health.yaml --set url=https://example.com/health
 
 `recipe` lists built-ins. `new <recipe|watch|pipeline|command>` prints a commented file. `check` and `apply` accept either a recipe name or a filename (`-` reads stdin). Built-in recipes are the same files that `new` prints. `create` is an alias of `apply`; the old creation flags have been removed.
 
+## Reuse a saved solution
+
+`codeterm blueprint new --like "watch CI run and ping me on failure"` and `codeterm blueprint apply --like "watch CI run and ping me on failure"` offer matching saved solutions beside built-ins without starting them. `codeterm blueprint recipe` lists built-in names and top saved solutions for the current project workspace. Reuse a saved solution with `codeterm blueprint apply memory:<recipe-id> --set key=value`. Each offer includes YAML and described typed inputs; instance inputs have no defaults. Named built-in recipes remain available offline.
+
+Nothing is saved automatically. The Team Orchestrator uses `codeterm blueprint keep <id> --when "Watch CI and report failing jobs early"` to queue a generalised solution. Workers cannot keep solutions. The problem description drives search, a short note explains the graph, and concrete commands, URLs, repository names, IDs and personal paths become required inputs. Instance values and credentials are never retained as defaults. Safety checks still apply to explicit keeps. Admission returns `queued`; debug output records the save decision or refusal.
+
+Solutions are memory skills, discoverable through ordinary memory search. Equivalent structures update one recipe's statistics. Ranking and eviction consider successes, twice the reuse count, an explicit-keep bonus and failures, with age decay. Each area retains at most 50 active entries; excess entries are archived, preserving their YAML. The Dreamer considers at most 50 entries in one area and merges at most eight pairs per cycle; it never creates solutions from runs. It can log a built-in promotion proposal. Background writes use a bounded queue; debug logs show items added today and recall hit rate.
+
 ## One file
 
 ```yaml
@@ -140,4 +148,4 @@ Both the UI and CLI export and import the same YAML. Export writes the same auth
 
 Stopped graphs and their history remain for 30 minutes before cleanup. Changed definitions create an immutable version; an unchanged apply reactivates a stopped graph under the same ID. Import uses the same name lookup and keeps the result stopped unless explicitly started. Advanced `update` accepts an internal definition file with `--expect-version` for explicit version/cause control. `history` definitions can be restored through that path, and `escalation resolve <id> <transition>` releases a held unknown case after repair. Recipe examples: `codeterm docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->

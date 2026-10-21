@@ -6,6 +6,7 @@ use crate::cmd::print::{fail, print_json};
 mod apply_output;
 mod authoring;
 mod handlers;
+mod memory;
 mod pipeline_spec;
 mod recipe_files;
 mod recipes;
@@ -299,6 +300,7 @@ fn input_ref_summary(value: &Value) -> String {
 }
 
 pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: BlueprintAction) {
+    let recipe_list = matches!(&action, BlueprintAction::Recipe { name: None });
     let apply_source = match &action {
         BlueprintAction::Apply { source, .. } => Some(source.clone()),
         _ => None,
@@ -314,12 +316,60 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     )
     .unwrap_or_else(|error| fail(2, error));
     let transition_id = params["transition_id"].as_str().map(str::to_owned);
-    let result = client.call(method, Some(params)).unwrap_or_else(|error| {
+    let intent = params["intent"].as_str().unwrap_or("").to_owned();
+    let mut result = client.call(method, Some(params)).unwrap_or_else(|error| {
         if let Some(source) = apply_source.as_deref() {
             authoring::fail_apply_error(source, &error.to_string(), json_mode)
         }
         fail(1, error.to_string())
     });
+    if method == "blueprint.recall" {
+        if !recipe_list {
+            result = memory::offers(result, &intent);
+        }
+        if recipe_list {
+            let builtins = recipe_files::FILES
+                .iter()
+                .map(|(name, _)| *name)
+                .collect::<Vec<_>>();
+            if json_mode {
+                print_json(&json!({"built_in":builtins,"stored":result}));
+            } else {
+                for name in builtins {
+                    println!("{name}");
+                }
+                for entry in result.as_array().into_iter().flatten() {
+                    println!(
+                        "memory:{} {} (uses={} successes={})",
+                        entry["id"].as_str().unwrap_or("?"),
+                        entry["when_to_use"].as_str().unwrap_or("?"),
+                        entry["uses"],
+                        entry["successes"]
+                    );
+                }
+            }
+        } else if json_mode {
+            print_json(&json!({"offers":result}));
+        } else if let Some(offer) = result.as_array().and_then(|offers| offers.first()) {
+            print!("{}", offer["yaml"].as_str().unwrap_or(""));
+        } else {
+            println!(
+                "No proven graph matches this intent. Choose a built-in with blueprint recipe."
+            );
+        }
+        return;
+    }
+    if method == "blueprint.keep" {
+        if json_mode {
+            print_json(&result)
+        } else {
+            println!(
+                "Queued {} for Blueprint memory.",
+                result["id"].as_str().unwrap_or("?")
+            );
+        }
+        return;
+    }
     if method == "blueprint.export" {
         let recipe = serde_json::from_value(result)
             .unwrap_or_else(|error| fail(1, format!("invalid exported recipe: {error}")));
@@ -334,7 +384,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         }
         return;
     }
-    if method == "blueprint.apply" {
+    if method == "blueprint.apply" || method == "blueprint.apply_recipe" {
         if json_mode {
             print_json(&result)
         } else {
@@ -475,9 +525,43 @@ fn request(
             params["stopped"] = json!(!start);
             "blueprint.import"
         }
-        BlueprintAction::Recipe { .. } => return Err("blueprint recipe is handled locally".into()),
+        BlueprintAction::Recipe { name: None } => {
+            params["intent"] = json!("");
+            "blueprint.recall"
+        }
+        BlueprintAction::Recipe { .. } => {
+            return Err("named blueprint recipe is handled locally".into())
+        }
+        BlueprintAction::New {
+            like: Some(intent), ..
+        }
+        | BlueprintAction::Apply {
+            like: Some(intent), ..
+        } => {
+            params["intent"] = json!(intent);
+            "blueprint.recall"
+        }
+        BlueprintAction::Keep { id, when } => {
+            params["id"] = json!(id);
+            params["when"] = json!(when);
+            "blueprint.keep"
+        }
         BlueprintAction::Apply {
             source,
+            like: None,
+            set,
+            note,
+            dry_run,
+        } if source.starts_with("memory:") => {
+            params["id"] = json!(source.trim_start_matches("memory:"));
+            params["set"] = json!(set);
+            params["note"] = json!(note);
+            params["dry_run"] = json!(dry_run);
+            "blueprint.apply_recipe"
+        }
+        BlueprintAction::Apply {
+            source,
+            like: None,
             set,
             note,
             dry_run,

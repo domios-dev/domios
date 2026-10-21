@@ -3,6 +3,29 @@ use crate::args::cli::{Cli, Commands};
 use clap::Parser;
 
 #[test]
+fn blueprint_memory_intents_and_keep_are_explicit() {
+    for args in [
+        vec!["new", "--like", "watch CI failure"],
+        vec!["apply", "--like", "watch CI failure"],
+        vec!["keep", "graph-id", "--when", "Watch CI failures"],
+    ] {
+        assert!(Cli::try_parse_from(["codeterm", "blueprint"].into_iter().chain(args)).is_ok());
+    }
+    assert!(Cli::try_parse_from([
+        "codeterm",
+        "blueprint",
+        "apply",
+        "local.yaml",
+        "--like",
+        "CI"
+    ])
+    .is_err());
+    assert!(
+        Cli::try_parse_from(["codeterm", "blueprint", "new", "watch", "--like", "CI"]).is_err()
+    );
+}
+
+#[test]
 fn sentinel_update_parse_requires_expect_version_and_file() {
     let cli = Cli::try_parse_from([
         "codeterm",

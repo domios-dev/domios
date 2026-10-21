@@ -421,33 +421,6 @@ fn generated_id(
         .expect("generated handler ids are unbounded by ordinal")
 }
 
-fn unique_id(
-    kind: &str,
-    target: Option<&str>,
-    label: Option<&str>,
-    bucket: &str,
-    ids: &BTreeSet<String>,
-) -> String {
-    let mut ordinal = 1;
-    loop {
-        let id = codeterm_blueprint_types::automation_name::generated_handler_id(
-            if kind == "blueprint" {
-                "sentinel"
-            } else {
-                kind
-            },
-            target,
-            label,
-            bucket,
-            ordinal,
-        );
-        if !ids.contains(&id) {
-            return id;
-        }
-        ordinal += 1;
-    }
-}
-
 fn is_generic_id(id: &str) -> bool {
     let (prefix, suffix) = id.split_once('_').unwrap_or(("", ""));
     matches!(prefix.to_ascii_lowercase().as_str(), "default" | "handler")
