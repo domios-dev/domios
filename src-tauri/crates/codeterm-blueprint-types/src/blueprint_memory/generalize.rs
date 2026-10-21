@@ -19,35 +19,8 @@ fn generic(key: &str) -> bool {
 }
 
 fn unsafe_text(text: &str) -> bool {
-    static SECRET: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
     static PATH: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
-    let lower = text.to_ascii_lowercase();
-    let secret = [
-        "bearer ",
-        "token=",
-        "token:",
-        "password=",
-        "password:",
-        "secret=",
-        "api_key=",
-        "apikey=",
-        "authorization:",
-        "github_pat_",
-        "ghp_",
-        "sk-",
-        "akia",
-    ]
-    .iter()
-    .any(|pattern| lower.contains(pattern))
-        || SECRET
-            .get_or_init(|| {
-                regex::Regex::new(
-                    r"(?i)(token|password|secret|api[_-]?key|authorization)\s*[:=]\s*\S+",
-                )
-                .ok()
-            })
-            .as_ref()
-            .is_some_and(|pattern| pattern.is_match(text));
+    let secret = super::contains_credentials(text);
     let path = text.contains("/Users/")
         || text.contains("/home/")
         || PATH
@@ -55,10 +28,7 @@ fn unsafe_text(text: &str) -> bool {
             .as_ref()
             .is_some_and(|pattern| pattern.is_match(text))
         || text.split_whitespace().any(|word| word.starts_with('/'));
-    secret
-        || path
-        || ((lower.contains("https://") || lower.contains("http://"))
-            && (text.contains('?') || text.contains('@')))
+    secret || path
 }
 
 pub fn safe_template(document: &Document, when_to_use: &str) -> bool {
