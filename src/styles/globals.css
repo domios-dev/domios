@@ -3358,7 +3358,8 @@ button,
 .ct-capsule__plate {
   position: absolute;
   inset-inline: 0;
-  bottom: 0;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: -1;
   height: 1.2em;
   border-radius: 9999px;
@@ -3370,14 +3371,15 @@ button,
 .ct-capsule__icon {
   position: absolute;
   left: 0.32em;
-  bottom: 0.6em;
+  top: 50%;
   width: 0.8em;
   height: 0.8em;
-  transform: translateY(50%);
+  transform: translateY(-50%);
   color: var(--ct-muted-fg, #8b949e);
   pointer-events: none;
   transition: color 120ms ease;
 }
+.ct-capsule__kind { position: absolute; left: 0; top: 50%; transform: translateY(-50%); font-size: 0.75rem; line-height: 1; }
 .ct-capsule__detail { color: var(--ct-muted-fg, #8b949e); }
 .ct-capsule[data-hovered="true"] > .ct-capsule__plate,
 .ct-capsule-button:not(:disabled):hover .ct-capsule__plate {
