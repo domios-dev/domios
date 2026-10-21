@@ -1068,7 +1068,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm"
-version = "1.15.0"
+version = "1.15.1"
 dependencies = [
  "async-trait",
  "codeterm-build-info",
