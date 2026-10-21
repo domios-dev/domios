@@ -1,0 +1,56 @@
+{
+  "sessionId": "captured-session",
+  "records": [
+    {
+      "timestamp": "2026-10-21T12:55:39.344Z",
+      "ordinal": 120,
+      "type": "event_msg",
+      "payload": {
+        "type": "item_completed",
+        "thread_id": "captured-session",
+        "turn_id": "01a15e85-7b54-7ac0-98a8-473645042a0f",
+        "item": {
+          "type": "FileChange",
+          "id": "exec-ae68326e-2d25-4dcd-8745-5a0fe2722fd3",
+          "changes": {
+            "C:/project/src\\lib\\notices.ts": {
+              "type": "add",
+              "content": "import { DEV_BUILD } from \"./devBuild\";\nimport type { Notification } from \"./notificationTypes\";\nimport { uid } from \"./uid\";\n\nexport interface Notice {\n  kind: \"toast\" | \"debug\";\n  severity: Notification[\"severity\"];\n  title: string;\n  detail?: string;\n  actions?: Notification[\"local_actions\"];\n  id?: string;\n}\n\nexport type ToastInput = Omit<Notification, \"timestamp\" | \"read\">;\n\nexport interface NoticePorts {\n  upsertToast: (toast: ToastInput) => void;\n  debug?: (notice: Notice) => void;\n}\n\nfunction debugNotice(notice: Notice) {\n  console.debug(\"[notice]\", notice.severity, notice.title, notice.detail ?? \"\");\n}\n\nexport function createNoticePublisher({ upsertToast, debug = debugNotice }: NoticePorts) {\n  return (notice: Notice): void => {\n    if (notice.kind === \"debug\") {\n      if (DEV_BUILD) debug(notice);\n      return;\n    }\n    upsertToast({\n      id: notice.id ?? uid(),\n      severity: notice.severity,\n      level: notice.severity === \"Error\" ? \"failure\" : notice.severity === \"Warning\" ? \"action_needed\" : \"verbose\",\n      title: notice.title,\n      body: notice.detail ?? null,\n      local_actions: notice.actions,\n      tab_id: null,\n      workspace_id: null,\n    });\n  };\n}\n"
+            }
+          },
+          "status": "completed",
+          "stdout": "Success. Updated the following files:\nA C:/project/src/lib/notices.ts\n",
+          "stderr": ""
+        },
+        "started_at_ms": 1792587339342,
+        "completed_at_ms": 1792587339344
+      }
+    },
+    {
+      "timestamp": "2026-10-21T12:57:01.520Z",
+      "ordinal": 164,
+      "type": "event_msg",
+      "payload": {
+        "type": "item_completed",
+        "thread_id": "captured-session",
+        "turn_id": "01a15e85-7b54-7ac0-98a8-473645042a0f",
+        "item": {
+          "type": "FileChange",
+          "id": "exec-94d9c315-60dc-49b7-9b4d-ce389b76cd41",
+          "changes": {
+            "C:/project/src\\lib\\notices.ts": {
+              "type": "update",
+              "unified_diff": "@@ -20,2 +20,12 @@\n \n+let toastPort: NoticePorts[\"upsertToast\"] | null = null;\n+const pending = new Map<string, ToastInput>();\n+\n+export function connectNoticeToasts(upsertToast: NoticePorts[\"upsertToast\"]) {\n+  toastPort = upsertToast;\n+  for (const toast of pending.values()) upsertToast(toast);\n+  pending.clear();\n+  return () => { if (toastPort === upsertToast) toastPort = null; };\n+}\n+\n function debugNotice(notice: Notice) {\n@@ -42 +52,11 @@\n }\n+\n+export const publishNotice = createNoticePublisher({\n+  upsertToast: (toast) => {\n+    if (toastPort) toastPort(toast);\n+    else {\n+      pending.set(toast.id, toast);\n+      while (pending.size > 3) pending.delete(pending.keys().next().value!);\n+    }\n+  },\n+});\n",
+              "move_path": null
+            }
+          },
+          "status": "completed",
+          "stdout": "Success. Updated the following files:\nM C:/project/src/lib/notices.ts\n",
+          "stderr": ""
+        },
+        "started_at_ms": 1792587421519,
+        "completed_at_ms": 1792587421520
+      }
+    }
+  ]
+}

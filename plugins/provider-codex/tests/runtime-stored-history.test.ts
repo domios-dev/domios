@@ -21,6 +21,19 @@ const reopenedRecords = JSON.parse(fs.readFileSync(new URL("./fixtures/reopened-
 const reopenedText = reopenedRecords.map(record => JSON.stringify(record)).join("\n");
 const reopenedInput = recordInput(reopenedText);
 const bundle = loadRecordPlugin(fileURLToPath(new URL("..", import.meta.url)));
+const editsFixture = JSON.parse(fs.readFileSync(new URL("./fixtures/captured-edit-history.json", import.meta.url), "utf8"));
+const editsText = editsFixture.records.map((record: unknown) => JSON.stringify(record)).join("\n");
+for (const project of [bundle.runtimeStoredHistory, runtimeStoredHistory]) {
+  const rows = project(editsFixture.sessionId, editsText) as ChatMsg[];
+  assert.equal(rows.length, 2);
+  const diffs = rows.map(row => row.fileDiffs as {path:string; additions:number; deletions:number; hunks:unknown[]}[]);
+  assert.equal(diffs[0][0].path, "C:/project/src\\lib\\notices.ts");
+  assert.equal(diffs[0][0].additions, 42);
+  assert.equal(diffs[1][0].additions, 20);
+  assert.ok(diffs.every(files => files[0].hunks.length));
+  assert.ok(rows.every(row => row.toolSummary && row.toolDetail && row.toolEdits));
+}
+assert.deepEqual(plain(bundle.runtimeStoredHistory(editsFixture.sessionId, editsText)), plain(runtimeStoredHistory(editsFixture.sessionId, editsText)));
 const restored = JSON.parse(fs.readFileSync(new URL("./fixtures/restore-child-history.json",import.meta.url),"utf8")) as {
   sessionId:string;childId:string;records:JsonValue[];
 };

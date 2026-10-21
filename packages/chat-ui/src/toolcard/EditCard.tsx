@@ -31,7 +31,7 @@ export function EditCard({ event, expanded, onToggle }: { event: ToolEvent; expa
   const padPaths = edits.map((edit) => agentPadRelativePath(edit.path));
   const isAgentPad = padPaths.length > 0 && padPaths.every(Boolean);
   const padSummary = isAgentPad ? [...new Set(padPaths)].join(", ") : undefined;
-  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title={isAgentPad ? "AgentPad" : undefined} summary={padSummary} disclosureLabel={isAgentPad ? "AgentPad edit details" : undefined} metric={<span data-testid="toolcard-edit-summary" className="shrink-0 font-mono text-[10px]"><span style={{ color: "var(--ct-green)" }}>+{added}</span> <span style={{ color: "var(--ct-red)" }}>-{removed}</span></span>}>
+  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title={isAgentPad ? "AgentPad" : undefined} summary={padSummary} disclosureLabel={isAgentPad ? "AgentPad edit details" : undefined} metric={edits.length > 0 ? <span data-testid="toolcard-edit-summary" className="shrink-0 font-mono text-[10px]"><span style={{ color: "var(--ct-green)" }}>+{added}</span> <span style={{ color: "var(--ct-red)" }}>-{removed}</span></span> : undefined}>
     {expanded && Array.from(groups, ([path, fileEdits]) => <section key={path} data-testid="toolcard-edit-file">
       <div className="mb-1 font-mono text-xs" style={{ color: "var(--ct-fg)" }}>{agentPadRelativePath(path) ?? path} <span style={{ color: "var(--ct-muted-fg)" }}>+{fileEdits.reduce((n, edit) => n + countAdded(edit), 0)} -{fileEdits.reduce((n, edit) => n + countRemoved(edit), 0)}</span></div>
       <DiffView edits={fileEdits} language={languageForEdits(path, fileEdits)} />

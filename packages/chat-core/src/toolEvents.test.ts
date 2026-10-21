@@ -1,5 +1,20 @@
 import { materializeToolEvent, reduceToolEvents } from "./toolEvents";
 import type { NormalizedChatMessage } from "./types";
+import fs from "node:fs";
+import { parseUnifiedDiff } from "./unifiedDiff";
+
+{
+  const fixture = JSON.parse(fs.readFileSync(new URL("../../../plugins/provider-codex/tests/fixtures/captured-turn-diff.json", import.meta.url), "utf8"));
+  const event = materializeToolEvent(fixture.message);
+  assert(event?.fileDiffs?.length === 8, "captured turn diff exposes every file");
+  assert(event.fileDiffs[0].path === "scripts/check-floating-notices.mjs", "turn diff path");
+  assert(event.fileDiffs[0].additions === 65 && event.fileDiffs[0].deletions === 0, "turn diff counts");
+  assert(event.fileDiffs[0].hunks[0].lines[0] === '+import fs from "node:fs";', "turn diff content");
+  assert(event.summary.includes("src/lib/notices.ts"), "turn diff has a summary");
+  assert(fixture.message.fileDiffs === undefined, "presentation parsing does not alter cumulative source changes");
+  assert(parseUnifiedDiff("--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n").length === 0, "incomplete hunks stay raw");
+  assert(parseUnifiedDiff("unknown payload").length === 0, "unknown shape stays raw");
+}
 
 function assert(value: unknown, label: string): asserts value {
   if (!value) throw new Error(label);
