@@ -545,3 +545,10 @@ fn thinking_projection_preserves_complete_text_in_snapshot_and_live_rows() {
         }
     }
 }
+
+#[test]
+fn chatbackend_history_read_errors_do_not_fall_back_to_provider_poll() {
+    let dir = tempfile::tempdir().unwrap();
+    let backend = SnapshotBackend::with_messages(3);
+    assert!(chatbackend_snapshot_from(&backend, "fixture", 0, dir.path()).is_err());
+}

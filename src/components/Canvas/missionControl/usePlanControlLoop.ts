@@ -1,22 +1,27 @@
 import { useEffect, useRef, useState } from "react";
+import { publishNotice } from "../../../lib/notices";
 import type { ApiConfig } from "../../../lib/types";
 import { fetchPlanControlLoop, setPlanControlLoop } from "../plansApi";
 import type { ControlLoopUpdate, PlanControlLoop } from "../planControlLoop";
 
 export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, revision: number, initial?: PlanControlLoop) {
   const [reading, setReading] = useState<{ planId: string; value: PlanControlLoop } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const request = useRef(0);
-  const writing = useRef(false);
+  const pending = useRef(Promise.resolve());
+  const queued = useRef(0);
+  const identity = JSON.stringify([api?.host, api?.port, api?.token, planId]);
+  const active = useRef(identity);
+  active.current = identity;
   useEffect(() => {
     const current = ++request.current;
     const controller = new AbortController();
-    setError(null);
+    setLoadError(null);
     if (api) void fetchPlanControlLoop(api, planId, controller.signal).then((value) => {
       if (current === request.current) setReading({ planId, value });
     }).catch((reason: unknown) => {
-      if (!controller.signal.aborted && current === request.current) setError(String(reason));
+      if (!controller.signal.aborted && current === request.current) setLoadError(String(reason));
     });
     return () => { controller.abort(); request.current++; };
   }, [api?.host, api?.port, api?.token, planId, revision]);
@@ -25,22 +30,29 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
     if (initial) setReading({ planId, value: initial });
   }, [planId, initial]);
 
-  const update = async (value: ControlLoopUpdate) => {
-    if (!api || writing.current) return;
-    writing.current = true;
+  const update = (value: ControlLoopUpdate) => {
+    if (!api) return Promise.resolve();
+    queued.current++;
     setBusy(true);
-    setError(null);
-    const current = ++request.current;
-    try {
-      await setPlanControlLoop(api, planId, value);
-      const persisted = await fetchPlanControlLoop(api, planId);
-      if (current === request.current) setReading({ planId, value: persisted });
-    } catch (reason) {
-      if (current === request.current) setError(String(reason));
-    } finally {
-      writing.current = false;
-      setBusy(false);
-    }
+    const run = async () => {
+      try {
+        if (active.current !== identity) return;
+        ++request.current;
+        const persisted = await setPlanControlLoop(api, planId, value);
+        if (active.current === identity) {
+          setReading({ planId, value: persisted });
+          setLoadError(null);
+        }
+      } catch (reason) {
+        publishNotice({ kind: "toast", severity: "Error", id: "plan-settings:" + planId,
+          title: "Plan settings update failed", detail: reason instanceof Error ? reason.message : String(reason) });
+      } finally {
+        queued.current--;
+        if (queued.current === 0) setBusy(false);
+      }
+    };
+    pending.current = pending.current.then(run);
+    return pending.current;
   };
-  return { value: reading?.planId === planId ? reading.value : initial, busy, error, update };
+  return { value: reading?.planId === planId ? reading.value : initial, busy, loadError, update };
 }
