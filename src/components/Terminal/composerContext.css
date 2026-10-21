@@ -706,3 +706,6 @@ input.ct-delayed-modal__field { color: var(--ct-fg); }
   position: static;
   max-width: 50%;
 }
+
+.ct-ctx-bubble[data-tone="heartbeat"] { color: var(--ct-accent); border-color: color-mix(in srgb, var(--ct-accent) 35%, transparent); }
+.ct-ctx-bubble[data-tone="heartbeat"] .ct-ctx-bubble__meta { color: inherit; }
