@@ -9,6 +9,7 @@
 //! Safety: bundled/in-workspace plugins get the full surface; a drop-in under
 //! `~/.domios/plugins/` is confined by `PluginSandbox` (FS/sqlite scoped to
 //! its own dir + declared session root, secret-looking env vars blocked).
+//! `dataDir` discloses only the instance path; FS/sqlite/env grants are unchanged.
 
 /// Version of the plugin/host contract; a drop-in must declare a matching `hostApi`
 /// or it's skipped at load. Bump on any breaking change to the host or `AgentProvider` surface.
@@ -534,6 +535,11 @@ pub(super) fn install(
     });
     bind!("homeDir", || -> Option<String> {
         dirs::home_dir().map(|p| p.to_string_lossy().into_owned())
+    });
+    bind!("dataDir", || -> String {
+        codeterm_paths::data_dir_path()
+            .to_string_lossy()
+            .into_owned()
     });
     bind!("expandHome", |path: String| -> Option<String> {
         PluginManifest::expand_home(&path).map(|p| p.to_string_lossy().into_owned())

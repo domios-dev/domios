@@ -313,9 +313,9 @@ fn insert_identity(
     let revision = to_sql_u64("revision", cx.revision.0)?;
     cx.write(
         "INSERT INTO blueprints (id, ordinal, creator_tab_id, workspace_id, team_id, cwd, \
-         agent_authored, scenario_id, revision) \
+         agent_authored, scenario_id, revision, creation_options) \
          VALUES (?1, (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM blueprints), \
-         ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             identity.id.as_str(),
             identity.scope.creator_tab_id,
@@ -324,7 +324,13 @@ fn insert_identity(
             identity.cwd,
             identity.agent_authored,
             scenario.map(SentinelId::as_str),
-            revision
+            revision,
+            identity
+                .creation_options
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(|_| StorageError::invalid("creation options", "cannot encode"))?
         ],
     )?;
     Ok(())

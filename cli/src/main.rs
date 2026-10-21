@@ -169,6 +169,12 @@ fn main_impl() {
         }
     }
 
+    if let Commands::Blueprint { action } = &cli.command {
+        if cmd::blueprint::handle_local(cli.json, action) {
+            return;
+        }
+    }
+
     if let Commands::Blueprint {
         action: args::blueprint::BlueprintAction::Recipe { name },
     } = &cli.command

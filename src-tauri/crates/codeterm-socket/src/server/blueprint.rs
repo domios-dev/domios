@@ -1,7 +1,9 @@
 use serde_json::{json, Value};
 
 use super::{get_string_param, JsonRpcError};
-use codeterm_sentinel_host::{BlueprintExt, BlueprintPortableExt, SentinelDeleteExt, SentinelExt};
+use codeterm_sentinel_host::{
+    BlueprintApplyExt, BlueprintExt, BlueprintPortableExt, SentinelDeleteExt, SentinelExt,
+};
 use codeterm_service_core::service::ServiceState;
 
 fn error(message: impl Into<String>) -> JsonRpcError {
@@ -45,6 +47,20 @@ pub(super) fn dispatch(
         .and_then(Value::as_str);
     let caller = svc.sentinel_caller(&tab, nonce).map_err(error)?;
     let result = match method {
+        "blueprint.apply" => {
+            let definition = params
+                .as_ref()
+                .and_then(|p| p.get("definition"))
+                .cloned()
+                .ok_or_else(|| error("definition required"))?;
+            let dry_run = params
+                .as_ref()
+                .and_then(|p| p.get("dry_run"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            svc.blueprint_apply(&caller, definition, dry_run)
+                .map_err(error)
+        }
         "blueprint.export" => {
             let id = get_string_param(params, "id")?;
             serde_json::to_value(svc.blueprint_export(&caller, &id).map_err(error)?)

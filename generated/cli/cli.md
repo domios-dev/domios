@@ -376,6 +376,7 @@ Classify a bounded probe or same-Team agent observation
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
 - `--model-classification` — Opt in to Supporter model classification when no patterns are declared
 - `--name` — Short meaningful name describing what is watched and what happens
+- `--note` — Plain-text Blueprint note, at most 200 characters
 - `--observe` — Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
 - `--output-settled` — Fire when terminal output settles for this many milliseconds (10..60000)
 - `--owner` — Assign the pipeline to its creator tab or Team
@@ -483,6 +484,7 @@ Replace one definition at the expected version
 - `--expect-version`
 - `--from-file`
 - `<id>`
+- `--note` — Replace the Blueprint note (at most 200 plain-text characters)
 
 #### `codeterm bridge`
 

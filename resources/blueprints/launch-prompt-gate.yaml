@@ -1,0 +1,49 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: Launch {{cron_name_or_id}}
+note: Answer each scheduled run's launch prompts through the safe-response path; escalate any other prompt to the
+  creator.
+inputs:
+  cron_name_or_id:
+    type: string
+    description: Cron name or id
+watch:
+  observe: cron-run:{{cron_name_or_id}}
+  question: classify-launch-prompt
+  buckets:
+  - clear
+  - trust
+  - provider
+  - update
+  matches:
+    clear: \x22prompt\x22:null
+    trust: \x22kind\x22:\x22directory_trust\x22
+    provider: \x22kind\x22:\x22provider\x22
+    update: \x22kind\x22:\x22manual_update\x22
+  rearm_on_change:
+  - trust
+  - provider
+  - update
+  escalation_timeout_ms: 1800000
+  timeout: 30d
+  handlers:
+    clear: []
+    trust:
+    - type: respond_prompt
+      parameters:
+        target: directory_trust
+    provider:
+    - type: respond_prompt
+      parameters:
+        target: onboarding
+    - type: respond_prompt
+      parameters:
+        target: permission
+    update:
+    - type: respond_prompt
+      parameters:
+        target: update
+    other:
+    - type: escalate
+      parameters:
+        target: creator
