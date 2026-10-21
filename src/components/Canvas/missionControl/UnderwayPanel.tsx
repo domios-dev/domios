@@ -67,7 +67,7 @@ export function UnderwayBoardRow({ api, teamId, plans, refs, deepLinks }: {
   return <div className="mc-board-live-row">
     {api && <BoardPanel testId="mc-board-reflexes" title="Spinal-cord activity" className="mc-board-reflexes"><div className="mc-board-sub"><ActivityFeed api={api} teamId={teamId} embedded /></div></BoardPanel>}
     <div className="mc-underway-frame" style={{ flexBasis: size ? `${size.width}px` : undefined, height: size ? `${size.height}px` : undefined }}>
-      <BoardPanel testId="mc-board-underway" title="Underway" meta={<>{rows.length ? `${rows.length} working` : "idle"}<ActivityDots size="small" tone="muted" active={rows.length > 0} /></>}>
+      <BoardPanel testId="mc-board-underway" title="Underway" meta={<span className="inline-flex items-center gap-1.5">{rows.length ? `${rows.length} with checklists` : "none"}<ActivityDots size="small" tone="muted" active={rows.some(({ tab }) => tab.agent_state?.state === "working")} /></span>}>
         <div className="mc-underway-list">
           {rows.length ? <ol aria-label="Working agents">{rows.map(({ tab, task }) => <UnderwayRow key={tab.id} tab={tab} task={task} view={views.get(tab.id)} plans={plans} refs={refs} deepLinks={deepLinks} />)}</ol>
             : <div className="mc-underway-empty"><p>No agent in this team has a checklist yet.</p><p>Agents appear here as soon as they keep one.</p></div>}
