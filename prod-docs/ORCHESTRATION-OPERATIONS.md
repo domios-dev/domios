@@ -170,4 +170,6 @@ Curator memory saves require a round grant for a repeated candidate and at most 
 
 Each non-quiet Curator finish note includes `MOVE: <one highest-leverage next step> [ids]` immediately after `NEXT`. The round summary and its Orchestrator result carry that move. Movement sections report task ages, review backlog, waits, decisions, open questions, observed agent-state minutes and accepted work without recorded owner notice evidence. These contain ids and numbers; lower-priority sections are trimmed within the shared 8 KiB limit.
 
-<!-- revision: 17 -->
+Every sixth real Curator round and each newly closed group triggers synthesis. Its digest includes the goal, correctness vector, open acceptance criteria count and the newest prior MOVE, RETRO and LEARN lines, dropping oldest history within the shared 8 KiB cap. A synthesis note may include `READY: yes|no ... [ids]`. READY is advisory: it appears in the round summary and never changes plan or release state.
+
+<!-- revision: 18 -->
