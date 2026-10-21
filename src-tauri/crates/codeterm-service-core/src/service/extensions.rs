@@ -97,6 +97,7 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::cron::OwnerPromptRequests>();
         self.insert_late::<crate::service::session_persist::SessionPersistenceWorker>();
         self.insert_late::<crate::agent::live_state::RestoreReportWorker>();
+        self.insert_late::<crate::service::account_mesh::AccountMeshCell>();
     }
 
     pub fn finish(self) -> Extensions {
