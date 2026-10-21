@@ -943,7 +943,7 @@ fn blueprint_github_recipe_creates_typed_source_for_each_resource() {
         assert_eq!(params["spec"]["steps"][0]["kind"]["kind"], "github");
         assert_eq!(
             params["spec"]["steps"][0]["kind"]["probe"],
-            json!({"repo":"cli/cli", "resource":resource, "id":39652641013u64})
+            json!({"repo":"cli/cli", "resource":resource, "id":39652641013u64, "timeout_ms":60000})
         );
     }
 }

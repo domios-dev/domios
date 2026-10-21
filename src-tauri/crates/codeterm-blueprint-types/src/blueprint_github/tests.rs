@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn github_probe_uses_explicit_repo_and_read_only_resources() {
     for (resource, expected) in [
-        (GithubResource::Run, "status,conclusion,url"),
+        (GithubResource::Run, "status,conclusion,jobs,url"),
         (GithubResource::Jobs, "status,conclusion,jobs,url"),
         (GithubResource::PrChecks, "statusCheckRollup,url"),
     ] {
@@ -11,6 +11,7 @@ fn github_probe_uses_explicit_repo_and_read_only_resources() {
             repo: "owner/project".into(),
             resource,
             id: 42,
+            org: None, label: None, timeout_ms: 60000,
         }
         .command()
         .unwrap();
@@ -32,7 +33,8 @@ fn github_probe_rejects_shell_syntax_and_invalid_scope() {
         assert!(GithubProbe {
             repo: repo.into(),
             resource: GithubResource::Run,
-            id: 42
+            id: 42,
+            org: None, label: None, timeout_ms: 60000,
         }
         .command()
         .is_err());
@@ -40,8 +42,21 @@ fn github_probe_rejects_shell_syntax_and_invalid_scope() {
     assert!(GithubProbe {
         repo: "owner/repo".into(),
         resource: GithubResource::Run,
-        id: 0
+        id: 0,
+            org: None, label: None, timeout_ms: 60000,
     }
     .command()
     .is_err());
+}
+
+#[test]
+fn github_runner_scope_is_explicit_and_cannot_inject_commands() {
+    for (scope, endpoint) in [(serde_json::json!({"repo":"owner/project"}), "repos/owner/project"), (serde_json::json!({"org":"owner"}), "orgs/owner")] {
+        let mut value = scope; value["resource"] = "runners".into(); value["label"] = "linux-build".into();
+        let probe: GithubProbe = serde_json::from_value(value).unwrap();
+        assert!(probe.command().unwrap().contains(endpoint));
+    }
+    for value in [serde_json::json!({"repo":"owner/repo","org":"owner","resource":"runners"}), serde_json::json!({"org":"owner;whoami","resource":"runners"}), serde_json::json!({"repo":"owner/repo","resource":"runners","id":42})] {
+        assert!(serde_json::from_value::<GithubProbe>(value).unwrap().command().is_err());
+    }
 }

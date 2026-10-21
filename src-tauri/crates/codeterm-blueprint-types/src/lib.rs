@@ -8,3 +8,6 @@ pub mod blueprint_terminal;
 pub mod sentinel_input;
 
 pub mod blueprint_github;
+
+pub mod blueprint_source;
+pub mod blueprint_http;

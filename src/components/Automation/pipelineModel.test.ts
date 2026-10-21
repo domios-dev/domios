@@ -53,3 +53,14 @@ assert.equal(github.nodes[1].state, "done");
 
 assert.equal(github.nodes[1].summary, "cli/cli · run 39652641013");
 assert.equal(github.nodes[1].resultSummary, "echoed");
+
+for (const [kind, source, state, expected] of [
+  ["github", { repo: "owner/project", resource: "runners", label: "linux-build" }, "online", "owner/project · runners · linux-build"],
+  ["github", { org: "owner", resource: "runners", label: "linux-build" }, "offline", "owner · runners · linux-build"],
+  ["http", { url: "https://example.com/health", expected_status: "204" }, "down", "https://example.com/health · expected 204"],
+] as const) {
+  const model = pipelineModel(blueprint({ name: "An exported recipe with a custom name", steps: [{ ...blueprint().steps![0], kind, source, source_state: state }] }));
+  assert.equal(model.nodes[1].capability, kind);
+  assert.equal(model.nodes[1].sourceState, state);
+  assert.equal(model.nodes[1].summary, expected);
+}

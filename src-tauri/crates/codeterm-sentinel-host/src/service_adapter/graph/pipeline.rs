@@ -219,8 +219,10 @@ fn pipeline_step_view(
         codeterm_blueprint_types::blueprint_pipeline::StepKind::Github { probe } => {
             serde_json::to_value(probe).ok()
         }
+        codeterm_blueprint_types::blueprint_pipeline::StepKind::Http { probe } => Some(json!({"url":probe.display_url(), "expected_status":probe.expected_status, "timeout_ms":probe.timeout_ms})),
         _ => None,
     };
+    let source_state = if source.is_some() { entry.and_then(|entry| entry.outcome.as_ref()).map(|outcome| outcome.as_str()).filter(|state| matches!(*state, "done" | "failed" | "failing" | "online" | "offline" | "up" | "down")) } else { None };
     let kind = kind.name();
     let state = entry.map_or("waiting", |entry| entry.state.as_str());
     let mut view = json!({
@@ -237,6 +239,7 @@ fn pipeline_step_view(
     });
     if let Some(source) = source {
         view["source"] = source;
+        view["source_state"] = json!(source_state);
     }
     view
 }

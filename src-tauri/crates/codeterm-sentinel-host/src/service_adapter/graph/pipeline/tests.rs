@@ -376,6 +376,7 @@ fn blueprint_pipeline_github_source_exposes_scope_without_command_text() {
             repo: "cli/cli".into(),
             resource: GithubResource::Run,
             id: 39652641013,
+            org: None, label: None, timeout_ms: 60000,
         },
     };
     let view = pipeline_step_view(0, "Check CI", &kind, None, None);
@@ -386,4 +387,23 @@ fn blueprint_pipeline_github_source_exposes_scope_without_command_text() {
     );
     assert_eq!(view["state"], "waiting");
     assert!(view.get("command").is_none());
+}
+
+#[test]
+fn source_cards_project_retained_observation_states_and_sanitized_http_scope() {
+    for (kind, state, summary) in [
+        (json!({"kind":"github", "probe":{"repo":"owner/project","resource":"run","id":42}}), "failing", "failing · Linux"),
+        (json!({"kind":"github", "probe":{"org":"owner","resource":"runners","label":"linux-build"}}), "online", "online · 2 online"),
+        (json!({"kind":"http", "probe":{"url":"https://example.com/health?token=private"}}), "down", "down · 503"),
+    ] {
+        let kind: StepKind = serde_json::from_value(kind).unwrap();
+        let mut event = row(1, 0, "check", "done", Some(state));
+        event.result_summary = Some(summary.into());
+        let event_ref = &event;
+        let view = pipeline_step_view(0, "Renamed imported step", &kind, Some(&event_ref), Some(&event_ref));
+        assert_eq!(view["source_state"], state);
+        assert_eq!(view["result_summary"], summary);
+        assert_eq!(view["kind"], kind.name());
+        if kind.name() == "http" { assert_eq!(view["source"]["url"], "https://example.com/health"); }
+    }
 }
