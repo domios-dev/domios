@@ -73,6 +73,33 @@ export function classifyScope(file) {
   return 'docs';
 }
 
+// Keeper COD-1293 handoff to Herald: package and stable contract identifiers
+// belong to phase 2; runtime identity prose and paths remain identity.
+function classifyOccurrence(file, sourceKind, source, index) {
+  const fileScope = classifyScope(file);
+  const normalized = normalize(file).toLowerCase();
+  if (sourceKind === 'path' && normalized.startsWith('src-tauri/crates/codeterm-')) return 'crates';
+  if (normalized.endsWith('/cargo.toml')) return 'crates';
+  if (fileScope !== 'identity' || sourceKind !== 'content') return fileScope;
+
+  const lineStart = source.lastIndexOf('\n', index - 1) + 1;
+  const lineEnd = source.indexOf('\n', index);
+  const line = source.slice(lineStart, lineEnd < 0 ? source.length : lineEnd);
+  const column = index - lineStart;
+  const left = line.slice(0, column).match(/[a-z0-9_.#-]+$/)?.[0] ?? '';
+  const right = line.slice(column).match(/^[a-z0-9_.#-]*/)?.[0] ?? '';
+  const token = `${left}${right}`;
+
+  if (['codeterm_tab_id', 'codeterm_plan_id', 'codeterm_task_id', 'codeterm_instance',
+    'codeterm_data_dir', 'codeterm_config_dir', 'codeterm_api_port', 'codeterm_socket_path'].includes(token)) return 'cli';
+  if (/^codeterm_[a-z0-9_]+$/i.test(token)) return 'crates';
+  if (/^codeterm#\d+$/i.test(token)) return 'docs';
+  if (['codeterm1', 'codeterm.plugin.bitwarden', 'would-clobber-codeterm-port',
+    'would_clobber_codeterm_port', 'sibling_codeterm_port'].includes(token)) return 'crates';
+  if (normalized === 'cli/src/main.rs' && token === 'codeterm') return 'cli';
+  return fileScope;
+}
+
 function trackedFiles(root) {
   return execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'buffer', timeout: 30_000 })
     .toString('utf8').split('\0').filter(Boolean).map(normalize);
@@ -124,23 +151,27 @@ export function scanTree({ root = REPO, allowlist = DEFAULT_ALLOWLIST, scope = '
   const counts = Object.fromEntries([...SCOPES, 'all'].map((name) => [name, { files: 0, occurrences: 0, violations: 0 }]));
   const hits = [];
   for (const file of files) {
-    const scopeName = classifyScope(file);
     const absolute = path.join(root, ...file.split('/'));
     const sources = [{ kind: 'path', text: file }];
     if (existsSync(absolute)) sources.push({ kind: 'content', text: readFileSync(absolute).toString('utf8') });
     const matches = sources.flatMap((source) => {
       const lowered = source.text.toLowerCase();
       const allowed = allowedOffsets(file, lowered, rules);
-      return occurrences(lowered).map((index) => ({ file, scope: scopeName, source: source.kind, allowed: allowed.has(index) }));
+      return occurrences(lowered).map((index) => ({
+        file,
+        scope: classifyOccurrence(file, source.kind, lowered, index),
+        source: source.kind,
+        allowed: allowed.has(index),
+      }));
     });
     if (!matches.length) continue;
-    counts[scopeName].files += 1;
+    for (const scopeName of new Set(matches.map((match) => match.scope))) counts[scopeName].files += 1;
     counts.all.files += 1;
     for (const match of matches) {
-      counts[scopeName].occurrences += 1;
+      counts[match.scope].occurrences += 1;
       counts.all.occurrences += 1;
       if (!match.allowed) {
-        counts[scopeName].violations += 1;
+        counts[match.scope].violations += 1;
         counts.all.violations += 1;
       }
       hits.push(match);

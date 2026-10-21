@@ -101,25 +101,21 @@ mod git_never_prompts {
 
         assert_eq!(stop_live_git_children(), 1);
         let result = runner.join().expect("runner thread");
-        assert_eq!(
-            result,
-            Err("Plugin updates are unavailable right now. Domios will retry.".to_string())
-        );
+        assert!(result.unwrap_err().starts_with("git failed"));
         assert_eq!(stop_live_git_children(), 0);
     }
 
     #[test]
-    fn git_failure_returns_a_short_actionable_error() {
+    fn git_access_denial_names_its_cause() {
         let mut env = TestEnvGuard::lock();
         let directory = tempfile::tempdir().expect("tempdir");
-        let git = install_fake_git(directory.path(), "printf 'remote denied\\n' >&2; exit 2");
+        let git = install_fake_git(
+            directory.path(),
+            "printf 'remote: Repository not found.\\n' >&2; exit 128",
+        );
         env.set("CODETERM_TEST_GIT_BIN", git.as_os_str());
 
         let error = run_git(vec!["fetch".into()]).expect_err("fake git fails");
-        assert_eq!(
-            error,
-            "Plugin updates are unavailable right now. Domios will retry."
-        );
-        assert!(!error.contains("remote denied"));
+        assert_eq!(error, crate::channel_failure::REPOSITORY_NOT_FOUND);
     }
 }

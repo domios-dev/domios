@@ -9,7 +9,7 @@ import { emitFeatureUsed } from "./lib/productAnalytics";
 import { localJson } from "./lib/webApi";
 import { frontendBootDiagnostic } from "./lib/frontendBootDiagnostic";
 import { useFrontendApp } from "./lib/frontendUpdate/useFrontendApp";
-import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { memo, useState, useEffect, useCallback, useMemo, useRef, type ComponentProps } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { buildTeamActions } from "./lib/teamActions";
@@ -58,7 +58,7 @@ import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useSidebarViewport } from "./hooks/useSidebarViewport";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
-import { workspacePrewarmInput } from "./hooks/terminal/workspacePrewarmModel";
+import { needsBackendPrewarm, workspacePrewarmInput } from "./hooks/terminal/workspacePrewarmModel";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviderCachePublisher } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
@@ -97,7 +97,11 @@ const EssenceMapCanvas = deferredComponent(async () => ({ default: (await import
 const JobsView = deferredComponent(async () => ({ default: (await import("./components/Jobs/JobsView")).JobsView }));
 const CronWorkspaceView = deferredComponent(async () => ({ default: (await import("./components/Cron/CronWorkspaceView")).CronWorkspaceView }));
 
-const MemoizedTabContent = memo(TabContent);
+/** Selects its own tab, so live telemetry re-renders this tab's content and never the app shell. */
+const MountedTabContent = memo(function MountedTabContent({ tabId, ...props }: Omit<ComponentProps<typeof TabContent>, "tab"> & { tabId: string }) {
+  const tab = useMuxSelector(useCallback((state: ExtendedState) => state.tabs[tabId], [tabId]));
+  return <TabContent tab={tab} {...props} />;
+});
 
 function jsonEquals<T>(a: T, b: T): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -468,7 +472,7 @@ function AppInner() {
   const prewarmBackendTab = useCallback(async (tabId: string) => {
     const current = stateRef.current;
     const tab = current.tabs[tabId];
-    if (!tab || tab.backing?.kind === "chat_backend" || !tab.agent_type) return;
+    if (!needsBackendPrewarm(tab)) return;
     await invoke("spawn_pty", {
       tabId: tab.id,
       cwd: tab.cwd ?? undefined,
@@ -947,8 +951,8 @@ function AppInner() {
                   visibility: isVisible ? "visible" : "hidden",
                 }}
               >
-                <MemoizedTabContent
-                  tab={tab}
+                <MountedTabContent
+                  tabId={tabId}
                   isFocused={state.focused_tab_id === tabId}
                   onFocusTab={setFocusedTab}
                   onPtySpawned={handlePtySpawned}

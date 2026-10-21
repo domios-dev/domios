@@ -1,11 +1,12 @@
+import { memo } from "react";
 import { invoke } from "../../lib/bridge";
 import type { Tab, TabStatus } from "../../lib/types";
 import type { Plan } from "../Canvas/types";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX, type SortableGroupData } from "./sortable";
-import { TabItem, type AttachmentToggle, type TabStartedBy } from "./TabItem";
-import type { ChecklistToggle } from "./WorkerChecklist";
+import { TabItem, tabItemPropsEqual, type AttachmentToggle, type TabItemState, type TabStartedBy } from "./TabItem";
+import type { ChecklistToggle } from "./AgentChecklist";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import type { TabAttention } from "./tabAttention";
 
@@ -63,7 +64,8 @@ export interface SidebarTabItemRowProps {
   onRenameTab: (tabId: string, title: string) => void;
 }
 
-function SidebarTabItemRow({
+/** The TabItem state one row resolves from the shared workspace records. */
+function tabItemState({
   tab,
   index,
   activity,
@@ -90,48 +92,69 @@ function SidebarTabItemRow({
   attachmentToggle,
   checklistToggle,
   startedBy,
-  onActivateTab,
-  onCloseTab,
-  onRenameTab,
-}: SidebarTabItemRowProps) {
+}: SidebarTabItemRowProps): TabItemState {
+  return {
+    tab,
+    index,
+    isActive: isWorkspaceTabActive(isActiveVisual, workspaceCanvasActive, tab.id, activeTabId ?? undefined),
+    canClose: true,
+    workspaceId,
+    hasAgent: Boolean(tab.agent_type),
+    status: tabStatuses[tab.id] ?? null,
+    attention: tabAttentionByTab[tab.id] ?? null,
+    orchestrators,
+    isAppearing,
+    isClosing,
+    touchMode,
+    uiFontScale,
+    activity,
+    reportCount,
+    groupCollapsible,
+    collapsed,
+    onToggleCollapse,
+    collapsedSummary,
+    ownerTitle,
+    variant,
+    insetPx,
+    ownerBadgeTab,
+    attachmentToggle,
+    checklistToggle,
+    startedBy,
+  };
+}
+
+function SidebarTabItemRow(props: SidebarTabItemRowProps) {
+  const { tab, onActivateTab, onCloseTab, onRenameTab } = props;
   return (
     <TabItem
-      tab={tab}
-      index={index}
-      isActive={isWorkspaceTabActive(
-        isActiveVisual,
-        workspaceCanvasActive,
-        tab.id,
-        activeTabId ?? undefined,
-      )}
+      {...tabItemState(props)}
       onClick={() => onActivateTab(tab.id)}
       onClose={() => onCloseTab(tab.id)}
-      canClose={true}
-      workspaceId={workspaceId}
-      hasAgent={Boolean(tab.agent_type)}
-      status={tabStatuses[tab.id] ?? null}
-      attention={tabAttentionByTab[tab.id] ?? null}
       onRename={(title) => onRenameTab(tab.id, title)}
-      orchestrators={orchestrators}
-      isAppearing={isAppearing}
-      isClosing={isClosing}
-      touchMode={touchMode}
-      uiFontScale={uiFontScale}
-      activity={activity}
-      reportCount={reportCount}
-      groupCollapsible={groupCollapsible}
-      collapsed={collapsed}
-      onToggleCollapse={onToggleCollapse}
-      collapsedSummary={collapsedSummary}
-      ownerTitle={ownerTitle}
-      variant={variant}
-      insetPx={insetPx}
-      ownerBadgeTab={ownerBadgeTab}
-      attachmentToggle={attachmentToggle}
-      checklistToggle={checklistToggle}
-      startedBy={startedBy}
     />
   );
+}
+
+/** Same rendered row: the row's own TabItem state, handlers and sortable placement. */
+export function sameTabItemRow(prev: SidebarTabItemRowProps, next: SidebarTabItemRowProps): boolean {
+  return prev.onActivateTab === next.onActivateTab
+    && prev.onCloseTab === next.onCloseTab
+    && prev.onRenameTab === next.onRenameTab
+    && prev.workspaceId === next.workspaceId
+    && tabItemPropsEqual(tabItemState(prev), tabItemState(next));
+}
+
+export function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a === b || (a.length === b.length && a.every((id, index) => id === b[index]));
+}
+
+function sameSingleTabRow(prev: SidebarSingleTabRowProps, next: SidebarSingleTabRowProps): boolean {
+  return prev.sortable === next.sortable
+    && prev.group === next.group
+    && prev.groupKey === next.groupKey
+    && prev.toWorkspaceOrder === next.toWorkspaceOrder
+    && sameIds(prev.pinnedIds, next.pinnedIds)
+    && sameTabItemRow(prev, next);
 }
 
 export interface SidebarSingleTabRowProps extends SidebarTabItemRowProps {
@@ -146,7 +169,8 @@ export function isTabDragDisabled(tab: Pick<Tab, "protected">): boolean {
   return tab.protected === true;
 }
 
-export function SidebarSingleTabRow({
+/** Renders only when its own row changes; callers pass stable handlers and `toWorkspaceOrder`. */
+export const SidebarSingleTabRow = memo(function SidebarSingleTabRow({
   sortable = true,
   group,
   groupKey,
@@ -164,7 +188,7 @@ export function SidebarSingleTabRow({
       <SidebarTabItemRow {...rowProps} />
     </SortableRow>
   );
-}
+}, sameSingleTabRow);
 
 export function persistTabRename(workspaceId: string, tabId: string, title: string): void {
   invoke("mux_rename_tab", { workspaceId, tabId, title }).catch(() => {});

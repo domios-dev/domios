@@ -164,6 +164,7 @@ domios-agent-model = { path = "../domios-agent-model", features = ["test-support
 domios-plugin = { path = "../domios-plugin", features = ["test-support"] }
 domios-sentinel = { path = "../domios-sentinel", features = ["test-support"] }
 domios-decision = { path = "../domios-decision", features = ["decision-fixture-clock"] }
+domios-paths = { path = "../domios-paths", features = ["isolated-data-root"] }
 mockito = "1"
 filetime = "0.2.29"
 vt100 = "0.16"

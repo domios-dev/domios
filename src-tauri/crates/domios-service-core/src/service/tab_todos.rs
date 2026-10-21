@@ -12,8 +12,10 @@ use codeterm_types::agent::{
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod lifecycle;
+mod own_write;
 mod recitation;
 
+pub use own_write::{restore_checklist_presence, TabTodoWriteOutcome};
 use recitation::{recitation_text, summary};
 
 pub const TAB_TODO_CHANGED_EVENT: &str = "tab-todo-changed";
@@ -61,6 +63,7 @@ impl ServiceContext {
 
     /// Every committed checklist mutation announces its new revision to the UI.
     fn todo_changed(&self, checklist: TabTodoChecklist) -> TabTodoChecklist {
+        self.sync_checklist_presence(&checklist.tab_id, !checklist.items.is_empty());
         self.ui.emit(
             TAB_TODO_CHANGED_EVENT,
             serde_json::json!({

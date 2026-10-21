@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { RichMarkdown } from "./MarkdownBody";
+import { parsedMarkdown } from "./markdownParse";
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -63,5 +64,36 @@ test("streaming text and font scale changes still re-render", async () => {
   assert.match(view.host.textContent ?? "", /partial/);
   await view.render(<RichMarkdown text={"# Head\n\npartial **answer**"} fontScale={3} />);
   assert.equal(view.host.querySelector("strong")?.textContent, "answer");
+  await view.unmount();
+});
+
+test("streamed deltas reconcile the existing markdown DOM instead of remounting it", async () => {
+  setupDom();
+  const head = "# Stream head\n\nFirst paragraph.\n\n```ts\nconst streamed = 1;\n```\n\n";
+  const view = await mount(<RichMarkdown text={`${head}partial`} />);
+  const heading = view.host.querySelector("h1");
+  const paragraph = view.host.querySelector("p");
+  const code = view.host.querySelector("pre, code");
+  await view.render(<RichMarkdown text={`${head}partial answer with **more**`} />);
+  assert.ok(view.host.querySelector("h1") === heading, "heading element was remounted");
+  assert.ok(view.host.querySelector("p") === paragraph, "paragraph element was remounted");
+  assert.ok(view.host.querySelector("pre, code") === code, "code element was remounted");
+  assert.equal(view.host.querySelector("strong")?.textContent, "more");
+  await view.unmount();
+});
+
+test("rendering never mutates the shared parsed syntax tree", async () => {
+  setupDom();
+  const deepFreeze = (value: unknown): void => {
+    if (!value || typeof value !== "object" || Object.isFrozen(value)) return;
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  };
+  const text = "Visit frozen-example.com today.\n\n- `inline` item\n\n```js\nconst frozen = true;\n```\n\n| A | B |\n| - | - |\n| see docs.example.org | 2 |";
+  deepFreeze(parsedMarkdown(text));
+  const view = await mount(<RichMarkdown text={text} />);
+  assert.equal(view.host.querySelector("a[href='https://frozen-example.com']")?.textContent, "frozen-example.com");
+  assert.match(view.host.textContent ?? "", /const frozen = true;/);
+  assert.equal(view.host.querySelectorAll("td a").length, 1);
   await view.unmount();
 });

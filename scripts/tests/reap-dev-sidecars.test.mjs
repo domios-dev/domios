@@ -15,17 +15,17 @@ test('reaper kills the selected dev group and preserves foreign and prod fixture
   writeFileSync(binary, "require('node:child_process').spawn(process.execPath, ['-e', \"process.stdout.write('ready'); process.stdin.resume();\"], {stdio: ['pipe', 1, 2]}); process.stdin.resume();");
   const children = [];
   try {
-    for (const instance of ['.codeterm-dev-own', '.codeterm-dev-other', '.codeterm']) {
+    for (const instance of ['.domios-dev-own', '.domios-dev-other', '.domios']) {
       const token = path.join(fixture, instance, 'codex-rpc', 'a.token');
       const child = spawn(process.execPath, [binary, 'app-server', '--ws-token-file', token], { detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
       children.push(child);
       await once(child.stdout, 'data');
     }
-    const count = async () => (await exec(process.execPath, ['scripts/reap-dev-sidecars.mjs', path.join(fixture, '.codeterm-dev-own'), '--count'])).stdout.trim();
+    const count = async () => (await exec(process.execPath, ['scripts/reap-dev-sidecars.mjs', path.join(fixture, '.domios-dev-own'), '--count'])).stdout.trim();
     assert.equal(await count(), '1');
     const exited = once(children[0], 'exit');
     const groupOutputClosed = once(children[0].stdout, 'end');
-    await exec(process.execPath, ['scripts/reap-dev-sidecars.mjs', path.join(fixture, '.codeterm-dev-own')]);
+    await exec(process.execPath, ['scripts/reap-dev-sidecars.mjs', path.join(fixture, '.domios-dev-own')]);
     await exited;
     await groupOutputClosed;
     assert.equal(await count(), '0');

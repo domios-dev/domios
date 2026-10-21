@@ -132,12 +132,12 @@ class SingleRunGraphTest(unittest.TestCase):
         ):
             self.assertIn(f"  {job}:\n    name:", caller)
             block = caller[caller.index(f"  {job}:") :].split("\n\n", 1)[0]
-            self.assertRegex(block, r"\n    needs: (prepare|\[prepare, quick-checks\])\n")
+            self.assertRegex(block, r"\n    needs: \[prepare, (quick-checks, )?frontend-dist\]\n")
             self.assertIn(f"uses: ./.github/workflows/{workflow}", caller)
 
         final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
         self.assertIn(
-            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]", final
+            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests, promote-evidence]", final
         )
         self.assertIn("uses: ./.github/workflows/release-manifest-validate.yml", final)
         self.assertNotIn("if: always()", final)
@@ -244,7 +244,9 @@ class SingleRunGraphTest(unittest.TestCase):
     def test_release_input_prebuilds_the_app_bin(self):
         build = (ROOT / "build.sh").read_text(encoding="utf-8")
         self.assertIn('cargo_target_args=(--target "$CARGO_BUILD_TARGET")', build)
-        self.assertIn('--features "${CODETERM_RELEASE_FEATURES:-embeddings},tauri/custom-protocol"', build)
+        self.assertIn("--bin domios", build)
+        self.assertIn("-p domios-server --bin domios-server \\\n      --no-default-features --features domios-server/embeddings", build)
+        self.assertIn('--features "tauri/custom-protocol${CODETERM_RELEASE_FEATURES:+,$CODETERM_RELEASE_FEATURES}"', build)
         self.assertIn("--bin domios", build)
 
     def test_embedding_runtime_has_no_sidecar_or_onnx_dependencies(self):
@@ -262,7 +264,7 @@ class SingleRunGraphTest(unittest.TestCase):
                 text = read(name)
                 self.assertIn("CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target", text)
                 self.assertIn("CARGO_INCREMENTAL: '0'", text)
-                self.assertIn("CODETERM_RELEASE_FEATURES: embeddings", text)
+                self.assertNotIn("CODETERM_RELEASE_FEATURES: embeddings", text)
                 if name == "release-windows.yml":
                     build = next(
                         step for step in steps(text)
@@ -275,7 +277,8 @@ class SingleRunGraphTest(unittest.TestCase):
                     step for step in steps(text)
                     if "pnpm tauri build" in step.get("run", "")
                 )
-                self.assertIn('--target "$TARGET" --features "$CODETERM_RELEASE_FEATURES"', build["run"])
+                self.assertIn('pnpm tauri build --no-bundle --target "$TARGET"', build["run"])
+                self.assertNotIn("--features", build["run"])
 
     def test_platform_specific_packaging_and_macos_notarization_stay_with_the_owner(self):
         linux = read("release-linux.yml")
@@ -302,7 +305,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertEqual(platform_jobs, sorted(platform_jobs))
         self.assertGreater(manifest_job, max(platform_jobs))
         self.assertIn(
-            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests]",
+            "needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64, quick-checks, tests, promote-evidence]",
             caller[manifest_job:],
         )
 

@@ -87,7 +87,7 @@ fn pair_request_receipt_rejects_own_identity_without_mutation() {
         .confirm_pairing_target_identity("request-1", &own_id)
         .unwrap_err();
 
-    assert!(error.contains("this CodeTerm instance"));
+    assert!(error.contains("this Domios instance"));
     assert_manual_target_unchanged(&mesh);
 }
 

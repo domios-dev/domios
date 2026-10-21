@@ -588,7 +588,7 @@ sound = false
         }
 
         let unsupported = schema::ApiConfig {
-            host: "codeterm.internal".into(),
+            host: "domios.internal".into(),
             ..schema::ApiConfig::default()
         };
         assert!(validate_api_trust_boundary(&unsupported).is_err());
@@ -895,7 +895,7 @@ fn save_config_at(path: &std::path::Path, config: &AppConfig) -> Result<(), Stri
         Some(hold) => format!(
             concat!(
                 "Config is held: {}. Review or repair the salvaged config, remove its ",
-                "CodeTerm salvage marker, or restore a known-good config backup. Restart ",
+                "Domios salvage marker, or restore a known-good config backup. Restart ",
                 "Domios to reload it and release the hold."
             ),
             hold.refusal()

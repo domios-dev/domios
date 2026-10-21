@@ -67,6 +67,14 @@ pub async fn mesh_announce_inbound(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    super::require_current_peer_version(&headers)?;
+    if !codeterm_service_core::mesh::types::is_supported_relay_protocol(ann.relay_protocol_version)
+    {
+        return Err((
+            StatusCode::UPGRADE_REQUIRED,
+            codeterm_service_core::mesh::version::peer_upgrade_message(),
+        ));
+    }
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
     if let Some(ref pk) = mesh.ident.identity.public_key {

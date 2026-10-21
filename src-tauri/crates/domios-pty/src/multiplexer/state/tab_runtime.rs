@@ -104,6 +104,7 @@ impl MultiplexerState {
             show_in_tabbar: true,
             worker_id: None,
             frozen: false,
+            has_checklist: false,
             slept_at_ms: None,
             sleep_reason: None,
             last_active_at_ms: None,
@@ -243,6 +244,17 @@ impl MultiplexerState {
             .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
         tab.roleless_tracked = true;
         Ok(())
+    }
+
+    /// Returns whether the flag changed; an unknown tab changes nothing.
+    pub fn set_tab_has_checklist(&mut self, tab_id: &str, present: bool) -> bool {
+        match self.tabs.get_mut(tab_id) {
+            Some(tab) if tab.has_checklist != present => {
+                tab.has_checklist = present;
+                true
+            }
+            _ => false,
+        }
     }
 
     pub fn set_tab_description(

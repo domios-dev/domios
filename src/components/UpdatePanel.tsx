@@ -2,7 +2,7 @@ import { InlineErrorNotice } from "./shared/ErrorNotice";
 import { Download } from "lucide-react";
 import { useUpdatePanel } from "../hooks/useUpdatePanel";
 import { groupUpdates } from "../lib/updatePanelModel";
-import { PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE } from "../lib/updateStatusModel";
+import { CORE_PLUGIN_CHANNEL } from "../lib/updateStatusModel";
 import { SettingsCard, SettingsPill } from "./Settings/shared";
 import { Button } from "./shared/Button";
 
@@ -26,7 +26,7 @@ export function UpdatePanelContents() {
             {section.items.map(item => <div key={item.id} className="flex items-center justify-between gap-3 py-1 text-xs">
               <span>{item.name}</span>
               {item.channelError
-                ? <span role="status" aria-label={`${item.name} plugin updates unavailable`}>{PLUGIN_CHANNEL_UNAVAILABLE_MESSAGE}</span>
+                ? <InlineErrorNotice description={{ title: `${item.name} plugin updates unavailable`, cause: item.channelError, actions: [], raw: "" }} />
                 : <span className="font-mono text-[var(--ct-muted)]">{item.currentVersion} → {item.targetVersion}</span>}
               <Button size="sm" disabled={update.busy || Boolean(item.channelError)} aria-label={`Apply ${item.name} update`} onClick={() => void update.applyItem(item.id)}>Apply</Button>
             </div>)}
@@ -34,6 +34,9 @@ export function UpdatePanelContents() {
         ))}
         {update.error && <InlineErrorNotice error={update.errorDetails ?? update.error} operation="updating Domios" blocking />}
         {update.information.map(message => <div role="status" aria-label="Installed plugin ahead of channel" key={message} className="text-xs text-[var(--ct-muted)]">{message}</div>)}
+        {update.diagnostics.map(({ channel, message }) => <div role="status" aria-label={`${channel} channel diagnostics`} key={channel} className="text-xs text-[var(--ct-muted)]">
+          {channel === CORE_PLUGIN_CHANNEL ? `Core plugins: ${message} Bundled core plugins stay installed.` : `${channel}: ${message}`}
+        </div>)}
         <div className="flex gap-2">
           <Button size="sm" variant="accent" disabled={update.busy || !update.items.some(item => !item.channelError)} onClick={() => void update.updateAll()} loading={update.busy}>Update all</Button>
           <Button size="sm" disabled={update.busy && !update.error} onClick={() => void update.retry()}>Check again</Button>

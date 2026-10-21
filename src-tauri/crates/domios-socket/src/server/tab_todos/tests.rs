@@ -30,3 +30,19 @@ fn rpc_state_accepts_blocked_and_skipped() {
         );
     }
 }
+
+#[test]
+fn rpc_write_accepts_an_empty_declaration_and_refuses_an_unbounded_one() {
+    let empty = write_entries(&Some(json!({ "items": [] }))).expect("empty declaration");
+    assert!(empty.is_empty());
+    let entry = json!({ "content": "Step", "state": "in_progress" });
+    let error = write_entries(&Some(
+        json!({ "items": vec![entry; MAX_TAB_TODO_ITEMS + 1] }),
+    ))
+    .unwrap_err();
+    assert!(error.message.contains("propose a task split"));
+    assert!(write_entries(&Some(
+        json!({ "items": [{ "content": "Step", "state": "open", "extra": 1 }] })
+    ))
+    .is_err());
+}

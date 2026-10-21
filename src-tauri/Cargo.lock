@@ -2531,6 +2531,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "domios-util",
+ "flate2",
  "log",
  "reqwest 0.12.28",
  "semver",
@@ -2538,6 +2539,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+ "tar",
  "tempfile",
  "uuid",
 ]
@@ -2779,6 +2781,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "sysinfo",
  "tempfile",
  "tokio",
  "url",

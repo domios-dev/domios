@@ -273,5 +273,18 @@ fn is_user_codeterm_directory(path: &Path, home: &Path) -> bool {
     })
 }
 
+pub const DIAGNOSTIC_LINE_CHARS: usize = 480;
+
+/// A bootstrap child that refuses before its logger exists leaves its cause only on stderr.
+pub fn last_diagnostic_line(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes);
+    let line = text
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    Some(line.chars().take(DIAGNOSTIC_LINE_CHARS).collect())
+}
+
 #[cfg(test)]
 mod tests;

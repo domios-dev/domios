@@ -75,7 +75,7 @@ Plans, tasks, Teams: `codeterm plan --help` / `codeterm task --help` / `codeterm
 
 Workers default to full machine access for either execution intent. For explicit confinement pass `--sandbox read-only` or `--sandbox workspace-write` to `codeterm agent spawn` or local `codeterm plan task dispatch`. Execution intent still limits task and report authority; saved sandbox policies remain immutable.
 
-Workers use `codeterm todo write --from-pad todos.json` instead of the built-in todo tool. The JSON array uses `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "link?", "reason?" }`; content matches an existing checklist title, status changes are persisted by stable item id, and omitted locked checklist items remain unchanged. `blocked`/`skipped` need a `reason`; completed back to `in_progress` is a restart.
+Every agent tab, Orchestrator included, keeps its own checklist with `codeterm todo write --from-pad todos.json` instead of the built-in todo tool. The JSON array declares the whole list as `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "link?", "reason?" }`: the first write creates it; later writes keep items whose content matches a title (statuses persist by stable item id), append new content and remove omitted items you added, while omitted locked items remain unchanged. At most one item is `in_progress`; `blocked`/`skipped` need a `reason`; completed back to `in_progress` is a restart.
 
 After `codeterm tab rebind SESSION_ID --tab ID` on an `agentRuntime` Chat tab, use `codeterm agent restart --tab ID` to resume the recorded session and its own history. `sessions resume` refuses an unusable already-bound tab and names that restart command.
 

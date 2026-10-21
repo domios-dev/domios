@@ -81,6 +81,9 @@ impl MeshManager {
                 sender_id, ann.instance_id
             ));
         }
+        if !types::is_supported_relay_protocol(ann.relay_protocol_version) {
+            return Err(crate::version::peer_upgrade_message());
+        }
         let clean = types::sanitize_addresses(&ann.addresses);
         let normalized_web_ui = if ann.online {
             ann.web_ui

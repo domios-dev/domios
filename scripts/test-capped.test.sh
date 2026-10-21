@@ -30,6 +30,13 @@ WRAPPER="$base_repo/scripts/test-capped.sh"
 
 FAKE_CARGO="$TMPDIR/fake-cargo-test"
 
+# A script-text argument parses as a test filter, so these environment fixtures
+# report one passed test the way a real runner would.
+PASSING_BASH="$TMPDIR/passing-bash"
+printf '%s\n' '#!/usr/bin/env bash' 'bash "$@" || exit $?' \
+    'printf "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"' >"$PASSING_BASH"
+chmod +x "$PASSING_BASH"
+
 # Stands in for `cargo test`: libtest exits 0 even when a filter matches nothing,
 # which is the success the wrapper must refuse to pass through.
 write_fake_cargo() {
@@ -219,7 +226,7 @@ run_cap_disabled_case disabled-cap-exit-124 124 bash -c 'exit 124'
 shared_home="$TMPDIR/shared-home"
 ephemeral_data="$TMPDIR/ephemeral-data"
 mkdir -p "$shared_home" "$ephemeral_data"
-HOME="$shared_home" CODETERM_DATA_DIR="$ephemeral_data" CARGO_TEST_CMD=bash \
+HOME="$shared_home" CODETERM_DATA_DIR="$ephemeral_data" CARGO_TEST_CMD="$PASSING_BASH" \
     "$WRAPPER" -c 'test "$CODETERM_EMBED_CACHE_DIR" = "$HOME/.codeterm/fastembed_cache"' \
     >"$TMPDIR/shared-embed-cache.out" 2>&1
 grep -q '^\[test-capped\] shared embed cache:' "$TMPDIR/shared-embed-cache.out" || {
@@ -228,7 +235,7 @@ grep -q '^\[test-capped\] shared embed cache:' "$TMPDIR/shared-embed-cache.out" 
 }
 
 explicit_embed_cache="$TMPDIR/explicit-embed-cache"
-HOME="$shared_home" CODETERM_EMBED_CACHE_DIR="$explicit_embed_cache" CARGO_TEST_CMD=bash \
+HOME="$shared_home" CODETERM_EMBED_CACHE_DIR="$explicit_embed_cache" CARGO_TEST_CMD="$PASSING_BASH" \
     "$WRAPPER" -c 'test "$CODETERM_EMBED_CACHE_DIR" = "$1"' bash "$explicit_embed_cache" \
     >"$TMPDIR/explicit-embed-cache.out" 2>&1
 ! grep -q '^\[test-capped\] shared embed cache:' "$TMPDIR/explicit-embed-cache.out" || {
@@ -240,7 +247,7 @@ HOME="$shared_home" CODETERM_EMBED_CACHE_DIR="$explicit_embed_cache" CARGO_TEST_
 # pointing at the real installed conpty bundle. The wrapper must refuse to let
 # that ambient value reach the test command at all, not merely usually strip it.
 production_conpty_dir='C:\Users\User\AppData\Local\CodeTerm\conpty\x64'
-HOME="$shared_home" CODETERM_CONPTY_DIR="$production_conpty_dir" CARGO_TEST_CMD=bash \
+HOME="$shared_home" CODETERM_CONPTY_DIR="$production_conpty_dir" CARGO_TEST_CMD="$PASSING_BASH" \
     "$WRAPPER" -c 'printf "resolved=%s\n" "${CODETERM_CONPTY_DIR:-<unset>}"' \
     >"$TMPDIR/conpty-isolation.out" 2>&1
 ! grep -qF "resolved=$production_conpty_dir" "$TMPDIR/conpty-isolation.out" || {
@@ -255,7 +262,7 @@ grep -qF 'resolved=<unset>' "$TMPDIR/conpty-isolation.out" || {
 # Fail-closed: the isolation marker is exported even when no CODETERM_CONPTY_DIR
 # was ever present in the parent env — never conditioned on the leaked
 # variable happening to exist, so pty-fork's fork-side gate always has it.
-HOME="$shared_home" CARGO_TEST_CMD=bash \
+HOME="$shared_home" CARGO_TEST_CMD="$PASSING_BASH" \
     "$WRAPPER" -c 'printf "marker=%s\n" "${CODETERM_CONPTY_TEST_ISOLATION:-<unset>}"' \
     >"$TMPDIR/conpty-isolation-marker.out" 2>&1
 grep -qF 'marker=1' "$TMPDIR/conpty-isolation-marker.out" || {
@@ -265,7 +272,7 @@ grep -qF 'marker=1' "$TMPDIR/conpty-isolation-marker.out" || {
 
 windows_target_output="$TMPDIR/windows-target.out"
 CODETERM_TEST_HOST_TRIPLE=x86_64-pc-windows-msvc CODETERM_TEST_DEV_HEALTH=healthy \
-    CARGO_TEST_CMD=bash "$WRAPPER" -c \
+    CARGO_TEST_CMD="$PASSING_BASH" "$WRAPPER" -c \
     'case "$CARGO_TARGET_DIR" in */target-check) exit 0;; *) exit 11;; esac' \
     >"$windows_target_output" 2>&1
 grep -q 'using isolated Windows test target:' "$windows_target_output" || {
@@ -277,7 +284,7 @@ inherited_target_output="$TMPDIR/inherited-target.out"
 CODETERM_TEST_HOST_TRIPLE=x86_64-pc-windows-msvc \
     CODETERM_TEST_DEV_HEALTH=healthy \
     CARGO_TARGET_DIR='C:\Users\User\AppData\Local\CodeTerm\build-gateway\targets\local-install\stale' \
-    CARGO_TEST_CMD=bash "$WRAPPER" -c \
+    CARGO_TEST_CMD="$PASSING_BASH" "$WRAPPER" -c \
     'case "$CARGO_TARGET_DIR" in */target-check) exit 0;; *) exit 12;; esac' \
     >"$inherited_target_output" 2>&1
 grep -q 'ignoring inherited internal build-gateway target:' "$inherited_target_output" || {
@@ -287,7 +294,7 @@ grep -q 'ignoring inherited internal build-gateway target:' "$inherited_target_o
 
 explicit_target_output="$TMPDIR/explicit-target.out"
 CODETERM_TEST_HOST_TRIPLE=x86_64-pc-windows-msvc CARGO_TARGET_DIR="$TMPDIR/custom-target" \
-    CARGO_TEST_CMD=bash "$WRAPPER" -c 'printf "cargo-test-ran\n"' \
+    CARGO_TEST_CMD="$PASSING_BASH" "$WRAPPER" -c 'printf "cargo-test-ran\n"' \
     >"$explicit_target_output" 2>&1
 grep -q '^cargo-test-ran$' "$explicit_target_output" || {
     printf 'explicit-target: wrapper exited before invoking the test command\n' >&2

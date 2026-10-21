@@ -24,7 +24,8 @@ function mountedRowTops(el: HTMLElement): { rows: ChatShiftAnchor[]; heights: nu
 interface ChatWindowRow { msg: { id: string; sourceMessageId?: string } }
 
 function translateRows(rows: HTMLElement | null, translation: number): void {
-  if (rows) rows.style.transform = translation === 0 ? "" : `translateY(${translation}px)`;
+  const transform = translation === 0 ? "" : `translateY(${translation}px)`;
+  if (rows && rows.style.transform !== transform) rows.style.transform = transform;
 }
 
 export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, sessionKey, userScrollingRef }: {
@@ -107,7 +108,8 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     const anchor = shiftAnchorRef.current;
     const base = live.current.range.top;
     // React skips an unchanged style prop, so a height written here earlier would otherwise survive and read as a shift.
-    spacer.style.height = `${chatSpacerHeight(base, driftRef.current)}px`;
+    const written = `${chatSpacerHeight(base, driftRef.current)}px`;
+    if (spacer.style.height !== written) spacer.style.height = written;
     translateRows(rowsRef.current, chatSpacerTranslation(base, driftRef.current));
     if (followTailRef.current) {
       if (DEV_BUILD && chatTraceActive(keyRef.current)) chatTraceEdge(keyRef.current, "absorb", [chatAnchorShift(anchor,
@@ -202,41 +204,70 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     };
   }, [active, sessionKey, readViewport, scrollRef]);
 
+  // Records row heights, then repairs the layout once: every read happens before the spacer and transform writes.
+  const applyHeights = useCallback((measured: ReadonlyArray<readonly [HTMLElement, number]>) => {
+    const el = scrollRef.current;
+    // A hidden scroller reports zero for every row; a laid-out row of zero height is a real measurement.
+    if (!el || el.clientHeight === 0) return;
+    const { transcript: current } = live.current;
+    let changed = false;
+    const deltas: number[] = [];
+    for (const [row, height] of measured) {
+      const id = row.dataset.chatWindowRow;
+      const index = id == null ? undefined : current.byId.get(id);
+      if (id == null || index == null) continue;
+      if (DEV_BUILD && chatTraceActive(keyRef.current) && deltas.length < 32) {
+        const delta = height - (current.geometry.offset(index + 1) - current.geometry.offset(index));
+        if (delta !== 0) deltas.push(traceIdentity(id), delta);
+      }
+      heights.current.set(id, height);
+      changed = current.geometry.update(index, height) || changed;
+    }
+    if (DEV_BUILD && chatTraceActive(keyRef.current)) chatTraceEdge(keyRef.current, "resize", [measured.length, ...deltas]);
+    absorbShift();
+    if (changed) setRevision((previous) => previous + 1);
+    readViewport(false);
+  }, [absorbShift, readViewport, scrollRef]);
+  const applyHeightsRef = useRef(applyHeights);
+  applyHeightsRef.current = applyHeights;
+
+  // One observer per shown session reports the scroller, its content and the mounted rows; rows join as they mount.
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const observedRows = useRef(new Set<HTMLElement>());
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!active || !el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      applyHeightsRef.current(entries.filter((entry) => entry.target instanceof HTMLElement && entry.target.dataset.chatWindowRow != null)
+        .map((entry) => [entry.target as HTMLElement, entry.borderBoxSize?.[0]?.blockSize ?? entry.target.getBoundingClientRect().height] as const));
+    });
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    observerRef.current = observer;
+    const rows = observedRows.current;
+    return () => {
+      observer.disconnect();
+      observerRef.current = null;
+      rows.clear();
+    };
+  }, [active, sessionKey, scrollRef]);
+
   useLayoutEffect(() => {
     if (!active) return;
     const el = scrollRef.current;
     if (!el) return;
+    const observer = observerRef.current;
+    const observed = observedRows.current;
     const mounted = Array.from(el.querySelectorAll<HTMLElement>("[data-chat-window-row]"));
-    // A hidden scroller reports zero for every row; a laid-out row of zero height is a real measurement.
-    const measure = () => {
-      if (el.clientHeight === 0) return;
-      absorbShift();
-      let changed = false;
-      const deltas: number[] = [];
-      for (const row of mounted) {
-        const id = row.dataset.chatWindowRow;
-        const height = row.getBoundingClientRect().height;
-        const index = id == null ? undefined : transcript.byId.get(id);
-        if (id == null || index == null) continue;
-        if (DEV_BUILD && chatTraceActive(keyRef.current) && deltas.length < 32) {
-          const delta = height - (transcript.geometry.offset(index + 1) - transcript.geometry.offset(index));
-          if (delta !== 0) deltas.push(traceIdentity(id), delta);
-        }
-        heights.current.set(id, height);
-        changed = transcript.geometry.update(index, height) || changed;
-      }
-      if (DEV_BUILD && chatTraceActive(keyRef.current)) chatTraceEdge(keyRef.current, "resize", [mounted.length, ...deltas]);
-      if (changed) setRevision((previous) => previous + 1);
-      readViewport(false);
-    };
-    measure();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    observer?.observe(el);
-    for (const row of mounted) observer?.observe(row);
-    return () => observer?.disconnect();
-  }, [active, transcript, range.start, range.end, readViewport, scrollRef, absorbShift]);
+    const current = new Set(mounted);
+    for (const row of observed) if (!current.has(row)) { observer?.unobserve(row); observed.delete(row); }
+    // The observer keeps observed rows current; a newly mounted row is measured now so its first paint is placed.
+    const fresh = observer ? mounted.filter((row) => !observed.has(row)) : mounted;
+    applyHeights(fresh.map((row) => [row, row.getBoundingClientRect().height] as const));
+    for (const row of fresh) if (observer) { observer.observe(row); observed.add(row); }
+  }, [active, transcript, range.start, range.end, applyHeights, scrollRef]);
 
-  useLayoutEffect(absorbShift);
+  useLayoutEffect(absorbShift, [absorbShift, range.top]);
 
   return { range, topSpacer: chatSpacerHeight(range.top, driftRef.current), topSpacerRef, rowsRef, foldDrift, prepareMessage,
     syncViewport: readViewport, revision, identities: transcript.identities };

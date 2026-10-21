@@ -257,6 +257,8 @@ export interface Tab {
   role?: AgentRole | null;
   role_profile?: string | null;
   roleless_tracked?: boolean;
+  /** The tab's own checklist currently holds items; peers report it for their tabs too. */
+  has_checklist?: boolean;
   team_id?: string | null;
   spawned_by_tab_id?: string | null;
   managed?: { manager_tab_id: string; manager_name: string; manager_closed: boolean } | null;

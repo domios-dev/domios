@@ -99,7 +99,12 @@ fn project_root_ignores_linked_worktree_domios_for_plan_sidecars() {
 fn project_plan_sidecars_use_domios_directory() {
     let project = tempfile::tempdir().unwrap();
     mark_test_project_root(project.path());
-    let expected = project.path().join(".domios").join("plans");
+    let expected = project
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join(".domios")
+        .join("plans");
     assert_eq!(plan_state_root_for(project.path()), expected);
     assert_eq!(
         specs_dir(project.path()).unwrap(),

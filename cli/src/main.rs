@@ -17,14 +17,14 @@ pub use mesh_cli::{MeshAction, MeshPeerAction};
 
 /// Resolve tab ID: explicit arg > $CODETERM_TAB_ID env var > refuse.
 ///
-/// When running inside CodeTerm, $CODETERM_TAB_ID is set automatically by the PTY.
+/// When running inside Domios, $CODETERM_TAB_ID is set automatically by the PTY.
 /// There is no focused-tab fallback: a caller that can prove neither is refused,
 /// so a command can never act on a tab the caller does not own.
 pub fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
     cmd::local_io::resolve_tab(client, id)
 }
 
-/// Determine the CodeTerm data directory.
+/// Determine the Domios data directory.
 /// Dev instances use `~/.domios-dev[-<slug>]/`, prod uses `~/.domios/`.
 /// A named dev socket also selects its matching data directory when
 /// CODETERM_INSTANCE is absent, keeping local commands on the socket's instance.
@@ -64,7 +64,7 @@ fn instance_suffix() -> String {
     }
 }
 
-/// Resolve the CodeTerm data root used by local filesystem commands.
+/// Resolve the Domios data root used by local filesystem commands.
 ///
 /// `CODETERM_DATA_DIR` is an explicit test/dev harness override. It must be
 /// absolute so a typo cannot silently route plugin operations into a relative
@@ -74,8 +74,8 @@ pub fn data_root() -> std::path::PathBuf {
 }
 
 /// Read API config (host, port, token).
-/// Priority: $CODETERM_API_PORT env var (set by CodeTerm PTY) > config.toml.
-/// This ensures CLI works in both dev (7686) and prod (7685) when called from inside CodeTerm.
+/// Priority: $CODETERM_API_PORT env var (set by the Domios PTY) > config.toml.
+/// This ensures CLI works in both dev (7686) and prod (7685) when called from inside Domios.
 pub fn read_api_config() -> (String, Option<String>) {
     let resolved = resolve_api_config();
     (

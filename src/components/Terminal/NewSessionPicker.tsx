@@ -174,7 +174,7 @@ export function NewSessionPicker({
     void (async () => {
       try {
         const res = await launchProviderInstaller(providerId);
-        const wsId = state.active_workspace_id;
+        const wsId = res.workspace_id ?? state.active_workspace_id;
         if (wsId && res?.tab_id) await selectTabByTab(wsId, res.tab_id).catch(() => {});
       } catch (e) {
         addNotification({

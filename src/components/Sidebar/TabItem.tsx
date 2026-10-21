@@ -37,7 +37,8 @@ import {
 } from "./tabAttention";
 import { tabRowText } from "./tabRowModel";
 import { sameRowTab } from "./tabRowEquality";
-import { ChecklistToggleButton, type ChecklistToggle } from "./WorkerChecklist";
+import { useLiveRowTab } from "./useLiveRowTab";
+import { ChecklistToggleButton, type ChecklistToggle } from "./AgentChecklist";
 
 interface TabItemProps {
   tab: Tab;
@@ -76,7 +77,7 @@ interface TabItemProps {
   ownerBadgeTab?: Tab | null;
   /** Owner row folding its surface attachments. */
   attachmentToggle?: AttachmentToggle | null;
-  /** Worker row disclosure for its read-only checklist detail. */
+  /** Agent row disclosure for its read-only checklist detail. */
   checklistToggle?: ChecklistToggle | null;
   startedBy?: TabStartedBy | null;
 }
@@ -219,7 +220,7 @@ function TabItemInner({
   status,
   attention,
   onRename: _onRename,
-  tab,
+  tab: rowTab,
   orchestrators,
   isAppearing,
   isClosing,
@@ -238,6 +239,7 @@ function TabItemInner({
   attachmentToggle = null,
   checklistToggle = null,
 }: TabItemProps) {
+  const tab = useLiveRowTab(rowTab);
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // tabs — drives the icon, tooltip, and (for shells) the model badge.
@@ -544,7 +546,10 @@ function backingPluginId(p: Tab | null | undefined): string | undefined {
   return p?.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
 }
 
-function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
+/** What a row shows; its click, close and rename handlers stay out because their identity never changes the row. */
+export type TabItemState = Omit<TabItemProps, "onClick" | "onClose" | "onRename">;
+
+export function tabItemPropsEqual(prev: TabItemState, next: TabItemState): boolean {
   if (
     prev.isActive !== next.isActive ||
     prev.status !== next.status ||

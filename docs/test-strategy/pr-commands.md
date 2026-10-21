@@ -411,6 +411,13 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
   },
   {
+    "job": "ts-types",
+    "run": "bash build.sh cache-release",
+    "if": "always()",
+    "reason": "Stops the job-local compile cache started while the private store is unreachable",
+    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+  },
+  {
     "job": "frontend-windows",
     "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
     "if": null,

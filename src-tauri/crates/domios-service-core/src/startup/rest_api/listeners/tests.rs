@@ -59,7 +59,10 @@ fn mesh_reachability_health_recovery_cannot_resurrect_a_lost_listener() {
 
 #[test]
 fn mesh_reachability_opt_in_requires_dev_build_authenticated_loopback_and_tailnet() {
-    let mut config = crate::config::schema::ApiConfig::default();
+    let mut config = crate::config::schema::ApiConfig {
+        port: 7786,
+        ..Default::default()
+    };
     assert_eq!(additional_bind(&config, false).unwrap(), None);
     config.mesh_tailnet_host = Some("100.84.159.37".into());
     assert!(additional_bind(&config, true).is_err());

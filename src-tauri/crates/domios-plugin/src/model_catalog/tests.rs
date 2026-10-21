@@ -4,6 +4,7 @@
 use super::*;
 
 mod cache_schema;
+mod data_root_isolation;
 mod freshness;
 mod live_refresh;
 mod model_resolution;

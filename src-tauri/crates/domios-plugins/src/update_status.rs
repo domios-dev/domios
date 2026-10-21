@@ -40,10 +40,17 @@ pub(super) fn installed_update_status(
             }
         }
     }
-    if channel_name.is_none()
-        && matches!(source, Some(InstallSource::SystemChannel { channel, .. }) if channel == SYSTEM_CHANNEL_NAME)
-    {
-        if let Some((_, manifest)) = bundled_metadata(id) {
+    let official_core = matches!(source, Some(InstallSource::SystemChannel { channel, .. }) if channel == SYSTEM_CHANNEL_NAME);
+    if official_core {
+        let bundled = bundled_metadata(id).filter(|(_, manifest)| {
+            let bundled_ahead = match (manifest.version.as_deref(), remote_version.as_deref()) {
+                (Some(bundled), Some(remote)) => version_cmp(bundled, remote).is_gt(),
+                (Some(_), None) => true,
+                _ => false,
+            };
+            channel_name.is_none() || bundled_ahead
+        });
+        if let Some((_, manifest)) = bundled {
             payload_version = manifest.version.clone();
             remote_version = manifest.version;
             compatible = compat_check(manifest.min_codeterm.as_deref()).is_ok();

@@ -263,7 +263,7 @@ impl fmt::Display for SecretError {
 impl std::error::Error for SecretError {}
 
 /// Backend interface. Adapters implement this trait; everything else in
-/// CodeTerm talks to `dyn SecretStore`.
+/// Domios talks to `dyn SecretStore`.
 #[async_trait]
 pub trait SecretStore: Send + Sync {
     /// Stable backend id — `"mock"`, `"bitwarden"`, `"keychain"`, …. An
@@ -333,7 +333,7 @@ pub trait SecretStore: Send + Sync {
 
     /// Pull the latest state from the remote vault. Useful after changes
     /// made via another client (Bitwarden web, mobile app, another
-    /// CodeTerm machine). Default: no-op for backends with no remote
+    /// Domios machine). Default: no-op for backends with no remote
     /// (Local OS-keychain, Mock).
     async fn sync(&self) -> Result<(), SecretError> {
         Ok(())
