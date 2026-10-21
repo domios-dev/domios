@@ -95,7 +95,7 @@ fn blueprint_apply_is_idempotent_scoped_and_persisted_for_watch_and_pipeline() {
                     .blueprint_apply(&caller, changed, false)
                     .unwrap_err();
                 assert!(
-                    error.contains(&format!("blueprint_creation_only:watch.{field}:")),
+                    matches!(&error, codeterm_blueprint_types::blueprint_contract::ApplyError::CreationOnly { field: actual, .. } if actual == &format!("watch.{field}")),
                     "{error}"
                 );
             }
@@ -159,6 +159,66 @@ fn blueprint_apply_without_team_refuses_before_writing() {
         .service
         .blueprint_apply(&caller, definition(true), false)
         .unwrap_err()
+        .to_string()
         .contains("Team"));
     super::close(instance);
+}
+
+#[test]
+fn blueprint_concurrent_apply_commits_one_identity() {
+    for pipeline in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let (mut mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+        let team = codeterm_types::team::Team::new(&workspace, 1);
+        mux.upsert_team(team.clone());
+        mux.get_tab_mut(&tab).unwrap().team_id = Some(team.id.clone());
+        mux.get_tab_mut(&tab).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
+        let instance = ServiceInstance::open_with_mux(root.path(), mux);
+        let service = &instance.fixture.service;
+        let handle = crate::scheduler::fixture_handle_with_ui(
+            Store::with_storage(
+                &instance.storage,
+                codeterm_service_core::cron::clock::system_clock(),
+            ),
+            service.ui.clone(),
+        );
+        crate::manage_fixture_ports(service, &handle);
+        let caller = service.sentinel_caller(&tab, None).unwrap();
+        let barrier = std::sync::Barrier::new(2);
+        let results = std::thread::scope(|scope| {
+            let left = scope.spawn(|| {
+                barrier.wait();
+                service
+                    .blueprint_apply(&caller, definition(pipeline), false)
+                    .unwrap()
+            });
+            let right = scope.spawn(|| {
+                barrier.wait();
+                service
+                    .blueprint_apply(&caller, definition(pipeline), false)
+                    .unwrap()
+            });
+            [left.join().unwrap(), right.join().unwrap()]
+        });
+        assert_eq!(results[0]["id"], results[1]["id"]);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result["action"] == "create")
+                .count(),
+            1
+        );
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result["action"] == "unchanged")
+                .count(),
+            1
+        );
+        let inventory = handle.store.lock().jobs.clone();
+        assert_eq!(inventory.len(), 1);
+        assert_eq!(inventory[0].definition_version, 1);
+        super::close(instance);
+    }
 }

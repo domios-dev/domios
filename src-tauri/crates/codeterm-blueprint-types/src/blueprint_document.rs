@@ -187,6 +187,9 @@ impl Document {
             values.insert(key.into(), value);
         }
         for (key, input) in &self.inputs {
+            if !crate::blueprint_placeholder::valid_key(key) {
+                errors.push((format!("inputs.{key}"), "Use an input key of letters, digits, dots, underscores or hyphens, without a leading dot".into()));
+            }
             match values.get(key) {
                 Some(value) if input.accepts(value) => {}
                 Some(_) => errors.push((
@@ -231,7 +234,11 @@ impl Document {
             return Err(errors);
         }
         let resolved_name = document["name"].as_str().unwrap_or("");
-        if self.name.contains("{{") && resolved_name.chars().count() > 40 {
+        if crate::blueprint_placeholder::tokens(&self.name)
+            .iter()
+            .any(|token| token.key.is_some())
+            && resolved_name.chars().count() > 40
+        {
             let hash = resolved_name
                 .bytes()
                 .fold(0xcbf29ce484222325u64, |hash, byte| {
@@ -461,40 +468,33 @@ fn substitute(
     match value {
         Value::String(text) => {
             let source = text.clone();
-            let mut rest = source.as_str();
+            let mut offset = 0;
             let mut result = String::new();
-            while let Some((prefix, tail)) = rest.split_once("{{") {
-                let Some((raw_key, tail)) = tail.split_once("}}") else {
-                    break;
-                };
-                let key = raw_key.trim();
-                result.push_str(prefix);
-                match values.get(key) {
-                    Some(replacement)
-                        if prefix.is_empty() && tail.is_empty() && result.is_empty() =>
-                    {
+            for token in crate::blueprint_placeholder::tokens(&source) {
+                result.push_str(&source[offset..token.span.start]);
+                match token
+                    .key
+                    .and_then(|key| values.get(key).map(|value| (key, value)))
+                {
+                    Some((_, replacement)) if token.span == (0..source.len()) => {
                         *value = replacement.clone();
                         return;
                     }
-                    Some(Value::String(replacement)) => result.push_str(replacement),
-                    Some(replacement) if replacement.is_number() || replacement.is_boolean() => {
+                    Some((_, Value::String(replacement))) => result.push_str(replacement),
+                    Some((_, replacement))
+                        if replacement.is_number() || replacement.is_boolean() =>
+                    {
                         result.push_str(&replacement.to_string())
                     }
-                    Some(_) => {
-                        errors.push((
-                            path.into(),
-                            format!("Input {key} must occupy the whole value"),
-                        ));
-                    }
-                    None => {
-                        result.push_str("{{");
-                        result.push_str(raw_key);
-                        result.push_str("}}");
-                    }
+                    Some((key, _)) => errors.push((
+                        path.into(),
+                        format!("Input {key} must occupy the whole value"),
+                    )),
+                    None => result.push_str(&source[token.span.clone()]),
                 }
-                rest = tail;
+                offset = token.span.end;
             }
-            result.push_str(rest);
+            result.push_str(&source[offset..]);
             *text = result;
         }
         Value::Array(items) => {
@@ -504,7 +504,7 @@ fn substitute(
         }
         Value::Object(fields) => {
             for (key, value) in fields {
-                if key.contains("{{") {
+                if !crate::blueprint_placeholder::tokens(key).is_empty() {
                     errors.push((path.into(), "Inputs are allowed only in values".into()));
                 }
                 let next = if path.is_empty() {

@@ -252,16 +252,17 @@ fn pipeline_preview_summary(value: &Value) -> String {
     if let Some(checks) = value["checks"].as_array() {
         lines.push("Checks:".into());
         for check in checks {
+            let check: codeterm_blueprint_types::blueprint_contract::FieldCheck =
+                match serde_json::from_value(check.clone()) {
+                    Ok(check) => check,
+                    Err(error) => return format!("Invalid Blueprint preview: {error}"),
+                };
             lines.push(format!(
                 "  {} {}{}",
-                if check["passed"].as_bool().unwrap_or(false) {
-                    "PASS"
-                } else {
-                    "FAIL"
-                },
-                check["field"].as_str().unwrap_or("validation"),
-                check["reason"]
-                    .as_str()
+                if check.passed { "PASS" } else { "FAIL" },
+                check.field,
+                check
+                    .reason
                     .map(|reason| format!(": {reason}"))
                     .unwrap_or_default()
             ));
@@ -317,12 +318,14 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     .unwrap_or_else(|error| fail(2, error));
     let transition_id = params["transition_id"].as_str().map(str::to_owned);
     let intent = params["intent"].as_str().unwrap_or("").to_owned();
-    let mut result = client.call(method, Some(params)).unwrap_or_else(|error| {
-        if let Some(source) = apply_source.as_deref() {
-            authoring::fail_apply_error(source, &error.to_string(), json_mode)
-        }
-        fail(1, error.to_string())
-    });
+    let mut result = client
+        .call_detailed(method, Some(params))
+        .unwrap_or_else(|error| {
+            if let Some(source) = apply_source.as_deref() {
+                authoring::fail_apply_error(source, &error, json_mode)
+            }
+            fail(1, error.to_string())
+        });
     if method == "blueprint.recall" {
         if !recipe_list {
             result = memory::offers(result, &intent);

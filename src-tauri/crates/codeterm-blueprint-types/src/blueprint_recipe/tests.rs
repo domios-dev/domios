@@ -68,3 +68,14 @@ fn portable_source_recipe_binding_keeps_kind_and_customized_knobs() {
         assert!(crate::blueprint_pipeline::validate(&parsed, &[]).is_ok());
     }
 }
+
+#[test]
+fn blueprint_recipe_uses_the_document_placeholder_grammar() {
+    let mut value = json!({"command":"{{ repo.id }} {{.Status}} {{range .}}"});
+    assert_eq!(
+        placeholder_names(&value).unwrap(),
+        BTreeSet::from(["repo.id".into()])
+    );
+    substitute(&mut value, &["repo.id=owner/repo".into()]).unwrap();
+    assert_eq!(value["command"], "owner/repo {{.Status}} {{range .}}");
+}
