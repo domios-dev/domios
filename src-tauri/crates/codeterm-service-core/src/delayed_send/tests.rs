@@ -683,3 +683,70 @@ fn system_projection_is_a_view_not_a_queue_row() {
     assert_eq!(value["ticks"][0]["atMs"], 50_000);
     assert_eq!(value["ticks"][0]["spinalVerdict"], "processed");
 }
+
+#[test]
+fn immediate_create_delivers_without_persisting_or_publishing_a_queue_entry() {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let workspace = fixture.service.mux.read().list_workspaces()[0].id.clone();
+    let tab = fixture
+        .service
+        .create_named_tab(&workspace, "Immediate")
+        .unwrap();
+    let queue = fixture.service.ext::<DelayedSendQueue>();
+    for at in [9_000, 10_000, 11_000] {
+        let called = std::sync::atomic::AtomicBool::new(false);
+        let view = crate::async_runtime::block_on(create_message_with_delivery(
+            &fixture.service,
+            tab.clone(),
+            "opaque immediate body".into(),
+            Some(at),
+            None,
+            None,
+            10_000,
+            |_, message| {
+                called.store(true, std::sync::atomic::Ordering::SeqCst);
+                assert_eq!(message.state, DelayedMessageState::Sending);
+                assert!(queue.list(None).is_empty());
+                assert!(!queue.path.exists());
+                std::future::ready(Ok(()))
+            },
+        ))
+        .unwrap();
+        assert!(called.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(view.message.scheduled_at_ms, at);
+        assert!(list_views(&fixture.service, Some(tab.clone()))
+            .unwrap()
+            .is_empty());
+        assert!(!queue.path.exists());
+    }
+    let failure = crate::async_runtime::block_on(create_message_with_delivery(
+        &fixture.service,
+        tab.clone(),
+        "rejected delivery".into(),
+        Some(1),
+        None,
+        None,
+        10_000,
+        |_, _| std::future::ready(Err("prewrite refused".into())),
+    ));
+    assert_eq!(failure.unwrap_err(), "prewrite refused");
+    assert!(queue.list(None).is_empty());
+    let view = crate::async_runtime::block_on(create_message_with_delivery(
+        &fixture.service,
+        tab.clone(),
+        "future".into(),
+        Some(11_001),
+        None,
+        None,
+        10_000,
+        |_, _| std::future::ready(Err("a future message must not deliver".into())),
+    ))
+    .unwrap();
+    assert_eq!(view.message.state, DelayedMessageState::Queued);
+    assert_eq!(queue.list(None).len(), 1);
+    queue.claim_now(&view.message.id).unwrap();
+    assert!(list_views(&fixture.service, Some(tab)).unwrap().is_empty());
+}

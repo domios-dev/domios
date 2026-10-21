@@ -19,12 +19,22 @@ function fixture(result: unknown = {}) {
 }
 
 describe("capabilities HTTP transport", () => {
-  it("has all 94 lane commands and rejects unregistered schema commands", async () => {
+  it("has all 95 lane commands and rejects unregistered schema commands", async () => {
     const { transport, calls } = fixture();
-    expect(Object.keys(transport)).toHaveLength(94);
+    expect(Object.keys(transport)).toHaveLength(95);
     await expect(invokeCapability(transport, "arbitrary_rust_command")).rejects.toThrow("No audited HTTP route");
     await expect(invokeCapability(transport, "toString")).rejects.toThrow("No audited HTTP route");
     expect(calls).toEqual([]);
+  });
+
+  it("reads heartbeat projections separately from queued messages", async () => {
+    const { transport, calls } = fixture([]);
+    await transport.delayed_send_list({ tabId: "tab/a" });
+    await transport.system_heartbeat_list({ tabId: "tab/a" });
+    expect(calls).toEqual([
+      ["GET", "/api/tabs/tab%2Fa/delayed-messages", undefined],
+      ["GET", "/api/tabs/tab%2Fa/system-heartbeats", undefined],
+    ]);
   });
 
   it("carries grouped model usage without changing it into quota", async () => {

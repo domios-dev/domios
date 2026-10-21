@@ -44,6 +44,10 @@ export async function listDelayedMessages(tabId: string): Promise<DelayedMessage
   return (await invoke<DelayedMessage[] | null>("delayed_send_list", { tabId })) ?? [];
 }
 
+export async function listSystemHeartbeats(tabId: string): Promise<DelayedMessage[]> {
+  return (await invoke<DelayedMessage[] | null>("system_heartbeat_list", { tabId })) ?? [];
+}
+
 export function createDelayedMessage(
   tabId: string,
   text: string,
