@@ -1,6 +1,6 @@
 # Blueprint recipes
 
-Ready Blueprint graph patterns and skeletons. Sources, classification, routes, handlers, escalation, updates and limits are in `codeterm docs BLUEPRINTS`. Name each graph by meaning: what is watched → what happens.
+Reuse recipes with inputs before authoring graphs. Built-in nodes include GitHub; custom command nodes are allowed when nothing fits. Sources, classification, routes, handlers, escalation, updates and limits are in `codeterm docs BLUEPRINTS`. Name each graph by meaning: what is watched → what happens.
 
 ## Read a graph as Trigger → Source → Agent or Logic → Action
 The Blueprint view draws every stage as four kinds of node, so write definitions that read well in that order:
@@ -237,4 +237,4 @@ codeterm blueprint create --name "Marker and review" --probe "printf passed" --q
 ```json
 {"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}
 ```
-<!-- revision: 9 -->
+<!-- revision: 10 -->
