@@ -306,11 +306,11 @@ describe("mission control narrow shell", () => {
 
     expect(attr(narrow.host, "mission-control-board", "data-board-layout")).toBe("narrow");
     expect(text(narrow.host, "mc-board-plan-heading").length).toBeGreaterThan(0);
-    expect(taskStatusValues(narrow.host)).toEqual([1, 2, 1, 1, 10, 1]);
+    expect(taskStatusValues(narrow.host)).toEqual([10, 2, 1, 1, 1, 1]);
     expect(taskStatusValues(narrow.host).reduce((sum, value) => sum + value, 0)).toBe(
       Number(text(narrow.host, "mc-board-tasks-amount").replace(/,/g, "")),
     );
-    expect(text(narrow.host, "mc-board-quality")).toBe("bounced1first try10 of 12");
+    expect(text(narrow.host, "mc-board-progress-stats")).toBe("done67%10 of 15blocked1of 5 openfirst try83%1 bounced");
     expect(text(narrow.host, "mc-board-plan")).not.toContain("5.3M");
     expect(narrow.host.querySelector('[data-testid="mc-board-needs-you"]')).toBeNull();
     expect(narrow.host.querySelector('[data-testid="mc-board-spend-gauge"]')).toBeNull();
