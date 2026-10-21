@@ -76,11 +76,13 @@ fn write_entry(conn: &Connection, blobs: &std::path::Path, entry: &Entry) -> Res
         format!("failures:{}", entry.failures),
     ];
     if let Some(item) = store::get(conn, &entry.id, blobs)? {
-        tags.extend(
-            item.tags
-                .into_iter()
-                .filter(|tag| tag.starts_with("evidence:")),
-        );
+        tags.extend(item.tags.into_iter().filter(|tag| {
+            tag.starts_with("evidence:")
+                || tag.starts_with("curator:")
+                || tag.starts_with("confidence:")
+                || tag == "curator"
+                || tag.starts_with("pl_")
+        }));
     }
     if entry.kept {
         tags.push("explicitly-kept".into());
@@ -267,6 +269,51 @@ impl MemManager {
         if yaml.len() > codeterm_blueprint_types::blueprint_recipe::MAX_RECIPE_BYTES {
             return Err("Blueprint solution exceeds document limit".into());
         }
+        if let Some(curator) = &evidence.curator {
+            let relations = self
+                .search(&crate::SearchQuery {
+                    query: when_to_use.into(),
+                    limit: Some(3),
+                    ..Default::default()
+                })?
+                .into_iter()
+                .map(|hit| {
+                    if hit.item.source.as_deref() == Some(SOURCE)
+                        && hit.item.area.as_deref() == Some(area)
+                    {
+                        match model::parse_document(&hit.item.body) {
+                            Ok(existing)
+                                if model::structure(&existing) == model::structure(&document) =>
+                            {
+                                model::curator::Relation::Covers(hit.item.id)
+                            }
+                            _ => model::curator::Relation::Conflict(hit.item.id),
+                        }
+                    } else {
+                        model::curator::Relation::Conflict(hit.item.id)
+                    }
+                })
+                .collect::<Vec<_>>();
+            model::curator::decide(
+                &curator.episodes.iter().cloned().collect(),
+                curator.granted,
+                false,
+                &relations,
+            )?;
+            let evidence_note = format!(
+                "Evidence: {}{}",
+                curator.episodes.join(" "),
+                if curator.granted {
+                    format!(" grant:{}:{}", curator.plan, curator.round)
+                } else {
+                    String::new()
+                }
+            );
+            document.note = Some(format!(
+                "{}\n{evidence_note}",
+                document.note.as_deref().unwrap_or("")
+            ));
+        }
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
         let mut library = entries(&tx, &self.blobs_dir, area)?;
@@ -330,6 +377,61 @@ impl MemManager {
             id
         };
         record_evidence(&tx, &self.blobs_dir, &id, &evidence)?;
+        if let Some(curator) = &evidence.curator {
+            let item = store::get(&tx, &id, &self.blobs_dir)?.ok_or("saved solution absent")?;
+            let mut persisted = model::parse_document(&item.body)?;
+            let proof = format!(
+                "Evidence: {}{}",
+                curator.episodes.join(" "),
+                if curator.granted {
+                    format!(" grant:{}:{}", curator.plan, curator.round)
+                } else {
+                    String::new()
+                }
+            );
+            if !persisted.note.as_deref().unwrap_or("").contains(&proof) {
+                persisted.note = Some(format!(
+                    "{}\n{proof}",
+                    persisted.note.as_deref().unwrap_or("")
+                ));
+            }
+            let prior_round = item.tags.iter().find_map(|tag| {
+                tag.strip_prefix(&format!("curator:round:{}:", curator.plan))?
+                    .parse()
+                    .ok()
+            });
+            let prior = item
+                .tags
+                .iter()
+                .find_map(|tag| tag.strip_prefix("confidence:"))
+                .unwrap_or("low");
+            let confidence = model::curator::confidence(prior_round, curator.round, prior);
+            let mut tags = item.tags;
+            tags.retain(|tag| {
+                !tag.starts_with("confidence:")
+                    && !tag.starts_with("curator:observed:")
+                    && !tag.starts_with(&format!("curator:round:{}:", curator.plan))
+            });
+            tags.extend([
+                "curator".into(),
+                curator.plan.clone(),
+                format!("confidence:{confidence}"),
+                format!("curator:round:{}:{}", curator.plan, curator.round),
+                format!("curator:observed:{}", now.timestamp()),
+            ]);
+            tags.sort();
+            tags.dedup();
+            store::update(
+                &tx,
+                &id,
+                &store::MemUpdate {
+                    tags: Some(tags),
+                    body: Some(persisted.yaml()?),
+                    ..Default::default()
+                },
+                &self.blobs_dir,
+            )?;
+        }
         for evicted in model::evictions(&library, AREA_CAP, now.timestamp()) {
             archive(&tx, &evicted, "blueprint solution area cap")?;
         }

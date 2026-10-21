@@ -12,6 +12,11 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     let conn = mem.conn();
     let conn = conn.lock();
     let mut lines = Vec::new();
+    if let Some(candidates) =
+        super::curator_candidates::render(&conn, chrono::Utc::now().timestamp())?
+    {
+        lines.push(candidates);
+    }
     if blueprint_merges > 0 {
         lines.push(format!(
             "BLUEPRINT LIBRARY: merged {blueprint_merges} duplicate graphs"

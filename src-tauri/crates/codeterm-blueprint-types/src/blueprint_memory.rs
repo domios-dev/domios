@@ -2,10 +2,11 @@ use crate::blueprint_document::Document;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+pub mod curator;
 mod generalize;
 mod quality;
 pub use generalize::{abstract_document, safe_template};
-pub use quality::{decide, Evidence, Qualification};
+pub use quality::{decide, CuratorEvidence, Evidence, Qualification};
 
 pub const AREA_CAP: usize = 50;
 pub const MERGE_BUDGET: usize = 8;
