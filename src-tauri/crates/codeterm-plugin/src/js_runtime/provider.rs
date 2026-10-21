@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 
 mod agent_provider;
 mod command_template;
+mod descriptor;
 mod integration;
 mod integration_rules;
 mod launch_artifacts;
@@ -55,6 +56,7 @@ pub struct JsProvider {
     /// `usage_parser()` hands out a reference, so the adapter must live on the
     /// provider.
     usage_parser_cell: std::sync::OnceLock<Option<VmUsageParser>>,
+    descriptor_snapshot: Option<descriptor::DescriptorSnapshot>,
 }
 
 impl JsProvider {
@@ -98,7 +100,7 @@ impl JsProvider {
         let has_launch_session_detection = super::vm::has_method(&vm, "detectLaunchSession");
         let has_reply_relay =
             manifest.capabilities.reply_relay && super::vm::has_method(&vm, "readReplyRelayTurn");
-        Self {
+        let mut provider = Self {
             vm,
             manifest,
             trust,
@@ -108,7 +110,10 @@ impl JsProvider {
             has_launch_session_detection,
             has_reply_relay,
             usage_parser_cell: std::sync::OnceLock::new(),
-        }
+            descriptor_snapshot: None,
+        };
+        provider.refresh_descriptor();
+        provider
     }
 
     /// Evaluate the plugin's (settings, notifications) schemas once via QuickJS.
@@ -129,6 +134,7 @@ impl JsProvider {
         registry: Arc<dyn crate::host_traits::PluginProviderRegistrar>,
     ) {
         self.registry = Some(registry);
+        self.refresh_descriptor();
     }
 
     /// Whether the JS bundle exports `method` — distinguishes "not implemented"
