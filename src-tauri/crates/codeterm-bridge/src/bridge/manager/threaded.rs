@@ -199,9 +199,6 @@ pub(super) async fn send_for_tab(
         return;
     }
     tab.telegram_used();
-    threads
-        .after_media(tab_id, chat_id, &destination, caption(&message.content))
-        .await;
 }
 
 pub async fn send_notification(
@@ -253,17 +250,6 @@ fn notification_text(message: &OutboundMessage) -> Option<(&str, &str)> {
             OutboundContent::Text { text },
         ) => Some((tab_id.as_str(), text.as_str())),
         _ => None,
-    }
-}
-
-fn caption(content: &OutboundContent) -> &str {
-    match content {
-        OutboundContent::Photo { caption, .. }
-        | OutboundContent::Document { caption, .. }
-        | OutboundContent::Voice { caption, .. }
-        | OutboundContent::Animation { caption, .. }
-        | OutboundContent::Video { caption, .. } => caption.as_deref().unwrap_or_default(),
-        OutboundContent::Sticker { .. } | OutboundContent::Text { .. } => "",
     }
 }
 
