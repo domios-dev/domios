@@ -125,6 +125,14 @@ struct PinnedHolder {
     disposition: HolderDisposition,
 }
 
+pub(super) fn preflight(
+    server: crate::application_host::AttachedServerIdentity,
+) -> Result<(), String> {
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    let root = executable.parent().ok_or("install directory unresolved")?;
+    inspect_directory_with_server(root, false, Some(&server))
+}
+
 pub(super) fn inspect(release: bool) -> Result<(), String> {
     let executable =
         std::fs::canonicalize(std::env::current_exe().map_err(|error| error.to_string())?)
@@ -134,6 +142,14 @@ pub(super) fn inspect(release: bool) -> Result<(), String> {
 }
 
 fn inspect_directory(root: &Path, release: bool) -> Result<(), String> {
+    inspect_directory_with_server(root, release, None)
+}
+
+fn inspect_directory_with_server(
+    root: &Path,
+    release: bool,
+    server: Option<&crate::application_host::AttachedServerIdentity>,
+) -> Result<(), String> {
     let files = collect_install_binaries(root)?;
     let mut clis = files
         .iter()
@@ -162,7 +178,10 @@ fn inspect_directory(root: &Path, release: bool) -> Result<(), String> {
         let parents = process_parents()?;
         let mut pinned = Vec::new();
         for info in session.holders()? {
-            if info.Process.dwProcessId == std::process::id()
+            let created = ((info.Process.ProcessStartTime.dwHighDateTime as u64) << 32)
+                | info.Process.ProcessStartTime.dwLowDateTime as u64;
+            if super::model::is_attached_server(server, info.Process.dwProcessId, created)
+                || info.Process.dwProcessId == std::process::id()
                 || !holds_registered_file(&info, &files)?
             {
                 continue;
