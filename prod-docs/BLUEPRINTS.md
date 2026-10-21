@@ -144,21 +144,13 @@ codeterm blueprint log BLUEPRINT_ID
 
 `github` queries `run`, `jobs` or `pr_checks` via `gh`. Errors route `failed`; its 60-second budget is capped by expiry.
 
-```yaml
-name: Inspect jobs
-trigger: {type: input, kind: text, source: {text: inspect}}
-steps:
-  - name: jobs
-    input: text
-    kind: {kind: github, probe: {repo: owner/repo, resource: jobs, id: 456}}
-result: {to: owner}
+Create a typed source directly from the built-in recipe:
+
+```bash
+codeterm blueprint create --recipe github --set repo=cli/cli --set resource=run --set id=39652641013
 ```
 
-Save as `github.yaml`:
-```bash
-codeterm blueprint create --spec github.yaml --dry-run
-```
-Remove `--dry-run` to create. Classify CI conclusions separately. Edit the spec to fork; use `command` for custom queries.
+Use `resource=jobs` for job details, or `resource=pr_checks` with a PR number as `id`. The recipe queries every minute and delivers the JSON to its owner. Add `--dry-run` to validate first; stop with `codeterm blueprint stop BLUEPRINT_ID`. `show --json` retains `pipeline.steps[].kind.kind` as `github` and the declared `probe` scope. The card shows that scope and the last query status; query success does not mean CI passed. Classify CI conclusions separately. Inspect the editable spec with `codeterm blueprint recipe github`; use `command` for custom queries.
 
 ## Bounded Agent steps
 
@@ -166,4 +158,4 @@ A typed pipeline may include `{"kind":"agent","provider":"<capable-provider>","p
 
 The task and preceding output reach the provider unchanged, with token, turn and deadline ceilings. The provider returns structured JSON `{status, output, error?}`, with status `done`, `failed`, `cancelled` or `deadline_exceeded`. The step routes `done` or `failed`. A graph stop aborts the active task; its step log closes as failed. Results, including abort status, persist in `blueprint-agent-results/` and the step log exposes their `body_ref`. Claimed steps never replay after restart, and an unfinished tool effect remains unconfirmed. Agent steps do not turn model output into a shell command.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->

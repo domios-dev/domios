@@ -367,3 +367,23 @@ fn pipeline_without_flat_stages_survives_store_reload() {
         job.pipeline().cloned()
     );
 }
+
+#[test]
+fn blueprint_pipeline_github_source_exposes_scope_without_command_text() {
+    use codeterm_blueprint_types::blueprint_github::{GithubProbe, GithubResource};
+    let kind = StepKind::Github {
+        probe: GithubProbe {
+            repo: "cli/cli".into(),
+            resource: GithubResource::Run,
+            id: 39652641013,
+        },
+    };
+    let view = pipeline_step_view(0, "Check CI", &kind, None, None);
+    assert_eq!(view["kind"], "github");
+    assert_eq!(
+        view["source"],
+        json!({"repo":"cli/cli", "resource":"run", "id":39652641013u64})
+    );
+    assert_eq!(view["state"], "waiting");
+    assert!(view.get("command").is_none());
+}

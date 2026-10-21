@@ -72,7 +72,7 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
       title: step.title || step.name,
       state: step.state,
       current: current === step.index,
-      summary: step.name,
+      summary: step.kind === "github" && step.source ? `${step.source.repo} · ${step.source.resource} ${step.source.id}` : step.name,
       lastEventAtMs: step.ended_at_ms ?? step.started_at_ms ?? blueprint.last_event_at_ms ?? null,
       resultSummary: step.result_summary ?? step.reason ?? null,
       outcome: step.outcome ?? null,

@@ -1,6 +1,7 @@
+import { GitHubMark } from "./GitHubMark";
 import { useId, useState, type CSSProperties } from "react";
 import { CanvasToolbar } from "../Canvas/CanvasToolbar";
-import { Bell, GitPullRequest, List, Play, Workflow } from "lucide-react";
+import { Bell, List, Play, Workflow } from "lucide-react";
 import { AUTOMATION_LABEL, AUTOMATION_TONE, AUTOMATION_TOOL } from "./styles";
 import type { PipelineView, PipelineViewNode } from "./pipelineModel";
 import { layoutPipelineChain, PIPELINE_CANVAS_HEIGHT, PIPELINE_CARD_HEIGHT, PIPELINE_CARD_WIDTH } from "./pipelineLayout";
@@ -25,7 +26,7 @@ function eventTime(value: number | null): string {
 }
 
 function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
-  const Icon = node.kind === "trigger" ? Play : node.kind === "result" ? Bell : node.capability === "github" ? GitPullRequest : Workflow;
+  const Icon = node.kind === "trigger" ? Play : node.kind === "result" ? Bell : node.capability === "github" ? GitHubMark : Workflow;
   return <article
     aria-current={node.kind === "step" && node.current ? "step" : undefined}
     className={`ct-card flex h-full flex-col gap-1 px-3 py-2.5 ${stateSurface(node.state, node.current)}`}

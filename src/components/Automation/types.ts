@@ -177,6 +177,7 @@ export interface BlueprintOwner {
 }
 
 export interface BlueprintStep {
+  source?: { repo: string; resource: "run" | "jobs" | "pr_checks"; id: number } | null;
   index: number;
   name: string;
   kind: import("./blueprintKinds").BlueprintStepKind;

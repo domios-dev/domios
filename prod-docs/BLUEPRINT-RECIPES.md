@@ -26,6 +26,26 @@ Each pattern names the source, buckets and handlers; put silent buckets as `[]` 
 
 ## Built-in recipes
 `codeterm blueprint recipe` lists these skeletons. `codeterm blueprint recipe <name>` prints the handlers JSON and create command; fill in the probe, question and target placeholders, then use `--dry-run` before creating the graph. Creation proves admission only: confirm one real probe run and its recognized bucket with `blueprint show`. Patterns see `exit=N`, stdout, then stderr, so anchor per line with `(?m)` and allow CRLF with `\r?$`.
+<!-- blueprint-pipeline-recipe:github -->
+### github
+**Purpose:** Watch a CI run or PR checks with the typed GitHub source; query run, jobs or pr_checks every minute and deliver the latest JSON to the owner.
+```yaml
+name: GitHub CI watch
+trigger: {type: schedule, every: 60s}
+steps:
+  - name: GitHub check
+    input: text
+    kind:
+      kind: github
+      probe: {repo: "{{repo}}", resource: "{{resource}}", id: "{{id}}"}
+result: {to: owner}
+```
+```bash
+codeterm blueprint create --recipe github --set repo=cli/cli --set resource=run --set id=39652641013 --dry-run
+```
+Remove `--dry-run` to create. Use `resource=pr_checks` and the PR number as `id` for PR checks, or `resource=jobs` for job details. Query success means the GitHub request completed, not that CI passed. Stop the watch explicitly when finished.
+<!-- /blueprint-pipeline-recipe -->
+
 <!-- blueprint-recipe:github-pr-ci-watch -->
 **Purpose:** Route `failed` on the first failed or cancelled check of one PR and `passed` when all passed; `waiting` stays silent. From the repository checkout, the probe prints one verdict line: `gh pr checks <PR> --json bucket -q 'if any(.[]; .bucket=="fail" or .bucket=="cancel") then "failed" elif any(.[]; .bucket=="pending") then "waiting" else "passed" end'`.
 ```json
@@ -237,4 +257,4 @@ codeterm blueprint create --name "Marker and review" --probe "printf passed" --q
 ```json
 {"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}
 ```
-<!-- revision: 10 -->
+<!-- revision: 11 -->
