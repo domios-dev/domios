@@ -51,10 +51,11 @@ impl fmt::Display for LimitRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{FREE_LIMIT_REACHED}: Sorry, the free version allows at most {} {} (you have {}). Upgrade to remove this limit.",
+            "{FREE_LIMIT_REACHED}: Sorry, the free version allows at most {} {} (you have {}). Upgrade to remove this limit. (limit: {})",
             self.max,
             self.limit.noun(),
-            self.count
+            self.count,
+            self.limit.key()
         )
     }
 }
@@ -65,6 +66,16 @@ impl std::error::Error for LimitRefusal {}
 pub fn enforcing(activation: Option<&Activation>) -> bool {
     activation
         .is_some_and(|activation| activation.phase == Phase::B && activation.enforcement.enabled)
+}
+
+/// What a client needs to pre-check creation; the gate's own refusal stays the authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct LimitSummary {
+    pub enforcing: bool,
+    pub workspaces: Option<u64>,
+    pub teams: Option<u64>,
+    #[serde(rename = "agent.tabs")]
+    pub agent_tabs: Option<u64>,
 }
 
 /// One admission decision source, captured before callers take their own locks.
@@ -85,6 +96,16 @@ impl LimitGate {
 
     pub fn admit(&self, limit: LimitKey, count: usize) -> Result<(), LimitRefusal> {
         admit(limit, count as u64, &self.access, self.enforcing)
+    }
+
+    pub fn summary(&self) -> LimitSummary {
+        let limits = &self.access.limits;
+        LimitSummary {
+            enforcing: self.enforcing,
+            workspaces: LimitKey::Workspaces.max(limits),
+            teams: LimitKey::Teams.max(limits),
+            agent_tabs: LimitKey::AgentTabs.max(limits),
+        }
     }
 }
 
