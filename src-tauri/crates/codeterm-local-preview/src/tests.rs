@@ -177,7 +177,13 @@ fn distinct_case_and_separator_paths_do_not_gain_reference_authority() {
     let referenced = root.join("Owned.md");
     let other = root.join("owned.md");
     let policy = PreviewPolicy::new([path_key(&referenced)].into(), &[]).unwrap();
+    #[cfg(windows)]
+    assert!(policy.authorize(&other, None).is_ok());
+    #[cfg(not(windows))]
     assert!(policy.authorize(&other, None).is_err());
+    assert!(policy
+        .authorize(&root.join("unreferenced.md"), None)
+        .is_err());
     let secret = root.join(".ssh/key.txt");
     assert!(policy.authorize(&referenced, Some(&secret)).is_err());
 }
