@@ -124,7 +124,7 @@ pub(super) fn project_pipeline_contract(
             codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team => ("team", None),
         };
         let mut blueprint = json!({
-            "id":job.id,"name":spec.name,
+            "id":job.id,"name":spec.name,"note":job.note,"stopped_at":job.cleanup.stopped_at,"deletes_at":job.cleanup.deletes_at,
             "owner":{"kind":owner_kind,"tab_id":owner_tab,"team_id":job.team_id},
             "state":state,"run_id":latest["id"],"current_step":latest["current_step"],
             "last_event_at_ms":latest["last_event_at_ms"],"trigger":trigger_view(&spec.trigger),
@@ -172,7 +172,7 @@ fn pipeline_run_view(
                 entry.marker() == JournalMarker::Step(index as u16)
                     && entry.result_summary.is_some()
             });
-            pipeline_step_view(index, &step.name, step_kind(&step.kind), entry, summary)
+            pipeline_step_view(index, &step.name, &step.kind, entry, summary)
         })
         .collect::<Vec<_>>();
     let result = newest
@@ -211,12 +211,35 @@ fn pipeline_run_view(
 fn pipeline_step_view(
     index: usize,
     name: &str,
-    kind: &str,
+    kind: &codeterm_blueprint_types::blueprint_pipeline::StepKind,
     entry: Option<&&BlueprintJournalEntry>,
     summary: Option<&&BlueprintJournalEntry>,
 ) -> Value {
+    let source = match kind {
+        codeterm_blueprint_types::blueprint_pipeline::StepKind::Github { probe } => {
+            serde_json::to_value(probe).ok()
+        }
+        codeterm_blueprint_types::blueprint_pipeline::StepKind::Http { probe } => Some(
+            json!({"url":probe.display_url(), "expected_status":probe.expected_status, "timeout_ms":probe.timeout_ms}),
+        ),
+        _ => None,
+    };
+    let source_state = if source.is_some() {
+        entry
+            .and_then(|entry| entry.outcome.as_ref())
+            .map(|outcome| outcome.as_str())
+            .filter(|state| {
+                matches!(
+                    *state,
+                    "done" | "failed" | "failing" | "online" | "offline" | "up" | "down"
+                )
+            })
+    } else {
+        None
+    };
+    let kind = kind.name();
     let state = entry.map_or("waiting", |entry| entry.state.as_str());
-    json!({
+    let mut view = json!({
         "index":index,
         "name":name,
         "kind":kind,
@@ -227,11 +250,12 @@ fn pipeline_step_view(
         "ended_at_ms":entry.and_then(|entry| entry.ended_at_ms),
         "result_summary":summary.and_then(|entry| entry.result_summary.clone()),
         "reason":entry.and_then(|entry| entry.reason.clone())
-    })
-}
-
-fn step_kind(kind: &codeterm_blueprint_types::blueprint_pipeline::StepKind) -> &'static str {
-    kind.name()
+    });
+    if let Some(source) = source {
+        view["source"] = source;
+        view["source_state"] = json!(source_state);
+    }
+    view
 }
 
 fn trigger_view(trigger: &codeterm_blueprint_types::blueprint_pipeline::Trigger) -> Value {

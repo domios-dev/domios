@@ -65,6 +65,7 @@ pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
     }
     let mut ids = std::collections::BTreeSet::new();
     for job in &jobs {
+        codeterm_blueprint_types::automation_name::validate_note(job.note.as_deref())?;
         if job.pipeline().is_none() {
             machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;
         }
@@ -87,13 +88,18 @@ pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
             || (!job.session && job.run_transitions > job.max_transitions)
             || (!job.session
                 && !matches!(job.observe(), Some(TabBinding::CronRun(_)))
-                && job.transitions.len() > usize::from(job.max_transitions))
+                && job
+                    .transitions
+                    .len()
+                    .saturating_sub(job.cleanup.transition_offset)
+                    > usize::from(job.max_transitions))
             || job
                 .transitions
                 .iter()
                 .flat_map(|t| &t.handlers)
                 .filter(|r| r.claim_id.is_some())
                 .count()
+                .saturating_sub(job.cleanup.action_offset)
                 > super::action_limit(job)
         {
             return Err("invalid blueprint budgets or retention".into());
@@ -229,6 +235,7 @@ impl Store {
             terminal: None,
             session: false,
             name: Some(spec.name.clone()),
+            note: spec.note.clone(),
             probe: None,
             observe: None,
             input: None,
@@ -399,6 +406,7 @@ impl Store {
             until: params.until,
             expires_at,
             next_run: now,
+            cleanup: Default::default(),
             machine: Machine {
                 paused: params.paused,
                 ..Machine::default()
@@ -408,6 +416,7 @@ impl Store {
             revision: 0,
             agent_authored: false,
             name: params.name,
+            note: params.note,
             scenario_id: if params.paused { None } else { Some(id) },
             max_transitions,
             max_actions,
@@ -419,6 +428,7 @@ impl Store {
             definition_version: amend::initial_version(),
             amendments: Vec::new(),
         };
+        codeterm_blueprint_types::automation_name::validate_note(job.note.as_deref())?;
         source::validate(&job)?;
         escalation::validate(&job)?;
         Ok(job)

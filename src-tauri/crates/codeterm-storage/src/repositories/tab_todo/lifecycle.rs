@@ -203,7 +203,7 @@ pub(crate) fn transfer(
     let Some(generation) = head_generation(cx.conn, &source_tab_id)? else {
         return Ok(None);
     };
-    cx.write("INSERT INTO tab_todo_generations (tab_id, generation, workspace_id, team_id, status, started_at, revision) SELECT ?2, generation, ?3, ?4, status, started_at, revision + 1 FROM tab_todo_generations WHERE tab_id = ?1", params![source_tab_id, target_tab_id, workspace_id, team_id])?;
+    cx.write("INSERT INTO tab_todo_generations (tab_id, generation, workspace_id, team_id, status, started_at, revision, proposal_json) SELECT ?2, generation, ?3, ?4, status, started_at, revision + 1, proposal_json FROM tab_todo_generations WHERE tab_id = ?1", params![source_tab_id, target_tab_id, workspace_id, team_id])?;
     cx.write(
         "UPDATE tab_todo_items SET tab_id = ?2 WHERE tab_id = ?1",
         params![source_tab_id, target_tab_id],

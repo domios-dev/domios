@@ -329,11 +329,14 @@ const SELECT_HEADER: &str = r#"SELECT id, provider, account_id, captured_at, par
         session_pct, session_resets_at,
         weekly_pct, weekly_resets_at,
         spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at,
-        failure_reason, probe_command, raw_excerpt, debug_json, billing_mode, limits_reported
+        failure_reason, probe_command, raw_excerpt, debug_json, billing_mode, limits_reported, usage_details
         FROM usage_snapshots"#;
 
 fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
     Ok(UsageSnapshotRow {
+        usage_details: r
+            .get::<_, Option<String>>(19)?
+            .and_then(|raw| serde_json::from_str(&raw).ok()),
         id: r.get(0)?,
         provider: r.get(1)?,
         account_id: r.get(2)?,
@@ -381,8 +384,8 @@ fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSample) -> Result<i
         r#"INSERT INTO usage_snapshots
            (provider, account_id, captured_at, parsed_ok,
             session_pct, session_resets_at, weekly_pct, weekly_resets_at,
-            spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at, billing_mode, limits_reported)
-           VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
+            spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at, billing_mode, limits_reported, usage_details)
+           VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"#,
         params![
             &snap.provider,
             &snap.account_id,
@@ -397,6 +400,7 @@ fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSample) -> Result<i
             snap.spend_resets_at_ms,
             snap.billing_mode.as_str(),
             snap.limits_reported,
+            snap.usage_details.as_ref().map(serde_json::Value::to_string),
         ],
     )
     .map_err(|e| format!("insert snapshot: {}", e))?;
@@ -414,8 +418,8 @@ fn insert_rejected_snapshot(
            (provider, account_id, captured_at, parsed_ok,
             session_pct, session_resets_at, weekly_pct, weekly_resets_at,
             spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at,
-            failure_reason, probe_command, raw_excerpt, debug_json, billing_mode, limits_reported)
-           VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)"#,
+            failure_reason, probe_command, raw_excerpt, debug_json, billing_mode, limits_reported, usage_details)
+           VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"#,
         params![
             &snap.provider,
             &snap.account_id,
@@ -434,6 +438,7 @@ fn insert_rejected_snapshot(
             suspicious_debug_json(reason, snap),
             snap.billing_mode.as_str(),
             snap.limits_reported,
+            snap.usage_details.as_ref().map(serde_json::Value::to_string),
         ],
     )
     .map_err(|e| format!("insert rejected snapshot: {}", e))?;
@@ -521,6 +526,7 @@ const LEGACY_COLUMNS: &[&str] = &[
 
 // (CREATE TABLE IF NOT EXISTS leaves an already-created table untouched).
 const ADDED_COLUMNS: &[(&str, &str)] = &[
+    ("usage_details", "TEXT"),
     ("billing_mode", "TEXT NOT NULL DEFAULT 'unknown'"),
     ("limits_reported", "INTEGER NOT NULL DEFAULT 0"),
     ("spend_cents", "REAL"),

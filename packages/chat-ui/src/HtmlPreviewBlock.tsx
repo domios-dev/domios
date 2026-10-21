@@ -345,7 +345,7 @@ export function HtmlPreviewBlock({ text, fullscreenRequest = 0, renderError }: {
         {toolbar(false)}
         {body(false)}
       </div>
-      {isFullscreen && <FullscreenOverlay panelRef={fullscreenRef} label="Fullscreen HTML page" onClose={dismissFullscreen}>
+      {isFullscreen && <FullscreenOverlay panelRef={fullscreenRef} closeButton={false} label="Fullscreen HTML page" onClose={dismissFullscreen}>
         {toolbar(true)}
         <div className="min-h-0 flex-1 overflow-hidden">{body(true)}</div>
       </FullscreenOverlay>}

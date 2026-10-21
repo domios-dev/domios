@@ -225,10 +225,15 @@ export async function deleteTask(api: ApiConfig, planId: string, taskId: string)
   if (!res.ok) throw new Error(`task delete failed: ${res.status} ${await res.text()}`);
 }
 
+/** A click in the UI is the owner's explicit confirmation for a plan lifecycle change. */
+function confirmedHeaders(api: ApiConfig, planId: string): HeadersInit {
+  return { ...jsonHeaders(api), "X-CodeTerm-Plan-Confirmation": planId };
+}
+
 export async function unarchivePlan(api: ApiConfig, planId: string): Promise<void> {
   const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/unarchive`, {
     method: "POST",
-    headers: jsonHeaders(api),
+    headers: confirmedHeaders(api, planId),
     body: "{}",
   });
   if (!res.ok) throw new Error(`plan unarchive failed: ${res.status} ${await res.text()}`);
@@ -237,7 +242,7 @@ export async function unarchivePlan(api: ApiConfig, planId: string): Promise<voi
 export async function parkPlan(api: ApiConfig, planId: string, reason: string): Promise<void> {
   const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/pause`, {
     method: "POST",
-    headers: jsonHeaders(api),
+    headers: confirmedHeaders(api, planId),
     body: JSON.stringify({ reason }),
   });
   if (!res.ok) throw new Error(`plan park failed: ${res.status} ${await res.text()}`);
@@ -258,7 +263,7 @@ export async function fetchPlanLifecyclePreview(
 export async function resumePlan(api: ApiConfig, planId: string): Promise<void> {
   const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/resume`, {
     method: "POST",
-    headers: jsonHeaders(api),
+    headers: confirmedHeaders(api, planId),
     body: "{}",
   });
   if (!res.ok) throw new Error(`plan resume failed: ${res.status} ${await res.text()}`);

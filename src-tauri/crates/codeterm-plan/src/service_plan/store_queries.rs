@@ -22,6 +22,23 @@ impl PlanStore {
         self.plans.read().get(id).map(|p| p.lock().clone())
     }
 
+    /// `None` when the plan is unknown; the inner value is the plan's Team binding.
+    pub fn plan_team_id(&self, id: &str) -> Option<Option<String>> {
+        self.plans.read().get(id).map(|p| p.lock().team_id.clone())
+    }
+
+    pub fn live_active_plan_ids(&self) -> Vec<String> {
+        self.plans
+            .read()
+            .values()
+            .filter_map(|plan| {
+                let plan = plan.lock();
+                (plan.status == PlanStatus::Active && !plan.is_orphaned_active())
+                    .then(|| plan.id.clone())
+            })
+            .collect()
+    }
+
     pub fn get_spec(&self, id: &str) -> Option<Spec> {
         self.specs.read().get(id).map(|s| s.lock().clone())
     }

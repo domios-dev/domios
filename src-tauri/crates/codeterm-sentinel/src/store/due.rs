@@ -41,6 +41,7 @@ pub fn plan_due(
         if job.expires_at.is_some_and(|at| now >= at) {
             wake_pending.remove(&job.id);
             job.machine.stopped = true;
+            job.cleanup.sync(true, now);
             job.revision += 1;
             job.last_reason = Some("timeout".into());
             if let Some(cancelled) = active.get(&job.id) {
@@ -64,6 +65,7 @@ pub fn plan_due(
                     .flat_map(|t| &t.handlers)
                     .filter(|r| r.claim_id.is_some())
                     .count()
+                    .saturating_sub(job.cleanup.action_offset)
                     >= action_limit(job))
         {
             let reason = if job.session {
@@ -74,6 +76,7 @@ pub fn plan_due(
                 "action_budget_exhausted"
             };
             job.machine.stopped = true;
+            job.cleanup.sync(true, now);
             wake_pending.remove(&job.id);
             job.revision += 1;
             job.last_reason = Some(reason.into());
@@ -156,106 +159,15 @@ pub fn transition_budget_spent(job: &Sentinel) -> bool {
     if matches!(job.observe(), Some(TabBinding::CronRun(_))) {
         job.run.is_some() && job.run_transitions >= job.max_transitions
     } else {
-        job.transitions.len() >= usize::from(job.max_transitions)
+        job.transitions
+            .len()
+            .saturating_sub(job.cleanup.transition_offset)
+            >= usize::from(job.max_transitions)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use codeterm_blueprint_types::blueprint_pipeline::{
-        BlueprintResult, BlueprintSpec, IoType, Step, StepKind, Trigger,
-    };
-    use codeterm_blueprint_types::sentinel_input::{DataRef, MediaKind};
-
-    #[test]
-    fn probe_cadence_never_backs_off_on_unchanged_results() {
-        let job: Sentinel = serde_json::from_value(serde_json::json!({
-            "id":"watch", "creator_tab_id":"creator", "team_id":null, "workspace_id":"ws", "cwd":".",
-            "probe":"status", "question":"status?", "buckets":["waiting"], "routes":{"waiting":[]},
-            "matches":{}, "until":null, "expires_at":null, "interval_ms":60000, "next_run":1000,
-            "machine":{"stopped":false,"paused":false,"last_hash":"same","last_bucket":"waiting"},
-            "last_reason":"unchanged"
-        })).unwrap();
-        let mut jobs = vec![job];
-        let mut active = HashMap::new();
-        let mut wakes = BTreeSet::new();
-        for now in [1000, 61000, 121000] {
-            active.clear();
-            let (leases, _, _) = plan_due(&mut jobs, &mut active, &mut wakes, now);
-            assert_eq!(leases.len(), 1);
-            assert_eq!(jobs[0].next_run, now + 60000);
-        }
-        active.clear();
-        let (leases, _, _) = plan_due(&mut jobs, &mut active, &mut wakes, 541000);
-        assert_eq!(leases.len(), 1);
-        assert_eq!(jobs[0].next_run, 601000);
-    }
-
-    #[test]
-    fn blueprint_input_due_is_once_per_activation_and_amendment_without_interval_runs() {
-        let temp = tempfile::tempdir().unwrap();
-        let clock = codeterm_cron::clock::MockClock::starting_at(1_000);
-        let store = Store::new(temp.path().join("input.json"), clock);
-        let mut job = store
-            .prepare_pipeline(
-                BlueprintSpec {
-                    name: "one-shot-input".into(),
-                    owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab,
-                    trigger: Trigger::Input {
-                        kind: MediaKind::Text,
-                        source: DataRef::Text("hello".into()),
-                    },
-                    steps: vec![Step {
-                        name: "filter".into(),
-                        input: IoType::Text,
-                        kind: StepKind::Filter {
-                            pattern: "hello".into(),
-                            bucket: None,
-                        },
-                        on: Default::default(),
-                    }],
-                    result: BlueprintResult::default(),
-                },
-                Owner {
-                    creator_tab_id: "creator".into(),
-                    team_id: None,
-                    workspace_id: "workspace".into(),
-                    cwd: "/tmp".into(),
-                },
-                true,
-            )
-            .unwrap();
-        job.next_run = 1_000;
-        let id = job.id.clone();
-        let mut jobs = vec![job];
-        let mut active = HashMap::new();
-        let mut wake_pending = BTreeSet::new();
-
-        assert_eq!(
-            plan_due(&mut jobs, &mut active, &mut wake_pending, 1_000)
-                .0
-                .len(),
-            1
-        );
-        active.remove(&id);
-        assert!(plan_due(&mut jobs, &mut active, &mut wake_pending, 21_000)
-            .0
-            .is_empty());
-
-        jobs[0].next_run = 21_000;
-        assert_eq!(
-            plan_due(&mut jobs, &mut active, &mut wake_pending, 21_000)
-                .0
-                .len(),
-            1
-        );
-        active.remove(&id);
-        assert!(plan_due(&mut jobs, &mut active, &mut wake_pending, 41_000)
-            .0
-            .is_empty());
-    }
-}
+mod tests;
 
 pub fn action_limit(job: &Sentinel) -> usize {
     if job.session {

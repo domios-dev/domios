@@ -55,28 +55,39 @@ impl ServiceContext {
         now_ms: u64,
     ) -> Result<ReconcileResult, PlanError> {
         let plan = self.plan_store.get(plan_id).ok_or(PlanError::NotFound)?;
+        self.reconcile_plan_record(&plan, fix, caller_tab_id, now_ms)
+    }
+
+    pub(crate) fn reconcile_plan_record(
+        &self,
+        plan: &crate::plan::Plan,
+        fix: bool,
+        caller_tab_id: Option<&str>,
+        now_ms: u64,
+    ) -> Result<ReconcileResult, PlanError> {
+        let plan_id = plan.id.as_str();
         let mut config = ReconcileConfig::new(now_ms);
         config.stale_review_ms = DEFAULT_STALE_REVIEW_MS;
         config.current_orchestrator_tab_id = caller_tab_id
             .map(str::to_string)
             .or_else(|| plan.owner.tab_id.clone());
-        let drift = detect_plan_drift(&plan, &config, |tab_id| self.tab_probe(tab_id));
+        let drift = detect_plan_drift(plan, &config, |tab_id| self.tab_probe(tab_id));
         let cleanup_debt =
-            cleanup_debt::detect_plan_cleanup_debt(&plan, |tab_id| self.tab_probe(tab_id).exists);
+            cleanup_debt::detect_plan_cleanup_debt(plan, |tab_id| self.tab_probe(tab_id).exists);
         let counts = drift_counts(&drift);
-        let gone_attempts = plan
-            .tasks
-            .iter()
-            .flat_map(|task| {
-                let task_id = task.id.clone();
-                task.execution_attempts
-                    .iter()
-                    .filter(|attempt| attempt.closed_at.is_none())
-                    .filter(move |attempt| !self.tab_probe(&attempt.executor_tab_id).exists)
-                    .map(move |attempt| (task_id.clone(), attempt.executor_tab_id.clone()))
-            })
-            .collect::<Vec<_>>();
         let fixed = if fix {
+            let gone_attempts = plan
+                .tasks
+                .iter()
+                .flat_map(|task| {
+                    let task_id = task.id.clone();
+                    task.execution_attempts
+                        .iter()
+                        .filter(|attempt| attempt.closed_at.is_none())
+                        .filter(move |attempt| !self.tab_probe(&attempt.executor_tab_id).exists)
+                        .map(move |attempt| (task_id.clone(), attempt.executor_tab_id.clone()))
+                })
+                .collect::<Vec<_>>();
             let mut fixed = self
                 .plan_store
                 .apply_reconcile_fixes(plan_id, &drift, now_ms)?;

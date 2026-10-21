@@ -589,7 +589,8 @@ impl Store {
             .flat_map(|t| &t.handlers)
             .filter(|r| r.claim_id.is_some())
             .count();
-        if actions >= super::store::action_limit(current)
+        if actions.saturating_sub(current.cleanup.action_offset)
+            >= super::store::action_limit(current)
             || (current.session
                 && super::session::usage(&self.jobs, current, now).actions
                     >= codeterm_blueprint_types::blueprint_terminal::SESSION_SAFETY_LIMIT)

@@ -48,46 +48,22 @@ export function useFullscreenKeyboard(open: boolean, ref: RefObject<HTMLDivEleme
   }, [open, ref, returnFocusRef]);
 }
 
-function useDocumentFullscreen(ref: RefObject<HTMLDivElement | null>, onClose: () => void) {
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  useEffect(() => {
-    const panel = ref.current;
-    if (!panel?.requestFullscreen || !document.fullscreenEnabled || document.fullscreenElement) return;
-    let entered = false;
-    let disposed = false;
-    const changed = () => {
-      if (document.fullscreenElement === panel) entered = true;
-      else if (entered) closeRef.current();
-    };
-    document.addEventListener("fullscreenchange", changed);
-    void panel.requestFullscreen().then(() => {
-      if (disposed && document.fullscreenElement === panel) void document.exitFullscreen().catch(() => undefined);
-    }).catch(() => undefined);
-    return () => {
-      disposed = true;
-      document.removeEventListener("fullscreenchange", changed);
-      if (document.fullscreenElement === panel) void document.exitFullscreen().catch(() => undefined);
-    };
-  }, [ref]);
-}
-
-export function FullscreenOverlay({ panelRef, label, onClose, children, returnFocusRef }: {
+export function FullscreenOverlay({ panelRef, label, onClose, children, returnFocusRef, closeButton = true }: {
   panelRef: RefObject<HTMLDivElement | null>;
+  closeButton?: boolean;
   label: string;
   returnFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void;
   children: ReactNode;
 }) {
-  const [portalHost] = useState(() => document.fullscreenElement ?? document.body);
+  const [portalHost] = useState(() => document.body);
   useFullscreenKeyboard(true, panelRef, onClose, returnFocusRef);
-  useDocumentFullscreen(panelRef, onClose);
   return createPortal(
     <div ref={panelRef} className="ct-chat-fullscreen fixed z-[60] bg-black/85 backdrop-blur-sm" style={{ inset: 0, padding: "max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom))" }} onClick={onClose} role="dialog" aria-modal="true" aria-label={label}>
       <div className="relative mx-auto flex h-full w-full flex-col border border-[var(--ct-border)] bg-[var(--ct-bg)] p-2 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex shrink-0 justify-end pb-1">
+        {closeButton && <div className="flex shrink-0 justify-end pb-1">
           <button type="button" aria-label="Close fullscreen viewer" onClick={onClose} style={{ minWidth: 44, minHeight: 44, background: "var(--ct-bg)", color: "var(--ct-fg)", border: "1px solid var(--ct-border)", borderRadius: 8, display: "grid", placeItems: "center" }}><X size={20} aria-hidden /></button>
-        </div>
+        </div>}
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </div>
     </div>, portalHost,

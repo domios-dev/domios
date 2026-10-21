@@ -203,6 +203,7 @@ fn rate_sample(
         highest
     };
     codeterm_usage::UsageSample {
+        usage_details: None,
         provider: provider.into(),
         billing_mode: codeterm_usage::contract::BillingMode::Subscription,
         limits_reported: !limits.is_empty(),

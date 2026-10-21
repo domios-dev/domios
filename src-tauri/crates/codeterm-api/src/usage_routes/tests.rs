@@ -24,6 +24,11 @@ fn persisted_usage_row_keeps_the_api_wire_contract() {
     let data_dir = tempfile::tempdir().unwrap();
     let store = codeterm_service_core::usage::UsageStore::open(data_dir.path()).unwrap();
     let sample = codeterm_usage::UsageSample {
+        usage_details: Some(serde_json::json!({
+            "limits": [{"label":"Weekly · Fable","percent":47}],
+            "dollar_credits": [{"remaining_dollars":250,"resets_at":1793836800000_i64}],
+            "extra_usage": {"enabled":false}
+        })),
         provider: "fixture".into(),
         billing_mode: codeterm_usage::contract::BillingMode::Subscription,
         limits_reported: false,
@@ -61,6 +66,7 @@ fn persisted_usage_row_keeps_the_api_wire_contract() {
     assert_eq!(value["session_resets_at"], 2000);
     assert_eq!(value["billing_mode"], "subscription");
     assert_eq!(value["limits_reported"], false);
+    assert_eq!(value["usage_details"], sample.usage_details.unwrap());
     assert!(value["weekly_pct"].is_null());
     assert!(value["spend_cents"].is_null());
     assert!(store

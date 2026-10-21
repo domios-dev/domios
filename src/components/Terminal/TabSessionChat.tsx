@@ -28,7 +28,7 @@ import {
   messageRowTime,
   isSessionIntentOnlyMessage,
 } from "@codeterm/chat-ui";
-import { ChatBlockHostProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider, HistoryGapProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
@@ -287,6 +287,7 @@ function TabSessionChatBody({
     backfillLoading,
     backfillNotice,
     loadOlder,
+    loadHistoryGap,
     showLatest,
     prepareMessage,
     setHistoryReading,
@@ -846,6 +847,7 @@ function TabSessionChatBody({
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
     <PluginNameProvider resolve={resolvePluginName}>
+    <HistoryGapProvider onLoad={loadHistoryGap}>
     <div
       ref={chatRootRef}
       className="ct-chat-shell w-full h-full flex flex-col relative"
@@ -1108,6 +1110,7 @@ function TabSessionChatBody({
       </ChatComposerSurface>
       </ComposerBackgroundWorkProvider>
     </div>
+    </HistoryGapProvider>
     </PluginNameProvider>
     </ChatBlockHostProvider>
     </LocalArtifactScope>

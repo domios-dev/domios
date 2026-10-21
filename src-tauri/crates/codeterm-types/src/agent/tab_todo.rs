@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 mod progress;
+mod proposal;
 mod write;
+pub use proposal::{can_review_tab_todo, TabTodoProposal, TabTodoProposalState};
 
 pub use progress::{
     tab_todo_bound_refusal, validate_tab_todo_reason, TabTodoAttemptSpan, TabTodoCounters,
@@ -208,6 +210,8 @@ pub struct TabTodoItem {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabTodoChecklist {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposal: Option<TabTodoProposal>,
     pub tab_id: String,
     pub generation: u64,
     pub started_at: u64,

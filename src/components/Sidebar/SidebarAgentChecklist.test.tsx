@@ -223,4 +223,17 @@ test("a checklist rereads on its own change event and never shows a stale genera
   store.restore();
 });
 
+test("shared checklist review marker clears on the approval event without changing live items", async () => {
+  const initial = { ...checklistRecord("worker", 1, 1, [["Working step", "in_progress"]]), proposal: { state: "proposed" } };
+  const store = checklistStore(initial);
+  const { host, root } = await renderSidebar({ tabs: checklistTeam() });
+  await open(toggleFor(host, "Mica")!);
+  assert(regionFor(host, "Mica")?.querySelector('[role="status"]'), "unreviewed marker is visible");
+  store.set({ ...initial, revision: 2, proposal: { state: "approved" } });
+  await store.emit({ tab_id: "worker", generation: 1, revision: 2 });
+  assert(!regionFor(host, "Mica")?.querySelector('[role="status"]'), "approval removes the marker");
+  assert(regionFor(host, "Mica")?.textContent?.includes("Working step"), "live work remains visible");
+  await act(async () => root.unmount()); store.restore();
+});
+
 void run();

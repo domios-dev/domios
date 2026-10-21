@@ -1,70 +1,10 @@
-
-import React from "react";
+import { Button as SharedButton, type ButtonProps } from "@codeterm/chat-ui/Button";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { BusyState } from "./BusyState";
 
-export type ButtonVariant = "primary" | "ghost" | "accent" | "danger" | "icon" | "capsule" | "capsuleAdd";
-export type ButtonSize = "sm" | "md" | "lg" | "compact";
+export type { ButtonProps, ButtonSize, ButtonVariant } from "@codeterm/chat-ui/Button";
 
-export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  loading?: boolean;
-  "data-testid"?: string;
-  ref?: React.Ref<HTMLButtonElement>;
-}
-
-const VARIANT_CLASS: Record<ButtonVariant, string> = {
-  primary: "ct-btn ct-btn-primary",
-  ghost: "ct-btn ct-btn-ghost",
-  accent: "ct-btn ct-btn-accent",
-  danger: "ct-btn ct-btn-danger",
-  icon: "ct-btn ct-btn-icon ct-btn-ghost",
-  capsule: "ct-btn ct-btn-capsule",
-  capsuleAdd: "ct-btn ct-btn-capsule-add",
-};
-
-const SIZE_CLASS: Record<ButtonSize, string> = {
-  sm: "ct-btn-sm",
-  md: "",
-  lg: "ct-btn-lg",
-  compact: "ct-btn-compact",
-};
-
-export function Button({
-  variant = "ghost",
-  size = "md",
-  loading = false,
-  disabled,
-  type = "button",
-  children,
-  className,
-  "data-testid": testId,
-  ...rest
-}: ButtonProps) {
+export function Button(props: ButtonProps) {
   const touchMode = useTouchOptimizedUi();
-  const variantCls = VARIANT_CLASS[variant];
-  const sizeCls = SIZE_CLASS[size];
-  const cls = [variantCls, "ct-liquid-interactive", sizeCls, className].filter(Boolean).join(" ");
-
-  return (
-    <button
-      {...rest}
-      type={type}
-      className={cls}
-      disabled={disabled || loading}
-      aria-busy={loading || undefined}
-      data-touch-mode={touchMode ? "true" : undefined}
-      data-testid={testId}
-    >
-      {loading ? (
-        <>
-          <BusyState inline hideLabel phase="work" aria-hidden="true" />
-          {children}
-        </>
-      ) : (
-        children
-      )}
-    </button>
-  );
+  return <SharedButton {...props} touchMode={touchMode} busyIndicator={<BusyState inline hideLabel phase="work" aria-hidden="true" />} />;
 }

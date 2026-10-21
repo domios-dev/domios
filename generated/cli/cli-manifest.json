@@ -17818,8 +17818,81 @@
       "args": [],
       "subcommands": [
         {
+          "name": "amend",
+          "about": "Review and amend a child's checklist; seeded criteria stay locked",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "note-from-pad",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "approve",
+          "about": "Mark a child's shared checklist reviewed",
+          "aliases": [],
+          "args": [
+            {
+              "name": "note-from-pad",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "list",
           "about": "Read this agent tab's current bounded checklist",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "submit",
+          "about": "Share this tab's checklist with its parent; work may continue immediately",
           "aliases": [],
           "args": [],
           "subcommands": []
