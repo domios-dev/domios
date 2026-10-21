@@ -1643,6 +1643,16 @@
               "aliases": []
             },
             {
+              "name": "note",
+              "positional": false,
+              "required": false,
+              "value_name": "NOTE",
+              "possible_values": [],
+              "default": null,
+              "help": "Plain-text Blueprint note, at most 200 characters",
+              "aliases": []
+            },
+            {
               "name": "observe",
               "positional": false,
               "required": false,
@@ -2153,6 +2163,16 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "note",
+              "positional": false,
+              "required": false,
+              "value_name": "NOTE",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace the Blueprint note (at most 200 plain-text characters)",
               "aliases": []
             }
           ],
