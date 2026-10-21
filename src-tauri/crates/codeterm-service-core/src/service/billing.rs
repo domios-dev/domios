@@ -112,9 +112,12 @@ impl ServiceContext {
             .await
             .ok_or("Sign in before managing a subscription")?;
         let billing = self.billing().await?;
-        let url = match plan {
-            Some(plan) => billing.checkout_url(&session, plan).await?,
-            None => billing.portal_url(&session).await?,
+        let (url, checkout_key) = match plan {
+            Some(key) => {
+                let key = codeterm_billing::CheckoutKey::parse(key)?;
+                (billing.checkout_url(&session, key).await?, Some(key))
+            }
+            None => (billing.portal_url(&session).await?, None),
         };
         if self
             .account()
@@ -131,10 +134,8 @@ impl ServiceContext {
             .await
             .map_err(|_| "System browser unavailable")?
             .map_err(|_| "System browser unavailable")?;
-        match plan {
-            Some(plan) => {
-                billing.checkout_browser_opened(&session, codeterm_billing::Plan::parse(plan)?)
-            }
+        match checkout_key {
+            Some(key) => billing.checkout_browser_opened(&session, key.plan()),
             None => billing.browser_opened(&session),
         }
         Ok(())

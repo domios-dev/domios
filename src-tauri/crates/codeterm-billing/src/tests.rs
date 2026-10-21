@@ -215,7 +215,6 @@ fn capability_gate_table() {
             Capability::PaidFeatures
         ));
     }
-    assert!(Plan::parse("unknown").is_err());
     assert!(serde_json::from_value::<Entitlements>(serde_json::json!({"plan":"private","status":"active","current_period_end":0,"cancel_at_period_end":false})).is_err());
 }
 #[tokio::test]
@@ -374,6 +373,56 @@ async fn local_config_and_browser_routes() {
     assert_eq!(
         provider.portal_url(&session).await.unwrap().path(),
         "/billing/portal"
+    );
+}
+
+#[test]
+fn checkout_keys_map_to_entitlement_plans_and_reject_plan_names() {
+    for (key, plan) in [
+        ("pro_monthly", Plan::Pro),
+        ("pro_yearly", Plan::Pro),
+        ("sponsor_yearly", Plan::Sponsor),
+    ] {
+        let parsed = CheckoutKey::parse(key).unwrap();
+        assert_eq!((parsed.as_str(), parsed.plan()), (key, plan));
+    }
+    for unknown in ["unknown", "free", "pro", "sponsor", "sponsor_monthly", ""] {
+        assert_eq!(
+            CheckoutKey::parse(unknown).unwrap_err(),
+            "Unknown billing plan"
+        );
+    }
+}
+
+#[tokio::test]
+async fn checkout_url_passes_the_commercial_key_through_unchanged() {
+    struct CheckoutKeys(parking_lot::Mutex<Vec<String>>);
+    #[async_trait]
+    impl BillingProvider for CheckoutKeys {
+        async fn entitlements(&self, _: &codeterm_account::Session) -> Result<Reading> {
+            Err("unused".into())
+        }
+        async fn checkout_url(&self, _: &codeterm_account::Session, key: &str) -> Result<url::Url> {
+            self.0.lock().push(key.to_string());
+            url::Url::parse("https://example.test/checkout").map_err(|error| error.to_string())
+        }
+        async fn portal_url(&self, _: &codeterm_account::Session) -> Result<url::Url> {
+            Err("unused".into())
+        }
+    }
+
+    let provider = Arc::new(CheckoutKeys(parking_lot::Mutex::new(Vec::new())));
+    let billing = Billing::new(provider.clone());
+    let session = session("owner");
+    for key in ["pro_monthly", "pro_yearly", "sponsor_yearly"] {
+        billing
+            .checkout_url(&session, CheckoutKey::parse(key).unwrap())
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        *provider.0.lock(),
+        ["pro_monthly", "pro_yearly", "sponsor_yearly"]
     );
 }
 
