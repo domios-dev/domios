@@ -5,10 +5,12 @@ import type { DotMatrixCanvasHandle } from "./DotMatrixCanvas";
 import type { BrandStateModel } from "./brandStateModel";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
 
-export function BrandState({ model, className, children }: {
+export function BrandState({ model, className, children, pulse = false }: {
   model: BrandStateModel;
   className?: string;
   children?: ReactNode;
+  /** Beat the mark and release dot waves; off by default so the boot cover hands over without a restart. */
+  pulse?: boolean;
 }) {
   const reducedMotion = usePrefersReducedMotion();
   const headingId = useId();
@@ -20,7 +22,7 @@ export function BrandState({ model, className, children }: {
     return (
       <div className={`brand-state brand-state--loading ${className ?? ""}`} role="status" aria-live="polite" aria-label={model.label} aria-busy="true">
         <DotMatrixCanvas ref={matrixRef} mode="loading" reducedMotion={reducedMotion || !model.animate} />
-        <BrandMark motion="static" onRelease={emitRelease} size={92} />
+        <BrandMark motion={pulse && model.animate && !reducedMotion ? "load" : "static"} onRelease={emitRelease} size={92} />
         <div className="brand-state-copy">
           <h2>{model.label}</h2>
           {model.detail && <p>{model.detail}</p>}

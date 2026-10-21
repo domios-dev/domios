@@ -13,20 +13,6 @@
   padding: 14px 16px;
 }
 
-.ct-settings-card--backdrop {
-  position: relative;
-  isolation: isolate;
-}
-
-.ct-settings-card--backdrop > .brand-state-matrix {
-  border-radius: inherit;
-}
-
-.ct-settings-card--backdrop > :not(.brand-state-matrix) {
-  position: relative;
-  z-index: 1;
-}
-
 .ct-settings-card__head {
   display: flex;
   min-width: 0;
