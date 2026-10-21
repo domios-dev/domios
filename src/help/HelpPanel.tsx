@@ -26,6 +26,7 @@ const SECTION_ICONS: Record<HelpSectionId, LucideIcon> = {
   workspaces: Layers,
   agents: Bot,
   plans: GitBranch,
+  curator: Lightbulb,
   blueprints: Workflow,
   memory: Brain,
   "supporter-agent": Sparkles,

@@ -127,6 +127,26 @@ async function main() {
   const tests: Array<[string, () => Promise<void>]> = [];
   function test(name: string, run: () => Promise<void>) { tests.push([name, run]); }
 
+  test("protected Curator jobs have a readable row and no manual Delete action", async () => {
+    const originalRole = teamCron.role;
+    const originalProtected = teamCron.protected;
+    teamCron.role = "curator";
+    teamCron.protected = true;
+    const view = await mount(jobsView(workspaceTransport()));
+    try {
+      const row = entry(view.host, `cron:${teamCron.id}`);
+      assert.ok(row, "Curator job is visible");
+      assert.ok(row.getAttribute("aria-label")?.includes("Curator"));
+      assert.ok(row.textContent?.includes("Curator rounds"));
+      const menu = row.closest("li")?.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]');
+      assert.equal(menu, null, "an idle protected job exposes no delete menu");
+    } finally {
+      await view.close();
+      teamCron.role = originalRole;
+      teamCron.protected = originalProtected;
+    }
+  });
+
   test("Jobs import entry opens the placeholder form and cancel restores the list", async () => {
     const view = await mount(jobsView(workspaceTransport()));
     await act(async () => buttonWith(view.host, "Import Blueprint").click());

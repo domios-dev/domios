@@ -44,7 +44,7 @@ export function PlanRecentActivityRail({
             author={resolveMilestoneAuthor(milestone, tabs)}
             lead={taskLabel}
             text={milestone.text}
-            onOpen={onOpenTask ? () => onOpenTask(taskId) : undefined}
+            onOpen={taskId && onOpenTask ? () => onOpenTask(taskId) : undefined}
             testIds={{ row: "plan-recent-activity-item" }}
             data={{ "task-id": taskId, "milestone-id": milestone.id }}
           />

@@ -155,7 +155,7 @@ export function CronDrawerSection({ service, machineName, onUpdate, actionAdapte
         onCancelRun={() => void handleCancel()}
       />
       {job && <CronPurposeCard job={job} />}
-      <CronRunHistory runs={runs} allowed={can("history")} reason={reason("history")} onOpen={setOpenRun} />
+      <CronRunHistory runs={runs} allowed={can("history")} reason={reason("history")} onOpen={setOpenRun} runLabel={job?.role === "curator" ? "Curator round" : undefined} />
       {openRun && openRun.session_id && <RunChatPopup title={`cron:${service.name}`} subtitle={formatTime(openRun.started_at)} status={openRun.status} provider={job?.agent ?? ""} cwd={openRun.cwd ?? ""} sessionId={openRun.session_id} live={openRun.status === "Running" || openRun.status === "AwaitingOwnerPrompt"} onClose={() => setOpenRun(null)} />}
     </div>
   );

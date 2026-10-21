@@ -269,12 +269,12 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
         const canStop = canStopJob(job);
         const actionItems = [
           ...(canStop ? [{ label: "Stop", icon: <Square size={12} aria-hidden="true" />, disabled: stoppingJob === key, onClick: () => void stopJob(job) }] : []),
-          { label: "Delete", icon: <Trash2 size={12} aria-hidden="true" />, danger: true, onClick: () => beginDelete(job) },
+          ...(job.kind === "cron" && job.cron.protected ? [] : [{ label: "Delete", icon: <Trash2 size={12} aria-hidden="true" />, danger: true, onClick: () => beginDelete(job) }]),
         ];
         const onTriggerRef = (element: HTMLButtonElement | null) => { if (element) menuTriggers.current.set(key, element); else menuTriggers.current.delete(key); };
         if (job.kind === "blueprint") return <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} meta={blueprintMeta(job.blueprint.pipeline.note || job.blueprint.pipeline.nodes[0]?.summary || "", job.state, job.blueprint.pipeline.deletesAt)} type="Blueprint" tone="blueprint" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "blueprint", id: job.blueprint.pipeline.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
         return job.kind === "cron"
-          ? <JobRow key={key} jobKey={key} icon={<Clock3 size={15} aria-hidden="true" />} name={job.title} meta={cronMeta(job.cron)} type="Cron" tone="cron" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "cron", id: job.cron.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />
+          ? <JobRow key={key} jobKey={key} icon={<Clock3 size={15} aria-hidden="true" />} name={job.title} meta={cronMeta(job.cron)} type={job.cron.role === "curator" ? "Curator" : "Cron"} tone="cron" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "cron", id: job.cron.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />
           : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} {...sentinelRowText(job.sentinel, job.title)} type={job.sentinel.type} tone="blueprint" state={sentinelStateLabel(job.sentinel)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
       })}
     </ul>}
