@@ -20,7 +20,7 @@ it("renders roleless agents in an accessible Team agent group", async () => {
       />);
     });
     const group = host.querySelector('[role="group"][aria-label="Adoption agents"]');
-    expect(group?.querySelector("button")?.textContent).toBe("Adopted agent");
+    expect(group?.querySelector('button:not([aria-expanded])')?.textContent).toBe("Adopted agent");
     expect(host.querySelector('[role="group"][aria-label="Adoption utility shells"]')).toBeNull();
   } finally {
     await act(async () => root.unmount());
