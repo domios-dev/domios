@@ -77,6 +77,7 @@ impl ServiceContext {
                     turns: run.turns,
                     output_tokens: tokens,
                     save_id: run.save_id.clone(),
+                    synthesis: run.synthesis,
                     digest_hash: run.digest_hash.clone(),
                     section_sizes: run.section_sizes.clone(),
                     duration_ms: now.saturating_sub(run.started_at),
@@ -172,13 +173,13 @@ impl ServiceContext {
         now: u64,
     ) -> Result<CuratorRound, String> {
         let identity = self.curator_identity(caller)?;
-        let note = note::parse(text, next_secs)?;
-        let asked = self
+        let run = self
             .plan_store
             .get(&identity.plan_id)
             .and_then(|plan| plan.control_loop.running)
-            .is_some_and(|run| run.asked);
-        if asked == (note.asked == "none") {
+            .ok_or("Curator round is no longer active")?;
+        let note = note::parse_for_round(text, next_secs, run.synthesis)?;
+        if run.asked == (note.asked == "none") {
             return Err("ASKED must match this round's message record".into());
         }
         let round = self

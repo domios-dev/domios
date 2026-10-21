@@ -142,9 +142,13 @@ impl ServiceContext {
                     turns: run.turns,
                     output_tokens: run.output_tokens,
                     save_id: run.save_id.clone(),
+                    synthesis: run.synthesis,
                     duration_ms: now.saturating_sub(run.started_at),
                     ..Default::default()
                 };
+                if run.synthesis_group_close_at.is_some() {
+                    loop_state.last_synthesis_group_close_at = run.synthesis_group_close_at;
+                }
                 loop_state.running = None;
                 loop_state.consecutive_failures += 1;
                 if loop_state.consecutive_failures >= 2 {
@@ -209,6 +213,16 @@ impl ServiceContext {
                     loop_state.next_at = None;
                 }
                 Ok(_) => {
+                    let close = curator::synthesis::group_close(plan);
+                    if close.is_some_and(|at| {
+                        loop_state
+                            .last_synthesis_group_close_at
+                            .is_none_or(|prior| at > prior)
+                    }) {
+                        let wake = now.saturating_add(1000);
+                        loop_state.next_at =
+                            Some(loop_state.next_at.map_or(wake, |next| next.min(wake)));
+                    }
                     let next = *loop_state
                         .next_at
                         .get_or_insert(now + curator_delay(None) * 1000);
@@ -432,9 +446,31 @@ impl ServiceContext {
             header.push_str(&resources);
         }
         let rubric = codeterm_prompts::prompts::CURATOR_RUBRIC;
-        let digest = digest::build(&format!("{header}\n\n{rubric}"), &rows);
+        let real_rounds = curator::synthesis::real_rounds_started(&plan);
+        let group_close = curator::synthesis::group_close(&plan).filter(|at| {
+            plan.control_loop
+                .last_synthesis_group_close_at
+                .is_none_or(|prior| *at > prior)
+        });
+        let synthesis = curator::synthesis::due(
+            real_rounds,
+            group_close,
+            plan.control_loop.last_synthesis_group_close_at,
+        );
+        header.push_str(if synthesis {
+            "\nsynthesis: yes"
+        } else {
+            "\nsynthesis: no"
+        });
+        let header = format!("{header}\n\n{rubric}");
+        let header = if synthesis {
+            curator::synthesis::context_header(&plan, &header)
+        } else {
+            header
+        };
+        let digest = digest::build(&header, &rows);
         let action = curator::due_action(
-            digest.activity,
+            digest.activity || group_close.is_some(),
             !codeterm_plan::service_plan::state::orchestrator_actionable_task_ids(&plan).is_empty(),
             plan.control_loop
                 .last_real_round_at
@@ -476,6 +512,8 @@ impl ServiceContext {
         self.plan_store
             .with_plan(&plan.id, now, |p| {
                 p.control_loop.running = Some(CuratorRun {
+                    synthesis,
+                    synthesis_group_close_at: group_close,
                     number,
                     started_at: now,
                     digest_hash: hash,
@@ -496,6 +534,11 @@ impl ServiceContext {
         tab_id: &str,
         now: u64,
     ) -> Result<(), String> {
+        let prior_rounds = self
+            .plan_store
+            .get(plan_id)
+            .map(|plan| curator::synthesis::real_rounds_started(&plan))
+            .ok_or("plan absent")?;
         let number =
             self.plan_store
                 .with_plan(plan_id, now, |p| {
@@ -503,7 +546,13 @@ impl ServiceContext {
                         crate::service::plan::PlanError::Io("round absent".into())
                     })?;
                     run.tab_id = Some(tab_id.into());
-                    Ok(run.number)
+                    let number = run.number;
+                    let close = run.synthesis_group_close_at;
+                    p.control_loop.real_rounds_started = prior_rounds.saturating_add(1);
+                    if close.is_some() {
+                        p.control_loop.last_synthesis_group_close_at = close;
+                    }
+                    Ok(number)
                 })
                 .map_err(|e| e.to_string())?;
         let plan = self.plan_store.get(plan_id).ok_or("plan absent")?;
