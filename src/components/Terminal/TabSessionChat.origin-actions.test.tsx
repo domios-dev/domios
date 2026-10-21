@@ -55,7 +55,7 @@ function muxStateFor(tabs: Record<string, Tab>): ExtendedState {
 }
 function originReport(id: string, shortId: string, seq: number) {
   return { id, type: "user", content: `<domios from="tab" label="Worker" tab="${shortId}">report body ${seq}</domios>`, timestamp: String(1_700_000_000_000 + seq * 1000), seq, provider: "test",
-    segments: [{ type: "frame", from: "tab", attrs: { from: "tab", label: "Worker", tab: shortId }, body: `report body ${seq}`, tip: null }],
+    segments: [{ type: "frame", kind: "tab", from: "tab", attrs: { from: "tab", label: "Worker", tab: shortId }, body: `report body ${seq}`, tip: null }],
   };
 }
 

@@ -14,7 +14,12 @@ import type { MessageSegment } from "./MessageSegment";
  * `id` must be stable across polls so the UI merges an updated message in
  * place instead of duplicating it.
  */
-export type ChatMsg = { id: string, inheritedFromSessionId?: string | null, type: string, content: string, segments?: Array<MessageSegment> | null, timestamp?: string | null, 
+export type ChatMsg = { id: string, inheritedFromSessionId?: string | null, type: string, content: string, segments?: Array<MessageSegment> | null, 
+/**
+ * The envelope grammar that produced `segments`; a client built for
+ * another grammar refuses them instead of re-parsing `content`.
+ */
+segmentsVersion?: number | null, timestamp?: string | null, 
 /**
  * Monotonic source-order ordinal (JSONL rich-message index / structured row
  * position). The client's stable transcript-sort tiebreaker when timestamps
