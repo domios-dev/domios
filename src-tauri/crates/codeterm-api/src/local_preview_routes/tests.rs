@@ -26,6 +26,63 @@ fn assert_headers(response: &Response) {
 }
 
 #[tokio::test]
+async fn owning_tab_previews_nested_pad_artifacts_but_not_foreign_or_secret_files() {
+    let fixture = Fixture::new();
+    for (name, kind) in [("hush/image.png", "image"), ("notes/report.md", "document")] {
+        let path = fixture.pad(&fixture.owner).join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"artifact").unwrap();
+        fixture.reference(&fixture.owner, &path);
+        fixture.reference(&fixture.sibling, &path);
+        let response = fixture.read(&fixture.owner, &path, kind).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_headers(&response);
+        assert!(json(response).await["data"]
+            .as_str()
+            .unwrap()
+            .contains(if kind == "image" {
+                "data:image/png;base64,"
+            } else {
+                "artifact"
+            }));
+        assert_eq!(
+            fixture.read(&fixture.sibling, &path, kind).await.status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    for path in [
+        fixture.pad(&fixture.owner).join("secrets/auth.json"),
+        fixture.state_data_secret(),
+    ] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"private").unwrap();
+        fixture.reference(&fixture.owner, &path);
+        assert_eq!(
+            fixture
+                .read(&fixture.owner, &path, "document")
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+}
+
+#[tokio::test]
+async fn pad_root_alias_cannot_grant_access_to_another_tabs_pad() {
+    let fixture = Fixture::new();
+    let foreign = fixture.pad(&fixture.sibling);
+    std::fs::create_dir_all(&foreign).unwrap();
+    let path = foreign.join("image.png");
+    std::fs::write(&path, b"foreign").unwrap();
+    directory_link(&foreign, &fixture.pad(&fixture.owner));
+    fixture.reference(&fixture.owner, &path);
+    assert_eq!(
+        fixture.read(&fixture.owner, &path, "image").await.status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
 async fn authentication_is_required_on_read_and_batch_routes() {
     let fixture = Fixture::new();
     for suffix in ["read", "check"] {

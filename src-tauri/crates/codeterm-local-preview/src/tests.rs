@@ -5,6 +5,92 @@ use references::{path_key, referenced_paths};
 use std::path::PathBuf;
 
 #[test]
+fn refusal_diagnostics_use_fixed_reasons_without_error_details() {
+    for (error, reason) in [
+        ("Preview path is private", "private_path"),
+        ("Preview path is not referenced", "unreferenced"),
+        (
+            "Unable to resolve preview file: sensitive-path",
+            "resolve_failed",
+        ),
+        (
+            "Unable to open preview file: sensitive-path",
+            "secure_open_failed",
+        ),
+        ("unexpected sensitive-path", "preview_failed"),
+    ] {
+        assert_eq!(crate::html_preview::refusal_reason(error), reason);
+    }
+}
+
+#[test]
+fn own_pad_policy_allows_only_referenced_nonsecret_descendants() {
+    let home = if cfg!(windows) {
+        "C:/Users/Preview"
+    } else {
+        "/home/preview"
+    };
+    let data = PathBuf::from(home).join(".domios");
+    let pad = data.join("runtime/agent-pads/owner");
+    let image = pad.join("hush/image.png");
+    let document = pad.join("notes/report.md");
+    let foreign = data.join("runtime/agent-pads/foreign/image.png");
+    let secret = pad.join("secrets/auth.json");
+    let store = data.join("secrets/store.json");
+    let configured = pad.join("private");
+    let configured_file = configured.join("report.md");
+    let ordinary = PathBuf::from(home).join("project/report.md");
+    let paths = [
+        &image,
+        &document,
+        &foreign,
+        &secret,
+        &store,
+        &configured_file,
+        &ordinary,
+    ];
+    let policy = PreviewPolicy::new(
+        paths.into_iter().map(|p| path_key(p)).collect(),
+        std::slice::from_ref(&data),
+    )
+    .unwrap()
+    .with_own_pad(&pad, &[configured])
+    .unwrap();
+    for path in [&image, &document, &ordinary] {
+        for raw in [path_key(path), path_key(path).replace('/', "\\")] {
+            assert!(
+                policy
+                    .authorize(std::path::Path::new(&raw), Some(path))
+                    .is_ok(),
+                "{raw}"
+            );
+        }
+    }
+    for path in [
+        &foreign,
+        &secret,
+        &store,
+        &configured_file,
+        &pad.join("unreferenced.md"),
+    ] {
+        assert!(
+            policy.authorize(path, Some(path)).is_err(),
+            "{}",
+            path.display()
+        );
+    }
+    assert!(policy.authorize(&image, Some(&foreign)).is_err());
+    assert!(policy.authorize(&image, Some(&secret)).is_err());
+    #[cfg(windows)]
+    assert!(policy
+        .authorize(
+            std::path::Path::new(&image.to_string_lossy().to_uppercase()),
+            Some(&image)
+        )
+        .is_ok());
+}
+
+#[test]
 fn references_come_only_from_directives_and_structured_file_records() {
     let temp = tempfile::tempdir().unwrap();
     let root = crate::html_preview::preview_test_root(temp.path());
