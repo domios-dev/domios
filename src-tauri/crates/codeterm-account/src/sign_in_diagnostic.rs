@@ -46,10 +46,6 @@ pub(crate) fn log_callback_rejection(error: Error) {
     log::info!(target: "codeterm_account::sign_in", "sign_in callback outcome=rejected stage={} error_kind={}", SignInStage::Callback.name(), error_kind(error));
 }
 
-pub(crate) fn log_failure(stage: SignInStage, error: Error) {
-    log::info!(target: "codeterm_account::sign_in", "sign_in failure stage={} error_kind={}", stage.name(), error_kind(error));
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct SignInFailure {
     pub stage: SignInStage,
@@ -63,7 +59,6 @@ impl SignInAttempt {
     pub fn enter(&mut self, stage: SignInStage) {
         self.stage = stage;
         log::info!(target: "codeterm_account::sign_in", "sign_in stage_transition stage={} error_kind=none", stage.name());
-        log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} transition=entered", stage.name());
     }
     pub async fn run<T>(
         &mut self,
@@ -77,7 +72,6 @@ impl SignInAttempt {
                 Ok(value)
             }
             Err(error) => {
-                log_failure(stage, error);
                 log::info!(target: "codeterm_account::sign_in", "sign_in stage_outcome stage={} outcome=failure error_kind={}", stage.name(), error_kind(error));
                 Err(error)
             }
