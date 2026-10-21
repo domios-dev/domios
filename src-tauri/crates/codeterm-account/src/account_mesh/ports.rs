@@ -1,4 +1,4 @@
-use super::state::{AccountMeshRecord, LifecycleState};
+use super::state::{AccountMeshRecord, AccountMeshRefusal, LifecycleState};
 use super::wire::{
     ChallengeRequest, InstallationEnrollment, KeyEnrollment, MeshAdmissionBody, MeshEndpoint,
     MeshResult, RegistryRefusal, SignedEnvelope,
@@ -32,7 +32,7 @@ pub trait MeshRegistry: Send + Sync {
 /// Current verified session, read on demand so no token outlives the account that owns it.
 #[async_trait]
 pub trait SessionSource: Send + Sync {
-    async fn session(&self) -> Option<Session>;
+    async fn session(&self) -> Result<Option<Session>, AccountMeshRefusal>;
 }
 
 /// Protected storage for the installation key seed (the existing account credential store).

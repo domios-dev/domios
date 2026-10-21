@@ -73,6 +73,7 @@ pub fn accepted_photo_url(value: &str) -> Option<String> {
 pub struct Session {
     pub identity: Identity,
     pub id_token: Secret,
+    pub expires_at: Option<u64>,
 }
 pub struct Tokens {
     pub session: Session,

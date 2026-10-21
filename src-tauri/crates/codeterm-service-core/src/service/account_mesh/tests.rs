@@ -67,6 +67,22 @@ fn account_mesh_state_reaches_the_gate_with_epoch_presence_membership_and_revoca
 }
 
 #[test]
+fn account_mesh_refresh_errors_are_classified_for_retry_or_sign_in() {
+    assert_eq!(
+        session_refusal(codeterm_account::Error::Credentials),
+        AccountMeshRefusal::Unauthenticated
+    );
+    assert_eq!(
+        session_refusal(codeterm_account::Error::Provider),
+        AccountMeshRefusal::Unauthenticated
+    );
+    assert_eq!(
+        session_refusal(codeterm_account::Error::Transport),
+        AccountMeshRefusal::Unavailable
+    );
+}
+
+#[test]
 fn account_mesh_only_the_machine_limit_reaches_the_gate_as_mesh_machines() {
     let limit = admission_refusal(AccountMeshRefusal::MachineLimit {
         limit: 2,
