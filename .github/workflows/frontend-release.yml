@@ -27,6 +27,9 @@ permissions:
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('frontend-release-pr-{0}', github.event.pull_request.number) || 'frontend-release' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
+  CODETERM_BUILD_GATEWAY_MODE: queue
 jobs:
   build:
     runs-on: [self-hosted, Linux, light]
