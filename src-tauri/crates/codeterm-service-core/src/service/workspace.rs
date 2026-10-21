@@ -158,8 +158,11 @@ impl ServiceContext {
         let gate = self.limit_gate();
         let (mut ws, workspaces) = {
             let mut mux = self.mux.write();
-            gate.admit(super::billing::LimitKey::Workspaces, mux.workspace_count())
-                .map_err(|refusal| refusal.to_string())?;
+            gate.admit(
+                super::billing::LimitKey::Workspaces,
+                mux.limited_workspace_count(),
+            )
+            .map_err(|refusal| refusal.to_string())?;
             create_workspace_with_count(&mut mux, name, cwd.clone())
         };
         if activate {
