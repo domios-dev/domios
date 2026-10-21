@@ -41,7 +41,7 @@ import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
-import { StaleBuildBanner } from "./components/StaleBuildBanner";
+import { useAppNotices } from "./hooks/useAppNotices";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
@@ -118,6 +118,7 @@ function useStableJsonValue<T>(value: T): T {
 const selectWholeState = (state: ExtendedState) => state;
 
 function AppInner() {
+  useAppNotices();
   useAgentProviderCachePublisher();
   usePluginProviderMetaSync();
   const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
@@ -984,7 +985,6 @@ function AppInner() {
 
       <CommandPalette commands={paletteCommands} />
 
-      <StaleBuildBanner />
 
       <NavigationBackBar onBack={handleBackToMemory} />
 
