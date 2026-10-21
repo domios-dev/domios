@@ -189,7 +189,10 @@ for (const id of ["qa-child", "release-policy", "worktree-policy"]) {
 JS
 
 # tauri bundles every src/bin entry as a binary, so a module directory there breaks every release bundle.
-bin_dirs="$(find src-tauri/src/bin -mindepth 1 -maxdepth 1 -type d)"
+bin_dirs=""
+if [ -d src-tauri/src/bin ]; then
+  bin_dirs="$(find src-tauri/src/bin -mindepth 1 -maxdepth 1 -type d)"
+fi
 if [ -n "$bin_dirs" ]; then
   echo "guard assertion failed: directories under src-tauri/src/bin become bogus bundle binaries: $bin_dirs" >&2
   exit 1

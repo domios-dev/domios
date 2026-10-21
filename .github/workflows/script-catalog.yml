@@ -29,6 +29,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Prepare runner tool paths
+        run: node scripts/ci-runner-paths.mjs
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        with:
+          tool: cargo-nextest@0.9.148
       - name: Script fixture guards and test catalogue
         env:
           VISUAL_GOLDEN_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
