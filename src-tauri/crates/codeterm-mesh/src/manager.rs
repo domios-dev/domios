@@ -135,6 +135,7 @@ pub struct MeshManager {
     unacked_announce: std::collections::HashSet<String>,
     last_gossip_claim_ids: Vec<String>,
     pub peer_services: peer_services::PeerServicesCache,
+    pub protocol_refusals: crate::protocol_refusals::ProtocolRefusals,
     pub last_activity: Arc<dyn LastActivityProvider>,
     pairing_observer: Option<pairing_observer::PairingObserver>,
 }
@@ -290,6 +291,7 @@ impl MeshManager {
             unacked_announce: std::collections::HashSet::new(),
             last_gossip_claim_ids: Vec::new(),
             peer_services: peer_services::PeerServicesCache::default(),
+            protocol_refusals: Default::default(),
             last_activity: default_last_activity(),
             pairing_observer: None,
         }
@@ -481,6 +483,7 @@ impl MeshManager {
         let removed = self.paired_peers.remove(instance_id);
         if removed.is_some() {
             self.peer_services.prune(instance_id);
+            self.protocol_refusals.forget(instance_id);
             self.tombstone_peer(instance_id);
             log::info!("[mesh] Unpaired {}", instance_id);
             let _ = self.save();
