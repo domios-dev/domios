@@ -279,6 +279,8 @@ impl super::ServiceContext {
         body: &str,
         class: DeliveryClass,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        let curator_body = self.curator_message(&envelope.from_tab, target, body)?;
+        let body = curator_body.as_deref().unwrap_or(body);
         let receipt = self
             .gateway
             .submit(

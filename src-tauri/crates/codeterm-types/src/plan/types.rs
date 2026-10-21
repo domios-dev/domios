@@ -484,6 +484,8 @@ pub struct Task {
     #[serde(rename = "type")]
     pub kind: String,
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<String>,
     pub model_rationale: Option<String>,
     #[serde(default)]
     pub personality: Option<String>,
@@ -701,6 +703,8 @@ pub struct Plan {
     #[serde(default)]
     pub heartbeat: OrchestratorHeartbeat,
     #[serde(default)]
+    pub control_loop: super::ControlLoop,
+    #[serde(default)]
     pub review_policy: ReviewPolicy,
     #[serde(default)]
     pub evidence_reporters: Vec<PlanEvidenceReporterGrant>,
@@ -762,6 +766,7 @@ impl Plan {
             lineage: vec![],
             goal: None,
             heartbeat: OrchestratorHeartbeat::default(),
+            control_loop: super::ControlLoop::default(),
             review_policy: ReviewPolicy::default(),
             evidence_reporters: vec![],
             canvas: PlanCanvas::default(),
@@ -1095,6 +1100,7 @@ mod tests {
             name: "n".into(),
             kind: "implement".into(),
             model: None,
+            speed: None,
             model_rationale: None,
             personality: None,
             personality_provenance: None,

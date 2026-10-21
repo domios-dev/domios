@@ -328,7 +328,8 @@ fn review_warns_accept_closes_and_bounce_reopens_locked_criteria() {
     assert!(
         block_on(team.fixture.service.tab_todo_report_warning(&team.worker))
             .unwrap()
-            .is_none()
+            .unwrap()
+            .contains("never shared")
     );
     block_on(team.fixture.service.tab_todo_apply_review(
         &team.worker,
@@ -348,3 +349,22 @@ fn review_warns_accept_closes_and_bounce_reopens_locked_criteria() {
         .iter()
         .all(|item| item.state == TabTodoState::Open));
 }
+
+#[test]
+fn review_without_checklist_storage_does_not_interrupt_task_review() {
+    let (mux, tab_id) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    assert!(block_on(fixture.service.tab_todo_report_warning(&tab_id))
+        .unwrap()
+        .is_none());
+    for accepted in [true, false] {
+        block_on(
+            fixture
+                .service
+                .tab_todo_apply_review(&tab_id, None, accepted),
+        )
+        .unwrap();
+    }
+}
+
+mod proposal;

@@ -1,0 +1,27 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: '{{name}}'
+note: Use one verdict probe for all work; keep `waiting` silent and route only `alldone`.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  all_terminal_pattern:
+    type: string
+    description: All terminal pattern
+  one_verdict_probe:
+    type: string
+    description: One verdict probe
+watch:
+  probe: '{{one_verdict_probe}}'
+  question: classify-all-work
+  buckets:
+  - waiting
+  - alldone
+  matches:
+    alldone: '{{all_terminal_pattern}}'
+  until: alldone
+  timeout: 1h
+  routes:
+    waiting: none
+    alldone: notify

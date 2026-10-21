@@ -43,6 +43,7 @@ fn command(name: &str, input: IoType) -> Step {
 
 fn spec(steps: Vec<Step>) -> BlueprintSpec {
     BlueprintSpec {
+        note: None,
         name: "Echo chain".into(),
         owner: BlueprintOwner::Tab,
         trigger: Trigger::Schedule {
@@ -149,6 +150,7 @@ fn blueprint_pipeline_converter_chain_is_capability_ordered_and_bounded() {
         assert_eq!(converter_path(kind, kind, &[]), Some(vec![]));
     }
     let spec = BlueprintSpec {
+        note: None,
         name: "Voice".into(),
         owner: BlueprintOwner::Tab,
         trigger: Trigger::Input {
@@ -324,7 +326,7 @@ fn github_step_round_trips_validates_scope_and_routes_query_failure() {
     assert_eq!(github.output_type(), IoType::Text);
     assert_eq!(
         github.outcomes().unwrap(),
-        BTreeSet::from(["done".into(), "failed".into()])
+        BTreeSet::from(["done".into(), "failed".into(), "failing".into()])
     );
     let mut step = command("GitHub jobs", IoType::Text);
     step.kind = github;
@@ -337,4 +339,50 @@ fn github_step_round_trips_validates_scope_and_routes_query_failure() {
         .iter()
         .any(|e| e.field == "steps[0].github"));
     assert!(serde_json::from_value::<StepKind>(serde_json::json!({"kind":"github","probe":{"repo":"owner/repo","resource":"delete","id":456}})).is_err());
+}
+
+#[test]
+fn http_step_validates_defaults_and_declares_health_routes() {
+    let kind: StepKind = serde_json::from_value(
+        serde_json::json!({"kind":"http","probe":{"url":"https://example.com/health"}}),
+    )
+    .unwrap();
+    assert_eq!(kind.name(), "http");
+    assert_eq!(kind.output_type(), IoType::Text);
+    assert_eq!(
+        kind.outcomes().unwrap(),
+        BTreeSet::from(["up".into(), "down".into(), "failed".into()])
+    );
+    let mut step = command("health", IoType::Text);
+    step.kind = kind;
+    assert!(validate(&spec(vec![step.clone()]), &[]).is_ok());
+    if let StepKind::Http { probe } = &mut step.kind {
+        probe.timeout_ms = 10001;
+    }
+    assert!(validate(&spec(vec![step]), &[])
+        .unwrap_err()
+        .iter()
+        .any(|error| error.field == "steps[0].http"));
+}
+
+#[test]
+fn blueprint_route_defaults_and_runtime_agree() {
+    let step = command("first", IoType::Text);
+    assert_eq!(route_target(&step.on, "failed"), "stop");
+    assert_eq!(route_target(&step.on, "done"), "next");
+    let mut pipeline = spec(vec![step, command("second", IoType::Text)]);
+    assert_eq!(
+        advance(&RunnerState::start(&pipeline).unwrap(), StepOutcome::Failed)
+            .unwrap()
+            .status,
+        RunStatus::Failed
+    );
+    pipeline.steps[0].on.insert("failed".into(), "next".into());
+    assert_eq!(route_target(&pipeline.steps[0].on, "failed"), "next");
+    assert_eq!(
+        advance(&RunnerState::start(&pipeline).unwrap(), StepOutcome::Failed)
+            .unwrap()
+            .current_step,
+        Some(1)
+    );
 }

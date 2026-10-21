@@ -287,6 +287,7 @@ pub struct StrideSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PlanStateSnapshot {
+    pub control_loop: crate::plan::ControlLoop,
     pub plan_id: String,
     pub title: String,
     pub status: PlanStatus,
@@ -332,7 +333,7 @@ pub struct PlanStateSnapshot {
     pub next_actions: Vec<NextAction>,
 }
 
-fn task_counts(plan: &Plan) -> TaskCounts {
+pub fn task_counts(plan: &Plan) -> TaskCounts {
     let mut c = TaskCounts::default();
     for task in &plan.tasks {
         c.total += 1;
@@ -694,6 +695,7 @@ pub fn build_plan_state_snapshot(
         .collect();
 
     let mut snapshot = PlanStateSnapshot {
+        control_loop: plan.control_loop.clone(),
         plan_id: plan.id.clone(),
         title: plan.title.clone(),
         status: plan.status.clone(),

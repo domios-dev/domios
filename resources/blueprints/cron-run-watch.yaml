@@ -1,0 +1,24 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: Cron {{cron_name_or_id}}
+note: Observe one named cron's run and notify when it finishes.
+inputs:
+  cron_name_or_id:
+    type: string
+    description: Cron name or id
+  finished_pattern:
+    type: string
+    description: Finished pattern
+watch:
+  observe: cron-run:{{cron_name_or_id}}
+  question: classify-run-state
+  buckets:
+  - waiting
+  - finished
+  matches:
+    finished: '{{finished_pattern}}'
+  until: finished
+  timeout: 1h
+  routes:
+    waiting: none
+    finished: notify

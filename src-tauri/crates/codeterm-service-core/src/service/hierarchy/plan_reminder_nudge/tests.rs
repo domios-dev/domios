@@ -17,6 +17,7 @@ pub fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> Plan {
         OrchestratorRef::from_tab(owner),
     );
     plan.id = id.into();
+    plan.control_loop.mode = crate::plan::ControlLoopMode::Heartbeat;
     plan.mode = mode;
     plan.tasks = tasks;
     plan
@@ -29,6 +30,7 @@ pub(super) fn task(id: &str, status: TaskStatus, tab_id: Option<&str>) -> Task {
         name: id.into(),
         kind: "status_update".into(),
         model: None,
+        speed: None,
         model_rationale: None,
         acceptance_criteria: vec![],
         external_refs: vec![],
@@ -278,17 +280,18 @@ fn reminder_role_only_shell_records_failure_without_pty_write_or_nudge() {
     let plans = vec![owner_plan(&tab_id)];
     assert!(!counter.time_nudge_due(&tab_id, 90, 10));
 
-    send_due_plan_time_reminders_with(&plans, &counter, 100, 10, |id, _, _| {
-        if crate::service::plan_reconcile::tab_has_live_agent(mux.get_tab(id).unwrap()) {
+    let ports = FakePorts::new(
+        |id: &str| crate::service::plan_reconcile::tab_has_live_agent(mux.get_tab(id).unwrap()),
+        |id: &str, _: &PlanReminderTarget, _| {
             writes.borrow_mut().push(id.to_string());
             Ok(true)
-        } else {
-            Err("agent_unavailable: plan reminder target has no verified live agent session".into())
-        }
-    });
+        },
+    );
+    send_due_plan_time_reminders_via(&plans, &counter, 100, 10, &ports);
 
     let telemetry = counter.time_reminder_telemetry(&tab_id);
     assert!(writes.borrow().is_empty());
+    assert_eq!(*ports.lost.borrow(), vec![tab_id.clone()]);
     assert!(telemetry.last_due.is_some());
     assert!(telemetry.last_delivery.is_none());
     assert!(telemetry
@@ -874,6 +877,51 @@ fn project_for_tab_reads_the_scheduler_targets() {
     assert!(super::projection::project_for_tab(&[], "", 60, 100, None, &[], true).is_empty());
 }
 
+struct FakePorts<L, D> {
+    live: L,
+    deliver: D,
+    lost: RefCell<Vec<String>>,
+}
+
+impl<L, D> FakePorts<L, D>
+where
+    L: Fn(&str) -> bool,
+    D: Fn(&str, &PlanReminderTarget, NudgeKind) -> Result<bool, String>,
+{
+    fn new(live: L, deliver: D) -> Self {
+        Self {
+            live,
+            deliver,
+            lost: RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl<L, D> TimeReminderPorts for FakePorts<L, D>
+where
+    L: Fn(&str) -> bool,
+    D: Fn(&str, &PlanReminderTarget, NudgeKind) -> Result<bool, String>,
+{
+    fn agent_live(&self, tab_id: &str) -> bool {
+        (self.live)(tab_id)
+    }
+
+    fn deliver(
+        &self,
+        tab_id: &str,
+        target: &PlanReminderTarget,
+        kind: NudgeKind,
+    ) -> Result<bool, String> {
+        (self.deliver)(tab_id, target, kind)
+    }
+
+    fn note(&self, _: &str, _: &PlanReminderTarget, _: TickFact) {}
+
+    fn agent_lost(&self, tab_id: &str, _: &PlanReminderTarget) {
+        self.lost.borrow_mut().push(tab_id.to_string());
+    }
+}
+
 fn send_due_plan_time_reminders_with(
     plans: &[Plan],
     counter: &TurnCounter,
@@ -881,14 +929,47 @@ fn send_due_plan_time_reminders_with(
     interval_secs: u64,
     deliver: impl Fn(&str, &PlanReminderTarget, NudgeKind) -> Result<bool, String>,
 ) {
-    send_due_plan_time_reminders_noting(
-        plans,
-        counter,
-        now,
-        interval_secs,
-        deliver,
-        |_, _, _: TickFact| {},
+    let ports = FakePorts::new(|_: &str| true, deliver);
+    send_due_plan_time_reminders_via(plans, counter, now, interval_secs, &ports);
+}
+
+#[test]
+fn dead_worker_is_reported_once_then_skipped_until_a_session_binds_again() {
+    let counter = TurnCounter::new();
+    let plans = vec![plan(
+        "plan-dead-worker",
+        "orch",
+        PlanMode::Execution,
+        vec![task("work", TaskStatus::InProgress, Some("worker"))],
+    )];
+    let live = std::cell::Cell::new(false);
+    let deliveries = RefCell::new(Vec::new());
+    let ports = FakePorts::new(
+        |tab: &str| tab != "worker" || live.get(),
+        |tab: &str, _: &PlanReminderTarget, _| {
+            deliveries.borrow_mut().push(tab.to_string());
+            Ok(true)
+        },
     );
+    send_due_plan_time_reminders_via(&plans, &counter, 0, 10, &ports);
+
+    for now in (10..10_000).step_by(10) {
+        send_due_plan_time_reminders_via(&plans, &counter, now, 10, &ports);
+    }
+    let worker_deliveries = || {
+        deliveries
+            .borrow()
+            .iter()
+            .filter(|tab| tab.as_str() == "worker")
+            .count()
+    };
+    assert_eq!(worker_deliveries(), 0);
+    assert_eq!(*ports.lost.borrow(), vec!["worker".to_string()]);
+
+    live.set(true);
+    send_due_plan_time_reminders_via(&plans, &counter, 10_000, 10, &ports);
+    assert_eq!(worker_deliveries(), 1);
+    assert_eq!(ports.lost.borrow().len(), 1);
 }
 
 #[test]

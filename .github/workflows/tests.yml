@@ -185,12 +185,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
       # POSIX-only fixtures that a Windows release-preflight cannot run; policy also covers release signing.
-      - name: Build gateway serialization, policy and mutex-cleanup guards
+      - name: Build gateway guards and serial gateway script tests
         if: ${{ !cancelled() }}
         run: |
           bash scripts/check-build-gateway-serialization.sh
           bash scripts/check-build-gateway-policy.sh
           bash scripts/check-build-gateway-mutex-cleanup.sh
+          node scripts/test-catalogue.mjs run --entry node-script-tests-serial
       # Light services can miss the runner user's rustup on PATH.
       - name: Ensure Rust toolchain on PATH
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}

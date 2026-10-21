@@ -16,10 +16,11 @@ export type DotMatrixCanvasHandle = { emitRelease: (releasedAt: number) => void 
 type DotMatrixCanvasProps = {
   mode: DotMatrixMode;
   reducedMotion: boolean;
+  intensity?: number;
 };
 
 export const DotMatrixCanvas = forwardRef<DotMatrixCanvasHandle, DotMatrixCanvasProps>(function DotMatrixCanvas(
-  { mode, reducedMotion },
+  { mode, reducedMotion, intensity = 1 },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -53,7 +54,7 @@ export const DotMatrixCanvas = forwardRef<DotMatrixCanvasHandle, DotMatrixCanvas
     };
     const origin = () => {
       const canvasBounds = canvas.getBoundingClientRect();
-      const markBounds = container.querySelector(".brand-mark")?.getBoundingClientRect();
+      const markBounds = container.querySelector("[data-dot-origin], .brand-mark")?.getBoundingClientRect();
       const x = markBounds ? markBounds.left + markBounds.width / 2 - canvasBounds.left : width / 2;
       const y = markBounds ? markBounds.top + markBounds.height / 2 - canvasBounds.top : height / 2;
       const maxRadius = Math.max(
@@ -84,15 +85,15 @@ export const DotMatrixCanvas = forwardRef<DotMatrixCanvasHandle, DotMatrixCanvas
       for (let y = DOT_MATRIX_GRID_STEP / 2; y < height; y += DOT_MATRIX_GRID_STEP) {
         for (let x = DOT_MATRIX_GRID_STEP / 2; x < width; x += DOT_MATRIX_GRID_STEP) {
           const restDistance = Math.hypot(x - centerX, y - centerY);
-          let alpha = DOT_MATRIX_REST_ALPHA * Math.max(0, 1 - restDistance / restExtent);
+          let alpha = DOT_MATRIX_REST_ALPHA * intensity * Math.max(0, 1 - restDistance / restExtent);
           let growth = 0;
 
           for (const { wave, radius, fade } of activeWaves) {
             const distance = Math.hypot(x - wave.originX, y - wave.originY);
             const bandDistance = (distance - radius) / DOT_MATRIX_WAVE_BAND_WIDTH;
             const waveStrength = Math.exp(-0.5 * bandDistance * bandDistance) * fade;
-            alpha = Math.max(alpha, DOT_MATRIX_WAVE_PEAK_ALPHA * waveStrength);
-            growth = Math.max(growth, DOT_MATRIX_WAVE_GROWTH * waveStrength);
+            alpha = Math.max(alpha, DOT_MATRIX_WAVE_PEAK_ALPHA * intensity * waveStrength);
+            growth = Math.max(growth, DOT_MATRIX_WAVE_GROWTH * intensity * waveStrength);
           }
 
           if (alpha === 0) continue;
@@ -160,7 +161,7 @@ export const DotMatrixCanvas = forwardRef<DotMatrixCanvasHandle, DotMatrixCanvas
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", visibilityChange);
     };
-  }, [mode, reducedMotion]);
+  }, [mode, reducedMotion, intensity]);
 
   return <canvas ref={canvasRef} className="brand-state-matrix" aria-hidden="true" data-wave-enabled={mode === "loading" && !reducedMotion} />;
 });

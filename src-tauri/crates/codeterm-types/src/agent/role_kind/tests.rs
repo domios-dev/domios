@@ -1,8 +1,8 @@
 use crate::agent::AgentRole;
 
 use super::builtins::{
-    self, CARTOGRAPHER, GENERAL_AGENT, ORCHESTRATOR, PLANNER, QA, RELEASE_MANAGER, REVIEWER,
-    WATCHER, WORKER,
+    self, CARTOGRAPHER, CURATOR, GENERAL_AGENT, ORCHESTRATOR, PLANNER, QA, RELEASE_MANAGER,
+    REVIEWER, WATCHER, WORKER,
 };
 use super::query;
 use super::{RoleKindCapability, RoleKindDescriptor, RoleKindOrigin};
@@ -136,6 +136,18 @@ const ROWS: &[Row] = &[
     },
     Row {
         id: CARTOGRAPHER,
+        anchors_team: false,
+        requires_parent: true,
+        manages: true,
+        can_spawn: false,
+        team_authority: false,
+        plan_approval: false,
+        plan_edit: false,
+        release: false,
+        taskless_worker: false,
+    },
+    Row {
+        id: CURATOR,
         anchors_team: false,
         requires_parent: true,
         manages: true,

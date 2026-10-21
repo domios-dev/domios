@@ -190,6 +190,7 @@ impl SentinelExt for ServiceContext {
         id: &str,
         text: String,
     ) -> Result<serde_json::Value, String> {
+        self.authorize_curator_operation(&caller.tab, Some(id), "input")?;
         let job = self.sentinel_show(caller, id)?;
         let input = job.input().ok_or("blueprint is not a text input stage")?;
         if input.kind != codeterm_blueprint_types::sentinel_input::MediaKind::Text
@@ -220,6 +221,7 @@ impl SentinelExt for ServiceContext {
         expect_version: u64,
         history: &serde_json::Value,
     ) -> Result<Sentinel, String> {
+        self.authorize_curator_operation(&caller.tab, Some(id), "update")?;
         let definition = history_definition(history, id, expect_version)?;
         let snapshot: DefinitionSnapshot = serde_json::from_value(definition)
             .map_err(|error| format!("invalid history definition: {error}"))?;
@@ -265,7 +267,13 @@ impl SentinelExt for ServiceContext {
         let snapshot: DefinitionSnapshot = serde_json::from_value(definition)
             .map_err(|error| format!("invalid history definition: {error}"))?;
         if let Some(pipeline) = snapshot.pipeline.clone() {
-            return self.blueprint_pipeline_validate_update(caller, id, expect_version, pipeline);
+            return serde_json::to_value(self.blueprint_pipeline_validate_update(
+                caller,
+                id,
+                expect_version,
+                pipeline,
+            )?)
+            .map_err(|error| error.to_string());
         }
         let prepared =
             self.prepare_history_update(caller, id, expect_version, snapshot, history)?;
@@ -326,7 +334,7 @@ impl SentinelExt for ServiceContext {
             max_transitions: Some(snapshot.max_transitions),
             max_actions: Some(snapshot.max_actions),
             cause,
-            note: None,
+            note: snapshot.note.clone(),
         };
         let connected = update.model_classification
             && update.matches.is_empty()
@@ -392,6 +400,7 @@ impl SentinelExt for ServiceContext {
         create: Create,
         imported_stopped: Option<bool>,
     ) -> Result<Sentinel, String> {
+        self.authorize_curator_operation(&caller.tab, None, "create")?;
         let mut job = self.prepare_sentinel_create(caller, create)?;
         job.machine.stopped = imported_stopped.unwrap_or(false);
         let handle = self
@@ -411,7 +420,7 @@ impl SentinelExt for ServiceContext {
                 || (tab.agent_type.is_some() && tab.session_binding_nonce.is_some());
             handle.store.lock().stage_insert(job.clone())
         };
-        staged.settle(&handle.store)?;
+        let job = staged.settle(&handle.store)?;
         handle.notify();
         self.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
         Ok(job)
@@ -494,6 +503,7 @@ impl SentinelExt for ServiceContext {
         expect_version: u64,
         update: Update,
     ) -> Result<Sentinel, String> {
+        self.authorize_curator_operation(&caller.tab, Some(id), "update")?;
         let (current, update) = self.prepare_sentinel_update(caller, id, expect_version, update)?;
         let handle = self
             .host_extension::<Handle>()
@@ -656,6 +666,7 @@ impl SentinelExt for ServiceContext {
         id: &str,
         transition_id: &str,
     ) -> Result<Sentinel, String> {
+        self.authorize_curator_operation(&caller.tab, Some(id), "resolve")?;
         let handle = self
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
@@ -711,8 +722,10 @@ impl SentinelExt for ServiceContext {
             if !caller_is_live(&mux, caller) {
                 return Err("blueprint caller scope changed".into());
             }
-            mux.get_tab(&caller.tab)
-                .is_some_and(|tab| tab.has_team_orchestrator_authority())
+            mux.get_tab(&caller.tab).is_some_and(|tab| {
+                tab.has_team_orchestrator_authority()
+                    || tab.role_profile.as_deref() == Some("curator")
+            })
         };
         let handle = self
             .host_extension::<Handle>()
@@ -729,6 +742,7 @@ impl SentinelExt for ServiceContext {
     }
 
     fn sentinel_show(&self, caller: &SentinelCaller, id: &str) -> Result<Sentinel, String> {
+        let curator = self.is_curator_tab(&caller.tab);
         let handle = self
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
@@ -736,13 +750,19 @@ impl SentinelExt for ServiceContext {
         store.ensure_available()?;
         let job = store
             .get(id)
-            .filter(|job| caller.owns(job))
+            .filter(|job| {
+                caller.owns(job)
+                    || (curator
+                        && job.team_id == caller.team
+                        && job.workspace_id == caller.workspace)
+            })
             .cloned()
             .ok_or_else(|| format!("blueprint not found for this creator and Team: {id}"))?;
         Ok(job)
     }
 
     fn sentinel_stop(&self, caller: &SentinelCaller, id: &str) -> Result<Sentinel, String> {
+        let curator = self.authorize_curator_operation(&caller.tab, Some(id), "stop")?;
         let handle = self
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
@@ -758,7 +778,12 @@ impl SentinelExt for ServiceContext {
             crate::graph::validate_scope(&mux, &caller.workspace, caller.team.as_deref())?;
             let mut store = handle.store.lock();
             store.ensure_available()?;
-            if !store.get(id).is_some_and(|job| caller.owns(job)) {
+            if !store.get(id).is_some_and(|job| {
+                caller.owns(job)
+                    || (curator
+                        && job.team_id == caller.team
+                        && job.workspace_id == caller.workspace)
+            }) {
                 return Err("blueprint not found for this creator and Team".into());
             }
             store.stage_stop(id, "stopped_by_creator")
@@ -815,7 +840,7 @@ pub fn history_definition(
         .ok_or_else(|| "history current definition is missing".into())
 }
 
-fn validate_send_scope(
+pub(crate) fn validate_send_scope(
     mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
     job: &Sentinel,
 ) -> Result<(), String> {
@@ -845,6 +870,7 @@ pub mod tests {
             codeterm_service_core::cron::clock::MockClock::starting_at(1000),
         );
         let params = crate::store::Create {
+            note: None,
             terminal: None,
             session: false,
             name: Some("service-state-watch".into()),
@@ -1007,6 +1033,7 @@ pub mod tests {
         let mut pipeline = legacy;
         pipeline.set_pipeline(Some(
             codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec {
+                note: None,
                 name: "owned-pipeline".into(),
                 owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Team,
                 trigger: codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule {

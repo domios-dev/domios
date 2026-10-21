@@ -82,26 +82,57 @@ fn runtime_resume_thread(
     }
 }
 
+/// What the first runtime turn carries: a system-prompt-capable provider already
+/// holds the brief in its instructions, so it only receives the assigned-task starter.
+#[derive(Debug, PartialEq, Eq)]
+enum RuntimeFirstTurn {
+    Starter(String),
+    Task(String),
+}
+
 fn runtime_pending_payload(
     existing: Option<&crate::multiplexer::types::PendingDeliveryRecord>,
     agent: &super::spawn::AgentSpawnSpec,
-) -> Option<String> {
+    provider: Option<&dyn crate::agent::provider::AgentProvider>,
+) -> Option<RuntimeFirstTurn> {
     if existing.is_some() {
         None
     } else {
-        runtime_initial_payload(agent)
+        runtime_initial_payload(agent, provider)
     }
 }
 
-fn runtime_initial_payload(agent: &super::spawn::AgentSpawnSpec) -> Option<String> {
+fn runtime_initial_payload(
+    agent: &super::spawn::AgentSpawnSpec,
+    provider: Option<&dyn crate::agent::provider::AgentProvider>,
+) -> Option<RuntimeFirstTurn> {
     let task = agent
         .task
         .as_deref()
         .filter(|task| !task.trim().is_empty())?;
-    Some(match agent.task_preamble.as_deref() {
-        Some(preamble) => format!("{preamble}{task}"),
-        None => task.into(),
-    })
+    let instructions_capable = provider.is_some_and(|provider| {
+        matches!(
+            super::launch_delivery::mode_for_descriptor(&provider.system_prompt_delivery()),
+            super::launch_delivery::LaunchDeliveryMode::SystemPrompt
+        )
+    });
+    if instructions_capable {
+        let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
+        let text = super::launch_delivery::assigned_task_starter(
+            provider
+                .and_then(|provider| provider.starter_prompt_text(prompt))
+                .as_deref(),
+        );
+        return Some(RuntimeFirstTurn::Starter(
+            super::launch_delivery::mark_starter_prompt(prompt, text),
+        ));
+    }
+    Some(RuntimeFirstTurn::Task(
+        match agent.task_preamble.as_deref() {
+            Some(preamble) => format!("{preamble}{task}"),
+            None => task.into(),
+        },
+    ))
 }
 
 impl ServiceContext {
@@ -149,6 +180,11 @@ impl ServiceContext {
                     .as_ref()
                     .map(|metadata| &metadata.params),
             )?;
+            let tier = super::spawn_speed::validate_agent_speed(
+                &self.agent_registry,
+                &plugin_id,
+                params.speed.as_deref(),
+            )?;
             let full_access = params.permission_bypass_requested(&plugin_id);
             if config.is_null() {
                 config = serde_json::json!({});
@@ -160,6 +196,9 @@ impl ServiceContext {
                     "mode".into(),
                     serde_json::json!(runtime_launch_mode(full_access)),
                 );
+            if let Some(tier) = tier {
+                config["serviceTier"] = serde_json::json!(tier);
+            }
         } else if spec
             .chatbackend_launch
             .as_ref()
@@ -429,13 +468,23 @@ impl ServiceContext {
         self.prepare_runtime_worker_binding(&params, tab_id)?;
         self.prepare_agent_runtime_launch_options(tab_id, &params)?;
         self.prepare_agent_runtime_launch_env(tab_id, &metadata.agent.extra_env)?;
+        let provider = self.agent_registry.provider_arc(&metadata.agent.provider);
         let payload = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("Runtime launch tab absent")?;
-            runtime_pending_payload(tab.pending_delivery.as_ref(), &metadata.agent)
+            runtime_pending_payload(
+                tab.pending_delivery.as_ref(),
+                &metadata.agent,
+                provider.as_deref(),
+            )
         };
         if let Some(payload) = payload {
-            let payload = self.spawn_task_message(tab_id, &payload).unwrap_or(payload);
+            let payload = match payload {
+                RuntimeFirstTurn::Starter(starter) => starter,
+                RuntimeFirstTurn::Task(task) => {
+                    self.spawn_task_message(tab_id, &task).unwrap_or(task)
+                }
+            };
             self.create_pending_delivery_with_send_id(
                 tab_id,
                 crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,

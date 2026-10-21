@@ -148,3 +148,11 @@ test('a published retry with mismatched bytes cannot mutate discovery', async ()
   assert.ok(!service.calls.includes('discover'));
   assert.ok(!service.calls.some(call => call.startsWith('upload:')));
 });
+
+
+test('workflow retains one archive copy for one day and preserves publication download', async () => {
+  const workflow = (await readFile(new URL('../../.github/workflows/frontend-release.yml', import.meta.url), 'utf8')).replaceAll('\r\n', '\n');
+  assert.match(workflow, /retention-days: 1/);
+  assert.match(workflow, /path: \|\n            frontend-release-output\/\*\n            !frontend-release-output\/dist\//);
+  assert.match(workflow, /download-artifact@[\s\S]*?path: frontend-release-output\//);
+});

@@ -190,14 +190,17 @@ fn run_registered_git(mut command: Command) -> Result<(), String> {
     command
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped());
+    // Spawn under the registry lock, so a concurrent shutdown cannot miss a child that already runs.
+    let mut live = LIVE_GIT_CHILDREN
+        .lock()
+        .map_err(|_| git_failure("git registry lock poisoned"))?;
     let mut child = command
         .spawn()
         .map_err(|e| git_failure(&format!("failed to start git: {e}")))?;
     let mut stderr = child.stderr.take().expect("git stderr is piped");
     let child: LiveGitChild = std::sync::Arc::new(std::sync::Mutex::new(child));
-    if let Ok(mut live) = LIVE_GIT_CHILDREN.lock() {
-        live.push(child.clone());
-    }
+    live.push(child.clone());
+    drop(live);
     let mut captured = Vec::new();
     let _ = std::io::Read::read_to_end(&mut stderr, &mut captured);
     let status = child

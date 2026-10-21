@@ -114,9 +114,9 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
   },
   {
     "job": "guards",
-    "run": "bash scripts/check-build-gateway-serialization.sh\nbash scripts/check-build-gateway-policy.sh\nbash scripts/check-build-gateway-mutex-cleanup.sh",
+    "run": "bash scripts/check-build-gateway-serialization.sh\nbash scripts/check-build-gateway-policy.sh\nbash scripts/check-build-gateway-mutex-cleanup.sh\nnode scripts/test-catalogue.mjs run --entry node-script-tests-serial",
     "if": "${{ !cancelled() }}",
-    "reason": "POSIX-only build-gateway guards a Windows release-preflight cannot run",
+    "reason": "POSIX-only build-gateway guards and serial gateway script tests a Windows release-preflight cannot run",
     "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
   },
   {

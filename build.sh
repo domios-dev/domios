@@ -2957,7 +2957,8 @@ EOF
     cargo check --manifest-path cli/Cargo.toml
     node scripts/check-release-locks.mjs
     # The script, gateway and release-signing fixture guards run here, not in a PR workflow.
-    bash ./build.sh script-guards
+    # Under the gateway's subst drive the catalogue reads every Cargo.toml as an unmatched test; run from the real worktree.
+    (cd "${CT_REAL_WORKTREE:-.}" && bash ./build.sh script-guards)
     bash scripts/clippy-gate.sh
     run_release_rust_tests
     node node_modules/typescript/bin/tsc --noEmit
@@ -3265,7 +3266,6 @@ EOF
     sg_run node scripts/rename-guard.mjs --scope all --report
     sg_run bash scripts/check-crate-layering.sh
     sg_run node --test scripts/tests/crate-layering.test.mjs
-    sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
     sg_run node --test scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
     sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
@@ -3288,6 +3288,7 @@ EOF
       sg_run bash scripts/check-build-dev-port-overrides.sh
       sg_run bash scripts/check-cache-provenance.sh
       sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-cargo
+      sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
     fi
     exit "$sg_failed"
     ;;

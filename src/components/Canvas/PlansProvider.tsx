@@ -23,6 +23,7 @@ const EMPTY_FULL: UsePlansResult = {
 };
 
 interface PlansContextValue {
+  api: ApiConfig;
   contextKey: number;
   index: PlanIndexEntry[];
   indexLoading: boolean;
@@ -90,6 +91,7 @@ export function PlansProvider({
 
   const value = useMemo<PlansContextValue>(
     () => ({
+      api,
       contextKey: peerContext.generation,
       index: queriesEnabled ? index : EMPTY_INDEX,
       indexLoading: queriesEnabled && indexLoading,
@@ -99,6 +101,7 @@ export function PlansProvider({
       full: queriesEnabled ? full : EMPTY_FULL,
     }),
     [
+      api,
       peerContext.generation,
       queriesEnabled,
       index,
@@ -117,6 +120,10 @@ function usePlansContext(): PlansContextValue {
   const ctx = useContext(PlansContext);
   if (!ctx) throw new Error("usePlansContext must be used within <PlansProvider>");
   return ctx;
+}
+
+export function usePlansApiOptional(): ApiConfig | undefined {
+  return useContext(PlansContext)?.api;
 }
 
 export function usePlanDataContextKey(): number {

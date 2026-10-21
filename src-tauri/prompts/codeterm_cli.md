@@ -13,6 +13,7 @@ Worker kinds add role prompts automatically: use `agent spawn --role Worker --ki
 - DISCOVERY HABIT: CLI FIRST, ALWAYS. For anything Domios-related, run `codeterm <cmd> --help` and read the owning document BEFORE curling APIs, grepping source, or reading repo/doc files. If a `codeterm` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
 - INTERACTIVE DISCOVERY STAYS HUMAN-READABLE. Use plain `codeterm tab list` for the complete local workspace → Team/Plan → Tab map, including empty workspaces, and preserve `(self)`; pass `--workspace <id>` when one workspace's scoped tree is intended. Inspect one selected tab with `codeterm tab inspect <id>`; add `--lifecycle` only for its journal telemetry. Never request whole-list JSON merely to orient yourself; it is an automation contract.
 - `codeterm tab release-ownership` frees a local tab from stale remote control.
+- LAUNCH SPEED: `agent spawn`, `plan task dispatch`, and `plan task respawn` accept `--speed <TIER>` from the provider's declared service tiers. `plan task update --speed <TIER>` stores the task default; dispatch and respawn inherit it unless overridden. `default` explicitly selects the provider default.
 - TAB IDENTITY: a tab title is one word with no whitespace. `plan task dispatch` derives a short Worker description from the task name; `--description` overrides it. Direct `agent spawn` still needs `--description`; use `codeterm tab describe` for an existing tab.
 - ROUTING: Follow the host-supplied return hint inside `<tip>…</tip>` (see `codeterm docs ROUTING`): agent senders use its command; shell senders get a reply in your own chat/output.
 - WORKSPACE INHERITANCE IS AUTOMATIC. `tab new`, `agent spawn`, and `cron create` land in YOUR workspace — the one that owns your tab — never in the workspace the user happens to have selected in the UI. Pass `--workspace <id>` only to place work in a different workspace on purpose.
@@ -97,7 +98,7 @@ Use `codeterm mem taxonomy` for area counts and `codeterm mem area merge <from> 
 
 Paths: use forward slashes; the CLI normalizes them on every OS.
 
-Blueprints use deterministic patterns by default; unmatched output remains `other` without a model call. Use `--model-classification` without patterns only when model judgment is wanted. Blueprint terminal adapters: `codeterm blueprint create --observe tab:<id> --output-settled 300 --session` watches same-Team utility or agent PTY output without polling; supply the required name, question, buckets and routes. `send:<tab>` delivers the stage text body. `codeterm blueprint input <id> --from-pad <path>` delivers another text body to an input stage. Follow `codeterm docs BLUEPRINT-RECIPES` for the Terminal adapter recipe.
+Blueprints use deterministic patterns by default; unmatched output remains `other` without a model call. Use `--model-classification` without patterns only when model judgment is wanted. Blueprint terminal adapters: a watch with `observe: tab:<id>` (apply it with `codeterm blueprint apply <file>`) watches same-Team utility or agent PTY output without polling; supply the required name, question, buckets and routes. `send:<tab>` delivers the stage text body. `codeterm blueprint input <id> --from-pad <path>` delivers another text body to an input stage. Follow `codeterm docs BLUEPRINT-RECIPES` for the Terminal adapter recipe.
 
 Opt-in product analytics is local: `codeterm analytics status`, `codeterm analytics enable`, and `codeterm analytics disable`. Disabling clears queued events and identifiers.
 
@@ -112,3 +113,5 @@ Repair a moved Plan project without its old folder: `codeterm plan set-project <
 Voice notes arrive as `<domios type="attachment" kind="voice" path="<file>" label="voice" />` plus `<transcript>…</transcript>`: the transcript is the message, the path its audio. `status="untranscribed"` carries a failure note instead. Older notes (bare text after the frame, or `-=-codeterm:voice file=<path>-=-`) are read-only legacy.
 
 For cold replacement, `codeterm app quit --exact --json` must confirm cleanup and pinned process exits.
+
+The plan defaults to Curator mode. Inspect it with `codeterm plan control-loop show <plan>`, or choose `codeterm plan control-loop set <plan> curator` / `codeterm plan control-loop set <plan> heartbeat --interval 30m`. A Curator mirrors its Orchestrator's model, receives a bounded digest, and may ask one message with up to three questions. Its grants are limited to the active round and session; see `codeterm docs ORCHESTRATION-OPERATIONS`.

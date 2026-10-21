@@ -48,14 +48,6 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--ct-accent) 12%, transparent);
   color: color-mix(in srgb, var(--ct-accent) 85%, var(--ct-fg));
-  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
-    box-shadow var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
-}
-
-.team-roster-member:hover .team-roster-avatar,
-.team-roster-member:focus-within .team-roster-avatar {
-  transform: scale(1.06);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--ct-accent) 30%, transparent);
 }
 
 .team-roster-body {
@@ -78,10 +70,5 @@
   .team-roster-member,
   .team-roster-avatar {
     transition: none;
-  }
-
-  .team-roster-member:hover .team-roster-avatar,
-  .team-roster-member:focus-within .team-roster-avatar {
-    transform: none;
   }
 }

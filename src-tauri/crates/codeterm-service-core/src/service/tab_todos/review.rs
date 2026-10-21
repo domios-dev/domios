@@ -6,7 +6,10 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Result<Option<String>, String> {
-        let Some(checklist) = self.todo_store()?.get(tab_id.to_owned()).await? else {
+        let Some(store) = self.optional_todo_store() else {
+            return Ok(None);
+        };
+        let Some(checklist) = store.get(tab_id.to_owned()).await? else {
             return Ok(None);
         };
         let open: Vec<_> = checklist
@@ -15,10 +18,27 @@ impl ServiceContext {
             .filter(|item| item.locked && !item.state.is_terminal())
             .map(|item| format!("{}: {}", item.id, item.title))
             .collect();
-        Ok((!open.is_empty()).then(|| format!(
+        if !open.is_empty() {
+            return Ok(Some(format!(
             "WARNING: report accepted with open locked criteria: {}. Update them by id with codeterm todo write.",
             open.join("; ")
-        )))
+        )));
+        }
+        if checklist.proposal.is_none() && self.todo_tab(tab_id)?.parent_tab_id.is_some() {
+            return Ok(Some(
+                "hint: checklist was never shared; use codeterm todo submit".into(),
+            ));
+        }
+        let remaining = checklist
+            .items
+            .iter()
+            .filter(|item| !item.state.is_terminal())
+            .count();
+        Ok((remaining > 0).then(|| {
+            format!(
+                "hint: checklist has {remaining} open item(s); update it with codeterm todo write"
+            )
+        }))
     }
 
     pub async fn tab_todo_apply_review(
@@ -27,7 +47,9 @@ impl ServiceContext {
         actor_tab_id: Option<&str>,
         accepted: bool,
     ) -> Result<(), String> {
-        let store = self.todo_store()?;
+        let Some(store) = self.optional_todo_store() else {
+            return Ok(());
+        };
         let Some(checklist) = store.get(tab_id.to_owned()).await? else {
             return Ok(());
         };

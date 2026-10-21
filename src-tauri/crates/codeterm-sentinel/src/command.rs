@@ -9,36 +9,7 @@ use super::probe::{
     self, cancellation::Cancellation, owner::ProbeResourceOwner, process::ProbeFailure,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Parameters {
-    pub command: String,
-    pub label: String,
-    pub timeout_ms: u64,
-}
-
-impl Parameters {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.command.trim().is_empty()
-            || self.command.len() > 8192
-            || self.command.contains('\0')
-        {
-            return Err("command requires nonempty text of at most 8192 bytes without NUL".into());
-        }
-        if self.label.trim().is_empty()
-            || self.label.len() > 256
-            || self.label.chars().any(char::is_control)
-        {
-            return Err("command label requires nonempty display text of at most 256 bytes".into());
-        }
-        if self.timeout_ms == 0 || u128::from(self.timeout_ms) > probe::PROBE_RUNTIME.as_millis() {
-            return Err(
-                "command timeout_ms must be positive and within the platform probe runtime".into(),
-            );
-        }
-        Ok(())
-    }
-}
+pub use codeterm_blueprint_types::blueprint_watch::CommandParameters as Parameters;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

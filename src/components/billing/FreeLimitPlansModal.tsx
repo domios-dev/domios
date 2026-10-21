@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { Button } from "../shared/Button";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { FormDialog } from "../shared/FormDialog";
 import { PlanCards } from "./PlanCards";
 import { freeLimitGate, upgradePlan, UPGRADE_PLAN_KEY, useFreeLimitPrompt } from "./freeLimitGate";
@@ -34,7 +35,7 @@ function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
         {detail && <>{detail} </>}Upgrade to remove this limit. Everything you already have stays as it is.
       </p>
       <PlanCards catalog={catalog} canPurchase={!busy} initialInterval="month" onChoose={choose} />
-      {error && <p role="alert" className="m-0 text-xs text-[var(--ct-red)]">{error}</p>}
+      {error && <InlineErrorNotice description={{ title: "Checkout did not start", cause: error, actions: [], raw: "" }} role="alert" />}
       <div className="flex justify-end gap-2">
         <Button size="sm" onClick={onClose}>Not now</Button>
         <Button size="sm" variant="primary" type="submit" loading={busy}>Upgrade</Button>

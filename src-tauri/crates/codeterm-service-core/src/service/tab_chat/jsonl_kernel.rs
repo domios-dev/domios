@@ -7,21 +7,28 @@ pub fn delta(
     from: u64,
     budget: u64,
 ) -> Option<SessionDelta> {
+    try_delta(provider, path, from, budget).ok().flatten()
+}
+
+pub fn try_delta(
+    provider: &dyn AgentProvider,
+    path: &Path,
+    from: u64,
+    budget: u64,
+) -> Result<Option<SessionDelta>, String> {
     if budget == 0 {
-        return None;
+        return Ok(None);
     }
     let Some(source) = provider.record_source("sessionTranscript") else {
-        return provider.parse_session_delta_bounded(path, from, budget);
+        return provider
+            .parse_session_delta_bounded(path, from, budget)
+            .map(Some)
+            .ok_or_else(|| "Could not read session transcript".to_owned());
     };
     let window =
         codeterm_plugin::jsonl_window::records::read_records(path, from, budget, source, None)
-            .ok()?;
-    provider
-        .parse_session_records(&window)
-        .map_err(|reason| {
-            log::warn!("[jsonl-kernel] session record projection failed: {reason}");
-        })
-        .ok()
+            .map_err(|error| error.to_string())?;
+    provider.parse_session_records(&window).map(Some)
 }
 
 pub fn stored_window(

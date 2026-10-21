@@ -61,25 +61,3 @@ fn repository_watcher_emits_ref_and_index_events() {
         "a checkout in the linked worktree",
     );
 }
-
-#[test]
-fn lane_merge_offer_repo_watch_classifies_head_and_shared_ref_changes() {
-    let repo = primary_repo();
-    let identity = RepoIdentity::resolve(repo.path()).expect("identity resolves");
-
-    assert!(crate::registry::head_ref_changed(
-        &identity,
-        WatchHalf::Worktree,
-        &[identity.gitdir.join("HEAD")],
-    ));
-    assert!(!crate::registry::head_ref_changed(
-        &identity,
-        WatchHalf::Worktree,
-        &[identity.gitdir.join("index")],
-    ));
-    assert!(crate::registry::head_ref_changed(
-        &identity,
-        WatchHalf::SharedRefs,
-        &[identity.common_dir.join("refs").join("heads").join("main")],
-    ));
-}

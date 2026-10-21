@@ -5,26 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::machine::Route;
 use crate::store::Sentinel;
 
-/// What a graph stage observes instead of running a shell probe.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    content = "id",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum TabBinding {
-    Tab(String),
-    CronRun(String),
-}
-
-impl TabBinding {
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Tab(id) | Self::CronRun(id) => id,
-        }
-    }
-}
+pub use codeterm_blueprint_types::blueprint_watch::Observation as TabBinding;
 
 /// The cron run whose spawned tab a `CronRun` stage observes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -14,19 +14,25 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
 }) {
   const prefix = useId();
   const [recipe, setRecipe] = useState<BlueprintRecipe | null>(null);
+  const [source, setSource] = useState("");
   const [bindings, setBindings] = useState<Record<string, string>>({});
   const [caller, setCaller] = useState(creators[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const read = async (file: File | undefined) => {
     setRecipe(null);
+    setSource("");
     setError(null);
     setBindings({});
     if (!file) return;
     setBusy(true);
     try {
       if (file.size > 256 * 1024) throw new Error("Blueprint recipe exceeds 256 KiB");
-      setRecipe(parseBlueprintRecipe(await file.text()));
+      const raw = await file.text();
+      const parsed = parseBlueprintRecipe(raw);
+      setRecipe(parsed);
+      setSource(raw);
+      setBindings(Object.fromEntries(Object.entries(parsed.inputs ?? {}).filter(([, input]) => input.default !== undefined).map(([key, input]) => [key, input.type === "string" ? String(input.default) : (JSON.stringify(input.default) ?? "")])));
     } catch (error) { setError(String(error)); }
     finally { setBusy(false); }
   };
@@ -35,7 +41,7 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
     setBusy(true);
     setError(null);
     try {
-      await api.import(caller, recipe, Object.keys(recipe.placeholders).map((key) => `${key}=${bindings[key] ?? ""}`));
+      await api.import(caller, source, Object.keys(recipe.inputs ?? {}).filter((key) => bindings[key] !== undefined).map((key) => `${key}=${bindings[key] ?? ""}`));
       onCreated();
     } catch (error) { setError(String(error)); }
     finally { setBusy(false); }
@@ -47,8 +53,8 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
     </div>
     <div className="ct-card__body ct-job-section__body">
       <div className="flex flex-col gap-1.5">
-        <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-file`}>Blueprint recipe file</label>
-        <input id={`${prefix}-file`} type="file" accept=".blueprint.json,application/json" disabled={busy} onChange={(event) => void read(event.currentTarget.files?.[0])} />
+        <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-file`}>Blueprint YAML file</label>
+        <input id={`${prefix}-file`} type="file" accept=".yaml,.yml,.json,application/yaml,application/json,text/yaml" disabled={busy} onChange={(event) => void read(event.currentTarget.files?.[0])} />
       </div>
       <div className="flex flex-col gap-1.5">
         <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-creator`}>Creator in destination Team</label>
@@ -57,13 +63,13 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
           {creators.map((creator) => <option key={creator.id} value={creator.id}>{creator.label}</option>)}
         </select>
       </div>
-      {recipe && Object.entries(recipe.placeholders).map(([key, description]) => <div key={key} className="flex flex-col gap-1.5">
-        <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-${key}`}>{key}: {description}</label>
-        <input id={`${prefix}-${key}`} className="ct-field w-full" value={bindings[key] ?? ""} required disabled={busy} onChange={(event) => { const value = event.currentTarget.value; setBindings((current) => ({ ...current, [key]: value })); }} />
+      {recipe && Object.entries(recipe.inputs ?? {}).map(([key, input]) => <div key={key} className="flex flex-col gap-1.5">
+        <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-${key}`}>{key}: {input.description ?? input.type}</label>
+        <input id={`${prefix}-${key}`} className="ct-field w-full" value={bindings[key] ?? ""} required={input.default === undefined} disabled={busy} onChange={(event) => { const value = event.currentTarget.value; setBindings((current) => ({ ...current, [key]: value })); }} />
       </div>)}
       {error && <InlineErrorNotice error={error} operation="importing this Blueprint" blocking />}
       <div className="ct-job-actions">
-        <button type="submit" className={AUTOMATION_PRIMARY} disabled={busy || !recipe || !creators.some((creator) => creator.id === caller)}>Create stopped Blueprint</button>
+        <button type="submit" className={AUTOMATION_PRIMARY} disabled={busy || !recipe || !creators.some((creator) => creator.id === caller)}>Import stopped Blueprint</button>
         <button type="button" className={AUTOMATION_TOOL} disabled={busy} onClick={onCancel}>Cancel import</button>
       </div>
     </div>

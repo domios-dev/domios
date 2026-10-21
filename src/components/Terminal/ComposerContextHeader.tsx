@@ -13,8 +13,9 @@ import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionA
 import { canStopJob, jobStateLabel, tabJobKey, type MergedJob, type TabJob } from "../Jobs/jobsModel";
 import { requestOpenJob } from "../Jobs/openJobEvent";
 import { openTabJob, useTabJobs } from "../Jobs/useTabJobs";
-import { formatScheduledTime, type DelayedMessage } from "./delayedSend";
+import { formatClock, formatScheduledTime, type DelayedMessage } from "./delayedSend";
 import { composerDelayedModel } from "./composerDelayedModel";
+import { formatCadence } from "./systemHeartbeatProjection";
 import { SystemHeartbeatDetail } from "./SystemHeartbeatDetail";
 import { useResolvedTabActivity, useTabHasPlan } from "./useTabPlanActivity";
 import { usePhoneViewport } from "../../hooks/useSidebarViewport";
@@ -185,7 +186,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const counts: Record<ContextKind, number> = {
     blueprints: blueprintChips.length + blueprints.length,
     crons: cronChips.length,
-    delayed: delayedModel.count,
+    delayed: delayedModel.count + heartbeats.length,
     goal: Number(hasGoal),
     background: backgroundBubble?.count ?? 0,
   };
@@ -196,8 +197,8 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     goal: false,
     background: false,
   };
-  const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0);
-  const open = requested && counts[requested] > 0 ? requested : null;
+  const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0 || (kind === "delayed" && heartbeats.length > 0));
+  const open = requested && kinds.includes(requested) ? requested : null;
 
   const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;
   if (!hasGoal && !hasPluginError && !plan && kinds.length === 0 && heartbeats.length === 0 && backgroundWork.items.length === 0) return null;
@@ -261,6 +262,13 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     crons: () => <>{[...cronChips].sort((a, b) => Number(b.state === "waiting on you") - Number(a.state === "waiting on you")).map(jobBubble)}</>,
     delayed: () => (
       <>
+        {heartbeats.map(message => (
+          <ContextBubble key={message.id} tone="heartbeat" label={`Plan heartbeat: ${message.text}`} onOpen={() => setHeartbeatId(message.id)}>
+            <HeartPulse size={13} aria-hidden="true" />
+            <span className="ct-ctx-bubble__title">Plan heartbeat</span>
+            <span className="ct-ctx-bubble__meta">{message.recurrence ? formatCadence(message.recurrence.everyMs) : "unset"} · next {formatClock(message.scheduledAtMs)}</span>
+          </ContextBubble>
+        ))}
         {delayed.map((message) => {
           return (
           <ContextBubble
@@ -296,7 +304,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     return next ? <ContextTitle kind="delayed" prefix="Next:" primary={delayedWhen(next)} secondary={next.text} /> : null;
   };
 
-  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0) + heartbeats.length + Number(hasPluginError);
+  const total = kinds.reduce((sum, kind) => sum + counts[kind], 0) + Number(hasPluginError);
   const PillIcon = plan ? Map : kinds.length > 0 ? KIND_ICON[kinds[0]] : heartbeats.length > 0 ? HeartPulse : hasGoal ? Target : TriangleAlert;
   const pill = phone && (
     <button
@@ -315,7 +323,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       <PillIcon size={12} aria-hidden="true" className="ct-ctx-pill__icon" data-kind={plan ? "plan" : kinds[0]} />
       <span className="ct-ctx-pill__title">{plan?.activity?.planTitle ?? KIND_LABEL[kinds[0]] ?? (heartbeats.length > 0 ? "Heartbeat" : hasGoal ? "Session goal" : hasPluginError ? "Plugin removed" : "Subagents")}</span>
       {total > 0 && <span className="ct-ctx-pill__count">+{total}</span>}
-      <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />
+      {total > 0 && <ChevronUp size={12} aria-hidden="true" className="ct-ctx-pill__chev" />}
       {Object.values(alerts).some(Boolean) && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
     </button>
   );
@@ -336,10 +344,6 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     (hasGoal || hasPluginError || kinds.length > 0 || heartbeats.length > 0) && (
       <div id={linkedGroupId} hidden={phone && !unfolded} className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
         {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
-        {heartbeats.map(message => <ComposerContextChip key={message.id} kind="background" open={heartbeatId === message.id} aria-pressed={heartbeatId === message.id} aria-label={`System heartbeat: ${message.text}`} title="Heartbeat" onClick={() => setHeartbeatId(message.id)}>
-          <HeartPulse size={13} aria-hidden="true" />
-          <span>Heartbeat</span>
-        </ComposerContextChip>)}
         {kinds.map((kind) => {
           const Icon = KIND_ICON[kind];
           return (
@@ -349,13 +353,13 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
               kind={kind}
               open={open === kind}
               aria-pressed={open === kind}
-              aria-label={kind === "goal" ? KIND_LABEL.goal : `${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${alerts[kind] ? ", one needs you" : ""}`}
+              aria-label={kind === "goal" ? KIND_LABEL.goal : `${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${kind === "delayed" && heartbeats.length > 0 ? ", plan heartbeat" : ""}${alerts[kind] ? ", one needs you" : ""}`}
               title={KIND_LABEL[kind]}
               onClick={() => toggle(kind)}
             >
               <Icon size={13} aria-hidden="true" />
-              {phone && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
-              {(phone || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
+              {!phone && kind === "delayed" && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
+              {(phone || kind === "delayed" || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
               {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
             </ComposerContextChip>
           );

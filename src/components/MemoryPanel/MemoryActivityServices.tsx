@@ -1,3 +1,4 @@
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
 import type { AppConfig } from "../../lib/types";
 import type { MemNode } from "./types";
@@ -59,7 +60,7 @@ export function MemoryActivityServices({ config, activity, nodes, onNavigateToIt
               : "Enable file synchronization in Memory settings."}
           </p>
           {sync.error && (
-            <pre className="text-red-400 whitespace-pre-wrap break-words">{sync.error}</pre>
+            <InlineErrorNotice error={sync.error} operation="syncing memory services" />
           )}
         </div>
       </details>
@@ -78,9 +79,7 @@ export function MemoryActivityServices({ config, activity, nodes, onNavigateToIt
         </summary>
         <div className="mt-4 space-y-3">
           {(recent.error || streamError) && (
-            <p role="alert" className="text-red-400 whitespace-pre-wrap break-words">
-              {recent.error || streamError}
-            </p>
+            <InlineErrorNotice error={recent.error || streamError} operation="loading recent memory activity" role="alert" />
           )}
           <label className="flex items-center gap-3 text-[var(--ct-muted-fg)]">
             Operation

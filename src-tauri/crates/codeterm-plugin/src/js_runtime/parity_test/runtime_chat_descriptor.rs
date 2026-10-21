@@ -42,7 +42,7 @@ impl ChatBackendProvider for RuntimeChatNativeStub {
 
 /// Chosen by capability, so the parity check never names a provider.
 fn bundled_manifest_declaring_agent_runtime() -> String {
-    let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let plugins = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let mut manifests: Vec<_> = std::fs::read_dir(&plugins)
         .unwrap()
         .filter_map(|entry| std::fs::read_to_string(entry.ok()?.path().join("plugin.json")).ok())

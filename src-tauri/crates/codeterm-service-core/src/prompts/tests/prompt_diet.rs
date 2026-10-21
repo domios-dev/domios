@@ -42,10 +42,10 @@ const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
 const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
-// Re-measured at 25_575 for the owner-approved process rules, chat block guidance and the WSL utility line.
-const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 25_600;
-// Re-measured at 25_126 alongside the planner contract and shared chat block guidance.
-const PLANNER_LAUNCH_MAX_BYTES: usize = 25_150;
+// Owner-raised headroom for the Curator, checklist proposal and Blueprint authoring lines.
+const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 26_600;
+// Owner-raised headroom alongside the shared Blueprint authoring line.
+const PLANNER_LAUNCH_MAX_BYTES: usize = 26_150;
 const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 9_000;
 
 fn lf_len(text: &str) -> usize {

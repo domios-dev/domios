@@ -147,6 +147,7 @@ pub(crate) fn run(
     name: Option<String>,
     kind: Option<String>,
     model: Option<String>,
+    speed: Option<String>,
     why: Option<String>,
     why_file: Option<String>,
     status: Option<String>,
@@ -203,7 +204,7 @@ pub(crate) fn run(
         replace_dependencies,
         clear_dependencies,
     )?;
-    let params = build_params(
+    let mut params = build_params(
         plan_id,
         task_id,
         name,
@@ -241,6 +242,9 @@ pub(crate) fn run(
         handle,
         external_refs,
     );
+    if let Some(speed) = speed {
+        params["speed"] = json!(speed);
+    }
     call_plan_rpc(client, "plan.task.update", params)
 }
 

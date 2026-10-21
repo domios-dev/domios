@@ -130,3 +130,10 @@ mod tests {
         );
     }
 }
+
+pub fn validate_note(note: Option<&str>) -> Result<(), String> {
+    if note.is_some_and(|note| note.chars().count() > 200 || note.chars().any(char::is_control)) {
+        return Err("note must be plain text of at most 200 characters".into());
+    }
+    Ok(())
+}

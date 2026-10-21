@@ -46,7 +46,25 @@ assert.equal(optional.nodes[optional.nodes.length - 1]?.targetSummary, "Target u
 
 console.log("Blueprint pipeline model cases passed");
 
-const github = pipelineModel(blueprint({ steps: [{ ...blueprint().steps![0], kind: "github", name: "GitHub jobs", title: "GitHub jobs" }] }));
+const github = pipelineModel(blueprint({ steps: [{ ...blueprint().steps![0], kind: "github", source: { repo: "cli/cli", resource: "run", id: 39652641013 }, name: "GitHub jobs", title: "GitHub jobs" }] }));
 assert.equal(github.nodes[1].capability, "github");
 assert.equal(github.nodes[1].title, "GitHub jobs");
 assert.equal(github.nodes[1].state, "done");
+
+assert.equal(github.nodes[1].summary, "cli/cli · run 39652641013");
+assert.equal(github.nodes[1].resultSummary, "echoed");
+
+for (const [kind, source, state, expected] of [
+  ["github", { repo: "owner/project", resource: "runners", label: "linux-build" }, "online", "owner/project · runners · linux-build"],
+  ["github", { org: "owner", resource: "runners", label: "linux-build" }, "offline", "owner · runners · linux-build"],
+  ["http", { url: "https://example.com/health", expected_status: "204" }, "down", "https://example.com/health · expected 204"],
+] as const) {
+  const model = pipelineModel(blueprint({ name: "An exported recipe with a custom name", steps: [{ ...blueprint().steps![0], kind, source, source_state: state }] }));
+  assert.equal(model.nodes[1].capability, kind);
+  assert.equal(model.nodes[1].sourceState, state);
+  assert.equal(model.nodes[1].summary, expected);
+}
+
+const annotated = pipelineModel(blueprint({ note: "Reports failed jobs", state: "stopped", stopped_at: 1_000, deletes_at: 1_801_000 }));
+assert.equal(annotated.note, "Reports failed jobs");
+assert.equal(annotated.deletesAt, 1_801_000);

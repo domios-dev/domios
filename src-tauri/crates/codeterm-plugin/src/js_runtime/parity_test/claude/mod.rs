@@ -20,22 +20,22 @@ mod pre_trust;
 mod sessions;
 mod signals;
 mod switch_confirmation;
+mod usage_limits;
 mod usage_sources;
 
 fn pair() -> (ClaudeProvider, JsProvider) {
     (ClaudeProvider::new(), load_js("claude"))
 }
 
+fn plugin_fixture_root() -> std::path::PathBuf {
+    workspace_plugins_root().join("provider-claude")
+}
+
 /// Synthetic Claude plugin variant that points its rule + integration
 /// paths into a tempdir so we exercise the real plugin.js end-to-end
 /// against `JsProvider` without touching the user's real `~/.claude/`.
 fn claude_in_temp(rule_path: &std::path::Path, settings_path: &std::path::Path) -> JsProvider {
-    let plugin_js = std::fs::read_to_string(
-        workspace_plugins_root()
-            .join("provider-claude")
-            .join("plugin.js"),
-    )
-    .unwrap();
+    let plugin_js = std::fs::read_to_string(plugin_fixture_root().join("plugin.js")).unwrap();
     let manifest_json = format!(
         r#"{{
                 "id":"claude-test","version":"0.1.0","displayName":"X",

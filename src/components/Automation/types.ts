@@ -68,6 +68,7 @@ export interface AgentBlueprintDefinition {
 }
 
 export interface AutomationNode {
+  solution_success?: boolean;
   conversation?: import("../../lib/blueprintRun").ConversationCounts;
   source?: { type: string; kind?: string; display_name?: string; ref_type?: string; convert_to?: string | null; pattern?: string | null; idle_ms?: number | null };
   detail?: {
@@ -99,6 +100,9 @@ export interface AutomationNode {
   schedule: string | null;
   cadence_ms: number | null;
   expires_at: number | null;
+  stopped_at?: number | null;
+  deletes_at?: number | null;
+  note?: string | null;
   outcomes: readonly AutomationOutcome[];
   last_result: { bucket: string; accepted_at: number; handlers: readonly (AutomationHandlerResult & { handler_id: string })[] } | null;
   stop: { allowed: boolean; reason: string | null };
@@ -177,6 +181,8 @@ export interface BlueprintOwner {
 }
 
 export interface BlueprintStep {
+  source?: { repo?: string; org?: string; resource?: "run" | "jobs" | "pr_checks" | "runners"; id?: number; label?: string; url?: string; expected_status?: string; timeout_ms?: number } | null;
+  source_state?: string | null;
   index: number;
   name: string;
   kind: import("./blueprintKinds").BlueprintStepKind;
@@ -208,6 +214,9 @@ export interface BlueprintRunSnapshot {
 }
 
 export interface BlueprintSnapshot {
+  note?: string | null;
+  stopped_at?: number | null;
+  deletes_at?: number | null;
   runs?: readonly BlueprintRunSnapshot[];
   id: string;
   name: string;

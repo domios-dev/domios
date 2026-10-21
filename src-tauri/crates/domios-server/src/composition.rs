@@ -94,7 +94,7 @@ pub(crate) fn compose_observed(
         ui.clone(),
     ));
     let repo_watch: codeterm_service_core::repowatch::RepoWatchRegistryHandle = Arc::new(
-        codeterm_service_core::repowatch::RepoWatchRegistry::new(repo_sink.clone()),
+        codeterm_service_core::repowatch::RepoWatchRegistry::new(repo_sink),
     );
     let view_registry: codeterm_service_core::view_host::ViewRegistryHandle =
         Arc::new(codeterm_service_core::view_host::ViewRegistry::new());
@@ -396,7 +396,6 @@ pub(crate) fn compose_observed(
             .observe_spawns(observer);
     }
     codeterm_service_core::ports::orchestration::install(&service_state);
-    repo_sink.bind_service(Arc::downgrade(&service_state));
     service_state
         .chat_send_ledger
         .bind_settlement_owner(&service_state);

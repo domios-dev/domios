@@ -45,6 +45,9 @@ test.each(["uploading", "failed"] as const)("%s capsule exposes removal and retr
 test("a touch opens the capsule preview, touch leave keeps it open and X closes it", async () => {
   const host = document.createElement("div");document.body.append(host);const root = createRoot(host);
   const textareaRef = createRef<HTMLTextAreaElement>();
+  // A touch-only device: the preview offers its close button only where hover is unavailable.
+  const matchMedia = window.matchMedia;
+  window.matchMedia = ((query: string) => ({ matches: query === "(hover: none)", media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   try {
     await act(async () => root.render(<ComposerCapsuleField tabId="opaque" value={capsuleToken("image1")} active registry={{ image1: { label: "image1", kind: "image", path: "" } }} textareaRef={textareaRef} marginPx={0} onRemove={() => {}}><textarea ref={textareaRef} aria-label="Message" /></ComposerCapsuleField>));
     const capsule = host.querySelector<HTMLElement>("[data-capsule-start]")!;
@@ -56,5 +59,5 @@ test("a touch opens the capsule preview, touch leave keeps it open and X closes 
     expect(document.querySelector('[aria-label="Close attachment preview"]')).not.toBeNull();
     await act(async () => close!.click());
     expect(document.querySelector('[aria-label="Close attachment preview"]')).toBeNull();
-  } finally { await act(async () => root.unmount());host.remove(); }
+  } finally { window.matchMedia = matchMedia; await act(async () => root.unmount());host.remove(); }
 });

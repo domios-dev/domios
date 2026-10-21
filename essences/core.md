@@ -110,7 +110,7 @@ Signed-out runtimes offer provider-declared browser, device-code and masked API-
 
 A provider-declared Fast mode control is shared by the model picker and Settings defaults. Its current value comes from the bound runtime; saving a default affects new sessions. A NextTurn model, effort, Fast mode or runtime-mode request is pending until thread-owned settings or model evidence confirms it. It never restarts the tab. The next turn carries those controls without changing machine-global defaults. Completed compaction items restore the developer contract and cached client context; duplicate notifications do not inject twice.
 
-Providers may declare live model and effort commands. These run only at an idle prompt in the same verified session. Confirmation comes from fresh output or a changed provider-declared identity record in that session; a timeout reports failure and never restarts automatically. Restart and resume remains an explicit fallback. The provider owns whether its command also saves a default for future sessions.
+Providers may declare live model and effort commands. These run in the same verified session. A provider may explicitly support commands during an active turn; other busy selections wait for authenticated turn completion. Declared picker and confirmation frames authorize response keys, while fresh own-session transcript evidence confirms the change. A failed active-turn command is a surfaced incident with its stage and screen, and never silently becomes a deferred change. Confirmation comes from fresh output or a changed provider-declared identity record in that session; a timeout reports failure and never restarts automatically. Restart and resume remains an explicit fallback. The provider owns whether its command also saves a default for future sessions.
 
 #### Provider lifecycle
 
@@ -179,7 +179,7 @@ Durable knowledge for every agent on the machine: facts, notes, preferences and 
 ## The routing spine: where messages and reports flow
 
 1. **A person at the tab.** A chat turn or keystroke goes from the UI through the service layer to the capability-selected transport and is delivered at most once.
-2. **A person away from the machine.** Telegram text arrives at its bridge, passes text hooks and voice transcription when needed, and enters the General Agent's tab or the tab attached to its topic with a `<domios>` route tag. The agent answers with a bridge send, and the bridge carries it back.
+2. **A person away from the machine.** Telegram text arrives at its bridge, passes text hooks and voice transcription when needed, and enters the General Agent's tab or the tab attached to its topic with a `<domios>` route tag. The agent answers with a bridge send, and the bridge carries it back. A tab post goes only to its topic when available, otherwise to General; replies still route to the originating tab.
 3. **A daemon or webhook.** A registered service pushes with its own token and a plugin receiver accepts an event; both enter the gateway and land in the chosen tab.
 4. **Another agent.** A send from one tab to another is stamped with the sender's `<domios>` tag, so the recipient replies by command rather than in its own output.
 5. **Another machine.** A mesh peer's message arrives through the relay with a mesh `<domios>` tag, and the reply goes back to that peer and tab.

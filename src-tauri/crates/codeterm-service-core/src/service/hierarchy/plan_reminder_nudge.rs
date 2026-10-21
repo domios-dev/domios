@@ -69,28 +69,72 @@ fn plan_reminder_poll_secs(cfg: &crate::config::schema::OrchestrationConfig) -> 
         .clamp(1, MAX_PLAN_REMINDER_POLL_SECS)
 }
 
-fn send_due_plan_time_reminders_noting(
+const AGENT_UNAVAILABLE: &str =
+    "agent_unavailable: plan reminder target has no verified live agent session";
+
+trait TimeReminderPorts {
+    fn agent_live(&self, tab_id: &str) -> bool;
+    fn deliver(
+        &self,
+        tab_id: &str,
+        target: &PlanReminderTarget,
+        kind: NudgeKind,
+    ) -> Result<bool, String>;
+    fn note(&self, tab_id: &str, target: &PlanReminderTarget, fact: TickFact);
+    fn agent_lost(&self, tab_id: &str, target: &PlanReminderTarget);
+}
+
+fn send_due_plan_time_reminders_via(
     plans: &[Plan],
     counter: &TurnCounter,
     now: u64,
     interval_secs: u64,
-    deliver: impl Fn(&str, &PlanReminderTarget, NudgeKind) -> Result<bool, String>,
-    note: impl Fn(&str, &PlanReminderTarget, TickFact),
+    ports: &impl TimeReminderPorts,
 ) {
+    use crate::service::plan::reminders::AgentLiveness;
     let targets = timed_plan_reminder_targets(plans);
     counter.retain_time_reminders(&deadline_tabs(plans, counter));
     let candidates = targets.len();
     let mut due = 0usize;
     for timed in targets {
         counter.record_time_tick(&timed.tab_id, now);
-        let is_due = counter.time_nudge_due(&timed.tab_id, now, interval_secs);
+        let interval = match &timed.target {
+            PlanReminderTarget::Owner { plan_id } => plans
+                .iter()
+                .find(|p| &p.id == plan_id)
+                .map(|p| p.control_loop.interval(interval_secs))
+                .unwrap_or(interval_secs),
+            PlanReminderTarget::Worker => interval_secs,
+        };
+        let is_due = counter.time_nudge_due(&timed.tab_id, now, interval);
         if !is_due {
-            note(&timed.tab_id, &timed.target, TickFact::NotDue);
+            ports.note(&timed.tab_id, &timed.target, TickFact::NotDue);
             continue;
         }
         due += 1;
         counter.record_time_due(&timed.tab_id, now);
-        match deliver(&timed.tab_id, &timed.target, timed.target.time_nudge_kind()) {
+        let live = ports.agent_live(&timed.tab_id);
+        match counter.observe_agent(&timed.tab_id, live) {
+            Some(AgentLiveness::Lost) => {
+                log::warn!(
+                    "[plan-reminder] Tab {} (target {:?}) has no live agent; reminders pause until a session binds",
+                    timed.tab_id,
+                    timed.target
+                );
+                counter.record_time_failure(&timed.tab_id, AGENT_UNAVAILABLE);
+                ports.agent_lost(&timed.tab_id, &timed.target);
+            }
+            Some(AgentLiveness::Restored) => log::info!(
+                "[plan-reminder] Tab {} has a live agent again; reminders resume",
+                timed.tab_id
+            ),
+            None => {}
+        }
+        if !live {
+            ports.note(&timed.tab_id, &timed.target, TickFact::Unavailable);
+            continue;
+        }
+        match ports.deliver(&timed.tab_id, &timed.target, timed.target.time_nudge_kind()) {
             Ok(false) => {}
             Ok(true) => {
                 log::info!(
@@ -115,22 +159,52 @@ fn send_due_plan_time_reminders_noting(
     log::info!("[plan-reminder] tick: {candidates} candidate Tab(s), {due} due");
 }
 
+struct HostTick<'a, H, L> {
+    host: &'a H,
+    counter: &'a TurnCounter,
+    now: u64,
+    lost: L,
+}
+
+impl<H: ReminderHost, L: Fn(&str, &PlanReminderTarget)> TimeReminderPorts for HostTick<'_, H, L> {
+    fn agent_live(&self, tab_id: &str) -> bool {
+        ensure_routable(self.host, tab_id).is_ok()
+    }
+
+    fn deliver(
+        &self,
+        tab_id: &str,
+        target: &PlanReminderTarget,
+        kind: NudgeKind,
+    ) -> Result<bool, String> {
+        deliver_target(self.host, self.counter, tab_id, target, kind, self.now)
+    }
+
+    fn note(&self, tab_id: &str, target: &PlanReminderTarget, fact: TickFact) {
+        record_target_tick(self.host, tab_id, target, self.now, fact);
+    }
+
+    fn agent_lost(&self, tab_id: &str, target: &PlanReminderTarget) {
+        (self.lost)(tab_id, target);
+    }
+}
+
 fn run_reminder_tick(
     host: &impl ReminderHost,
     plans: &[Plan],
     counter: &TurnCounter,
     now: u64,
     interval_secs: u64,
+    lost: impl Fn(&str, &PlanReminderTarget),
 ) {
     host.gate().retain(&approval::scope_keys(plans));
-    send_due_plan_time_reminders_noting(
-        plans,
+    let ports = HostTick {
+        host,
         counter,
         now,
-        interval_secs,
-        |tab_id, target, kind| deliver_target(host, counter, tab_id, target, kind, now),
-        |tab_id, target, fact| record_target_tick(host, tab_id, target, now, fact),
-    );
+        lost,
+    };
+    send_due_plan_time_reminders_via(plans, counter, now, interval_secs, &ports);
 }
 
 fn deliver_target(
@@ -218,7 +292,7 @@ fn ensure_routable(host: &impl ReminderHost, tab_id: &str) -> Result<(), String>
     {
         Ok(())
     } else {
-        Err("agent_unavailable: plan reminder target has no verified live agent session".into())
+        Err(AGENT_UNAVAILABLE.into())
     }
 }
 
@@ -562,6 +636,14 @@ impl ServiceContext {
             &self.plan_turn_counter,
             current_epoch_secs(),
             cfg.nudge_interval_secs,
+            |tab_id, target| {
+                if matches!(target, PlanReminderTarget::Worker) {
+                    self.report_worker_losses(self.worker_losses_for_tab(
+                        tab_id,
+                        crate::service::worker_loss::WorkerLossCause::AgentUnavailable,
+                    ));
+                }
+            },
         );
     }
 
@@ -781,6 +863,7 @@ fn active_execution(plan: &Plan) -> bool {
 
 fn owner_reminder_eligible(plan: &Plan) -> bool {
     active_execution(plan)
+        && plan.control_loop.owner_heartbeat()
         && plan
             .tasks
             .iter()

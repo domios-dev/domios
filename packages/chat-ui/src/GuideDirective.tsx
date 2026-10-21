@@ -15,6 +15,10 @@ interface GuideNavigation {
 
 const GuideNavigationContext = createContext<GuideNavigation | null>(null);
 
+export function useGuideNavigation() {
+  return useContext(GuideNavigationContext);
+}
+
 export function GuideNavigationProvider({
   sections,
   onOpen,

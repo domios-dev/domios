@@ -22,6 +22,8 @@ A bounce carries its reason and failing evidence. It returns work to a live Work
 
 Dispatch criteria remain locked in the Worker's checklist: the Worker updates their state by stable item identity while preserving their text. Open criteria warn on review submission; acceptance completes them and a bounce reopens them. The sidebar reflects the stored states.
 
+Workers share their checklist and continue work immediately. Their parent or Plan owner may approve it or amend the Worker's own items while preserving seeded criteria. The parent receives a compact review card; sidebar and Underway mark an unreviewed proposal, and amendments notify the Worker with the changes. Checklist review is advisory and never gates execution or reports.
+
 A delivered task-bound report ends with one verdict reminder naming its plan, task, accept/bounce command and report time. The reminder is advisory and never blocks dispatch, integration or other work.
 
 Worker kinds add role prompting automatically with the same execution ability with or without a task. A task-bound kind follows the normal Worker lifecycle; a task-less kind works for its parent and gains no task-transition authority. Publication and tags require owner GO.
@@ -46,7 +48,7 @@ Close refuses while a Team task is in progress or a Worker is working unless for
 
 Team and workspace closes keep a durable inventory. Recently Closed restores each close as one action; Undo uses the same record until its recorded deadline or the next close. Restoration keeps workspace folders, Team identities and membership, manager pairing and plan binding, exact per-tab sessions, tab order and panel state, and the enabled states of crons and Blueprints. Repeating a restore, including after restart, creates no duplicates. Utility shells return stopped and require an explicit rerun. Finalized Worker assignments stay finalized; retained dirty or unmerged lanes remain available, while removed clean merged lanes and their attempts are never recreated.
 
-The Orchestrator receives only its configured periodic heartbeat as an automatic plan reminder. Lifecycle, idle, report, dispatch, task and mode changes never produce extra reminders, and completed plans receive no automatic wrap-up. Reports, worker-lost notices and failures keep their own delivery channels.
+The plan defaults to a Curator control loop that mirrors the Orchestrator's current model and reviews a bounded system digest. It chooses a cadence between 45 minutes and two hours, suspends while paused, complete or waiting on a human, and replaces the Orchestrator heartbeat. Owners may select periodic heartbeat mode and its interval. Quiet rounds can deliver a free heartbeat nudge for actionable work; failures expose a visible heartbeat fallback. Reports, worker-lost notices and failures keep their own delivery channels.
 
 A validated blocked verdict sends no reminder to that recipient. It creates one host-authored owner notice per distinct blocker, with choices to wait, pause the plan or decide. The notice proposes pausing when its blocker stops every actionable task. After a reminder is accepted, unrelated plan changes do not repeat it for the same recipient; that recipient's task status, assignment, report or new owner message must change first.
 

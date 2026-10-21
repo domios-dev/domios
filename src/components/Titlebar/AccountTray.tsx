@@ -1,5 +1,7 @@
+import { createNoticePublisher } from "../../lib/notices";
 import { useState } from "react";
-import { LoaderCircle, UserRound } from "lucide-react";
+import { UserRound } from "lucide-react";
+import { BusyState } from "../shared/BusyState";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
 import { useAccount } from "../Settings/useAccount";
 import { useAccountPlan } from "../Settings/useAccountPlan";
@@ -22,12 +24,12 @@ export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
   const startSignIn = async (hint: SignInOption["hint"]) => {
     const failure = await account.signIn(hint);
     if (!failure) return;
-    upsertToast(signInFailureToast(failure, () => startSignIn(hint)));
+    createNoticePublisher({ upsertToast })(signInFailureToast(failure, () => startSignIn(hint)));
   };
   const manageSubscription = async () => {
     const failure = await billing.manage(onOpenPlans);
     if (!failure) return;
-    upsertToast(billingFailureToast(failure, "managing your subscription", billing.plan?.status,
+    createNoticePublisher({ upsertToast })(billingFailureToast(failure, "managing your subscription", billing.plan?.status,
       () => manageSubscription()));
   };
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
@@ -56,7 +58,7 @@ export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
         {pending
           ? <Skeleton inline><SkeletonBlock shape="circle" width={20} height={20} /></Skeleton>
           : billing.pending
-            ? <LoaderCircle size={16} className="animate-spin" aria-hidden="true" />
+            ? <BusyState inline hideLabel dotSize="small" label="Opening subscription" />
           : model.kind === "signed_in"
             ? <AccountAvatar url={model.avatarUrl} initial={model.initial} label={`${model.identity} avatar`} size="tray" />
             : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--ct-fg)_10%,transparent)] text-[var(--ct-fg)]" aria-hidden="true">

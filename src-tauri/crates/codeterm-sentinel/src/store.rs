@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::amend::{self, Amendment};
 use super::escalation;
-use super::handlers::{self, Definition, Handler, Transition};
+use super::handlers::{self, Handler, Transition};
 use super::machine::{self, Machine, Route};
 use super::probe::cancellation::Cancellation;
 use super::source::{self, RunBinding, TabBinding};
@@ -19,49 +19,12 @@ pub const MAX_LIFETIME_TRANSITIONS: usize = 65_536;
 
 pub type ScopeKey = (String, Option<String>);
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Create {
-    #[serde(default)]
-    pub terminal: Option<codeterm_blueprint_types::blueprint_terminal::Config>,
-    #[serde(default)]
-    pub session: bool,
-    pub name: Option<String>,
-    #[serde(default)]
-    pub probe: Option<String>,
-    #[serde(default)]
-    pub observe: Option<TabBinding>,
-    #[serde(default)]
-    pub input: Option<InputSpec>,
-    pub question: String,
-    pub buckets: Vec<String>,
-    #[serde(default = "default_every")]
-    pub every: String,
-    #[serde(default)]
-    pub routes: BTreeMap<String, String>,
-    #[serde(default)]
-    pub matches: BTreeMap<String, String>,
-    #[serde(default)]
-    pub model_classification: bool,
-    #[serde(default)]
-    pub rearm_on_change: BTreeSet<String>,
-    pub until: Option<String>,
-    pub timeout: Option<String>,
-    #[serde(default)]
-    pub paused: bool,
-    pub handlers: Option<BTreeMap<String, Vec<Definition>>>,
-    #[serde(default)]
-    pub escalation_timeout_ms: Option<u64>,
-    pub max_transitions: Option<u16>,
-    pub max_actions: Option<u16>,
-}
-
-fn default_every() -> String {
-    "20s".into()
-}
+pub use codeterm_blueprint_types::blueprint_watch::Create;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Sentinel {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creation_options: Option<codeterm_blueprint_types::blueprint_watch::CreationOptions>,
     #[serde(flatten)]
     pub source: super::stage_source::StageSource,
     #[serde(default)]
@@ -85,6 +48,8 @@ pub struct Sentinel {
     pub until: Option<String>,
     pub expires_at: Option<u64>,
     pub next_run: u64,
+    #[serde(default, flatten)]
+    pub cleanup: super::retention::Retention,
     pub machine: Machine,
     pub last_reason: Option<String>,
     #[serde(default, flatten)]
@@ -93,6 +58,8 @@ pub struct Sentinel {
     pub revision: u64,
     #[serde(default)]
     pub agent_authored: bool,
+    #[serde(default)]
+    pub note: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -257,7 +224,8 @@ impl Store {
         self.jobs.iter().find(|job| job.id == id)
     }
 
-    pub fn stage_insert(&mut self, job: Sentinel) -> Staged<Sentinel> {
+    pub fn stage_insert(&mut self, mut job: Sentinel) -> Staged<Sentinel> {
+        job.cleanup.sync(job.machine.stopped, self.clock.now_ms());
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
         }
@@ -268,6 +236,16 @@ impl Store {
             return Staged::ready(Err(format!(
                 "blueprint_capability_unavailable: {capability} is not executable yet"
             )));
+        }
+        if self.jobs.iter().any(|current| {
+            current.name == job.name
+                && job.name.is_some()
+                && current.team_id == job.team_id
+                && current.workspace_id == job.workspace_id
+        }) {
+            return Staged::ready(Err(
+                "Blueprint name already exists in this Team and workspace; use apply".into(),
+            ));
         }
         if self.get(&job.id).is_some() {
             return Staged::ready(Err("duplicate blueprint ID".into()));
@@ -422,6 +400,7 @@ impl Store {
     pub fn apply_stop(&mut self, id: &str, reason: &str) -> Option<Sentinel> {
         let job = self.jobs.iter_mut().find(|job| job.id == id)?;
         job.machine.stopped = true;
+        job.cleanup.sync(true, self.clock.now_ms());
         job.revision += 1;
         job.last_reason = Some(reason.into());
         self.wake_pending.remove(id);
@@ -620,6 +599,9 @@ impl Store {
             return Staged::ready(Err(error));
         }
         let now = self.clock.now_ms();
+        let mut timed_job = job.clone();
+        timed_job.cleanup.sync(job.machine.stopped, now);
+        let job = &timed_job;
         let Some(current) = self.get(&job.id) else {
             return Staged::ready(Ok(false));
         };
@@ -865,10 +847,15 @@ impl Store {
 
     pub fn next_deadline(&self) -> u64 {
         let now = self.clock.now_ms();
+        let leased = self.active.keys().cloned().collect();
         self.jobs
             .iter()
-            .filter(|job| !job.machine.stopped)
             .flat_map(|job| {
+                if job.machine.stopped {
+                    return super::cleanup::deletion_deadline(&self.jobs, job, &leased)
+                        .into_iter()
+                        .collect::<Vec<_>>();
+                }
                 let active = self.active.contains_key(&job.id);
                 let waiting_for_run =
                     matches!(job.observe(), Some(TabBinding::CronRun(_))) && job.run.is_none();
@@ -904,7 +891,7 @@ impl Store {
                 } else {
                     Some(job.next_run)
                 };
-                next.into_iter().chain(job.expires_at)
+                next.into_iter().chain(job.expires_at).collect::<Vec<_>>()
             })
             .min()
             .map(|at| at.saturating_sub(now))
@@ -918,7 +905,8 @@ impl Store {
             .iter()
             .filter(|job| !job.machine.stopped)
             .collect::<Vec<_>>();
-        !live.is_empty()
+        !self.jobs.iter().any(|job| job.cleanup.deletes_at.is_some())
+            && !live.is_empty()
             && live.iter().all(|job| {
                 job.expires_at.is_none()
                     && ((job.terminal().is_some() || job.input().is_some())
@@ -1034,6 +1022,7 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
     current.machine.last_hash = job.machine.last_hash.clone();
     current.machine.last_bucket = job.machine.last_bucket.clone();
     current.machine.stopped = job.machine.stopped;
+    current.cleanup = job.cleanup.clone();
     current.machine.held = job.machine.held.clone();
     current.last_reason = job.last_reason.clone();
     current.progress = job.progress.clone();
