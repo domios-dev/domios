@@ -754,6 +754,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             args,
             model,
             reasoning_effort,
+            speed,
             system_prompt,
             preset,
             location,
@@ -863,6 +864,9 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             }
             if let Some(m) = model {
                 body["model"] = serde_json::json!(m);
+            }
+            if let Some(speed) = speed {
+                body["speed"] = serde_json::json!(speed);
             }
             if let Some(effort) = reasoning_effort {
                 body["reasoning_effort"] = serde_json::json!(effort);

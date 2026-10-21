@@ -82,6 +82,7 @@ pub(in crate::server) fn respawn_worker_params(
         task: Some(draft.task_prompt.clone()),
         workspace_id: draft.workspace_id.clone(),
         model: draft.model.clone(),
+        speed: draft.speed.clone(),
         planned_model: draft.planned_model.clone(),
         planned_reasoning_effort: draft.reasoning_effort.clone(),
         reasoning_effort: draft.reasoning_effort.clone(),
@@ -93,6 +94,34 @@ pub(in crate::server) fn respawn_worker_params(
         }),
         spawned_by_tab_id: Some(parent_tab_id.to_string()),
         ..Default::default()
+    }
+}
+
+pub(super) fn rollback_failed_dispatch<R, C>(
+    lane: Option<codeterm_service_core::service::ProvisionedWorkerLane>,
+    revert_task: R,
+    close_tab: C,
+) -> Result<(), String>
+where
+    R: FnOnce() -> Result<(), String>,
+    C: FnOnce() -> Result<(), String>,
+{
+    let mut errors = Vec::new();
+    if let Err(error) = revert_task() {
+        errors.push(format!("task restore failed: {error}"));
+    }
+    if let Err(error) = close_tab() {
+        errors.push(format!("Tab close failed: {error}"));
+    }
+    if let Some(lane) = lane {
+        if let Err(error) = lane.cleanup() {
+            errors.push(format!("lane cleanup failed: {error}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
     }
 }
 
@@ -113,6 +142,7 @@ mod tests {
             provider: "fixture-agent".into(),
             planned_model: Some("fixture-agent/model".into()),
             model: Some("gpt-6-luna".into()),
+            speed: Some("opaque-tier".into()),
             reasoning_effort: None,
             parent_tab_id: None,
             workspace_id: None,
@@ -127,6 +157,7 @@ mod tests {
 
         let params = respawn_worker_params(&draft, "opaque task", None, "tab_parent");
 
+        assert_eq!(params.speed.as_deref(), Some("opaque-tier"));
         assert_eq!(params.execution_intent, Some(ExecutionIntent::Mutating));
         assert_eq!(params.agent.as_deref(), Some("fixture-agent"));
         assert_eq!(params.model.as_deref(), Some("gpt-6-luna"));

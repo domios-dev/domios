@@ -172,6 +172,7 @@ pub struct SpawnAgentParams {
     pub ownership: Option<codeterm_types::pty::RemoteOwnership>,
     /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
     pub model: Option<String>,
+    pub speed: Option<String>,
     /// Plan/task routing model before a launch-time model override.
     pub planned_model: Option<String>,
     /// Host-owned plan-task dispatch intent. Generic spawn payloads cannot set it.

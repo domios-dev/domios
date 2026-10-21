@@ -16,6 +16,7 @@ fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64)
         name: format!("title-{id}"),
         kind: "implement".into(),
         model: None,
+        speed: None,
         model_rationale: None,
         acceptance_criteria: vec![],
         external_refs: vec![],

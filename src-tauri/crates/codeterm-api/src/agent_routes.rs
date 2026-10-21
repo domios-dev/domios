@@ -84,6 +84,7 @@ pub struct SpawnAgentBody {
     /// rejected structurally if unsupported (no silent downgrade).
     #[serde(alias = "reasoning-effort")]
     reasoning_effort: Option<String>,
+    speed: Option<String>,
     #[serde(alias = "system")]
     system_prompt: Option<String>,
     preset: Option<String>,

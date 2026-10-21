@@ -76,6 +76,7 @@ impl SpawnAgentParams {
                 .cloned()
                 .and_then(|value| serde_json::from_value(value).ok()),
             model: json_str(params, "model"),
+            speed: json_str(params, "speed"),
             planned_model: json_str(params, "planned_model"),
             planned_reasoning_effort: None,
             reasoning_effort: json_str(params, "reasoning_effort")

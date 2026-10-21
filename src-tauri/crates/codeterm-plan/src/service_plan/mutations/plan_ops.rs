@@ -272,6 +272,7 @@ impl PlanStore {
             name: new.name,
             kind: new.kind,
             model: new.model,
+            speed: None,
             model_rationale: new.model_rationale,
             acceptance_criteria: new.acceptance_criteria,
             external_refs,

@@ -38,6 +38,7 @@ fn task(id: &str, status: TaskStatus, sections: &[&str]) -> Task {
         name: format!("name-{id}"),
         kind: "implement".into(),
         model: None,
+        speed: None,
         model_rationale: None,
         acceptance_criteria: vec![],
         external_refs: vec![],
