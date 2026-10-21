@@ -129,6 +129,11 @@ export function createTabsTransport(client: TabsTransportClient, cursors: PtyCur
             before_offset: a.beforeOffset,
             offset_kind: a.offsetKind,
         }),
+        chat_history_page: (a: Args) => clientFor(a).json("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/history`, {
+            source: s(a, "source"),
+            session_id: s(a, "sessionId"),
+            before_offset: a.beforeOffset,
+        }),
         chat_resume: (a: Args) => clientFor(a).json<ChatResumeResult>("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/resume`, {
             cursor: s(a, "cursor"),
         }),

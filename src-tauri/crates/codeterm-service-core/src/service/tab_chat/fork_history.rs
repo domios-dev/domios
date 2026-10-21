@@ -104,23 +104,29 @@ pub(super) fn messages(
     };
     let tails = &svc.chat_registry.tail_cache;
     let messages = match history_source(svc, tab_id, provider_id, cwd, session_id, &path) {
-        HistorySource::Own => tails.jsonl_messages(
-            &svc.agent_registry,
-            provider_id,
-            &path,
-            &format!("tab:{tab_id}"),
-        ),
+        HistorySource::Own => {
+            tails
+                .jsonl_tail(
+                    &svc.agent_registry,
+                    provider_id,
+                    &path,
+                    &format!("tab:{tab_id}"),
+                )
+                .0
+        }
         HistorySource::Unavailable => Vec::new(),
         HistorySource::Inherited {
             session_id: source,
             path,
         } => mark_inherited(
-            tails.jsonl_messages(
-                &svc.agent_registry,
-                provider_id,
-                &path,
-                &format!("tab:{tab_id}/inherited:{source}"),
-            ),
+            tails
+                .jsonl_tail(
+                    &svc.agent_registry,
+                    provider_id,
+                    &path,
+                    &format!("tab:{tab_id}/inherited:{source}"),
+                )
+                .0,
             &source,
         ),
     };

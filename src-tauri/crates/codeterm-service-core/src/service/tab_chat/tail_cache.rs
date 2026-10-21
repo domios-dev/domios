@@ -225,14 +225,14 @@ impl TailCache {
         self.entries.lock().len()
     }
 
-    /// Bounded tail messages of one session JSONL, reusing the parsed tail.
-    pub fn jsonl_messages(
+    /// Bounded tail messages of one session JSONL and the offset they start at.
+    pub fn jsonl_tail(
         &self,
         registry: &Arc<AgentRegistry>,
         provider_id: &str,
         path: &Path,
         scope: &str,
-    ) -> Vec<ChatMsg> {
+    ) -> (Vec<ChatMsg>, u64) {
         let key = TailKey {
             provider_id: provider_id.to_owned(),
             path: path.to_owned(),
@@ -244,10 +244,10 @@ impl TailCache {
         };
         let Some(read) = self.read(&key, &port) else {
             self.evict(&key);
-            return Vec::new();
+            return (Vec::new(), 0);
         };
         log_read(scope, provider_id, &read);
-        read.rows.messages.clone()
+        (read.rows.messages.clone(), read.rows.start_offset)
     }
 }
 
