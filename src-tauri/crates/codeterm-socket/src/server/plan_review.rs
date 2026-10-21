@@ -344,6 +344,16 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             qa_authority::consume_qa_review_grant(svc, &from, &plan_id, &task_id);
             if let Some(worker) = worker {
+                codeterm_service_core::async_runtime::block_on(svc.tab_todo_apply_review(
+                    &worker,
+                    from.tab_id.as_deref(),
+                    true,
+                ))
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
                 if let Some(ports) =
                     svc.try_ext::<codeterm_service_core::ports::sentinel::SentinelPorts>()
                 {
@@ -407,6 +417,27 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            if recorded {
+                if let Some(worker) = store.show_task(&task_id).and_then(|shown| {
+                    shown.task.execution_attempts.last().and_then(|attempt| {
+                        attempt
+                            .mesh_peer
+                            .is_none()
+                            .then(|| attempt.executor_tab_id.clone())
+                    })
+                }) {
+                    codeterm_service_core::async_runtime::block_on(svc.tab_todo_apply_review(
+                        &worker,
+                        from.tab_id.as_deref(),
+                        false,
+                    ))
+                    .map_err(|message| JsonRpcError {
+                        code: -32603,
+                        message,
+                        data: None,
+                    })?;
+                }
+            }
             qa_authority::consume_qa_review_grant(svc, &from, &plan_id, &task_id);
             if recorded {
                 svc.record_kpi_review_verdict(

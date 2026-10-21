@@ -20,6 +20,8 @@ Every Worker turn ends in a report. The report is pushed to the Orchestrator, in
 
 A bounce carries its reason and failing evidence. It returns work to a live Worker when continuation is available; otherwise it reopens the task as pending, preserving the note, attempt history and lane for redispatch. Ambiguous attempts refuse rather than assigning ownership by guess. Same-attempt restoration and review continuation accept a live PTY or Chat runtime Worker with its exact session and nonce. Restoring a conversation preserves task status and review evidence, and a plan-binding failure leaves the conversation usable with an owner-visible warning.
 
+Dispatch criteria remain locked in the Worker's checklist: the Worker updates their state by stable item identity while preserving their text. Open criteria warn on review submission; acceptance completes them and a bounce reopens them. The sidebar reflects the stored states.
+
 A delivered task-bound report ends with one verdict reminder naming its plan, task, accept/bounce command and report time. The reminder is advisory and never blocks dispatch, integration or other work.
 
 Worker kinds add role prompting automatically with the same execution ability with or without a task. A task-bound kind follows the normal Worker lifecycle; a task-less kind works for its parent and gains no task-transition authority. Publication and tags require owner GO.
