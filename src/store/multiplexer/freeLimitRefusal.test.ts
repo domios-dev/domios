@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { FREE_LIMIT_REACHED, freeLimitMessage, freeLimitToast } from "./freeLimitRefusal";
+
+const fetches = vi.hoisted(() => ({ localFetch: vi.fn() }));
+vi.mock("../../lib/webApi", () => fetches);
+
+import { FREE_LIMIT_REACHED, freeLimitMessage, freeLimitToast, upgradeToPro } from "./freeLimitRefusal";
 
 const reason = "opaque-refusal-body";
 const coded = `${FREE_LIMIT_REACHED}: ${reason}`;
@@ -27,5 +31,15 @@ describe("free-tier refusal", () => {
     expect(toast.local_actions).toHaveLength(1);
     await toast.local_actions![0].run();
     expect(upgrade).toHaveBeenCalledOnce();
+  });
+
+  it("upgrades with a commercial checkout key and surfaces a refusal", async () => {
+    fetches.localFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await upgradeToPro();
+    const [path, init] = fetches.localFetch.mock.calls[0];
+    expect(path).toBe("/api/account/upgrade");
+    expect(JSON.parse(init.body)).toEqual({ plan: "pro_monthly" });
+    fetches.localFetch.mockResolvedValueOnce(new Response("refused", { status: 400 }));
+    await expect(upgradeToPro()).rejects.toThrow("refused");
   });
 });

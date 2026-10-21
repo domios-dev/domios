@@ -35,12 +35,14 @@ export function freeLimitToast(
   };
 }
 
-/** Opens the same hosted checkout as `codeterm account upgrade pro`. */
+/** The backend checks out commercial keys only, never the bare plan name. */
+export const UPGRADE_PLAN_KEY = "pro_monthly";
+
 export async function upgradeToPro(): Promise<void> {
   const response = await localFetch("/api/account/upgrade", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ plan: "pro" }),
+    body: JSON.stringify({ plan: UPGRADE_PLAN_KEY }),
   });
   if (!response.ok) throw new Error(await response.text());
 }
