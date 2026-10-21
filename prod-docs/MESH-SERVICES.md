@@ -10,7 +10,7 @@ The Mesh tab is the UI surface for the local service registry and peer services.
 
 - **Map** — peer terminals with connection lines that reflect recent push traffic.
 - **Activity** — the activity log with `source` and `level` filters. Mesh-relayed pushes carry `source_peer` so cross-peer traffic is distinguishable from local pushes.
-- **Settings** — mesh enable/disable, broadcast toggle, paired-peer access levels, instance name.
+- **Network** — My machines. Signed out, it asks you to sign in; after an explicit sign-out, saved pairings stay listed as blocked with "Signed out — sign in to use the mesh". Signed in, it lists this machine (Rename this machine) and your account's other machines as linked or not linked, with the reason a machine cannot be added (no endpoint, stale, expired, revoked, over the plan limit). Add links one machine; both must be online, and it shows linked only after the authorized handshake. Revoke removes a machine from your account and frees its slot; Unpair removes only the local pairing. Pairings made before account Mesh appear under Saved pairings.
 
 Below the canvas, two tables share the surface: **Crons** (`kind = cron`, columns: name / next-run / status) and **Services** (`kind = daemon`, columns: name / health / mode / push). Peer cards on the canvas list their services.
 
@@ -82,4 +82,4 @@ The add-service wizard handles manual daemon registration. Smart-Add inspects ru
 
 All four respond `503` when `mesh.enabled=false` (see top of doc).
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
