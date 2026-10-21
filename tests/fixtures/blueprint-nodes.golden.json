@@ -75,6 +75,10 @@
       }
     },
     {
+      "role": "agent",
+      "kind": "step",
+      "type": "agent",
+      "title": "Pipeline step: bounded agent task",
       "params_schema": {
         "provider": "agent-task capable provider id",
         "profile": "profile id",
@@ -82,26 +86,40 @@
         "deadline_ms": "1..3600000",
         "max_tokens": "1..1000000",
         "max_turns": "1..100"
-      },
-      "role": "agent",
-      "kind": "step",
-      "type": "agent",
-      "title": "Pipeline step: bounded agent task"
+      }
     },
     {
       "role": "source",
       "kind": "step",
       "type": "github",
-      "title": "GitHub: run status, jobs or PR checks",
+      "title": "GitHub: CI runs, PR checks or runners",
       "params_schema": {
         "probe": {
-          "repo": "owner/repo",
-          "resource": "run|jobs|pr_checks",
-          "id": "positive run or PR id"
+          "repo": "owner/repo (or org for runners)",
+          "org": "organization for runners (exclusive with repo)",
+          "resource": "run|jobs|pr_checks|runners",
+          "id": "positive run or PR id (omit for runners)",
+          "label": "optional runner label",
+          "timeout_ms": "1..60000 (default 60000)"
         }
       },
       "timeout_ms": 60000,
-      "fork": "replace with a command step for custom queries"
+      "states": "done|failed|failing (run/jobs), online|offline|failed (runners)",
+      "fork": "override probe inputs and state routes without changing kind"
+    },
+    {
+      "role": "source",
+      "kind": "step",
+      "type": "http",
+      "title": "HTTP: endpoint health",
+      "params_schema": {
+        "probe": {
+          "url": "http or https URL",
+          "expected_status": "2xx (default) or exact status code",
+          "timeout_ms": "1..10000 (default 3000)"
+        }
+      },
+      "states": "up|down|failed"
     },
     {
       "role": "action",

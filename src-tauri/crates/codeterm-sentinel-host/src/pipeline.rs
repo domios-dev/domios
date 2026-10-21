@@ -1,3 +1,4 @@
+mod sources;
 use codeterm_blueprint_types::blueprint_journal::{
     JournalMarker, JournalOutcome, JournalReason, JournalState,
 };
@@ -613,66 +614,7 @@ fn run_step(
         return failed_input_step(reason);
     }
     match &step.kind {
-        StepKind::Command { .. } | StepKind::Github { .. } => {
-            let (command, runtime) = match &step.kind {
-                StepKind::Command { command } => (command.clone(), probe::PROBE_RUNTIME),
-                StepKind::Github { probe: github } => match github.command() {
-                    Ok(command) => (
-                        command,
-                        Duration::from_millis(
-                            codeterm_blueprint_types::blueprint_github::PROBE_RUNTIME_MS,
-                        ),
-                    ),
-                    Err(reason) => return failed_input_step(&reason),
-                },
-                _ => unreachable!(),
-            };
-            let remaining = lease
-                .job
-                .expires_at
-                .map(|at| Duration::from_millis(at.saturating_sub(now(handle))))
-                .unwrap_or(runtime);
-            let result = probe::run_with_budget(
-                &command,
-                Path::new(&lease.job.cwd),
-                remaining,
-                runtime,
-                &handle.probe_owner,
-                &super::probe_env::current_instance(svc.configuration().api),
-            );
-            match result {
-                Ok(output) => {
-                    let success = output.success;
-                    let summary = if success {
-                        format!("command completed ({} output bytes)", output.bytes.len())
-                    } else {
-                        format!("command failed ({} output bytes)", output.bytes.len())
-                    };
-                    StepResult {
-                        outcome: if success {
-                            StepOutcome::Done
-                        } else {
-                            StepOutcome::Failed
-                        },
-                        stored_outcome: if success { "done" } else { "failed" }.into(),
-                        state: if success {
-                            JournalState::Done
-                        } else {
-                            JournalState::Failed
-                        },
-                        summary,
-                        reason: (!success).then(|| "command_failed".into()),
-                        next_text: output
-                            .stdout_text()
-                            .trim_end_matches(&['\n', '\r'][..])
-                            .to_string(),
-                        decision: None,
-                        uncertain: false,
-                    }
-                }
-                Err(failure) => command_failure(failure, previous),
-            }
-        }
+        StepKind::Command { .. } | StepKind::Github { .. } | StepKind::Http { .. } => sources::run(handle, svc, lease, step, previous),
         StepKind::Agent {
             provider,
             profile,

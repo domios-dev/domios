@@ -912,3 +912,38 @@ fn blueprint_watch_summary_exposes_explicit_classification_mode() {
     job["matches"] = serde_json::json!({"ready":"^ready$"});
     assert!(super::watch_summary(&job).contains("classification=pattern"));
 }
+
+#[test]
+fn blueprint_github_recipe_creates_typed_source_for_each_resource() {
+    use clap::Parser;
+    for resource in ["run", "jobs", "pr_checks"] {
+        let assignment = format!("resource={resource}");
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "blueprint",
+            "create",
+            "--recipe",
+            "github",
+            "--set",
+            "repo=cli/cli",
+            "--set",
+            &assignment,
+            "--set",
+            "id=39652641013",
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
+            panic!("wrong command")
+        };
+        let (method, params) = request(action, Some("creator".into()), None).unwrap();
+        assert_eq!(method, "blueprint.pipeline.create");
+        let spec: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec =
+            serde_json::from_value(params["spec"].clone()).unwrap();
+        assert!(codeterm_blueprint_types::blueprint_pipeline::validate(&spec, &[]).is_ok());
+        assert_eq!(params["spec"]["steps"][0]["kind"]["kind"], "github");
+        assert_eq!(
+            params["spec"]["steps"][0]["kind"]["probe"],
+            json!({"repo":"cli/cli", "resource":resource, "id":39652641013u64, "timeout_ms":60000})
+        );
+    }
+}

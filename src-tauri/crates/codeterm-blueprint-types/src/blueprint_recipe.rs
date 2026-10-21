@@ -68,8 +68,26 @@ impl Recipe {
         self.validate()?;
         let mut value = self.definition.clone();
         substitute(&mut value, assignments)?;
+        if let Some(spec) = value.get_mut("spec") { normalize_pipeline_inputs(spec)?; }
         Ok(value)
     }
+}
+
+pub fn normalize_pipeline_inputs(value: &mut Value) -> Result<(), String> {
+    let Some(steps) = value.get_mut("steps").and_then(Value::as_array_mut) else { return Ok(()) };
+    for step in steps {
+        let kind = step.pointer("/kind/kind").and_then(Value::as_str).unwrap_or("").to_string();
+        if matches!(kind.as_str(), "github" | "http") {
+            for key in ["id", "timeout_ms"] {
+                if let Some(value) = step.pointer_mut(&format!("/kind/probe/{key}")) {
+                    if let Some(text) = value.as_str() {
+                        *value = Value::from(text.parse::<u64>().map_err(|_| format!("{} {key} must be a positive integer", if kind == "github" { "GitHub" } else { "HTTP" }))?);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn valid_key(key: &str) -> bool {
@@ -209,42 +227,4 @@ fn replace(value: &mut Value, replacements: &BTreeMap<String, String>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn blueprint_recipe_refuses_unknown_schema_and_missing_placeholders() {
-        let mut recipe = Recipe {
-            schema_version: 2,
-            placeholders: BTreeMap::from([
-                ("tab".into(), "Destination tab".into()),
-                ("path".into(), "Probe path".into()),
-            ]),
-            definition: json!({"create":{"observe":"{{tab}}", "probe":"{{path}}"}}),
-        };
-        assert!(recipe.bind(&[]).unwrap_err().contains("schema version"));
-        recipe.schema_version = SCHEMA_VERSION;
-        assert_eq!(
-            recipe.bind(&[]).unwrap_err(),
-            "missing recipe placeholders: path, tab"
-        );
-        assert_eq!(
-            recipe
-                .bind(&["tab=other".into(), "path=/scratch".into()])
-                .unwrap(),
-            json!({"create":{"observe":"other", "probe":"/scratch"}})
-        );
-    }
-
-    #[test]
-    fn blueprint_recipe_bind_is_simultaneous_and_refuses_extra_fields() {
-        let mut value = json!({"probe":"{{a}} {{b}}"});
-        substitute(&mut value, &["a=$b".into(), "b=ready".into()]).unwrap();
-        assert_eq!(value["probe"], "$b ready");
-        assert!(Recipe::parse(
-            r#"{"schema_version":1,"placeholders":{},"definition":{},"runtime":{}}"#
-        )
-        .is_err());
-    }
-}
+mod tests;
