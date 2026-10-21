@@ -292,8 +292,8 @@ impl ThreadService {
         Some(placed)
     }
 
-    /// Send a tab's text: into its topic with a headered main-chat pointer, or
-    /// headered into the main chat when topics cannot carry it. Returns the
+    /// Send a tab's text into its topic, or into the main chat when topics
+    /// cannot carry it, with its sender header. Returns the
     /// message that carries the buttons.
     pub async fn route_text(&self, tabs: &dyn ThreadTabs, text: TabText) -> Option<i64> {
         let attached = self.attached()?;
@@ -327,19 +327,6 @@ impl ThreadService {
             .send_thread_text(&attached, &text, &mut thread_id, header.clone(), "tab")
             .await?;
 
-        if let (Some(thread_id), Some(header), false) = (thread_id, header.as_deref(), text.append)
-        {
-            let link = topic_link(text.chat_id, thread_id);
-            let pointer = compose::pointer(header, link.as_deref(), &text.markdown);
-            if let Ok(pointer_id) = attached
-                .transport
-                .send_html(text.chat_id, None, &pointer, None)
-                .await
-            {
-                self.record_origin(&attached, text.chat_id, pointer_id, &text.tab_id);
-            }
-        }
-
         self.appends.lock().insert(
             text.tab_id.clone(),
             AppendState {
@@ -353,8 +340,7 @@ impl ThreadService {
         Some(placed)
     }
 
-    /// Resolve where a tab's media goes; the caller sends it, then calls
-    /// [`Self::after_media`] with the placement.
+    /// Resolve where a tab's media goes; the caller sends it once there.
     pub async fn media_destination(
         &self,
         tabs: &dyn ThreadTabs,
@@ -393,31 +379,6 @@ impl ThreadService {
             }
         };
         MediaDestination { thread_id, header }
-    }
-
-    pub async fn after_media(
-        &self,
-        tab_id: &str,
-        chat_id: i64,
-        destination: &MediaDestination,
-        caption: &str,
-    ) {
-        let (Some(attached), Some(thread_id), Some(header)) = (
-            self.attached(),
-            destination.thread_id,
-            destination.header.as_deref(),
-        ) else {
-            return;
-        };
-        let link = topic_link(chat_id, thread_id);
-        let pointer = compose::pointer(header, link.as_deref(), caption);
-        if let Ok(pointer_id) = attached
-            .transport
-            .send_html(chat_id, None, &pointer, None)
-            .await
-        {
-            self.record_origin(&attached, chat_id, pointer_id, tab_id);
-        }
     }
 
     /// Open or reuse `target_tab_id`'s topic. Authority is decided before any
