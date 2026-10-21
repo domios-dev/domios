@@ -40,7 +40,11 @@ NEXT-CHECK: up to 5 lines `<what to verify> [id]`
 TIDY: lines `<blueprint id>: duplicate of <id> | stale | repeat x<N> -> <advice or pad file>`
 CANDIDATES: lines `<solution> [episode ids] -> skip | improve <mem id> | insert`
 ASKED: none | answered | skip | timeout
+READY: only in a synthesis round: yes | no, with the goal criteria met and still open [ids]
 Lines without ids are dropped. Omit empty sections.
+
+## Synthesis rounds
+When the digest marks a synthesis round, it carries the earlier rounds' MOVE, RETRO and LEARN lines. Re-check each against the current state; never repeat one you cannot re-ground. Name what keeps recurring across rounds (a systemic cause, not noise), which MOVEs were taken or ignored, and whether the Team is speeding up or stalling. Judge readiness only against the plan's goal and acceptance evidence, never a feeling of being done.
 
 ## Choosing NEXT
 Start at 2h. Shorten toward 45m only when an answer is pending that changes an action, a NEXT-CHECK is time-sensitive (a gate running, a lane about to merge), or the window was dense (more than 10 moved tasks or 3 incidents). Never shorten to be thorough; urgent events reach the Orchestrator on their own channels.
