@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { invoke } from "../../lib/bridge";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useMuxSelector } from "../../store/multiplexer";
 import { boundedChecklist, type AgentChecklist, type AgentChecklistItem } from "./agentChecklistModel";
 import { useAgentChecklists } from "./useAgentChecklists";
@@ -39,7 +40,7 @@ export function ChecklistProposalCard({ checklist, title, onReviewed }: {
     </li>)}</ol>
     {editing && <><button type="button" disabled={busy || items.length >= 12} onClick={() => setItems([...items, { id: "", title: "", state: "open" } satisfies AgentChecklistItem])}>Add item</button>
       <label className="block">Note<input aria-label="Review note" maxLength={512} value={note} onChange={(event) => setNote(event.target.value)} /></label></>}
-    {error && <p role="alert">{error}</p>}
+    {error && <InlineErrorNotice error={error} operation="saving the checklist" role="alert" />}
     <div className="mt-2 flex gap-2"><button type="button" disabled={busy} onClick={() => void save(editing)}>{editing ? "Save amendment" : "Approve"}</button>
       <button type="button" disabled={busy} onClick={() => { setEditing(!editing); setItems(checklist.items); setEditBase(checklist); }}>{editing ? "Cancel" : "Edit"}</button></div>
   </section>;

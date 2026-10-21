@@ -11,6 +11,8 @@ import test from 'node:test';
 const root = path.resolve(import.meta.dirname, '..');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const env = { ...process.env, PATH: process.platform === 'win32' ? `C:/Program Files/Git/usr/bin;C:/Program Files/Git/bin;${path.dirname(process.execPath)};${process.env.PATH}` : process.env.PATH };
+// A CI job or a machine pin would switch the fixture's cache policy to the real store.
+for (const name of ['GITHUB_ENV', 'GITHUB_ACTIONS', 'CODETERM_SCCACHE_STORAGE', 'CODETERM_SCCACHE_JOB_LOCAL', 'CT_BUILD_JOB_ID', 'CT_GATEWAY_ACTIVE', 'CT_GATEWAY_OWNER_PID']) delete env[name];
 function observed(directory, predicate) {
   return new Promise((resolve, reject) => {
     let timer;
