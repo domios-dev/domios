@@ -89,9 +89,10 @@ async function main([verb, ...args]) {
   if (verb === 'check') {
     const [runId, sourceSha, branch] = args;
     if (!/^[1-9]\d*$/.test(runId ?? '')) refuse('invalid dry-run run ID');
-    const api = route => JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp', route], { encoding: 'utf8' }));
-    const [run] = api(`repos/${SOURCE_REPO}/actions/runs/${runId}`);
-    const jobs = api(`repos/${SOURCE_REPO}/actions/runs/${runId}/jobs?per_page=100`).flatMap(page => page.jobs);
+    // Runner gh builds predate --slurp; --jq emits one job object per line across pages.
+    const run = JSON.parse(execFileSync('gh', ['api', `repos/${SOURCE_REPO}/actions/runs/${runId}`], { encoding: 'utf8' }));
+    const jobs = execFileSync('gh', ['api', '--paginate', '--jq', '.jobs[] | tojson', `repos/${SOURCE_REPO}/actions/runs/${runId}/jobs?per_page=100`],
+      { encoding: 'utf8' }).split('\n').filter(Boolean).map(line => JSON.parse(line));
     checkQualifiedRun({ run, jobs, sourceSha, branch });
     console.log(`run ${runId} qualifies ${sourceSha} on ${branch}`);
   } else if (verb === 'publish') {
