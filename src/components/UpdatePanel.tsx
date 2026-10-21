@@ -2,13 +2,15 @@ import { InlineErrorNotice } from "./shared/ErrorNotice";
 import { Download, RotateCw } from "lucide-react";
 import { useUpdatePanel } from "../hooks/useUpdatePanel";
 import { groupUpdates, summarizeUpdatePanel, type UpdateRow } from "../lib/updatePanelModel";
-import { useEffect } from "react";
-import { ensurePluginSnapshot, usePluginSnapshotStore } from "../lib/pluginSnapshotStore";
 import { ComponentStatus } from "./shared/ComponentStatus";
 import { UpdateChannelNotice } from "./shared/UpdateChannelNotice";
 import { SettingsCard, SettingsPill } from "./Settings/shared";
 import { BusySpinner } from "./shared/BusyState";
 import { Button } from "./shared/Button";
+import { useCallback, useEffect, useRef } from "react";
+import { BrandMark } from "./brand/BrandMark";
+import { DotMatrixCanvas, type DotMatrixCanvasHandle } from "./brand/DotMatrixCanvas";
+import { usePrefersReducedMotion } from "./brand/usePrefersReducedMotion";
 
 const STATE_TEXT: Record<UpdateRow["state"], string> = {
   available: "Available",
@@ -43,7 +45,19 @@ function UpdatePanelSummaryLine() {
 }
 
 export function UpdatePanel() {
-  return <SettingsCard icon={<Download size={16} />} title="Updates" description={<UpdatePanelSummaryLine />}>
+  const { busy, error } = useUpdatePanel();
+  const reducedMotion = usePrefersReducedMotion();
+  const matrix = useRef<DotMatrixCanvasHandle>(null);
+  const emitWave = useCallback((releasedAt: number) => matrix.current?.emitRelease(releasedAt), []);
+  const wasBusy = useRef(busy);
+  useEffect(() => {
+    if (wasBusy.current && !busy && !error) emitWave(performance.now());
+    wasBusy.current = busy;
+  }, [busy, error, emitWave]);
+  return <SettingsCard
+    backdrop={<DotMatrixCanvas ref={matrix} mode="loading" reducedMotion={reducedMotion} intensity={0.35} />}
+    icon={<span data-dot-origin className="inline-flex">{busy ? <BrandMark motion="load" onRelease={emitWave} /> : <Download size={16} />}</span>}
+    title="Updates" description={<UpdatePanelSummaryLine />}>
     <UpdatePanelContents />
   </SettingsCard>;
 }
@@ -57,8 +71,6 @@ function RowState({ row }: { row: UpdateRow }) {
 
 export function UpdatePanelContents() {
   const update = useUpdatePanel();
-  const { snapshot } = usePluginSnapshotStore();
-  useEffect(() => { void ensurePluginSnapshot({ background: true }).catch(() => undefined); }, []);
   return (
       <div className="flex flex-col gap-3">
         {groupUpdates(update.rows).map(section => (
@@ -67,23 +79,18 @@ export function UpdatePanelContents() {
             <div className="min-w-0">
               {section.items.map(item => {
                 const row = update.rows.find(row => row.id === item.id)!;
-                const metadata = snapshot.plugins.find(plugin => plugin.id === item.id) ?? snapshot.marketplace?.find(plugin => plugin.id === item.id);
-                const description = metadata?.pitch || metadata?.description || (item.group === "App" ? "Desktop app" : item.group === "Interface" ? "Web interface" : "Plugin");
                 const canApply = !item.channelError && update.items.some(current => current.id === item.id)
                   && (row.state === "available" || (row.state === "failed" && !update.error && !update.awaitingRetry));
                 return <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 border-b border-[var(--ct-border)] py-2 last:border-0">
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-baseline gap-2">
-                      <span className="min-w-0 truncate text-xs font-medium text-[var(--ct-fg)]">{item.name}</span>
-                      <span title={`${item.currentVersion} → ${item.targetVersion}`} className="shrink-0 text-[11px] tabular-nums text-[var(--ct-muted)]">
-                        {item.currentVersion} → <span className="text-[var(--ct-muted-fg)]">{item.targetVersion}</span>
-                      </span>
-                    </div>
-                    <div title={description} className="truncate text-[11px] text-[var(--ct-muted-fg)]">{description}</div>
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <span className="min-w-0 truncate text-xs font-medium text-[var(--ct-fg)]">{item.name}</span>
+                    <span title={`${item.currentVersion} → ${item.targetVersion}`} className="shrink-0 text-[11px] tabular-nums text-[var(--ct-muted)]">
+                      {item.currentVersion} → <span className="text-[var(--ct-muted-fg)]">{item.targetVersion}</span>
+                    </span>
                   </div>
                   <div className="flex items-center justify-end gap-2">
                     {(row.state !== "available" || !canApply) && <RowState row={row} />}
-                    {canApply && <Button variant="accent" size="compact" disabled={update.busy || update.checking} aria-label={`Apply ${item.name} update`} onClick={() => void update.applyItem(item.id)}>Apply</Button>}
+                    {canApply && <Button variant="accent" size="compact" disabled={update.busy || update.checking} aria-label={`Update ${item.name}`} onClick={() => void update.applyItem(item.id)}>Update</Button>}
                   </div>
                   {row.state === "active" && <progress aria-label={`${item.name} update progress`} max={100} value={item.group === "App" ? update.appProgress ?? undefined : undefined} className="ct-progress col-span-2" />}
                 </div>;
