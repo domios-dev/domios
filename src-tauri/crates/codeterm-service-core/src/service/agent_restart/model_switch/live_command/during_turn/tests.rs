@@ -85,3 +85,29 @@ fn confirmation_in_history_and_unrelated_selection_never_authorize_keys() {
     }
     assert!(!prompt.answered());
 }
+
+#[test]
+fn picker_with_normal_composer_below_it_navigates_and_cancels_structurally() {
+    let (mut picker, _) = declarations();
+    picker.injected();
+    let screen = fixture("tests/fixtures/model-switch/model-picker-with-composer.txt");
+    assert_eq!(
+        screen_stage(&screen, Some(&picker), None, false),
+        ScreenStage::Picker
+    );
+    let mut keys = Vec::new();
+    picker
+        .respond(&screen, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap();
+    let selected = screen.replace("❯ 5.", "  5.").replace("    4.", "  ❯ 4.");
+    picker
+        .respond(&selected, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(keys, [b"\x1b[A".to_vec(), b"s".to_vec()]);
+}

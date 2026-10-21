@@ -39,6 +39,17 @@ impl CommandReadiness {
                         .map_err(ModelSwitchError::LiveCommandFailed)?,
                 );
             }
+            if let Some(picker) = &command.picker {
+                for pattern in [&picker.selected_regex, &picker.target_regex] {
+                    if pattern.contains("{effort}") {
+                        continue;
+                    }
+                    dialogs.push(
+                        confirmation_pattern(pattern, &target.model, &target.display_name, None)
+                            .map_err(ModelSwitchError::LiveCommandFailed)?,
+                    );
+                }
+            }
         }
         let confirmation_selection = std::iter::once(&commands.model)
             .chain(commands.effort.iter())

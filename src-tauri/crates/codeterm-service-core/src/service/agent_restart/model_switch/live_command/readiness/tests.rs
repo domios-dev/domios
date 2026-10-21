@@ -99,3 +99,26 @@ fn accepted_stop_failure_frame_has_ready_empty_input_despite_working_projection(
         false
     ));
 }
+
+#[test]
+fn picker_cleanup_requires_normal_cursor_and_no_selection_anywhere_on_screen() {
+    let (readiness, restored, mut input) = declared();
+    let busy = fixture("model-picker-with-composer.txt");
+    input.cursor_row = busy.lines().position(|row| row.trim() == "❯").unwrap() as u16;
+    input.rows = busy.lines().count() as u16;
+    assert!(!readiness.matches(&busy, &input));
+    let broken_footer = busy.replace("Enter to set as default", "Unrecognized footer");
+    assert!(!readiness.matches(&broken_footer, &input));
+    assert!(!readiness.matches(&broken_footer.replace("❯ 5.", "  5."), &input));
+    let truncated = busy
+        .lines()
+        .filter(|row| !row.contains("Select model") && !row.contains("Esc to cancel"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    input.cursor_row = truncated.lines().position(|row| row.trim() == "❯").unwrap() as u16;
+    assert!(!readiness.matches(&truncated, &input));
+    input.cursor_row = restored.lines().position(|row| row.trim() == "❯").unwrap() as u16;
+    assert!(readiness.matches(&restored, &input));
+    input.cursor_visible = false;
+    assert!(!readiness.matches(&restored, &input));
+}
