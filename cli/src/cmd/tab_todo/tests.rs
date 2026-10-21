@@ -168,3 +168,25 @@ fn progress_line_shows_attempts_and_derivable_durations() {
     assert!(line.starts_with("attempt 2 (started 2, completed 1"));
     assert!(line.ends_with("durations #1 30s"));
 }
+
+#[test]
+fn todo_write_forwards_id_only_status_updates() {
+    let mut rpc = FakeRpc {
+        calls: Vec::new(),
+        reply: written(vec![item("seeded", TabTodoState::Done)]),
+    };
+    write_declared_todos(
+        &mut rpc,
+        "orchestrator",
+        vec![write_item(json!({
+            "id": "seeded", "status": "completed"
+        }))],
+    )
+    .unwrap();
+    assert_eq!(
+        rpc.calls[0].1.as_ref().unwrap()["items"][0],
+        json!({
+            "id": "seeded", "content": "", "state": "done"
+        })
+    );
+}
