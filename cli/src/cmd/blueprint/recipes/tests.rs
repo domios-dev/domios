@@ -125,7 +125,7 @@ fn recipe_names_follow_the_target_and_remain_bounded() {
     }
 }
 #[test]
-fn http_names_use_only_host_and_keep_the_probe_url() {
+fn http_names_distinguish_paths_and_hide_query_secrets() {
     let raw = authoring::source("http-health").unwrap();
     let bind = |url: &str| {
         let checked = blueprint_document::check("http-health", &raw, &[format!("url={url}")]);
@@ -140,8 +140,9 @@ fn http_names_use_only_host_and_keep_the_probe_url() {
         assert!(!name.contains(secret), "{name}");
     }
     assert!(name.chars().count() <= 40);
-    assert_eq!(first["spec"]["name"], second["spec"]["name"]);
-    assert_eq!(first["spec"]["name"], "HTTP health api.example.com");
+    assert_ne!(first["spec"]["name"], second["spec"]["name"]);
+    let rotated = bind("https://api.example.com/v1/healthz?token=rotated#different");
+    assert_eq!(first["spec"]["name"], rotated["spec"]["name"]);
     assert_eq!(
         first.pointer("/spec/steps/0/kind/probe/url").unwrap(),
         first_url
