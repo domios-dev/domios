@@ -87,15 +87,21 @@ jobs:
         env:
           FRONTEND_SIGNING_PRIVATE_KEY: ${{ secrets.FRONTEND_SIGNING_PRIVATE_KEY }}
         run: node scripts/frontend-release/release.mjs prepare "$FRONTEND_TAG"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          overwrite: true
-          retention-days: 1
-          name: frontend-${{ env.FRONTEND_TAG }}
-          path: |
-            frontend-release-output/*
-            !frontend-release-output/dist/
-          if-no-files-found: error
+      - name: Store the frontend release for publication
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(frontend-release-output/*)
+          stored=0
+          for file in "${files[@]}"; do
+            [ -f "$file" ] || continue
+            bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/frontend-release/${file##*/}" "$file"
+            stored=$((stored + 1))
+          done
+          [ "$stored" -gt 0 ] || { echo "no frontend release files to store" >&2; exit 1; }
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
   publish:
     needs: build
     if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
@@ -112,10 +118,10 @@ jobs:
         with:
           node-version: '22.22.0'
           package-manager-cache: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: frontend-${{ env.FRONTEND_TAG }}
-          path: frontend-release-output/
+      - name: Fetch the frontend release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/frontend-release/" frontend-release-output
       - name: Install GitHub CLI
         env:
           GH_CLI_SHA256: bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386

@@ -39,7 +39,7 @@ fn stop_paths_record_time_and_completed_watch_update_gets_a_fresh_budget() {
     };
     let create = |until: Option<&str>, timeout: Option<&str>| {
         serde_json::from_value(serde_json::json!({
-            "name":"release watcher", "probe":"status", "question":"Done?", "buckets":["done"],
+            "name":if until.is_some(){"completed release watcher"}else{"expiring release watcher"}, "probe":"status", "question":"Done?", "buckets":["done"],
             "matches":{"done":"done"}, "until":until, "timeout":timeout, "max_transitions":1
         }))
         .unwrap()

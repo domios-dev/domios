@@ -49,6 +49,8 @@ pub struct CuratorGrant {
     pub round: u64,
     pub blueprints: Vec<String>,
     pub plan_skills: Vec<String>,
+    #[serde(default)]
+    pub save_candidates: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -66,6 +68,8 @@ pub struct CuratorRun {
     pub section_sizes: std::collections::BTreeMap<String, usize>,
     pub turns: u64,
     pub output_tokens: Option<u64>,
+    #[serde(default)]
+    pub save_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -86,6 +90,8 @@ pub struct ControlLoop {
     pub owner_turn_cursor: Option<String>,
     pub owner_session_key: Option<String>,
     pub task_states: std::collections::BTreeMap<String, String>,
+    pub save_candidates: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+    pub save_candidate_shapes: std::collections::BTreeMap<String, String>,
 }
 
 pub fn curator_delay(chosen: Option<u64>) -> u64 {

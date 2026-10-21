@@ -37,6 +37,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
   Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
+  Object.defineProperty(globalThis, "MutationObserver", { value: window.MutationObserver, configurable: true });
   Object.defineProperty(globalThis, "requestAnimationFrame", {
     configurable: true,
     value: (cb: FrameRequestCallback) => {

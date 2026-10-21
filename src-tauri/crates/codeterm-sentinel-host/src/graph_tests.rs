@@ -29,7 +29,7 @@ fn setup() -> (tempfile::TempDir, Store, MultiplexerState, Owner) {
 }
 
 fn create(store: &mut Store, owner: &Owner, paused: bool, routes: Value) -> Sentinel {
-    let mut job=store.prepare(serde_json::from_value(json!({"name":"Supplied scenario","probe":"secret-probe","question":"Declared purpose", "buckets":["done"],"every":"10s","timeout":"1h","matches":{"done":"done"},"paused":paused,"handlers":routes})).unwrap(),owner.clone(),false).unwrap();
+    let mut job=store.prepare(serde_json::from_value(json!({"name":format!("Supplied scenario {}", store.list().len()),"probe":"secret-probe","question":"Declared purpose", "buckets":["done"],"every":"10s","timeout":"1h","matches":{"done":"done"},"paused":paused,"handlers":routes})).unwrap(),owner.clone(),false).unwrap();
     job.agent_authored = true;
     store.insert(job).unwrap()
 }

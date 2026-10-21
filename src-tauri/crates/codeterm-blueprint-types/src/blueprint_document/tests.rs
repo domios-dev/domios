@@ -107,7 +107,7 @@ fn input_type_defaults_enums_and_all_missing_bindings_are_checked() {
 fn literals_in_commands_are_opaque_and_declared_inputs_allow_spaces() {
     let source = PIPELINE.replace(
         "run: echo diagnose",
-        r#"run: "docker ps --format '{{.Status}}' --filter '{{ url }}'"#,
+        r#"run: "docker ps --format '{{.Status}}' --filter '{{ url }}'""#,
     );
     let checked = check("literal.yaml", &source, &[]);
     assert!(checked.ok, "{:?}", checked.diagnostics);
@@ -195,7 +195,6 @@ fn warnings_do_not_fail_and_native_object_inputs_round_trip() {
         json!({"resource":"demo"})
     );
 }
-use super::*;
 use crate::blueprint_watch::{duration_ms, Create, Route};
 
 #[test]
@@ -250,7 +249,7 @@ fn watch_all_invalid_parameters_are_reported_before_runtime_admission() {
 fn undeclared_simple_inputs_warn_but_command_templates_remain_opaque() {
     let source = PIPELINE.replace(
         "run: echo diagnose",
-        r#"run: "echo '{{typo}}' '{{.Status}}' '{{range .}}'"#,
+        r#"run: "echo '{{typo}}' '{{.Status}}' '{{range .}}'""#,
     );
     let checked = check("literal.yaml", &source, &[]);
     assert!(checked.ok, "{:?}", checked.diagnostics);

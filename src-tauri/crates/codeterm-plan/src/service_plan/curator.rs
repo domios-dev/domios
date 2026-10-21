@@ -127,6 +127,7 @@ impl PlanStore {
                 section_sizes: run.section_sizes,
                 turns: run.turns,
                 output_tokens: run.output_tokens,
+                save_id: run.save_id,
                 duration_ms: now.saturating_sub(run.started_at),
                 ..Default::default()
             };

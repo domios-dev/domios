@@ -34,6 +34,18 @@ test("identical consecutive decisions group with their latest finite time", () =
   assert.equal(groupReflexes([{ ...entry, time: NaN }, entry])[0].time, entry.time);
 });
 
+test("Curator rounds stay separate and redact unknown outcomes and prose", () => {
+  const round = { ...entry, kind: "curator", label: "quiet", action: "decision" };
+  const rows = groupReflexes([round, { ...round, time: 20 }]);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((row) => row.count), [1, 1]);
+  assert.equal(rows[0].kind, "curator");
+  assert.equal(rows[0].tone, "quiet");
+  const privateText = "opaque-private-question";
+  const unknown = reflexOutcome({ ...round, label: privateText, reason: privateText, asked: [{ name: privateText, question: privateText, answer: privateText }] });
+  assert.ok(!unknown.phrase.includes(privateText));
+});
+
 test("changed decisions interrupt grouping for their own tab", () => {
   for (const changed of [
     { kind: "heartbeat" }, { action: "wake" }, { label: "working_normally" },

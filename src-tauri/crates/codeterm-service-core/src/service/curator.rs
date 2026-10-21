@@ -7,6 +7,14 @@ use codeterm_plan::service_plan::curator::{self, digest, note, ControlLoopUpdate
 use serde_json::json;
 
 mod authority;
+mod save;
+mod skill;
+
+pub struct CuratorGrantScope {
+    pub blueprints: Vec<String>,
+    pub plan_skills: Vec<String>,
+    pub saves: Vec<String>,
+}
 mod digest_sources;
 mod scheduling;
 #[cfg(test)]
