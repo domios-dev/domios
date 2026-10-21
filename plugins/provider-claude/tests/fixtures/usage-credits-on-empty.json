@@ -1,0 +1,58 @@
+{
+  "limits": [
+    {
+      "kind": "session",
+      "percent": 17,
+      "resets_at": "2026-11-01T12:00:00Z",
+      "is_active": true,
+      "severity": "normal"
+    },
+    {
+      "kind": "weekly_all",
+      "percent": 60,
+      "resets_at": "2026-11-05T00:00:00Z",
+      "is_active": false,
+      "severity": "normal"
+    },
+    {
+      "kind": "weekly_scoped",
+      "group": "opaque-model-group",
+      "percent": 47,
+      "resets_at": "2026-11-05T00:00:00Z",
+      "is_active": true,
+      "severity": "critical",
+      "scope": {
+        "model": {
+          "display_name": "Fable"
+        }
+      }
+    }
+  ],
+  "weekly_scoped_shares": [
+    {
+      "limit_index": 2,
+      "used": 47,
+      "allowance": 100
+    }
+  ],
+  "extra_usage": {
+    "is_enabled": false,
+    "user_disabled": false,
+    "disabled_reason": "out_of_credits",
+    "monthly_limit": 10000,
+    "used_credits": 0,
+    "currency": "USD",
+    "decimal_places": 2,
+    "credits_ever_enabled": true
+  },
+  "opaque_allowance_29": {
+    "limit_dollars": 250,
+    "used_dollars": 0,
+    "remaining_dollars": 250,
+    "resets_at": "2026-11-05T00:00:00Z"
+  },
+  "unrelated": null,
+  "seven_day_breakdown": {
+    "rows": []
+  }
+}

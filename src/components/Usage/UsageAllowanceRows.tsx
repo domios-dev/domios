@@ -3,6 +3,7 @@ import {creditExpiryHint} from "./creditExpiry";
 import {nativeBridge} from "../../lib/nativeBridge";
 import {UsageGauge} from "./UsageGauge";
 import {classify} from "../../types/usage";
+import {extraUsageLabel} from "./extraUsageModel";
 
 export function UsageScopedLimits({details, now}: {details?: UsageDetails | null; now: number}) {
   return <>{details?.limits.filter(limit => limit.kind === "weekly_scoped").map((limit, index) => (
@@ -27,7 +28,7 @@ export function UsageAllowanceRows({details, now}: {details?: UsageDetails | nul
       })}</ul>
     </section>}
     {extra && <div className="ct-usage-account-credits">
-      <span className="k">Usage credits {extra.enabled ? "on" : "off"}{extra.enabled && <> · {extra.used ?? "—"}/{extra.limit ?? "—"} {extra.currency}{extra.spend_limit_reached ? " · limit reached" : ""}</>}</span>
+      <span className="k">{extraUsageLabel(extra)}</span>
       <a href={extra.settings_url} target="_blank" rel="noopener noreferrer" onClick={event => {event.preventDefault(); void nativeBridge.openUrl(extra.settings_url);}}>Settings</a>
     </div>}
   </>;
