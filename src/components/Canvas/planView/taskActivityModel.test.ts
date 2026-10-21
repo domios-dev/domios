@@ -75,6 +75,15 @@ assert(recent[0]?.milestone.id === "b1", "plan recent activity is newest first")
 assert(recent[0]?.taskLabel === "beta", "plan recent activity uses task handle");
 assert(recent.every((item) => plan.tasks.some((task) => task.id === item.taskId)), "recent activity scoped to plan tasks");
 
+const withRounds = buildPlanRecentActivity({ ...plan, strides: [
+  milestone("round-1", "curator_round", 1000), milestone("unrelated", "note", 1100),
+] }, 2);
+assert(withRounds.length === 2, "rounds share the activity limit");
+assert(withRounds[0].milestone.id === "round-1", "plan rounds interleave newest first");
+assert(withRounds[0].taskId === "", "rounds do not invent a task target");
+assert(withRounds[1].milestone.id === "b1", "task milestones remain visible");
+assert(milestoneKindLabel("curator_round") === "Curator round", "round kind label");
+
 const dayTs = new Date(2024, 0, 15, 9, 30).getTime();
 const sameDayNow = new Date(2024, 0, 15, 13, 30).getTime();
 assert(

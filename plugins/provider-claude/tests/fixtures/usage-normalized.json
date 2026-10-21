@@ -43,7 +43,10 @@
       "used": 12,
       "limit": 100,
       "currency": "USD",
-      "settings_url": "https://claude.ai/settings/usage"
+      "settings_url": "https://claude.ai/settings/usage",
+      "effective_enabled": false,
+      "disabled_reason": null,
+      "decimal_places": 2
     }
   }
 }

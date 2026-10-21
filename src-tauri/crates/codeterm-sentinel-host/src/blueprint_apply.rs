@@ -77,9 +77,13 @@ impl BlueprintApplyExt for ServiceContext {
             matches.into_iter().next()
         };
         if let Some(current) = &current {
+            self.authorize_curator_operation(&caller.tab, Some(&current.id), "apply")?;
             if !caller.can_amend(current) {
                 return Err("Blueprint exists but caller cannot amend it".into());
             }
+        }
+        if current.is_none() {
+            self.authorize_curator_operation(&caller.tab, None, "create")?;
         }
         let spec = definition
             .get("spec")
@@ -118,6 +122,15 @@ impl BlueprintApplyExt for ServiceContext {
             }
         }
         let before = current.as_ref().map(crate::portable::definition);
+        if self.is_curator_tab(&caller.tab)
+            && before
+                .as_ref()
+                .is_none_or(|before| !retarget_only(before, &definition))
+        {
+            return Err(
+                "Curator amendments may only retarget an existing granted Blueprint".into(),
+            );
+        }
         let unchanged = match (&current, &spec, &prepared_watch) {
             (Some(job), Some(spec), _) => job.pipeline() == Some(spec),
             (Some(job), _, Some(next)) => {
@@ -232,3 +245,23 @@ impl BlueprintApplyExt for ServiceContext {
         Ok(result)
     }
 }
+
+pub(crate) fn retarget_only(before: &Value, after: &Value) -> bool {
+    fn without_targets(value: &Value) -> Value {
+        match value {
+            Value::Object(fields) => Value::Object(
+                fields
+                    .iter()
+                    .filter(|(key, _)| !matches!(key.as_str(), "target" | "observe" | "to"))
+                    .map(|(key, value)| (key.clone(), without_targets(value)))
+                    .collect(),
+            ),
+            Value::Array(values) => Value::Array(values.iter().map(without_targets).collect()),
+            other => other.clone(),
+        }
+    }
+    without_targets(before) == without_targets(after)
+}
+
+#[cfg(test)]
+mod tests;

@@ -11,6 +11,7 @@ use codeterm_service_core::service::{AuthenticatedPlanCaller, PlanAuthorityError
 
 pub mod attachments;
 pub mod batch;
+pub mod control_loop;
 pub mod elements;
 pub mod gates;
 pub mod handoff;
@@ -19,6 +20,7 @@ pub mod loops;
 pub mod milestones;
 pub mod plans;
 pub mod project;
+pub mod router;
 pub mod sections;
 pub mod skills;
 pub mod spec;

@@ -82,7 +82,10 @@ export function normalizeClaudeUsage(body: Record<string, unknown> | null) {
       return [{remaining_dollars: remaining, resets_at: isoToMs(stringAt(value, "resets_at"))}];
     }),
     extra_usage: extra ? {
-      enabled: objectAtValue(extra, "is_enabled") === true && objectAtValue(extra, "user_disabled") !== true,
+      enabled: objectAtValue(extra, "user_disabled") !== true,
+      effective_enabled: objectAtValue(extra, "is_enabled") === true,
+      disabled_reason: stringAt(extra, "disabled_reason"),
+      decimal_places: numberAt(extra, "decimal_places") ?? 2,
       spend_limit_reached: objectAtValue(extra, "spend_limit_reached") === true,
       used: numberAt(extra, "used_credits"), limit: numberAt(extra, "monthly_limit"),
       currency: stringAt(extra, "currency") ?? "USD", settings_url: "https://claude.ai/settings/usage",

@@ -1,8 +1,11 @@
 # Check and apply this file with codeterm blueprint.
 schema_version: 1
-name: Retry {{retry_status_probe}}
+name: '{{name}}'
 note: Keep watching a bounded retry process until its pass result arrives.
 inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
   passed_pattern:
     type: string
     description: Passed pattern

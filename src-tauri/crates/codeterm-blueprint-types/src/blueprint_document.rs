@@ -201,7 +201,32 @@ impl Document {
         document
             .as_object_mut()
             .map(|fields| fields.remove("inputs"));
+        // Names expose identities in lists and notifications; URL credentials stay private.
+        let name_values = values
+            .iter()
+            .map(|(key, value)| {
+                let safe = value
+                    .as_str()
+                    .and_then(|raw| {
+                        let parsed = url::Url::parse(raw).ok()?;
+                        if !matches!(parsed.scheme(), "http" | "https") {
+                            return None;
+                        }
+                        let host = parsed.host_str()?;
+                        let port = parsed
+                            .port()
+                            .map(|port| format!(":{port}"))
+                            .unwrap_or_default();
+                        Some(json!(format!("{host}{port}{}", parsed.path())))
+                    })
+                    .unwrap_or_else(|| value.clone());
+                (key.clone(), safe)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut safe_name = json!(self.name);
+        substitute(&mut safe_name, "name", &name_values, &mut errors);
         substitute(&mut document, "", &values, &mut errors);
+        document["name"] = safe_name;
         if !errors.is_empty() {
             return Err(errors);
         }
@@ -212,8 +237,24 @@ impl Document {
                 .fold(0xcbf29ce484222325u64, |hash, byte| {
                     (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
                 });
-            let prefix = resolved_name.chars().take(23).collect::<String>();
-            document["name"] = json!(format!("{prefix}-{hash:016x}"));
+            let prefix = resolved_name
+                .chars()
+                .map(|ch| {
+                    if ch.is_alphanumeric() || ch == '-' {
+                        ch
+                    } else {
+                        '-'
+                    }
+                })
+                .take(33)
+                .collect::<String>();
+            let prefix = prefix.trim_matches('-');
+            let prefix = if prefix.is_empty() {
+                "blueprint"
+            } else {
+                prefix
+            };
+            document["name"] = json!(format!("{prefix}-{:06x}", hash & 0xffffff));
         }
         let mut definition =
             if let Some(pipeline) = document.get_mut("pipeline").filter(|p| p.is_object()) {

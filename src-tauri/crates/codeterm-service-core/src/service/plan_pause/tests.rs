@@ -173,6 +173,7 @@ fn world() -> World {
         OrchestratorRef::from_tab(&orchestrator),
     );
     plan.team_id = Some(team_id.clone());
+    plan.control_loop.mode = crate::plan::ControlLoopMode::Heartbeat;
     plan.mode = PlanMode::Execution;
     plan.planner = Some(PlannerRef::Tab {
         tab_id: planner.clone(),

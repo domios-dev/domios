@@ -4,6 +4,7 @@ mod attachment_upload;
 pub mod auth;
 pub mod automation_graph_routes;
 pub mod blueprint_portable_routes;
+pub mod blueprint_solution_routes;
 #[cfg(debug_assertions)]
 mod cors_diagnostics;
 pub mod events;

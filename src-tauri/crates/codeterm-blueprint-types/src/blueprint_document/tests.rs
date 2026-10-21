@@ -107,7 +107,7 @@ fn input_type_defaults_enums_and_all_missing_bindings_are_checked() {
 fn literals_in_commands_are_opaque_and_declared_inputs_allow_spaces() {
     let source = PIPELINE.replace(
         "run: echo diagnose",
-        r#"run: "docker ps --format '{{.Status}}' --filter '{{ url }}'"#,
+        r#"run: "docker ps --format '{{.Status}}' --filter '{{ url }}'""#,
     );
     let checked = check("literal.yaml", &source, &[]);
     assert!(checked.ok, "{:?}", checked.diagnostics);
@@ -249,7 +249,7 @@ fn watch_all_invalid_parameters_are_reported_before_runtime_admission() {
 fn undeclared_simple_inputs_warn_but_command_templates_remain_opaque() {
     let source = PIPELINE.replace(
         "run: echo diagnose",
-        r#"run: "echo '{{typo}}' '{{.Status}}' '{{range .}}'"#,
+        r#"run: "echo '{{typo}}' '{{.Status}}' '{{range .}}'""#,
     );
     let checked = check("literal.yaml", &source, &[]);
     assert!(checked.ok, "{:?}", checked.diagnostics);
@@ -260,4 +260,21 @@ fn undeclared_simple_inputs_warn_but_command_templates_remain_opaque() {
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].message.contains("typo"));
+}
+
+#[test]
+fn separator_only_derived_names_have_a_readable_prefix() {
+    let raw = PIPELINE.replace("name: Endpoint health", "name: '{{url}}'");
+    let checked = check(
+        "separators.yaml",
+        &raw,
+        &[format!("url={}", "-".repeat(80))],
+    );
+    // Bind independently: the HTTP probe intentionally receives an invalid URL here.
+    let document: Document = serde_yaml::from_str(&raw).unwrap();
+    let definition = document.bind(&[format!("url={}", "-".repeat(80))]).unwrap();
+    let name = definition["spec"]["name"].as_str().unwrap();
+    assert!(name.starts_with("blueprint-"));
+    assert_eq!(name.len(), 16);
+    assert!(!checked.ok);
 }
