@@ -474,12 +474,16 @@
   display: -webkit-box;
   margin: 0;
   overflow: hidden;
-  font-size: var(--mc-text-meta);
-  line-height: 1.45;
+  font-size: var(--mc-text-body);
+  line-height: 1.5;
   color: var(--ct-muted-fg);
   overflow-wrap: break-word;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
+}
+
+.mc-board-plan-goal[data-expanded="true"] {
+  -webkit-line-clamp: unset;
 }
 
 .mc-board-plan-list > li {
@@ -601,24 +605,105 @@
   text-decoration: none;
 }
 
-.mc-board-statuses {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--mc-space-1) var(--mc-space-4);
-  min-width: 0;
+.mc-board-progress-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--mc-space-3);
   margin: 0;
-  padding: 0;
-  list-style: none;
 }
 
-.mc-board-status {
-  display: flex;
-  align-items: baseline;
-  gap: var(--mc-space-2);
-  font-size: var(--mc-text-body);
+.mc-board-progress-stats dt {
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-progress-stats dd {
+  margin: 2px 0 0;
+}
+
+.mc-board-progress-figure {
+  display: block;
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--mc-text-figure);
+  font-weight: 600;
+  line-height: 1.1;
   color: var(--ct-fg);
+}
+
+.mc-board-progress-figure[data-tone="danger"] {
+  color: var(--ct-red);
+}
+
+.mc-board-progress-figure[data-tone="calm"] {
+  color: var(--ct-muted-fg);
+}
+
+.mc-board-progress-of {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: var(--mc-text-meta);
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mc-board-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-space-2);
+  min-width: 0;
+}
+
+/* Status tones match PLAN_STATUS_COLORS so a status reads the same on the Board and in the sidebar. */
+.mc-board-progress [data-status="done"] { --mc-tone: var(--ct-green); }
+.mc-board-progress [data-status="in_review"] { --mc-tone: var(--ct-yellow); }
+.mc-board-progress [data-status="in_progress"] { --mc-tone: var(--ct-accent); }
+.mc-board-progress [data-status="blocked"] { --mc-tone: var(--ct-red); }
+.mc-board-progress [data-status="paused"] { --mc-tone: var(--ct-muted); }
+.mc-board-progress [data-status="pending"] { --mc-tone: color-mix(in srgb, var(--ct-accent) 38%, var(--ct-bg)); }
+
+.mc-board-progress-bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.mc-board-progress-seg {
+  flex: 0 1 0;
+  min-width: 3px;
+  background: var(--mc-tone);
+}
+
+.mc-board-progress-empty {
+  flex: 1;
+  background: color-mix(in srgb, var(--ct-fg) 8%, transparent);
+}
+
+.mc-board-progress .mc-board-progress-seg[data-status="cancelled"],
+.mc-board-progress .mc-board-swatch[data-status="cancelled"] {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--ct-muted-fg) 55%, transparent) 0 1.5px,
+    transparent 1.5px 4px
+  );
+  box-shadow: inset 0 0 0 1px var(--ct-border);
+}
+
+.mc-board-progress-legend b {
+  font-family: var(--ct-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ct-fg);
+}
+
+.mc-board-progress-legend [data-status="blocked"] b {
+  color: var(--ct-red);
 }
 
 .mc-board-pairs {
