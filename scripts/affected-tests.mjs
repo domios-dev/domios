@@ -52,6 +52,8 @@ function parseArgs(argv) {
         options.explicitBase = true;
       } else if (arg === "--repo") {
         options.repo = path.resolve(value);
+      } else if (arg === "--metadata") {
+        options.metadata = value;
       } else {
         options.rustMode = value;
       }

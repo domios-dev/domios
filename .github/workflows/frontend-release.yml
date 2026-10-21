@@ -115,8 +115,11 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           overwrite: true
+          retention-days: 1
           name: frontend-${{ env.FRONTEND_TAG }}
-          path: frontend-release-output/
+          path: |
+            frontend-release-output/*
+            !frontend-release-output/dist/
           if-no-files-found: error
   publish:
     needs: build
