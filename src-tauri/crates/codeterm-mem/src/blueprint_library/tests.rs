@@ -13,6 +13,62 @@ fn evidence() -> Evidence {
 }
 
 #[test]
+fn curator_save_preserves_uid_and_bumps_confidence_in_later_round() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let proof = |round| Evidence {
+        curator: Some(model::CuratorEvidence {
+            plan: "pl_test".into(),
+            round,
+            episodes: vec!["blueprint:a".into(), "blueprint:b".into()],
+            granted: false,
+        }),
+        ..evidence()
+    };
+    let id = mem
+        .save_blueprint("project", document("done"), "Watch CI failure", proof(1))
+        .unwrap()
+        .unwrap();
+    let first = mem.get(&id).unwrap().unwrap();
+    assert!(first.tags.contains(&"confidence:low".into()));
+    assert!(first.tags.contains(&"curator".into()));
+    assert!(first.body.contains("blueprint:a"));
+    let again = mem
+        .save_blueprint("project", document("done"), "Watch CI failure", proof(2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(again, id);
+    assert!(mem
+        .get(&id)
+        .unwrap()
+        .unwrap()
+        .tags
+        .contains(&"confidence:medium".into()));
+}
+
+#[test]
+fn curator_conflicting_graph_refuses_without_writing() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let id = mem
+        .save_blueprint("project", document("done"), "Watch CI failure", evidence())
+        .unwrap()
+        .unwrap();
+    let proof = Evidence {
+        curator: Some(model::CuratorEvidence {
+            plan: "pl_test".into(),
+            round: 1,
+            episodes: vec![],
+            granted: true,
+        }),
+        ..evidence()
+    };
+    assert_eq!(
+        mem.save_blueprint("project", document("failed"), "Watch CI failure", proof),
+        Err(format!("conflict with {id}"))
+    );
+    assert_eq!(mem.list_blueprint_solutions("project").unwrap().len(), 1);
+}
+
+#[test]
 fn repeated_keep_counts_new_evidence_only() {
     let mem = MemManager::open_in_memory().unwrap();
     let proof = Evidence {

@@ -125,7 +125,11 @@ pub async fn mem_save(
     let worker_id = super::worker_id_from_headers(&headers);
     let result = codeterm_service_core::mem::store::with_write_worker(worker_id, || {
         codeterm_service_core::mem::store::with_changed_by(&changed_by, || {
-            state.svc.mem.save_with_outcome(item, body.replace)
+            state.svc.save_memory_for_caller(
+                &crate::tab_routes::authenticated_plan_caller(&headers),
+                item,
+                body.replace,
+            )
         })
     })
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;

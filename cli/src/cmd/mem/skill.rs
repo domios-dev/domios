@@ -106,6 +106,7 @@ pub(crate) fn handle_mem_skill(
             if let Some(a) = area_resolved {
                 payload["area"] = serde_json::json!(a);
             }
+            crate::cmd::plan::inject_trusted_session(&mut payload);
             client.call("mem.save", Some(payload))
         }
         MemSkillAction::Add {
@@ -185,6 +186,7 @@ pub(crate) fn handle_mem_skill(
             if let Some(a) = area_resolved {
                 payload["area"] = serde_json::json!(a);
             }
+            crate::cmd::plan::inject_trusted_session(&mut payload);
             client.call("mem.save", Some(payload))
         }
         MemSkillAction::List => {

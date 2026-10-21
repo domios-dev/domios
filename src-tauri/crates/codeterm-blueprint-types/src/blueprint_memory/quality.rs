@@ -1,5 +1,6 @@
 #[derive(Clone, Debug, Default)]
 pub struct Evidence {
+    pub curator: Option<CuratorEvidence>,
     pub origin: Option<String>,
     pub kept: bool,
     pub successes: u64,
@@ -13,6 +14,14 @@ pub struct Evidence {
     pub creator_deleted_at_ms: Option<u64>,
     pub stopped_before_success: bool,
     pub safe: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct CuratorEvidence {
+    pub plan: String,
+    pub round: u64,
+    pub episodes: Vec<String>,
+    pub granted: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
