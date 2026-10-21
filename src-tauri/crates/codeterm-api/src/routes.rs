@@ -317,7 +317,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/plans/{id}/mode", post(plan_routes::mode_set))
         .route("/api/plans/{id}/reconcile", get(plan_routes::reconcile))
-        .route("/api/plans/{id}/state", get(plan_routes::state))
+        .merge(plan_routes::control_loop::router())
         .route("/api/plans/{id}/next", get(plan_routes::next))
         .route("/api/plans/{id}/attachments", get(plan_routes::attachment))
         .route("/api/plans/{id}/transfer", post(plan_routes::transfer))

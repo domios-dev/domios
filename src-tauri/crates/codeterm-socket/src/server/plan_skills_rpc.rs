@@ -15,7 +15,7 @@ pub(super) use caller::{ack_skill_brief, attempt_binding_refusal};
 pub(super) fn handles(method: &str) -> bool {
     matches!(
         method,
-        "plan.skills.list" | "plan.skills.show" | "plan.skills.new"
+        "plan.skills.list" | "plan.skills.show" | "plan.skills.new" | "plan.skills.authorize_edit"
     )
 }
 
@@ -31,6 +31,39 @@ pub(super) fn dispatch(
         caller::authenticate(&mux, params)?
     };
     let plan_id = caller::resolve_plan(store, params, caller.as_ref())?;
+    if matches!(method, "plan.skills.new" | "plan.skills.authorize_edit") {
+        if let Some(caller) = &caller {
+            if svc.is_curator_tab(&caller.tab_id) {
+                if method == "plan.skills.authorize_edit"
+                    && params.as_ref().and_then(|p| p["verdict"].as_str()) != Some("keep")
+                {
+                    return Err(JsonRpcError {
+                        code: -32602,
+                        message: "Curator may only keep a granted plan skill".into(),
+                        data: None,
+                    });
+                }
+                let slug = get_string_param(params, "slug")?;
+                svc.authorize_curator_plan_skill(
+                    &codeterm_service_core::service::AuthenticatedPlanCaller {
+                        tab_id: Some(caller.tab_id.clone()),
+                        session_id: Some(caller.session_id.clone()),
+                        binding_nonce: Some(caller.nonce.clone()),
+                    },
+                    &plan_id,
+                    &slug,
+                )
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
+            }
+        }
+    }
+    if method == "plan.skills.authorize_edit" {
+        return Ok(json!({"authorized":true}));
+    }
     let mut resolved = params.clone().unwrap_or_else(|| json!({}));
     resolved["plan_id"] = json!(plan_id);
     let result = dispatch_store(method, &Some(resolved), store)?;

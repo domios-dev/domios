@@ -120,6 +120,7 @@ pub fn builtin_guidance(kind_id: &str) -> Option<String> {
         builtins::RELEASE_MANAGER => Some(crate::prompts::RELEASE_MANAGER_ROLE_PROMPT.to_string()),
         builtins::REVIEWER => Some(crate::prompts::REVIEWER_ROLE_PROMPT.to_string()),
         builtins::CARTOGRAPHER => Some(crate::prompts::CARTOGRAPHER_SUFFIX.to_string()),
+        builtins::CURATOR => Some(crate::prompts::CURATOR_SUFFIX.to_string()),
         _ => None,
     }
 }

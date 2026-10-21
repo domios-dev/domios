@@ -113,3 +113,5 @@ Repair a moved Plan project without its old folder: `codeterm plan set-project <
 Voice notes arrive as `<domios type="attachment" kind="voice" path="<file>" label="voice" />` plus `<transcript>…</transcript>`: the transcript is the message, the path its audio. `status="untranscribed"` carries a failure note instead. Older notes (bare text after the frame, or `-=-codeterm:voice file=<path>-=-`) are read-only legacy.
 
 For cold replacement, `codeterm app quit --exact --json` must confirm cleanup and pinned process exits.
+
+The plan defaults to Curator mode. Inspect it with `codeterm plan control-loop show <plan>`, or choose `codeterm plan control-loop set <plan> curator` / `codeterm plan control-loop set <plan> heartbeat --interval 30m`. A Curator mirrors its Orchestrator's model, receives a bounded digest, and may ask one message with up to three questions. Its grants are limited to the active round and session; see `codeterm docs ORCHESTRATION-OPERATIONS`.
