@@ -38,7 +38,8 @@ describe("plans modal", () => {
     freeLimitGate.setLimits({ enforcing: true, max: { workspaces: 3, teams: 6, "agent.tabs": 35 } });
     await act(async () => freeLimitGate.open("workspaces"));
     expect(dialog()?.querySelector("h2")?.textContent).toBe("The free version includes 3 workspaces.");
-    expect(dialog()?.querySelectorAll("section[aria-label$=' plan']")).toHaveLength(3);
+    expect(dialog()?.querySelectorAll("section[aria-label$=' plan']")).toHaveLength(4);
+    expect(dialog()?.querySelector("section[aria-label='Enterprise plan']")).not.toBeNull();
   });
 
   it("Upgrade checks out pro_monthly and closes", async () => {
@@ -55,7 +56,7 @@ describe("plans modal", () => {
     await render(upgrade);
     await act(async () => freeLimitGate.open("teams"));
     await click("Choose Sponsor");
-    expect(upgrade).toHaveBeenCalledWith("sponsor_monthly");
+    expect(upgrade).toHaveBeenCalledWith("sponsor_yearly");
   });
 
   it("a checkout failure stays open and says why", async () => {
