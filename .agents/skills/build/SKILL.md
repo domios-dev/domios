@@ -1248,7 +1248,10 @@ with the same names. Empty or missing secrets do not fail compilation.
 
 `install-local` resolves all four Firebase account entries together, preferring
 the CodeTerm secret store and falling back to a complete existing build
-environment. It scopes them to the packaged app build. Complete values print
+environment. The optional billing functions URL independently prefers the secret store, then
+the existing environment. It scopes all five values to the packaged app build;
+a missing billing URL never fails the build. Billing logs only present or absent,
+without printing the URL. Complete account values print
 `Firebase config: cloud-auth enabled`; missing or partial values print
 `Firebase config: local-only`. That line reports compiled config availability,
 not whether a Firebase provider is enabled. Separately confirm Google and
@@ -1260,6 +1263,7 @@ codeterm mem secret save --name DOMIOS_FIREBASE_API_KEY
 codeterm mem secret save --name DOMIOS_FIREBASE_PROJECT_ID
 codeterm mem secret save --name DOMIOS_FIREBASE_APP_ID
 codeterm mem secret save --name DOMIOS_ACCOUNT_REDEEM_URL
+codeterm mem secret save --name DOMIOS_BILLING_FUNCTIONS_URL
 ```
 
 Run each command and provide that value through stdin; omit `--value` so it
