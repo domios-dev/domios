@@ -1,4 +1,5 @@
 [
+  "src/components/UpdatePanel.test.tsx",
   "src/components/Terminal/TabSessionChat.streamingInput.test.tsx",
   "src/components/Terminal/SubagentCapsules.test.tsx",
   "src/components/Terminal/useBodyPainted.test.tsx",

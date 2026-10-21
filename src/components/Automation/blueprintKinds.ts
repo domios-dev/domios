@@ -1,4 +1,4 @@
-import { Bell, Bot, CalendarClock, CircleStop, Clock3, Cpu, Ellipsis, FileInput, GitBranch, Hand, MessageSquareReply, Play, Radio, Send, ShieldAlert, SquareTerminal, Workflow, Zap, type LucideIcon } from "lucide-react";
+import { Bell, Bot, CalendarClock, CircleStop, Clock3, Cpu, Ellipsis, FileInput, GitPullRequest, GitBranch, Hand, MessageSquareReply, Play, Radio, Send, ShieldAlert, SquareTerminal, Workflow, Zap, type LucideIcon } from "lucide-react";
 import type { BlueprintNode } from "./blueprintModel";
 
 export const blueprintNodeKinds = {
@@ -55,6 +55,7 @@ export function actionTitle(kind: string, target: string | null, label: string |
 }
 
 export const blueprintSteps = {
+  github: { type: "source", icon: GitPullRequest, label: "GitHub" },
   agent: { type: "agent", icon: Bot, label: "Agent" },
   command: { type: "source", icon: SquareTerminal, label: "Command" },
   convert: { type: "source", icon: Workflow, label: "Convert" },

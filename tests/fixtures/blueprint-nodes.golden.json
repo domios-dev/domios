@@ -89,6 +89,21 @@
       "title": "Pipeline step: bounded agent task"
     },
     {
+      "role": "source",
+      "kind": "step",
+      "type": "github",
+      "title": "GitHub: run status, jobs or PR checks",
+      "params_schema": {
+        "probe": {
+          "repo": "owner/repo",
+          "resource": "run|jobs|pr_checks",
+          "id": "positive run or PR id"
+        }
+      },
+      "timeout_ms": 60000,
+      "fork": "replace with a command step for custom queries"
+    },
+    {
       "role": "action",
       "kind": "handler",
       "type": "notify",

@@ -116,15 +116,30 @@ evidence; no public release, tag, channel asset or issue-closure boundary is cre
 dispatch inputs pin the producing run ID, tag and source SHA for a follow-up within retention.
 An older run that did not retain those inputs cannot be retroactively called validated.
 
-With publication GO, a wholly green dry run of the exact `release/X.Y.Z` head can be promoted
-instead of rebuilt: dispatch release.yml on that branch with `-f tag=release/X.Y.Z -f
-promote_run_id=<dry-run run id>` (dry_run false). Prepare refuses unless the run is a completed,
-successful release.yml run of that SHA on that branch whose platform, test and manifest jobs all
-succeeded. `promote-evidence` re-runs the aggregate validator on the retained bytes, uploads them
-to the drafts exactly as the platform jobs would (fragments only to the source draft), reads every
-asset back against its receipt, and hands off to the unchanged manifest, verification and merge
-jobs. No platform or test job runs; missing, changed or foreign evidence refuses with the platform
-named. `RELEASE_PUBLISH_ENABLED` still gates it.
+Builds run on builder machines and start as soon as the frontend bundle exists. Rust tests run on
+test machines and open through `tests-tier` (`scripts/release-tier-gate.mjs`) once every fast check is
+claimed by a runner or finished, so a free test runner never takes a test before a fast check. A fast
+check still unclaimed after 45 minutes opens the tests anyway with a `tier order fallback` warning, a
+run-summary line and the receipt `<run-id>/release-tiers/fast-checks.json`; a red fast check still
+cancels the run.
+
+Publish a wholly green dry run with `release-publish.yml`, never by rebuilding. Its tooling comes from
+the default branch, so fixing publication never invalidates a qualified run:
+
+```bash
+gh workflow run release-publish.yml --repo rollacode/codeterm --ref master \
+  -f run_id=<dry-run run id> -f tag=vX.Y.Z -f rehearsal=true   # then rehearsal=false with publication GO
+```
+
+`scripts/release-publish.sh` refuses unless the run is a completed, successful release.yml dry run
+on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. A rehearsal checks both
+tokens' write access, downloads and re-validates every retained byte and signature, and changes
+nothing. Publication creates both drafts, uploads the retained bytes (fragments only to the source
+draft) with read-back against each receipt, merges and verifies `latest.json`/`latest-deb.json`,
+tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. With
+repository variable `RELEASE_AUTO_PROMOTE=true`, every green dry run of a release branch publishes
+itself through the same workflow; otherwise the run waits for this command. Issue closure and the
+merge to master stay separate steps.
 
 The store endpoint is defined once in `scripts/ci-store.sh`. When a CI job finds it unreachable,
 `ci-artifact.sh put` spools the file with a warning and the job's `ci-artifact-spool` action uploads
@@ -251,17 +266,28 @@ Windows updater signatures are not Authenticode: no Authenticode signing is curr
 Workflows select runners by label, never by name. Each runner carries `host-<machine>`, which no
 job routes on; `./build.sh runner-pause` keeps it and never lends it.
 
-| Runner (planned name) | Machine, OS/arch | Routing labels | Release / test jobs |
+| Runner (planned name) | Machine, OS/arch | Routing labels | Role |
 |---|---|---|---|
-| `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | macOS arm64 build and Linux arm64 Docker build (default of `RELEASE_MACOS_ARM64_LABEL`, `RELEASE_LINUX_ARM64_LABEL`); quick checks |
-| `build-mac-x64` | build-mac, macOS x64 (Intel) | `macos-x64-build`, `host-dev` | macOS x64 build, native (`RELEASE_MACOS_X64_LABEL=macos-x64-build`); also the private store host |
-| `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `light`, `rust-shard`, `host-air` | tests only; no release builds |
-| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build` (lent by BLACKSTAR), `windows-ci`, `rust-shard`, `medium`, `host-rog` | Windows x64 and arm64 NSIS builds; Windows tests |
+| `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | builds: macOS arm64, Linux arm64 Docker; quick checks |
+| `build-mac-x64` | build-mac, macOS x64 (Intel) | `macos-x64-build`, `host-dev` | build: macOS x64, native (`RELEASE_MACOS_X64_LABEL=macos-x64-build`); also the private store host |
+| `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `rust-shard`, `light`, `host-air` | tests: macOS Rust platform; quick checks |
+| `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build`, `medium`, `host-rog` | builds: Windows x64 and arm64 NSIS |
+| `BLACKSTAR-windows-x64` (`blackstar-windows-x64`) | BLACKSTAR, Windows x64 | `windows-ci`, `rust-shard`, `heavy`, `host-blackstar` | tests: Windows Rust platform and Windows test jobs |
+| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: release prepare, frontend bundle, Linux x64, dry-run manifest, publication |
+| `BLACKSTAR-wsl-ci` (`blackstar-wsl-x64`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `heavy`, `light`, `host-blackstar` | tests: Rust full suite, embeddings, Linux platform, clippy |
+| `BLACKSTAR-wsl-light-1/2` (`blackstar-wsl-x64-light-1/2`) | BLACKSTAR, WSL2 Linux x64 | `linux-ci`, `rust-tests`, `light`, `host-blackstar` | tests: second and third Linux Rust test runners; quick checks |
+| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks and tier gates |
 | `green-windows-ci` (`green-windows-x64`) | green, Windows x64 | `windows-light`, `host-green` | Windows frontend quick check |
-| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `linux-ci`, `rust-shard`, `rust-tests`, `host-ubunta` | release prepare, Linux x64 build, dry-run manifest, full Rust tests |
-| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks |
-| `BLACKSTAR-windows-x64` (`blackstar-windows-x64`) | BLACKSTAR, Windows x64 | paused (saved: `windows-x64-build`, `heavy`, `windows-ci`, `rust-shard`), `host-blackstar` | Windows x64 build and tests when resumed |
-| `BLACKSTAR-wsl-ci`, `-wsl-light-1/2` (`blackstar-wsl-x64[-light-N]`) | BLACKSTAR, WSL2 Linux x64 | paused (saved: `linux-ci`/`light`/`heavy`), `host-blackstar` | Linux tests when resumed |
+
+The BLACKSTAR WSL runners (distro `BLACKSTAR-CI`, user `ci`) share one toolchain: rustup with the
+pinned channel from `rust-toolchain.toml` plus clippy/rustfmt in `~/.cargo`, `cargo-nextest`, and
+sccache in `~/.local/bin` on one Unix-socket server. `~/start-runner.sh` and
+`~/start-light-runner.sh <n>` export that PATH and cache environment before `run.sh`, so a light
+runner takes Linux test jobs without further setup.
+
+Release builds and Rust tests never share a machine: build labels live only on builders and test
+labels only on test machines. Pausing a test machine (`./build.sh runner-pause <machine>`) lends its
+unique test labels to an online runner of the same OS, the one documented exception.
 
 Planned names follow `<machine>-<os>-<arch>[-role]`; renames re-register one machine at a time between
 runs, passing the current labels plus `host-<machine>`. Before dispatching on a new or changed macOS

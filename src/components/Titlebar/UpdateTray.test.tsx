@@ -255,9 +255,12 @@ it("shows explicit transport and update failures through the model with collapse
     expect(dialog.querySelector('[role="alert"]')).not.toBeNull();
     expect(dialog.querySelector("details")?.open).toBe(false);
     expect(dialog.querySelector("pre")?.textContent).toBe(String(failure));
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("InvalidJsonResponseError");
     fake.check.mockResolvedValue(snapshot);
     await act(async () => button("Check again").click());
     expect(dialog.querySelector('[role="alert"]')).toBeNull();
+    expect(dialog.querySelector('[aria-label="Update check result"]')?.textContent).toContain("Check complete");
+    expect(fake.install).not.toHaveBeenCalled();
     fake.check.mockRejectedValue(failure);
     await act(async () => button("Update all").click());
     expect(dialog.querySelector('[role="alert"]')).not.toBeNull();
@@ -289,3 +292,26 @@ for (const kind of ["app", "plugin"] as const) {
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 }
+
+
+it("keeps completed outcomes reachable after the offers disappear", async () => {
+  const initial = { errors: {}, items: [snapshot.items[1]] };
+  const installed: UpdateAvailabilitySnapshot = { errors: {}, items: [{ ...snapshot.items[1], installed: "2.0.0", state: "up_to_date", reason: "same_version" }] };
+  fake.check.mockResolvedValueOnce(initial).mockResolvedValue(installed);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTray /></UpdatePanelProvider>));
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
+    await act(async () => trigger.click());
+    const dialog = () => document.querySelector('[role="dialog"][aria-label="Updates"]')!;
+    await act(async () => dialog().querySelector<HTMLButtonElement>('[aria-label="Update all"]')!.click());
+    expect(fake.plugin).not.toHaveBeenCalled();
+    expect(dialog().querySelector('[aria-label="plugin update completed"]')).not.toBeNull();
+    await act(async () => trigger.click());
+    expect(host.querySelector('button[aria-label="Update"]')).not.toBeNull();
+    await act(async () => trigger.click());
+    expect(dialog().querySelector('[aria-label="plugin update completed"]')).not.toBeNull();
+    expect(dialog().querySelector('progress')).toBeNull();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});

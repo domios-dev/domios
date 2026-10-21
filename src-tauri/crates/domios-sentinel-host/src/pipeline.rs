@@ -613,16 +613,30 @@ fn run_step(
         return failed_input_step(reason);
     }
     match &step.kind {
-        StepKind::Command { command } => {
+        StepKind::Command { .. } | StepKind::Github { .. } => {
+            let (command, runtime) = match &step.kind {
+                StepKind::Command { command } => (command.clone(), probe::PROBE_RUNTIME),
+                StepKind::Github { probe: github } => match github.command() {
+                    Ok(command) => (
+                        command,
+                        Duration::from_millis(
+                            codeterm_blueprint_types::blueprint_github::PROBE_RUNTIME_MS,
+                        ),
+                    ),
+                    Err(reason) => return failed_input_step(&reason),
+                },
+                _ => unreachable!(),
+            };
             let remaining = lease
                 .job
                 .expires_at
                 .map(|at| Duration::from_millis(at.saturating_sub(now(handle))))
-                .unwrap_or(probe::PROBE_RUNTIME);
-            let result = probe::run_with_environment(
-                command,
+                .unwrap_or(runtime);
+            let result = probe::run_with_budget(
+                &command,
                 Path::new(&lease.job.cwd),
                 remaining,
+                runtime,
                 &handle.probe_owner,
                 &super::probe_env::current_instance(svc.configuration().api),
             );

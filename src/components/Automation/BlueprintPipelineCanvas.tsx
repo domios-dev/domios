@@ -1,6 +1,6 @@
 import { useId, useState, type CSSProperties } from "react";
 import { CanvasToolbar } from "../Canvas/CanvasToolbar";
-import { Bell, List, Play, Workflow } from "lucide-react";
+import { Bell, GitPullRequest, List, Play, Workflow } from "lucide-react";
 import { AUTOMATION_LABEL, AUTOMATION_TONE, AUTOMATION_TOOL } from "./styles";
 import type { PipelineView, PipelineViewNode } from "./pipelineModel";
 import { layoutPipelineChain, PIPELINE_CANVAS_HEIGHT, PIPELINE_CARD_HEIGHT, PIPELINE_CARD_WIDTH } from "./pipelineLayout";
@@ -25,7 +25,7 @@ function eventTime(value: number | null): string {
 }
 
 function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
-  const Icon = node.kind === "trigger" ? Play : node.kind === "result" ? Bell : Workflow;
+  const Icon = node.kind === "trigger" ? Play : node.kind === "result" ? Bell : node.capability === "github" ? GitPullRequest : Workflow;
   return <article
     aria-current={node.kind === "step" && node.current ? "step" : undefined}
     className={`ct-card flex h-full flex-col gap-1 px-3 py-2.5 ${stateSurface(node.state, node.current)}`}
@@ -33,7 +33,7 @@ function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
   >
     <div className={`flex items-center gap-1.5 ${AUTOMATION_LABEL}`}>
       <Icon size={12} className="text-[var(--ct-card-tone)]" aria-hidden="true" />
-      <span>{KIND_LABEL[node.kind]}</span>
+      <span>{node.capability === "github" ? "GitHub source" : KIND_LABEL[node.kind]}</span>
       <span className="ml-auto flex items-center gap-1.5 font-medium" style={{ "--ct-detail-tone": stateTone(node.state, node.current) } as CSSProperties}>
         <span className="ct-detail__dot" aria-hidden="true" />{node.state}
       </span>

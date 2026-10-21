@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   MODES, candidateFilter, captureCommand, compile, executedCount, executionGroups, generatedDirectories, platformFilter,
-  requireTestSuccess, runArgs, timingAuditArgs, timingPlan, verifyReceipts, withOverlayExclusions,
+  platformLane, requireTestSuccess, runArgs, timingAuditArgs, timingPlan, verifyReceipts, withOverlayExclusions,
 } from '../ci-rust-tests.mjs';
 
 const receipt = (overrides = {}) => ({ mode: 'full', runner: 'eight', os: 'Windows', arch: 'X64', sha: 'abc', executed: 6709, exit: 0, seconds: 128, ...overrides });
@@ -190,4 +190,31 @@ test('CI Rust selection drops stale and this OS platform-red binary markers of t
   assert.equal(withOverlayExclusions('all()', overlay, 'macOS', { targets: ['-p', 'other-crate', '--all-targets'] }), 'all()');
   assert.equal(withOverlayExclusions('all()', { stale: [], flaky: [], platform_red: [] }, 'Windows', lane), 'all()');
   assert.throws(() => withOverlayExclusions('all()', overlay, 'Plan9', lane), /Unknown runner OS/);
+});
+
+test('a platform lane compiles only the packages whose sources hold cfg-gated tests', () => {
+  const pkg = (name, targets) => ({ name, targets });
+  const lib = (src) => ({ kind: ['lib'], name: 'lib', src_path: src });
+  const packages = [
+    pkg('gated-crate', [lib('gated/lib.rs')]),
+    pkg('plain-crate', [lib('plain/lib.rs'), { kind: ['test'], name: 'main', src_path: 'plain/tests/main.rs' }]),
+    pkg('itest-crate', [lib('itest/lib.rs'), { kind: ['test'], name: 'main', src_path: 'itest/tests/main.rs' }]),
+    pkg('unlisted-crate', [lib('unlisted/lib.rs')]),
+  ];
+  const gated = new Set(['gated/lib.rs', 'itest/tests/main.rs', 'unlisted/lib.rs']);
+  const lane = { lane: 'workspace', targets: ['--no-default-features', '-p', 'gated-crate', '-p', 'plain-crate', '-p', 'itest-crate', '--lib', '--test', 'main'] };
+  assert.deepEqual(platformLane(lane, packages, (src) => gated.has(src)).targets,
+    ['--no-default-features', '-p', 'gated-crate', '-p', 'itest-crate', '--lib', '--test', 'main']);
+  assert.deepEqual(platformLane(lane, packages, (src) => src === 'gated/lib.rs').targets, ['--no-default-features', '-p', 'gated-crate', '--lib']);
+  assert.equal(platformLane(lane, packages, () => false), null);
+  const cli = { lane: 'cli', targets: ['-p', 'plain-crate', '--all-targets'] };
+  assert.deepEqual(platformLane(cli, packages, (src) => src === 'plain/tests/main.rs').targets, ['-p', 'plain-crate', '--all-targets']);
+});
+
+test('the pinned cargo-nextest is detected exactly so a sibling job never reinstalls it', async () => {
+  const { hasNextest } = await import('../ci-nextest-present.mjs');
+  assert.equal(hasNextest('cargo-nextest 0.9.148\nrelease: 0.9.148\ncommit-hash: x\n', '0.9.148'), true);
+  assert.equal(hasNextest('release: 0.9.147\n', '0.9.148'), false);
+  assert.equal(hasNextest('release: 0.9.1489\n', '0.9.148'), false);
+  assert.equal(hasNextest('', '0.9.148'), false);
 });

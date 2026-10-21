@@ -1,5 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { UpdatePanelContents } from "../UpdatePanel";
+import { UpdatePanelContents, UpdatePanelStatus } from "../UpdatePanel";
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useEffect } from "react";
 import { CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
@@ -23,7 +23,6 @@ export function UpdateSection({ config, onUpdate }: {
     refresh,
     applyUpdate,
     installing,
-    progress,
     downloadedBytes,
     downloadTotalBytes,
     error,
@@ -55,11 +54,14 @@ export function UpdateSection({ config, onUpdate }: {
             ? "up to date"
             : "idle";
 
+  const measuredProgress = status === "downloading" && downloadTotalBytes && downloadTotalBytes > 0
+    ? Math.min(100, Math.max(0, downloadedBytes / downloadTotalBytes * 100)) : null;
+
   return (
     <SettingsCard
       icon={<Download size={16} />}
       title="Updates"
-      headerRight={<SettingsPill tone={unified?.error ? "red" : unified?.items.length ? "accent" : statusTone}>{unified?.error ? "failed" : unified?.items.length ? "updates available" : statusText}</SettingsPill>}
+      headerRight={unified ? <UpdatePanelStatus /> : <SettingsPill tone={statusTone}>{statusText}</SettingsPill>}
     >
       <div className="flex flex-col gap-3">
         {unified && <UpdatePanelContents />}
@@ -101,18 +103,14 @@ export function UpdateSection({ config, onUpdate }: {
           </div>
         </div>
 
-        {installing && (
+        {!unified && installing && (
           <div className="rounded-md border border-[var(--ct-accent)]/30 bg-[var(--ct-accent)]/10 px-3 py-2">
             <div className="flex items-center justify-between gap-2 text-xs text-[var(--ct-accent)]">
               <span>{installLabel(status)}</span>
-              <span>{Math.max(1, Math.round(progress))}%</span>
+              {measuredProgress !== null && <span>{Math.round(measuredProgress)}%</span>}
             </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--ct-border)]">
-              <div
-                className="h-full rounded-full bg-[var(--ct-accent)] transition-[width] duration-300"
-                style={{ width: `${Math.max(1, Math.min(100, Math.round(progress)))}%` }}
-              />
-            </div>
+            <progress aria-label="Domios update progress" max={100} value={measuredProgress ?? undefined}
+              className="mt-2 h-1.5 w-full accent-[var(--ct-accent)]" />
             {downloadTotalBytes && downloadTotalBytes > 0 && (
               <div className="mt-1.5 text-[10px] text-[var(--ct-muted-fg)]">
                 {formatBytes(downloadedBytes)} / {formatBytes(downloadTotalBytes)}
@@ -129,7 +127,7 @@ export function UpdateSection({ config, onUpdate }: {
         )}
 
         {!unified && error && (
-          <InlineErrorNotice error={error} operation="checking for updates" blocking />
+          <InlineErrorNotice description={{ title: "Update could not complete", cause: error, actions: ["retry"], raw: error }} blocking />
         )}
 
         {updateAvailable && releaseNotes && releaseNotes.trim().length > 0 && (

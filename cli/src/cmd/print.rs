@@ -62,6 +62,10 @@ impl CliError {
             }
         });
         data["http_status"] = serde_json::json!(status);
+        let detail = match data.get("code").and_then(serde_json::Value::as_str) {
+            Some(code) => format!("{code}: {detail}"),
+            None => detail,
+        };
         let message = if detail.is_empty() {
             format!("HTTP {status}")
         } else {
