@@ -64,8 +64,13 @@ fn migrate(
         .transpose()?
         .unwrap_or(false);
 
+    let stray_lock = if old_exists && new_exists {
+        acquire_stray_provider_lock(new_data)?
+    } else {
+        None
+    };
     let destination_content = if old_exists && new_exists {
-        let inventory = destination_inventory(new_data).map_err(|error| {
+        let mut inventory = destination_inventory(new_data).map_err(|error| {
             io::Error::new(
                 error.kind(),
                 format!(
@@ -75,6 +80,12 @@ fn migrate(
                 ),
             )
         })?;
+        if stray_lock.is_some() {
+            inventory.remove(&(
+                PathBuf::from("provider-update.lock"),
+                DestinationEntryKind::File,
+            ));
+        }
         let content = classify_destination(&inventory);
         if content == DestinationContent::Other {
             return Err(io::Error::other(format!(
@@ -111,6 +122,10 @@ fn migrate(
                 new_data.display()
             )));
         }
+        if stray_lock.is_some() {
+            std::fs::remove_file(new_data.join("provider-update.lock"))?;
+        }
+        drop(stray_lock);
         let staged_client_trail = match destination_content {
             Some(DestinationContent::ClientStartupTrail) => {
                 Some(stage_client_startup_trail(new_data, old_data)?)
@@ -220,6 +235,29 @@ fn entry_kind(metadata: &std::fs::Metadata) -> DestinationEntryKind {
     } else {
         DestinationEntryKind::Other
     }
+}
+
+fn acquire_stray_provider_lock(root: &Path) -> io::Result<Option<std::fs::File>> {
+    let path = root.join("provider-update.lock");
+    let metadata = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if !metadata.file_type().is_file() {
+        return Ok(None);
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)?;
+    file.try_lock().map_err(|error| {
+        io::Error::other(format!(
+            "Cannot relocate data while {} is locked: {error}",
+            path.display()
+        ))
+    })?;
+    Ok(Some(file))
 }
 
 fn classify_destination(

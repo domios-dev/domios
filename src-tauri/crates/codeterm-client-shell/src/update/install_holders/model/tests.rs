@@ -142,3 +142,27 @@ fn restart_manager_set_is_only_install_binaries_beside_thousands_of_foreign_file
     listing.push(PathBuf::from("elsewhere/domios.exe"));
     assert_eq!(install_binaries(&root, listing), expected.to_vec());
 }
+
+#[test]
+fn only_exact_attached_server_is_exempt_from_preflight() {
+    let server = crate::application_host::AttachedServerIdentity {
+        pid: 42,
+        created: "12345".into(),
+    };
+    assert!(is_attached_server(Some(&server), 42, 12345));
+    assert!(!is_attached_server(Some(&server), 43, 12345));
+    assert!(!is_attached_server(Some(&server), 42, 12346));
+    assert!(!is_attached_server(None, 42, 12345));
+    let foreign = Holder {
+        pid: 43,
+        name: "opaque foreign holder".into(),
+        executable: Some(PathBuf::from("/foreign.exe")),
+        parent_pid: None,
+        owned_tab: None,
+    };
+    assert_eq!(
+        classify_holder(&foreign, 1, &[], &[]),
+        HolderDisposition::Foreign
+    );
+    assert!(foreign_notice(&[foreign]).contains("PID 43"));
+}
