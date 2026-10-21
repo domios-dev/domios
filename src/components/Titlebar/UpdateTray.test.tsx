@@ -10,7 +10,7 @@ const fake = vi.hoisted(() => ({
 }));
 vi.mock("../../lib/updateAvailability", () => ({ checkUpdateAvailability: fake.check }));
 vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({ installing: false, error: null, applyUpdate: fake.install }) }));
-vi.mock("../../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin }));
+vi.mock("../../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin, ensurePluginSnapshot: async () => ({}), usePluginSnapshotStore: () => ({ snapshot: { plugins: [], marketplace: [] } }) }));
 vi.mock("../../lib/frontendUpdate/browser", () => ({
   acceptFrontendUpdate: fake.accept, setFrontendUpdateHeld: fake.hold,
   frontendUpdateOffer: () => fake.offer, subscribeFrontendUpdateOffer: () => () => {},
@@ -50,8 +50,7 @@ it("keeps an unreachable core channel silent and names its cause as a diagnostic
     expect(host.querySelector('button[aria-label^="Apply"]')).toBeNull();
     expect(host.querySelector('[aria-label="Installed plugin ahead of channel"]')).toBeNull();
     expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(host.querySelector('[role="status"][aria-label="codeterm-core channel diagnostics"]')?.textContent)
-      .toBe(`Core plugins: ${coreUnavailable} Bundled core plugins stay installed.`);
+    expect(host.querySelector('[aria-label="codeterm-core channel diagnostics"] pre')?.textContent).toBe(coreUnavailable);
     const updateAll = [...host.querySelectorAll("button")].find(button => button.textContent === "Update all")!;
     expect(updateAll.disabled).toBe(true);
   } finally { await act(async () => root.unmount()); host.remove(); }
@@ -106,11 +105,10 @@ it("keeps a failed channel on its own row while Update all applies the healthy c
   const root = createRoot(host);
   try {
     await act(async () => root.render(<UpdatePanelProvider><UpdateTray /><UpdatePanelContents /></UpdatePanelProvider>));
-    expect(host.querySelector('[role="status"][aria-label="lark plugin updates unavailable"]')?.textContent)
-      .toContain(communityUnavailable);
+    expect(host.querySelector('[aria-label="community updates unavailable"] pre')?.textContent).toBe(communityUnavailable);
     const failedApply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply lark update"]')!;
     const healthyApply = host.querySelector<HTMLButtonElement>('button[aria-label="Apply teams-client update"]')!;
-    expect(failedApply.disabled).toBe(true);
+    expect(failedApply).toBeNull();
     expect(healthyApply.disabled).toBe(false);
     const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
     await act(async () => trigger.click());

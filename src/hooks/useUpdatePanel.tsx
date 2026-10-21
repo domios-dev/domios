@@ -33,7 +33,7 @@ function useUpdatePanelController() {
   const availableRows = useRef(items);
   availableRows.current = items;
   const updateable = panelItems(updateableItems(snapshot.items, status.errors));
-  const diagnostics = channelDiagnostics(status.errors, new Set(items.flatMap(item => item.channelError && item.channel ? [item.channel] : [])));
+  const diagnostics = channelDiagnostics(status.errors, new Set());
 
   const save = useCallback((next: UpdateIntent | null) => {
     persistIntent(next);
@@ -161,7 +161,7 @@ function useUpdatePanelController() {
     setError(null);
     try {
       const fresh = await refresh(true);
-      const available = updateableItems(fresh.items, classifyUpdateStatus(fresh).errors);
+      const available = panelItems(updateableItems(fresh.items, classifyUpdateStatus(fresh).errors));
       const failures = Object.keys(fresh.errors).length;
       setCheckResult(failures
         ? `Check finished with ${failures} unavailable update source(s).`
@@ -178,7 +178,7 @@ function useUpdatePanelController() {
     ? Math.min(100, Math.max(0, app.downloadedBytes / app.downloadTotalBytes * 100)) : null,
     history, checking, checkResult, information: status.information, diagnostics, busy: starting || (!failure && intent !== null) || app.installing, error: failure,
     errorDetails: error ? [error.details, app.error].filter(Boolean).join("\n") : app.error,
-    updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id)) };
+    updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id && (!item.channel || !status.errors[item.channel]))) };
 }
 
 const Context = createContext<ReturnType<typeof useUpdatePanelController> | null>(null);

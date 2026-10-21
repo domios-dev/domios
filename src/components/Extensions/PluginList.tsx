@@ -1,4 +1,5 @@
-import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { UpdateChannelNotice } from "../shared/UpdateChannelNotice";
+import { ComponentStatus } from "../shared/ComponentStatus";
 // plugin rows (installed + marketplace) with status/update/installed badges.
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useState } from "react";
@@ -12,7 +13,7 @@ import { ChevronRight, Trash2 } from "lucide-react";
 import { KebabGlyph } from "../shared/RowMenuButton";
 import type { PluginActivity } from "../../lib/types";
 import { resolvePluginActivityDisplay, type PluginActivityDisplayMap } from "../../lib/usePluginActivity";
-import { PluginActivityInline } from "./PluginActivityInline";
+
 
 const CORE_CHANNEL = "codeterm-core";
 const PLUGINS_CHANNEL = "codeterm-plugins";
@@ -59,6 +60,7 @@ export function PluginList({
   channelPluginCounts: Map<string, number>;
   onSelectChannel: (name: string) => void;
 }) {
+  const updatePanel = useOptionalUpdatePanel();
   const sections = groupBySource(entries);
   const channelRows = filterChannels(channels, query);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -190,6 +192,7 @@ export function PluginList({
                     />
                   )}
                 </div>
+                {section.channel && updatePanel?.diagnostics.filter(item => item.channel === section.channel).map(item => <div key={item.channel} className="px-2 py-1"><UpdateChannelNotice channel={item.channel} message={item.message} /></div>)}
                 {!collapsed.has(section.key) && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {section.entries.map((e) => (
@@ -345,6 +348,13 @@ function PluginRow({
   const updates = useOptionalUpdatePanel();
   const updateAvailable = updates ? updates.pluginHasUpdate(entry.id) : entry.updateAvailable;
   const loadFailure = entry.loadError && !entry.loadError.keptPrevious ? entry.loadError : null;
+  const channelFailed = entry.channel !== CORE_CHANNEL && Boolean(entry.channel && updates?.snapshot.errors[entry.channel]);
+  const running = activity?.status === "running";
+  const state = running ? "active" : loadFailure || channelFailed ? "failed" : updateAvailable ? "available" : entry.installed ? "installed" : "marketplace";
+  const label = running ? activity.label : loadFailure ? `${entry.displayName} failed to load; select for details` : channelFailed ? `${entry.displayName} update check failed` : updateAvailable ? "Update available" : entry.installed ? `${entry.displayName} installed` : `${entry.displayName} available to install`;
+  const description = entry.pitch || entry.description || catalogKindLabel(entry);
+  const versionLabel = entry.version && entry.remoteVersion && entry.version !== entry.remoteVersion
+    ? `${entry.version} → ${entry.remoteVersion}` : entry.version ?? entry.remoteVersion ?? "";
   return (
     <div>
       <div
@@ -360,12 +370,14 @@ function PluginRow({
         tabIndex={0}
         onClick={onSelect}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") onSelect();
+          if (e.code === "Enter" || e.code === "Space") { e.preventDefault(); onSelect(); }
         }}
         style={{
-          display: "flex",
+          display: "grid",
+          gridTemplateColumns: "20px minmax(0,1fr) auto 14px",
           alignItems: "center",
-          gap: 10,
+          minWidth: 0,
+          gap: 8,
           padding: "8px 10px",
           borderRadius: 8,
           cursor: "pointer",
@@ -378,31 +390,15 @@ function PluginRow({
           if (!selected) e.currentTarget.style.background = "transparent";
         }}
       >
-        <div style={{ width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "var(--ct-bg-elev)", border: "1px solid var(--ct-border-subtle)" }}>
-          <PluginIcon plugin={iconOf(entry)} size={15} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 560, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {entry.displayName}
-            </span>
-            {entry.dev ? (
-              <Badge tone="dev">Dev</Badge>
-            ) : (
-              entry.installed && <Badge tone="installed">Installed</Badge>
-            )}
-            {updateAvailable && <Badge tone="update">Update</Badge>}
-            {loadFailure && <Badge tone="error">Error</Badge>}
-          </div>
-          <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10, color: "var(--ct-muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {catalogKindLabel(entry)}
-            {entry.version ? ` · v${entry.version}` : entry.remoteVersion ? ` · v${entry.remoteVersion}` : ""}
-          </div>
-
-          <PluginActivityInline activity={activity} display={display} compact />
-        </div>
+        <span className="flex h-5 w-5 items-center justify-center"><PluginIcon plugin={iconOf(entry)} size={15} /></span>
+        <span className="flex min-w-0 items-baseline gap-2" title={description}>
+          <span className="max-w-[50%] shrink-0 truncate text-xs font-medium">{entry.displayName}</span>
+          <span className="min-w-0 truncate text-[11px] text-[var(--ct-muted)]">{description}</span>
+        </span>
+        <span title={versionLabel} className="max-w-[110px] truncate text-[10px] tabular-nums text-[var(--ct-muted)]">{versionLabel}</span>
+        <span data-testid={running ? "extensions-plugin-activity" : undefined} title={running ? `${display.displayName}: ${activity.label}` : label}><ComponentStatus state={state} label={label} /></span>
       </div>
-      {loadFailure && <div data-testid="extensions-plugin-load-error"><InlineErrorNotice error={{ code: "plugin_load_failed", raw: `${loadFailure.message}\n${loadFailure.path}` }} /></div>}
+
     </div>
   );
 }
@@ -425,34 +421,6 @@ function ChannelBadge({ channel }: { channel: ChannelRecord }) {
       }}
     >
       {channel.name === CORE_CHANNEL || channel.system ? "Official" : "Custom"}
-    </span>
-  );
-}
-
-function Badge({ tone, children }: { tone: "installed" | "update" | "dev" | "error"; children: React.ReactNode }) {
-  const style =
-    tone === "error"
-      ? { background: "transparent", color: "var(--ct-red)", border: "1px solid var(--ct-red)" }
-      : tone === "update" || tone === "dev"
-        ? { background: "transparent", color: "var(--ct-fg)", border: "1px solid var(--ct-border-default)" }
-        : { background: "var(--ct-bg-active)", color: "var(--ct-muted)", border: "1px solid var(--ct-border-default)" };
-  return (
-    <span
-      role={tone === "update" ? "status" : undefined}
-      aria-label={tone === "update" ? "Update available" : undefined}
-      data-testid={`extensions-plugin-badge-${tone}`}
-      style={{
-        fontSize: 9.5,
-        fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-        letterSpacing: 0,
-        textTransform: "uppercase",
-        borderRadius: 4,
-        padding: "1px 5px",
-        flex: "none",
-        ...style,
-      }}
-    >
-      {children}
     </span>
   );
 }

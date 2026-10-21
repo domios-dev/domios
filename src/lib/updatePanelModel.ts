@@ -83,13 +83,13 @@ export function panelItems(
   items: readonly UpdateAvailabilityItem[],
   channelErrors: Readonly<Record<string, string>> = {},
 ): UpdateItem[] {
-  return items.filter(item => hasUpdateBadge(item) || (item.kind === "plugin" && item.state !== "core_silent"
+  return items.filter(item => hasUpdateBadge(item) || (item.kind === "plugin" && item.installed !== null && item.state !== "core_silent"
     && item.channel !== null && Boolean(channelErrors[item.channel])))
     .map(item => ({
     id: item.id,
     group: item.kind === "app" ? "App" : item.kind === "frontend" ? "Interface" : "Plugins",
     name: item.kind === "app" ? "Domios" : item.kind === "frontend" ? "Interface" : item.id,
-    currentVersion: item.installed ?? "Bundled", targetVersion: item.latest!,
+    currentVersion: item.installed ?? "Bundled", targetVersion: item.latest ?? item.installed ?? "Unknown",
     channel: item.channel ?? undefined,
     channelError: item.kind === "plugin" && item.channel ? channelErrors[item.channel] : undefined,
   }));
@@ -118,7 +118,7 @@ export function updateRunRows(runItems: readonly UpdateItem[], items: readonly U
     const current = items.find(row => row.id === item.id) ?? item;
     const alreadyCurrent = targetInstalled(current, snapshot);
     const outcome = current.targetVersion === item.targetVersion ? outcomes[item.id] : undefined;
-    const state = outcome === "failed" ? "failed" : alreadyCurrent ? "completed" : outcome ?? (current.channelError ? "failed" : activeId === item.id ? "active"
+    const state = outcome === "failed" || current.channelError ? "failed" : alreadyCurrent ? "completed" : outcome ?? (activeId === item.id ? "active"
       : intent && (intent.pluginIds.includes(item.id) || (item.group === "Interface" && intent.interfaceRequested)) ? "queued" : "available");
     return { ...current, state, alreadyCurrent };
   });

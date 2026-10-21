@@ -42,8 +42,9 @@ it("shows a load error only when the failing plugin has no previous working vers
     marketplace: [],
   };
   const entries = buildCatalog(snapshot);
+  const onSelect = vi.fn();
   await act(async () => root!.render(<PluginList
-    entries={entries} selectedId={null} onSelect={vi.fn()} query="" onQuery={vi.fn()}
+    entries={entries} selectedId={null} onSelect={onSelect} query="" onQuery={vi.fn()}
     filter="all" onFilter={vi.fn()} updateCount={updateCount(entries)}
     onRemoveChannel={vi.fn()} activities={new Map()} activityDisplayMap={new Map()}
     channels={[]} selectedChannel={null} channelPluginCounts={new Map()} onSelectChannel={vi.fn()}
@@ -51,13 +52,10 @@ it("shows a load error only when the failing plugin has no previous working vers
 
   const row = (id: string) => host!.querySelector(`[data-testid="extensions-plugin-row"][data-plugin-id="${id}"]`)!;
   expect(row("claude").getAttribute("data-plugin-load-error")).toBe("true");
-  expect(row("claude").querySelector('[data-testid="extensions-plugin-badge-error"]')).toBeNull();
-  const line = row("claude").parentElement?.querySelector('[data-testid="extensions-plugin-load-error"]');
-  expect(line).toBeNull();
-  expect(row("broken").querySelector('[data-testid="extensions-plugin-badge-error"]')).not.toBeNull();
-  const brokenLine = row("broken").parentElement?.querySelector('[data-testid="extensions-plugin-load-error"]');
-  expect(brokenLine?.querySelector('section[role="status"][aria-label]')).not.toBeNull();
-  expect(brokenLine?.querySelector("details")?.open).toBe(false);
+  expect(row("claude").querySelector('[aria-label*="failed"]')).toBeNull();
+  expect(row("broken").querySelector('[role="status"][aria-label="Broken failed to load; select for details"]')).not.toBeNull();
+  await act(async () => row("broken").dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", bubbles: true })));
+  expect(onSelect).toHaveBeenCalledExactlyOnceWith("broken");
   expect(row("healthy").getAttribute("data-plugin-load-error")).toBe("false");
-  expect(row("healthy").querySelector('[data-testid="extensions-plugin-load-error"]')).toBeNull();
+  expect(row("healthy").querySelector('[aria-label*="failed"]')).toBeNull();
 });

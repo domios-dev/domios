@@ -78,3 +78,9 @@ console.log("later offers remain actionable after a completed run: 1 assertion p
   const history = updateRunRows([row], [], [], null, null, { git: "failed" });
   assert.equal(history[0].state, "failed");
 }
+
+{
+  const unavailable = panelItems([plugin], { official: "opaque channel error" });
+  const installed = [{ ...plugin, installed: plugin.latest }];
+  assert.equal(updateRunRows(unavailable, unavailable, installed, null, null, {})[0].state, "failed");
+}
