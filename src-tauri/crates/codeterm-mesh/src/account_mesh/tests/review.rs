@@ -1,9 +1,10 @@
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use super::support::*;
-use crate::account_mesh::link::{adopt_peer_with, link_installation_with};
+use crate::account_mesh::link::{adopt_peer_with, link_installation_with, LinkTransport};
 use crate::account_mesh::protocol::{LINK_COMMIT_PATH, LINK_CONFIRM_PATH};
-use crate::account_mesh::AdmissionRefusal;
+use crate::account_mesh::{AdmissionRefusal, BoxFuture};
 
 fn linked_pair() -> (Machine, Machine) {
     let clock = clock();
@@ -88,6 +89,62 @@ async fn account_mesh_lost_commit_reply_is_repaired_by_the_next_add() {
         .expect("re-Add is idempotent on the side that already committed");
     assert!(a.mesh.lock().traffic_open(&b.id()));
     assert_eq!(b.mesh.lock().paired_peers.len(), 1);
+}
+
+struct HeldCommitReply {
+    inner: Loopback,
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+
+impl LinkTransport for HeldCommitReply {
+    fn post(
+        &self,
+        ip: &str,
+        port: u16,
+        path: &'static str,
+        bearer: Option<String>,
+        body: serde_json::Value,
+    ) -> BoxFuture<'_, Result<serde_json::Value, AdmissionRefusal>> {
+        let inner = &self.inner;
+        let entered = self.entered.clone();
+        let release = self.release.clone();
+        Box::pin(async move {
+            let result = inner.post(ip, port, path, bearer, body).await;
+            if path == LINK_COMMIT_PATH {
+                entered.notify_one();
+                release.notified().await;
+            }
+            result
+        })
+    }
+}
+
+#[tokio::test]
+async fn account_mesh_add_started_before_unpair_cannot_clear_its_removal() {
+    let (a, b) = linked_pair();
+    a.mesh.lock().insert_legacy_pair_for_test(b.as_peer());
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let transport = HeldCommitReply {
+        inner: Loopback::new(&[&a, &b]),
+        entered: entered.clone(),
+        release: release.clone(),
+    };
+    let mesh = a.mesh.clone();
+    let installation_id = b.installation_id.clone();
+    let add = tokio::spawn(async move {
+        link_installation_with(&mesh, &transport, &installation_id).await
+    });
+
+    entered.notified().await;
+    assert!(a.mesh.lock().unpair(&b.id()).is_some());
+    release.notify_one();
+
+    assert_eq!(add.await.unwrap().unwrap_err(), AdmissionRefusal::Cancelled);
+    let manager = a.mesh.lock();
+    assert!(manager.is_revoked(&b.id()));
+    assert!(!manager.paired_peers.contains_key(&b.id()));
 }
 
 #[tokio::test]

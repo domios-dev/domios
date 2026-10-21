@@ -35,6 +35,9 @@ impl MeshManager {
         let bound = state
             .signed_in_account()
             .is_some_and(|account| self.links.bind_owner(account));
+        if self.account_ready && self.account == state && !bound {
+            return;
+        }
         self.account = state;
         self.account_ready = true;
         if bound {
