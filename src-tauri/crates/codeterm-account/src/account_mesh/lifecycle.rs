@@ -359,7 +359,7 @@ impl AccountMesh {
 
     /// Without a signed-in account there is nothing to sign out of, so legacy continuity stays.
     async fn block_and_withdraw(&self) -> Cleanup {
-        let session = self.ports.sessions.session().await;
+        let session = self.ports.sessions.session().await.ok().flatten();
         let Some((account, published)) = self.with(|inner| {
             let account = inner.state.signed_in_account()?.to_owned();
             inner.awaiting_logout = true;
@@ -573,7 +573,9 @@ impl AccountMesh {
                 }
                 Err(refusal) => {
                     let account = inner.state.signed_in_account()?;
-                    if !inner.record.slots.contains_key(account) {
+                    if !inner.record.slots.contains_key(account)
+                        && !inner.record.keys.contains_key(account)
+                    {
                         return None;
                     }
                     let delay = lease_retry(*refusal, inner.lease_failures)?;

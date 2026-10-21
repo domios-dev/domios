@@ -74,6 +74,7 @@ type LinkResult = { ok: true } | { ok: false; request_id: string; failure: Accou
 
 export interface AccountMeshClient {
   snapshot(): Promise<AccountMeshSnapshot>;
+  list(): Promise<AccountMeshOutcome>;
   subscribe(onChange: () => void): () => void;
   /** Resolves after the authorized handshake; a server refusal rejects with `AccountMeshRefusalError`. */
   link(target: MeshTarget): Promise<void>;
@@ -85,6 +86,7 @@ export interface AccountMeshClient {
 
 const COMMANDS = {
   state: "account_mesh_state",
+  list: "account_mesh_list",
   link: "account_mesh_link",
   renameSelf: "account_mesh_rename_self",
   revoke: "account_mesh_revoke",
@@ -94,6 +96,7 @@ const CHANGE_EVENTS = ["account-mesh-changed", "mesh-state-changed"] as const;
 
 export const bridgeAccountMeshClient: AccountMeshClient = {
   snapshot: () => invoke<AccountMeshSnapshot>(COMMANDS.state),
+  list: () => invoke<AccountMeshOutcome>(COMMANDS.list),
   subscribe(onChange) {
     let active = true;
     const unlisteners: Array<() => void> = [];

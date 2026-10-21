@@ -156,6 +156,7 @@ mod tests {
                 photo_url: None,
             },
             id_token: codeterm_account::Secret::new("test-token"),
+            expires_at: None,
         };
         assert_eq!(
             local.entitlements(&session).await.unwrap(),

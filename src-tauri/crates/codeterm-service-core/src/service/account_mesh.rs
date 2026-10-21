@@ -52,10 +52,19 @@ impl AccountMeshService {
 }
 
 struct AccountSessions(Arc<OnceCell<Arc<codeterm_account::Account>>>);
+fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
+    match error {
+        codeterm_account::Error::Credentials | codeterm_account::Error::Provider => {
+            AccountMeshRefusal::Unauthenticated
+        }
+        _ => AccountMeshRefusal::Unavailable,
+    }
+}
 #[async_trait]
 impl SessionSource for AccountSessions {
-    async fn session(&self) -> Option<Session> {
-        self.0.get()?.session().await
+    async fn session(&self) -> Result<Option<Session>, AccountMeshRefusal> {
+        let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
+        account.current_session().await.map_err(session_refusal)
     }
 }
 

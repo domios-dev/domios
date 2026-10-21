@@ -15,6 +15,7 @@ function client(snapshot: Partial<AccountMeshSnapshot>) {
   const acknowledged: string[] = [];
   const fake = {
     snapshot: async () => snapshot as AccountMeshSnapshot,
+    list: async () => ({ ok: true as const }),
     subscribe: () => () => undefined,
     link: async () => undefined,
     renameSelf: async () => ({ ok: true as const }),
