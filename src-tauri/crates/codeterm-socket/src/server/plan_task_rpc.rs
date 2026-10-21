@@ -21,24 +21,8 @@ use codeterm_service_core::service::{persist_attempt_executor_identity, ServiceS
 use serde_json::{json, Value};
 
 mod split;
-
-fn task_files_field(
-    params: Option<&Value>,
-) -> Result<Option<codeterm_service_core::plan::TaskFiles>, JsonRpcError> {
-    params
-        .and_then(|p| p.get("files"))
-        .map(|value| {
-            serde_json::from_value::<codeterm_service_core::plan::TaskFiles>(value.clone())
-                .map_err(|e| e.to_string())
-                .and_then(codeterm_service_core::plan::TaskFiles::validated)
-                .map_err(|message| JsonRpcError {
-                    code: -32602,
-                    message,
-                    data: None,
-                })
-        })
-        .transpose()
-}
+mod task_fields;
+use task_fields::task_files_field;
 
 fn authenticated_caller(
     params: Option<&Value>,
@@ -732,6 +716,11 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            if let Some(speed) = optional_string_field(p, "speed") {
+                store
+                    .update_task_speed(&id, &tid, speed, now)
+                    .map_err(plan_rpc_err)?;
+            }
             super::plan_role_helpers::update_role_guidance_if_present(store, &id, &tid, p, now)?;
             super::plan_role_helpers::update_personality_if_present(store, &id, &tid, p, now)?;
             if let Some(competition) = super::plan_competition::update_field(p)? {
@@ -1077,12 +1066,18 @@ pub(super) fn dispatch(
                     &draft.attempt_id,
                 )
                 .map_err(plan_rpc_err)?;
-            let spawn_params = super::plan_task_dispatch::respawn_worker_params(
+            let mut spawn_params = super::plan_task_dispatch::respawn_worker_params(
                 &draft,
                 &task.name,
                 task.lane.base.clone(),
                 &parent_tab_id,
             );
+            spawn_params.speed = body
+                .get("speed")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or(spawn_params.speed);
+            let speed = spawn_params.speed.clone();
             let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
             let spawn = svc
                 .spawn_agent_sync_with_ready(spawn_params, Some(ready_tx))
@@ -1091,6 +1086,11 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
+            if let Some(speed) = speed.as_deref() {
+                store
+                    .update_task_speed(&id, &tid, Some(speed), now)
+                    .map_err(plan_rpc_err)?;
+            }
             draft.provider = spawn.agent.clone();
             draft.model = spawn.provider_resolved_model.clone();
             draft.reasoning_effort = svc.resolved_worker_launch_effort_for_tab(&spawn.tab_id);

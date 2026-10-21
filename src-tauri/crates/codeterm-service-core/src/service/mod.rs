@@ -182,6 +182,7 @@ pub mod spawn_capability;
 mod spawn_chatbackend;
 mod spawn_cli;
 pub mod spawn_cwd;
+pub mod spawn_speed;
 pub use spawn_cwd::CwdRefusal;
 mod remote_execution;
 pub mod spawn_factory;
