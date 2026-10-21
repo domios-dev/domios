@@ -1,5 +1,4 @@
 import { useId, useRef, useState } from "react";
-import { Grip } from "lucide-react";
 import type { Tab, ApiConfig } from "../../../lib/types";
 import { roleKind, roleKindLabel } from "../../../lib/roleKind";
 import type { Plan } from "../types";
@@ -72,7 +71,7 @@ export function UnderwayBoardRow({ api, teamId, plans, refs, deepLinks }: {
           {rows.length ? <ol aria-label="Working agents">{rows.map(({ tab, task }) => <UnderwayRow key={tab.id} tab={tab} task={task} view={views.get(tab.id)} plans={plans} refs={refs} deepLinks={deepLinks} />)}</ol>
             : <div className="mc-underway-empty"><p>No agent in this team has a checklist yet.</p><p>Agents appear here as soon as they keep one.</p></div>}
         </div>
-        <button type="button" className="mc-underway-resize" aria-label="Resize Underway; use arrow keys to change width and height" {...handle}><Grip size={14} /></button>
+        <button type="button" className="mc-underway-resize" aria-label="Resize Underway; use arrow keys to change width and height" title="Drag to resize" {...handle} />
       </BoardPanel>
     </div>
   </div>;

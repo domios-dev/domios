@@ -40,7 +40,7 @@ export function useUnderwayResize() {
     },
     onPointerMove: (event: PointerEvent<HTMLButtonElement>) => {
       const start = drag.current;
-      if (start?.id === event.pointerId) resize({ width: start.size.width + event.clientX - start.x, height: start.size.height + event.clientY - start.y });
+      if (start?.id === event.pointerId) resize({ width: start.size.width - (event.clientX - start.x), height: start.size.height + event.clientY - start.y });
     },
     onPointerUp: finish,
     onPointerCancel: finish,
@@ -48,7 +48,7 @@ export function useUnderwayResize() {
     onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
       const value = current.current ?? { width: 520, height: 292 };
       const steps: Record<string, UnderwaySize> = {
-        ArrowLeft: { ...value, width: value.width - 32 }, ArrowRight: { ...value, width: value.width + 32 },
+        ArrowLeft: { ...value, width: value.width + 32 }, ArrowRight: { ...value, width: value.width - 32 },
         ArrowUp: { ...value, height: value.height - 32 }, ArrowDown: { ...value, height: value.height + 32 },
       };
       if (steps[event.code]) { event.preventDefault(); resize(steps[event.code], true); }
