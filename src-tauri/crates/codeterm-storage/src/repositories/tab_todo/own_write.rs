@@ -17,6 +17,18 @@ pub(crate) fn write_own(
     write: TabTodoOwnWriteRecord,
 ) -> Result<TabTodoChecklistRecord, StorageError> {
     let actor = Some(tab_id.clone());
+    write_as(cx, tab_id, workspace_id, team_id, at, write, actor)
+}
+
+pub(super) fn write_as(
+    cx: &mut WriteCx<'_>,
+    tab_id: String,
+    workspace_id: String,
+    team_id: Option<String>,
+    at: u64,
+    write: TabTodoOwnWriteRecord,
+    actor: Option<String>,
+) -> Result<TabTodoChecklistRecord, StorageError> {
     let mut generation = write.generation;
     match write.base {
         TabTodoOwnWriteBase::Fresh => {

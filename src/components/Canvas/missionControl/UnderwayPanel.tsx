@@ -49,6 +49,7 @@ function UnderwayRow({ tab, task, view, plans, refs, deepLinks }: {
     <button type="button" className="mc-underway-task" title={task?.name} disabled={!task || !refs.get(task.id)?.open}
       onClick={() => { if (task) refs.get(task.id)?.open?.(); }}>{task?.key ?? "–"}</button>
     <div className="mc-underway-track">
+      {view?.status === "ready" && view.checklist?.proposal?.state === "proposed" && <span role="status">Not reviewed yet</span>}
       {view?.status !== "ready" ? <span>{view?.status === "error" ? "Checklist unavailable" : "Loading checklist"}</span>
         : items.length === 0 ? <span>No checklist</span>
         : <ol aria-label={`Checklist of ${tab.title}`}>{items.map((item, index) => <Segment key={item.id} item={item} index={index} total={items.length} plans={plans} tabId={tab.id} />)}</ol>}

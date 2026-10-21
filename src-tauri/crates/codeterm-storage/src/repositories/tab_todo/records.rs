@@ -51,6 +51,7 @@ pub struct TabTodoItemEventRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabTodoChecklistRecord {
+    pub proposal_json: Option<String>,
     pub tab_id: String,
     pub generation: u64,
     pub workspace_id: String,

@@ -21,6 +21,7 @@ export interface AgentChecklist {
   generation: number;
   revision: number;
   items: AgentChecklistItem[];
+  proposal?: { state: "proposed" | "approved" | "amended"; note?: string };
 }
 
 export interface TabTodoChanged {
@@ -75,7 +76,10 @@ export function boundedChecklist(raw: unknown): AgentChecklist | null {
       ...(checklistLink(item.link) ? { link: checklistLink(item.link) } : {}),
       ...(typeof item.reason === "string" && item.reason.trim() ? { reason: item.reason.trim() } : {}),
     }));
-  return { tabId: record.tab_id, generation: record.generation, revision: record.revision, items };
+  const proposal = record.proposal as Record<string, unknown> | null | undefined;
+  const review = proposal && (proposal.state === "proposed" || proposal.state === "approved" || proposal.state === "amended")
+    ? { state: proposal.state, ...(typeof proposal.note === "string" ? { note: proposal.note } : {}) } as AgentChecklist["proposal"] : undefined;
+  return { tabId: record.tab_id, generation: record.generation, revision: record.revision, items, proposal: review };
 }
 
 export function isTabTodoChanged(payload: unknown): payload is TabTodoChanged {

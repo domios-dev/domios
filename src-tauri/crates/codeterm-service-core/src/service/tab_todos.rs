@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod lifecycle;
 mod own_write;
+mod proposal;
 mod recitation;
 mod review;
 
@@ -49,6 +50,7 @@ struct TabIdentity {
     parent_tab_id: Option<String>,
     role: Option<AgentRole>,
     role_profile: Option<String>,
+    plan_id: Option<String>,
     workspace_id: String,
     restored_from_snapshot: bool,
 }
@@ -107,6 +109,10 @@ impl ServiceContext {
             parent_tab_id: tab.parent_tab_id.clone(),
             role: tab.role,
             role_profile: tab.role_profile.clone(),
+            plan_id: tab
+                .task_binding
+                .as_ref()
+                .and_then(|binding| binding.plan_id.clone()),
             workspace_id,
             restored_from_snapshot: tab.restored_from_snapshot,
         })
@@ -276,6 +282,15 @@ impl ServiceContext {
         let target = self.todo_tab(target_tab_id)?;
         self.require_parent_orchestrator(&target, actor_tab_id)?;
         draft.validate()?;
+        if self
+            .todo_store()?
+            .get(target.id.clone())
+            .await?
+            .and_then(|list| list.items.into_iter().find(|item| item.id == item_id))
+            .is_some_and(|item| item.locked && item.title != draft.title)
+        {
+            return Err("seeded criteria stay locked".into());
+        }
         let item = self.resolve_draft(item_id, draft).await?;
         let checklist = self
             .todo_store()?
@@ -379,14 +394,14 @@ impl ServiceContext {
         parent_tab_id: &str,
     ) -> Result<Option<TabTodoSummary>, String> {
         let target = self.todo_tab(target_tab_id)?;
-        self.require_parent_orchestrator(&target, parent_tab_id)?;
+        self.require_checklist_reviewer(&target, Some(parent_tab_id))?;
         let Some(checklist) = self.todo_store()?.get(target.id.clone()).await? else {
             return Ok(None);
         };
         Ok(Some(summary(&checklist)))
     }
 
-    /// Full bounded checklist inspection for the target's same-Team Orchestrator.
+    /// Full bounded checklist inspection for its parent or Plan owner.
     /// The store caps current-generation checklists at `MAX_TAB_TODO_ITEMS`.
     pub async fn tab_todo_parent_list(
         &self,
@@ -394,7 +409,7 @@ impl ServiceContext {
         parent_tab_id: &str,
     ) -> Result<Option<TabTodoChecklist>, String> {
         let target = self.todo_tab(target_tab_id)?;
-        self.require_parent_orchestrator(&target, parent_tab_id)?;
+        self.require_checklist_reviewer(&target, Some(parent_tab_id))?;
         self.todo_store()?.get(target.id).await
     }
 
