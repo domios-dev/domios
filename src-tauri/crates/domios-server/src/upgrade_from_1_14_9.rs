@@ -1,6 +1,7 @@
 use codeterm_service_core::{PathOwnership, ResolvedInstancePaths};
 use rusqlite::{Connection, OpenFlags};
 mod relocation_holders;
+mod stored_paths;
 use relocation_holders::{rename_legacy_root, SystemLegacyRootHolderProbe};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
@@ -8,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
+use stored_paths::{rebase_stored_paths, PathRebase};
 
 const STORAGE_APPLICATION_ID: i32 = 0x4354_5354;
 const STORAGE_SCHEMA_VERSION: i32 = 17;
@@ -132,6 +134,15 @@ fn migrate(
             return Err(io::Error::new(error.kind(), reason));
         }
         drop(old_owner);
+    }
+    if let Some(rebase) = old_data
+        .as_deref()
+        .and_then(|old_data| PathRebase::new(old_data, new_data))
+    {
+        notices.extend(rebase_stored_paths(new_data, &rebase));
+        for root in &mut project_roots {
+            *root = rebase.rebase_path(root);
+        }
     }
 
     migrate_secret_namespaces(secret_items)?;
@@ -785,16 +796,20 @@ fn read_json_map(path: &Path) -> io::Result<HashMap<String, String>> {
 }
 
 fn write_json_map_atomically(path: &Path, values: &HashMap<String, String>) -> io::Result<()> {
+    let body = serde_json::to_vec(values).map_err(io::Error::other)?;
+    write_file_atomically(path, &body)
+}
+
+fn write_file_atomically(path: &Path, body: &[u8]) -> io::Result<()> {
     let parent = path
         .parent()
-        .ok_or_else(|| io::Error::other("Secret file has no parent directory"))?;
+        .ok_or_else(|| io::Error::other("Migrated file has no parent directory"))?;
     std::fs::create_dir_all(parent)?;
-    let body = serde_json::to_vec(values).map_err(io::Error::other)?;
     let temp = path.with_file_name(format!(
         ".{}.migrate-{}.tmp",
         path.file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or("secrets"),
+            .unwrap_or("migrated"),
         std::process::id()
     ));
     let mut options = std::fs::OpenOptions::new();
@@ -806,7 +821,7 @@ fn write_json_map_atomically(path: &Path, values: &HashMap<String, String>) -> i
     }
     let mut file = options.open(&temp)?;
     use std::io::Write;
-    if let Err(error) = file.write_all(&body).and_then(|()| file.sync_all()) {
+    if let Err(error) = file.write_all(body).and_then(|()| file.sync_all()) {
         let _ = std::fs::remove_file(&temp);
         return Err(error);
     }
