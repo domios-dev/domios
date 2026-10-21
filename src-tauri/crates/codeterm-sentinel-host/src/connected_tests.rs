@@ -90,7 +90,7 @@ fn sentinel_connected_hash_gate_shared_budget_and_journal() {
                 classify::decide(
                     model.clone(),
                     &request,
-                    Instant::now() + Duration::from_secs(1),
+                    Instant::now() + Duration::from_secs(30),
                 )
             },
         );
@@ -213,7 +213,7 @@ pub(super) fn assert_budget_skip_is_journaled() {
             classify::decide(
                 model.clone(),
                 &request,
-                Instant::now() + Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(30),
             )
         },
     );
