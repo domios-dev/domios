@@ -1,5 +1,5 @@
-//! Lane cleanup runs only when a lane's fate is decided (acceptance, recorded merge),
-//! once per lane; repository ref changes never start lane git work.
+//! Lane cleanup runs only when a lane's fate is decided (acceptance, recorded merge)
+//! or its last live holder tab closes; repository ref changes never start lane git work.
 
 use crate::plan::{Plan, Task};
 use crate::service::lane_removal::{lane_release_command, LaneRemovalRequest};
@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 pub const CLEANUP_DONE: &str = "done";
 pub const CLEANUP_OFFERED: &str = "offered";
 pub const CLEANUP_RETAINED: &str = "retained";
+pub const CLEANUP_HELD: &str = "held";
 const GIT_DEADLINE: Duration = Duration::from_secs(12);
 const MAX_REASON_CHARS: usize = 400;
 
@@ -26,12 +27,21 @@ pub enum Ancestry {
 pub trait LaneGit {
     fn ancestry(&mut self, canonical: &str, branch: &str, destination: &str) -> Ancestry;
     fn remove(&mut self, request: &LaneRemovalRequest) -> Result<(), String>;
+    /// The live tab whose cwd is inside the worktree, if any.
+    fn holder(&mut self, worktree: &str) -> Option<String>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettleTrigger {
+    Decided,
+    HolderClosed,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LaneRecord {
     pub task_id: String,
     pub terminal: bool,
+    pub bound_tabs: Vec<String>,
     pub peer: Option<String>,
     pub worktree: Option<String>,
     pub branch: Option<String>,
@@ -55,6 +65,14 @@ impl LaneRecord {
         Self {
             task_id: task.id.clone(),
             terminal: task.status.is_terminal(),
+            bound_tabs: non_empty(task.lane.tab_id.as_deref())
+                .into_iter()
+                .chain(
+                    task.execution_attempts
+                        .iter()
+                        .filter_map(|attempt| non_empty(Some(attempt.executor_tab_id.as_str()))),
+                )
+                .collect(),
             peer: non_empty(task.peer.as_deref()).or_else(|| {
                 task.execution_attempts
                     .last()
@@ -69,9 +87,22 @@ impl LaneRecord {
 
     /// Any recorded cleanup status is final; dispatching the task again clears it.
     pub fn needs_settlement(&self) -> bool {
-        self.terminal
-            && self.cleanup_status.is_none()
-            && (self.worktree.is_some() || self.branch.is_some())
+        self.wants(SettleTrigger::Decided)
+    }
+
+    /// A lane held only by a live tab is settled once more when that tab closes.
+    pub fn wants(&self, trigger: SettleTrigger) -> bool {
+        let open = match self.cleanup_status.as_deref() {
+            None => true,
+            Some(status) => {
+                trigger == SettleTrigger::HolderClosed && status.eq_ignore_ascii_case(CLEANUP_HELD)
+            }
+        };
+        self.terminal && open && (self.worktree.is_some() || self.branch.is_some())
+    }
+
+    pub fn bound_to(&self, tab_id: &str) -> bool {
+        self.bound_tabs.iter().any(|bound| bound == tab_id)
     }
 }
 
@@ -133,6 +164,18 @@ pub fn settle(
             let Some(worktree) = record.worktree.clone() else {
                 return offered(release.clone().into_iter().collect());
             };
+            if let Some(holder) = git.holder(&worktree) {
+                return Settlement::Record {
+                    status: CLEANUP_HELD,
+                    hints: std::iter::once(format!(
+                        "worktree is open in live tab {holder}; settled again when it closes"
+                    ))
+                    .chain(release.clone())
+                    .collect(),
+                    worktree_gone: false,
+                    branch_gone: false,
+                };
+            }
             let request = LaneRemovalRequest {
                 worktree_path: worktree,
                 branch: record.branch.clone(),
@@ -272,6 +315,12 @@ impl LaneGit for ServiceLaneGit<'_> {
     fn remove(&mut self, request: &LaneRemovalRequest) -> Result<(), String> {
         self.service.remove_owned_lane(request).map(|_| ())
     }
+
+    fn holder(&mut self, worktree: &str) -> Option<String> {
+        let tabs = self.service.live_tab_cwds();
+        crate::service::lane_removal::find_lane_holder(worktree, &tabs)
+            .map(|tab| format!("'{}' ({})", tab.title, tab.id))
+    }
 }
 
 /// One `merge-base` call; only its error path asks whether the branch still exists.
@@ -333,22 +382,33 @@ impl ServiceContext {
         let Some(plan) = self.plan_store.get(plan_id) else {
             return;
         };
-        let Some(task) = plan.tasks.iter().find(|task| task.id == task_id) else {
-            return;
-        };
-        if !LaneRecord::from_task(task).needs_settlement() {
-            return;
+        if plan.tasks.iter().any(|task| {
+            task.id == task_id && LaneRecord::from_task(task).wants(SettleTrigger::Decided)
+        }) {
+            self.enqueue_settlement(&plan, task_id, SettleTrigger::Decided);
         }
+    }
+
+    /// A closed tab may have been the only thing keeping a finished lane in place.
+    pub fn settle_lanes_held_by_closed_tab(&self, tab_id: &str) {
+        for plan in self.plan_store.list_full() {
+            for task_id in held_by_tab(&plan, tab_id) {
+                self.enqueue_settlement(&plan, &task_id, SettleTrigger::HolderClosed);
+            }
+        }
+    }
+
+    fn enqueue_settlement(&self, plan: &Plan, task_id: &str, trigger: SettleTrigger) {
         let service = self.clone();
-        let (plan_id, task_id) = (plan_id.to_string(), task_id.to_string());
+        let (plan_id, task_id) = (plan.id.clone(), task_id.to_string());
         self.enqueue_lane_git(
-            canonical_path(&plan),
+            canonical_path(plan),
             format!("settle:{plan_id}:{task_id}"),
-            Box::new(move || service.run_settlement(&plan_id, &task_id)),
+            Box::new(move || service.run_settlement(&plan_id, &task_id, trigger)),
         );
     }
 
-    fn run_settlement(&self, plan_id: &str, task_id: &str) {
+    fn run_settlement(&self, plan_id: &str, task_id: &str, trigger: SettleTrigger) {
         let Some(plan) = self.plan_store.get(plan_id) else {
             return;
         };
@@ -357,7 +417,7 @@ impl ServiceContext {
             .iter()
             .find(|task| task.id == task_id)
             .map(LaneRecord::from_task)
-            .filter(LaneRecord::needs_settlement)
+            .filter(|record| record.wants(trigger))
         else {
             return;
         };
@@ -415,6 +475,15 @@ impl ServiceContext {
             }
         }
     }
+}
+
+pub fn held_by_tab(plan: &Plan, tab_id: &str) -> Vec<String> {
+    plan.tasks
+        .iter()
+        .map(LaneRecord::from_task)
+        .filter(|record| record.bound_to(tab_id) && record.wants(SettleTrigger::HolderClosed))
+        .map(|record| record.task_id)
+        .collect()
 }
 
 fn finished_records(plan: &Plan) -> Vec<LaneRecord> {
