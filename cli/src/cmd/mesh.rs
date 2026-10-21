@@ -44,12 +44,8 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                         .get("paired_count")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0);
-                    let discovered = val
-                        .get("discovered_count")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
                     println!("{} ({})", name, &id[..id.len().min(8)]);
-                    println!("Paired: {}, Discovered: {}", paired, discovered);
+                    println!("Paired: {}", paired);
                 }
             }
             Err(e) => {
@@ -95,36 +91,6 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                             );
                         }
                     }
-                    if let Some(discovered) = val.get("discovered").and_then(|v| v.as_array()) {
-                        if !discovered.is_empty() {
-                            println!("Discovered:");
-                        }
-                        for d in discovered {
-                            let name = d
-                                .get("instance_name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("?");
-                            let method = d
-                                .get("discovery_method")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("?");
-                            let ip = d
-                                .get("addresses")
-                                .and_then(|v| v.as_array())
-                                .and_then(|a| a.first())
-                                .and_then(|a| a.get("ip"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("?");
-                            let dev = d.get("dev").and_then(|v| v.as_bool()).unwrap_or(false);
-                            println!(
-                                "  ◇ {} ({}) [{}]{}",
-                                name,
-                                ip,
-                                method,
-                                if dev { " [dev]" } else { "" }
-                            );
-                        }
-                    }
                 }
             }
             Err(e) => {
@@ -134,10 +100,10 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         MeshAction::Tabs { target } => {
             mesh_cli::mesh_relay_cmd(&target, "tabs", "", json);
         }
-        MeshAction::Connect { instance_id, addr } => {
-            let body = connect_body(&instance_id, addr.as_ref());
+        MeshAction::Link { installation_id } => {
+            let body = serde_json::json!({"installation_id": installation_id});
             let result = http
-                .post(format!("{}/api/mesh/connect", base))
+                .post(format!("{}/api/mesh/link", base))
                 .header(
                     "Authorization",
                     format!("Bearer {}", token.as_deref().unwrap_or("")),
@@ -151,60 +117,8 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else {
-                        println!("Pairing request sent to {}", instance_id);
-                        if let Some(rid) = val.get("request_id").and_then(|v| v.as_str()) {
-                            println!("Request ID: {}", rid);
-                        }
-                    }
-                }
-                Err(e) => {
-                    crate::cmd::print::fail(1, e.to_string());
-                }
-            }
-        }
-        MeshAction::Approve { request_id } => {
-            let body = serde_json::json!({"request_id": request_id});
-            let result = http
-                .post(format!("{}/api/mesh/approve", base))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", token.as_deref().unwrap_or("")),
-                )
-                .json(&body)
-                .send()
-                .map_err(|e| e.to_string())
-                .and_then(handle_resp);
-            match result {
-                Ok(val) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        println!("Pairing request {} approved", request_id);
-                    }
-                }
-                Err(e) => {
-                    crate::cmd::print::fail(1, e.to_string());
-                }
-            }
-        }
-        MeshAction::Reject { request_id } => {
-            let body = serde_json::json!({"request_id": request_id});
-            let result = http
-                .post(format!("{}/api/mesh/reject", base))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", token.as_deref().unwrap_or("")),
-                )
-                .json(&body)
-                .send()
-                .map_err(|e| e.to_string())
-                .and_then(handle_resp);
-            match result {
-                Ok(val) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        println!("Pairing request {} rejected and blocked", request_id);
+                        let name = val["pair"]["name"].as_str().unwrap_or(&installation_id);
+                        println!("Linked {}", name);
                     }
                 }
                 Err(e) => {
@@ -255,107 +169,6 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else {
                         println!("Revocation lifted for {}", instance_id);
-                    }
-                }
-                Err(e) => {
-                    crate::cmd::print::fail(1, e.to_string());
-                }
-            }
-        }
-        MeshAction::Discover => {
-            match http
-                .post(format!("{}/api/mesh/discover", base))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", token.as_deref().unwrap_or("")),
-                )
-                .send()
-            {
-                Ok(resp) => {
-                    let val = match handle_resp(resp) {
-                        Ok(value) => value,
-                        Err(error) => {
-                            crate::cmd::print::fail(1, error.to_string());
-                        }
-                    };
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else if let Some(arr) = val.as_array() {
-                        if arr.is_empty() {
-                            println!("No discovered peers");
-                        } else {
-                            for p in arr {
-                                let name = p
-                                    .get("instance_name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?");
-                                let id =
-                                    p.get("instance_id").and_then(|v| v.as_str()).unwrap_or("?");
-                                let method = p
-                                    .get("discovery_method")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("?");
-                                println!("  {} ({}) [{}]", name, id, method);
-                            }
-                        }
-                    } else {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    }
-                }
-                Err(e) => {
-                    crate::cmd::print::fail(1, e.to_string());
-                }
-            }
-        }
-        MeshAction::Broadcast => {
-            match http
-                .post(format!("{}/api/mesh/broadcast/start", base))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", token.as_deref().unwrap_or("")),
-                )
-                .send()
-            {
-                Ok(resp) => {
-                    let val = match handle_resp(resp) {
-                        Ok(value) => value,
-                        Err(error) => {
-                            crate::cmd::print::fail(1, error.to_string());
-                        }
-                    };
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else if let Some(dur) = val.get("duration_secs").and_then(|v| v.as_u64()) {
-                        println!("Broadcasting for {}s", dur);
-                    } else {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    }
-                }
-                Err(e) => {
-                    crate::cmd::print::fail(1, e.to_string());
-                }
-            }
-        }
-        MeshAction::StopBroadcast => {
-            match http
-                .post(format!("{}/api/mesh/broadcast/stop", base))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", token.as_deref().unwrap_or("")),
-                )
-                .send()
-            {
-                Ok(resp) => {
-                    let val = match handle_resp(resp) {
-                        Ok(value) => value,
-                        Err(error) => {
-                            crate::cmd::print::fail(1, error.to_string());
-                        }
-                    };
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        println!("Broadcast stopped");
                     }
                 }
                 Err(e) => {
@@ -535,7 +348,7 @@ fn set_mesh_enabled(
     enabled: bool,
     json: bool,
 ) {
-    // instance_name, broadcast_duration_secs, etc.
+    // instance_name, etc.
     let body = serde_json::json!({"key": "mesh.enabled", "value": enabled});
     let resp = http
         .patch(format!("{}/api/config", base))
@@ -565,15 +378,4 @@ fn set_mesh_enabled(
             crate::cmd::print::fail(1, e.to_string());
         }
     }
-}
-
-pub(crate) fn connect_body(
-    instance_id: &str,
-    addr: Option<&std::net::SocketAddr>,
-) -> serde_json::Value {
-    let mut body = serde_json::json!({"instance_id": instance_id});
-    if let Some(addr) = addr {
-        body["addr"] = serde_json::json!(addr.to_string());
-    }
-    body
 }

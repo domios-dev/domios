@@ -19,7 +19,7 @@ pub async fn broadcast_sync(mesh: &MeshState) {
                 if p.addresses.is_empty() {
                     return None;
                 }
-                let token = m.sign_request().ok()?;
+                let token = m.sign_request_for(&p.instance_id).ok()?;
                 Some((
                     p.addresses.clone(),
                     p.api_port,
@@ -67,117 +67,6 @@ pub async fn broadcast_sync(mesh: &MeshState) {
     }
 }
 
-pub async fn broadcast_introductions(
-    new_peer: types::PairedPeer,
-    existing_peers: Vec<types::PairedPeer>,
-    our_id: String,
-    token: String,
-) {
-    let http = transport::shared_http_client();
-    for existing in &existing_peers {
-        if !existing.addresses.is_empty() {
-            let intro = types::PeerIntroduction {
-                instance_id: new_peer.instance_id.clone(),
-                instance_name: new_peer.instance_name.clone(),
-                addresses: new_peer.addresses.clone(),
-                api_port: new_peer.api_port,
-                public_key: new_peer.public_key.clone(),
-                introduced_by: our_id.clone(),
-            };
-            let result = transport::try_peer(&existing.addresses, |addr| {
-                let url = format!(
-                    "http://{}:{}/api/mesh/introduce",
-                    addr.ip, existing.api_port
-                );
-                let http = http.clone();
-                let token = token.clone();
-                let intro = intro.clone();
-                async move {
-                    match http
-                        .post(&url)
-                        .header("Authorization", format!("Bearer {}", token))
-                        .json(&intro)
-                        .send()
-                        .await
-                    {
-                        Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
-                        Ok(resp) => {
-                            let status = resp.status();
-                            let body = resp.text().await.unwrap_or_default();
-                            transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
-                        }
-                        Err(e) => transport::TryNext::Retry(e.to_string()),
-                    }
-                }
-            })
-            .await;
-            match result {
-                Ok(()) => log::info!(
-                    "[mesh/introduce] {} → {}",
-                    new_peer.instance_name,
-                    existing.instance_name
-                ),
-                Err(e) => log::warn!(
-                    "[mesh/introduce] {} → {} failed: {}",
-                    new_peer.instance_name,
-                    existing.instance_name,
-                    e
-                ),
-            }
-        }
-        if !new_peer.addresses.is_empty() {
-            let intro = types::PeerIntroduction {
-                instance_id: existing.instance_id.clone(),
-                instance_name: existing.instance_name.clone(),
-                addresses: existing.addresses.clone(),
-                api_port: existing.api_port,
-                public_key: existing.public_key.clone(),
-                introduced_by: our_id.clone(),
-            };
-            let result = transport::try_peer(&new_peer.addresses, |addr| {
-                let url = format!(
-                    "http://{}:{}/api/mesh/introduce",
-                    addr.ip, new_peer.api_port
-                );
-                let http = http.clone();
-                let token = token.clone();
-                let intro = intro.clone();
-                async move {
-                    match http
-                        .post(&url)
-                        .header("Authorization", format!("Bearer {}", token))
-                        .json(&intro)
-                        .send()
-                        .await
-                    {
-                        Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
-                        Ok(resp) => {
-                            let status = resp.status();
-                            let body = resp.text().await.unwrap_or_default();
-                            transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
-                        }
-                        Err(e) => transport::TryNext::Retry(e.to_string()),
-                    }
-                }
-            })
-            .await;
-            match result {
-                Ok(()) => log::info!(
-                    "[mesh/introduce] {} → {}",
-                    existing.instance_name,
-                    new_peer.instance_name
-                ),
-                Err(e) => log::warn!(
-                    "[mesh/introduce] {} → {} failed: {}",
-                    existing.instance_name,
-                    new_peer.instance_name,
-                    e
-                ),
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct AnnounceReport {
     pub sent: usize,
@@ -204,9 +93,10 @@ fn refresh_generation() -> &'static AtomicU64 {
 pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> AnnounceReport {
     let _publication_guard = announce_gate().lock().await;
     let mut report = AnnounceReport::default();
-    let (announce, clients) = {
+    let (announce, membership, clients) = {
         let m = mesh.lock();
         let announce = m.build_announce();
+        let membership = m.advertised_membership();
         let token = match m.sign_request() {
             Ok(t) => t,
             Err(e) => {
@@ -222,6 +112,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                     .map(|t| t == p.instance_id.as_str() || t == p.instance_name.as_str())
                     .unwrap_or(true)
             })
+            .filter(|p| m.announce_allowed(&p.instance_id))
             .filter_map(|p| {
                 if p.addresses.is_empty() {
                     return None;
@@ -235,7 +126,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                 ))
             })
             .collect();
-        (announce, clients)
+        (announce, membership, clients)
     };
 
     if clients.is_empty() {
@@ -251,19 +142,21 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
             let http = http.clone();
             let token = token.clone();
             let announce = announce.clone();
+            let membership = membership.clone();
             let stale_marker = stale_marker.clone();
             async move {
-                match http
+                let mut request = http
                     .post(&url)
                     .header("Authorization", format!("Bearer {}", token))
                     .header(
                         crate::version::VERSION_HEADER,
                         crate::version::local_version(),
-                    )
-                    .json(&announce)
-                    .send()
-                    .await
-                {
+                    );
+                if let Some(membership) = membership {
+                    request = request
+                        .header(crate::account_mesh::protocol::MEMBERSHIP_HEADER, membership);
+                }
+                match request.json(&announce).send().await {
                     Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
                     Ok(resp) if resp.status().as_u16() == 404 => {
                         *stale_marker.lock() = true;

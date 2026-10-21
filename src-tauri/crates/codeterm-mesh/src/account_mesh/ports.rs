@@ -79,12 +79,17 @@ pub enum AdmissionRefusal {
     Offline,
     Unauthenticated,
     #[serde(rename = "mesh.machines")]
-    MachineLimit { limit: u32, active_count: u32 },
+    MachineLimit {
+        limit: u32,
+        active_count: u32,
+    },
     RateLimited,
     Revoked,
     SignedOut,
     PeerUnreachable,
-    HandshakeFailed { detail: String },
+    HandshakeFailed {
+        detail: String,
+    },
     Cancelled,
 }
 
@@ -149,8 +154,11 @@ pub struct LinkTarget {
 
 /// Account-owned authority the mesh consults; implemented outside this crate.
 pub trait AccountMeshAuthority: Send + Sync {
-    fn verify_membership(&self, token: &str, now: u64)
-        -> Result<VerifiedMembership, AdmissionRefusal>;
+    fn verify_membership(
+        &self,
+        token: &str,
+        now: u64,
+    ) -> Result<VerifiedMembership, AdmissionRefusal>;
 
     fn sign_possession(&self, transcript: &[u8; 32]) -> Result<String, AdmissionRefusal>;
 

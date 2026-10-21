@@ -773,40 +773,24 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/attachments/transfer",
             post(super::mesh_attachment::transfer),
         )
-        .route("/api/mesh/discover", post(mesh_routes::mesh_discover))
-        .route("/api/mesh/connect", post(mesh_routes::mesh_connect_peer))
-        .route("/api/mesh/approve", post(mesh_routes::mesh_approve_peer))
-        .route("/api/mesh/reject", post(mesh_routes::mesh_reject_peer))
+        .route("/api/mesh/link", post(mesh_routes::mesh_account_link))
+        .route("/api/mesh/link/hello", post(mesh_routes::mesh_link_hello))
+        .route(
+            "/api/mesh/link/confirm",
+            post(mesh_routes::mesh_link_confirm),
+        )
+        .route("/api/mesh/adopt/offer", post(mesh_routes::mesh_adopt_offer))
+        .route(
+            "/api/mesh/adopt/commit",
+            post(mesh_routes::mesh_adopt_commit),
+        )
         .route(
             "/api/mesh/disconnect",
             post(mesh_routes::mesh_disconnect_peer),
         )
         .route("/api/mesh/unrevoke", post(mesh_routes::mesh_unrevoke))
-        .route(
-            "/api/mesh/pair/request",
-            post(mesh_routes::mesh_pair_request),
-        )
-        .route(
-            "/api/mesh/pair/identity",
-            post(mesh_routes::connection::mesh_pair_identity),
-        )
-        .route("/api/mesh/pair/accept", post(mesh_routes::mesh_pair_accept))
-        .route(
-            "/api/mesh/pair/confirm",
-            post(mesh_routes::mesh_pair_confirm),
-        )
-        .route("/api/mesh/pair/reject", post(mesh_routes::mesh_pair_reject))
-        .route("/api/mesh/introduce", post(mesh_routes::mesh_introduce))
         .route("/api/mesh/sync", post(mesh_routes::mesh_sync))
         .route("/api/mesh/enabled", post(mesh_routes::mesh_set_enabled))
-        .route(
-            "/api/mesh/broadcast/start",
-            post(mesh_routes::mesh_start_broadcast),
-        )
-        .route(
-            "/api/mesh/broadcast/stop",
-            post(mesh_routes::mesh_stop_broadcast),
-        )
         .route(
             "/api/mesh/relay",
             post(mesh_routes::mesh_relay).layer(axum::extract::DefaultBodyLimit::max(
@@ -843,18 +827,6 @@ pub(super) fn create_router_with_preview_admission(
             axum::routing::delete(mesh_routes::mesh_unpair),
         )
         .route("/api/mesh/refresh", post(mesh_routes::mesh_refresh))
-        .route(
-            "/api/mesh/peers/add-manual",
-            post(mesh_routes::mesh_add_manual),
-        )
-        .route(
-            "/api/mesh/peers/approve/{id}",
-            post(mesh_routes::mesh_approve_peer_by_id),
-        )
-        .route(
-            "/api/mesh/peers/reject/{id}",
-            post(mesh_routes::mesh_reject_peer_by_id),
-        )
         .route(
             "/api/mesh/peers/disconnect/{id}",
             post(mesh_routes::mesh_disconnect_peer_by_id),

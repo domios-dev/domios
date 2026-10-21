@@ -35,11 +35,14 @@ pub(crate) fn start_background_tasks(
                         // Offline: skip peer polling/cleanup; peers timeout naturally.
                         continue;
                     }
-                    mesh::discovery::cleanup_stale_peers(&mesh);
-                    mesh.lock().cleanup_expired_requests();
                     let (peers, sync_payload, signed_token) = {
                         let mut m = mesh.lock();
-                        let peers: Vec<_> = m.paired_peers.values().cloned().collect();
+                        let peers: Vec<_> = m
+                            .paired_peers
+                            .values()
+                            .filter(|peer| m.traffic_open(&peer.instance_id))
+                            .cloned()
+                            .collect();
                         let token = m.sign_request().ok();
                         let payload = m.build_sync_payload();
                         (peers, payload, token)
