@@ -49,14 +49,13 @@ fn tab_hook_target<'a>(method: &Method, path: &'a str) -> Option<(&'a str, &'a s
     matches!(event, "session_start" | "provider_event" | "stop").then_some((tab_id, event))
 }
 
+/// The link handshake authenticates by signed membership, installation possession and
+/// both online permits; nothing on these paths can create a pair without them.
 pub(crate) const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
     "/api/mesh/ping",
-    "/api/mesh/pair/request",
-    "/api/mesh/pair/identity",
-    "/api/mesh/pair/accept",
-    "/api/mesh/pair/confirm",
-    "/api/mesh/pair/reject",
+    "/api/mesh/link/hello",
+    "/api/mesh/link/confirm",
 ];
 
 fn bearer_exempt(method: &Method, path: &str) -> bool {
@@ -97,13 +96,19 @@ fn remote_network_allowed(mesh_enabled: bool, address: Option<SocketAddr>) -> bo
 
 /// Paths whose handlers authenticate independently and must skip bearer middleware.
 /// This is an EXACT allowlist on purpose: an earlier `starts_with("/api/mesh/peers/")`
-/// prefix match exempted every peer sub-route (services, approve, add-manual,
-/// addr, …) whose handlers only call the no-op `check_auth`, leaving them fully
-/// unauthenticated — an anonymous caller on the network could self-approve a
-/// pairing. Only `relay`, `introduce`, and the unpair handler
-/// (`DELETE /api/mesh/peers/{id}`) self-verify.
+/// prefix match exempted every peer sub-route whose handlers only call the no-op
+/// `check_auth`, leaving them unauthenticated. Only `relay`, the adoption pair and
+/// the unpair handler (`DELETE /api/mesh/peers/{id}`) self-verify against open edges;
+/// announce verifies identity only to accept a renewed membership.
 pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
-    if path == "/api/mesh/relay" || path == "/api/mesh/introduce" {
+    if matches!(
+        path,
+        "/api/mesh/relay" | "/api/mesh/adopt/offer" | "/api/mesh/adopt/commit"
+    ) {
+        return true;
+    }
+    // Announce verifies its sender itself so an adopted peer can deliver a renewed membership.
+    if method == Method::POST && path == "/api/mesh/announce" {
         return true;
     }
     if is_inbound_webhook_path(method, path) {
@@ -315,6 +320,7 @@ pub async fn auth_middleware(
     }
     #[cfg(debug_assertions)]
     let queued = std::time::Instant::now();
+    let mesh = state.mesh.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         #[cfg(debug_assertions)]
         let (started, route, queue_ms) = (
@@ -338,7 +344,17 @@ pub async fn auth_middleware(
     match outcome {
         Ok(AuthOutcome::Allowed(req, false)) => next.run(req).await,
         Ok(AuthOutcome::Allowed(req, true)) => {
-            super::peer_redaction::redact_peer_response(next.run(req).await).await
+            let peer_id = match req.extensions().get::<CallerIdentity>() {
+                Some(CallerIdentity::Peer { instance_id, .. }) => Some(instance_id.clone()),
+                _ => None,
+            };
+            let response = super::peer_redaction::redact_peer_response(next.run(req).await).await;
+            match peer_id {
+                Some(peer_id) => {
+                    crate::mesh_routes::account_link::fence_response(response, mesh, peer_id)
+                }
+                None => response,
+            }
         }
         Ok(AuthOutcome::Rejected(response)) => response,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
@@ -567,7 +583,9 @@ mod tests {
     fn custom_auth_only_exempts_self_verifying_paths() {
         // Self-verifying: skip the bearer middleware.
         assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
-        assert!(is_custom_auth(&Method::POST, "/api/mesh/introduce"));
+        assert!(is_custom_auth(&Method::POST, "/api/mesh/adopt/offer"));
+        assert!(is_custom_auth(&Method::POST, "/api/mesh/adopt/commit"));
+        assert!(!is_custom_auth(&Method::POST, "/api/mesh/introduce"));
         assert!(is_custom_auth(&Method::DELETE, "/api/mesh/peers/abc123")); // unpair
                                                                             // Relayed plugin-UI asset proxy: iframe src, handler self-verifies query token.
         assert!(is_custom_auth(
@@ -665,26 +683,23 @@ mod tests {
         };
         let mut mesh = codeterm_service_core::mesh::MeshManager::new("auth-test".into(), 7685);
         mesh.disk_persist = false;
-        mesh.paired_peers.insert(
-            "air".into(),
-            PairedPeer {
-                instance_id: "air".into(),
-                instance_name: "air".into(),
-                addresses: vec![PeerAddress::from_ip("100.64.0.7")],
-                api_port: 7685,
-                public_key: String::new(),
-                paired_at: "then".into(),
-                last_seen: None,
-                online: true,
-                is_primary: false,
-                access_level: AccessLevel::Full,
-                version: None,
-                web_ui: None,
-                relay_protocol_version: 1,
-                consecutive_misses: 0,
-                last_active_ms: None,
-            },
-        );
+        mesh.insert_legacy_pair_for_test(PairedPeer {
+            instance_id: "air".into(),
+            instance_name: "air".into(),
+            addresses: vec![PeerAddress::from_ip("100.64.0.7")],
+            api_port: 7685,
+            public_key: String::new(),
+            paired_at: "then".into(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: AccessLevel::Full,
+            version: None,
+            web_ui: None,
+            relay_protocol_version: 1,
+            consecutive_misses: 0,
+            last_active_ms: None,
+        });
         let stored = |mesh: &codeterm_service_core::mesh::MeshManager| {
             mesh.paired_peers["air"].relay_protocol_version
         };
@@ -785,11 +800,7 @@ mod tests {
         assert!(!check_access(&level, &Method::GET, "/api/workspaces"));
         assert!(!check_access(&level, &Method::POST, "/api/config"));
         assert!(!check_access(&level, &Method::DELETE, "/api/crons/123"));
-        assert!(!check_access(
-            &level,
-            &Method::POST,
-            "/api/mesh/broadcast/start"
-        ));
+        assert!(!check_access(&level, &Method::POST, "/api/mesh/link"));
     }
 
     #[test]
@@ -850,9 +861,20 @@ mod tests {
             assert!(PUBLIC_PATHS.iter().any(|pp| pp == p));
         }
         assert!(!PUBLIC_PATHS.contains(&"/api/providers"));
-        assert!(!PUBLIC_PATHS.contains(&"/api/mesh/connect"));
-        assert!(!PUBLIC_PATHS.contains(&"/api/mesh/approve"));
-        assert!(!PUBLIC_PATHS.contains(&"/api/mesh/peers/add-manual"));
+        for removed in [
+            "/api/mesh/connect",
+            "/api/mesh/approve",
+            "/api/mesh/peers/add-manual",
+            "/api/mesh/pair/request",
+            "/api/mesh/pair/identity",
+            "/api/mesh/pair/accept",
+            "/api/mesh/pair/confirm",
+            "/api/mesh/pair/reject",
+            "/api/mesh/link",
+            "/api/mesh/adopt/offer",
+        ] {
+            assert!(!PUBLIC_PATHS.contains(&removed), "{removed}");
+        }
     }
 
     #[test]
@@ -869,7 +891,7 @@ mod tests {
     #[test]
     fn custom_auth_paths() {
         assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
-        assert!(is_custom_auth(&Method::POST, "/api/mesh/introduce"));
+        assert!(!is_custom_auth(&Method::POST, "/api/mesh/link"));
         // Unpair self-verifies; only the DELETE on the bare id is exempt.
         assert!(is_custom_auth(&Method::DELETE, "/api/mesh/peers/some-id"));
         assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/some-id"));

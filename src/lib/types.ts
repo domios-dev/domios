@@ -702,7 +702,6 @@ export interface BitwardenSettings {
 export interface MeshConfig {
   enabled: boolean;
   instance_name: string;
-  broadcast_duration_secs: number;
 }
 
 export interface OrchestrationConfig {
@@ -714,14 +713,10 @@ export interface MeshStatus {
   enabled: boolean;
   instance_id: string;
   instance_name: string;
-  discovery_active: boolean;
-  broadcast_active: boolean;
-  broadcast_expires_at: number | null;
   tailscale_ip: string | null;
   local_ip: string | null;
   api_port: number;
   paired_count: number;
-  discovered_count: number;
 }
 
 export interface PeerAddress {
@@ -782,8 +777,10 @@ export interface MeshPairingRequest {
 
 export interface MeshPeersResponse {
   paired: PairedPeer[];
-  discovered: DiscoveredPeer[];
-  incoming_requests: MeshPairingRequest[];
+  /** No longer sent: new links come only from the account registry. */
+  discovered?: DiscoveredPeer[];
+  /** No longer sent: pairing requests were removed with account-only admission. */
+  incoming_requests?: MeshPairingRequest[];
   local_instance_name: string;
 }
 

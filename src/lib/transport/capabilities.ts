@@ -99,11 +99,11 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     },
     mark_notification_read: (a) =>
       webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
-    mesh_add_manual: (a) => webJson("POST", "/api/mesh/peers/add-manual", a),
-    mesh_approve_pairing: (a) =>
-      webJson("POST", "/api/mesh/approve", { request_id: a.requestId }),
-    mesh_connect: (a) =>
-      webJson("POST", "/api/mesh/connect", { instance_id: a.instanceId }),
+    account_mesh_link: (a) =>
+      webJson("POST", "/api/mesh/link", {
+        installation_id: s(a, "installationId"),
+        request_id: a.requestId,
+      }),
     mesh_disconnect: (a) =>
       webJson("POST", `/api/mesh/peers/disconnect/${enc(s(a, "instanceId"))}`),
     mesh_exit: () => webJson("POST", "/api/mesh/exit"),
@@ -143,16 +143,11 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       ),
     mesh_peer_services_list: (a) =>
       webJson("GET", `/api/mesh/peers/${enc(s(a, "instanceId"))}/services`),
-    mesh_reject_pairing: (a) =>
-      webJson("POST", "/api/mesh/reject", { request_id: a.requestId }),
-    mesh_scan_peers: () => webJson("POST", "/api/mesh/discover"),
     mesh_set_access: (a) =>
       webJson("POST", `/api/mesh/peers/${enc(s(a, "instanceId"))}/access`, {
         access_level: a.accessLevel,
       }),
     mesh_set_enabled: (a) => webJson("POST", "/api/mesh/enabled", { enabled: a.enabled }),
-    mesh_start_broadcast: () => webJson("POST", "/api/mesh/broadcast/start"),
-    mesh_stop_broadcast: () => webJson("POST", "/api/mesh/broadcast/stop"),
     mesh_transfer_attachment: (a) =>
       localJson("POST", "/api/mesh/attachments/transfer", {
         ordinary_tab_id: s(a, "ordinaryTabId"),

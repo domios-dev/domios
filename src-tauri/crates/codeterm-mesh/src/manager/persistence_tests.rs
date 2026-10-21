@@ -38,7 +38,7 @@ fn paired_peer_routes_without_set_addr() {
 
     let mut m = MeshManager::new("test-host".into(), 7685);
     m.disk_persist = false;
-    m.paired_peers.insert("peer-a".into(), peer);
+    m.insert_legacy_pair_for_test(peer);
 
     // 1. The persisted addresses actually made it into the live map.
     assert_eq!(
@@ -91,7 +91,7 @@ fn paired_peer_with_no_address_history_is_unroutable_not_missing() {
         consecutive_misses: 0,
         last_active_ms: None,
     };
-    m.paired_peers.insert("peer-b".into(), peer);
+    m.insert_legacy_pair_for_test(peer);
 
     assert!(
         m.paired_peers.contains_key("peer-b"),

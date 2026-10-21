@@ -95,7 +95,7 @@ fn corrupt_peers_file_is_held_not_emptied() {
     let peers = load_peers_at(&path);
 
     assert!(peers.is_empty());
-    assert!(save_peers_at(&path, &peers).is_err());
+    assert!(save_peers_at(&path, &peers, &LinkLedger::default()).is_err());
     assert!(!path.exists());
     let copies = peers_file(&path).corrupt_copies();
     assert_eq!(std::fs::read(&copies[0]).unwrap(), broken);
