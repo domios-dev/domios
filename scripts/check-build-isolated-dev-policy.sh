@@ -5,6 +5,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Policy probes must never inherit a live instance, its token or a tab to notify.
+while IFS='=' read -r name _; do
+  case "$name" in CODETERM_*|DOMIOS_INSTANCE|DOMIOS_API_PORT|BUILD_NOTIFY_*|DEV_NOTIFY_*) unset "$name" ;; esac
+done < <(env)
+
 isolated="$(CODETERM_DEV_INSTANCE=playwright-harness CODETERM_DEV_API_PORT=7786 CODETERM_TEST_PRINT_ISOLATED_DEV_POLICY=1 ./build.sh dev --wait)"
 grep -Fxq 'mode=isolated-named' <<<"$isolated"
 grep -Eq '^target=.*/src-tauri/target/dev-instances/playwright-harness$' <<<"$isolated"
