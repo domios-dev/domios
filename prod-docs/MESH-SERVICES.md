@@ -80,4 +80,4 @@ The add-service wizard handles manual daemon registration. Smart-Add inspects ru
 
 All four respond `503` when `mesh.enabled=false` (see top of doc).
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
