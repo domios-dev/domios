@@ -1,4 +1,5 @@
 import { daemonFetch } from "../../lib/webApi";
+import type { ControlLoopUpdate, PlanControlLoop } from "./planControlLoop";
 import { authHeaders, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
 import type { DriftItem, OrchestratorRef, Plan, PlanMode, PlanStatus, Section } from "./types";
@@ -228,6 +229,21 @@ export async function deleteTask(api: ApiConfig, planId: string, taskId: string)
 /** A click in the UI is the owner's explicit confirmation for a plan lifecycle change. */
 function confirmedHeaders(api: ApiConfig, planId: string): HeadersInit {
   return { ...jsonHeaders(api), "X-CodeTerm-Plan-Confirmation": planId };
+}
+
+export async function fetchPlanControlLoop(api: ApiConfig, planId: string, signal?: AbortSignal): Promise<PlanControlLoop> {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/control-loop`, {
+    headers: authHeaders(api), signal,
+  });
+  if (!res.ok) throw new Error(`plan control loop failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+export async function setPlanControlLoop(api: ApiConfig, planId: string, update: ControlLoopUpdate): Promise<void> {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/control-loop`, {
+    method: "POST", headers: confirmedHeaders(api, planId), body: JSON.stringify(update),
+  });
+  if (!res.ok) throw new Error(`plan control loop update failed: ${res.status} ${await res.text()}`);
 }
 
 export async function unarchivePlan(api: ApiConfig, planId: string): Promise<void> {

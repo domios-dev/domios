@@ -76,20 +76,22 @@ function StatusDot({ tone }: { tone: OversightTone }) {
   return <span className="mc-status-dot" data-tone={tone} aria-hidden="true" />;
 }
 
-export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onIntervalChange, onOpenGuide, children }: {
+export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onIntervalChange, onOpenGuide, disabled = false, children }: {
   plan: Pick<Plan, "id" | "mode" | "status">;
   api?: ApiConfig;
   oversight: PlanOversight;
   now: number;
   onModeChange: (mode: OversightMode) => void;
-  onIntervalChange: (intervalMs: number) => void;
+  onIntervalChange: (intervalMs: number | null) => void;
   onOpenGuide?: () => void;
+  disabled?: boolean;
   /** Further rows built from PlanSettingRow. */
   children?: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const toggle = () => { setCollapsed(!collapsed); writeCollapsed(!collapsed); };
-  const heartbeatPicker = oversight.mode === "heartbeat" && !oversight.paused;
+  const heartbeatPicker = oversight.mode === "heartbeat";
+  const running = !oversight.paused && !oversight.suspended_reason;
   return (
     <BoardPanel
       testId="mc-plan-settings"
@@ -97,7 +99,7 @@ export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onI
       className={collapsed ? "mc-plan-settings mc-plan-settings--folded" : "mc-plan-settings"}
       meta={<span className="mc-plan-settings-meta">
         {collapsed && <span data-testid="mc-plan-settings-summary" className="mc-plan-settings-summary">{oversightSummary(oversight, now)}</span>}
-        <Chip variant={oversight.paused ? "warning" : "success"}><StatusDot tone={oversight.paused ? "warning" : "green"} />{oversight.paused ? "Paused" : "Running"}</Chip>
+        <Chip variant={running ? "success" : "muted"}><StatusDot tone={running ? "green" : "muted"} />{oversight.paused ? "Paused" : running ? "Running" : "Suspended"}</Chip>
         <button type="button" className="mc-plan-settings-fold" aria-expanded={!collapsed}
           aria-label={collapsed ? "Expand plan settings" : "Collapse plan settings"} onClick={toggle}>
           <ChevronDown size={14} aria-hidden="true" />
@@ -110,15 +112,15 @@ export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onI
           label="Keep on track"
           hint={MODE_HINT[oversight.mode]}
           control={<Segmented<OversightMode> aria-label="How the Orchestrator is kept on track" value={oversight.mode} onChange={onModeChange} height={26}
-            options={[{ value: "curator", label: "Curator" }, { value: "heartbeat", label: "Heartbeat" }]} />}
+            options={[{ value: "curator", label: "Curator", disabled }, { value: "heartbeat", label: "Heartbeat", disabled }]} />}
         >
           {onOpenGuide && <button type="button" className="mc-board-more mc-setting-link" onClick={onOpenGuide}>
             <BookOpen size={12} aria-hidden="true" />How the Curator works
           </button>}
           <div className="mc-setting-live-group">
-            {heartbeatPicker && <DropdownSelect aria-label="Heartbeat interval" className="w-auto" prefix="Every"
-              value={String(oversight.heartbeat_interval_ms)} onChange={value => onIntervalChange(Number(value))}
-              options={HEARTBEAT_INTERVALS.map(option => ({ value: String(option.ms), label: option.label }))} />}
+            {heartbeatPicker && <DropdownSelect aria-label="Heartbeat interval" className="w-auto" prefix="Every" disabled={disabled}
+              value={oversight.heartbeat_interval_ms === null ? "default" : String(oversight.heartbeat_interval_ms)} onChange={value => onIntervalChange(value === "default" ? null : Number(value))}
+              options={[{ value: "default", label: "Machine default" }, ...HEARTBEAT_INTERVALS.map(option => ({ value: String(option.ms), label: option.label }))]} />}
             {oversightLines(oversight, now).map(line => (
               <p key={line.text} className="mc-setting-live" data-tone={line.tone}>
                 <StatusDot tone={line.tone} />{line.text}

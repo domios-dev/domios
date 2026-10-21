@@ -7,6 +7,7 @@ import type { Plan } from "../types";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 import { ModelsCard, NeedsYouPanel, PlanCard, SpendCard } from "./BoardCards";
 import { BoardEventLog } from "./BoardEventLog";
+import { ConnectedPlanSettings } from "./ConnectedPlanSettings";
 import { boardRefs } from "./BoardRefText";
 import { BOARD_ROW_COLUMNS, boardLayout, type BoardLayout, type EventPager } from "./missionControlBoardModel";
 import type { TeamPlanSummary, PlanBoardState } from "./missionControlState";
@@ -85,6 +86,7 @@ export function MissionControlBoard({
       data-board-layout={layout}
       className="mc-board"
     >
+      <ConnectedPlanSettings key={plan.id} plan={plan} api={api} initial={state?.control_loop ?? plan.control_loop} now={now} />
       {spendError && <div role="alert"><InlineErrorNotice error={spendError} operation="loading team spend" /></div>}
       {error && (
         <div data-testid="mc-board-error"><InlineErrorNotice error={error} operation="loading plans" /></div>
