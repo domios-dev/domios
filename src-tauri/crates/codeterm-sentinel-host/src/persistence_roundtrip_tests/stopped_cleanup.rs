@@ -26,7 +26,9 @@ fn stopped_blueprint_cleanup_survives_restart_and_update_cancels_it() {
         "every":"1m", "matches":{"done":"done"}
     });
     let mut ids = Vec::new();
-    for _ in 0..2 {
+    for index in 0..2 {
+        let mut definition = definition.clone();
+        definition["name"] = json!(format!("cleanup watcher {index}"));
         let created = instance
             .fixture
             .service
@@ -65,6 +67,7 @@ fn stopped_blueprint_cleanup_survives_restart_and_update_cancels_it() {
         Some("Watches releases and reports failures")
     );
     let mut update = definition;
+    update["name"] = json!("cleanup watcher 1");
     update.as_object_mut().unwrap().remove("probe");
     update["note"] = json!("Retargeted release watcher");
     let updated = restarted
