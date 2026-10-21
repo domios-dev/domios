@@ -1,5 +1,5 @@
 import type { ApiConfig } from "../../../lib/types";
-import { ActivityFeed } from "../../Supporter/ActivityFeed";
+import { UnderwayBoardRow } from "./UnderwayPanel";
 import { useMemo, useRef } from "react";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
 import { ModelsCard, NeedsYouPanel, NoActivePlanCard, SpendCard } from "./BoardCards";
@@ -63,7 +63,7 @@ export function MissionControlTeamBoard({
         <NoActivePlanCard previousPlans={team.archivedPlans} onOpenPlan={onOpenPlan} />
       </div>
       <NeedsYouPanel refs={refs} deepLinks={deepLinks} />
-      {api && teamId && <ActivityFeed api={api} teamId={teamId} />}
+      {teamId && <UnderwayBoardRow api={api} teamId={teamId} plans={team.archivedPlans} refs={refs} deepLinks={deepLinks} />}
       <BoardEventLog log={NO_PLAN_LOG} milestoneKinds={[]} refs={refs} pager={team.events} />
     </div>
   );

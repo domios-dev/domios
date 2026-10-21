@@ -1,6 +1,6 @@
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import type { ApiConfig } from "../../../lib/types";
-import { ActivityFeed } from "../../Supporter/ActivityFeed";
+import { UnderwayBoardRow } from "./UnderwayPanel";
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Plan } from "../types";
 import type { NeedsYouDeepLinks } from "../../Notifications/NeedsYouNotificationRow";
@@ -110,7 +110,7 @@ export function MissionControlBoard({
           <NeedsYouPanel refs={refs} deepLinks={deepLinks} />
         </>
       )}
-      {api && plan.team_id && <ActivityFeed api={api} teamId={plan.team_id} />}
+      {plan.team_id && <UnderwayBoardRow api={api} teamId={plan.team_id} plans={plans ?? [plan]} refs={refs} deepLinks={deepLinks} />}
       {boardState && mc && (
         <BoardEventLog
           log={mc.event_log}
