@@ -39,6 +39,7 @@ function setupDom(): Window {
     "CustomEvent",
     "localStorage",
     "sessionStorage",
+    "MutationObserver",
   ] as const) {
     Object.defineProperty(globalThis, key, {
       configurable: true,
