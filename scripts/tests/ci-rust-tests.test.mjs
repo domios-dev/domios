@@ -210,3 +210,11 @@ test('a platform lane compiles only the packages whose sources hold cfg-gated te
   const cli = { lane: 'cli', targets: ['-p', 'plain-crate', '--all-targets'] };
   assert.deepEqual(platformLane(cli, packages, (src) => src === 'plain/tests/main.rs').targets, ['-p', 'plain-crate', '--all-targets']);
 });
+
+test('the pinned cargo-nextest is detected exactly so a sibling job never reinstalls it', async () => {
+  const { hasNextest } = await import('../ci-nextest-present.mjs');
+  assert.equal(hasNextest('cargo-nextest 0.9.148\nrelease: 0.9.148\ncommit-hash: x\n', '0.9.148'), true);
+  assert.equal(hasNextest('release: 0.9.147\n', '0.9.148'), false);
+  assert.equal(hasNextest('release: 0.9.1489\n', '0.9.148'), false);
+  assert.equal(hasNextest('', '0.9.148'), false);
+});

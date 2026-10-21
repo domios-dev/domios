@@ -57,26 +57,20 @@ test("one fast-check caller runs, and it cancels the run when a check fails", ()
   for (const id of [...builds, "tests", "quick-checks"]) assert.notEqual(release.jobs[id]["continue-on-error"], true);
 });
 
-test("tiers open in priority order: fast checks, then tests, then the frontend bundle and every build", () => {
-  for (const [id, gate, prefix, anchor] of [["tests-tier", "prepare", "Fast checks / ", "Fast checks / guards"],
-    ["builds-tier", "tests-tier", "Rust tests / ", "Rust tests / tree is new"]]) {
-    const job = release.jobs[id];
-    assert.deepEqual(dependencies(job), id === "tests-tier" ? ["prepare"] : ["prepare", "tests-tier"]);
-    assert.equal(job.env.TIER_PREFIX, prefix);
-    assert.equal(job.env.TIER_ANCHOR, anchor);
-    assert.ok(job.steps.some(step => step.run === 'node scripts/release-tier-gate.mjs "$TIER_PREFIX" "$TIER_ANCHOR" 45'), id);
-    assert.ok(job["timeout-minutes"] > 45, `${id} outlives its own deadline`);
-  }
+test("builds start at once; tests open once every fast check is claimed or finished", () => {
+  const gate = release.jobs["tests-tier"];
+  assert.deepEqual(dependencies(gate), ["prepare"]);
+  assert.equal(gate.env.TIER_PREFIX, "Fast checks / ");
+  assert.equal(gate.env.TIER_ANCHOR, "Fast checks / guards");
+  assert.ok(gate.steps.some(step => step.run === 'node scripts/release-tier-gate.mjs "$TIER_PREFIX" "$TIER_ANCHOR" 45'));
+  assert.ok(gate["timeout-minutes"] > 45, "the gate outlives its own deadline");
+  assert.equal(release.jobs["builds-tier"], undefined);
   assert.deepEqual(dependencies(release.jobs.tests), ["prepare", "tests-tier"]);
   for (const result of results) {
     assert.equal(condition(release.jobs.tests.if, { needs: { prepare: app, "tests-tier": { result } } }), result === "success", result);
   }
-  const frontendDist = release.jobs["frontend-dist"];
-  assert.deepEqual(dependencies(frontendDist), ["prepare", "builds-tier"]);
-  assert.equal(condition(frontendDist.if, { needs: { prepare: app, "builds-tier": { result: "success" } } }), true);
-  assert.equal(condition(frontendDist.if, { needs: { prepare: app, "builds-tier": { result: "skipped" } } }), false, "a test run never skips its tier");
-  const bundleOnly = { ...app, outputs: { ...app.outputs, run_tests: "false" } };
-  assert.equal(condition(frontendDist.if, { needs: { prepare: bundleOnly, "builds-tier": { result: "skipped" } } }), true);
+  assert.deepEqual(dependencies(release.jobs["frontend-dist"]), ["prepare"]);
+  assert.equal(condition(release.jobs["frontend-dist"].if, { needs: { prepare: app } }), true);
   for (const id of builds) {
     const job = release.jobs[id];
     assert.deepEqual(dependencies(job), ["prepare", "frontend-dist"], id);
@@ -95,7 +89,7 @@ test("dry runs use both test stages by default; bundle-only diagnostics explicit
   const dry = { result: "success", outputs: { kind: "app", published: "false", dry_run: "true", run_tests: "false", promote_run_id: "" } };
   for (const id of builds) {
     assert.equal(release.jobs[id].with.dry_run, "${{ needs.prepare.outputs.dry_run == 'true' }}");
-    const needs = { prepare: dry, ...frontend, "quick-checks": { result: "skipped" }, "builds-tier": { result: "skipped" } };
+    const needs = { prepare: dry, ...frontend, "quick-checks": { result: "skipped" } };
     assert.equal(condition(release.jobs[id].if, { needs, inputs: { dry_run_tests: false } }), true, id);
   }
   const draft = release.jobs.prepare.steps.find(step => step.name === "Create draft releases before parallel uploads");

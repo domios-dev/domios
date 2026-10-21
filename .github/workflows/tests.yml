@@ -305,7 +305,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
           toolchain: 1.99.1
+      # Runners of one machine share CARGO_HOME; reinstalling concurrently truncates the binary another job reads.
+      - name: Reuse the pinned cargo-nextest when present
+        id: nextest
+        run: node scripts/ci-nextest-present.mjs 0.9.148
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2
+        if: steps.nextest.outputs.present != 'true'
         with:
           tool: cargo-nextest@0.9.148
       - name: Prepare compile fixtures
