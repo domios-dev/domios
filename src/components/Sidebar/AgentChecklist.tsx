@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Circle, CircleAlert, CircleCheck, CircleDot, CircleMinus, ListChecks } from "lucide-react";
+import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
+import type { Plan } from "../Canvas/types";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
   boundedChecklist,
@@ -8,6 +11,7 @@ import {
   isTabTodoChanged,
   TAB_TODO_CHANGED_EVENT,
   type AgentChecklist,
+  type AgentChecklistItem,
   type AgentChecklistState,
 } from "./agentChecklistModel";
 
@@ -69,7 +73,45 @@ function StateGlyph({ state }: { state: AgentChecklistState }) {
   return <Icon size={10} strokeWidth={1.75} aria-hidden="true" className="sidebar-agent-checklist__glyph" />;
 }
 
-function AgentChecklistRegion({ id, tabId, title }: { id: string; tabId: string; title: string }) {
+function SidebarAgentChecklist({ item, plans, tabId }: { item: AgentChecklistItem; plans: readonly Plan[]; tabId: string }) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLLIElement>(null);
+  const detailId = useId();
+  const navigate = usePlanTargetNavigation();
+  const linked = item.link?.kind === "domios_task" ? item.link : null;
+  const plan = plans.find((candidate) => linked ? candidate.id === linked.plan_id : item.locked && candidate.tasks.some((task) => task.assigned_tab_id === tabId));
+  const task = plan?.tasks.find((candidate) => linked ? candidate.id === linked.task_id : candidate.assigned_tab_id === tabId);
+  const taskTarget = linked ? { planId: linked.plan_id, taskId: linked.task_id } : plan && task ? { planId: plan.id, taskId: task.id } : null;
+  return <li ref={anchor} data-state={item.state} className="sidebar-agent-checklist__item cursor-pointer"
+    role="button" tabIndex={0} aria-expanded={open} aria-controls={open ? detailId : undefined}
+    onClick={(event) => { event.stopPropagation(); setOpen((value) => !value); }}
+    onKeyDown={(event) => {
+      if (event.target !== event.currentTarget) return;
+      if (event.code === "Enter" || event.code === "Space") {
+        event.preventDefault(); event.stopPropagation(); setOpen(true);
+      }
+    }}>
+    <StateGlyph state={item.state} />
+    <span className="sidebar-agent-checklist__title">{item.title}</span>
+    <span className="sidebar-agent-checklist__state">{checklistStateLabel(item.state)}</span>
+    <AnchoredPopover open={open} anchor={anchor} placement="bottom-start" width={300} onClose={() => setOpen(false)}>
+      <section id={detailId} role="region" aria-label="Checklist item details" className="ct-menu p-3 text-xs whitespace-normal break-words space-y-2"
+        onClick={(event) => event.stopPropagation()}>
+        <p className="font-medium">{item.title}</p>
+        {item.description && <p>{item.description}</p>}
+        <p>{checklistStateLabel(item.state)} · {item.locked ? "Task criterion (locked)" : "Agent item"}</p>
+        {item.state === "in_progress" && item.activeForm && <p>{item.activeForm}</p>}
+        {item.reason && <p>Reason: {item.reason}</p>}
+        {item.link?.kind === "url" && <a className="text-[var(--ct-accent)] underline" href={item.link.url} target="_blank" rel="noopener noreferrer">{item.link.label} · {item.link.url}</a>}
+        {taskTarget && <button type="button" className="text-[var(--ct-accent)] text-left underline" onClick={() => { navigate(taskTarget); setOpen(false); }}>
+          {task ? `${task.key ?? task.id} · ${task.name}` : linked?.label}
+        </button>}
+      </section>
+    </AnchoredPopover>
+  </li>;
+}
+
+function AgentChecklistRegion({ id, tabId, title, plans }: { id: string; tabId: string; title: string; plans: readonly Plan[] }) {
   const view = useAgentChecklist(tabId);
   const items = view.status === "ready" ? view.checklist?.items ?? [] : [];
   return (
@@ -83,11 +125,7 @@ function AgentChecklistRegion({ id, tabId, title }: { id: string; tabId: string;
       ) : (
         <ol className="sidebar-agent-checklist__items">
           {items.map((item) => (
-            <li key={item.id} data-state={item.state} className="sidebar-agent-checklist__item">
-              <StateGlyph state={item.state} />
-              <span className="sidebar-agent-checklist__title" title={item.reason ? `${item.title} — ${item.reason}` : item.title}>{item.title}</span>
-              <span className="sidebar-agent-checklist__state">{checklistStateLabel(item.state)}</span>
-            </li>
+            <SidebarAgentChecklist key={item.id} item={item} plans={plans} tabId={tabId} />
           ))}
         </ol>
       )}
@@ -95,16 +133,17 @@ function AgentChecklistRegion({ id, tabId, title }: { id: string; tabId: string;
   );
 }
 
-export function AgentChecklistDisclosure({ tabId, title, children }: {
+export function AgentChecklistDisclosure({ tabId, title, children, plans = [] }: {
   tabId: string;
   title: string;
+  plans?: readonly Plan[];
   children: (toggle: ChecklistToggle, detail: ReactNode) => ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const controlsId = useId();
   const onToggle = useCallback(() => setExpanded((open) => !open), []);
   const toggle = useMemo(() => ({ expanded, controlsId, onToggle }), [expanded, controlsId, onToggle]);
-  const detail = expanded ? <AgentChecklistRegion key={tabId} id={controlsId} tabId={tabId} title={title} /> : null;
+  const detail = expanded ? <AgentChecklistRegion key={tabId} id={controlsId} tabId={tabId} title={title} plans={plans} /> : null;
   return <>{children(toggle, detail)}</>;
 }
 
