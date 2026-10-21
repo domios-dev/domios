@@ -11,14 +11,15 @@ import {
   type ComposerCapsule,
 } from "./composerCapsules";
 
+import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { canRetryUpload, uploadCardPresence } from "./attachmentUploadModel";
 import type { ComposerUpload } from "./composerUploadModel";
 
 interface Hover {
   span: CapsuleSpan;
   capsule: ComposerCapsule;
-  left: number;
-  bottom: number;
+  x: number;
+  y: number;
 }
 
 function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan; capsule: ComposerCapsule | null; hovered: boolean; upload?: ComposerUpload }) {
@@ -100,7 +101,7 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
       return;
     }
     if (hover?.span.start === span.span.start && hover.span.label === span.span.label) return;
-    setHover({ span: span.span, capsule: span.capsule, left: Math.max(0, hit.rect.left - field.left), bottom: field.bottom - hit.rect.top });
+    setHover({ span: span.span, capsule: span.capsule, x: hit.rect.left, y: hit.rect.top });
   };
 
   const hoverCapsule = hover ? registry[hover.span.label] : undefined;
@@ -111,15 +112,15 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
     return found && "span" in found ? [{ upload, span: found.span, presence: uploadCardPresence(hoveredUpload?.id === upload.id) }] : [];
   });
   return (
-    <div ref={fieldRef} className="relative min-w-0 flex-1 self-center" onMouseMove={track} onMouseLeave={() => setHover(null)}>
+    <div ref={fieldRef} className="relative min-w-0 flex-1 self-center" onPointerMove={(event) => { if (event.pointerType === "mouse") track(event); }} onPointerUp={(event) => { if (event.pointerType === "touch") track(event); }} onPointerLeave={(event) => { if (event.pointerType === "mouse" && (!(event.relatedTarget instanceof Node) || !cardRef.current?.contains(event.relatedTarget))) setHover(null); }}>
       {children}
       {uploadEntries.map((entry) => {
         const visible = entry.presence === "hover";
-        return <div key={entry.upload.id} ref={visible ? cardRef : undefined}
-          className={visible ? "absolute z-30 pb-1.5" : "sr-only focus-within:not-sr-only focus-within:absolute focus-within:bottom-full focus-within:z-30"}
-          style={visible && hover ? { left: hover.left, bottom: hover.bottom } : undefined}>
-          <UploadCard {...entry} onRetry={onRetry} onRemove={(span) => { onRemove(span); setHover(null); }} />
-        </div>;
+        const card = <UploadCard {...entry} onRetry={onRetry} onRemove={(span) => { onRemove(span); setHover(null); }} />;
+        return visible && hover ? <AnchoredPopover key={entry.upload.id} open anchor={{ x: hover.x, y: hover.y }} floatingRef={cardRef} placement="top-start" gap={0} onClose={() => setHover(null)} style={{ overflow: "auto" }}>
+          <button type="button" aria-label="Close attachment preview" onClick={() => setHover(null)} style={{ minWidth: 44, minHeight: 44 }}><X size={18} aria-hidden /></button>
+          {card}
+        </AnchoredPopover> : <div key={entry.upload.id} className="sr-only focus-within:not-sr-only focus-within:absolute focus-within:bottom-full focus-within:z-30">{card}</div>;
       })}
       {active && (
         <div
@@ -136,12 +137,9 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
         </div>
       )}
       {active && hover && hoverCapsule && hoverCapsule.uploadId === undefined && (
-        <div
-          ref={cardRef}
-          data-testid="composer-capsule-card"
-          className="absolute z-30 pb-1.5"
-          style={{ left: hover.left, bottom: hover.bottom }}
-        >
+        <AnchoredPopover open anchor={{ x: hover.x, y: hover.y }} floatingRef={cardRef} placement="top-start" gap={0} onClose={() => setHover(null)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setHover(null); }} style={{ overflow: "auto" }}>
+          <div data-testid="composer-capsule-card">
+          <button type="button" aria-label="Close attachment preview" onClick={() => setHover(null)} style={{ minWidth: 44, minHeight: 44 }}><X size={18} aria-hidden /></button>
           <LocalArtifactScope tabId={tabId}>
             <CapsulePreview
               kind={hoverCapsule.kind}
@@ -162,7 +160,8 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
               )}
             />
           </LocalArtifactScope>
-        </div>
+          </div>
+        </AnchoredPopover>
       )}
     </div>
   );

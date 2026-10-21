@@ -1,13 +1,13 @@
 import { Fragment, useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { Mic, Diff, Film, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
+import { AnchoredPopover } from "./AnchoredPopover";
+import { X, Mic, Diff, Film, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
 import { attachmentFileName, attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
 import { LocalArtifactBlock } from "./LocalArtifactBlock";
 import { RichMarkdown } from "./MarkdownBody";
 import { PRE_WRAP_CLASS } from "./CodeBlock";
 import { VideoFullscreen } from "./VideoFullscreen";
-import { ImageFullscreen, REVEAL_UNAVAILABLE, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
+import { ImageFullscreen, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable } from "./localArtifactLoader";
 import { useLocalImage, type LocalImage } from "./localImage";
 import { useLocalTextPreview } from "./localText";
@@ -107,31 +107,43 @@ export function AttachmentCapsule({ attachment, image: nativeImage, labelContent
   const [playing, setPlaying] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const anchorRef = useRef<HTMLSpanElement>(null);
-  const previewRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(null), []);
-  const canReveal = localArtifactOpeningAvailable();
   const opensImage = kind === "image" && Boolean(image.src);
-  const disabled = kind !== "image" && kind !== "video" && !canReveal;
-  const bounds = previewing ? anchorRef.current?.getBoundingClientRect() : undefined;
+  const restoringFocus = useRef(false);
+  const skipPreviewFocus = useRef(false);
+  const closePreview = useCallback(() => {
+    restoringFocus.current = true;
+    triggerRef.current?.focus({ preventScroll: true });
+    restoringFocus.current = false;
+    setPreviewing(false);
+  }, []);
   return (
-    <span ref={anchorRef} className="relative" onMouseEnter={() => setPreviewing(true)} onMouseLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}>
+    <span ref={anchorRef} className="relative" onPointerEnter={(event) => { if (event.pointerType === "mouse") setPreviewing(true); }} onPointerLeave={(event) => { if (event.pointerType === "mouse" && (!(event.relatedTarget instanceof Node) || !previewRef.current?.contains(event.relatedTarget))) setPreviewing(false); }}>
       <button
+        ref={triggerRef}
         type="button"
+        aria-expanded={previewing && !open && !playing}
         data-testid="chat-inline-attachment"
         data-kind={kind}
         data-attachment-kind={kind}
         data-attachment-path={path}
         data-attachment-label={label}
-        aria-label={kind === "image" ? `Open image ${label}` : kind === "video" ? `Play video ${label}` : `Reveal ${KIND_NAMES[kind].toLowerCase()} ${label}`}
-        title={disabled ? `${path} (${REVEAL_UNAVAILABLE})` : path}
-        disabled={disabled}
-        onFocus={() => setPreviewing(true)}
+        aria-label={kind === "image" ? `Open image ${label}` : kind === "video" ? `Play video ${label}` : `${localArtifactOpeningAvailable() ? "Reveal" : "Preview"} ${KIND_NAMES[kind].toLowerCase()} ${label}`}
+        title={path}
+        onFocus={() => { if (skipPreviewFocus.current) { skipPreviewFocus.current = false; return; } if (!restoringFocus.current) setPreviewing(true); }}
         onBlur={(event) => { if (!previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}
-        onClick={() => {
+        onClick={(event) => {
+          if (event.detail > 0 && window.matchMedia?.("(hover: none)").matches) { setPreviewing(true); return; }
+          event.currentTarget.focus();
+          setPreviewing(false);
+          if (opensImage || kind === "video") skipPreviewFocus.current = true;
           if (opensImage && image.src) setOpen({ name: nativeImage ? attachmentFileName(nativeImage) : fileName(path), src: image.src, path });
           else if (kind === "video") setPlaying(true);
           else if (kind === "image") setPreviewing(true);
-          else revealLocalFile(path);
+          else if (localArtifactOpeningAvailable()) revealLocalFile(path);
+          else setPreviewing(true);
         }}
         className="ct-capsule-button pointer-events-auto"
       >
@@ -140,11 +152,12 @@ export function AttachmentCapsule({ attachment, image: nativeImage, labelContent
           {labelContent ?? <>{name}{detail && <span className="ct-capsule__detail">{detail}</span>}</>}
         </span>
       </button>
-      {previewing && !open && createPortal(
-        <span ref={previewRef} role="region" aria-label={`Preview ${label}`} data-copy-skip className="fixed z-50 block select-none pb-1.5" style={{ left: Math.max(0, Math.min(bounds?.left ?? 0, window.innerWidth - 300)), ...(bounds && bounds.top < 200 ? { top: bounds.bottom } : { bottom: window.innerHeight - (bounds?.top ?? 0) }) }} onMouseEnter={() => setPreviewing(true)} onMouseLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !previewRef.current?.contains(event.relatedTarget)) setPreviewing(false); }}>
-          <CapsulePreview kind={kind} path={path} label={label} image={image} actions={actions} />
-        </span>, document.body
-      )}
+      <AnchoredPopover open={previewing && !open && !playing} anchor={triggerRef} floatingRef={previewRef} placement="top-start" gap={0} onClose={closePreview} style={{ overflow: "auto" }} onPointerEnter={() => setPreviewing(true)} onPointerLeave={(event) => { if (event.pointerType === "mouse") setPreviewing(false); }}>
+        <div role="region" aria-label={`Preview ${label}`} data-copy-skip className="relative select-none">
+          <button type="button" aria-label={`Close preview ${label}`} onClick={closePreview} style={{ minWidth: 44, minHeight: 44, display: "grid", placeItems: "center", marginLeft: "auto" }}><X size={18} aria-hidden /></button>
+          <CapsulePreview kind={kind} path={path} label={label} image={image} actions={<>{actions}{(opensImage || kind === "video") && <button type="button" aria-label={`Expand ${kind} ${label}`} onClick={() => { triggerRef.current?.focus(); skipPreviewFocus.current = true; setPreviewing(false); if (kind === "video") setPlaying(true); else if (image.src) setOpen({ name: fileName(path), src: image.src, path }); }} style={{ minHeight: 44 }}>Expand</button>}</>} />
+        </div>
+      </AnchoredPopover>
       {open && <ImageFullscreen image={open} anchorRef={anchorRef} onClose={close} />}
       {playing && <VideoFullscreen label={label} path={path} anchorRef={anchorRef} onClose={() => setPlaying(false)} />}
     </span>

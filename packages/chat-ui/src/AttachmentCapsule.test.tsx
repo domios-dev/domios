@@ -73,8 +73,8 @@ describe("inline attachment capsules in the user bubble", () => {
     expect(host.textContent).not.toContain("<domios");
     expect(host.textContent).not.toContain(SHOT);
     expect(capsules(host).map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Reveal pasted text text1",
-      "Reveal pasted text text1 · 312 lines",
+      "Preview pasted text text1",
+      "Preview pasted text text1 · 312 lines",
     ]);
   });
 

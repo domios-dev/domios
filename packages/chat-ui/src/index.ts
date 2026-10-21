@@ -90,3 +90,4 @@ export { ChatHighlightBudgetProvider, ChatHighlightRow } from "./ChatHighlightBu
 export { ChatDaySeparator } from "./ChatDaySeparator";
 export { chatLocalDay, chatDaySeparators, messageTimeLabels, showChatTimeGutter, chatHorizontalInsets } from "./chatTimeModel";
 export { messageRowTime } from "./messageRowTime";
+export { ImageFullscreen, type FullscreenImage } from "./ImageFullscreen";
