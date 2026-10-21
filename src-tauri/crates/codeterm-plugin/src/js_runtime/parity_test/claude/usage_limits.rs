@@ -1,13 +1,13 @@
 use super::*;
 
 #[test]
-fn claude_usage_limits_native_js_parity() {
+fn usage_limits_native_js_parity() {
     if require_plugins().is_none() {
         return;
     }
     let (native, js) = pair();
     let raw = std::fs::read_to_string(
-        workspace_plugins_root().join("provider-claude/tests/fixtures/usage-normalized.json"),
+        plugin_fixture_root().join("tests/fixtures/usage-normalized.json"),
     )
     .unwrap();
     let expected: serde_json::Value = serde_json::from_str(&raw).unwrap();

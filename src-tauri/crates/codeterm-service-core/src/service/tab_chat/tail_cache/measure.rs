@@ -59,10 +59,10 @@ fn timed(step: &'static str, run: impl FnOnce() -> u64) -> Cost {
     }
 }
 
-fn scroll_back(registry: &Arc<AgentRegistry>, path: &Path, mut until: u64) -> u64 {
+fn scroll_back(registry: &Arc<AgentRegistry>, provider_id: &str, path: &Path, mut until: u64) -> u64 {
     let mut bytes = 0;
     for _ in 0..SCROLL_PAGES {
-        let page = session_window::parse_page_before(registry, "claude", path, until).unwrap();
+        let page = session_window::parse_page_before(registry, provider_id, path, until).unwrap();
         assert!(page.end_offset - page.start_offset <= session_window::BACKFILL_PAGE_BYTES);
         assert!(!page.messages.is_empty());
         bytes += page.end_offset - page.start_offset;
@@ -71,7 +71,7 @@ fn scroll_back(registry: &Arc<AgentRegistry>, path: &Path, mut until: u64) -> u6
     bytes
 }
 
-/// Opt-in: generates a 250 MB synthetic Claude transcript and prints open,
+/// Opt-in: generates a 250 MB synthetic transcript and prints open,
 /// re-open, append and scroll-back costs for the uncached and cached paths.
 #[test]
 #[ignore = "generates a 250 MB fixture; run explicitly with --ignored"]
@@ -92,39 +92,47 @@ fn measure_250mb_transcript_open_reopen_append_scroll() {
         file.flush().unwrap();
     }
     let total = std::fs::metadata(&path).unwrap().len();
-    let registry = AgentRegistry::new();
-    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-    let registry = Arc::new(registry);
+    let registry = Arc::new(AgentRegistry::new());
+    let mut plugins = crate::plugin::PluginManager::new();
+    plugins.set_registrar(registry.clone());
+    plugins.activate_builtin_native_plugins().unwrap();
+    let ids = registry.provider_ids();
+    assert_eq!(
+        ids.len(),
+        1,
+        "measurement requires one native transcript provider"
+    );
+    let provider_id = ids[0].as_str();
 
     let mut before = Vec::new();
-    let opened = session_window::snapshot(&registry, "claude", &path);
+    let opened = session_window::snapshot(&registry, provider_id, &path);
     before.push(timed("open", || {
-        session_window::snapshot(&registry, "claude", &path).bytes_read
+        session_window::snapshot(&registry, provider_id, &path).bytes_read
     }));
     assert!(!opened.messages.is_empty());
     before.push(timed("re-open x20", || {
         (0..REOPENS)
-            .map(|_| session_window::snapshot(&registry, "claude", &path).bytes_read)
+            .map(|_| session_window::snapshot(&registry, provider_id, &path).bytes_read)
             .sum()
     }));
     let appended = append_records(&path, next, APPENDED_RECORDS, &pad);
     next += APPENDED_RECORDS;
     before.push(timed("append+open", || {
-        session_window::snapshot(&registry, "claude", &path).bytes_read
+        session_window::snapshot(&registry, provider_id, &path).bytes_read
     }));
-    let start = session_window::snapshot(&registry, "claude", &path).start_offset;
+    let start = session_window::snapshot(&registry, provider_id, &path).start_offset;
     before.push(timed("scroll-back x5", || {
-        scroll_back(&registry, &path, start)
+        scroll_back(&registry, provider_id, &path, start)
     }));
 
     let cache = TailCache::default();
     let key = TailKey {
-        provider_id: "claude".into(),
+        provider_id: provider_id.into(),
         path: path.clone(),
     };
     let port = JsonlTailPort {
         registry: &registry,
-        provider_id: "claude",
+        provider_id,
         path: &path,
     };
     let mut after = Vec::new();
@@ -150,10 +158,10 @@ fn measure_250mb_transcript_open_reopen_append_scroll() {
     }));
     let window = window.unwrap();
     after.push(timed("scroll-back x5", || {
-        scroll_back(&registry, &path, window.start_offset)
+        scroll_back(&registry, provider_id, &path, window.start_offset)
     }));
 
-    let fresh = session_window::snapshot(&registry, "claude", &path);
+    let fresh = session_window::snapshot(&registry, provider_id, &path);
     let ids = |messages: &[ChatMsg]| -> Vec<String> {
         messages.iter().map(|message| message.id.clone()).collect()
     };
