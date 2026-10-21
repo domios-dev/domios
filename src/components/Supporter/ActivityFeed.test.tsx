@@ -145,7 +145,8 @@ describe("Spinal Cord activity", () => {
   it("active_plan_board_feed_does_not_depend_on_plan_projection_readiness", async () => {
     const host = await setup.render(<MissionControlBoard api={API} plan={{ ...FIXTURE_PLAN, team_id: "team_aabbccdd" }} state={null} />);
     expect(host.querySelectorAll("ol > li")).toHaveLength(1);
-    expect(new URL(paths[0], "http://fixture").searchParams.get("team_id")).toBe("team_aabbccdd");
+    const activityPath = paths.find((path) => path.startsWith("/api/supporter/activity"));
+    expect(new URL(activityPath ?? "", "http://fixture").searchParams.get("team_id")).toBe("team_aabbccdd");
   });
 
   it("grouped_rows_render_once_with_count_and_full_accessible_outcome", async () => {
