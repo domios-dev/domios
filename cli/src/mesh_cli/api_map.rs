@@ -966,6 +966,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::EssenceMap { .. }
         | Commands::Trace { .. }
         | Commands::Orchestrator { .. }
+        | Commands::Curator { .. }
         | Commands::Persona { .. }
         | Commands::Task { .. }
         | Commands::Inbox { .. }

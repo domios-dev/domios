@@ -9,6 +9,7 @@ pub mod cleanup_debt;
 pub mod competition;
 pub mod complete_wrapup;
 pub mod convert_storage;
+pub mod curator;
 pub mod digest_rules;
 pub mod element_queries;
 pub mod external_refs;

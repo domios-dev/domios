@@ -1,7 +1,5 @@
 # Orchestration control loop
 
-Team utilities: `codeterm tab new --team <team-id> --purpose build|dev|qa|shell` (default `shell`; `dev` for servers). Purpose survives restart/restore. Marks show running, idle with last exit, or unknown.
-
 Use command `--help` for syntax.
 
 ## Related documents
@@ -70,12 +68,10 @@ Discovery must lead to decisions and implementation, review or verification; res
 
 ## Planning ownership
 
-With a Planner, run `codeterm plan doctor <plan> --kind quality`; duplicate Worker guidance is advisory. Summarize a green draft and ask the owner. Wait for recorded approval: after UI approval verify `planning_state=approved`; after conversational approval run `codeterm plan approve <plan>` once and verify it. The Planner never self-approves or sets `structure_ready`; drafts stay non-dispatchable. The Orchestrator alone dispatches and accepts. Judge the role brief's plan-shape contract and record waivers.
+Duplicate Worker guidance in `plan doctor` is advisory. Summarize a green draft and ask the owner; after UI approval verify `planning_state=approved`, after conversational approval run `codeterm plan approve <plan>` once and verify it. Record Planner waivers.
 ## Dispatch contract
 
-Workers default to full machine access for both execution intents. `--execution-intent` governs task and report authority, independently of OS permissions. Explicitly request confinement with `--sandbox read-only` or `--sandbox workspace-write` on `agent spawn` or local `plan task dispatch`; unsupported mappings are refused. A requested sandbox rejects custom provider arguments and persists its immutable policy across restore. Explicit sandbox selection on mesh task dispatch is refused before dispatch.
-
-Task-less verification reports omit `--status` and `--task`; execution intent still bounds authorized work even with full machine access. A launch explicitly confined to a read-only filesystem can report through UTF-8 stdin with `codeterm agent report --from-pad -`. Existing saved sandbox policies are not widened by the Worker default.
+Workers default to full machine access; `--execution-intent` governs task and report authority, not OS permissions. Confine one with `--sandbox read-only|workspace-write` on `agent spawn` or local `plan task dispatch`. Task-less verification reports omit `--status` and `--task`.
 
 ## Worker kinds
 
@@ -83,7 +79,7 @@ Kinds add prompt guidance, not machine access or execution ability. `qa` and `re
 
 Task-bound Workers need `--plan-task <task>` and explicit `--execution-intent` for ACK, lane, and status. Gates authorize only recorded commands, never source edits; task-bound gates are declared on dispatch, where enforced. QA review delegation is explicit.
 
-Task-bound canonical mutation requires parent-authorized dispatch with `--execution-intent mutating --canonical-writer`; add `--kind qa` or `--kind release_manager` without changing `executor_role`. Dispatch reserves the attempt and exclusive writer placement; direct task-bound `agent spawn --plan-task` cannot carry gates or reserve canonical mutation and remains refused. Task-less kinds with Plan context keep parent-directed placement, reserve no task or canonical occupancy, and leave writes to the parent; read-only verification is allowed. See `API-PLAN` and `LANES`.
+Task-bound canonical mutation goes only through dispatch with `--execution-intent mutating --canonical-writer` (add `--kind qa|release_manager` without changing `executor_role`). See `API-PLAN` and `LANES`.
 
 Before each wave, follow `ORCHESTRATION-TASKS` for headroom, disjoint ownership, Plan doctor, binding, and ACK; give exact acceptance/test commands and require ACK first, report last. For Full-access paired-peer dispatch, judge the origin report and merge its accepted SHA into the clean dispatch-time branch.
 
@@ -95,16 +91,12 @@ Review by backlog and diff: large changes individually, compatible small ones in
 
 At five reviews, prioritize closure and avoid backlog growth. Backlog, credit, and pending terminal-group evidence are advisory; dispatch, competition, and respawn need no capacity grant. Authority, dependencies, review safety, and acceptance still apply. Never fake acceptance or adjust credit.
 
-Only the owner may run `codeterm plan review authorize-capacity <plan> <task>` with `--class review` or `--class canonical_gate`; it records classification, not authority, and dispatch never needs it.
-
-Exit `in_review` only with `codeterm plan review accept`, `bounce`, or `hold`, passing `<plan> <task>` and `--note-from-pad <file>` or `--note`; author notes in the pad. Bounce resumes the Worker or reopens its task; hold keeps review, assignment, and lane. See `API-PLAN` for credit repair, task-less evidence, and Planner parent resolution.
+Bounce resumes the Worker or reopens its task; hold keeps review, assignment and lane. See `API-PLAN` for credit repair, task-less evidence and Planner parent resolution.
 
 ### Quiet team heartbeat
 
-Heartbeat is the only interval-based plan reminder: events add none and completed plans get no wrap-up. Reports, worker-loss notices, decisions, and failure alerts keep separate channels. It suppresses unchanged state and requires a next step; no Supporter or model is needed. Worker reminders also respect their interval; see `ORCHESTRATION-OPERATIONS`.
+The default Curator control loop replaces the Orchestrator heartbeat. It mirrors the Orchestrator's model, starts from a bounded activity digest, and chooses its next round within 45 minutes to two hours. Quiet windows use a free heartbeat nudge only when work needs attention. Paused plans, completed plans and Teams waiting on a human do not launch rounds. Owners can select heartbeat mode and its interval; failures expose a visible heartbeat fallback. Worker reminders keep their own interval. See `ORCHESTRATION-OPERATIONS`.
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-Confined mutating Workers persist host-owned Cargo, lane-check, sccache and pnpm store roots. TMPDIR/TEMP/TMP use lane-local `.codeterm-tmp`. Task-bound spawns require explicit read_only or mutating intent. Older task tabs without saved confinement retain their behavior.
-
-<!-- revision: 135 -->
+<!-- revision: 138 -->

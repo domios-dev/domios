@@ -98,7 +98,15 @@ fn send_due_plan_time_reminders_via(
     let mut due = 0usize;
     for timed in targets {
         counter.record_time_tick(&timed.tab_id, now);
-        let is_due = counter.time_nudge_due(&timed.tab_id, now, interval_secs);
+        let interval = match &timed.target {
+            PlanReminderTarget::Owner { plan_id } => plans
+                .iter()
+                .find(|p| &p.id == plan_id)
+                .map(|p| p.control_loop.interval(interval_secs))
+                .unwrap_or(interval_secs),
+            PlanReminderTarget::Worker => interval_secs,
+        };
+        let is_due = counter.time_nudge_due(&timed.tab_id, now, interval);
         if !is_due {
             ports.note(&timed.tab_id, &timed.target, TickFact::NotDue);
             continue;
@@ -855,6 +863,7 @@ fn active_execution(plan: &Plan) -> bool {
 
 fn owner_reminder_eligible(plan: &Plan) -> bool {
     active_execution(plan)
+        && plan.control_loop.owner_heartbeat()
         && plan
             .tasks
             .iter()

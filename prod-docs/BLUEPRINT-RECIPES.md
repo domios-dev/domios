@@ -19,16 +19,16 @@ Use `--note` to explain the particular watch. `check` is offline; `apply --dry-r
 | `github-runners` | Repository runner availability | `repo` |
 | `github-org-runners` | Organization runner availability | `org` |
 | `http-health` | Endpoint up/down and response code | `url` |
-| `github-pr-ci-watch` | Pattern-based PR verdict watch | `pr_verdict_probe` |
+| `github-pr-ci-watch` | Pattern-based PR verdict watch | `name`, `pr_verdict_probe` |
 | `team-watch` | Observe one member's tab | `tab_id`, `changed_pattern` |
-| `wait-for-build` | Notify on a terminal build verdict | `read_only_build_probe`, `passed_pattern`, `failed_pattern` |
-| `retry-until-pass` | Watch a bounded retry process | `retry_status_probe`, `passed_pattern` |
+| `wait-for-build` | Notify on a terminal build verdict | `name`, `read_only_build_probe`, `passed_pattern`, `failed_pattern` |
+| `retry-until-pass` | Watch a bounded retry process | `name`, `retry_status_probe`, `passed_pattern` |
 | `prompt-responder` | Request safe prompt handling | `tab_id`, `permission_pattern` |
 | `cron-run-watch` | Observe a verified cron run | `cron_name_or_id`, `finished_pattern` |
 | `launch-prompt-gate` | Safely handle launch prompts; escalate unknown ones | `cron_name_or_id` |
 | `echo` | Command followed by a filter | none; optional `message` |
-| `all-finished` | One verdict probe for all work | `one_verdict_probe`, `all_terminal_pattern` |
-| `voice-note-to-text` | Input data and conversion skeleton | absolute `path_to_voice_note` |
+| `all-finished` | One verdict probe for all work | `name`, `one_verdict_probe`, `all_terminal_pattern` |
+| `voice-note-to-text` | Input data and conversion skeleton | `name`, absolute `path_to_voice_note` |
 
 GitHub's `resource` input accepts `run` or `jobs`; PR checks have their own recipe because their outcome set differs. Runners accept an optional `label`. `interval` and `timeout_ms` inputs have bounded defaults. HTTP accepts `expected_status` (`2xx` or a code) and a timeout up to 10000ms. Redirects are not followed.
 
@@ -50,4 +50,4 @@ Unknown cases can use `handlers.other` to escalate to the creator or a same-Team
 
 Full format, validation diagnostics, editor schema and sharing: `codeterm docs BLUEPRINTS`.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

@@ -1,6 +1,68 @@
 use super::*;
 
 #[test]
+fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
+    for action in [
+        BlueprintAction::New {
+            kind: "watch".into(),
+            like: Some("watch CI failure".into()),
+        },
+        BlueprintAction::Apply {
+            source: String::new(),
+            like: Some("watch CI failure".into()),
+            set: vec![],
+            note: None,
+            dry_run: false,
+        },
+    ] {
+        let (method, params) =
+            request(action, Some("caller".into()), Some("nonce".into())).unwrap();
+        assert_eq!(method, "blueprint.recall");
+        assert_eq!(params["intent"], "watch CI failure");
+        assert_eq!(params["caller_tab_id"], "caller");
+        assert!(params.get("definition").is_none());
+    }
+    assert_eq!(
+        request(BlueprintAction::Recipe { name: None }, None, None)
+            .unwrap()
+            .0,
+        "blueprint.recall"
+    );
+    let (method, params) = request(
+        BlueprintAction::Keep {
+            id: "graph".into(),
+            when: "Watch CI failure".into(),
+        },
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(method, "blueprint.keep");
+    assert_eq!(params["id"], "graph");
+    let (method, params) = request(
+        BlueprintAction::Apply {
+            source: "memory:skill_saved".into(),
+            like: None,
+            set: vec!["repo=owner/repo".into()],
+            note: None,
+            dry_run: true,
+        },
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(method, "blueprint.apply_recipe");
+    assert_eq!(params["id"], "skill_saved");
+    assert_eq!(params["dry_run"], true);
+    let offers = memory::offers(json!([]), "HTTP endpoint response code");
+    assert!(offers
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|offer| offer["id"] == "http-health"));
+}
+
+#[test]
 fn blueprint_text_input_wire_preserves_file_body_and_identity() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("input.txt");
@@ -274,6 +336,7 @@ fn blueprint_apply_note_and_dry_run_are_explicit() {
     let (_, params) = request(
         BlueprintAction::Apply {
             source: "http-health".into(),
+            like: None,
             set: vec!["url=https://example.com".into()],
             note: Some("Health check".into()),
             dry_run: true,

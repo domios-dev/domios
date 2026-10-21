@@ -14,6 +14,7 @@ pub mod blueprint_github;
 
 pub mod blueprint_document;
 pub mod blueprint_http;
+pub mod blueprint_memory;
 pub mod blueprint_source;
 
 pub mod blueprint_watch;

@@ -14,9 +14,10 @@ fn every_shipped_recipe_checks_with_bindings_and_keeps_routes() {
                     "42"
                 } else {
                     match key.as_str() {
-                        "repo" => "owner/repository",
+                        "name" => "Watch target",
+                        "repo" => "a-realistic-long-organization/a-realistic-long-repository",
                         "org" => "organization",
-                        "url" => "https://example.com/health",
+                        "url" => "https://api.example.com/v1/healthz?token=private-test-token#private-fragment",
                         "path_to_voice_note" => {
                             if cfg!(windows) {
                                 "C:/voice.ogg"
@@ -26,6 +27,7 @@ fn every_shipped_recipe_checks_with_bindings_and_keeps_routes() {
                         }
                         "cron_name_or_id" => "nightly",
                         "tab_id" => "agent_tab",
+                        key if key.ends_with("_probe") => "printf waiting # a realistic read-only shell command with arguments and enough additional detail to exceed one hundred characters",
                         _ => "ready",
                     }
                 };
@@ -35,6 +37,18 @@ fn every_shipped_recipe_checks_with_bindings_and_keeps_routes() {
         let checked = blueprint_document::check(name, raw, &assignments);
         assert!(checked.ok, "{name}: {:?}", checked.diagnostics);
         let definition = checked.definition.unwrap();
+        let resolved_name = definition
+            .pointer("/spec/name")
+            .or_else(|| definition.pointer("/create/name"))
+            .unwrap()
+            .as_str()
+            .unwrap();
+        assert!(
+            resolved_name.chars().count() <= 40,
+            "{name}: {resolved_name}"
+        );
+        assert!(!resolved_name.contains("private-test-token"));
+        assert!(!resolved_name.contains("private-fragment"));
         if let Some(steps) = definition
             .pointer("/spec/steps")
             .and_then(serde_json::Value::as_array)
@@ -109,4 +123,29 @@ fn recipe_names_follow_the_target_and_remain_bounded() {
         assert_ne!(first["spec"]["name"], second["spec"]["name"]);
         assert!(first["spec"]["name"].as_str().unwrap().chars().count() <= 40);
     }
+}
+#[test]
+fn http_names_distinguish_paths_and_hide_query_secrets() {
+    let raw = authoring::source("http-health").unwrap();
+    let bind = |url: &str| {
+        let checked = blueprint_document::check("http-health", &raw, &[format!("url={url}")]);
+        assert!(checked.ok, "{:?}", checked.diagnostics);
+        checked.definition.unwrap()
+    };
+    let first_url = "https://api.example.com/v1/healthz?token=secret-one#private";
+    let first = bind(first_url);
+    let second = bind("https://api.example.com/v2/healthz?token=secret-two#private");
+    let name = first["spec"]["name"].as_str().unwrap();
+    for secret in ["user", "password", "secret-one", "private", "token="] {
+        assert!(!name.contains(secret), "{name}");
+    }
+    assert!(name.chars().count() <= 40);
+    assert_ne!(first["spec"]["name"], second["spec"]["name"]);
+    let rotated = bind("https://api.example.com/v1/healthz?token=rotated#different");
+    assert_eq!(first["spec"]["name"], rotated["spec"]["name"]);
+    assert_eq!(
+        first.pointer("/spec/steps/0/kind/probe/url").unwrap(),
+        first_url
+    );
+    assert_eq!(first["spec"]["name"], bind(first_url)["spec"]["name"]);
 }

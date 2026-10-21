@@ -34,6 +34,15 @@ for (const value of [null, undefined, {}, {limit_dollars:0,remaining_dollars:250
 body = {...fixture, extra_usage:{...fixture.extra_usage,is_enabled:true,user_disabled:false,spend_limit_reached:true}};
 assert.equal(JSON.parse(plugin.fetchUsage()).usage_details.extra_usage.enabled, true);
 assert.equal(JSON.parse(plugin.fetchUsage()).usage_details.extra_usage.spend_limit_reached, true);
+body = JSON.parse(fs.readFileSync(new URL("./fixtures/usage-credits-on-empty.json", import.meta.url), "utf8"));
+assert.deepEqual(JSON.parse(plugin.fetchUsage()).usage_details.extra_usage, {
+  enabled:true, effective_enabled:false, disabled_reason:"out_of_credits", decimal_places:2,
+  spend_limit_reached:false, used:0, limit:10000, currency:"USD", settings_url:"https://claude.ai/settings/usage",
+});
+body = {...body,extra_usage:{...body.extra_usage,user_disabled:true}};
+assert.equal(JSON.parse(plugin.fetchUsage()).usage_details.extra_usage.enabled,false);
+body = {...body,extra_usage:{...body.extra_usage,user_disabled:false,disabled_reason:"account_review_pending"}};
+assert.equal(JSON.parse(plugin.fetchUsage()).usage_details.extra_usage.disabled_reason,"account_review_pending");
 assert.equal(normalizeClaudeUsage(null), null);
 assert.equal(normalizeClaudeUsage({limits:null,extra_usage:null}), null);
 console.log("Claude usage fixtures: passed");

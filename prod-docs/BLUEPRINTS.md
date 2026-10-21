@@ -12,6 +12,14 @@ codeterm blueprint apply health.yaml --set url=https://example.com/health
 
 `recipe` lists built-ins. `new <recipe|watch|pipeline|command>` prints a commented file. `check` and `apply` accept either a recipe name or a filename (`-` reads stdin). Built-in recipes are the same files that `new` prints. `create` is an alias of `apply`; the old creation flags have been removed.
 
+## Reuse a saved solution
+
+`codeterm blueprint new --like "watch CI run and ping me on failure"` and `codeterm blueprint apply --like "watch CI run and ping me on failure"` offer matching saved solutions beside built-ins without starting them. `codeterm blueprint recipe` lists built-in names and top saved solutions for the current project workspace. Reuse a saved solution with `codeterm blueprint apply memory:<recipe-id> --set key=value`. Each offer includes YAML and described typed inputs; instance inputs have no defaults. Named built-in recipes remain available offline.
+
+Nothing is saved automatically. The Team Orchestrator uses `codeterm blueprint keep <id> --when "Watch CI and report failing jobs early"` to queue a generalised solution. Workers cannot keep solutions. The problem description drives search, a short note explains the graph, and concrete commands, URLs, repository names, IDs and personal paths become required inputs. Instance values and credentials are never retained as defaults. Safety checks still apply to explicit keeps. Admission returns `queued`; debug output records the save decision or refusal.
+
+Solutions are memory skills, discoverable through ordinary memory search. Equivalent structures update one recipe's statistics. Ranking and eviction consider successes, twice the reuse count, an explicit-keep bonus and failures, with age decay. Each area retains at most 50 active entries; excess entries are archived, preserving their YAML. The Dreamer considers at most 50 entries in one area and merges at most eight pairs per cycle; it never creates solutions from runs. It can log a built-in promotion proposal. Background writes use a bounded queue; debug logs show items added today and recall hit rate.
+
 ## One file
 
 ```yaml
@@ -56,7 +64,7 @@ Checking, scaffolding and schema output require no daemon or network. Plugin/con
 
 ## Apply by name
 
-Built-in recipe names include identifying inputs, so different targets create different graphs; long expanded names keep a readable prefix and a stable suffix within the 40-character name bound.
+Built-in recipe names use short identities. HTTP names use host and path, excluding credentials, query and fragment. Different paths create separate Blueprints; rotating query tokens updates the same Blueprint. Probe-based watch recipes require a short `name` input. Long expanded names use a slug prefix and a stable six-character hash within the 40-character bound.
 
 `apply` requires a live caller in a Team. An exact name in that Team and workspace identifies the existing Blueprint. Applying an identical definition returns `unchanged` without adding a version; a change updates that ID through versioned admission. Ambiguous names and unauthorized updates refuse. A watch and a pipeline cannot replace each other under the same name. Watch source and route changes retarget the existing graph. Watch `timeout` and `paused` apply only at creation. Applying changed creation settings refuses with a source-positioned diagnostic; delete and re-apply to change them. Original settings persist through restart. Preexisting watches without recorded original settings require recreation before apply can compare these options.
 
@@ -140,4 +148,4 @@ Both the UI and CLI export and import the same YAML. Export writes the same auth
 
 Stopped graphs and their history remain for 30 minutes before cleanup. Changed definitions create an immutable version; an unchanged apply reactivates a stopped graph under the same ID. Import uses the same name lookup and keeps the result stopped unless explicitly started. Advanced `update` accepts an internal definition file with `--expect-version` for explicit version/cause control. `history` definitions can be restored through that path, and `escalation resolve <id> <transition>` releases a held unknown case after repair. Recipe examples: `codeterm docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 35 -->
+<!-- revision: 38 -->

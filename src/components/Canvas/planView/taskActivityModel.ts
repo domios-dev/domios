@@ -13,6 +13,7 @@ export interface PlanActivityItem {
 }
 
 export function milestoneKindLabel(kind: string): string {
+  if (kind === "curator_round") return "Curator round";
   return kind.replace(/[_-]+/g, " ");
 }
 
@@ -44,6 +45,9 @@ export function visibleMilestones(
 
 export function buildPlanRecentActivity(plan: Plan, limit = 12): PlanActivityItem[] {
   const items: PlanActivityItem[] = [];
+  for (const milestone of plan.strides ?? []) {
+    if (milestone.kind === "curator_round") items.push({ taskId: "", taskLabel: "", milestone });
+  }
   for (const task of plan.tasks) {
     const taskLabel = task.handle?.trim() || task.name?.trim() || task.id;
     for (const milestone of task.milestones) {

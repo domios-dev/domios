@@ -1,6 +1,6 @@
 # Check and apply this file with codeterm blueprint.
 schema_version: 1
-name: Echo {{message}}
+name: Echo example
 note: Run one fixed command, match its output, and return the result to the owner tab.
 owner: team
 inputs:

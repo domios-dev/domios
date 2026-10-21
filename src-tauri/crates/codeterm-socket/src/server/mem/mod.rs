@@ -202,6 +202,11 @@ fn mem_save(
     params: Option<serde_json::Value>,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
+    let caller = codeterm_service_core::service::AuthenticatedPlanCaller {
+        tab_id: opt_string_param(&params, "caller_tab_id"),
+        session_id: opt_string_param(&params, "session_id"),
+        binding_nonce: opt_string_param(&params, "session_binding_nonce"),
+    };
     let body: SaveBody = parse_params(params)?;
     validate_item_fields(
         &body.title,
@@ -244,8 +249,10 @@ fn mem_save(
     let kind_for_extract = item.kind;
     let replace = body.replace;
     let skip_extract = body.skip_extract;
-    let outcome = with_changed_by("user", || svc.mem.save_with_outcome(item, replace))
-        .map_err(internal_error)?;
+    let outcome = with_changed_by("user", || {
+        svc.save_memory_for_caller(&caller, item, replace)
+    })
+    .map_err(internal_error)?;
     let id = outcome.id;
     emit_activity(svc, "write", vec![id.clone()]);
 

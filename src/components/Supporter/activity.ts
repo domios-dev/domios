@@ -31,4 +31,4 @@ export const ACTIVITY_REASONS = [
   "hard_wake", "same_snapshot", "healthy_snapshot", "soft_cooldown", "safety_status", "transition", "same_bucket", "low_confidence", "other", "budget_exhausted", "model_deadline", "model_failed", "adapter_disconnected", "invalid_answer", "route_failed", "provider_safe_step_authorized", "provider_safe_step_stale", "observation_bounds",
 ] as const;
 
-export const ACTIVITY_KINDS = ["rerank", "tab_state", "recovery", "sentinel", "blueprint", "heartbeat"] as const;
+export const ACTIVITY_KINDS = ["rerank", "tab_state", "recovery", "sentinel", "blueprint", "heartbeat", "curator"] as const;

@@ -44,6 +44,23 @@ pub fn schema() -> Value {
         step_variants.push(json!({"type":"object","required":["name","input","uses","with"],"additionalProperties":false,"properties":{
             "name":scalar,"input":io,"uses":{"const":kind.name},"with":{"type":"object","required":required,"additionalProperties":false,"properties":properties},"on":{"$ref":"#/$defs/routes"}}}));
     }
+    let handlers = json!({"type":"object","additionalProperties":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["type"],"properties":{"id":scalar,"type":{"enum":["notify","stop","send","cron","blueprint","command","respond_prompt","escalate"]},"parameters":{"type":"object"}}}}});
+    let watch = json!({"type":"object","additionalProperties":false,"required":["question","buckets"],"properties":{
+        "probe":scalar,"observe":{"anyOf":[scalar,{"type":"object"}]},"input":{"type":"object"},"terminal":{"type":"object"},"session":{"type":"boolean"},
+        "question":{"type":"string","minLength":1,"maxLength":4096},"buckets":{"type":"array","minItems":1,"maxItems":16,"items":scalar},
+        "every":scalar,"routes":{"$ref":"#/$defs/routes"},"handlers":handlers,
+        "matches":{"type":"object","additionalProperties":scalar},"model_classification":{"type":"boolean"},"rearm_on_change":{"type":"array","items":scalar},
+        "until":{"anyOf":[scalar,{"type":"null"}]},"timeout":scalar,"paused":{"type":"boolean"},"escalation_timeout_ms":{"type":"integer","minimum":1},
+        "max_transitions":{"type":"integer","minimum":1,"maximum":256},"max_actions":{"type":"integer","minimum":1,"maximum":1024}
+    }});
+    let pipeline = json!({"type":"object","additionalProperties":false,"required":["trigger","steps"],"properties":{
+        "trigger":{"oneOf":[
+            {"type":"object","required":["type","every"],"additionalProperties":false,"properties":{"type":{"const":"schedule"},"every":scalar}},
+            {"type":"object","required":["type","kind","source"],"additionalProperties":false,"properties":{"type":{"const":"input"},"kind":io,"source":{"$ref":"#/$defs/data"}}},
+            {"type":"object","required":["type","kind","params"],"additionalProperties":false,"properties":{"type":{"const":"event"},"kind":scalar,"params":{"type":"object"}}}]},
+        "steps":{"type":"array","minItems":1,"maxItems":64,"items":{"oneOf":step_variants}},
+        "result":{"type":"object","additionalProperties":false,"properties":{"to":{"type":"string","pattern":"^(owner|team|notify|tab:.+)$"}}}
+    }});
     json!({
         "$schema":"https://json-schema.org/draft/2020-12/schema",
         "title":"Domios Blueprint","type":"object","additionalProperties":false,
@@ -56,26 +73,12 @@ pub fn schema() -> Value {
             "inputs":{"type":"object","additionalProperties":{"type":"object","additionalProperties":false,"required":["type"],"properties":{
                 "type":{"enum":["string","integer","number","boolean","object","array"]},"default":{},"description":scalar,"enum":{"type":"array","minItems":1}}}},
             "watch":{"$ref":"#/$defs/watch"},
-            "pipeline":{"type":"object","additionalProperties":false,"required":["trigger","steps"],"properties":{
-                "trigger":{"oneOf":[
-                    {"type":"object","required":["type","every"],"additionalProperties":false,"properties":{"type":{"const":"schedule"},"every":scalar}},
-                    {"type":"object","required":["type","kind","source"],"additionalProperties":false,"properties":{"type":{"const":"input"},"kind":io,"source":{"$ref":"#/$defs/data"}}},
-                    {"type":"object","required":["type","kind","params"],"additionalProperties":false,"properties":{"type":{"const":"event"},"kind":scalar,"params":{"type":"object"}}}]},
-                "steps":{"type":"array","minItems":1,"maxItems":64,"items":{"oneOf":step_variants}},
-                "result":{"type":"object","additionalProperties":false,"properties":{"to":{"type":"string","pattern":"^(owner|team|notify|tab:.+)$"}}}
-            }}
+            "pipeline":pipeline
         },
         "$defs":{
             "routes":{"type":"object","additionalProperties":{"type":"string","minLength":1}},
             "data":{"type":"object","oneOf":[{"required":["text"]},{"required":["file"]},{"required":["url"]}],"additionalProperties":false,"properties":{"text":scalar,"file":scalar,"url":scalar}},
-            "watch":{"type":"object","additionalProperties":false,"required":["question","buckets"],"properties":{
-                "probe":scalar,"observe":{"anyOf":[scalar,{"type":"object"}]},"input":{"type":"object"},"terminal":{"type":"object"},"session":{"type":"boolean"},
-                "question":{"type":"string","minLength":1,"maxLength":4096},"buckets":{"type":"array","minItems":1,"maxItems":16,"items":scalar},
-                "every":scalar,"routes":{"$ref":"#/$defs/routes"},"handlers":{"type":"object","additionalProperties":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["type"],"properties":{"id":scalar,"type":{"enum":["notify","stop","send","cron","blueprint","command","respond_prompt","escalate"]},"parameters":{"type":"object"}}}}},
-                "matches":{"type":"object","additionalProperties":scalar},"model_classification":{"type":"boolean"},"rearm_on_change":{"type":"array","items":scalar},
-                "until":{"anyOf":[scalar,{"type":"null"}]},"timeout":scalar,"paused":{"type":"boolean"},"escalation_timeout_ms":{"type":"integer","minimum":1},
-                "max_transitions":{"type":"integer","minimum":1,"maximum":256},"max_actions":{"type":"integer","minimum":1,"maximum":1024}
-            }}
+            "watch":watch
         }
     })
 }

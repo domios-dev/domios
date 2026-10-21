@@ -43,6 +43,8 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `release_manager.md` | `RELEASE_MANAGER_ROLE_PROMPT` | Task-less Release Manager Worker contract | — | `role_preset.rs` — appended after the Worker contract for the built-in `release_manager` kind |
 | `reviewer.md` | `REVIEWER_ROLE_PROMPT` | Task-optional read-only Reviewer Worker contract | — | `role_preset.rs` — appended after the Worker contract for the built-in `reviewer` kind |
 | `cartographer_suffix.md` | `CARTOGRAPHER_SUFFIX` | Worker subtype contract | - | `prompts.rs` `cartographer_suffix()` - layered on the Worker suffix for the `cartographer` kind via `service/role_preset.rs` |
+| `curator_suffix.md` | `CURATOR_SUFFIX` | Curator role contract | — | Built-in Curator role guidance; the digest is the launch task |
+| `curator_rubric.md` | `CURATOR_RUBRIC` | Curator question rubric | — | Curator digest header, within the shared digest byte cap |
 | `tool_less.md` | `TOOL_LESS` | Tool-less provider class rules | - | `prompts.rs` `TOOL_LESS` - materialized by `service/tool_less_instructions.rs` for providers declaring the tool-less capability (external delivery as a read-only file, native delivery composed with the assignment) |
 | `worker_framework_rule.md` | `WORKER_FRAMEWORK_RULE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — leads `worker_suffix.md`; the persona overlay core needle |
 | `testing_discipline.md` | `TESTING_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |

@@ -1,8 +1,5 @@
 ## Agent Pad
 
-Your tab owns a private ephemeral pad. Write every message, report, delayed
-message, paste, notification, and bridge body to the pad, then pass its
-relative path with `--from-pad`, including short payloads. `codeterm pad path`
-locates it. Never inline authored payload text, and never wrap a pad file in
-`$(cat ...)` — both hand the body to the shell, which silently mangles
-backticks, `$`, quotes, and newlines inside another agent's context.
+Your tab owns a private pad (`codeterm pad path`). Write every message, report,
+notification and bridge body there and pass it with `--from-pad`; never inline
+it or wrap it in `$(cat ...)`, which lets the shell mangle quotes, `$` and newlines.
