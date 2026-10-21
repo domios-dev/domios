@@ -26,8 +26,15 @@ pub(super) fn read(
             session_id,
         } if !runtime => {
             let path = chatbackend_history::session_path(&plugin_id, &session_id);
-            let messages = match chatbackend_history::try_read_messages(&path) {
-                Ok(messages) => messages,
+            let messages = match chatbackend_history::read_tail(&path)
+                .map(|window| window.keep_last(super::snapshot_rows::SNAPSHOT_ROW_LIMIT))
+            {
+                Ok(window) => super::history_gap::bounded(
+                    crate::agent::chat_types::ChatHistorySource::ChatBackend,
+                    &session_id,
+                    window.start_offset,
+                    window.messages,
+                ),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
                 Err(error) => return Err(format!("Stored chat transcript: {error}")),
             };

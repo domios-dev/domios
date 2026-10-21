@@ -64,8 +64,23 @@ pub struct MessageBlock {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChatTimelineMarker {
     Queued,
-    ExternalEdit { path: String },
+    ExternalEdit {
+        path: String,
+    },
     ContextCompaction,
+    /// Older rows of `session_id` exist before `before_offset` and load on demand.
+    HistoryGap {
+        source: ChatHistorySource,
+        session_id: String,
+        before_offset: u64,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatHistorySource {
+    ProviderSession,
+    ChatBackend,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]

@@ -128,6 +128,7 @@ export {
   createTranscriptState,
   projectTranscript,
   reduceTranscript,
+  expandTranscriptGap,
   transcriptBackfillCursor,
   transcriptCommittedEnd,
   transcriptOffsetKind,

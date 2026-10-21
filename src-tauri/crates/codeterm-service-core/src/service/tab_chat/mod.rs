@@ -15,6 +15,7 @@ mod content;
 pub mod context_window;
 mod file_events;
 pub mod fork_history;
+pub mod history_gap;
 pub mod host_context;
 pub mod jsonl_kernel;
 pub mod raw_text_sink;
@@ -234,15 +235,22 @@ fn apply_capabilities(
         .clone()
         .filter(|u| !u.is_empty())
         .unwrap_or_else(|| fallback_base.to_string());
-    if messages.is_empty() && (rich.timeline_marker.is_some() || rich.session_intent.is_some()) {
-        let (kind, content) = match rich.timeline_marker.as_ref() {
+    // History gaps are host-authored paging markers; a provider record never carries one.
+    let marker = rich
+        .timeline_marker
+        .clone()
+        .filter(|marker| !matches!(marker, ChatTimelineMarker::HistoryGap { .. }));
+    if messages.is_empty() && (marker.is_some() || rich.session_intent.is_some()) {
+        let (kind, content) = match marker.as_ref() {
             Some(ChatTimelineMarker::ExternalEdit { path }) => {
                 ("system", format!("changed outside: {path}"))
             }
             Some(ChatTimelineMarker::ContextCompaction) => {
                 ("system", "context compacted".to_string())
             }
-            Some(ChatTimelineMarker::Queued) | None => ("custom", String::new()),
+            Some(ChatTimelineMarker::Queued | ChatTimelineMarker::HistoryGap { .. }) | None => {
+                ("custom", String::new())
+            }
         };
         messages.push(ChatMsg {
             id: format!("{base}-0"),
@@ -253,9 +261,9 @@ fn apply_capabilities(
         });
     }
     for message in &mut messages {
-        message.timeline_marker = rich.timeline_marker.clone();
+        message.timeline_marker = marker.clone();
         message.session_intent = rich.session_intent.clone();
-        match rich.timeline_marker.as_ref() {
+        match marker.as_ref() {
             Some(ChatTimelineMarker::ExternalEdit { path }) => {
                 message.kind = "system".into();
                 message.content = format!("changed outside: {path}");
@@ -264,7 +272,7 @@ fn apply_capabilities(
                 message.kind = "system".into();
                 message.content = "context compacted".into();
             }
-            Some(ChatTimelineMarker::Queued) | None => {}
+            Some(ChatTimelineMarker::Queued | ChatTimelineMarker::HistoryGap { .. }) | None => {}
         }
     }
     messages
@@ -835,15 +843,22 @@ fn chatbackend_snapshot_from(
     since: usize,
     history_path: &std::path::Path,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    let from_disk = chatbackend_history::read_messages(history_path);
-    let all = if from_disk.is_empty() {
+    let from_disk = chatbackend_history::read_tail(history_path)
+        .unwrap_or_default()
+        .keep_last(snapshot_rows::SNAPSHOT_ROW_LIMIT);
+    let all = if from_disk.messages.is_empty() && !from_disk.truncated() {
         // cumulative transcript), exactly like the agent path.
         provider
             .poll(session_id, None)
             .map_err(|e| e.to_string())?
             .messages
     } else {
-        from_disk
+        history_gap::bounded(
+            crate::agent::chat_types::ChatHistorySource::ChatBackend,
+            session_id,
+            from_disk.start_offset,
+            from_disk.messages,
+        )
     };
     let total = all.len();
     let slice = all
@@ -864,32 +879,7 @@ pub fn session_chat_snapshot(
     session_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    let structured = svc
-        .agent_registry
-        .with_provider(provider_id, |p| p.uses_structured_chat())
-        .unwrap_or(false);
-
-    let all: Vec<ChatMsg> = if structured {
-        svc.agent_registry
-            .with_provider(provider_id, |p| {
-                p.read_structured_chat(cwd, session_id, None)
-            })
-            .map(|sc| sc.messages)
-            .unwrap_or_default()
-    } else {
-        let path = svc
-            .agent_registry
-            .with_provider(provider_id, |p| p.session_file_path(cwd, session_id))
-            .flatten()
-            .ok_or("provider has no JSONL and no structured chat")?;
-        svc.chat_registry.tail_cache.jsonl_messages(
-            &svc.agent_registry,
-            provider_id,
-            &path,
-            &format!("session:{session_id}"),
-        )
-    };
-
+    let (all, _) = session_chat_window(svc, provider_id, cwd, session_id)?;
     let total = all.len();
     let slice = all
         .into_iter()
@@ -897,6 +887,41 @@ pub fn session_chat_snapshot(
         .map(ChatMsg::with_segments)
         .collect();
     Ok((slice, total))
+}
+
+/// Bounded messages of one session and the source offset they start at; `0`
+/// when the whole transcript is present.
+pub(crate) fn session_chat_window(
+    svc: &crate::service::ServiceContext,
+    provider_id: &str,
+    cwd: &str,
+    session_id: &str,
+) -> Result<(Vec<ChatMsg>, u64), String> {
+    let structured = svc
+        .agent_registry
+        .with_provider(provider_id, |p| p.uses_structured_chat())
+        .unwrap_or(false);
+    if structured {
+        let messages = svc
+            .agent_registry
+            .with_provider(provider_id, |p| {
+                p.read_structured_chat(cwd, session_id, None)
+            })
+            .map(|sc| sc.messages)
+            .unwrap_or_default();
+        return Ok((messages, 0));
+    }
+    let path = svc
+        .agent_registry
+        .with_provider(provider_id, |p| p.session_file_path(cwd, session_id))
+        .flatten()
+        .ok_or("provider has no JSONL and no structured chat")?;
+    Ok(svc.chat_registry.tail_cache.jsonl_tail(
+        &svc.agent_registry,
+        provider_id,
+        &path,
+        &format!("session:{session_id}"),
+    ))
 }
 
 #[cfg(test)]

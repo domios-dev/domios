@@ -254,6 +254,7 @@
       ]
     ],
     "chat_resume": [["POST", "/api/tabs/tab/chat-raw/resume"]],
+    "chat_history_page": [["POST", "/api/tabs/tab/chat-raw/history"]],
     "chat_backfill": [
       [
         "POST",
