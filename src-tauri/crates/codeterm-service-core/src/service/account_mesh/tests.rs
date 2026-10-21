@@ -232,6 +232,10 @@ fn account_mesh_not_before_skew_matches_across_account_and_mesh() {
 }
 
 fn legacy_mesh() -> crate::MeshStateHandle {
+    Arc::new(parking_lot::Mutex::new(legacy_manager()))
+}
+
+fn legacy_manager() -> codeterm_mesh::MeshManager {
     let mut manager = codeterm_mesh::MeshManager::in_memory(
         MeshIdentity {
             instance_id: "local-machine".into(),
@@ -258,7 +262,7 @@ fn legacy_mesh() -> crate::MeshStateHandle {
         consecutive_misses: 0,
         last_active_ms: None,
     });
-    Arc::new(parking_lot::Mutex::new(manager))
+    manager
 }
 
 struct NoSession;
@@ -326,8 +330,8 @@ impl AccountMeshStore for HeldSignOutStore {
 async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let mesh_state = legacy_mesh();
-    assert!(fixture.service.set_ext(mesh_state.clone()).is_ok());
+    let mesh_state = fixture.service.ext::<crate::MeshStateHandle>().clone();
+    *mesh_state.lock() = legacy_manager();
     let service = Arc::new(fixture.service.clone());
     let transport = Arc::new(TransportBridge {
         service: Arc::downgrade(&service),
