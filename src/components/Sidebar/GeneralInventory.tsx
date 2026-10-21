@@ -11,7 +11,8 @@ import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { generalInventorySections, generalWorkspaceJobs, projectUtilityShells } from "../General/generalOverviewModel";
 import { ServiceDrawer, type DrawerState } from "../MeshPanel/ServiceDrawer";
 import { useMeshData, type MeshDataResult } from "../MeshPanel/useMeshData";
-import { SidebarDisclosure } from "./SidebarDisclosure";
+import { SidebarSectionHeader } from "./SidebarSectionHeader";
+import { tabActivity } from "../../lib/tabActivity";
 import { inventoryGroupVisibility } from "./generalInventoryModel";
 import { useGeneralJobs } from "./useGeneralJobs";
 import { jobStateLabel, mergedJobId, type MergedJob } from "../Jobs/jobsModel";
@@ -25,14 +26,13 @@ function readExpanded(name: GroupName): boolean {
   catch { return false; }
 }
 
-function InventoryGroup({ name, count, children, touchMode, onShowAll }: { onShowAll?: () => void; name: GroupName; count: number; children: ReactNode; touchMode: boolean }) {
+function InventoryGroup({ name, count, working = 0, children, touchMode, onShowAll }: { onShowAll?: () => void; name: GroupName; count: number; working?: number; children: ReactNode; touchMode: boolean }) {
   const [expanded, setExpanded] = useState(() => readExpanded(name));
   const id = useId();
   const { visible, open, showAll } = inventoryGroupVisibility(count, expanded, !!onShowAll);
   if (!visible) return null;
   return <section aria-label={name} className="sidebar-team-section min-w-0">
-    <SidebarDisclosure expanded={open} aria-label={`${name}, ${count}`} aria-controls={id} touchMode={touchMode}
-      className="sidebar-team-workers-toggle"
+    <SidebarSectionHeader kind={name === "Utility shells" ? "utilities" : name === "Jobs" ? "jobs" : "services"} count={count} working={working} expanded={open} aria-controls={id} touchMode={touchMode}
       onClick={() => {
         const next = !expanded;
         setExpanded(next);
@@ -40,9 +40,7 @@ function InventoryGroup({ name, count, children, touchMode, onShowAll }: { onSho
           const states = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...states, [name]: next }));
         } catch { /* Storage can be unavailable in a private viewer. */ }
-      }}>
-      {open ? name.toUpperCase() : `${count} ${count === 1 ? name.toLowerCase().replace(/s$/, "") : name.toLowerCase()}`}
-    </SidebarDisclosure>
+      }} />
     <ul id={id} aria-label={name} hidden={!open} className="sidebar-team-member-list min-w-0">{children}{showAll && onShowAll && <li><SidebarResourceRow name="Show all" state="" icon={<Clock3 size={11} aria-hidden="true" />} accessibleName="Show all jobs" onOpen={onShowAll} /></li>}</ul>
   </section>;
 }
@@ -80,7 +78,7 @@ export function GeneralInventorySections({ generalWorkspaceId, onShowAllJobs, wo
       onOpen={() => setDrawer({ kind: "service", id: row.resource.id, sourcePeerId: row.resource.source_peer_id ?? row.resource.source_peer })} />
   </li>);
   return <div className="min-w-0">
-    <InventoryGroup name="Jobs" count={localJobs.length} touchMode={touchMode} onShowAll={onShowAllJobs}>
+    <InventoryGroup name="Jobs" count={localJobs.length} working={localJobs.filter(job => job.active).length} touchMode={touchMode} onShowAll={onShowAllJobs}>
       {localJobs.map((job) => <li key={`${job.kind}:${mergedJobId(job)}`}>
         {job.kind === "cron" ? <SidebarCronRow job={job.cron} tabs={tabs} onDeleted={onJobsChanged} />
           : <SidebarResourceRow name={job.title} state={jobStateLabel(job.state)} icon={<Clock3 size={11} aria-hidden="true" />}
@@ -90,8 +88,8 @@ export function GeneralInventorySections({ generalWorkspaceId, onShowAllJobs, wo
               trigger={<RowMenuButton label={`Job actions for ${job.title}`} title="Job actions" />} />} />}
       </li>)}
     </InventoryGroup>
-    <InventoryGroup name="Services" count={sections.services.rows.length} touchMode={touchMode}>{resourceRows(sections.services.rows)}</InventoryGroup>
-    <InventoryGroup name="Utility shells" count={shells.length} touchMode={touchMode}>
+    <InventoryGroup name="Services" count={sections.services.rows.length} working={sections.services.rows.filter(row => row.state === "running").length} touchMode={touchMode}>{resourceRows(sections.services.rows)}</InventoryGroup>
+    <InventoryGroup name="Utility shells" count={shells.length} working={shells.filter(shell => tabActivity(shell.tab, rowState?.tabStatuses[shell.tab.id]).active).length} touchMode={touchMode}>
       {shells.map((shell, index) => <li key={shell.tab.id}>
         <SidebarShellRow tab={shell.tab} index={index} tabs={tabs}
           attachments={attachmentsByOwner.get(shell.tab.id) ?? []}
