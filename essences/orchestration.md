@@ -22,6 +22,8 @@ A bounce carries its reason and failing evidence. It returns work to a live Work
 
 Dispatch criteria remain locked in the Worker's checklist: the Worker updates their state by stable item identity while preserving their text. Open criteria warn on review submission; acceptance completes them and a bounce reopens them. The sidebar reflects the stored states.
 
+Workers share their checklist and continue work immediately. Their parent or Plan owner may approve it or amend the Worker's own items while preserving seeded criteria. The parent receives a compact review card; sidebar and Underway mark an unreviewed proposal, and amendments notify the Worker with the changes. Checklist review is advisory and never gates execution or reports.
+
 A delivered task-bound report ends with one verdict reminder naming its plan, task, accept/bounce command and report time. The reminder is advisory and never blocks dispatch, integration or other work.
 
 Worker kinds add role prompting automatically with the same execution ability with or without a task. A task-bound kind follows the normal Worker lifecycle; a task-less kind works for its parent and gains no task-transition authority. Publication and tags require owner GO.

@@ -52,6 +52,7 @@ function AgentChecklistRegion({ id, tabId, title, plans }: { id: string; tabId: 
   const items = view.status === "ready" ? view.checklist?.items ?? [] : [];
   return (
     <section id={id} role="region" aria-label={`Checklist of ${title}`} className="sidebar-agent-checklist">
+      {view.status === "ready" && view.checklist?.proposal?.state === "proposed" && <p role="status" className="sidebar-agent-checklist__note">Not reviewed yet</p>}
       {view.status === "loading" ? (
         <p className="sidebar-agent-checklist__note">Loading checklist</p>
       ) : view.status === "error" ? (

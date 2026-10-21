@@ -16,6 +16,49 @@ pub struct TabTodoStore {
 }
 
 impl TabTodoStore {
+    pub async fn review_proposal(
+        &self,
+        current: &TabTodoChecklist,
+        proposal: codeterm_types::agent::TabTodoProposal,
+        amendments: Vec<(String, u64, TabTodoNewItem)>,
+        write: Option<(&TabTodoWritePlan, Vec<TabTodoNewItem>)>,
+        actor: Option<String>,
+        at: u64,
+    ) -> Result<TabTodoChecklist, String> {
+        let amendments = amendments
+            .into_iter()
+            .map(|(id, revision, item)| {
+                Ok((
+                    id,
+                    revision,
+                    TabTodoAmendmentRecord {
+                        title: item.title,
+                        description: item.description,
+                        link_json: encode_link(item.link)?,
+                    },
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let write = write
+            .map(|(plan, items)| write_record(current.generation, plan, items))
+            .transpose()?;
+        checklist(
+            self.repository
+                .review_proposal(
+                    current.tab_id.clone(),
+                    current.generation,
+                    current.revision,
+                    serde_json::to_string(&proposal).map_err(|error| error.to_string())?,
+                    amendments,
+                    write,
+                    actor,
+                    at,
+                )
+                .await
+                .map_err(storage_error)?
+                .value,
+        )
+    }
     pub fn new(repository: TabTodoRepository) -> Self {
         Self { repository }
     }
@@ -247,47 +290,7 @@ impl TabTodoStore {
         plan: &TabTodoWritePlan,
         appended: Vec<TabTodoNewItem>,
     ) -> Result<TabTodoChecklist, String> {
-        let state_changes = plan
-            .state_changes
-            .iter()
-            .map(|change| {
-                let (item_id, expected_revision) = match &change.target {
-                    TabTodoWriteTarget::Existing(item) => {
-                        (item.item_id.clone(), item.expected_revision)
-                    }
-                    TabTodoWriteTarget::Appended(index) => appended
-                        .get(*index)
-                        .map(|item| (item.id.clone(), 1))
-                        .ok_or_else(|| {
-                            "todo write state change names no appended item".to_string()
-                        })?,
-                };
-                Ok(TabTodoStateChangeRecord {
-                    item_id,
-                    expected_revision,
-                    state: state_string(change.state).into(),
-                    reason: change.reason.clone(),
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        let write = TabTodoOwnWriteRecord {
-            base: match plan.base {
-                TabTodoWriteBase::Fresh => TabTodoOwnWriteBase::Fresh,
-                TabTodoWriteBase::Clear => TabTodoOwnWriteBase::Clear,
-                TabTodoWriteBase::Edit => TabTodoOwnWriteBase::Edit,
-            },
-            generation,
-            removals: plan
-                .removals
-                .iter()
-                .map(|item| TabTodoItemRefRecord {
-                    item_id: item.item_id.clone(),
-                    expected_revision: item.expected_revision,
-                })
-                .collect(),
-            appends: new_items(appended)?,
-            state_changes,
-        };
+        let write = write_record(generation, plan, appended)?;
         checklist(
             self.repository
                 .write_own(tab_id, workspace_id, team_id, at, write)
@@ -346,6 +349,13 @@ fn new_items(items: Vec<TabTodoNewItem>) -> Result<Vec<TabTodoNewItemRecord>, St
 
 fn checklist(record: TabTodoChecklistRecord) -> Result<TabTodoChecklist, String> {
     Ok(TabTodoChecklist {
+        proposal: record
+            .proposal_json
+            .map(|json| {
+                serde_json::from_str(&json)
+                    .map_err(|error| format!("invalid checklist proposal: {error}"))
+            })
+            .transpose()?,
         tab_id: record.tab_id,
         generation: record.generation,
         started_at: record.started_at,
@@ -450,4 +460,50 @@ fn state_string(state: TabTodoState) -> &'static str {
 
 fn storage_error(error: codeterm_storage::StorageError) -> String {
     error.to_string()
+}
+
+fn write_record(
+    generation: u64,
+    plan: &TabTodoWritePlan,
+    appended: Vec<TabTodoNewItem>,
+) -> Result<TabTodoOwnWriteRecord, String> {
+    let state_changes = plan
+        .state_changes
+        .iter()
+        .map(|change| {
+            let (item_id, expected_revision) = match &change.target {
+                TabTodoWriteTarget::Existing(item) => {
+                    (item.item_id.clone(), item.expected_revision)
+                }
+                TabTodoWriteTarget::Appended(index) => appended
+                    .get(*index)
+                    .map(|item| (item.id.clone(), 1))
+                    .ok_or_else(|| "todo write state change names no appended item".to_string())?,
+            };
+            Ok(TabTodoStateChangeRecord {
+                item_id,
+                expected_revision,
+                state: state_string(change.state).into(),
+                reason: change.reason.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(TabTodoOwnWriteRecord {
+        base: match plan.base {
+            TabTodoWriteBase::Fresh => TabTodoOwnWriteBase::Fresh,
+            TabTodoWriteBase::Clear => TabTodoOwnWriteBase::Clear,
+            TabTodoWriteBase::Edit => TabTodoOwnWriteBase::Edit,
+        },
+        generation,
+        removals: plan
+            .removals
+            .iter()
+            .map(|item| TabTodoItemRefRecord {
+                item_id: item.item_id.clone(),
+                expected_revision: item.expected_revision,
+            })
+            .collect(),
+        appends: new_items(appended)?,
+        state_changes,
+    })
 }

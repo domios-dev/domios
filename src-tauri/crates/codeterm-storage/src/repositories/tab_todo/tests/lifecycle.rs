@@ -320,3 +320,5 @@ fn carry_over_moves_items_attempts_and_history_to_the_replacement_tab() {
     ));
     shutdown(storage);
 }
+
+mod proposal;

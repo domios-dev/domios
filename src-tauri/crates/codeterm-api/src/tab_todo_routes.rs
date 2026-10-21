@@ -8,7 +8,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use codeterm_types::agent::TabTodoChecklist;
+use codeterm_types::agent::{TabTodoChecklist, TabTodoWriteEntry};
 
 #[derive(Debug, PartialEq, Eq)]
 enum TodoReader {
@@ -51,36 +51,52 @@ async fn tab_todos(
 }
 
 pub(super) fn router() -> Router<AppState> {
-    Router::new().route("/api/tabs/{id}/todos", get(tab_todos))
+    Router::new()
+        .route("/api/tabs/{id}/todos", get(tab_todos))
+        .route(
+            "/api/tabs/{id}/todos/review",
+            axum::routing::post(review_todos),
+        )
+}
+
+#[derive(serde::Deserialize)]
+struct ReviewTodos {
+    generation: u64,
+    revision: u64,
+    items: Option<Vec<TabTodoWriteEntry>>,
+    note: Option<String>,
+}
+
+async fn review_todos(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tab_id): Path<String>,
+    Json(body): Json<ReviewTodos>,
+) -> Result<Json<TabTodoChecklist>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
+    let actor = caller_tab_header(&headers);
+    state
+        .svc
+        .tab_todo_review_proposal(
+            &tab_id,
+            actor.as_deref(),
+            body.items,
+            body.note,
+            Some((body.generation, body.revision)),
+        )
+        .await
+        .map(Json)
+        .map_err(|error| {
+            (
+                if error.starts_with("only ") {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::CONFLICT
+                },
+                error,
+            )
+        })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn foreign_caller_reads_through_the_parent_authorization() {
-        assert_eq!(reader_for("worker", None), TodoReader::Owner(None));
-        assert_eq!(
-            reader_for("worker", Some("worker".into())),
-            TodoReader::Owner(Some("worker".into()))
-        );
-        assert_eq!(
-            reader_for("worker", Some("orchestrator".into())),
-            TodoReader::Parent("orchestrator".into())
-        );
-    }
-
-    #[test]
-    fn service_refusals_keep_their_meaning_over_http() {
-        assert_eq!(read_error_status("Tab not found: x"), StatusCode::NOT_FOUND);
-        assert_eq!(
-            read_error_status("only the owning Tab or user may read this checklist"),
-            StatusCode::FORBIDDEN
-        );
-        assert_eq!(
-            read_error_status("shared Storage is unavailable"),
-            StatusCode::SERVICE_UNAVAILABLE
-        );
-    }
-}
+mod tests;

@@ -3,6 +3,7 @@
 mod lifecycle;
 mod mutations;
 mod own_write;
+mod proposal;
 mod queries;
 mod records;
 
