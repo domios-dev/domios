@@ -256,7 +256,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
             job.next_run = None;
             match commit(cron_state, |_| {
                 Ok(super::store::Prepared::new(
-                    super::store::CronChange::Patch(job),
+                    super::store::CronChange::Patch(job.clone()),
                     (),
                 ))
             }) {
@@ -274,7 +274,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
             job.next_run = None;
             match commit(cron_state, |_| {
                 Ok(super::store::Prepared::new(
-                    super::store::CronChange::Patch(job),
+                    super::store::CronChange::Patch(job.clone()),
                     (),
                 ))
             }) {
