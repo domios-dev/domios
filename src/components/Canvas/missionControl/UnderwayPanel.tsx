@@ -1,3 +1,4 @@
+import { Skeleton, SkeletonBlock } from "../../shared/Skeleton";
 import { useId, useRef, useState } from "react";
 import type { Tab, ApiConfig } from "../../../lib/types";
 import { roleKind, roleKindLabel } from "../../../lib/roleKind";
@@ -50,7 +51,7 @@ function UnderwayRow({ tab, task, view, plans, refs, deepLinks }: {
       onClick={() => { if (task) refs.get(task.id)?.open?.(); }}>{task?.key ?? "–"}</button>
     <div className="mc-underway-track">
       {view?.status === "ready" && view.checklist?.proposal?.state === "proposed" && <span role="status">Not reviewed yet</span>}
-      {view?.status !== "ready" ? <span>{view?.status === "error" ? "Checklist unavailable" : "Loading checklist"}</span>
+      {view?.status !== "ready" ? <span role="status">{view?.status === "error" ? "Checklist unavailable" : <><span className="sr-only">Loading checklist</span><Skeleton inline><SkeletonBlock width={160} height={12} /></Skeleton></>}</span>
         : items.length === 0 ? <span>No checklist</span>
         : <ol aria-label={`Checklist of ${tab.title}`}>{items.map((item, index) => <Segment key={item.id} item={item} index={index} total={items.length} plans={plans} tabId={tab.id} />)}</ol>}
     </div>

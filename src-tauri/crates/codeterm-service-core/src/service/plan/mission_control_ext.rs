@@ -31,17 +31,14 @@ pub(crate) fn plan_kpi(svc: &ServiceContext, plan_id: &str) -> MissionControlKpi
             KpiNotRecordingReason::Disabled
         });
     };
-    let aggregates = match ledger.aggregate_by_plan() {
-        Ok(aggregates) => aggregates,
+    let row = match ledger.aggregate_for_plan(plan_id) {
+        Ok(row) => row,
         Err(e) => {
             log::warn!("[mission-control] kpi aggregate_by_plan failed: {}", e);
             return MissionControlKpi::not_recording(KpiNotRecordingReason::Unreadable);
         }
     };
-    let Some(row) = aggregates
-        .into_iter()
-        .find(|aggregate| aggregate.plan_id.as_deref() == Some(plan_id))
-    else {
+    let Some(row) = row else {
         return MissionControlKpi::not_recording(KpiNotRecordingReason::NoRowsForPlan);
     };
     MissionControlKpi::recording(PlanKpiSpend {

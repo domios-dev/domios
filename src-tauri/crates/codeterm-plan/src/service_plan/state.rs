@@ -332,7 +332,7 @@ pub struct PlanStateSnapshot {
     pub next_actions: Vec<NextAction>,
 }
 
-fn task_counts(plan: &Plan) -> TaskCounts {
+pub fn task_counts(plan: &Plan) -> TaskCounts {
     let mut c = TaskCounts::default();
     for task in &plan.tasks {
         c.total += 1;
