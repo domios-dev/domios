@@ -1,4 +1,5 @@
-import { ExternalLink, Info } from "lucide-react";
+import { ExternalLink, Info, MessagesSquare, Users } from "lucide-react";
+import { CommunityLinks } from "../shared/CommunityLinks";
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useUpdate } from "../../hooks/useUpdate";
 import type { AppConfig } from "../../lib/types";
@@ -8,6 +9,17 @@ import { useBusyWaves } from "../brand/useBusyWaves";
 import { usePrefersReducedMotion } from "../brand/usePrefersReducedMotion";
 import { AboutLink, InfoRow, SettingsCard, SettingsPage } from "./shared";
 import { UpdateSection } from "./UpdateSection";
+
+const AUTHORS = [
+  { name: "Andrey Kovalev", links: [
+    { label: "GitHub", href: "https://github.com/rollacode" },
+    { label: "Website", href: "https://rollacode.org" },
+    { label: "LinkedIn", href: "https://www.linkedin.com/in/rollacode" },
+  ] },
+  { name: "Anna Ivanova", links: [
+    { label: "LinkedIn", href: "https://www.linkedin.com/in/ainyiva/" },
+  ] },
+];
 
 export function AboutPage({ config, onUpdate }: {
   config: AppConfig;
@@ -37,12 +49,18 @@ export function AboutPage({ config, onUpdate }: {
 
         <UpdateSection config={config} onUpdate={onUpdate} />
 
-        <SettingsCard icon={<ExternalLink size={16} />} title="Created by">
-          <div className="text-xs text-[var(--ct-fg)]">Andrey Kovalev</div>
-          <div className="flex flex-wrap gap-3">
-            <AboutLink href="https://github.com/rollacode" label="GitHub" Icon={ExternalLink} />
-            <AboutLink href="https://rollacode.org" label="Website" Icon={ExternalLink} />
-            <AboutLink href="https://www.linkedin.com/in/rollacode" label="LinkedIn" Icon={ExternalLink} />
+        <CommunityLinks icon={<MessagesSquare size={16} />} />
+
+        <SettingsCard icon={<Users size={16} />} title="Authors">
+          <div className="flex flex-col">
+            {AUTHORS.map(author => (
+              <div key={author.name} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-[var(--ct-border)] py-2 first:pt-0 last:border-0 last:pb-0">
+                <span className="text-xs font-medium text-[var(--ct-fg)]">{author.name}</span>
+                <div className="flex flex-wrap gap-3">
+                  {author.links.map(link => <AboutLink key={link.label} href={link.href} label={link.label} Icon={ExternalLink} />)}
+                </div>
+              </div>
+            ))}
           </div>
         </SettingsCard>
       </div>
