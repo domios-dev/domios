@@ -67,6 +67,9 @@ pub async fn create_workspace(
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
     .map_err(|error| {
+        if error.starts_with(codeterm_service_core::service::billing::FREE_LIMIT_REACHED) {
+            return (StatusCode::FORBIDDEN, error);
+        }
         let status = if error == codeterm_service_core::dispatch::WORKSPACE_PROVISION_CWD_CONFLICT
             || error.starts_with("workspace name")
         {

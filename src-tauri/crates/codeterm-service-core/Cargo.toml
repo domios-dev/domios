@@ -30,6 +30,7 @@ codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-repowatch = { path = "../codeterm-repowatch" }
 codeterm-account = { path = "../codeterm-account" }
 codeterm-billing = { path = "../codeterm-billing" }
+codeterm-entitlements = { path = "../codeterm-entitlements" }
 codeterm-analytics = { path = "../codeterm-analytics" }
 codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
 tempfile = "3"

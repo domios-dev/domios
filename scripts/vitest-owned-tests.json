@@ -270,5 +270,6 @@
   "src/store/multiplexer/muxFanout.test.ts",
   "src/components/Sidebar/sidebarRowMemo.test.tsx",
   "src/components/Settings/useAccountPlan.test.tsx",
-  "src/components/billing/PlanCards.test.tsx"
+  "src/components/billing/PlanCards.test.tsx",
+  "src/store/multiplexer/freeLimitRefusal.test.ts"
 ]

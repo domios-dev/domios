@@ -37,6 +37,16 @@ fn test_create_workspace() {
 }
 
 #[test]
+fn limited_workspace_count_exempts_the_protected_general_workspace() {
+    let (mut state, _) = MultiplexerState::new();
+    state.workspaces[0].protected = true;
+    state.create_workspace("Work".to_string(), None);
+    state.create_workspace("Side".to_string(), None);
+    assert_eq!(state.workspace_count(), 3);
+    assert_eq!(state.limited_workspace_count(), 2);
+}
+
+#[test]
 fn team_close_transaction_preserves_unrelated_workspace_created_before_commit() {
     let (mut state, focused_tab) = MultiplexerState::new();
     let workspace_id = state.find_workspace_for_tab(&focused_tab).unwrap();
