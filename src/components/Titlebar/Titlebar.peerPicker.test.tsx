@@ -139,7 +139,7 @@ describe("web host picker placement", () => {
     await renderShell();
     expect(host.querySelector('[data-testid="general-section"]')).not.toBeNull();
     const trigger = pickerButton();
-    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Open sidebar"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Toggle sidebar"]')!.click());
     expect(host.querySelector('aside[aria-label="Sidebar"]')).toBeNull();
     expect(host.querySelector('[data-testid="general-section"]')).toBeNull();
     expect(pickerButton()).toBe(trigger);
