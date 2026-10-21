@@ -102,11 +102,16 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError"])("web pic
     Object.defineProperty(input, "files", { value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
     expect(fetch.mock.calls.length, host.textContent ?? "").toBe(1);
+    if (failure === "pending") {
+      expect(host.querySelector('[role="status"][aria-label="Uploading photo.png"]')).not.toBeNull();
+      expect(host.querySelector('[aria-label="Remove attachment photo.png"]')).not.toBeNull();
+      expect(editor.disabled).toBe(false);
+    }
     if (failure === "HEIC") await expect(fetch.mock.results[0].value).resolves.toBeInstanceOf(Response);
     if (failure === "HTTP 503" || failure === "NotReadableError") {
-      const notice = host.querySelector('[role="note"]');
+      const notice = host.querySelector('[role="status"][aria-label^="Failed attachment"]');
       expect(notice).not.toBeNull();
-      expect(host.querySelector('[role="group"][aria-label="Message composer"]')?.contains(notice)).toBe(false);
+      expect(host.querySelector('[role="group"][aria-label="Message composer"]')?.contains(notice)).toBe(true);
       expect(editor.value).not.toContain(file.name);
     }
     await act(async () => {
