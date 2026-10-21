@@ -18,3 +18,7 @@ pub mod blueprint_memory;
 pub mod blueprint_source;
 
 pub mod blueprint_watch;
+
+pub mod blueprint_placeholder;
+
+pub mod blueprint_contract;

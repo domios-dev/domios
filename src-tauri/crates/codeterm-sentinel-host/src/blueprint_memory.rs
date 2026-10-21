@@ -166,7 +166,9 @@ impl BlueprintMemoryExt for ServiceContext {
                 .collect::<Vec<_>>()
                 .join("; ")
         })?;
-        let result = self.blueprint_apply(caller, definition, dry_run)?;
+        let result = self
+            .blueprint_apply(caller, definition, dry_run)
+            .map_err(|error| error.to_string())?;
         if !dry_run {
             self.mem.record_blueprint_reuse(id);
         }

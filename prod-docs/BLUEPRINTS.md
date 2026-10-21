@@ -88,7 +88,7 @@ Each named step declares its `input` (`text`, `file`, `audio`, `video`, or `imag
 
 Command nodes output text. They take the preceding typed result under the existing bounded command contract; model output never becomes executable command text. Agents use a provider with the bounded task capability, return structured status/output, and obey explicit budgets. Graph stop aborts the active task; uncertain effects remain unconfirmed.
 
-`on` maps outcomes to `next`, `stop` or a later named stage. An unspecified outcome goes to the next stage. Routes are forward-only. `stop` ends that run, while `blueprint stop` stops the recurring graph. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`. Steps must agree on input/output types. Plugin conversion availability is verified at apply.
+`on` maps outcomes to `next`, `stop` or a later named stage. An unspecified `failed` outcome stops the run; other unspecified outcomes go to the next stage. Routes are forward-only. `stop` ends that run, while `blueprint stop` stops the recurring graph. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`. Steps must agree on input/output types. Plugin conversion availability is verified at apply.
 
 ## Watches
 
@@ -148,4 +148,4 @@ Both the UI and CLI export and import the same YAML. Export writes the same auth
 
 Stopped graphs and their history remain for 30 minutes before cleanup. Changed definitions create an immutable version; an unchanged apply reactivates a stopped graph under the same ID. Import uses the same name lookup and keeps the result stopped unless explicitly started. Advanced `update` accepts an internal definition file with `--expect-version` for explicit version/cause control. `history` definitions can be restored through that path, and `escalation resolve <id> <transition>` releases a held unknown case after repair. Recipe examples: `codeterm docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->
