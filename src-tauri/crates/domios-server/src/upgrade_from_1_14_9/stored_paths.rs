@@ -235,9 +235,7 @@ impl PathRebase {
     fn separator_len(&self, text: &str, json: bool) -> Option<usize> {
         if text.starts_with('/') {
             Some(1)
-        } else if json && text.starts_with(r"\/") {
-            Some(2)
-        } else if self.windows && json && text.starts_with(r"\\") {
+        } else if json && (text.starts_with(r"\/") || (self.windows && text.starts_with(r"\\"))) {
             Some(2)
         } else if self.windows && !json && text.starts_with('\\') {
             Some(1)
