@@ -24,6 +24,7 @@ import {
   createDelayedMessage,
   deleteDelayedMessage,
   listDelayedMessages,
+  listSystemHeartbeats,
   sendDelayedMessageNow,
   updateDelayedMessage,
   type DelayedMessage,
@@ -248,6 +249,7 @@ function ChatComposerImpl({
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const pendingDraftsRef = useRef(new Set<string>());
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
+  const [systemHeartbeats, setSystemHeartbeats] = useState<DelayedMessage[]>([]);
   const [delayedBusyId, setDelayedBusyId] = useState<string | null>(null);
   const [delayedModal, setDelayedModal] = useState<DelayedModalTarget | null>(null);
   const [scheduleBusy, setScheduleBusy] = useState(false);
@@ -313,7 +315,10 @@ function ChatComposerImpl({
   }, []);
 
   useEffect(() => {
-    if (delayedTabRef.current !== tabId) setDelayedMessages([]);
+    if (delayedTabRef.current !== tabId) {
+      setDelayedMessages([]);
+      setSystemHeartbeats([]);
+    }
     delayedTabRef.current = tabId;
     const feed = createDelayedMessageFeed(tabId, {
       load: listDelayedMessages,
@@ -327,10 +332,16 @@ function ChatComposerImpl({
         changed(event.payload?.tabId);
       }),
     });
+    const heartbeatFeed = createDelayedMessageFeed(tabId, {
+      load: listSystemHeartbeats,
+      publish: setSystemHeartbeats,
+      subscribe: changed => listen<{ tabId?: string }>("delayed-send-changed", event => changed(event.payload?.tabId)),
+    });
+    const refresh = () => { void feed.wake(); void heartbeatFeed.wake(); };
     const wake = () => {
-      if (document.visibilityState !== "hidden") void feed.wake();
+      if (document.visibilityState !== "hidden") refresh();
     };
-    const stopResync = onResync(() => void feed.wake());
+    const stopResync = onResync(refresh);
     document.addEventListener("visibilitychange", wake);
     window.addEventListener("focus", wake);
     window.addEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, wake);
@@ -341,6 +352,7 @@ function ChatComposerImpl({
       window.removeEventListener("focus", wake);
       window.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, wake);
       feed.dispose();
+      heartbeatFeed.dispose();
       if (delayedFeedRef.current === feed) delayedFeedRef.current = null;
     };
   }, [tabId, isActive]);
@@ -529,6 +541,7 @@ function ChatComposerImpl({
           tabId={tabId}
           workspaceId={workspaceId}
           delayed={delayedMessages}
+          heartbeats={systemHeartbeats}
           onEditDelayed={editDelayed}
           onDeleteDelayed={deleteDelayed}
           onScheduleDelayed={openScheduleModal}
