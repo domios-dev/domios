@@ -749,6 +749,7 @@ mod tests {
             .and_utc()
             .timestamp_millis();
         UsageSnapshotRow {
+            usage_details: None,
             billing_mode: Default::default(),
             limits_reported: false,
             id: 1,

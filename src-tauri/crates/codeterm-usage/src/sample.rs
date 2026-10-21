@@ -1,5 +1,6 @@
 #[derive(Debug, Clone)]
 pub struct UsageSample {
+    pub usage_details: Option<serde_json::Value>,
     pub provider: String,
     pub billing_mode: crate::contract::BillingMode,
     pub limits_reported: bool,
@@ -20,6 +21,7 @@ pub struct UsageSample {
 impl UsageSample {
     pub fn empty(provider: &str, raw_text: &str, captured_at_ms: i64) -> Self {
         Self {
+            usage_details: None,
             provider: provider.to_string(),
             billing_mode: Default::default(),
             limits_reported: false,
