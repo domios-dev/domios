@@ -37,6 +37,10 @@ import { readPickerShowAll, writePickerShowAll } from "./statusLinePickerPrefere
 
 const PICKER_WIDTH = 300;
 const OPTION_SELECTOR = '[role="option"]:not([aria-disabled="true"])';
+const FOOTER_BUTTON = {
+  ghost: `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`,
+  primary: `${UI_BUTTON.primary} ${UI_BUTTON.compact}`,
+} as const;
 
 /** The status-line identity for a tab, made switchable when its provider declares it. */
 export function TabStatusLineModelPicker({ tab, label }: { tab: Tab; label: string }) {
@@ -266,6 +270,8 @@ export function ModelPickerPopover({
   const searchable = pickerNeedsSearch(descriptor);
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, currentModel);
   const efforts = showReasoning ? effortChoices(descriptor, staged?.model) : [];
+  const hasRuntimeModes = Boolean(descriptor.structured_control?.runtimeModes?.length);
+  const hasServiceTiers = Boolean(descriptor.agent_runtime?.serviceTiers?.length);
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
   const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
 
@@ -358,7 +364,6 @@ export function ModelPickerPopover({
             className="ct-model-picker__refresh"
             aria-label="Search models"
             title="Search models"
-            style={{ marginLeft: "auto" }}
             onClick={() => setSearchOpen(true)}
           >
             <Search size={13} aria-hidden />
@@ -434,7 +439,7 @@ export function ModelPickerPopover({
       {pickerHasPrimaryModels(descriptor) && (
         <button
           type="button"
-          className="ct-model-picker__toggle"
+          className="ct-menu-row ct-model-picker__toggle"
           aria-pressed={showAll}
           onClick={() => {
             const next = !showAll;
@@ -445,45 +450,50 @@ export function ModelPickerPopover({
           {showAll ? "Show primary models" : "Show all models"}
         </button>
       )}
-      {descriptor.structured_control?.runtimeModes?.length && staged && (
-        <label className="ct-model-picker__effort">
-          <span className="ct-model-picker__label">Runtime mode</span>
-          <select
-            role="combobox"
-            aria-label="Runtime mode"
-            value={staged.runtimeMode ?? currentRuntimeMode ?? ""}
-            disabled={busy}
-            onChange={(event) => choose({ ...staged, runtimeMode: event.currentTarget.value })}
-          >
-            {descriptor.structured_control.runtimeModes.map((mode) => (
-              <option key={mode.id} value={mode.id}>{mode.displayName}</option>
-            ))}
-          </select>
-        </label>
-      )}
-      {efforts.length > 0 && staged && stagedEffort && (
-        <div className="ct-model-picker__effort">
-          <span className="ct-model-picker__label">Reasoning</span>
-          <Segmented
-            aria-label="Reasoning"
-            value={stagedEffort}
-            options={efforts.map((effort) => ({ value: effort.id, label: effort.display_name }))}
-            onChange={(effort) => { if (!busy) choose({ ...staged, effort }); }}
-          />
+      <div role="separator" className="ct-menu-separator" />
+      {staged && (hasRuntimeModes || efforts.length > 0 || hasServiceTiers) && (
+        <div className="ct-model-picker__settings">
+          {hasRuntimeModes && (
+            <label className="ct-model-picker__effort">
+              <span className="ct-model-picker__label">Runtime mode</span>
+              <select
+                role="combobox"
+                aria-label="Runtime mode"
+                value={staged.runtimeMode ?? currentRuntimeMode ?? ""}
+                disabled={busy}
+                onChange={(event) => choose({ ...staged, runtimeMode: event.currentTarget.value })}
+              >
+                {descriptor.structured_control?.runtimeModes?.map((mode) => (
+                  <option key={mode.id} value={mode.id}>{mode.displayName}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {efforts.length > 0 && stagedEffort && (
+            <div className="ct-model-picker__effort">
+              <span className="ct-model-picker__label">Reasoning</span>
+              <Segmented
+                aria-label="Reasoning"
+                value={stagedEffort}
+                options={efforts.map((effort) => ({ value: effort.id, label: effort.display_name }))}
+                onChange={(effort) => { if (!busy) choose({ ...staged, effort }); }}
+              />
+            </div>
+          )}
+          {hasServiceTiers && (
+            <ServiceTierPicker declared={descriptor.agent_runtime?.serviceTiers ?? []} available={serviceTierAvailability?.[staged.model]}
+              selection={staged.serviceTier} busy={busy} onChange={serviceTier => choose({...staged,serviceTier})} />
+          )}
         </div>
-      )}
-      {!!descriptor.agent_runtime?.serviceTiers?.length && staged && (
-        <ServiceTierPicker declared={descriptor.agent_runtime.serviceTiers} available={serviceTierAvailability?.[staged.model]}
-          selection={staged.serviceTier} busy={busy} onChange={serviceTier => choose({...staged,serviceTier})} />
       )}
       {confirming ? (
         <div className="ct-model-picker__confirm" role="group" aria-label="Confirm restart">
           <p>Switching restarts this session on {stagedLabel} and resumes it.</p>
           <div className="ct-model-picker__actions">
-            <button type="button" className={UI_BUTTON.ghost} onClick={() => { setConfirming(null); setStaged(currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentServiceTier, currentRuntimeMode) : null); }}>
+            <button type="button" className={FOOTER_BUTTON.ghost} onClick={() => { setConfirming(null); setStaged(currentModel ? pickerSelection(descriptor, currentModel, currentEffort, currentServiceTier, currentRuntimeMode) : null); }}>
               Keep current
             </button>
-            <button type="button" className={UI_BUTTON.primary} disabled={busy} onClick={() => apply(confirming, restartFallback)}>
+            <button type="button" className={FOOTER_BUTTON.primary} disabled={busy} onClick={() => apply(confirming, restartFallback)}>
               Restart and switch
             </button>
           </div>
@@ -492,17 +502,21 @@ export function ModelPickerPopover({
         <div className="ct-model-picker__footer">
           {gate.timing !== "next_turn" && <p className="ct-model-picker__note">{gate.note}</p>}
           <div className="ct-model-picker__actions">
-            <button type="button" className={UI_BUTTON.ghost} onClick={onClose}>Cancel</button>
-            <button type="button" className={UI_BUTTON.primary} disabled={busy || selectionPlan.action === "none"} onClick={commit}>Apply</button>
+            <button type="button" className={FOOTER_BUTTON.ghost} onClick={onClose}>Cancel</button>
+            <button type="button" className={FOOTER_BUTTON.primary} disabled={busy || selectionPlan.action === "none"} onClick={commit}>Apply</button>
           </div>
         </div>
       )}
-      {error && <InlineErrorNotice error={error} operation="changing the agent model" blocking />}
-      {error && gate.timing === "live_command" && !confirming && staged && (
-        <button type="button" className={UI_BUTTON.ghost} disabled={busy}
-          onClick={() => { setRestartFallback(true); setConfirming(staged); }}>
-          Restart and resume instead
-        </button>
+      {error && (
+        <div className="ct-model-picker__recovery">
+          <InlineErrorNotice error={error} operation="changing the agent model" blocking />
+          {gate.timing === "live_command" && !confirming && staged && (
+            <button type="button" className={FOOTER_BUTTON.ghost} disabled={busy}
+              onClick={() => { setRestartFallback(true); setConfirming(staged); }}>
+              Restart and resume instead
+            </button>
+          )}
+        </div>
       )}
     </div>
     </AnchoredPopover>
