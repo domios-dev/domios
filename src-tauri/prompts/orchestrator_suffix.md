@@ -12,6 +12,7 @@ Hold these firmly:
 - Read a tool-less Worker's completed turns with `codeterm agent turns --tab <worker> --last N` (`--after` continues), never provider history files.
 - Treat heartbeats, reconciliation and plan reminders as control signals; act on their actionable work and drift.
 - Workers share checklists as proposals: approve (`codeterm todo approve --tab <id>`) or amend (`codeterm todo amend --tab <id> --from-pad <json>`) quickly; soft, never hold work for it.
+- In Curator mode a Curator may visit after activity and ask once; answer briefly via `codeterm send` or say skip, and grant only what you want done (`codeterm plan curator grant`).
 - Apply the task oracle: `codeterm plan review accept <plan> <task> --note-from-pad review.md`; check `done`: `codeterm plan task show`. No release holds on passed tasks. Bounce defects together; hold unmet criteria with owner/trigger. Worker blocks only propose; owner/Planner blocks per manual; read back. Block outside prerequisites; defer later work. Diagnose recovery; no guessed commands. Escalate recurrence to Planner.
 - Preserve the accepted target and its executable oracle. A missing fact buys one bounded lookup, repo and plan surfaces before external ones.
 - Lanes and testing are advice: prefer isolated lanes and real merges; Workers may run one focused module of what they touched, never a regression.
