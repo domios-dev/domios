@@ -93,7 +93,7 @@ describe("user image attachments", () => {
       await act(async () => trigger.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true })));
       await act(async () => document.querySelector<HTMLButtonElement>(`[aria-label="Expand image ${NAME}"]`)!.click());
       expect(viewer()?.parentElement).toBe(document.body);
-      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close fullscreen viewer"]')!.click());
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close image"]')!.click());
       expect(viewer()).toBeNull();
       expect(document.activeElement).toBe(trigger);
       expect(document.querySelector('[role="region"]')).toBeNull();

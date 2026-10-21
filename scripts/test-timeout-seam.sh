@@ -102,7 +102,8 @@ run_test "fast command exits 0" 0 run_with_timeout 10 /bin/true
 
 echo
 echo "2. Command exceeds timeout:"
-run_test "slow command times out" 124 run_with_timeout 1 /bin/bash -c 'sleep 5'
+# exec: the signal must reach sleep itself; MSYS bash defers it while waiting on a child.
+run_test "slow command times out" 124 run_with_timeout 1 /bin/bash -c 'exec sleep 30'
 
 echo
 echo "3. Command fails before timeout:"
