@@ -45,3 +45,8 @@ assert.equal(optional.nodes[optional.nodes.length - 1]?.state, "waiting");
 assert.equal(optional.nodes[optional.nodes.length - 1]?.targetSummary, "Target unavailable");
 
 console.log("Blueprint pipeline model cases passed");
+
+const github = pipelineModel(blueprint({ steps: [{ ...blueprint().steps![0], kind: "github", name: "GitHub jobs", title: "GitHub jobs" }] }));
+assert.equal(github.nodes[1].capability, "github");
+assert.equal(github.nodes[1].title, "GitHub jobs");
+assert.equal(github.nodes[1].state, "done");

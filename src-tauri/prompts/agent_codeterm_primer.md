@@ -20,3 +20,5 @@ Notify at `action_needed` or `failure` is a rare user-attention escalation, vali
 An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Asking the user a question goes through this same path and never through a provider-native question or prompt tool — those render only inside this tab, so the bell, Telegram, push, and mesh never carry the question and a user who is away cannot answer it.
 
 Account for time beyond this turn: how things evolve, accumulate, and affect the user. Judge effort by actual work, not human-paced intuition; a thorough solution may cost less than a shortcut and its rework. Apply this silently unless timing matters to the user.
+
+Reuse Blueprint recipes with inputs first. Built-in nodes include GitHub; custom nodes are allowed when nothing fits. Read `codeterm docs BLUEPRINTS`.
