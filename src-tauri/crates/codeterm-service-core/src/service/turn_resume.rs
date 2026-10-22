@@ -65,6 +65,33 @@ enum DeliveryFailure {
     SendRefused(String),
 }
 
+fn delivery_incident(
+    tab_id: &str,
+    session_id: &str,
+    failure: &DeliveryFailure,
+) -> serde_json::Value {
+    let (code, bytes_written, detail) = match failure {
+        DeliveryFailure::ClaimNotPersisted => (CLAIM_NOT_PERSISTED, false, CLAIM_NOT_PERSISTED),
+        DeliveryFailure::SessionChanged => (SESSION_CHANGED, false, SESSION_CHANGED),
+        DeliveryFailure::SendRefused(error) => (
+            if crate::service::pty_io::delivery_is_unknown(error) {
+                "submit_unconfirmed"
+            } else {
+                SEND_REFUSED
+            },
+            crate::service::pty_io::delivery_is_unknown(error),
+            error.as_str(),
+        ),
+    };
+    serde_json::json!({
+        "code": code,
+        "tab_id": tab_id,
+        "session_id": session_id,
+        "bytes_written": bytes_written,
+        "detail": detail,
+    })
+}
+
 fn persist_then_send(
     persist: impl FnOnce() -> bool,
     binding_matches: impl FnOnce() -> bool,
@@ -635,33 +662,20 @@ impl ServiceContext {
             },
         );
         match delivery {
-            Ok(()) => log::info!(
-                "[turn-resume] tab={tab_id} session={} outcome=delivered evidence=write_handoff",
+            Ok(()) => log::debug!(
+                "[turn-resume] tab={tab_id} session={} outcome=submitted",
                 claim.session_id
             ),
-            Err(DeliveryFailure::ClaimNotPersisted) => {
-                log::warn!(
-                    "[turn-resume] tab={tab_id} outcome=skipped reason={CLAIM_NOT_PERSISTED}"
+            Err(failure) => {
+                let incident = delivery_incident(tab_id, &claim.session_id, &failure);
+                let reason = incident["code"].as_str().unwrap_or(SEND_REFUSED);
+                self.withdraw_turn_resume(tab_id, start_epoch, reason);
+                self.log_system_notice(
+                    "Restart continuation was not confirmed".into(),
+                    Some(incident.to_string()),
+                    Some("warning"),
                 );
-                self.withdraw_turn_resume(tab_id, start_epoch, CLAIM_NOT_PERSISTED);
-            }
-            Err(DeliveryFailure::SessionChanged) => {
-                log::warn!("[turn-resume] tab={tab_id} outcome=skipped reason={SESSION_CHANGED}");
-                self.withdraw_turn_resume(tab_id, start_epoch, SESSION_CHANGED);
-            }
-            Err(DeliveryFailure::SendRefused(error)) => {
-                if crate::service::pty_io::delivery_is_unknown(&error) {
-                    log::warn!(
-                        "[turn-resume] tab={tab_id} session={} outcome=skipped reason=submit_unconfirmed error={error}",
-                        claim.session_id
-                    );
-                } else {
-                    log::warn!(
-                        "[turn-resume] tab={tab_id} session={} outcome=skipped reason=send_refused error={error}",
-                        claim.session_id
-                    );
-                    self.withdraw_turn_resume(tab_id, start_epoch, SEND_REFUSED);
-                }
+                self.ui.emit("turn-resume-incident", incident);
             }
         }
     }

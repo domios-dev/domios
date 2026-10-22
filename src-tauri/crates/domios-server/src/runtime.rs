@@ -76,6 +76,11 @@ pub fn run(
     } else {
         Some(crate::launch::ensure_detached()?)
     };
+    #[cfg(windows)]
+    codeterm_service_core::pty::manager::configure_windows_pty_child_launcher(
+        std::env::current_exe()?,
+    )
+    .map_err(io::Error::other)?;
     crate::launch::install_selectors(&options)?;
     let identity = crate::launch::verify_identity(&options, ResolvedInstancePaths::current()?)?;
     let isolated = matches!(
