@@ -73,7 +73,7 @@ public static class DevDesktop {
     static string ExactClient(string app) {
         var full = Path.GetFullPath(app);
         if (!Path.IsPathRooted(app) || !File.Exists(full) ||
-            !String.Equals(Path.GetFileName(full), "codeterm.exe", StringComparison.OrdinalIgnoreCase) ||
+            !String.Equals(Path.GetFileName(full), "domios-dev-app.exe", StringComparison.OrdinalIgnoreCase) ||
             !File.Exists(Path.Combine(Path.GetDirectoryName(full), "server-component.json")))
             throw new InvalidOperationException("DEV requires the staged native client and component inventory");
         return full;
