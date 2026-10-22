@@ -1,4 +1,4 @@
-// Keybinding matcher uses code for letters/digits (layout-safe), key for symbols.
+// Keybinding matcher keys every chord off `e.code` (layout-safe).
 // `Mod` resolves to Cmd on mac, Ctrl on win/linux.
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -8,15 +8,38 @@ interface ParsedBinding {
   ctrl: boolean;  // explicit Ctrl
   shift: boolean;
   alt: boolean;
-  // code-based match for letters/digits (e.g. "KeyT", "Digit1")
-  code?: string;
-  // key-based match for special keys (e.g. "Tab", "=", ",")
-  key?: string;
+  code: string | null;
+}
+
+const SYMBOL_CODES: Record<string, string> = {
+  "=": "Equal",
+  "+": "Equal",
+  "-": "Minus",
+  ",": "Comma",
+  ".": "Period",
+  "/": "Slash",
+  ";": "Semicolon",
+  "'": "Quote",
+  "`": "Backquote",
+  "[": "BracketLeft",
+  "]": "BracketRight",
+  "\\": "Backslash",
+};
+
+function keyCode(part: string): string {
+  if (/^[a-zA-Z]$/.test(part)) return `Key${part.toUpperCase()}`;
+  if (/^[0-9]$/.test(part)) return `Digit${part}`;
+  if (SYMBOL_CODES[part]) return SYMBOL_CODES[part];
+  const lower = part.toLowerCase();
+  if (lower === "esc") return "Escape";
+  if (lower === "space") return "Space";
+  return part.charAt(0).toUpperCase() + part.slice(1);
 }
 
 function parseBinding(binding: string): ParsedBinding {
-  const parts = binding.split("+").map((p) => p.trim());
-  const result: ParsedBinding = { mod: false, ctrl: false, shift: false, alt: false };
+  // "Ctrl++" names the plus key; a plain split would drop it.
+  const parts = binding.replace(/\+\+$/, "+=").split("+").map((p) => p.trim()).filter(Boolean);
+  const result: ParsedBinding = { mod: false, ctrl: false, shift: false, alt: false, code: null };
 
   for (const part of parts) {
     const lower = part.toLowerCase();
@@ -29,20 +52,12 @@ function parseBinding(binding: string): ParsedBinding {
     } else if (lower === "alt" || lower === "opt" || lower === "option") {
       result.alt = true;
     } else {
-      if (/^[a-zA-Z]$/.test(part)) {
-        result.code = `Key${part.toUpperCase()}`;
-      } else if (/^[0-9]$/.test(part)) {
-        result.code = `Digit${part}`;
-      } else {
-        // Special keys: Tab, ArrowLeft, =, -, ,, etc.
-        result.key = part;
-      }
+      result.code = keyCode(part);
     }
   }
 
-  // "Ctrl+X" → treat Ctrl as Mod (Cmd on mac, Ctrl on win) Exception: "Ctrl+Tab" stays literal Ctrl (Cmd+Tab is system shortcut on mac)
-  const isTabBinding = result.key?.toLowerCase() === "tab";
-  if (result.ctrl && !result.mod && !isTabBinding) {
+  // "Ctrl+X" means Mod (Cmd on mac); "Ctrl+Tab" stays literal Ctrl because Cmd+Tab belongs to macOS.
+  if (result.ctrl && !result.mod && result.code !== "Tab") {
     result.mod = true;
     result.ctrl = false;
   }
@@ -61,27 +76,30 @@ function getParsed(binding: string): ParsedBinding {
   return p;
 }
 
+type ChordEvent = Pick<KeyboardEvent, "code" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">;
+
+/** Platform-explicit matcher; `matchesBinding` binds it to the running platform. */
+export function matchesBindingOn(e: ChordEvent, binding: string, mac: boolean): boolean {
+  const p = getParsed(binding);
+  if (!p.code || e.code !== p.code) return false;
+  if (p.shift !== e.shiftKey || p.alt !== e.altKey) return false;
+  if (mac) {
+    // A Mod binding ignores Ctrl on mac; an explicit Ctrl still requires it.
+    return p.mod === e.metaKey && (!p.ctrl || e.ctrlKey);
+  }
+  // Ctrl is the only Mod off mac, so Mod and explicit Ctrl name the same key.
+  return (p.mod || p.ctrl) === e.ctrlKey;
+}
+
 /** Check if a KeyboardEvent matches a binding string. */
 export function matchesBinding(e: KeyboardEvent, binding: string): boolean {
+  return matchesBindingOn(e, binding, IS_MAC);
+}
+
+/** A bare Ctrl+letter chord, which a terminal reads as a control character off mac. */
+export function isControlCharacterChord(binding: string): boolean {
   const p = getParsed(binding);
-
-  const modKey = IS_MAC ? e.metaKey : e.ctrlKey;
-  if (p.mod !== modKey) return false;
-  if (p.shift !== e.shiftKey) return false;
-  if (p.alt !== e.altKey) return false;
-
-// Platform nuance: Mod-binding ignores opposite modifier state.
-// Explicit `Ctrl` always requires `ctrlKey`, including on mac.
-  if (p.ctrl && !e.ctrlKey) return false;
-
-  if (p.code) {
-    return e.code === p.code;
-  }
-  if (p.key) {
-    return e.key === p.key || e.key.toLowerCase() === p.key.toLowerCase();
-  }
-
-  return false;
+  return p.mod && !p.shift && !p.alt && /^Key[A-Z]$/.test(p.code ?? "");
 }
 
 /** Check if we're on macOS. */

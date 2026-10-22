@@ -19,8 +19,8 @@ import {
   useTauriFileDrop,
   useTouchScroll,
 } from "../../hooks/terminal";
-import { quotePathForPaste, routeClipboardToTerm } from "../../lib/clipboardPaste";
-import { registerTabPaste } from "../../lib/tabPasteRegistry";
+import { quotePathForPaste } from "../../lib/clipboardPaste";
+import { registerTabClipboard } from "../../lib/tabClipboardRegistry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import {
   listenClientTabUiMode,
@@ -396,14 +396,11 @@ export const TerminalTab = memo(function TerminalTab({
     return () => window.removeEventListener("codeterm-toggle-search", handler);
   }, [tabId]);
 
-  // Register this tab in global paste registry so app-level Ctrl/Cmd+V always targets focused tab.
   // Direct function lookup avoids event-bus race conditions and remount windows.
-  useEffect(() => {
-    return registerTabPaste(tabId, () => {
-      const term = termRef.current;
-      if (term) void routeClipboardToTerm(term);
-    });
-  }, [tabId, termRef]);
+  useEffect(
+    () => registerTabClipboard(tabId, { copy: copySelection, paste: pasteFromClipboard }),
+    [tabId, copySelection, pasteFromClipboard],
+  );
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();

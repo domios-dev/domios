@@ -67,6 +67,8 @@ pub fn record_via(
     }
     slot.answered = Some(label.to_string());
     slot.answered_via = Some(answered_via.to_string());
+    // Answering is reading: the user acted on the question wherever they tapped it.
+    target.read = true;
     AnswerAdmission::Recorded(label.to_string())
 }
 
@@ -98,6 +100,7 @@ pub fn record_detached(
     }
     slot.answered = Some(label.to_string());
     slot.answered_via = Some("notification".to_string());
+    target.read = true;
     AnswerAdmission::Recorded(label.to_string())
 }
 

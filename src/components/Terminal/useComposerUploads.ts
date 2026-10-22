@@ -11,6 +11,7 @@ export function useComposerUploads(deps: Omit<Parameters<typeof createComposerUp
   const controllerRef = useRef<ReturnType<typeof createComposerUploads> | null>(null);
   const controller = () => controllerRef.current ??= createComposerUploads({
     registry: () => depsRef.current.registry(), commit: (registry) => depsRef.current.commit(registry),
+    draft: () => depsRef.current.draft?.(),
     insert: (capsule) => depsRef.current.insert(capsule),
     store: storeBlob,
     publish: (next) => {

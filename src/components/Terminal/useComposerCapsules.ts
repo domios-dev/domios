@@ -90,6 +90,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
 
   const uploads = useComposerUploads({
     registry: () => registryRef.current, commit,
+    draft: () => textareaRef.current?.value,
     insert: (capsule) => { const el = textareaRef.current; if (el) insertWithPadding(el, capsuleToken(capsule.label)); },
   });
   const clear = () => { uploads.clear(); commit(EMPTY_CAPSULES); };
@@ -97,7 +98,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
   const insert = useCallback<InlineAttachmentSink>((items) => {
     const el = textareaRef.current;
     if (!el || items.length === 0) return;
-    const added = capsulesForPaths(registryRef.current, items);
+    const added = capsulesForPaths(registryRef.current, items, el.value);
     commit(added.registry);
     insertWithPadding(el, added.text);
   }, [commit, textareaRef]);
@@ -134,7 +135,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError }: {
     try {
       const path = await storeBlob(new Blob([text], { type: "text/plain" }), `pasted-text-${Date.now()}.txt`);
       if (!path.trim() || !el.isConnected || textareaRef.current !== el) return;
-      const added = addCapsule(registryRef.current, { kind: "text", path, lines });
+      const added = addCapsule(registryRef.current, { kind: "text", path, lines }, el.value);
       commit(added.registry);
       insertWithPadding(el, capsuleToken(added.capsule.label), false);
     } catch (error) {

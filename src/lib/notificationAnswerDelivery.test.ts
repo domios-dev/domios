@@ -72,6 +72,7 @@ async function run() {
   assert.equal(settled.answer?.answered, "Grant");
   assert.equal(settled.answer?.delivered, true);
   assert.equal(settled.answer_pending, false);
+  assert.equal(settled.read, true, "an answered question is read");
 
   const refusing = daemon("That choice was not offered by this notification");
   const refused = await tapThroughStore(refusing, ["Grant"]);
@@ -79,6 +80,7 @@ async function run() {
   assert.equal(refused.answer?.answered, null);
   assert.match(refused.answer_error ?? "", /not offered/, "a refused answer surfaces as an error on the record");
   assert.equal(refused.answer_pending, false);
+  assert.equal(refused.read, false, "a refused answer leaves the question unread");
 
   console.log("notification answer delivery: passed");
 }

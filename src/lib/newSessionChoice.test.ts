@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 import {
   NEW_SESSION_CHOICE_STORAGE_KEY,
   defaultNewSessionChoice,
+  initialProviderChoice,
   resolveEffort,
   reasoningEffortsForModel,
   readPersistedNewSessionChoice,
@@ -54,6 +55,16 @@ const PROVIDERS = [
 ];
 
 setupDom();
+
+test("a picker opened for a provider never starts on a model that cannot launch", () => {
+  const expired = provider("provider-x", [
+    { id: "expired-free", display_name: "Expired free", available: false },
+    { id: "usable", display_name: "Usable" },
+  ]);
+  const choice = initialProviderChoice({ ...expired, default_model: "expired-free" });
+  assert(choice.mode === "single" && choice.providerId === "provider-x", "the requested provider is kept");
+  assert(choice.modelId === "usable", `expected the usable model, got ${choice.modelId}`);
+});
 
 test("live catalogue reconciliation preserves the current selection and resolves new model variants", () => {
   const providerWithVariants = provider("provider-a", [

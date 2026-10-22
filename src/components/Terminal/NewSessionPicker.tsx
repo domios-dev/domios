@@ -13,6 +13,7 @@ import {
   choiceForSessionSection,
   type NewSessionSection,
   defaultNewSessionChoice,
+  initialProviderChoice,
   readPersistedNewSessionChoice,
   reconcilePresetSelection,
   resolveEffort,
@@ -118,13 +119,7 @@ export function NewSessionPicker({
     const restored = readPersistedNewSessionChoice(visibleProviders);
     const initialLocalId = initialProviderId;
     if (initialLocalId && visibleProviders.some((provider) => provider.id === initialLocalId)) {
-      const provider = visibleProviders.find((candidate) => candidate.id === initialLocalId);
-      setChoice({
-        mode: "single",
-        providerId: initialLocalId,
-        modelId: provider?.default_model,
-        effortId: resolveEffort(provider, provider?.default_model),
-      });
+      setChoice(initialProviderChoice(visibleProviders.find((candidate) => candidate.id === initialLocalId)!));
     } else {
       setChoice(choiceForSessionSection(restored, section));
     }
@@ -414,12 +409,7 @@ export function NewSessionPicker({
                   disabledProviderIds={location === "local" ? disabledProviderIds : undefined}
                   onProviderChange={(providerId) => {
                     const provider = visibleProviders.find((p) => p.id === providerId);
-                    setChoice({
-                      mode: "single",
-                      providerId,
-                      modelId: provider?.default_model,
-                      effortId: resolveEffort(provider, provider?.default_model),
-                    });
+                    if (provider) setChoice(initialProviderChoice(provider));
                   }}
                   onModelChange={(modelId) => setChoice({
                     ...choice,

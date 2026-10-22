@@ -208,11 +208,12 @@ function TeamMenu({
     if (!onAddMember || addingMemberRef.current) return;
     addingMemberRef.current = true;
     setAddingMember(true);
+    // The spawn can outlast the menu by a long way; a failure still reaches the user as a toast.
+    setOpen(false);
+    setProviderRole(null);
+    setSelectedProviderId(null);
     try {
       await onAddMember(role, providerId, model);
-      setOpen(false);
-      setProviderRole(null);
-      setSelectedProviderId(null);
     } catch (error) {
       const description = describeError(error, { operation: "adding a Team member" });
       actions && createNoticePublisher(actions)({ kind: "toast", id: `team-member-add-failure-${teamId}`,
@@ -388,7 +389,7 @@ function TeamMenu({
                     setSelectedProviderId(provider.id);
                   }}
                 >
-                  <span className="ct-menu-row__icon"><ProviderGlyph iconSvg={provider.icon_svg} iconColor={provider.icon_color} iconHint={provider.icon_hint} title={provider.display_name} /></span>
+                  <span className="ct-menu-row__icon" aria-hidden="true"><ProviderGlyph iconSvg={provider.icon_svg} iconColor={provider.icon_color} iconHint={provider.icon_hint} title={provider.display_name} /></span>
                   {provider.display_name}
                 </button>
               ))}
