@@ -12,7 +12,9 @@ use crate::plan::{Milestone, Plan, PlanStatus, Section, Spec, Task};
 
 pub use super::search_related::{RelatedGroup, RelatedUnit};
 
+mod embedding;
 mod incremental;
+mod recovery;
 pub(super) use incremental::PlanIndexScope;
 
 static SEARCH_PORT: OnceLock<Arc<dyn PlanSearchPort>> = OnceLock::new();
@@ -88,6 +90,8 @@ struct Unit {
 
 enum IndexJob {
     Plan(Plan, PlanIndexScope),
+    Prune(PathBuf, HashSet<String>),
+    Embed(PathBuf, Unit),
     DeletePlan(Plan),
     Spec(Spec),
     DeleteSpec(Spec),
@@ -96,6 +100,8 @@ enum IndexJob {
 impl IndexJob {
     fn key(&self) -> String {
         match self {
+            Self::Embed(_, unit) => format!("{}:embed:{}", self.project_key(), unit.id),
+            Self::Prune(_, _) => format!("{}:prune", self.project_key()),
             Self::Plan(plan, _) | Self::DeletePlan(plan) => {
                 format!("{}:plan:{}", self.project_key(), plan.id)
             }
@@ -107,6 +113,7 @@ impl IndexJob {
 
     fn project_key(&self) -> String {
         match self {
+            Self::Prune(root, _) | Self::Embed(root, _) => project_scope(root),
             Self::Plan(plan, _) | Self::DeletePlan(plan) => project_scope(plan_project_root(plan)),
             Self::Spec(spec) | Self::DeleteSpec(spec) => project_scope(spec_project_root(spec)),
         }
@@ -186,16 +193,20 @@ impl IndexQueue {
         }) {
             self.ready.wait(&mut state);
         }
+        let runnable = |key: &String| {
+            !state.in_flight_keys.contains(key)
+                && state
+                    .latest
+                    .get(key)
+                    .is_some_and(|job| !state.in_flight_projects.contains(&job.project_key()))
+        };
         let position = state
             .order
             .iter()
             .position(|key| {
-                !state.in_flight_keys.contains(key)
-                    && state
-                        .latest
-                        .get(key)
-                        .is_some_and(|job| !state.in_flight_projects.contains(&job.project_key()))
+                runnable(key) && !matches!(state.latest.get(key), Some(IndexJob::Embed(..)))
             })
+            .or_else(|| state.order.iter().position(runnable))
             .expect("runnable index job");
         let key = state.order.remove(position).expect("queued index job");
         let job = state.latest.remove(&key).expect("queued index job");
@@ -251,11 +262,17 @@ fn index_queue() -> &'static Arc<IndexQueue> {
                 .spawn(move || loop {
                     let (key, project, job) = worker_queue.take();
                     let result = match &job {
-                        IndexJob::Plan(plan, scope) => {
-                            incremental::mirror_plan_scope(plan, scope, true).map(drop)
-                        }
+                        IndexJob::Embed(root, unit) => embedding::embed_current(root, unit),
+                        IndexJob::Prune(root, ids) => recovery::prune_project(root, ids),
+                        IndexJob::Plan(plan, scope) => embedding::queue_changed(
+                            plan_project_root(plan),
+                            incremental::mirror_plan_scope(plan, scope, false),
+                        ),
                         IndexJob::DeletePlan(plan) => delete_plan_units(plan),
-                        IndexJob::Spec(spec) => mirror_spec(spec, true).map(drop),
+                        IndexJob::Spec(spec) => embedding::queue_changed(
+                            spec_project_root(spec),
+                            mirror_spec(spec, false),
+                        ),
                         IndexJob::DeleteSpec(spec) => delete_units(
                             spec_project_root(spec),
                             &format!("planunit_{}_%", spec.id),
@@ -280,16 +297,16 @@ pub(super) fn enqueue_spec_index(spec: Spec) {
     index_queue().enqueue(IndexJob::Spec(spec));
 }
 
-pub(super) fn remove_plan_from_index(plan: Plan) {
-    index_queue().enqueue_and_wait(IndexJob::DeletePlan(plan));
+pub(super) fn remove_plan_from_index(plan: Plan, specs: &[Spec]) -> Result<(), String> {
+    index_queue().enqueue_and_wait(IndexJob::DeletePlan(plan.clone()));
+    for spec in specs {
+        index_queue().enqueue_and_wait(IndexJob::DeleteSpec(spec.clone()));
+    }
+    recovery::purge_plan_indexes(&plan, specs)
 }
 
 pub(super) fn enqueue_plan_removal(plan: Plan) {
     index_queue().enqueue(IndexJob::DeletePlan(plan));
-}
-
-pub(super) fn enqueue_spec_removal(spec: Spec) {
-    index_queue().enqueue(IndexJob::DeleteSpec(spec));
 }
 
 #[cfg(test)]
@@ -299,7 +316,11 @@ pub(crate) fn flush_index_queue_for_test(project_root: &Path) {
 
 impl super::PlanStore {
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
-        enqueue_plan_index(plan.clone(), PlanIndexScope::Full);
+        let _writer_turn = self.mutation_writer.enter();
+        let mut plans = self.list_full();
+        plans.retain(|stored| stored.id != plan.id);
+        plans.push(plan.clone());
+        self.enqueue_project_index(plan_project_root(plan), &plans, &self.list_specs_full());
         Ok(())
     }
 
@@ -323,49 +344,6 @@ impl super::PlanStore {
         status: PlanSearchStatus,
     ) -> Result<Vec<PlanSearchHit>, String> {
         search_project(project, q, status)
-    }
-
-    pub fn reindex_project_index(&self, project: &Path) -> Result<PlanReindexResult, String> {
-        let _writer_turn = self.mutation_writer.enter();
-        let root = super::paths::project_root(project);
-        let root_text = root.display().to_string();
-        let plans = self
-            .list_full()
-            .into_iter()
-            .filter(|plan| plan_project_root(plan).display().to_string() == root_text)
-            .collect::<Vec<_>>();
-        let specs = self
-            .list_specs_full()
-            .into_iter()
-            .filter(|spec| spec_project_root(spec).display().to_string() == root_text)
-            .collect::<Vec<_>>();
-        let units = plans
-            .iter()
-            .map(|plan| plan_units(plan, &project_scope(&root)).len())
-            .sum::<usize>()
-            + specs
-                .iter()
-                .map(|spec| spec_units(spec, &project_scope(&root)).len())
-                .sum::<usize>();
-        for plan in &plans {
-            self.database
-                .persist_plan(plan, None)
-                .map_err(|error| error.to_string())?;
-            enqueue_plan_index(plan.clone(), PlanIndexScope::Full);
-        }
-        for spec in &specs {
-            self.database
-                .persist_spec(spec)
-                .map_err(|error| error.to_string())?;
-            enqueue_spec_index(spec.clone());
-        }
-        Ok(PlanReindexResult {
-            project: root_text,
-            scope: project_scope(&root),
-            plans: plans.len(),
-            specs: specs.len(),
-            units,
-        })
     }
 
     pub fn related_units(&self, id: &str) -> Vec<RelatedGroup> {
@@ -550,7 +528,9 @@ fn apply_unit_changes(
     if sync_embed {
         let conn = open_index(project_root)?;
         for unit in &embedding_changes {
-            let _ = port().embed(&conn, &unit.id, &unit.body);
+            if let Err(error) = port().embed(&conn, &unit.id, &unit.body) {
+                log::warn!("[plan.index] embedding {}: {error}", unit.id);
+            }
         }
     }
     Ok(embedding_changes)
@@ -573,11 +553,7 @@ fn delete_units_by_scope(project_root: &Path, scope: &str) -> Result<(), String>
     let ids = rows.filter_map(Result::ok).collect::<Vec<_>>();
     drop(stmt);
     for id in ids {
-        conn.execute(
-            "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
-            params![&id, format!("{}_chunk_%", id)],
-        )
-        .ok();
+        delete_unit_vectors(&conn, &id)?;
         conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&id])
             .map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM mem_items WHERE id = ?1", params![&id])
@@ -586,14 +562,28 @@ fn delete_units_by_scope(project_root: &Path, scope: &str) -> Result<(), String>
     Ok(())
 }
 
+fn delete_unit_vectors(conn: &Connection, id: &str) -> Result<(), String> {
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = 'mem_vectors')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if exists {
+        conn.execute(
+            "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+            params![id, format!("{id}_chunk_%")],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 fn delete_units_tx(conn: &Connection, prefix_like: &str) -> Result<(), String> {
     let ids = unit_ids_like(conn, prefix_like)?;
     for id in ids {
-        conn.execute(
-            "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
-            params![&id, format!("{}_chunk_%", id)],
-        )
-        .ok();
+        delete_unit_vectors(conn, &id)?;
         conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&id])
             .map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM mem_items WHERE id = ?1", params![&id])
@@ -648,11 +638,7 @@ fn delete_changed_unit_rows_tx(
             continue;
         }
         if stale_vectors.contains(id) {
-            conn.execute(
-                "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
-                params![&id, format!("{}_chunk_%", id)],
-            )
-            .ok();
+            delete_unit_vectors(conn, id)?;
         }
         conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&id])
             .map_err(|e| e.to_string())?;

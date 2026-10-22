@@ -186,6 +186,11 @@ pub fn run_lane_with(
             return row;
         }
     };
+    if tips.is_empty() && already_removed(lane) {
+        row.action = "absent";
+        row.reason = "lane worktree and branches already removed".into();
+        return row;
+    }
     if !confirm {
         row.action = "remove";
         row.reason = "merged, clean, unoccupied; remote tips rechecked on confirm".into();
@@ -208,6 +213,35 @@ pub fn run_lane_with(
         }
     }
     row
+}
+
+fn already_removed(lane: &TeamCloseLane) -> bool {
+    let path_absent = lane
+        .worktree_path
+        .as_deref()
+        .is_none_or(|path| !std::path::Path::new(path).exists());
+    let worktree_absent = lane.worktree_path.as_deref().is_none_or(|path| {
+        git(&lane.project_path, &["worktree", "list", "--porcelain"]).is_ok_and(|listing| {
+            !listing
+                .lines()
+                .filter_map(|line| line.strip_prefix("worktree "))
+                .any(|registered| {
+                    codeterm_service_core::service::worker_lane::same_path(registered, path)
+                })
+        })
+    });
+    let branch_absent = lane.branch.as_deref().is_none_or(|branch| {
+        git(
+            &lane.project_path,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                &format!("refs/heads/{branch}"),
+            ],
+        )
+        .is_ok_and(|references| references.is_empty())
+    });
+    path_absent && worktree_absent && branch_absent
 }
 
 pub fn cleanup_inventory(plan: &Plan) -> Vec<TeamCloseLane> {
