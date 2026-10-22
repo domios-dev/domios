@@ -5,7 +5,7 @@ import {authStatusProbe, parseAuthStatus, parseSessionObservations} from "../src
 
 let checks = 0;
 function check(run: () => void) { run(); checks++; }
-check(() => assert.deepEqual(authStatusProbe(), {args:["auth","status"], timeoutMs:3000}));
+check(() => assert.deepEqual(authStatusProbe(), {args:["auth","status"], timeoutMs:15000}));
 const status = {loggedIn:true,authMethod:"oauth",subscriptionType:"max",configDirectory:"fixture"};
 check(() => assert.deepEqual(parseAuthStatus(status), status));
 check(() => assert.equal(parseAuthStatus({loggedIn:"true"}), null));
