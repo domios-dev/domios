@@ -98,6 +98,20 @@ pub fn catalog() -> &'static ShellProfileCatalog {
     CATALOG.get_or_init(ShellProfileCatalog::default)
 }
 
+pub fn path_with_git_bash(
+    profiles: &[ShellProfile],
+    inherited: &std::ffi::OsStr,
+) -> Option<std::ffi::OsString> {
+    let directory = std::path::Path::new(
+        &profiles
+            .iter()
+            .find(|profile| profile.id == "git-bash")?
+            .executable,
+    )
+    .parent()?;
+    super::manager::path_with_cli_dir_first(inherited, directory)
+}
+
 pub fn select(
     profiles: &[ShellProfile],
     requested: Option<&str>,
