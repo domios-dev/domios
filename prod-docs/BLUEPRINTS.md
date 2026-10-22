@@ -16,7 +16,15 @@ domios blueprint apply health.yaml --set url=https://example.com/health
 
 `domios blueprint new --like "watch CI run and ping me on failure"` and `domios blueprint apply --like "watch CI run and ping me on failure"` offer matching saved solutions beside built-ins without starting them. `domios blueprint recipe` lists built-in names and top saved solutions for the current project workspace. Reuse a saved solution with `domios blueprint apply memory:<recipe-id> --set key=value`. Each offer includes YAML and described typed inputs; instance inputs have no defaults. Named built-in recipes remain available offline.
 
-Nothing is saved automatically. The Team Orchestrator uses `domios blueprint keep <id> --when "Watch CI and report failing jobs early"` to queue a generalised solution. Workers cannot keep solutions. The problem description drives search, a short note explains the graph, and concrete commands, URLs, repository names, IDs and personal paths become required inputs. Instance values and credentials are never retained as defaults. Safety checks still apply to explicit keeps. Admission returns `queued`; debug output records the save decision or refusal.
+Nothing is saved automatically. The Team Orchestrator queues a generalised solution with 3 to 5 `--when` intents, each a different way someone would ask for it:
+
+```bash
+domios blueprint keep <id> --when "Watch CI and report failing jobs early" --when "tell me when a pull request build goes red" --when "ping me once a check fails"
+```
+
+`--when` repeats 1 to 5 times. Workers cannot keep solutions. Each intent is searched on its own and the best match counts, so vary the wording rather than repeating one phrase. A short note explains the graph, and concrete commands, URLs, repository names, IDs and personal paths become required inputs. Instance values and credentials are never retained as defaults. Safety checks still apply to explicit keeps. Admission returns `queued`; debug output records the save decision or refusal.
+
+Recall also searches a description derived from the graph itself: the note, step names and a gist of the commands, URLs and tools, never routes or step numbers. After a keep, a hidden memory worker on `memory.worker_model` may add a summary and extra intents from the stored YAML; that text only helps search, records its model and document hash, and is regenerated when the graph changes. When workers are unavailable the keep still succeeds and the entry stays `enrichment pending` until a later backfill. Each offer carries a `why` line naming the matching intent and scores.
 
 Solutions are memory skills, discoverable through ordinary memory search. Equivalent structures update one recipe's statistics. Ranking and eviction consider successes, twice the reuse count, an explicit-keep bonus and failures, with age decay. Each area retains at most 50 active entries; excess entries are archived, preserving their YAML. The Dreamer considers at most 50 entries in one area and merges at most eight pairs per cycle; it never creates solutions from runs. It can log a built-in promotion proposal. Background writes use a bounded queue; debug logs show items added today and recall hit rate.
 
@@ -148,4 +156,4 @@ Both the UI and CLI export and import the same YAML. Export writes the same auth
 
 Stopped graphs and their history remain for 30 minutes before cleanup. Changed definitions create an immutable version; an unchanged apply reactivates a stopped graph under the same ID. Import uses the same name lookup and keeps the result stopped unless explicitly started. Advanced `update` accepts an internal definition file with `--expect-version` for explicit version/cause control. `history` definitions can be restored through that path, and `escalation resolve <id> <transition>` releases a held unknown case after repair. For a watch, use `show` to inspect its latest observation, progress and transitions; `log` provides pipeline journals. Unscheduled inputs omit `next_run`. Recipe examples: `domios docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->

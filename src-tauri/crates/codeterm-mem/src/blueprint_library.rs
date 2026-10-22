@@ -6,10 +6,19 @@ use codeterm_blueprint_types::{
 };
 use rusqlite::{params, Connection};
 use std::sync::atomic::{AtomicU64, Ordering};
+pub mod dedupe;
+pub mod enrichment;
+#[cfg(test)]
+pub(crate) mod fakes;
+pub mod index;
 mod qualification;
+pub mod recall;
+pub mod services;
 use qualification::PreparedBlueprint;
+pub use recall::{BlueprintHit, Fusion, RecallConfig, Weights};
+pub use services::{BlueprintEmbedder, BlueprintEnricher, EnrichmentJob, GlobalEmbedder};
 
-const SOURCE: &str = "blueprint-library";
+pub(crate) const SOURCE: &str = "blueprint-library";
 static RECALLS: AtomicU64 = AtomicU64::new(0);
 static HITS: AtomicU64 = AtomicU64::new(0);
 static DREAM_AREA: AtomicU64 = AtomicU64::new(0);
@@ -20,6 +29,11 @@ pub(crate) enum Pending {
         prepared: PreparedBlueprint,
     },
     Reuse(Vec<String>),
+    Backfill,
+}
+
+pub(crate) fn initialize(conn: &Connection) -> Result<(), String> {
+    index::initialize(conn)
 }
 
 fn load_entries(
@@ -28,7 +42,16 @@ fn load_entries(
     area: &str,
     validate: bool,
 ) -> Result<Vec<Entry>, String> {
-    let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND m.area=?1 AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id LIMIT 51").map_err(|error|error.to_string())?;
+    load_entries_in(conn, blobs, area, validate)
+}
+
+pub(crate) fn load_entries_in(
+    conn: &Connection,
+    blobs: &std::path::Path,
+    area: &str,
+    validate: bool,
+) -> Result<Vec<Entry>, String> {
+    let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND (?1='' OR m.area=?1) AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id LIMIT CASE WHEN ?1='' THEN -1 ELSE 51 END").map_err(|error|error.to_string())?;
     let ids = stmt
         .query_map(params![area, SOURCE], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?
@@ -50,7 +73,7 @@ fn load_entries(
         result.push(Entry {
             id,
             document,
-            when_to_use: stats.when_to_use,
+            intents: stats.intents,
             uses: stats.uses,
             successes: stats.successes,
             failures: stats.failures,
@@ -95,7 +118,7 @@ fn write_entry(
         &store::MemUpdate {
             title: Some(document.name.clone()),
             body: Some(document.yaml()?),
-            summary: Some(entry.when_to_use.clone()),
+            summary: Some(entry.when_to_use()),
             tags: Some(tags),
             ..Default::default()
         },
@@ -106,7 +129,7 @@ fn write_entry(
 
 impl MemManager {
     fn queue_blueprint(self: &std::sync::Arc<Self>, pending: Pending) -> Result<(), String> {
-        let mut queue = self.blueprint_queue.lock();
+        let mut queue = self.blueprint.queue.lock();
         if queue.is_none() {
             let (sender, receiver) = std::sync::mpsc::sync_channel::<Pending>(16);
             let weak = std::sync::Arc::downgrade(self);
@@ -116,10 +139,11 @@ impl MemManager {
                     while let Ok(pending) = receiver.recv() {
                         let Some(mem) = weak.upgrade() else { break };
                         let result = match pending {
-                            Pending::Keep { area, prepared } => {
-                                mem.persist_blueprint(&area, prepared).map(|_| ())
-                            }
+                            Pending::Keep { area, prepared } => mem
+                                .persist_blueprint(&area, prepared, true)
+                                .and_then(|id| mem.index_blueprint(&id).map(|_| ())),
                             Pending::Reuse(ids) => mem.reuse_blueprints(&ids),
+                            Pending::Backfill => mem.backfill_blueprints().map(|_| ()),
                         };
                         if let Err(error) = result {
                             log::error!("[blueprint-memory] persistence failed: {error}");
@@ -140,14 +164,14 @@ impl MemManager {
         self: &std::sync::Arc<Self>,
         area: String,
         definition: serde_json::Value,
-        when_to_use: String,
+        intents: Vec<String>,
         evidence: Evidence,
     ) -> Result<(), String> {
         self.guard_commit()?;
         let prepared = self.qualify_blueprint(
             &area,
             Document::from_definition(&definition)?,
-            &when_to_use,
+            &intents,
             evidence,
         )?;
         self.queue_blueprint(Pending::Keep { area, prepared })
@@ -157,37 +181,61 @@ impl MemManager {
         &self,
         area: &str,
         document: Document,
-        when_to_use: &str,
+        intents: &[String],
         evidence: Evidence,
     ) -> Result<Option<String>, String> {
-        let prepared = self.qualify_blueprint(area, document, when_to_use, evidence)?;
-        self.persist_blueprint(area, prepared)
+        let prepared = self.qualify_blueprint(area, document, intents, evidence)?;
+        let id = self.persist_blueprint(area, prepared, true)?;
+        self.index_after_save(&id);
+        Ok(Some(id))
+    }
+
+    pub fn save_blueprint_without_merge(
+        &self,
+        area: &str,
+        document: Document,
+        intents: &[String],
+        evidence: Evidence,
+    ) -> Result<String, String> {
+        let prepared = self.qualify_blueprint(area, document, intents, evidence)?;
+        self.persist_blueprint(area, prepared, false)
+    }
+
+    fn index_after_save(&self, id: &str) {
+        if let Err(error) = self.index_blueprint(id) {
+            log::warn!("[blueprint-memory] index {id}: {error}");
+        }
     }
 
     fn persist_blueprint(
         &self,
         area: &str,
         prepared: PreparedBlueprint,
-    ) -> Result<Option<String>, String> {
+        merge: bool,
+    ) -> Result<String, String> {
         self.guard_commit()?;
         let PreparedBlueprint {
             document,
-            when_to_use,
+            intents,
             evidence,
+            index: mut index_row,
         } = prepared;
         let yaml = document.yaml()?;
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
         let mut library = load_entries(&tx, &self.blobs_dir, area, !evidence.kept)?;
         let now = chrono::Utc::now();
-        let id = if let Some(existing) = model::duplicate(&library, &document) {
+        let existing = merge
+            .then(|| model::duplicate(&library, &document))
+            .flatten();
+        let id = if let Some(existing) = existing {
             let mut record =
                 metadata::read(&tx, &existing.id)?.ok_or("Blueprint metadata absent")?;
             let prior = record.prior(evidence.origin.as_deref());
             let candidate = Entry {
                 id: "candidate".into(),
                 document,
-                when_to_use: when_to_use.clone(),
+                intents: intents.clone(),
                 uses: 0,
                 successes: evidence.successes.saturating_sub(prior.successes),
                 failures: evidence.failures.saturating_sub(prior.failures),
@@ -197,9 +245,14 @@ impl MemManager {
             let mut next = model::merge_pair(existing, &candidate)
                 .ok_or("Blueprint structure changed")?
                 .keeper;
+            let stored = index::read_row(&tx, &existing.id)?;
             if evidence.kept {
                 next.document = candidate.document;
-                next.when_to_use = candidate.when_to_use;
+                next.intents = candidate.intents;
+                index_row.enrichment = stored.and_then(|row| row.enrichment);
+                index::write_row(&tx, &existing.id, &index_row)?;
+            } else if stored.is_none() {
+                index::write_row(&tx, &existing.id, &index_row)?;
             }
             next.id = existing.id.clone();
             record.observe(&evidence, now.timestamp());
@@ -229,7 +282,7 @@ impl MemManager {
             let next = Entry {
                 id: id.clone(),
                 document,
-                when_to_use: when_to_use.clone(),
+                intents: intents.clone(),
                 uses: 0,
                 successes: evidence.successes,
                 failures: evidence.failures,
@@ -239,6 +292,7 @@ impl MemManager {
             let mut record = SolutionMetadata::default();
             record.observe(&evidence, now.timestamp());
             write_entry(&tx, &self.blobs_dir, &next, record)?;
+            index::write_row(&tx, &id, &index_row)?;
             library.push(next);
             id
         };
@@ -256,7 +310,7 @@ impl MemManager {
         drop(conn);
         self.refresh_embedding(&id);
         log::debug!("[blueprint-memory] added_today={added}");
-        Ok(Some(id))
+        Ok(id)
     }
 
     fn reuse_blueprints(&self, ids: &[String]) -> Result<(), String> {
@@ -284,14 +338,28 @@ impl MemManager {
         area: &str,
         intent: &str,
         limit: usize,
-    ) -> Result<Vec<Entry>, String> {
-        let embedding = if intent.trim().is_empty() {
-            None
+    ) -> Result<Vec<BlueprintHit>, String> {
+        let result = if intent.trim().is_empty() {
+            let now = chrono::Utc::now().timestamp();
+            let mut library = entries(&self.conn.lock(), &self.blobs_dir, area)?;
+            library.sort_by(|a, b| {
+                model::score(b, now)
+                    .total_cmp(&model::score(a, now))
+                    .then(a.id.cmp(&b.id))
+            });
+            library.truncate(limit.min(AREA_CAP));
+            library
+                .into_iter()
+                .map(|entry| BlueprintHit {
+                    score: model::score(&entry, now),
+                    why: "most used".into(),
+                    enrichment_pending: false,
+                    entry,
+                })
+                .collect()
         } else {
-            crate::solution_search::query_embedding(intent)
+            self.recall_blueprint_hits(area, intent, None, limit, &RecallConfig::default())?
         };
-        let result =
-            self.recall_blueprints_with_embedding(area, intent, limit, embedding.as_deref())?;
         let total = RECALLS.fetch_add(1, Ordering::Relaxed) + 1;
         if !result.is_empty() {
             HITS.fetch_add(1, Ordering::Relaxed);
@@ -303,85 +371,10 @@ impl MemManager {
         );
         if !result.is_empty() && !intent.trim().is_empty() {
             let _ = self.queue_blueprint(Pending::Reuse(
-                result.iter().map(|entry| entry.id.clone()).collect(),
+                result.iter().map(|hit| hit.entry.id.clone()).collect(),
             ));
         }
         Ok(result)
-    }
-
-    fn recall_blueprints_with_embedding(
-        &self,
-        area: &str,
-        intent: &str,
-        limit: usize,
-        embedding: Option<&[f32]>,
-    ) -> Result<Vec<Entry>, String> {
-        let now = chrono::Utc::now().timestamp();
-        if intent.trim().is_empty() {
-            let mut library = entries(&self.conn.lock(), &self.blobs_dir, area)?;
-            library.sort_by(|a, b| {
-                model::score(b, now)
-                    .total_cmp(&model::score(a, now))
-                    .then(a.id.cmp(&b.id))
-            });
-            library.truncate(limit.min(AREA_CAP));
-            return Ok(library);
-        }
-        let hits = self.recall_solutions_with_embedding(
-            &crate::SearchQuery {
-                query: intent.into(),
-                kind: Some("skill".into()),
-                area: (!area.is_empty()).then(|| area.into()),
-                limit: Some(AREA_CAP),
-                ..Default::default()
-            },
-            Some(SOURCE),
-            embedding,
-        )?;
-        let conn = self.conn.lock();
-        let mut ranked = Vec::new();
-        for hit in hits {
-            let Some(stats) =
-                metadata::read(&conn, &hit.item.id)?.and_then(|record| record.blueprint)
-            else {
-                continue;
-            };
-            let document = match model::parse_document(&hit.item.body) {
-                Ok(document) if document.template_errors().is_empty() => document,
-                _ => {
-                    archive(
-                        &conn,
-                        &hit.item.id,
-                        "Blueprint recipe fails current validation",
-                    )?;
-                    continue;
-                }
-            };
-            ranked.push((
-                hit.score,
-                Entry {
-                    id: hit.item.id,
-                    document,
-                    when_to_use: stats.when_to_use,
-                    uses: stats.uses,
-                    successes: stats.successes,
-                    failures: stats.failures,
-                    kept: stats.explicitly_kept,
-                    last_used: stats.last_used,
-                },
-            ));
-        }
-        ranked.sort_by(|(a_rank, a), (b_rank, b)| {
-            a_rank
-                .total_cmp(b_rank)
-                .then(model::score(b, now).total_cmp(&model::score(a, now)))
-                .then(a.id.cmp(&b.id))
-        });
-        Ok(ranked
-            .into_iter()
-            .take(limit.min(AREA_CAP))
-            .map(|(_, entry)| entry)
-            .collect())
     }
 
     pub fn list_blueprint_solutions(&self, area: &str) -> Result<Vec<Entry>, String> {

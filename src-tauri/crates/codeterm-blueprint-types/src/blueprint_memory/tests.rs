@@ -10,7 +10,7 @@ fn entry(id: &str, uses: u64) -> Entry {
         document: abstract_document(graph("org/repo", 42)),
         uses,
         last_used: 100,
-        when_to_use: "Watch CI run and report failing jobs".into(),
+        intents: vec!["Watch CI run and report failing jobs".into()],
         successes: 1,
         failures: 0,
         kept: false,
@@ -188,7 +188,7 @@ fn score_rewards_success_reuse_and_keep_penalizes_failures_and_decays() {
 fn recall_ranks_problem_before_popularity_and_rejects_unrelated_items() {
     let ci = entry("ci", 1);
     let mut health = entry("health", 500);
-    health.when_to_use = "Watch HTTP health".into();
+    health.intents = vec!["Watch HTTP health".into()];
     assert_eq!(
         recall(&[health.clone(), ci.clone()], "CI failing jobs", 3, 100)[0].id,
         "ci"
@@ -200,7 +200,7 @@ fn recall_ranks_problem_before_popularity_and_rejects_unrelated_items() {
 fn dreamer_merges_inputs_statistics_and_best_problem_with_hard_budget() {
     let a = entry("a", 5);
     let mut b = entry("b", 1);
-    b.when_to_use = "Watch a CI run and report failed jobs before completion".into();
+    b.intents = vec!["Watch a CI run and report failed jobs before completion".into()];
     b.document.inputs.insert(
         "interval".into(),
         Input {
@@ -215,9 +215,34 @@ fn dreamer_merges_inputs_statistics_and_best_problem_with_hard_budget() {
     assert_eq!(merged.keeper.uses, 6);
     assert_eq!(merged.keeper.successes, 2);
     assert!(merged.keeper.document.inputs.contains_key("interval"));
+    assert_eq!(
+        merged.keeper.intents,
+        vec![
+            "Watch CI run and report failing jobs".to_owned(),
+            "Watch a CI run and report failed jobs before completion".to_owned()
+        ]
+    );
     let entries = (0..50)
         .map(|index| entry(&format!("{index}"), 1))
         .collect::<Vec<_>>();
     assert!(dream_merges(&entries, 0).is_empty());
     assert_eq!(dream_merges(&entries, usize::MAX).len(), MERGE_BUDGET);
+}
+
+#[test]
+fn intents_accept_one_to_five_plain_values() {
+    let intents = |n: usize| (0..n).map(|i| format!("intent {i}")).collect::<Vec<_>>();
+    assert!(validate_intents(&intents(0)).is_err());
+    assert_eq!(validate_intents(&intents(5)).unwrap().len(), 5);
+    assert!(validate_intents(&intents(6)).is_err());
+    assert!(validate_intents(&["bad\u{7}".into()]).is_err());
+    assert!(validate_intents(&["x".repeat(201)]).is_err());
+    assert_eq!(
+        validate_intents(&["  watch   CI ".into()]).unwrap(),
+        vec!["watch CI".to_owned()]
+    );
+    assert_eq!(
+        merge_intents(&["a".into(), "B".into()], &["b".into(), "c".into()]),
+        vec!["a".to_owned(), "B".to_owned(), "c".to_owned()]
+    );
 }

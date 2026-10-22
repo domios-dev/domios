@@ -47,7 +47,7 @@ pub(super) fn keep(
     ctx: &ServiceContext,
     caller: &SentinelCaller,
     id: &str,
-    when: &str,
+    when: &[String],
 ) -> Result<Value, String> {
     let session = {
         let mux = ctx.mux.read();

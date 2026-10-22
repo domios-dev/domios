@@ -31,7 +31,11 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     let (method, params) = request(
         BlueprintAction::Keep {
             id: "graph".into(),
-            when: "Watch CI failure".into(),
+            when: vec![
+                "Watch CI failure".into(),
+                "tell me when the build goes red".into(),
+                "ping me about failing checks".into(),
+            ],
         },
         None,
         None,
@@ -39,6 +43,24 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     .unwrap();
     assert_eq!(method, "blueprint.keep");
     assert_eq!(params["id"], "graph");
+    assert_eq!(
+        params["when"],
+        json!([
+            "Watch CI failure",
+            "tell me when the build goes red",
+            "ping me about failing checks"
+        ])
+    );
+    let six = (0..6).map(|index| format!("intent {index}")).collect();
+    assert!(request(
+        BlueprintAction::Keep {
+            id: "graph".into(),
+            when: six,
+        },
+        None,
+        None,
+    )
+    .is_err());
     let (method, params) = request(
         BlueprintAction::Apply {
             source: "memory:skill_saved".into(),
@@ -60,6 +82,12 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
         .unwrap()
         .iter()
         .any(|offer| offer["id"] == "http-health"));
+    let yaml = "schema_version: 1\nname: frozen\nwatch:\n  probe: '{{command}}'\n  question: Frozen?\n  buckets: [frozen]\n  routes: {frozen: notify}\n";
+    let stored = json!([{"id":"skill_vector","yaml":yaml,"intents":["Detect stalled deployments"],"uses":0,"successes":1,"why":"intent 0.81"}]);
+    let offers = memory::offers(stored, "Identify frozen releases HTTP endpoint");
+    assert_eq!(offers[0]["id"], "memory:skill_vector");
+    assert_eq!(offers[0]["why"], "intent 0.81");
+    assert_eq!(offers[0]["intents"], json!(["Detect stalled deployments"]));
 }
 
 #[test]
