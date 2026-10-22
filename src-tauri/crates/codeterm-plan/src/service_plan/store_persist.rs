@@ -27,13 +27,14 @@ impl PlanStore {
                 .find(|s| s.lock().plan_id.as_deref() == Some(plan.id.as_str()))
                 .map(|spec| spec.lock().clone())
         };
-        let path = self
+        let writes = self
             .database
-            .persist_plan(plan, owned.as_ref())
+            .persist_plan_rows(plan, owned.as_ref())
             .map_err(plan_io_error)?;
+        let path = self.database.path();
         #[cfg(test)]
         self.persist_test_sidecars(plan, owned.as_ref())?;
-        super::search_index::enqueue_plan_index(plan.clone());
+        super::search_index::enqueue_plan_index(plan.clone(), index_scope(writes));
         if let Some(spec) = owned {
             super::search_index::enqueue_spec_index(spec.clone());
             #[cfg(test)]
@@ -209,6 +210,21 @@ impl PlanStore {
             .read()
             .get(&key)
             .is_some_and(|last| *last == modified)
+    }
+}
+
+fn index_scope(writes: super::store_sync::RowWrites) -> super::search_index::PlanIndexScope {
+    log::debug!(
+        "[plan.store] persisted rows: tasks={} milestones={} attempts={} deleted={}",
+        writes.tasks,
+        writes.milestones,
+        writes.attempts,
+        writes.deleted
+    );
+    if writes.header_identity_changed {
+        super::search_index::PlanIndexScope::Full
+    } else {
+        super::search_index::PlanIndexScope::Tasks(writes.changed_tasks.into_iter().collect())
     }
 }
 
