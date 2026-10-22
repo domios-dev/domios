@@ -57,29 +57,12 @@ itself, bounded:
 Justified sleep residue (a truly time-based contract) carries an inline
 one-line reason, or it gets deleted by the next hygiene pass.
 
-## 4. Playwright mechanics
+## 4. UI harness mechanics
 
-The Playwright suite has concrete helper contracts; use them instead of
-re-deriving timing and cleanup in each spec.
-
-- Canvas and Mission Control specs wait on `waitForCanvasSettled` from
-  `tests/playwright/helpers/canvas-inspect.ts`. It watches projected geometry
-  across animation frames, so a spec waits for the app surface instead of a
-  blanket sleep.
-- Daemon-killing coverage is isolated in the restart project. Specs tagged
-  `@restart` are excluded from shared `smoke`, `golden`, and `full` runs, then
-  executed serially so ordinary shards do not lose their daemon mid-test.
-- The default fixture snapshots state with `snapshotBaseline` and tears down
-  only test-created work with `diffReset` from `tests/playwright/helpers/reset.ts`.
-  Fixture setup may self-heal a dead dev daemon, but one crash must fail one
-  test, not cascade into a whole shard.
-- Agent-flow golden tests use the debug-only `CODETERM_STUB_AGENT_CMD` transport
-  when real provider liveness is not the oracle. The replayer lives under
-  `tests/playwright/fixtures/stub-agent/` and preserves the real provider launch,
-  parser, detection, status, and session paths.
-- Playwright measurement harnesses live outside flow assertions. Latency, rAF,
-  longtask, and replay-speed probes produce metrics artifacts; product-flow
-  specs assert behavior and keep their own caps tight.
+Use the project's own fixtures for readiness and cleanup. Wait for observable
+UI state, isolate restart scenarios from shared runs, and remove only state
+created by the test. Use recorded providers when provider liveness is not the
+oracle. Keep measurement harnesses separate from product-flow assertions.
 
 ## 5. Testing systems that contain agents
 
@@ -137,9 +120,6 @@ reds — the trace/log excerpt naming the failing oracle. "Passed locally" with
 no command is not evidence. Skipped suites are listed with reasons; silent
 skips read as coverage that does not exist.
 
-check-queue, check-tests and clippy --all-targets type-check the bin against MockRuntime.
-The Wry world is checked by clippy --workspace in the full gate, by check-queue's dev-lib check (Tone, task_10jzuo) and by every dev and production build.
-
 ## 10. Behavior, not copy
 
 A test asserts behavior: results, state transitions, delivery, accessibility
@@ -165,14 +145,4 @@ When a value must match, import the shared constant instead of quoting it.
   red-green demo and the isolation-first run of each new test. A test-author
   report without a red-green demo bounces.
 
-## Embedded docs decision
-
-Ship this charter through the embedded documentation registry, not only as a repo doc.
-Rationale: it is tier-3 product-general operating knowledge for agents who
-write tests in any project, and it passes the stranger's-repo check because
-the rules name no Domios-only internals beyond the CLI smoke-run examples.
-Keeping the repo path in the role_guidance still matters for local contributors;
-the embedded copy gives spawned agents a stable recovery path when they are
-outside this checkout.
-
-<!-- revision: 10 -->
+<!-- revision: 11 -->

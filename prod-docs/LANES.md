@@ -71,8 +71,6 @@ so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
 
-<!-- revision: 19 -->
-
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not Domios's own repository layout.
 
@@ -105,28 +103,16 @@ about lifecycle and evidence, not Domios's own repository layout.
    integration target. Never cherry-pick, squash, replay, or patch-copy lane
    commits. Rebase the lane onto the target when necessary, re-run its bounded
    review, then merge the lane itself.
-7. Run `scripts/merge-stack-audit.sh --target <candidate> <accepted-lane>...`
-   before final QA and the master PR. `MERGED` is clean; `PATCH_LANDED_STALE`
-   is only patch-equivalence evidence, not ancestry proof. `PATCH_LANDED_STALE`
-   and `UNLANDED` both fail the release gate until the lane is ancestry-merged
-   or explicitly deferred with a reason.
+7. Before final QA, prove each accepted lane is an ancestor of the integration
+   candidate with `git merge-base --is-ancestor <accepted-lane> <candidate>`.
+   Patch equivalence does not prove ancestry. Merge any missing lane or record
+   an explicit deferral before continuing.
 8. After acceptance, immediately remove merged branches, clean worktrees, stop
    lane-specific dev daemons, and record cleanup status. Deletion-only branch
    pushes must not run build gates.
 9. Before every milestone or release close, run a stale-lane sweep: every branch
    and worktree gets one verdict: merged and cleaned, bounced, deferred
    with a recorded reason, or abandoned with rationale.
-
-Mechanism ownership:
-
-| Rule | Mechanism owner |
-|------|-----------------|
-| Code-only worker template and report refusal | `task_5a6d58c5` |
-| State transition invariants | `task_7140a28c` |
-| Lane liveness and stale labels | `task_1d0572d0` |
-| Board/card lane visibility | `task_03bf8da6` / `task_73ea1b9d` |
-| Auto cleanup | `task_540e7afa` |
-| Polling-smell nudges | `task_25dbe180` |
 
 ## Transfer an acknowledged Worker between Teams
 
@@ -142,4 +128,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 3 -->
+<!-- revision: 20 -->

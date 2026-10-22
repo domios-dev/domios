@@ -209,18 +209,4 @@ librarian_enabled = true
 
 There is no per-session config: each provider owns where its sessions live. The `codeterm sessions` commands and `/api/sessions/*` find and resume them; `codeterm docs API-STATE` has the contract.
 
-## Dev/Prod Isolation
-
-Dev builds use separate paths and ports to avoid conflicts with production:
-
-| Setting | Dev | Prod |
-|---------|-----|------|
-| Identifier | `com.codeterm.dev` | `com.codeterm.app` |
-| API port | 7686 | 7685 |
-| Data dir | `~/.codeterm-dev/` | `~/.codeterm/` |
-| Socket prefix | `codeterm-dev` | `codeterm` |
-| Single-instance | Disabled | Enabled |
-
-Both builds can run simultaneously.
-
-<!-- revision: 30 -->
+<!-- revision: 31 -->

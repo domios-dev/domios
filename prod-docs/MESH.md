@@ -14,7 +14,7 @@ Discovery (mDNS/UDP/Tailscale) finds peers on the network. Paired peers are show
 
 Mesh pairing and peer calls require both daemons to run Domios 1.15.0 or later. A 1.14.9 peer receives a version error explaining that both peers must be upgraded; update peers through the updater before pairing or using the mesh.
 
-Broadcast requires a live, health-proven remote listener. A loopback-only or unready instance refuses with `mesh_listener_not_remotely_ready` before enabling broadcast; it never advertises LAN access merely because that interface exists. Discovery records carry the development flag and only addresses served by the ready listener set. Named dev instances can opt into an additional authenticated tailnet listener while retaining loopback; see `codeterm docs CONFIG`. An empty discovery snapshot is not proof that asynchronous resolution has ended.
+Broadcast requires a live, health-proven remote listener. A loopback-only or unready instance refuses with `mesh_listener_not_remotely_ready` before enabling broadcast; it never advertises LAN access merely because that interface exists. Discovery records carry the development flag and only addresses served by the ready listener set. An empty discovery snapshot is not proof that asynchronous resolution has ended.
 
 When discovery cannot cross API ports, connect directly:
 
@@ -201,4 +201,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 54 -->
+<!-- revision: 55 -->
