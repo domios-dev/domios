@@ -22,31 +22,47 @@ pub(crate) enum Pending {
     Reuse(Vec<String>),
 }
 
-fn entries(conn: &Connection, blobs: &std::path::Path, area: &str) -> Result<Vec<Entry>, String> {
+fn load_entries(
+    conn: &Connection,
+    blobs: &std::path::Path,
+    area: &str,
+    validate: bool,
+) -> Result<Vec<Entry>, String> {
     let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND m.area=?1 AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id LIMIT 51").map_err(|error|error.to_string())?;
     let ids = stmt
         .query_map(params![area, SOURCE], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
-    ids.into_iter()
-        .map(|id| {
-            let item = store::get(conn, &id, blobs)?.ok_or("Blueprint solution disappeared")?;
-            let stats = metadata::read(conn, &id)?
-                .and_then(|record| record.blueprint)
-                .ok_or("Blueprint metadata absent")?;
-            Ok(Entry {
-                id,
-                document: model::parse_document(&item.body)?,
-                when_to_use: stats.when_to_use,
-                uses: stats.uses,
-                successes: stats.successes,
-                failures: stats.failures,
-                kept: stats.explicitly_kept,
-                last_used: stats.last_used,
-            })
-        })
-        .collect()
+    let mut result = Vec::new();
+    for id in ids {
+        let item = store::get(conn, &id, blobs)?.ok_or("Blueprint solution disappeared")?;
+        let stats = metadata::read(conn, &id)?
+            .and_then(|record| record.blueprint)
+            .ok_or("Blueprint metadata absent")?;
+        let document = match model::parse_document(&item.body) {
+            Ok(document) if !validate || document.template_errors().is_empty() => document,
+            _ => {
+                archive(conn, &id, "Blueprint recipe fails current validation")?;
+                continue;
+            }
+        };
+        result.push(Entry {
+            id,
+            document,
+            when_to_use: stats.when_to_use,
+            uses: stats.uses,
+            successes: stats.successes,
+            failures: stats.failures,
+            kept: stats.explicitly_kept,
+            last_used: stats.last_used,
+        });
+    }
+    Ok(result)
+}
+
+fn entries(conn: &Connection, blobs: &std::path::Path, area: &str) -> Result<Vec<Entry>, String> {
+    load_entries(conn, blobs, area, true)
 }
 
 fn archive(conn: &Connection, id: &str, reason: &str) -> Result<(), String> {
@@ -162,7 +178,7 @@ impl MemManager {
         let yaml = document.yaml()?;
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-        let mut library = entries(&tx, &self.blobs_dir, area)?;
+        let mut library = load_entries(&tx, &self.blobs_dir, area, !evidence.kept)?;
         let now = chrono::Utc::now();
         let id = if let Some(existing) = model::duplicate(&library, &document) {
             let mut record =
@@ -181,6 +197,10 @@ impl MemManager {
             let mut next = model::merge_pair(existing, &candidate)
                 .ok_or("Blueprint structure changed")?
                 .keeper;
+            if evidence.kept {
+                next.document = candidate.document;
+                next.when_to_use = candidate.when_to_use;
+            }
             next.id = existing.id.clone();
             record.observe(&evidence, now.timestamp());
             write_entry(&tx, &self.blobs_dir, &next, record)?;

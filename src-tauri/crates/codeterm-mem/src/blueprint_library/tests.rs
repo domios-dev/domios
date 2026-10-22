@@ -395,3 +395,127 @@ fn kept_solution_round_trips_through_recall_and_memory_recipe() {
         }
     }
 }
+
+fn echo_document() -> Document {
+    Document::from_definition(&json!({"spec":{
+        "name":"echo-test", "note":"Print readiness", "owner":"team",
+        "trigger":{"type":"schedule","every":"1m"},
+        "steps":[{"name":"Echo","input":"text","kind":{"kind":"command","command":"Write-Output ready"}}],
+        "result":{"to":"notify"}
+    }})).unwrap()
+}
+
+fn corrupt_saved_echo(mem: &MemManager, id: &str) {
+    let mut broken = model::abstract_document(echo_document());
+    broken.pipeline.as_mut().unwrap()["steps"][0]["on"] = serde_json::Value::Null;
+    broken.inputs.insert(
+        "pipeline_steps_0_run".into(),
+        broken.inputs["command"].clone(),
+    );
+    assert_eq!(
+        model::structure(&broken),
+        model::structure(&echo_document())
+    );
+    let conn = mem.conn.lock();
+    store::update(
+        &conn,
+        id,
+        &store::MemUpdate {
+            body: Some(broken.yaml().unwrap()),
+            ..Default::default()
+        },
+        &mem.blobs_dir,
+    )
+    .unwrap();
+    let mut record = metadata::read(&conn, id).unwrap().unwrap();
+    record.blueprint.as_mut().unwrap().uses = 7;
+    metadata::write(&conn, id, &record).unwrap();
+}
+
+#[test]
+fn explicit_keep_replaces_broken_equivalent_recipe_preserving_id_and_statistics() {
+    let mem = std::sync::Arc::new(MemManager::open_in_memory().unwrap());
+    let id = mem
+        .save_blueprint("project", echo_document(), "Old phrase", evidence())
+        .unwrap()
+        .unwrap();
+    corrupt_saved_echo(&mem, &id);
+    let again = mem
+        .save_blueprint(
+            "project",
+            echo_document(),
+            "Brand new echo phrase",
+            evidence(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(again, id);
+    let recipe = mem.blueprint_recipe("project", &id).unwrap();
+    assert_eq!(recipe.inputs.len(), 1);
+    assert!(recipe.inputs.contains_key("command"));
+    assert_eq!(
+        recipe.bind(&["command=Write-Output ready".into()]).unwrap(),
+        echo_document().bind(&[]).unwrap()
+    );
+    let stats = mem
+        .solution_metadata(&id)
+        .unwrap()
+        .unwrap()
+        .blueprint
+        .unwrap();
+    assert_eq!(stats.successes, 2);
+    assert_eq!(stats.uses, 7);
+    assert_eq!(stats.when_to_use, "Brand new echo phrase");
+}
+
+#[test]
+fn recall_archives_invalid_recipes_without_hiding_valid_ones() {
+    let mem = std::sync::Arc::new(MemManager::open_in_memory().unwrap());
+    let id = mem
+        .save_blueprint("project", echo_document(), "Echo readiness", evidence())
+        .unwrap()
+        .unwrap();
+    corrupt_saved_echo(&mem, &id);
+    let valid = mem
+        .save_blueprint(
+            "project",
+            document("done"),
+            "Echo valid watcher",
+            evidence(),
+        )
+        .unwrap()
+        .unwrap();
+    let recalled = mem.recall_blueprints("project", "Echo", 3).unwrap();
+    assert_eq!(recalled.len(), 1);
+    assert_eq!(recalled[0].id, valid);
+    assert_archived(&mem, &id);
+    assert!(mem.blueprint_recipe("project", &id).is_err());
+    let conn = mem.conn.lock();
+    store::update(
+        &conn,
+        &valid,
+        &store::MemUpdate {
+            body: Some("not: [valid YAML".into()),
+            ..Default::default()
+        },
+        &mem.blobs_dir,
+    )
+    .unwrap();
+    drop(conn);
+    assert!(mem
+        .recall_blueprints("project", "Echo", 3)
+        .unwrap()
+        .is_empty());
+    assert_archived(&mem, &valid);
+}
+
+fn assert_archived(mem: &MemManager, id: &str) {
+    let kind: String = mem
+        .conn
+        .lock()
+        .query_row("SELECT kind FROM mem_items WHERE id=?1", [id], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(kind, "archived");
+}
