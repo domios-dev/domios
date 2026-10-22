@@ -28,13 +28,35 @@ impl ScopedResolver<'_> {
     }
 }
 impl MemoryResolver for ScopedResolver<'_> {
+    fn retain(&self, callee: &calls::FrozenCallee) -> Result<(), String> {
+        if !callee.id.starts_with("catalog:") {
+            return Ok(());
+        }
+        super::catalog::document(&callee.id)?;
+        callee.verify()?;
+        let body = serde_json::to_string(&callee.document).map_err(|e| e.to_string())?;
+        self.conn.execute("INSERT INTO blueprint_call_revisions(item_id,hash,area,team,document) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(item_id,hash,area,team) DO NOTHING",params![callee.id,callee.hash,self.area,self.team,body]).map_err(|e|e.to_string())?;
+        let prior:String=self.conn.query_row("SELECT document FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND area=?3 AND team=?4",params![callee.id,callee.hash,self.area,self.team],|r|r.get(0)).map_err(|e|e.to_string())?;
+        if prior != body {
+            return Err("Immutable catalog revision collision or corruption".into());
+        }
+        Ok(())
+    }
     fn head(&self, id: &str) -> Result<Document, String> {
+        if id.starts_with("catalog:") {
+            return super::catalog::document(id);
+        }
         let id = self.id(id)?;
         let item = store::get(self.conn, id, self.blobs)?.ok_or("Missing callee")?;
         model::parse_document(&item.body)
     }
     fn revision(&self, pin: &CallPin) -> Result<Document, String> {
-        let id = self.id(&pin.id)?;
+        let id = if pin.id.starts_with("catalog:") {
+            super::catalog::document(&pin.id)?;
+            pin.id.as_str()
+        } else {
+            self.id(&pin.id)?
+        };
         let raw:Option<String>=self.conn.query_row("SELECT document FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND area=?3 AND team=?4",params![id,pin.hash,self.area,self.team],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
         let document: Document = serde_json::from_str(
             &raw.ok_or_else(|| format!("Missing pinned hash {}@{}", pin.id, pin.hash))?,

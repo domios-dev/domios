@@ -125,6 +125,12 @@ impl BlueprintApplyExt for ServiceContext {
                     .into(),
             );
         }
+        let call_drift = serde_json::to_value(self.mem.blueprint_call_drift(
+            &format!("blueprints:{}", caller.workspace),
+            caller.team.as_deref().ok_or("Call requires a Team")?,
+            document.clone(),
+        )?)
+        .map_err(|error| error.to_string())?;
         let handle = self
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
@@ -231,12 +237,7 @@ impl BlueprintApplyExt for ServiceContext {
                 Err(error) => Staged::ready(Ok(Err(error))),
             }
         })??;
-        result["call_drift"] = serde_json::to_value(self.mem.blueprint_call_drift(
-            &format!("blueprints:{}", caller.workspace),
-            caller.team.as_deref().ok_or("Call requires a Team")?,
-            document,
-        )?)
-        .map_err(|error| error.to_string())?;
+        result["call_drift"] = call_drift;
         result["diagnostics"] =
             serde_json::to_value(diagnostics).map_err(|error| error.to_string())?;
         handle.notify();

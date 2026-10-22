@@ -158,7 +158,11 @@ pub(crate) fn execute(
         .team_id
         .as_deref()
         .ok_or(JournalReason::ContractViolation)?;
-    if closure.callees.values().any(|c| c.id.starts_with("mem:")) {
+    if closure
+        .callees
+        .values()
+        .any(|c| calls::saved_reference(&c.id))
+    {
         ctx.service
             .mem
             .blueprint_call_drift(
@@ -182,8 +186,15 @@ pub(crate) fn execute(
         .iter()
         .map(|(id, value)| (id.clone(), value.value.clone()))
         .collect();
-    let values = calls::arguments(call, &ctx.call_state.inputs, &outputs)
+    let mut values = calls::arguments(call, &ctx.call_state.inputs, &outputs)
         .map_err(|_| JournalReason::ContractViolation)?;
+    for (name, port) in &callee.document.inputs {
+        if !values.contains_key(name) {
+            if let Some(value) = &port.default {
+                values.insert(name.clone(), value.clone());
+            }
+        }
+    }
     let assignments = values
         .iter()
         .map(|(key, value)| {

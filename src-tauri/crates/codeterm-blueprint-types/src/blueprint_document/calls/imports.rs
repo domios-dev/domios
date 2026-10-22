@@ -141,6 +141,18 @@ impl Resolver<'_> {
         path: &Path,
         inherited: Option<&BTreeMap<String, SubBlueprint>>,
     ) -> Result<Parsed, Vec<Diagnostic>> {
+        if self.local_files {
+            self.total_bytes = self
+                .total_bytes
+                .saturating_add(super::source::freeze(&mut parsed, path)?);
+            if self.total_bytes > MAX_CLOSURE_BYTES {
+                return Err(vec![finding(
+                    &parsed,
+                    "steps",
+                    "budget_exhausted: code source closure",
+                )]);
+            }
+        }
         let definitions = if parsed.document.blueprints.is_empty() {
             inherited.cloned().unwrap_or_default()
         } else {
@@ -165,7 +177,7 @@ impl Resolver<'_> {
             {
                 continue;
             }
-            let callee = if target.starts_with("mem:") {
+            let callee = if saved_reference(&target) {
                 self.mem(&target, None, &parsed, &format!("imports.{alias}"))?
             } else {
                 self.local(&target, path, &parsed, &format!("imports.{alias}"))?
@@ -185,7 +197,7 @@ impl Resolver<'_> {
                 continue;
             };
             let callee = if let Some(pin) = &call.pin {
-                if pin.id.starts_with("mem:") {
+                if saved_reference(&pin.id) {
                     self.mem(&pin.id, Some(pin), &parsed, &field)?
                 } else {
                     let frozen = self
@@ -226,7 +238,7 @@ impl Resolver<'_> {
                 )?;
                 self.stack.pop();
                 self.snapshot(identity, resolved, None)?
-            } else if call.reference.starts_with("mem:") {
+            } else if saved_reference(&call.reference) {
                 self.mem(&call.reference, None, &parsed, &field)?
             } else {
                 return Err(vec![finding(
@@ -281,6 +293,9 @@ impl Resolver<'_> {
         frozen
             .verify()
             .map_err(|e| vec![finding(&parsed, "result", e)])?;
+        self.memory
+            .retain(&frozen)
+            .map_err(|e| vec![finding(&parsed, "dependencies", e)])?;
         self.insert(frozen.clone(), &parsed, "")?;
         Ok(frozen)
     }

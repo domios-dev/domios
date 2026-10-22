@@ -132,8 +132,7 @@ fn blueprint_update_refuses_unversioned_definitions_and_history() {
         assert!(request(
             BlueprintAction::Update {
                 note: None,
-                id: Some("graph".into()),
-                file: None,
+                id: "graph".into(),
                 expect_version: 1,
                 from_file: path.clone(),
                 cause: None,
@@ -432,8 +431,7 @@ mod command_tests {
         let (method, params) = request(
             BlueprintAction::Update {
                 note: None,
-                id: Some("graph".into()),
-                file: None,
+                id: "graph".into(),
                 expect_version: 2,
                 from_file: path,
                 cause: Some("transition_1".into()),
@@ -489,8 +487,7 @@ mod command_tests {
         assert!(request(
             BlueprintAction::Update {
                 note: None,
-                id: Some("graph".into()),
-                file: None,
+                id: "graph".into(),
                 expect_version: 2,
                 from_file: path,
                 cause: None,

@@ -33,6 +33,16 @@ impl MemManager {
         intents: &[String],
         mut evidence: Evidence,
     ) -> Result<PreparedBlueprint, String> {
+        if document.trigger.is_none()
+            && document.result.port.is_some()
+            && codeterm_blueprint_types::blueprint_document::calls::has_unsealed_code_files(
+                &document,
+            )
+        {
+            return Err(
+                "Callable code files must be frozen into inline source bytes before saving".into(),
+            );
+        }
         let intents = model::validate_intents(intents)?;
         let joined = intents.join("; ");
         let when_to_use = joined.as_str();

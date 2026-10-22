@@ -177,7 +177,7 @@ pub(super) fn dispatch(
             .map_err(|e| error(e.to_string())),
         "blueprint.show" => {
             let id = get_string_param(params, "id")?;
-            if id.starts_with("mem:") {
+            if codeterm_blueprint_types::blueprint_document::calls::saved_reference(&id) {
                 return codeterm_sentinel_host::blueprint_calls::show_callable(svc, &caller, &id)
                     .map_err(error);
             }
