@@ -164,9 +164,11 @@ pub(crate) fn system_notice_target_refusal(
     Some("tab has no agent identity, launch, or chat backend")
 }
 
-/// Build the ordered PTY actions from gateway strokes, mirroring the HTTP route:
-/// a `\r` key becomes a Submit, every other key its raw bytes.
-fn build_ordered(strokes: &[KeyStroke]) -> Result<Vec<OrderedPtyAction>, String> {
+fn build_ordered(
+    svc: &super::ServiceContext,
+    tab: &str,
+    strokes: &[KeyStroke],
+) -> Result<Vec<OrderedPtyAction>, String> {
     let mut ordered = Vec::with_capacity(strokes.len());
     for stroke in strokes {
         match stroke {
@@ -174,9 +176,13 @@ fn build_ordered(strokes: &[KeyStroke]) -> Result<Vec<OrderedPtyAction>, String>
                 std::time::Duration::from_millis(*ms),
             )),
             KeyStroke::Key(key) => {
-                let bytes = crate::agent::keys::action_key_bytes(key)
+                let bytes = svc
+                    .encode_pty_action_key(tab, key)
                     .ok_or_else(|| format!("unknown action key: {key}"))?;
-                if bytes == b"\r" {
+                if matches!(
+                    key.replace('_', "-").to_ascii_lowercase().as_str(),
+                    "enter" | "return"
+                ) {
                     ordered.push(OrderedPtyAction::Submit);
                 } else {
                     ordered.push(OrderedPtyAction::Raw(bytes));
@@ -215,7 +221,7 @@ impl DeliverySeam for super::ServiceContext {
     }
 
     fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
-        let ordered = build_ordered(strokes)?;
+        let ordered = build_ordered(self, tab, strokes)?;
         execute_ordered_actions(
             text,
             &ordered,
