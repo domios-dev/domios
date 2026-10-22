@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Caller: CI release-manifest-validate.yml; scripts tests/release-notes-sync.test.mjs, tests/test_release_workflow_contract.py; skill github-release
 
+import { manualInstallNotes } from "./legacy-updater-refusal.mjs";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,11 +14,11 @@ const DEFAULT_MIRROR = "rollacode/codeterm-releases";
 export function isPlaceholderBody(body, tag) {
   const text = body.trim();
   const version = tag.replace(/^v/, "");
-  const exact = new Set([tag, `CodeTerm ${tag}`, `CodeTerm v${version}`]);
+  const exact = new Set([tag, `Domios ${tag}`, `Domios v${version}`]);
   return (
     text.length === 0 ||
     exact.has(text) ||
-    /^Auto-mirrored release artifacts for CodeTerm\b/i.test(text) ||
+    /^Auto-mirrored release artifacts for Domios\b/i.test(text) ||
     /^Auto-mirrored from rollacode\/codeterm\b/i.test(text) ||
     /^See the assets to download this version and install\./i.test(text)
   );
@@ -26,8 +27,8 @@ export function isPlaceholderBody(body, tag) {
 export function canonicalGeneratedBody(tag, generated) {
   const text = generated.trim();
   if (!text) throw new Error(`GitHub generated empty release notes for ${tag}`);
-  if (/^## CodeTerm\b/.test(text)) return text;
-  return `## CodeTerm ${tag.replace(/^v/, "")}\n\n${text}`;
+  if (/^## Domios\b/.test(text)) return text;
+  return `## Domios ${tag.replace(/^v/, "")}\n\n${text}`;
 }
 
 export function isGeneratedBody(body) {
@@ -41,7 +42,7 @@ export function canonicalPullRequestBody(tag, pullRequestBody) {
     .join("\n")
     .trim();
   if (!cleaned) throw new Error(`release PR for ${tag} has an empty body`);
-  const heading = `## CodeTerm ${tag.replace(/^v/, "")}`;
+  const heading = `## Domios ${tag.replace(/^v/, "")}`;
   return /^##\s+.+$/m.test(cleaned)
     ? cleaned.replace(/^##\s+.+$/m, heading)
     : `${heading}\n\n${cleaned}`;
@@ -116,7 +117,7 @@ export function chooseCanonicalBody(tag, sourceBody, replacementBody) {
   if (isPlaceholderBody(body, tag) || body.length < 80) {
     throw new Error(`release notes for ${tag} are still not meaningful`);
   }
-  return body;
+  return tag === "v1.15.2" && !body.includes("### Move from CodeTerm 1.15.1") ? `${body}\n\n${manualInstallNotes}` : body;
 }
 
 function prepareTag(sourceRepo, mirrorRepo, tag) {

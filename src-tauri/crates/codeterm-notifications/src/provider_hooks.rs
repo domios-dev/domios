@@ -304,7 +304,7 @@ fn infer_consent_for_owned_install(
         );
         provider.extra.insert(
             "integration_consent_note".into(),
-            toml::Value::String("inferred from an existing CodeTerm-owned integration".into()),
+            toml::Value::String("inferred from an existing Domios-owned integration".into()),
         );
     }
     true

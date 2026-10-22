@@ -3,8 +3,8 @@ use super::{windows_helper_broker_script, windows_install_script};
 fn install_script() -> String {
     windows_install_script(
         std::path::Path::new("install.log"),
-        "CodeTerm_setup.exe",
-        std::path::Path::new(r"C:\Users\me\AppData\Local\codeterm\domios.exe"),
+        "Domios_setup.exe",
+        std::path::Path::new(r"C:\Users\me\AppData\Local\Domios\domios-app.exe"),
     )
 }
 
@@ -13,10 +13,10 @@ fn helper_stops_only_installed_processes_and_relaunches_the_domios_client() {
     let script = install_script();
 
     assert!(
-        script.contains(r"StartsWith('C:\Users\me\AppData\Local\codeterm\', 'OrdinalIgnoreCase')")
+        script.contains(r"StartsWith('C:\Users\me\AppData\Local\Domios\', 'OrdinalIgnoreCase')")
     );
     assert!(!script.contains("taskkill /F /IM"));
-    assert!(script.contains(r#"start "" "C:\Users\me\AppData\Local\codeterm\domios.exe""#));
+    assert!(script.contains(r#"start "" "C:\Users\me\AppData\Local\Domios\domios-app.exe""#));
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn installed_daemon_launch_scrubs_dev_and_build_environment() {
 
     let scrub = script.find("set CODETERM ").unwrap();
     let launch = script
-        .find("start \"\" \"C:\\Users\\me\\AppData\\Local\\codeterm\\domios.exe\"")
+        .find("start \"\" \"C:\\Users\\me\\AppData\\Local\\Domios\\domios-app.exe\"")
         .unwrap();
     assert!(scrub < launch);
     for variable in [

@@ -129,7 +129,7 @@ async fn fetch_http(url: &str) -> Result<Manifest, String> {
         .map_err(|e| e.to_string())?;
     }
     let client = reqwest::Client::builder()
-        .user_agent("CodeTerm-Updater")
+        .user_agent("Domios-Updater")
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client

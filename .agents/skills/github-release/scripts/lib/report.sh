@@ -37,7 +37,7 @@ _report_kv_line() {
 #
 # Usage:
 #   report_ready WINDOWS_READY=$VER sig="$SIG" <<EOF
-#   Built CodeTerm $VER.nsis.zip; signed with $KEY_NAME.
+#   Built Domios $VER.nsis.zip; signed with $KEY_NAME.
 #   EOF
 report_ready() {
   _report_kv_line "$@"

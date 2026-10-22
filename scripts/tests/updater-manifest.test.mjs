@@ -131,7 +131,7 @@ test("verification passes for signed bytes and fails once the artifact is rebuil
   const dir = scratch();
   try {
     const { pubkeyField, signatureFor } = minisignKeypair();
-    const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+    const artifact = path.join(dir, "Domios_aarch64.app.tar.gz");
     writeFileSync(artifact, Buffer.from("run-1 artifact bytes"));
     const manifest = path.join(dir, "latest.json");
     writeFileSync(
@@ -141,7 +141,7 @@ test("verification passes for signed bytes and fails once the artifact is rebuil
         pub_date: "2026-01-01T00:00:00Z",
         platforms: {
           "darwin-aarch64": {
-            url: "https://example.invalid/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+            url: "https://example.invalid/v9.9.9/Domios_aarch64.app.tar.gz",
             signature: signatureFor(readFileSync(artifact)),
           },
         },
@@ -166,8 +166,8 @@ test("mac updater contract requires both architectures and maps M2 to the arm ar
   const dir = scratch();
   try {
     const { pubkeyField, signatureFor } = minisignKeypair();
-    const armArtifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
-    const intelArtifact = path.join(dir, "CodeTerm_x64.app.tar.gz");
+    const armArtifact = path.join(dir, "Domios_aarch64.app.tar.gz");
+    const intelArtifact = path.join(dir, "Domios_x64.app.tar.gz");
     writeFileSync(armArtifact, Buffer.from("arm64 updater bytes"));
     writeFileSync(intelArtifact, Buffer.from("x64 updater bytes"));
     const manifest = path.join(dir, "latest.json");
@@ -178,11 +178,11 @@ test("mac updater contract requires both architectures and maps M2 to the arm ar
         pub_date: "2026-01-01T00:00:00Z",
         platforms: {
           "darwin-aarch64": {
-            url: "https://example.invalid/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+            url: "https://example.invalid/v9.9.9/Domios_aarch64.app.tar.gz",
             signature: signatureFor(readFileSync(armArtifact)),
           },
           "darwin-x86_64": {
-            url: "https://example.invalid/v9.9.9/CodeTerm_x64.app.tar.gz",
+            url: "https://example.invalid/v9.9.9/Domios_x64.app.tar.gz",
             signature: signatureFor(readFileSync(intelArtifact)),
           },
         },
@@ -219,7 +219,7 @@ test("mac updater contract rejects an Intel artifact under the Apple Silicon key
         version: "9.9.9",
         platforms: {
           "darwin-aarch64": {
-            url: "https://example.invalid/v9.9.9/CodeTerm_x64.app.tar.gz",
+            url: "https://example.invalid/v9.9.9/Domios_x64.app.tar.gz",
             signature: "unused",
           },
         },
@@ -228,7 +228,7 @@ test("mac updater contract rejects an Intel artifact under the Apple Silicon key
 
     const result = verify(dir, manifest, pubkeyField);
     assert.equal(result.code, 1);
-    assert.match(result.stdout, /darwin-aarch64 must reference CodeTerm_aarch64\.app\.tar\.gz/);
+    assert.match(result.stdout, /darwin-aarch64 must reference Domios_aarch64\.app\.tar\.gz/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -240,7 +240,7 @@ test("verification refuses a manifest belonging to a different release", () => {
   const dir = scratch();
   try {
     const { pubkeyField, signatureFor } = minisignKeypair();
-    const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+    const artifact = path.join(dir, "Domios_aarch64.app.tar.gz");
     writeFileSync(artifact, Buffer.from("v9.9.8 artifact bytes"));
     const manifest = path.join(dir, "latest.json");
     writeFileSync(
@@ -250,7 +250,7 @@ test("verification refuses a manifest belonging to a different release", () => {
         pub_date: "2026-01-01T00:00:00Z",
         platforms: {
           "darwin-aarch64": {
-            url: "https://github.com/rollacode/codeterm-releases/releases/download/v9.9.8/CodeTerm_aarch64.app.tar.gz",
+            url: "https://github.com/rollacode/codeterm-releases/releases/download/v9.9.8/Domios_aarch64.app.tar.gz",
             signature: signatureFor(readFileSync(artifact)),
           },
         },
@@ -273,7 +273,7 @@ test("verification refuses artifacts served from another release's tag", () => {
   const dir = scratch();
   try {
     const { pubkeyField, signatureFor } = minisignKeypair();
-    const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+    const artifact = path.join(dir, "Domios_aarch64.app.tar.gz");
     writeFileSync(artifact, Buffer.from("carried-over artifact bytes"));
     const manifest = path.join(dir, "latest.json");
     // The version field was bumped; the URL still points at the previous tag's
@@ -285,7 +285,7 @@ test("verification refuses artifacts served from another release's tag", () => {
         pub_date: "2026-01-01T00:00:00Z",
         platforms: {
           "darwin-aarch64": {
-            url: "https://github.com/rollacode/codeterm-releases/releases/download/v9.9.8/CodeTerm_aarch64.app.tar.gz",
+            url: "https://github.com/rollacode/codeterm-releases/releases/download/v9.9.8/Domios_aarch64.app.tar.gz",
             signature: signatureFor(readFileSync(artifact)),
           },
         },
@@ -305,7 +305,7 @@ test("a passing verification emits the evidence record that authorises closure",
   const dir = scratch();
   try {
     const { pubkeyField, signatureFor } = minisignKeypair();
-    const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+    const artifact = path.join(dir, "Domios_aarch64.app.tar.gz");
     writeFileSync(artifact, Buffer.from("v9.9.9 artifact bytes"));
     const manifest = path.join(dir, "latest.json");
     writeFileSync(
@@ -315,7 +315,7 @@ test("a passing verification emits the evidence record that authorises closure",
         pub_date: "2026-01-01T00:00:00Z",
         platforms: {
           "darwin-aarch64": {
-            url: "https://github.com/rollacode/codeterm-releases/releases/download/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+            url: "https://github.com/rollacode/codeterm-releases/releases/download/v9.9.9/Domios_aarch64.app.tar.gz",
             signature: signatureFor(readFileSync(artifact)),
           },
         },
@@ -345,7 +345,7 @@ test("a failing verification records the failure instead of omitting the evidenc
   const dir = scratch();
   try {
     const { pubkeyField, signatureFor } = minisignKeypair();
-    const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+    const artifact = path.join(dir, "Domios_aarch64.app.tar.gz");
     writeFileSync(artifact, Buffer.from("signed bytes"));
     const manifest = path.join(dir, "latest.json");
     writeFileSync(
@@ -354,7 +354,7 @@ test("a failing verification records the failure instead of omitting the evidenc
         version: "9.9.9",
         platforms: {
           "darwin-aarch64": {
-            url: "https://example.invalid/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+            url: "https://example.invalid/v9.9.9/Domios_aarch64.app.tar.gz",
             signature: signatureFor(readFileSync(artifact)),
           },
         },
@@ -381,7 +381,7 @@ function foreignOriginCase(name, url) {
     const dir = scratch();
     try {
       const { pubkeyField, signatureFor } = minisignKeypair();
-      const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+      const artifact = path.join(dir, "Domios_aarch64.app.tar.gz");
       writeFileSync(artifact, Buffer.from("v9.9.9 artifact bytes"));
       const manifest = path.join(dir, "latest.json");
       writeFileSync(
@@ -406,15 +406,15 @@ function foreignOriginCase(name, url) {
 
 foreignOriginCase(
   "the declared version alone does not make a foreign host acceptable",
-  "https://example.invalid/arbitrary/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+  "https://example.invalid/arbitrary/v9.9.9/Domios_aarch64.app.tar.gz",
 );
 
 foreignOriginCase(
   "an artifact served from the private source repo is not public release evidence",
-  "https://github.com/rollacode/codeterm/releases/download/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+  "https://github.com/rollacode/codeterm/releases/download/v9.9.9/Domios_aarch64.app.tar.gz",
 );
 
 foreignOriginCase(
   "a version segment outside the release download path is not provenance",
-  "https://github.com/rollacode/codeterm-releases/raw/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+  "https://github.com/rollacode/codeterm-releases/raw/v9.9.9/Domios_aarch64.app.tar.gz",
 );

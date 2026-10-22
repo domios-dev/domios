@@ -10,7 +10,7 @@ Dev/prod isolation, hooks, signing, outputs, icons, platform notes, and project 
 ## Dev/Prod Isolation
 
 Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
-- **Identifier:** `com.codeterm.dev` (vs `com.codeterm.app` in prod)
+- **Identifier:** `com.domios.dev` (vs `com.domios.app` in prod)
 - **API port:** 7686 (vs 7685 in prod)
 - **Data directory:** `~/.codeterm-dev/` (vs `~/.codeterm/`)
 - **Socket prefix:** `codeterm-dev` (vs `codeterm`)
@@ -85,9 +85,9 @@ After `./build.sh build`:
 | File | Location |
 |------|----------|
 | **NSIS installer** | printed build-gateway release target; see Local production build and self-install |
-| **MSI installer** | `src-tauri/target/release/bundle/msi/CodeTerm_X.Y.Z_x64_en-US.msi` |
-| **Portable exe** | `src-tauri/target/release/codeterm.exe` |
-| **CLI binary** | bundled in the production app; installed to `~/.codeterm/bin/` by production startup/update |
+| **MSI installer** | `src-tauri/target/release/bundle/msi/Domios_X.Y.Z_x64_en-US.msi` |
+| **Portable exe** | `src-tauri/target/release/domios-app.exe` |
+| **CLI binary** | bundled in the production app; installed to `~/.domios/bin/` by production startup/update |
 
 ## Running Tests
 

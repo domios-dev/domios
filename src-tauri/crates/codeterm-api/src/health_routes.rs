@@ -70,7 +70,7 @@ pub async fn identify(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     Ok(Json(serde_json::json!({
-        "name": "CodeTerm",
+        "name": "Domios",
         "version": codeterm_build_info::version(),
         "platform": std::env::consts::OS,
         "features": IDENTIFY_FEATURES

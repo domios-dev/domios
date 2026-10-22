@@ -141,7 +141,7 @@ gh workflow run release-publish.yml --repo rollacode/codeterm --ref master \
 on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. A rehearsal checks both
 tokens' write access, downloads and re-validates every retained byte and signature, and changes
 nothing. Publication creates both drafts, uploads the retained bytes (fragments only to the source
-draft) with read-back against each receipt, merges and verifies `latest.json`/`latest-deb.json`,
+draft) with read-back against each receipt, merges and verifies `domios-latest.json`/`domios-latest-deb.json`,
 tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. With
 repository variable `RELEASE_AUTO_PROMOTE=true`, every green dry run of a release branch publishes
 itself through the same workflow; otherwise the run waits for this command. Issue closure and the
@@ -182,8 +182,8 @@ consume the same final server/CLI/resources; packaging must not compile them aga
 1. `release-inputs --for-bundle` builds inputs and stages the actual frontend at
    `target/domios-package/dist` before Tauri compilation. Compile-only resource stubs are marked;
    they never authorize packaging.
-2. `tauri build --no-bundle` compiles the native client (`domios`, with .exe on Windows); the
-   packaged CLI stays `codeterm`. Linux's compile-only config empties resources/externalBin to
+2. `tauri build --no-bundle` compiles the native client (`domios-app`, with .exe on Windows); the
+   packaged CLI ships `domios` and `codeterm` from identical signed bytes. Linux's compile-only config empties resources/externalBin to
    avoid the raw server-file/resource-directory collision. Restore full platform maps for bundling.
    macOS also empties compile-only externalBin: tauri-build otherwise copies the sidecar stub
    over the already signed Cargo server when both share the target release directory.
@@ -222,10 +222,10 @@ Tauri resource_dir, not hardcoded installation paths. Platform overlays provide 
 Sign/freeze CLI and nested server first. Tauri's sidecar source needs a byte-identical
 `domios-server-<rust-target>` alias; the installed server is `Contents/MacOS/domios-server`.
 The manifest is sealed at `Contents/Resources/server-component.json`.
-Its client identity contains team_id, identifier `com.codeterm.app`, and exactly:
+Its client identity contains team_id, identifier `com.domios.app`, and exactly:
 
 ```text
-anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "<TEAMID>"
+anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "<TEAMID>"
 ```
 
 Derive TEAMID from the approved signing identity. Do not embed the final outer app cdhash inside
@@ -256,6 +256,50 @@ Headless users launch from the extracted root with
 `./domios-server/domios-server start --production --json` (Windows: the .exe equivalent).
 The default resource root is executable parent-parent; `--resources` overrides it. Authenticate
 through WebGate using protected local configuration. Never expose credentials in archive or output.
+
+## Manual move from CodeTerm (1.15.2)
+
+Publish [the exact owner install steps](../../../docs/release/1.15.2-manual-install.md)
+in both release bodies; `sync-release-notes.mjs` appends them for v1.15.2.
+Quit the old app and disable its autostart before installing Domios fresh:
+
+- Windows: run the new setup into `%LOCALAPPDATA%\Domios`, then run the old
+  uninstaller in `%LOCALAPPDATA%\CodeTerm` (normally `uninstall.exe`). Remove
+  any remaining `CodeTerm-Autostart` task and old shortcuts/pins.
+- macOS: install `/Applications/Domios.app` from its DMG, then delete
+  `/Applications/CodeTerm.app`. Remove the old Login Item and unload/remove
+  `~/Library/LaunchAgents/com.codeterm.app.plist` if present.
+- Linux: install the Domios package, then remove `codeterm` with the same package
+  manager (`sudo apt remove codeterm` or `sudo rpm -e codeterm`). Remove the old
+  AppImage/desktop entry instead for an AppImage install. Disable/remove the old
+  `codeterm.service` user unit. A package-file conflict requires removing the
+  old package before retrying the new install; never force-overwrite it.
+
+Launch Domios once to install/repair `~/.domios/bin/domios` and `codeterm`
+(the same CLI, with `.exe` on Windows), then re-enable autostart if desired.
+In a new terminal, `where.exe domios` / `where.exe codeterm` (Windows) or
+`command -v domios` / `command -v codeterm` (Unix) must select those CLI entries
+or their `~/.local/bin` links. Deb/RPM own `/usr/bin/domios` and `/usr/bin/codeterm`;
+the GUI is `domios-app[.exe]`, so CLI PATH never chooses a GUI executable.
+macOS and AppImage keep user CLI links; users control their shell PATH.
+The app never edits shell dotfiles. Remove old PATH entries,
+shortcuts, and URL/file handlers; verify `domios://` opens only Domios. Keep all
+`~/.domios` data. No automatic data migration, install shim or copied OS grants.
+
+macOS `com.domios.app` needs fresh TCC microphone/Accessibility grants; Keychain
+items authorized to the old signed identity may prompt or require sign-in again.
+Windows uses a new notification AUMID and preferences; allow Domios notifications.
+Verify those prompts on owner installs; source/config checks are not permission proof.
+
+The old 1.15.1 updater otherwise installs side by side on Windows, replaces the
+bundle at its old path on macOS, and risks side-by-side/conflicting packages on
+Linux (or an AppImage with the old filename). New clients exclusively use
+`domios-latest*.json`. Both publication paths generate `latest*.json` refusals
+for the old channels and Deb/RPM transports with manual notes and no platforms.
+Old discovery reports incompatible with these notes; forced install fails before
+artifact download or server shutdown. Metadata cannot add a custom old-binary dialog.
+Verify the served legacy refusals as well as the new signed manifests before calling
+publication complete. Never upload a Domios payload into a legacy manifest.
 
 ## Credentials, caches and runners
 
@@ -347,7 +391,7 @@ The final job assembles all six updater keys (darwin/windows/linux × aarch64/x8
 private draft bytes, publishes and verifies public served bytes with a cache-busted URL and required
 version/platforms using `scripts/verify-updater-manifest.mjs`. HTTP 200 alone proves no installability.
 A partial recovery cannot mint complete release evidence. Manual mirror repair needs owner GO and
-must reuse original verified artifacts/fragments, not handwrite a reduced latest.json.
+must reuse original verified artifacts/fragments, not handwrite a reduced domios-latest.json.
 
 Served bytes are not the whole proof: on a host still running the previous version,
 `domios update install --auto` must install this release and come back on the new pair with

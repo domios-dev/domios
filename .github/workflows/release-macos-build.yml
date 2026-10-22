@@ -170,12 +170,12 @@ jobs:
           mkdir -p "$ART"
           node scripts/collect-rust-warnings.mjs run --log ci-rust-warnings.log -- bash .agents/skills/github-release/scripts/mac-bundle.sh "${{ steps.ver.outputs.ver }}" "${{ matrix.arch }}" "$ART"
           if [ "${{ matrix.arch }}" = arm64 ]; then root=src-tauri/target/release; else root=src-tauri/target/x86_64-apple-darwin/release; fi
-          cp "$root/bundle/dmg/CodeTerm_${{ steps.ver.outputs.ver }}_${{ matrix.artifact_arch }}.dmg" "$ART/"
+          cp "$root/bundle/dmg/Domios_${{ steps.ver.outputs.ver }}_${{ matrix.artifact_arch }}.dmg" "$ART/"
 
       - name: Produce shared headless stage and package
         run: |
           if [ "${{ matrix.arch }}" = arm64 ]; then target=aarch64-apple-darwin; else target=x86_64-apple-darwin; fi
-          bundle="$ART/CodeTerm_${{ steps.ver.outputs.ver }}_${{ matrix.artifact_arch }}.app.tar.gz"
+          bundle="$ART/Domios_${{ steps.ver.outputs.ver }}_${{ matrix.artifact_arch }}.app.tar.gz"
           test -f "$bundle"
           node scripts/release-stage.mjs finalize --target "$target" --tag "${{ inputs.tag }}" \
             --version "${{ steps.ver.outputs.ver }}" --source-sha "${{ inputs.source_ref }}" \

@@ -138,6 +138,9 @@ jobs:
           node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
       - name: Source file size discipline
         run: bash scripts/check-file-sizes.sh --fail
+      - name: Installed application identity
+        if: ${{ !cancelled() }}
+        run: node scripts/check-installed-identity.mjs
       - name: Plugin release contracts
         if: ${{ !cancelled() }}
         run: ${{ fromJSON(steps.catalogue.outputs.commands)['plugin-release-contracts'] }}

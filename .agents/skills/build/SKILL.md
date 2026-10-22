@@ -779,9 +779,8 @@ The repair is never automatic. Run it yourself, once:
 
 ```powershell
 $exe = @(
-  "$env:LOCALAPPDATA\codeterm\codeterm.exe",
-  "$env:LOCALAPPDATA\Programs\codeterm\CodeTerm.exe",
-  "$env:ProgramFiles\CodeTerm\CodeTerm.exe"
+  "$env:LOCALAPPDATA\Domios\domios-app.exe",
+  "$env:ProgramFiles\Domios\domios-app.exe"
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 & $exe repair-user-path
 Get-Content "$env:TEMP\codeterm-user-path-repair.txt"
@@ -904,7 +903,7 @@ initialization. Smoke the produced bundled CLI directly as well.
 | `install-local` reports `tsc is not recognized` although `node_modules/.bin/tsc` exists | Git Bash supplied the MSVC environment to Tauri, but pnpm selected a nested Windows lifecycle shell that lost the local-bin lookup | Use the current build operation, which pins pnpm lifecycle scripts to Git Bash and supplies frontend provenance without a nested shell lookup, then retry `install-local`. |
 | Tauri `beforeBuildCommand` reports `pnpm is not recognized` during `install-local` | Tauri launched the configured hook through `cmd.exe` with Git Bash's POSIX-formatted `PATH`, so Windows could not resolve pnpm, Node, or Cargo | Use the current build operation, which prepares frontend, CLI, and embed inputs directly before invoking Tauri; retry `install-local` from canonical. |
 | Installed health on port 7685 reports a dev identifier or Vite/CDP ports | The detached installer helper inherited `CODETERM_*` and Cargo build variables from the calling tab | Use the current installer helper, which scrubs Domios and build variables before launching the installed daemon; reinstall and verify `/api/health`. |
-| NSIS reports `Error opening file for writing` for `conpty\<arch>\OpenConsole.exe` | A bundled ConPTY host from the installed Domios instance survived PTY teardown and still holds its executable | Current builds reap path-matched owned hosts before NSIS. On an older build, verify the process image is under `%LOCALAPPDATA%\CodeTerm\conpty\`, end only that `OpenConsole.exe`, then click **Retry**; never end `conhost.exe` or an `OpenConsole.exe` from another path. |
+| NSIS reports `Error opening file for writing` for `conpty\<arch>\OpenConsole.exe` | A bundled ConPTY host from the installed Domios instance survived PTY teardown and still holds its executable | Current builds reap path-matched owned hosts before NSIS. On an older build, verify the process image is under `%LOCALAPPDATA%\Domios\conpty\`, end only that `OpenConsole.exe`, then click **Retry**; never end `conhost.exe` or an `OpenConsole.exe` from another path. |
 | Windows self-install relaunches but continuation reports an incompatible CLI, or x64 startup installs an ARM64 `~/.codeterm/bin/codeterm.exe` | Parallel Windows release targets shared the generic `bundled-cli/codeterm.exe` resource, allowing one architecture to enter the other installer | Rebuild with target-qualified CLI resources. Startup now rejects a PE whose machine type differs from the app, preserving the prior working shim instead of overwriting it. |
 | `test-cli-target-dir-paths.sh` reports an extra `MSVC env loaded` line or rejects a foreign cross-target before an otherwise valid path probe | Windows build initialization writes diagnostics and validates target toolchains before the probe | Use the current contract test, which selects a host-compatible fixture target and compares the final probe line while `pipefail` preserves failures. |
 | Installed Domios exits during startup with a missing `tab_id`/`tabId` field or `delayed_send init` panic | A pane-era or malformed persisted record reached an all-or-nothing startup deserializer | Rebuild and install the current revision, then restart. Inspect `[plan.store]`, `[delayed_send]`, `[remote-workers]`, `[graph-workers]`, and `[session]` diagnostics for the isolated record; do not delete `plans.db` or an entire state JSON file. |
@@ -951,9 +950,9 @@ domios tab new --team <team-id> --purpose dev --cmd "Set-Location '<checkout>'; 
 
 Keep that Tab open and require all of the following before reporting ready:
 
-- port 7686 is owned by the checkout's `target\debug\codeterm.exe`;
+- port 7686 is owned by the checkout's staged `target\debug\domios-dev-app.exe`;
 - `/api/health` reports `status=ok`, the exact checkout `build_sha`, API 7686,
-  Vite 1420, CDP 9223, and identifier `com.codeterm.dev`;
+  Vite 1420, CDP 9223, and identifier `com.domios.dev`;
 - the Domios process has a responsive, nonzero `MainWindowHandle`;
 - exactly one Cargo process remains, the foreground `tauri dev` watcher owned
   by the visible Tab. Any second Cargo/build owner must be stopped and traced.
@@ -1247,7 +1246,7 @@ with the same names. Empty or missing secrets do not fail compilation.
 - DOMIOS_AMPLITUDE_API_KEY_PROD
 
 `install-local` resolves all four Firebase account entries together, preferring
-the CodeTerm secret store and falling back to a complete existing build
+the Domios secret store and falling back to a complete existing build
 environment. The optional billing functions URL independently prefers the secret store, then
 the existing environment. It scopes all five values to the packaged app build;
 a missing billing URL never fails the build. Billing logs only present or absent,
@@ -1605,3 +1604,19 @@ wrapper paths and compiler flags between jobs, then read the trace's dirty
 dependency or changed-input reason. The snapshot uses an explicit environment
 allowlist and never dumps credentials. Historical job sccache logs can include
 concurrent lane requests; matching metadata hashes alone do not explain a rebuild.
+
+### Installed identity and CLI aliases
+
+Production packages are Domios (`com.domios.app`, GUI `domios-app[.exe]`);
+DEV is Domios Dev (`com.domios.dev`, GUI `domios-dev-app[.exe]`). The CLI owns
+`domios`, with `codeterm` as an alias. Keep staged executable/provenance paths
+aligned with `mainBinaryName`. Raw Cargo client artifacts and PDBs retain the
+internal `codeterm` target name; staging records final renamed client bytes.
+Release staging includes both `cli/domios[.exe]` and `cli/codeterm[.exe]` from
+identical signed bytes. Deb/RPM file maps install the same CLI bytes at
+`/usr/bin/domios` and `/usr/bin/codeterm`; the GUI stays `/usr/bin/domios-app`.
+First launch repairs both user CLI names under `~/.domios/bin`, plus the
+`~/.local/bin` links on Unix and the user PATH entry on Windows. macOS and
+AppImage keep that link mechanism; the user controls their shell PATH.
+Never edit shell dotfiles to install CLI commands. See the release skill for
+the required manual move from the former app.

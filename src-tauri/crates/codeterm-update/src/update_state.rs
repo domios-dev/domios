@@ -270,7 +270,7 @@ mod state_tests {
     }
 }
 
-/// Detect how CodeTerm was installed based on executable path.
+/// Detect how Domios was installed based on executable path.
 pub fn detect_install_method() -> InstallMethod {
     let exe = match std::env::current_exe() {
         Ok(p) => p,
