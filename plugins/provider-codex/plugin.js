@@ -1010,7 +1010,7 @@ function cloudExports(hostRef) {
     if (backend) return backend;
     const host2 = hostRef();
     const manifest = JSON.parse(host2.manifestJson() ?? "{}");
-    const root = host2.fs.expandHome("~/.codeterm/codex/tasks");
+    const root = `${host2.dataDir().replace(/[\\/]$/, "")}/codex/tasks`;
     if (!root) throw new Error("Cloud task storage is unavailable");
     capability = manifest.capabilities.remoteTask;
     transport = createCodexCloudTransport(host2);

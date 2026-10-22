@@ -83,6 +83,11 @@ pub fn run(
         codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
     );
     let ownership_registry = ownership_registry_for(&options, &identity)?;
+    let mut legacy_references = if isolated {
+        Vec::new()
+    } else {
+        crate::upgrade_from_1_14_9::legacy_references::scan_legacy_writes(identity.data())
+    };
     let (owner, relocation_notices) = if isolated {
         (
             PathOwnership::try_acquire(identity.clone(), &ownership_registry)?,
@@ -91,6 +96,12 @@ pub fn run(
     } else {
         crate::upgrade_from_1_14_9::run(identity.clone(), &ownership_registry)?
     };
+    if !isolated {
+        legacy_references.extend(crate::upgrade_from_1_14_9::legacy_references::scan(
+            identity.data(),
+            identity.config(),
+        ));
+    }
     let owner = Box::leak(Box::new(owner));
     let process = process::own()?;
     let provenance = process.provenance()?;
@@ -184,6 +195,29 @@ pub fn run(
             Some("warning"),
         );
     }
+    crate::upgrade_from_1_14_9::legacy_references::report_once(
+        identity.data(),
+        legacy_references,
+        |notice| {
+            log::warn!(
+                "[legacy-reference] {:?}: {}: {}",
+                notice.kind,
+                notice.file.display(),
+                notice.fix
+            );
+            running.service.log_system_notice(
+                "Legacy startup reference needs attention".into(),
+                Some(format!(
+                    "Type: {:?}\nFile: {}\nModified (Unix ms): {:?}\nFix: {}",
+                    notice.kind,
+                    notice.file.display(),
+                    notice.modified_ms,
+                    notice.fix
+                )),
+                Some("warning"),
+            );
+        },
+    );
     let ready = runtime.block_on(async {
         let mut statuses = running.states.rest_api.subscribe_status();
         tokio::time::timeout(FAILURE_DEADLINE, async {
