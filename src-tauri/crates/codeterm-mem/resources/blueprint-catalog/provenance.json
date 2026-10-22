@@ -1,0 +1,41 @@
+{
+  "reference_commit": "de6597ca53b1fcf6d37b4eb4585ef3410ff63780",
+  "entries": {
+    "checks-fan-in": {
+      "reference_sha256": "9c0466b388ae8449d834989f862d011bf755994833df40127267ee3527bd4159",
+      "product_sha256": "28e180849620c6d7fb5d37b296f35357598cfa0b8376bd718b1dce7d955d0dfc"
+    },
+    "command-lines": {
+      "reference_sha256": "f124fdcf91175d13ca10cf443b005b4c62c98c432ee3c2aa56701b0ee62eb41b",
+      "product_sha256": "4b53b1288cadf13bf352242793419da637b8a5ae72778278d66dd3ca86bf887e"
+    },
+    "github-pr-checks": {
+      "reference_sha256": "ff8f13805c7bf3cbef72ef39772f32d2da2f81c70f8c7b76cdcea67392d9007c",
+      "product_sha256": "bb9f482cd25312dbdb2354e6f0397f1d8bc69ada99ede8cf3ae61c9888dc671a"
+    },
+    "github-run-jobs": {
+      "reference_sha256": "a083960e907ae69b4d6a86b566cb315a779ad572fda022806c70ea5941008c2b",
+      "product_sha256": "1bd697a153f92df2091e9432f3195570f204888eeee2447e41d77f0b42bc5add"
+    },
+    "github-runners": {
+      "reference_sha256": "b576266fc40e991b197dbe1b95f48f9a88583d12e140493acaa46caef6a434f6",
+      "product_sha256": "bc870871e238bcf64c653f0f8c43863ce613cc06361c89a0320ee282a4ac9b4c"
+    },
+    "latency-percentiles": {
+      "reference_sha256": "89c6fc839a6ce6a9dae0e63db4d9ad84c56275cfbfa5c84f18d92e07c1909221",
+      "product_sha256": "900bad074a25bb81f0177672852013f4ed3d366f05af02503589b48baf209a72"
+    },
+    "log-dedupe": {
+      "reference_sha256": "a6ece8e856fd647f58fbc51f377c8aea12c984407ac86a2caa9a2a2f1b6149a6",
+      "product_sha256": "db996615ac43bbcd902a86894989037f4eab41c968302a175ce4fe77ad9fbcd8"
+    },
+    "rule-classifier": {
+      "reference_sha256": "b6863add760d1c3ccd176ed79879bb1127b6888f8c9a54d539ca9c950057c430",
+      "product_sha256": "b5313b81db2141bf01958501b4d493edd131e5d01706cdb7e6620c637fdab90e"
+    },
+    "severity-grade": {
+      "reference_sha256": "26bbf869de852afc10f46f40036698fec743ced86faa9994ff12267f152c0b7d",
+      "product_sha256": "f64112f6f472aa3ade469567a9fb24b5726e5ece031c1a5083f1e15b35ab6e75"
+    }
+  }
+}
