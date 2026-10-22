@@ -14,6 +14,7 @@ import {
   type PlanOffer,
 } from "./planCatalog";
 import { usePlanCatalog } from "./planCatalogContext";
+import { usePlanViewed } from "./usePlanViewed";
 
 export function BillingIntervalToggle({ interval, onChange, savings }: {
   interval: BillingInterval;
@@ -93,6 +94,7 @@ export function PlanCards({ currentPlan = null, canPurchase = true, onChoose, ca
   initialInterval?: BillingInterval;
 }) {
   const contextCatalog = usePlanCatalog();
+  usePlanViewed();
   const offers = catalog ?? contextCatalog;
   const [interval, setInterval] = useState<BillingInterval>(initialInterval);
   const currentOffer = offerIdForPlan(offers, currentPlan);

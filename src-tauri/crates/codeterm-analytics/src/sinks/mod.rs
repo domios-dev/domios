@@ -50,7 +50,11 @@ impl Config {
         project: Option<&str>,
     ) -> Result<Self, String> {
         Ok(Self {
-            mode: match mode.unwrap_or("off") {
+            mode: match mode.unwrap_or(if cfg!(debug_assertions) {
+                "off"
+            } else {
+                "amplitude"
+            }) {
                 "off" => Mode::Off,
                 "console" => Mode::Console,
                 "amplitude" => Mode::Amplitude,
@@ -61,7 +65,11 @@ impl Config {
                 "eu" | "EU" => Zone::Eu,
                 _ => return Err("invalid analytics server zone".into()),
             },
-            project: match project.unwrap_or("test") {
+            project: match project.unwrap_or(if cfg!(debug_assertions) {
+                "test"
+            } else {
+                "prod"
+            }) {
                 "test" => Project::Test,
                 "prod" => Project::Prod,
                 _ => return Err("invalid analytics project".into()),

@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const fetches = vi.hoisted(() => ({ localFetch: vi.fn() }));
+const fetches = vi.hoisted(() => ({ localFetch: vi.fn(), localJson: vi.fn(async () => ({ consent: "off" })) }));
 vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...fetches }));
 
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";

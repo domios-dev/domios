@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { siteLinks } from "../../../shared/siteLinks";
@@ -14,7 +14,9 @@ const signedFreeLimits = (vectorPacket as unknown as { vectors: SignedVector[] }
   .flatMap((payload) => Object.entries(payload.limits));
 
 const bridge = vi.hoisted(() => ({ openUrl: vi.fn(async () => undefined) }));
+const analytics = vi.hoisted(() => ({ localJson: vi.fn(async () => ({ consent: "off" })) }));
 vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: { openUrl: bridge.openUrl } }));
+vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...analytics }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLDivElement } | null = null;
@@ -26,6 +28,8 @@ afterEach(async () => {
     mounted = null;
   }
   bridge.openUrl.mockClear();
+  analytics.localJson.mockClear();
+  analytics.localJson.mockResolvedValue({ consent: "off" });
 });
 
 async function renderPlanCards() {
@@ -33,12 +37,26 @@ async function renderPlanCards() {
   document.body.append(host);
   const root = createRoot(host);
   mounted = { root, host };
-  await act(async () => root.render(<PlanCards />));
+  await act(async () => root.render(<StrictMode><PlanCards /></StrictMode>));
   return host;
 }
 
 const featuresOf = (host: HTMLElement, plan: string) =>
   Array.from(host.querySelectorAll(`section[aria-label="${plan} plan"] li`), (item) => item.textContent);
+
+it("records a plan view once under StrictMode with consent and no account properties", async () => {
+  analytics.localJson.mockResolvedValue({ consent: "on" });
+  await renderPlanCards();
+  expect(analytics.localJson.mock.calls).toEqual([
+    ["GET", "/api/analytics/status"],
+    ["POST", "/api/analytics/event", { event_type: "plan_viewed", event_properties: {} }],
+  ]);
+});
+
+it("does not send a plan view without consent", async () => {
+  await renderPlanCards();
+  expect(analytics.localJson.mock.calls).toEqual([["GET", "/api/analytics/status"]]);
+});
 
 it("lists the five Free limits and the unlimited Pro equivalents", async () => {
   const host = await renderPlanCards();
