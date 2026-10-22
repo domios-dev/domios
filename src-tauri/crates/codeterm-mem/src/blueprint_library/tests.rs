@@ -600,7 +600,7 @@ fn blueprint_recall_uses_vectors_without_shared_words_and_scopes_before_limit() 
     vector[0] = 1.0;
     let conn = mem.conn.lock();
     crate::embeddings::init_extension(&conn).unwrap();
-    let encoded = crate::embeddings::inner::encode_vector(&vector);
+    let encoded = crate::embeddings::encode_vector(&vector);
     for saved in [&id, &foreign] {
         conn.execute(
             "INSERT INTO mem_vectors(mem_id, embedding) VALUES (?1,?2)",
@@ -642,12 +642,12 @@ fn blueprint_recall_uses_vectors_without_shared_words_and_scopes_before_limit() 
         .unwrap()
         .is_empty());
     let hits = mem
-        .recall_blueprints_with_embedding("project", query, 1, Some(&vector))
+        .recall_blueprints_with_embedding("project", query, 1, Some(&legacy_query(&vector)))
         .unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].id, id);
     let all = mem
-        .recall_blueprints_with_embedding("", query, 5, Some(&vector))
+        .recall_blueprints_with_embedding("", query, 5, Some(&legacy_query(&vector)))
         .unwrap();
     assert_eq!(all.len(), 2);
 }
@@ -678,13 +678,26 @@ fn blueprint_usage_breaks_equal_retrieval_scores() {
     for id in [first, popular.clone()] {
         conn.execute(
             "INSERT INTO mem_vectors(mem_id, embedding) VALUES (?1,?2)",
-            params![id, crate::embeddings::inner::encode_vector(&vector)],
+            params![id, crate::embeddings::encode_vector(&vector)],
         )
         .unwrap();
     }
     drop(conn);
     let hits = mem
-        .recall_blueprints_with_embedding("project", "Identify frozen releases", 1, Some(&vector))
+        .recall_blueprints_with_embedding(
+            "project",
+            "Identify frozen releases",
+            1,
+            Some(&legacy_query(&vector)),
+        )
         .unwrap();
     assert_eq!(hits[0].id, popular);
+}
+
+#[cfg(feature = "embeddings")]
+fn legacy_query(vector: &[f32]) -> crate::embedder::StampedVector {
+    crate::embedder::StampedVector {
+        identity: crate::embedder::legacy_identity(),
+        vector: vector.to_vec(),
+    }
 }

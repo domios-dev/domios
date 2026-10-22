@@ -529,6 +529,18 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             format!("/api/mem/reembed?scope={}", enc(scope)),
             None,
         ),
+        MemAction::Embedder { action } => {
+            use crate::MemEmbedderAction;
+            match action {
+                MemEmbedderAction::List => ("GET".into(), "/api/mem/embedder/providers".into(), None),
+                MemEmbedderAction::Status => ("GET".into(), "/api/mem/embedder".into(), None),
+                MemEmbedderAction::Use { provider, model, dimension } => (
+                    "POST".into(),
+                    "/api/mem/embedder/use".into(),
+                    Some(json!({ "provider": provider, "model": model, "dimension": dimension }).to_string()),
+                ),
+            }
+        }
         MemAction::Calibration { action } => {
             use crate::MemCalibrationAction;
             match action {

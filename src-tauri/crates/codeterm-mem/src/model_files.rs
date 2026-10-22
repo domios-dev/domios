@@ -1,24 +1,30 @@
-use hf_hub::{api::sync::ApiBuilder, Cache};
+use hf_hub::{api::sync::ApiBuilder, Cache, Repo, RepoType};
 use serde_json::Value;
 use std::path::PathBuf;
 use tokenizers::{AddedToken, PaddingParams, PaddingStrategy, Tokenizer, TruncationParams};
 
 pub(crate) struct ModelFiles {
     cache: Cache,
+    revision: &'static str,
 }
 
 impl ModelFiles {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(revision: &'static str) -> Self {
         let root = std::env::var_os("HF_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(crate::model_cache_dir);
         Self {
             cache: Cache::new(root),
+            revision,
         }
     }
 
+    fn repo(&self, repo: &str) -> Repo {
+        Repo::with_revision(repo.into(), RepoType::Model, self.revision.into())
+    }
+
     pub(crate) fn get(&self, repo: &str, file: &str) -> Result<PathBuf, String> {
-        if let Some(path) = self.cache.model(repo.into()).get(file) {
+        if let Some(path) = self.cache.repo(self.repo(repo)).get(file) {
             return Ok(path);
         }
         if std::env::var("HF_HUB_OFFLINE").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -32,7 +38,7 @@ impl ModelFiles {
             .with_progress(false)
             .build()
             .map_err(|e| e.to_string())?
-            .model(repo.into())
+            .repo(self.repo(repo))
             .get(file)
             .map_err(|e| format!("download {repo}/{file}: {e}"))
     }
