@@ -21,7 +21,7 @@ fn growing_plan(f: &Fixture) -> ImportPlan {
             jobs,
             histories: Vec::new(),
         },
-        sentinel: decoded_sentinels(),
+        sentinel: Vec::new(),
     };
     ImportPlan::resolve(f.capture(), &decoder, &BTreeMap::new()).expect("plan")
 }
@@ -47,25 +47,6 @@ fn storage_migration_projection_mismatch_rolls_back_before_commit() {
             }
         ),
         other => panic!("expected a cron projection mismatch, got {other:?}"),
-    }
-    assert_untouched(&storage);
-
-    let error = storage
-        .commit_legacy_import_tampered(f.plan(), DEADLINE, ImportTamper::SentinelReadBack)
-        .expect_err("a read-back aggregate that differs from the original refuses");
-    match refusal(error) {
-        ImportRefusal::ProjectionMismatch {
-            domain: ImportDomain::Sentinel,
-            mismatches,
-            ..
-        } => assert_eq!(
-            mismatches[0],
-            ProjectionMismatch {
-                subject: "sentinel_root".to_string(),
-                field: "runtime",
-            }
-        ),
-        other => panic!("expected a Sentinel projection mismatch, got {other:?}"),
     }
     assert_untouched(&storage);
 
@@ -111,7 +92,7 @@ fn storage_migration_crash_before_commit_rolls_back_and_restarts() {
         5,
         "four live jobs and one retired"
     );
-    assert_eq!(sentinel_inventory(&storage).len(), 3);
+    assert!(sentinel_inventory(&storage).is_empty());
     assert_eq!(
         tree(&f.backup().join("originals")),
         backup,
@@ -155,7 +136,7 @@ fn storage_migration_database_full_rolls_back_whole_import() {
         .commit_legacy_import(growing_plan(&f), DEADLINE)
         .expect("the retry commits");
     assert!(receipt.comparison.expect("comparison").is_clean());
-    assert_eq!(sentinel_inventory(&storage).len(), 3);
+    assert!(sentinel_inventory(&storage).is_empty());
     close(storage);
 }
 

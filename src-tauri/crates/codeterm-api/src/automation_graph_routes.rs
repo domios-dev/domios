@@ -289,7 +289,15 @@ fn failure((status, message): (StatusCode, String)) -> GraphError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codeterm_sentinel_host::SentinelExt;
+    use codeterm_sentinel_host::{BlueprintApplyExt, SentinelExt};
+
+    fn native_watch(name: &str, kind: &str, target: &str) -> Value {
+        json!({"schema_version":2,"kind":"watch","name":name,"steps":[
+            {"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"timeout":{"lit":"1h"}},
+            {"id":"decide","uses":"ask","with":{"question":{"lit":"state?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"routes":{"done":"effect"}},
+            {"id":"effect","uses":kind,"with":if kind=="notify"{json!({})}else{json!({"target":{"lit":target}})}}
+        ]})
+    }
 
     #[test]
     fn blueprint_event_ingress_refusal_statuses_cover_admission_table() {
@@ -473,7 +481,19 @@ mod tests {
                     .service
                     .sentinel_caller(&self.creator, Some("fixture-nonce"))
                     .unwrap();
-                self.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"Supplied scenario","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h"})).unwrap()).unwrap()
+                let applied = self
+                    .runtime
+                    .service
+                    .blueprint_apply(
+                        &caller,
+                        native_watch("Supplied scenario", "notify", ""),
+                        false,
+                    )
+                    .unwrap();
+                self.runtime
+                    .service
+                    .sentinel_show(&caller, applied["id"].as_str().unwrap())
+                    .unwrap()
             }
 
             async fn request(
@@ -834,7 +854,15 @@ mod tests {
                 .service
                 .sentinel_caller(&fixture.creator, Some("fixture-nonce"))
                 .unwrap();
-            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"cron-result-watch","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("cron:{}",cron.id)}})).unwrap()).unwrap();
+            fixture
+                .runtime
+                .service
+                .blueprint_apply(
+                    &caller,
+                    native_watch("cron-result-watch", "cron", &cron.id),
+                    false,
+                )
+                .unwrap();
             let before = fixture
                 .runtime
                 .service
@@ -930,7 +958,15 @@ mod tests {
                 .service
                 .sentinel_caller(&fixture.creator, Some("fixture-nonce"))
                 .unwrap();
-            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"agent-result-notify","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("send:{worker}")}})).unwrap()).unwrap();
+            fixture
+                .runtime
+                .service
+                .blueprint_apply(
+                    &caller,
+                    native_watch("agent-result-notify", "send", &worker),
+                    false,
+                )
+                .unwrap();
             let before = fixture
                 .runtime
                 .service

@@ -398,7 +398,7 @@ fn sentinel_schema_v4_prompt_response_requires_observed_tab_on_both_backends() {
     let legacy = Arc::new(Mutex::new(Store::new(legacy_path.clone(), clock.clone())));
     let base = legacy
         .lock()
-        .prepare(params(false, json!({})), owner(None), false)
+        .prepare_document(params(false, json!({})), owner(None), false)
         .expect("admitted definition");
 
     let mut shell_answer = base.clone();
@@ -441,10 +441,10 @@ fn sentinel_schema_v4_prompt_response_requires_observed_tab_on_both_backends() {
         assert!(store.lock().get(&answering.id).is_some());
     }
 
-    let shell_prompt = legacy.lock().prepare(
+    let shell_prompt = legacy.lock().prepare_document(
         params(
             false,
-            json!({"done": [{"id": "answer", "type": "respond_prompt", "parameters": {"target": "permission"}}]}),
+            json!({"done": [{"id":"answer","uses":"respond_prompt","with":codeterm_sentinel::test_support::literal_params(json!({"target": "permission"}))}]}),
         ),
         owner(None),
         false,

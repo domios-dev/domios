@@ -166,6 +166,7 @@ impl MemManager {
 
         // WAL + synchronous=NORMAL pragmas come from store::init_schema.
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
+        blueprint_library::cleanup::remove_v1(&conn, &blobs_dir)?;
         solution_metadata::initialize(&conn)?;
 
         if let Err(e) = embeddings::init_extension(&conn) {
@@ -244,6 +245,7 @@ impl MemManager {
             .map_err(|e| format!("set busy_timeout: {}", e))?;
 
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
+        blueprint_library::cleanup::remove_v1(&conn, &blobs_dir)?;
         solution_metadata::initialize(&conn)?;
 
         // Non-fatal: offline mode is allowed to run FTS5-only without vectors.

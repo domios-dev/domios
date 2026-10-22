@@ -332,6 +332,13 @@ fn domain_transition(record: TransitionRecord) -> Transition {
 
 /// Refuses any definition whose source, buckets, routes and matches would not round-trip.
 fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
+    let native = job
+        .document
+        .as_ref()
+        .ok_or("Only native v2 Blueprint documents can be persisted")?;
+    codeterm_blueprint_types::blueprint_document::Document::from_definition(native)?
+        .lower()
+        .map_err(|errors| format!("{errors:?}"))?;
     let declared: BTreeSet<&String> = job.buckets.iter().collect();
     let exact = declared.len() == job.buckets.len()
         && job.routes.len() == job.buckets.len()
@@ -362,6 +369,7 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         })
         .collect();
     Ok(StageDefinition {
+        document: job.document.clone(),
         note: job.note.clone(),
         model_classification: job.model_classification,
         session: job.session,
@@ -436,6 +444,7 @@ pub fn history_version(stored: StoredDefinition) -> DefinitionVersion {
         }
         .into(),
         definition: DefinitionSnapshot {
+            document: definition.document,
             model_classification: definition.model_classification,
             terminal,
             session: definition.session,
@@ -611,6 +620,7 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
     }
     let runtime = record.runtime;
     Sentinel {
+        document: definition.document,
         creation_options: record.identity.creation_options,
         source: super::super::stage_source::StageSource::from_parts(
             probe, observe, input, terminal, pipeline,

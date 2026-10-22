@@ -13,8 +13,8 @@ use super::handlers::{Handler, Status};
 use super::machine::{Route, Verdict};
 use super::probe;
 use super::provenance::{Classification, Scope};
-use super::storage::{codec, commit, legacy_import};
-use super::store::{Create, Lease, Owner, Sentinel, Store};
+use super::storage::{codec, commit};
+use super::store::{Lease, Owner, Sentinel, Store};
 use codeterm_cron::clock::MockClock;
 use codeterm_storage::{
     Completion, DefinitionProvenance, DefinitionUpdate, Fence, MutationOutcome, StageRuntime,
@@ -31,59 +31,7 @@ mod races;
 /// Failure bound around event waits only; elapsed time never signals readiness.
 const DEADLINE: Duration = Duration::from_secs(30);
 
-const LEGACY: &str = r#"[
- {"id":"sentinel_root","team_id":"team","creator_tab_id":"creator","workspace_id":"workspace",
-  "cwd":"/projects/one","probe":"status --short","question":"Which state?",
-  "buckets":["done","failed","waiting"],"interval_ms":20000,
-  "routes":{
-   "done":[
-    {"id":"join","action":{"kind":"blueprint","target":"sentinel_child"},
-     "target":{"kind":"blueprint","id":"sentinel_child","workspace_id":"workspace","team_id":"team","owner_tab_id":"creator"}},
-    {"id":"build","action":{"kind":"command","target":{"command":"make check","label":"Check","timeout_ms":1000}},"target":null},
-    {"id":"tell","action":{"kind":"send","target":"worker-tab"},
-     "target":{"kind":"worker","id":"worker-tab","workspace_id":"workspace","team_id":"team","owner_tab_id":null}}],
-   "failed":[
-    {"id":"nightly","action":{"kind":"cron","target":"nightly"},
-     "target":{"kind":"cron","id":"nightly","workspace_id":"workspace","team_id":"team","owner_tab_id":"creator"}},
-    {"id":"halt","action":{"kind":"stop"},"target":null}],
-   "waiting":[]},
-  "matches":{"done":"^done$"},"until":"failed","expires_at":9000000,"next_run":21000,
-  "machine":{"last_hash":"abc123","last_bucket":"done","stopped":false,"paused":false},
-  "last_reason":"transition","revision":7,"agent_authored":true,"name":"Supplied scenario",
-  "scenario_id":"sentinel_root","max_transitions":8,"max_actions":16,
-  "transitions":[
-   {"id":"eval-1","bucket":"done","accepted_at":1500,"terminal":false,"handlers":[
-    {"handler_id":"join","status":"noop","claim_id":"claim-1","execution_id":"claim-1","accepted_at":1501,"reason":null},
-    {"handler_id":"build","status":"failed","claim_id":"claim-2","execution_id":"exec-2","accepted_at":1502,
-     "command_result":{"status":"nonzero","exit_code":2,"resources_confirmed":true,
-      "stdout":{"total_bytes":10,"retained_bytes":10,"truncated":false},
-      "stderr":{"total_bytes":40000,"retained_bytes":32768,"truncated":true},
-      "started_at":1502,"finished_at":1503,"primary":null,"cleanup":[]},
-     "reason":"action_failed"},
-    {"handler_id":"tell","status":"skipped","claim_id":null,"execution_id":null,"accepted_at":null,"reason":"batch_fenced"}]},
-   {"id":"eval-2","bucket":"done","accepted_at":1600,"terminal":false,"handlers":[
-    {"handler_id":"join","status":"unconfirmed","claim_id":"claim-3","execution_id":null,"accepted_at":1601,"reason":null}]}]},
- {"id":"sentinel_child","team_id":"team","creator_tab_id":"creator","workspace_id":"workspace",
-  "cwd":"/projects/one","probe":"status","question":"Child state?","buckets":["done"],
-  "interval_ms":10000,"routes":{"done":[]},"matches":{},"until":null,"expires_at":null,
-  "next_run":1000,"machine":{"last_hash":null,"last_bucket":null,"stopped":false,"paused":true},
-  "last_reason":null,"revision":0,"agent_authored":true,"name":null,
-  "scenario_id":"sentinel_root","max_transitions":64,"max_actions":256,"transitions":[]},
- {"id":"sentinel_solo","team_id":null,"creator_tab_id":"solo-creator","workspace_id":"workspace",
-  "cwd":"/projects/two","probe":"tail log","question":"Late?","buckets":["late"],
-  "interval_ms":10000,
-  "routes":{"late":[{"id":"probe-cmd","action":{"kind":"command","target":{"command":"printf late","label":"Late","timeout_ms":1000}},"target":null}]},
-  "matches":{"late":"late"},"until":null,"expires_at":1200,"next_run":1000,
-  "machine":{"last_hash":"def456","last_bucket":"late","stopped":true,"paused":false},
-  "last_reason":"timeout","revision":3,"agent_authored":false,"name":null,"scenario_id":null,
-  "max_transitions":64,"max_actions":256,
-  "transitions":[{"id":"eval-9","bucket":"late","accepted_at":1100,"terminal":true,"handlers":[
-   {"handler_id":"probe-cmd","status":"unconfirmed","claim_id":"claim-9","execution_id":"exec-9","accepted_at":1101,
-    "command_result":{"status":"unconfirmed","exit_code":null,"resources_confirmed":false,"stdout":null,"stderr":null,
-     "started_at":1101,"finished_at":1102,"primary":"probe_completion_unconfirmed",
-     "cleanup":["child process still running","pipe still open"]},
-    "reason":"effect_unconfirmed"}]}]}
-]"#;
+const NATIVE_INVENTORY: &str = include_str!("storage_tests/native_inventory.json");
 
 fn temp_root() -> tempfile::TempDir {
     tempfile::tempdir().expect("temp root")
@@ -116,21 +64,37 @@ fn owner(team: Option<&str>) -> Owner {
     }
 }
 
-fn params(paused: bool, handlers: Value) -> Create {
+fn params(paused: bool, effects: Value) -> Value {
     static NEXT_NAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let index = NEXT_NAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    serde_json::from_value(json!({
-        "name": format!("storage-state-watch-{index}"),
-        "probe": "status", "question": "state?", "buckets": ["done", "failed"], "every": "10s",
-        "timeout": "1h", "matches": {"done": "^done$"}, "paused": paused, "handlers": handlers
-    }))
-    .expect("definition")
+    let mut nodes = vec![
+        json!({"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"},"paused":paused}),
+        json!({"id":"decide","uses":"ask","with":{"question":{"lit":"state?"}},"buckets":["done","failed"],"matches":{"done":{"lit":"^done$"}}}),
+    ];
+    let mut routes = serde_json::Map::new();
+    for (bucket, effects) in effects.as_object().unwrap() {
+        let effects = effects.as_array().unwrap();
+        routes.insert(
+            bucket.clone(),
+            effects
+                .first()
+                .map_or(json!("@stop"), |node| node["id"].clone()),
+        );
+        for (i, node) in effects.iter().enumerate() {
+            let mut node = node.clone();
+            node["routes"] =
+                json!({"done":effects.get(i+1).map_or(json!("@stop"),|node|node["id"].clone())});
+            nodes.push(node);
+        }
+    }
+    nodes[1]["routes"] = Value::Object(routes);
+    json!({"schema_version":2,"kind":"watch","name":format!("storage-state-watch-{index}"),"steps":nodes})
 }
 
 fn create(store: &Mutex<Store>, team: Option<&str>, paused: bool, handlers: Value) -> Sentinel {
     let job = store
         .lock()
-        .prepare(params(paused, handlers), owner(team), false)
+        .prepare_document(params(paused, handlers), owner(team), false)
         .expect("admitted definition");
     commit(store, |current| current.stage_insert(job)).expect("committed creation")
 }
@@ -224,18 +188,24 @@ fn statuses(store: &Mutex<Store>, id: &str) -> Vec<Status> {
         .unwrap_or_default()
 }
 
-fn import_legacy(storage: &Storage) -> Vec<Sentinel> {
-    let records = legacy_import(LEGACY).expect("legacy decode");
+fn import_native_inventory(storage: &Storage) -> Vec<Sentinel> {
+    let jobs: Vec<Sentinel> =
+        serde_json::from_str(NATIVE_INVENTORY).expect("native fixture inventory");
+    let records = jobs
+        .iter()
+        .map(codec::import)
+        .collect::<Result<Vec<_>, _>>()
+        .expect("native v2 records");
     let committed = done(storage.sentinels().import(records));
     assert_eq!(committed.value.outcome, MutationOutcome::Applied);
-    serde_json::from_str(LEGACY).expect("fixture blueprints")
+    serde_json::from_str(NATIVE_INVENTORY).expect("fixture blueprints")
 }
 
 #[test]
 fn storage_sentinel_import_roundtrip_conserves_definition_runtime_and_results() {
     let root = temp_root();
     let storage = open(root.path());
-    let original = import_legacy(&storage);
+    let original = import_native_inventory(&storage);
     close(storage);
 
     let storage = open(root.path());
@@ -270,7 +240,7 @@ fn storage_sentinel_import_roundtrip_conserves_definition_runtime_and_results() 
 fn storage_sentinel_reopen_never_replays_claims_or_rearms_stopped_work() {
     let root = temp_root();
     let storage = open(root.path());
-    import_legacy(&storage);
+    import_native_inventory(&storage);
     let clock = MockClock::starting_at(25_000);
     let store = typed(&storage, &clock);
     let (claims, effects) = (Cell::new(0), Cell::new(0));
@@ -415,10 +385,10 @@ fn storage_sentinel_rearm_configuration_survives_reopen_and_definition_history()
     let clock = MockClock::starting_at(1000);
     let store = typed(&storage, &clock);
     let mut definition = params(false, json!({}));
-    definition.rearm_on_change.insert("done".into());
+    definition["steps"][1]["rearm_on_change"] = json!(["done"]);
     let job = store
         .lock()
-        .prepare(definition, owner(None), false)
+        .prepare_document(definition, owner(None), false)
         .expect("rearm definition");
     let id = job.id.clone();
     commit(&store, |current| current.stage_insert(job)).expect("rearm definition committed");
@@ -457,7 +427,7 @@ fn storage_sentinel_two_parents_activate_child_once_and_survive_reopen() {
     let clock = MockClock::starting_at(1000);
     let store = typed(&storage, &clock);
     let child = create(&store, Some("team"), true, json!({}));
-    let join = json!({"done":[{"id":"join","type":"blueprint","parameters":{"target":child.id}}]});
+    let join = json!({"done":[{"id":"join","uses":"blueprint","with":codeterm_sentinel::test_support::literal_params(json!({"target":child.id}))}]});
     let first = create(&store, Some("team"), false, join.clone());
     let second = create(&store, Some("team"), false, join);
     let leases = due(&store);
@@ -553,9 +523,9 @@ fn storage_sentinel_partial_handler_results_survive_reopen_without_replay() {
         Some("team"),
         false,
         json!({"done":[
-            {"id":"first","type":"notify","parameters":{}},
-            {"id":"second","type":"notify","parameters":{}},
-            {"id":"third","type":"notify","parameters":{}}
+            {"id":"first","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))},
+            {"id":"second","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))},
+            {"id":"third","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}
         ]}),
     );
     let lease = due(&store).remove(0);
@@ -596,7 +566,7 @@ fn storage_sentinel_crash_after_claim_never_reclassifies_or_replays() {
         &store,
         Some("team"),
         false,
-        json!({"done":[{"id":"attempt","type":"notify","parameters":{}}]}),
+        json!({"done":[{"id":"attempt","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}]}),
     );
     let lease = due(&store).remove(0);
     super::scheduler::advance(
@@ -677,7 +647,7 @@ fn storage_sentinel_codec_refuses_lossy_definitions() {
     )));
     let mut job = store
         .lock()
-        .prepare(params(false, json!({})), owner(None), false)
+        .prepare_document(params(false, json!({})), owner(None), false)
         .expect("admitted definition");
     assert!(codec::import(&job).is_ok());
     job.routes.insert("undeclared".into(), Vec::new());
@@ -693,24 +663,14 @@ fn sentinel_escalate_typed_outcomes_persist_hold_resolve_and_expiry() {
     let mut storage = open(root.path());
     let clock = MockClock::starting_at(1000);
     let store = typed(&storage, &clock);
-    let params: Create = serde_json::from_value(json!({
-        "name": "escalation-outcome-watch",
-        "probe": "status",
-        "question": "state?",
-        "buckets": ["done", "failed"],
-        "every": "10s",
-        "timeout": "1h",
-        "matches": {"done": "^done$"},
-        "escalation_timeout_ms": 5000,
-        "handlers": {
-            "done": [{"id": "done_notice", "type": "notify", "parameters": {}}],
-            "other": [{"id": "ask_creator", "type": "escalate", "parameters": {"target": "creator"}}]
-        }
-    }))
-    .unwrap();
+    let mut params = params(
+        false,
+        json!({"done":[{"id":"done_notice","uses":"notify"}],"other":[{"id":"ask_creator","uses":"escalate","with":{"target":{"lit":"creator"}}}]}),
+    );
+    params["steps"][1]["escalation_timeout_ms"] = json!(5000);
     let job = store
         .lock()
-        .prepare(params, owner(Some("team")), false)
+        .prepare_document(params, owner(Some("team")), false)
         .expect("escalation definition");
     let job = commit(&store, |current| current.stage_insert(job)).unwrap();
     let lease = due(&store).remove(0);
@@ -820,9 +780,15 @@ fn explicit_model_classification_survives_storage_create_and_reload() {
     let storage = open(root.path());
     let store = typed(&storage, &clock);
     let mut params = params(false, json!({"done":[]}));
-    params.model_classification = true;
-    params.matches.clear();
-    let job = store.lock().prepare(params, owner(None), true).unwrap();
+    params["steps"][1]["model_classification"] = json!(true);
+    params["steps"][1]
+        .as_object_mut()
+        .unwrap()
+        .remove("matches");
+    let job = store
+        .lock()
+        .prepare_document(params, owner(None), true)
+        .unwrap();
     let created = commit(&store, |store| store.stage_insert(job)).unwrap();
     assert!(
         stored(&storage, &created.id)

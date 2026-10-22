@@ -1,7 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
-name: Watch tab {{tab_id}}
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: watch
+name: Team Watch
 note: Observe one Team member's tab and notify when the watched state changes.
+intent: Observe one Team member's tab and notify when the watched state changes.
 inputs:
   changed_pattern:
     type: string
@@ -9,15 +11,33 @@ inputs:
   tab_id:
     type: string
     description: Tab id
-watch:
-  observe: tab:{{tab_id}}
-  question: classify-member-state
+steps:
+- id: source
+  uses: observe
+  with:
+    kind:
+      lit: tab
+    id:
+      input: tab_id
+  every:
+    lit: 20s
+  timeout:
+    lit: 1h
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: classify-member-state
   buckets:
   - waiting
   - changed
-  matches:
-    changed: '{{changed_pattern}}'
-  timeout: 1h
   routes:
-    waiting: none
-    changed: notify
+    waiting: '@stop'
+    changed: changed_1
+  matches:
+    changed:
+      input: changed_pattern
+- id: changed_1
+  uses: notify
+  routes:
+    done: '@stop'

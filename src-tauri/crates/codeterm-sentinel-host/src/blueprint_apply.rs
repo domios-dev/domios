@@ -14,6 +14,15 @@ use codeterm_service_core::service::ServiceContext;
 use serde_json::{json, Value};
 
 pub trait BlueprintApplyExt {
+    fn blueprint_apply_document(
+        &self,
+        caller: &SentinelCaller,
+        definition: Value,
+        dry_run: bool,
+        stopped: Option<bool>,
+        update: Option<(String, u64, Option<String>)>,
+    ) -> Result<Value, ApplyError>;
+
     fn blueprint_apply(
         &self,
         caller: &SentinelCaller,
@@ -44,11 +53,22 @@ impl BlueprintApplyExt for ServiceContext {
         dry_run: bool,
         stopped: Option<bool>,
     ) -> Result<Value, ApplyError> {
+        self.blueprint_apply_document(caller, definition, dry_run, stopped, None)
+    }
+    fn blueprint_apply_document(
+        &self,
+        caller: &SentinelCaller,
+        definition: Value,
+        dry_run: bool,
+        stopped: Option<bool>,
+        update: Option<(String, u64, Option<String>)>,
+    ) -> Result<Value, ApplyError> {
         if caller.team.is_none() {
             return Err("Blueprint apply requires a caller in a Team".into());
         }
         let document =
             codeterm_blueprint_types::blueprint_document::Document::from_definition(&definition)?;
+        let definition = serde_json::to_value(&document).map_err(|error| error.to_string())?;
         let checks = codeterm_blueprint_types::blueprint_document::definition_errors(&definition)
             .into_iter()
             .map(|(field, message)| FieldCheck::new(field, Err(message)))
@@ -88,7 +108,13 @@ impl BlueprintApplyExt for ServiceContext {
         } else {
             None
         };
-        let spec = definition
+        let runtime = document.lower().map_err(|errors| ApplyError::Validation {
+            checks: errors
+                .into_iter()
+                .map(|(field, message)| FieldCheck::new(field, Err(message)))
+                .collect(),
+        })?;
+        let spec = runtime
             .get("spec")
             .map(|value| serde_json::from_value::<BlueprintSpec>(value.clone()))
             .transpose()
@@ -116,10 +142,11 @@ impl BlueprintApplyExt for ServiceContext {
         } else {
             self.prepare_sentinel_create(
                 caller,
-                serde_json::from_value(definition["create"].clone())
+                serde_json::from_value(runtime["create"].clone())
                     .map_err(|error| error.to_string())?,
             )?
         };
+        candidate.document = Some(definition.clone());
         let mux = self.mux.read();
         if !crate::service_adapter::caller_is_live(&mux, caller) {
             return Err("Blueprint caller scope changed".into());
@@ -142,6 +169,7 @@ impl BlueprintApplyExt for ServiceContext {
                 ApplyIntent {
                     candidate,
                     definition,
+                    update,
                     dry_run,
                     stopped,
                     curator,
@@ -163,6 +191,7 @@ impl BlueprintApplyExt for ServiceContext {
 }
 
 struct ApplyIntent {
+    update: Option<(String, u64, Option<String>)>,
     candidate: Sentinel,
     definition: Value,
     dry_run: bool,
@@ -176,6 +205,7 @@ fn stage_apply(
     intent: ApplyIntent,
 ) -> Result<Staged<Value>, ApplyError> {
     let ApplyIntent {
+        update,
         mut candidate,
         definition,
         dry_run,
@@ -187,11 +217,25 @@ fn stage_apply(
     let mut matches = store.jobs.iter().filter(|job| {
         job.workspace_id == caller.workspace
             && job.team_id == caller.team
-            && job.name == candidate.name
+            && update
+                .as_ref()
+                .map_or(job.name == candidate.name, |(id, _, _)| &job.id == id)
     });
     let current = matches.next().cloned();
     if matches.next().is_some() {
         return Err("Ambiguous Blueprint name in this Team; delete or rename duplicates".into());
+    }
+    if let Some((_, version, _)) = &update {
+        let job = current
+            .as_ref()
+            .ok_or("Blueprint update target not found in this Team")?;
+        if job.definition_version != *version {
+            return Err(format!(
+                "blueprint_version_conflict: current_version={}",
+                job.definition_version
+            )
+            .into());
+        }
     }
     if let Some(job) = &current {
         if !caller.can_amend(job) {
@@ -210,7 +254,7 @@ fn stage_apply(
         if job.pipeline().is_none() {
             let Some(before) = &job.creation_options else {
                 return Err(ApplyError::CreationOnly {
-                    field: "watch.timeout".into(),
+                    field: "steps[0].timeout".into(),
                     message: "original creation settings are unavailable; delete and re-apply"
                         .into(),
                 });
@@ -225,7 +269,7 @@ fn stage_apply(
             ] {
                 if changed {
                     return Err(ApplyError::CreationOnly {
-                        field: format!("watch.{field}"),
+                        field: format!("steps[0].{field}"),
                         message: "applies only at creation; delete and re-apply".into(),
                     });
                 }
@@ -284,7 +328,7 @@ fn stage_apply(
                 store.clock.now_ms(),
                 PreparedUpdate {
                     job: candidate,
-                    cause_transition_id: None,
+                    cause_transition_id: update.and_then(|(_, _, cause)| cause),
                     note: None,
                 },
                 stopped,
@@ -298,6 +342,7 @@ fn stage_apply(
     Ok(staged.map(move |job| {
         let mut result = result;
         result["id"] = json!(job.id);
+        result["definition_version"] = json!(job.definition_version);
         result["state"] = json!(state(&job));
         result
     }))
@@ -314,18 +359,31 @@ fn state(job: &Sentinel) -> &'static str {
 
 pub(crate) fn retarget_only(before: &Value, after: &Value) -> bool {
     fn without_targets(value: &Value) -> Value {
-        match value {
-            Value::Object(fields) => Value::Object(
-                fields
-                    .iter()
-                    .filter(|(key, _)| !matches!(key.as_str(), "target" | "observe" | "to"))
-                    .map(|(key, value)| (key.clone(), without_targets(value)))
-                    .collect(),
-            ),
-            Value::Array(values) => Value::Array(values.iter().map(without_targets).collect()),
-            other => other.clone(),
+        let mut value = value.clone();
+        if let Some(result) = value.get_mut("result").and_then(Value::as_object_mut) {
+            result.remove("to");
         }
+        for field in ["steps", "other"] {
+            if let Some(nodes) = value.get_mut(field).and_then(Value::as_array_mut) {
+                for node in nodes {
+                    let key = match node.get("uses").and_then(Value::as_str) {
+                        Some("observe" | "terminal") => Some("id"),
+                        Some("send" | "cron" | "blueprint" | "escalate" | "respond_prompt") => {
+                            Some("target")
+                        }
+                        _ => None,
+                    };
+                    if let Some(key) = key {
+                        if let Some(params) = node.get_mut("with").and_then(Value::as_object_mut) {
+                            params.remove(key);
+                        }
+                    }
+                }
+            }
+        }
+        value
     }
+
     without_targets(before) == without_targets(after)
 }
 

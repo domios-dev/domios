@@ -576,16 +576,8 @@ mod tests {
             codeterm_service_core::cron::clock::MockClock::starting_at(1000),
         );
         let job = store
-            .create(
-                serde_json::from_value(serde_json::json!({
-                    "name": "escalation-packet-watch",
-                    "probe": "status",
-                    "question": "state?",
-                    "buckets": ["done"],
-                    "every": "10s",
-                    "matches": {"done": "done"}
-                }))
-                .unwrap(),
+            .create_document(
+                serde_json::json!(codeterm_sentinel::test_support::watch(serde_json::json!("escalation-packet-watch"),serde_json::json!({"uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"}}),serde_json::json!({"with":{"question":{"lit":"state?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}}}),serde_json::json!(null),serde_json::json!(null))),
                 super::super::store::Owner {
                     creator_tab_id: "creator".into(),
                     team_id: None,

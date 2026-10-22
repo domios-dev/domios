@@ -1,8 +1,5 @@
 use super::*;
 use codeterm_blueprint_types::blueprint_journal::{JournalMarker, JournalState};
-use codeterm_blueprint_types::blueprint_pipeline::{
-    BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
-};
 use codeterm_storage::{BlueprintJournalWrite, SentinelId};
 
 fn create_pipeline(store: &Mutex<Store>, owner: Owner) -> Sentinel {
@@ -10,52 +7,18 @@ fn create_pipeline(store: &Mutex<Store>, owner: Owner) -> Sentinel {
 }
 
 fn create_pipeline_with_steps(store: &Mutex<Store>, owner: Owner, count: usize) -> Sentinel {
-    let mut spec = BlueprintSpec {
-        note: None,
-        name: "journal pipeline".into(),
-        owner: BlueprintOwner::Tab,
-        trigger: Trigger::Schedule {
-            every: "20s".into(),
-        },
-        steps: vec![
-            Step {
-                name: "emit".into(),
-                input: IoType::Text,
-                kind: StepKind::Command {
-                    command: "printf ready".into(),
-                },
-                on: Default::default(),
-            },
-            Step {
-                name: "match".into(),
-                input: IoType::Text,
-                kind: StepKind::Filter {
-                    pattern: "^ready$".into(),
-                    bucket: Some("matched".into()),
-                },
-                on: Default::default(),
-            },
-        ],
-        result: BlueprintResult {
-            to: ResultTarget::Owner,
-        },
+    let steps = if count == 2 {
+        json!([
+            {"id":"emit","run":{"lit":"printf ready"}},
+            {"id":"match","uses":"filter","with":{"pattern":{"lit":"^ready$"},"bucket":{"lit":"matched"}}}
+        ])
+    } else {
+        serde_json::Value::Array((0..count).map(|index|json!({"id":format!("step-{index}"),"uses":"filter","with":{"pattern":{"lit":"ready"}}})).collect())
     };
-    if count != 2 {
-        spec.steps = (0..count)
-            .map(|index| Step {
-                name: format!("step-{index}"),
-                input: IoType::Text,
-                kind: StepKind::Filter {
-                    pattern: "ready".into(),
-                    bucket: None,
-                },
-                on: Default::default(),
-            })
-            .collect();
-    }
+    let document = json!({"schema_version":2,"kind":"pipeline","name":"journal pipeline","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":steps,"result":{"to":"owner"}});
     let job = store
         .lock()
-        .prepare_pipeline(spec, owner, false)
+        .prepare_document(document, owner, false)
         .expect("pipeline definition");
     commit(store, |current| current.stage_insert(job)).expect("pipeline creation")
 }

@@ -26,4 +26,3 @@ pub(super) fn save_receipt(saved: &Value) -> String {
     }
     text
 }
-

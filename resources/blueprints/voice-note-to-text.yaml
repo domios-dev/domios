@@ -1,7 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: watch
 name: '{{name}}'
 note: Convert a voice note to text and classify the transcript.
+intent: Convert a voice note to text and classify the transcript.
 inputs:
   name:
     type: string
@@ -9,16 +11,31 @@ inputs:
   path_to_voice_note:
     type: string
     description: Path to voice note
-watch:
-  input:
-    kind: audio
-    data:
-      file: '{{path_to_voice_note}}'
-    convert_to: text
-  question: what-does-the-voice-note-say
+steps:
+- id: source
+  uses: input
+  with:
+    kind:
+      lit: audio
+    file:
+      input: path_to_voice_note
+    convert_to:
+      lit: text
+  every:
+    lit: 20s
+  timeout:
+    lit: 1h
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: what-does-the-voice-note-say
   buckets:
   - done
-  timeout: 1h
-  model_classification: true
   routes:
-    done: notify
+    done: done_1
+  model_classification: true
+- id: done_1
+  uses: notify
+  routes:
+    done: '@stop'

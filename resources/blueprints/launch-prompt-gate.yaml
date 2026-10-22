@@ -1,49 +1,89 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
-name: Launch {{cron_name_or_id}}
-note: Answer each scheduled run's launch prompts through the safe-response path; escalate any other prompt to the
-  creator.
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: watch
+name: Launch Prompt Gate
+note: Answer each scheduled run's launch prompts through the safe-response path; escalate any other prompt
+  to the creator.
+intent: Answer each scheduled run's launch prompts through the safe-response path; escalate any other
+  prompt to the creator.
 inputs:
   cron_name_or_id:
     type: string
     description: Cron name or id
-watch:
-  observe: cron-run:{{cron_name_or_id}}
-  question: classify-launch-prompt
+steps:
+- id: source
+  uses: observe
+  with:
+    kind:
+      lit: cron_run
+    id:
+      input: cron_name_or_id
+  every:
+    lit: 20s
+  timeout:
+    lit: 30d
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: classify-launch-prompt
   buckets:
   - clear
   - trust
   - provider
   - update
+  routes:
+    clear: '@stop'
+    trust: trust_1
+    provider: provider_1
+    update: update_1
+    other: other_1
   matches:
-    clear: \x22prompt\x22:null
-    trust: \x22kind\x22:\x22directory_trust\x22
-    provider: \x22kind\x22:\x22provider\x22
-    update: \x22kind\x22:\x22manual_update\x22
+    clear:
+      lit: \x22prompt\x22:null
+    trust:
+      lit: \x22kind\x22:\x22directory_trust\x22
+    provider:
+      lit: \x22kind\x22:\x22provider\x22
+    update:
+      lit: \x22kind\x22:\x22manual_update\x22
   rearm_on_change:
   - trust
   - provider
   - update
   escalation_timeout_ms: 1800000
-  timeout: 30d
-  handlers:
-    clear: []
-    trust:
-    - type: respond_prompt
-      parameters:
-        target: directory_trust
-    provider:
-    - type: respond_prompt
-      parameters:
-        target: onboarding
-    - type: respond_prompt
-      parameters:
-        target: permission
-    update:
-    - type: respond_prompt
-      parameters:
-        target: update
-    other:
-    - type: escalate
-      parameters:
-        target: creator
+- id: trust_1
+  uses: respond_prompt
+  with:
+    target:
+      lit: directory_trust
+  routes:
+    done: '@stop'
+- id: provider_1
+  uses: respond_prompt
+  with:
+    target:
+      lit: onboarding
+  routes:
+    done: provider_2
+- id: provider_2
+  uses: respond_prompt
+  with:
+    target:
+      lit: permission
+  routes:
+    done: '@stop'
+- id: update_1
+  uses: respond_prompt
+  with:
+    target:
+      lit: update
+  routes:
+    done: '@stop'
+- id: other_1
+  uses: escalate
+  with:
+    target:
+      lit: creator
+  routes:
+    done: '@stop'

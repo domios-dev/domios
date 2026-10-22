@@ -17,6 +17,13 @@ pub fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
     }
     let mut ids = std::collections::BTreeSet::new();
     for job in &jobs {
+        let document = job
+            .document
+            .as_ref()
+            .ok_or("Only native v2 Blueprint documents can be restored")?;
+        codeterm_blueprint_types::blueprint_document::Document::from_definition(document)?
+            .lower()
+            .map_err(|errors| format!("{errors:?}"))?;
         codeterm_blueprint_types::automation_name::validate_note(job.note.as_deref())?;
         if job.pipeline().is_none() {
             machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;
@@ -345,6 +352,7 @@ impl Store {
             &uuid::Uuid::new_v4().simple().to_string()[..12]
         );
         let job = Sentinel {
+            document: None,
             creation_options: Some(codeterm_blueprint_types::blueprint_watch::CreationOptions {
                 timeout_ms: params.timeout.as_deref().map(duration_ms).transpose()?,
                 paused: params.paused,

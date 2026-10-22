@@ -82,8 +82,8 @@ pub(super) fn scaffold(kind: &str) -> Result<String, String> {
         return Ok(format!("{header}{source}"));
     }
     let definition=match kind {
-        "watch"=>json!({"create":{"name":"custom-watch","note":"Explain the purpose","probe":"echo ready","question":"State?","buckets":["ready"],"every":"20s","matches":{"ready":"ready"},"routes":{"ready":"notify"},"timeout":"1h"}}),
-        "pipeline"|"command"=>json!({"spec":{"name":"custom-pipeline","note":"Explain the purpose","owner":"team","trigger":{"type":"schedule","every":"1m"},"steps":[{"name":"inspect","input":"text","kind":{"kind":"command","command":"echo ready"},"on":{"done":"stop","failed":"stop"}}],"result":{"to":"notify"}}}),
+        "watch"=>json!({"schema_version":2,"kind":"watch","name":"custom-watch","note":"Explain the purpose","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"every":{"lit":"20s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"State?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}},"routes":{"ready":"alert"}},{"id":"alert","uses":"notify"}]}),
+        "pipeline"|"command"=>json!({"schema_version":2,"kind":"pipeline","name":"custom-pipeline","note":"Explain the purpose","owner":"team","trigger":{"type":"schedule","every":{"lit":"1m"}},"steps":[{"id":"inspect","run":{"lit":"echo ready"},"routes":{"done":"@stop","failed":"@stop"}}],"result":{"to":"notify"}}),
         _=>return Err(format!("Unknown recipe or kind {kind}; choose watch, pipeline, command, or a name from blueprint recipe")),
     };
     Ok(format!(

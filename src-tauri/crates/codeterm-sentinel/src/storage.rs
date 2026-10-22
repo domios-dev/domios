@@ -17,8 +17,8 @@ use super::amend::DefinitionVersion;
 use super::store::{scope_revisions, validate, ScopeKey, Sentinel, Store};
 use codeterm_cron::clock::SharedClock;
 use codeterm_storage::{
-    Committed, Completion, Revision, SentinelCommit, SentinelImport, SentinelRepository, Storage,
-    StorageError, StoredDefinition, StoredSentinel,
+    Committed, Completion, Revision, SentinelCommit, SentinelRepository, Storage, StorageError,
+    StoredDefinition, StoredSentinel,
 };
 #[cfg(any(test, feature = "test-support"))]
 use codeterm_util::persisted_state::StateFile;
@@ -703,27 +703,4 @@ pub fn committed_workspace(
             format!("blueprint_store_load_failed: committed workspace read failed: {error}")
         })?;
     Ok((read.value.iter().map(codec::decode).collect(), leases))
-}
-
-/// Why a legacy Sentinel file does not decode into import records.
-#[allow(dead_code)] // The all-domain importer consumes this; tests drive it now.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LegacySentinelError {
-    /// The bytes are not a typed Sentinel inventory.
-    Malformed(String),
-    /// A well-formed inventory that breaks a stored-inventory invariant.
-    Conflict(String),
-}
-
-/// Side-effect-free decode of the legacy file into exact import records; it never renames,
-/// rewrites or holds the source and starts no work.
-#[allow(dead_code)] // The all-domain importer consumes this; tests drive it now.
-pub fn legacy_import(raw: &str) -> Result<Vec<SentinelImport>, LegacySentinelError> {
-    let jobs: Vec<Sentinel> = serde_json::from_str(raw)
-        .map_err(|error| LegacySentinelError::Malformed(error.to_string()))?;
-    let jobs = validate(jobs).map_err(LegacySentinelError::Conflict)?;
-    jobs.iter()
-        .map(codec::import)
-        .collect::<Result<_, _>>()
-        .map_err(LegacySentinelError::Conflict)
 }

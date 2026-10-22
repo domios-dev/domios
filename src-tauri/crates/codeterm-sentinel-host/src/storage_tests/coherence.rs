@@ -66,7 +66,7 @@ fn storage_sentinel_graph_projects_one_committed_scope_with_configured_and_obser
     let authored = |paused: bool, handlers: Value| -> Sentinel {
         let mut job = store
             .lock()
-            .prepare(params(paused, handlers), scope.clone(), false)
+            .prepare_document(params(paused, handlers), scope.clone(), false)
             .expect("admitted definition");
         job.agent_authored = true;
         commit(&store, |current| current.stage_insert(job)).expect("committed creation")
@@ -75,9 +75,9 @@ fn storage_sentinel_graph_projects_one_committed_scope_with_configured_and_obser
     let scenario = authored(
         false,
         json!({"done":[
-            {"id":"branch","type":"blueprint","parameters":{"target":child.id}},
-            {"id":"tell","type":"send","parameters":{"target":"absent-worker"}},
-            {"id":"trigger","type":"cron","parameters":{"target":cron.id}}
+            {"id":"branch","uses":"blueprint","with":codeterm_sentinel::test_support::literal_params(json!({"target":child.id}))},
+            {"id":"tell","uses":"send","with":codeterm_sentinel::test_support::literal_params(json!({"target":"absent-worker"}))},
+            {"id":"trigger","uses":"cron","with":codeterm_sentinel::test_support::literal_params(json!({"target":cron.id}))}
         ]}),
     );
     create(&store, Some("team"), false, json!({}));
@@ -169,7 +169,7 @@ fn storage_sentinel_rows_written_stay_bounded_by_the_changed_stage() {
         .map(|_| {
             let job = store
                 .lock()
-                .prepare(params(true, json!({})), owner(None), false)
+                .prepare_document(params(true, json!({})), owner(None), false)
                 .expect("admitted definition");
             codec::import(&job).expect("import record")
         })

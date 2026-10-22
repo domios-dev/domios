@@ -48,7 +48,7 @@ pub enum BlueprintAction {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
-    /// Import a portable recipe into the caller's Team (stopped by default)
+    /// Import a native v2 recipe into the caller's Team (stopped by default)
     Import {
         file: std::path::PathBuf,
         #[arg(long = "set")]
@@ -89,7 +89,7 @@ pub enum BlueprintAction {
         #[arg(long, requires = "id")]
         stop: bool,
     },
-    /// Replace one definition at the expected version
+    /// Replace one native v2 YAML definition at the expected version
     Update {
         /// Replace the Blueprint note (at most 200 plain-text characters)
         #[arg(long, value_parser = parse_blueprint_note)]

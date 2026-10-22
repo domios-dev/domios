@@ -1685,7 +1685,7 @@
         },
         {
           "name": "import",
-          "about": "Import a portable recipe into the caller's Team (stopped by default)",
+          "about": "Import a native v2 recipe into the caller's Team (stopped by default)",
           "aliases": [],
           "args": [
             {
@@ -1930,7 +1930,7 @@
         },
         {
           "name": "update",
-          "about": "Replace one definition at the expected version",
+          "about": "Replace one native v2 YAML definition at the expected version",
           "aliases": [],
           "args": [
             {
