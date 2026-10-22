@@ -85,6 +85,7 @@ mod notification_desktop;
 pub(crate) mod notification_push;
 mod paired_planner;
 pub mod role_policy;
+mod tab_input_policy;
 pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
 pub(crate) mod orchestrator;
 pub mod ordered_actions;

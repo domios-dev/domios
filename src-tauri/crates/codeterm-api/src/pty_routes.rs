@@ -128,6 +128,10 @@ pub async fn pty_write(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .require_tab_input_allowed(&pty_id, None)
+            .map_err(|e| (StatusCode::FORBIDDEN, e))?;
         let diagnostic_level = crate::stream_diagnostics::configured_level(
             state.config.lock().diagnostics.terminal_transport,
         );

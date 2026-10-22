@@ -98,6 +98,16 @@ fn curator_runtime_registration_binds_the_launched_round() {
     });
     service.plan_store.save(&mut plan, 100).unwrap();
     service.curator_spawned(&plan.id, &tab, "run", 101).unwrap();
+    assert_eq!(
+        service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .description
+            .as_deref(),
+        Some("Round 2")
+    );
     let persisted = service.plan_store.get(&plan.id).unwrap();
     let running = persisted.control_loop.running.unwrap();
     assert_eq!(running.tab_id.as_deref(), Some(tab.as_str()));
