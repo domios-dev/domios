@@ -53,7 +53,7 @@ Ports use the restricted JSON Schema fields `type`, `properties`, `required`, `a
 
 ## Execution support
 
-Admission lowers a v2 document to the runtime representation or returns an explicit unsupported diagnostic before effects. Code and call nodes can be serialized and checked, but their execution is currently refused. Runtime data binds, custom JSON ports, pipeline effect nodes, pipeline `other` handlers and per-node capability/budget enforcement also refuse when lowering cannot preserve their meaning. `domios-cli` capability is unavailable.
+Admission lowers a v2 document to the runtime representation or returns an explicit unsupported diagnostic before effects. Code and call nodes execute through the shared typed runtime. Runtime data binds resolve retained outputs as data. Lowering refuses any unsupported node or contract before effects; pipeline `other` handlers remain unavailable. `domios-cli` capability is unavailable.
 
 Supported pipeline nodes are fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`.
 
@@ -130,8 +130,10 @@ domios blueprint keep --file increment.yaml --when "Increment a typed counter"
 domios blueprint show mem:<solution-id> --json
 ```
 
-Keep preserves the callable input signature and returns its stable `mem:` identity and hash. Reuse that identity in `call.ref` with structural `lit`, `input`, or `bind` arguments. The CLI reads relative local imports from each authoring file and sends their document bytes; the host resolves nested `mem:` calls within the caller's Team and workspace. Saving or applying freezes the exact transitive closure. Existing pins stay fixed, and head drift produces a semantic warning. Missing pinned bytes refuse execution. Callable files use `keep --file`; `apply` admits scheduled graphs. `show` includes expanded pinned callee bodies and bounded nested run results, stops and call stacks. Call checks require host resolution and use the same admission checker as apply.
+Keep preserves the callable input signature and returns its stable `mem:` identity and hash. Reuse that identity in `call.ref` with structural `lit`, `input`, or `bind` arguments. The CLI reads relative local imports from each authoring file and sends their document bytes; the host resolves nested `mem:` calls within the caller's Team and workspace. Saving or applying freezes the exact transitive closure. Existing pins stay fixed. Edits, merges, archives and area-cap eviction produce a warning with a reason and semantic changes; archived heads cannot receive new pins. Missing pinned bytes refuse execution. Callable files use `keep --file`; `apply` admits scheduled graphs. `show` includes expanded pinned callee bodies and bounded nested run results, stops and call stacks. Call checks require host resolution and use the same admission checker as apply. Callable checks preserve required input signatures and schedule nothing. Import and update carry the same frozen local bundle; exported pins stay fixed. `check --fix` explicitly refuses call documents; use `check` without `--fix`.
 
-Inside callees, notify/send/cron/escalate use caller scope and the shared executor claim. Blueprint activation, stop and prompt-response effects require scheduler custody and are refused at check time inside calls; put those effects in the caller.
+Callable `other` handlers are refused at check time; move failure handling to the caller. Inside callees, notify/send/cron/escalate use caller scope and the shared executor claim. Blueprint activation, stop and prompt-response effects require scheduler custody and are refused at check time inside calls; put those effects in the caller.
 
-<!-- revision: 50 -->
+The simulation harness is internal and has no CLI verb. It records bounded delivery provenance in memory with zero delivery and no real run journal. Process, code, agent, HTTP and conversion nodes refuse before launch; pure filters and calls share the normal budget and port checks.
+
+<!-- revision: 51 -->

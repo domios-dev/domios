@@ -1,7 +1,7 @@
 use super::{pipeline_spec, recipe_files};
 use crate::args::blueprint::BlueprintAction;
 use codeterm_blueprint_types::blueprint_document::{self, Document};
-use serde_json::{json, Value};
+use serde_json::json;
 
 pub(super) fn source(name: &str) -> Result<String, String> {
     if let Some((_, source)) = recipe_files::FILES.iter().find(|(key, _)| *key == name) {
@@ -14,7 +14,8 @@ pub(super) fn local_bundle(name: &str) -> Result<blueprint_document::calls::Loca
     blueprint_document::calls::collect_local(name, &raw)
         .map_err(|errors| blueprint_document::checker::render(&errors, true))
 }
-pub(super) fn load_checked(name: &str, set: &[String]) -> Result<Value, String> {
+#[cfg(test)]
+pub(super) fn load_checked(name: &str, set: &[String]) -> Result<serde_json::Value, String> {
     let source = source(name)?;
     let checked = blueprint_document::check(name, &source, set);
     if checked.ok {
@@ -58,10 +59,17 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
             write,
         } => {
             let raw = source(name).unwrap_or_else(|error| crate::cmd::print::fail(2, error));
-            if !*fix
-                && blueprint_document::parse(name, &raw).is_ok_and(|parsed| {
-                    parsed.document.nodes().any(|node| node.call.is_some())
-                        || !parsed.document.imports.is_empty()
+            let parsed = blueprint_document::parse(name, &raw);
+            let calls = parsed.as_ref().is_ok_and(|parsed| {
+                parsed.document.nodes().any(|node| node.call.is_some())
+                    || !parsed.document.imports.is_empty()
+            });
+            if *fix && calls {
+                crate::cmd::print::fail(2, "--fix on call documents requires host resolution and is not supported; check without --fix");
+            }
+            if calls
+                || parsed.as_ref().is_ok_and(|parsed| {
+                    parsed.document.trigger.is_none() && parsed.document.result.port.is_some()
                 })
             {
                 return false;

@@ -37,6 +37,23 @@ fn context(
             .collect(),
         ..Default::default()
     };
+    if parsed.document.trigger.is_none()
+        && parsed.document.result.port.is_some()
+        && !parsed.document.other.is_empty()
+    {
+        context.call_diagnostics.push(
+            CallFinding {
+                rule: "C11".into(),
+                name: "callable_other".into(),
+                field: "other".into(),
+                location: parsed.at("other"),
+                message: "callable other handlers are not supported; move them to the caller"
+                    .into(),
+                pin: None,
+            }
+            .into_diagnostic(),
+        );
+    }
     if depth >= MAX_CALL_DEPTH {
         return context;
     }

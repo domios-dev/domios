@@ -482,7 +482,13 @@ fn request(
             stopped: _,
             start,
         } => {
-            let definition = authoring::load_checked(&file.to_string_lossy(), &set)?;
+            let bundle = authoring::local_bundle(&file.to_string_lossy())?;
+            let definition = bundle
+                .document
+                .bind(&set)
+                .map_err(|errors| format!("{errors:?}"))?;
+            params["local_callees"] =
+                serde_json::to_value(bundle.local_callees).map_err(|e| e.to_string())?;
             params["recipe"] = json!({"schema_version":2,"definition":definition});
             params["set"] = json!([]);
             params["stopped"] = json!(!start);
@@ -558,9 +564,24 @@ fn request(
             params["dry_run"] = json!(dry_run);
             "blueprint.apply"
         }
-        BlueprintAction::Check { source, set, .. } => {
+        BlueprintAction::Check {
+            source, set, fix, ..
+        } => {
             let bundle = authoring::local_bundle(&source)?;
-            params["definition"] = bundle.document.bind(&set).map_err(|e| format!("{e:?}"))?;
+            if fix
+                && (bundle.document.nodes().any(|node| node.call.is_some())
+                    || !bundle.document.imports.is_empty())
+            {
+                return Err("--fix on call documents requires host resolution and is not supported; check without --fix".into());
+            }
+            params["definition"] = if bundle.document.trigger.is_none()
+                && bundle.document.result.port.is_some()
+                && set.is_empty()
+            {
+                serde_json::to_value(&bundle.document).map_err(|e| e.to_string())?
+            } else {
+                bundle.document.bind(&set).map_err(|e| format!("{e:?}"))?
+            };
             params["local_callees"] =
                 serde_json::to_value(bundle.local_callees).map_err(|e| e.to_string())?;
             params["dry_run"] = json!(true);
@@ -615,7 +636,13 @@ fn request(
         } => {
             params["id"] = json!(id);
             params["expect_version"] = json!(expect_version);
-            let mut definition = authoring::load_checked(&from_file.to_string_lossy(), &[])?;
+            let bundle = authoring::local_bundle(&from_file.to_string_lossy())?;
+            let mut definition = bundle
+                .document
+                .bind(&[])
+                .map_err(|errors| format!("{errors:?}"))?;
+            params["local_callees"] =
+                serde_json::to_value(bundle.local_callees).map_err(|e| e.to_string())?;
             if let Some(note) = note {
                 definition["note"] = json!(note);
             }

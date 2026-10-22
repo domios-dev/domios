@@ -37,8 +37,8 @@ fn append(
 ) -> Result<(), StorageError> {
     cx.write(
         "INSERT INTO blueprint_step_journal \
-         (blueprint_id, run_id, step_index, step_name, state, outcome, started_at_ms, ended_at_ms, result_summary, reason, body_ref,call_stack_json) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,(SELECT call_stack_json FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 ORDER BY entry_id DESC LIMIT 1))",
+         (blueprint_id, run_id, step_index, step_name, state, outcome, started_at_ms, ended_at_ms, result_summary, reason, body_ref,call_stack_json,claim_parent_index,definition_version) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,(SELECT call_stack_json FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 ORDER BY entry_id DESC LIMIT 1),(SELECT claim_parent_index FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 ORDER BY entry_id DESC LIMIT 1),(SELECT definition_version FROM blueprint_step_journal WHERE blueprint_id=?1 AND run_id=?2 AND definition_version IS NOT NULL ORDER BY entry_id LIMIT 1))",
         params![
             id,
             run_id,
@@ -121,6 +121,7 @@ pub(super) fn write(
             }))
         }
         BlueprintJournalWrite::Claim {
+            definition_version,
             parent,
             run_id,
             marker,
@@ -215,7 +216,7 @@ pub(super) fn write(
                 None,
                 None,
             )?;
-            cx.write("UPDATE blueprint_step_journal SET claim_generation=?4,claim_parent_index=?5 WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 AND state='running'",params![id,run_id,step_index,to_sql_u64("claim generation",generation)?,parent.map(|p|p.marker.index())])?;
+            cx.write("UPDATE blueprint_step_journal SET claim_generation=?4,claim_parent_index=?5,definition_version=?6 WHERE blueprint_id=?1 AND run_id=?2 AND step_index=?3 AND state='running'",params![id,run_id,step_index,to_sql_u64("claim generation",generation)?,parent.map(|p|p.marker.index()),definition_version.map(|v|to_sql_u64("journal definition version",v)).transpose()?])?;
             Ok(commit(MutationOutcome::Applied))
         }
         BlueprintJournalWrite::Finish {
@@ -334,7 +335,7 @@ pub(super) fn log(
         .conn
         .prepare_cached(
             "SELECT entry_id, run_id, step_index, step_name, state, outcome, started_at_ms, \
-             ended_at_ms, result_summary, reason, body_ref,call_stack_json FROM blueprint_step_journal \
+             ended_at_ms, result_summary, reason, body_ref,call_stack_json,claim_parent_index,definition_version FROM blueprint_step_journal \
              WHERE blueprint_id = ?1 AND run_id IN \
              (SELECT run_id FROM blueprint_step_journal WHERE blueprint_id = ?1 \
               GROUP BY run_id ORDER BY MAX(entry_id) DESC LIMIT ?2) ORDER BY entry_id DESC",
@@ -355,6 +356,8 @@ pub(super) fn log(
                 row.get::<_, Option<String>>(9)?,
                 row.get::<_, Option<String>>(10)?,
                 row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<i64>>(12)?,
+                row.get::<_, Option<i64>>(13)?,
             ))
         })
         .map_err(|error| sqlite_error("query blueprint journal", error))?;
@@ -373,6 +376,8 @@ pub(super) fn log(
             reason,
             body_ref,
             call_stack_json,
+            parent_step_index,
+            definition_version,
         ) = row.map_err(|error| sqlite_error("read blueprint journal row", error))?;
         JournalMarker::from_columns(step_index, &step_name)
             .map_err(|error| StorageError::invalid("journal marker", error))?;
@@ -391,6 +396,10 @@ pub(super) fn log(
             result_summary,
             reason: reason.map(JournalReason::from),
             body_ref,
+            parent_step_index,
+            definition_version: definition_version
+                .map(|v| from_sql_u64("journal definition version", v))
+                .transpose()?,
             call_stack: call_stack_json
                 .as_deref()
                 .map(serde_json::from_str)

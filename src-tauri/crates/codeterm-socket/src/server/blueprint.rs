@@ -138,8 +138,21 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("recipe"))
                 .cloned()
                 .ok_or_else(|| error("recipe required"))?;
-            let recipe = serde_json::from_value(recipe)
-                .map_err(|e| error(format!("invalid recipe: {e}")))?;
+            let mut recipe: codeterm_blueprint_types::blueprint_recipe::Recipe =
+                serde_json::from_value(recipe)
+                    .map_err(|e| error(format!("invalid recipe: {e}")))?;
+            let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
+                &recipe.definition,
+            )
+            .map_err(error)?;
+            let document = codeterm_sentinel_host::blueprint_calls::pin_bundle(
+                svc,
+                &caller,
+                document,
+                &local_callees(params)?,
+            )
+            .map_err(error)?;
+            recipe.definition = serde_json::to_value(document).map_err(|e| error(e.to_string()))?;
             let assignments: Vec<String> = serde_json::from_value(
                 params
                     .as_ref()
@@ -250,6 +263,18 @@ pub(super) fn dispatch(
                 .get("definition")
                 .cloned()
                 .ok_or_else(|| error("native v2 definition required"))?;
+            let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
+                &definition,
+            )
+            .map_err(error)?;
+            let document = codeterm_sentinel_host::blueprint_calls::pin_bundle(
+                svc,
+                &caller,
+                document,
+                &local_callees(params)?,
+            )
+            .map_err(error)?;
+            let definition = serde_json::to_value(document).map_err(|e| error(e.to_string()))?;
             let cause = args.get("cause").and_then(Value::as_str).map(str::to_owned);
             svc.blueprint_apply_document(
                 &caller,

@@ -729,6 +729,7 @@ fn claim_step(
         handle,
         &lease.job,
         BlueprintJournalWrite::Claim {
+            definition_version: Some(lease.job.definition_version),
             parent: None,
             run_id: run_id.into(),
             marker,
