@@ -93,6 +93,7 @@ enum IndexJob {
     Prune(PathBuf, HashSet<String>),
     Embed(PathBuf, Unit),
     DeletePlan(Plan),
+    PurgePlan(Plan, Vec<Spec>),
     Spec(Spec),
     DeleteSpec(Spec),
 }
@@ -108,13 +109,16 @@ impl IndexJob {
             Self::Spec(spec) | Self::DeleteSpec(spec) => {
                 format!("{}:spec:{}", self.project_key(), spec.id)
             }
+            Self::PurgePlan(plan, _) => format!("{}:purge:{}", self.project_key(), plan.id),
         }
     }
 
     fn project_key(&self) -> String {
         match self {
             Self::Prune(root, _) | Self::Embed(root, _) => project_scope(root),
-            Self::Plan(plan, _) | Self::DeletePlan(plan) => project_scope(plan_project_root(plan)),
+            Self::Plan(plan, _) | Self::DeletePlan(plan) | Self::PurgePlan(plan, _) => {
+                project_scope(plan_project_root(plan))
+            }
             Self::Spec(spec) | Self::DeleteSpec(spec) => project_scope(spec_project_root(spec)),
         }
     }
@@ -260,6 +264,9 @@ fn index_queue() -> &'static Arc<IndexQueue> {
                             incremental::mirror_plan_scope(plan, scope, false),
                         ),
                         IndexJob::DeletePlan(plan) => delete_plan_units(plan),
+                        IndexJob::PurgePlan(plan, specs) => {
+                            recovery::purge_plan_indexes(plan, specs)
+                        }
                         IndexJob::Spec(spec) => embedding::queue_changed(
                             spec_project_root(spec),
                             mirror_spec(spec, false),
@@ -289,11 +296,7 @@ pub(super) fn enqueue_spec_index(spec: Spec) {
 }
 
 pub(super) fn remove_plan_from_index(plan: Plan, specs: &[Spec]) -> Result<(), String> {
-    recovery::purge_plan_indexes(&plan, specs)?;
-    for spec in specs {
-        index_queue().enqueue(IndexJob::DeleteSpec(spec.clone()));
-    }
-    index_queue().enqueue(IndexJob::DeletePlan(plan));
+    index_queue().enqueue(IndexJob::PurgePlan(plan, specs.to_vec()));
     Ok(())
 }
 
