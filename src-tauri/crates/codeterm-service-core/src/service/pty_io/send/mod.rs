@@ -1014,9 +1014,8 @@ impl ServiceContext {
     pub fn write_raw(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
         self.wake_frozen_tab(tab_id)?;
         let pty_id = self.resolve_pty_id(tab_id)?;
-        let data = self
-            .encode_provider_control_key(&pty_id, data)
-            .unwrap_or(data);
+        let encoded = self.encode_provider_control_key(&pty_id, data);
+        let data = encoded.as_deref().unwrap_or(data);
         self.pty
             .lock()
             .write(&pty_id, data)
