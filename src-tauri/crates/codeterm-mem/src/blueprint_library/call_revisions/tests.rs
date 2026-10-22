@@ -396,6 +396,7 @@ fn blueprint_v2_call_review_dream_merge_without_edit_warns_with_keeper_and_diff(
         .persist_blueprint("blueprints:workspace", prepared, false, AREA_CAP)
         .unwrap()
         .id;
+    mem.reuse_blueprints(std::slice::from_ref(&keeper)).unwrap();
     assert_eq!(mem.dream_blueprints().unwrap(), 1);
     assert_eq!(mem.get(&id).unwrap().unwrap().kind, "archived");
     let warnings = mem
