@@ -432,7 +432,7 @@ impl MessageGateway {
         session: &std::sync::Arc<super::agent_runtime::engine::Session>,
         process: &std::sync::Arc<super::agent_runtime::process::Process>,
         send_id: &str,
-        input: codeterm_plugin::agent_runtime::TurnInput,
+        input: super::messenger::AgentInput,
     ) -> Result<(), super::delivery_error::DeliveryError> {
         super::agent_runtime::transport::submit_loaded(svc, session, process, send_id, input).await
     }

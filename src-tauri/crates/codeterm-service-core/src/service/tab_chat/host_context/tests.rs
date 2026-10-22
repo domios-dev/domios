@@ -265,7 +265,12 @@ fn default_path_writes_no_context_sidecar() {
 
     let backend = RecordingBackend::new(ContextOwner::Plugin);
     crate::service::tab_transport_chat::dispatch_chatbackend_send(
-        &backend, plugin, session_id, "ask",
+        &backend,
+        plugin,
+        session_id,
+        &crate::service::messenger::AgentInput::Human(
+            crate::service::messenger::HumanInput::composer("ask"),
+        ),
     )
     .unwrap();
 
@@ -305,7 +310,12 @@ fn host_owned_send_writes_the_sidecar_beside_the_mirror() {
 
     let backend = RecordingBackend::new(ContextOwner::Host);
     crate::service::tab_transport_chat::dispatch_chatbackend_send(
-        &backend, plugin, session_id, "ask",
+        &backend,
+        plugin,
+        session_id,
+        &crate::service::messenger::AgentInput::Human(
+            crate::service::messenger::HumanInput::composer("ask"),
+        ),
     )
     .unwrap();
 

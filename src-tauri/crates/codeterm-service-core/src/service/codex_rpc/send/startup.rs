@@ -13,9 +13,10 @@ pub(crate) fn admit_startup(svc: &ServiceContext, tab: &str) -> Result<String, D
 pub(crate) fn send_startup(
     svc: &ServiceContext,
     tab: &str,
-    text: &str,
+    input: &crate::service::messenger::LaunchBootstrap,
     send_id: &str,
 ) -> Result<(), DeliveryError> {
+    let text = input.text();
     let reserved = svc
         .chat_send_ledger
         .status(send_id)

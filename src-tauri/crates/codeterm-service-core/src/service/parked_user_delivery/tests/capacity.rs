@@ -15,9 +15,9 @@ fn full_user_owner_refuses_new_admission_without_consuming_backend_ledger_capaci
         .collect::<Vec<_>>();
     let refusal = fixture
         .service
-        .start_chat_send(
+        .start_human_chat_send(
             &tab,
-            SECOND_PAYLOAD.into(),
+            crate::service::messenger::HumanInput::composer(SECOND_PAYLOAD),
             None,
             Some("opaque-refused-client".into()),
         )
@@ -102,7 +102,11 @@ fn zero_write_refusal_retries_head_then_writes_following_sends_after_uncertainty
             Some(
                 fixture
                     .service
-                    .prepare_and_admit_user_send(ticket, SECOND_PAYLOAD.into(), false)
+                    .prepare_and_admit_user_send(
+                        ticket,
+                        crate::service::messenger::HumanInput::composer(SECOND_PAYLOAD),
+                        false,
+                    )
                     .unwrap()
                     .status,
             )

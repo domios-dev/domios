@@ -7,7 +7,6 @@ use crate::{
     multiplexer::types::{PendingDeliveryRecord, PendingDeliveryState},
     service::ServiceContext,
 };
-use codeterm_plugin::agent_runtime::TurnInput;
 use std::sync::Arc;
 
 fn claimable(record: &PendingDeliveryRecord) -> bool {
@@ -98,10 +97,9 @@ pub(super) async fn submit(
             session,
             process,
             &send_id,
-            TurnInput {
-                text: payload,
-                attachments: Vec::new(),
-            },
+            crate::service::messenger::AgentInput::Launch(
+                crate::service::messenger::LaunchBootstrap::new(payload),
+            ),
         )
         .await
         .map_err(|reason| RuntimeFailure::Refused(reason.ledger_message()))

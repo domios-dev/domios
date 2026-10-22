@@ -55,7 +55,9 @@ fn superseded_claim_is_refused_before_any_write_or_parser_side_effect() {
     let error = submit_text_with_key_claimed_and_follow_up(
         &fixture.service,
         pty_id,
-        "payload",
+        &crate::service::messenger::AgentInput::Human(
+            crate::service::messenger::HumanInput::composer("payload"),
+        ),
         None,
         true,
         b"\r",

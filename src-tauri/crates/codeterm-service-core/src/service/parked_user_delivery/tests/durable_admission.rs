@@ -24,7 +24,11 @@ fn held_persistence_keeps_mux_ledger_and_unrelated_admission_available_without_f
     let send_id = reserved.send_id.clone();
     let (accepted_tx, accepted_rx) = mpsc::channel();
     let admission = std::thread::spawn(move || {
-        let result = svc.prepare_and_admit_user_send(reserved, FIRST_PAYLOAD.into(), false);
+        let result = svc.prepare_and_admit_user_send(
+            reserved,
+            crate::service::messenger::HumanInput::composer(FIRST_PAYLOAD),
+            false,
+        );
         accepted_tx.send(result.is_ok()).unwrap();
     });
     held_rx.recv_timeout(TEST_DEADLINE).unwrap();
@@ -140,7 +144,11 @@ fn production_preparation_archives_exact_owned_body_and_preserves_it_after_pad_r
         .unwrap();
     let result = fixture
         .service
-        .prepare_and_admit_user_send(ticket, FIRST_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            ticket,
+            crate::service::messenger::HumanInput::composer(FIRST_PAYLOAD),
+            false,
+        )
         .unwrap();
     let body_path = std::path::PathBuf::from(result.pad_file.unwrap());
     let expected = fixture
@@ -197,7 +205,11 @@ fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
     mark_ready(&fixture, &tab);
     let b = fixture
         .service
-        .prepare_and_admit_user_send(second, SECOND_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            second,
+            crate::service::messenger::HumanInput::composer(SECOND_PAYLOAD),
+            false,
+        )
         .unwrap();
     await_owner_idle(&fixture, &tab);
     assert!(matches!(
@@ -206,7 +218,11 @@ fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
     ));
     let a = fixture
         .service
-        .prepare_and_admit_user_send(first, FIRST_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            first,
+            crate::service::messenger::HumanInput::composer(FIRST_PAYLOAD),
+            false,
+        )
         .unwrap();
     let (first_write, first_text) = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
     assert_eq!(first_write, a.status.send_id);
@@ -288,7 +304,11 @@ fn refused_durable_service_admission_never_publishes_acceptance_or_evicts_first(
     let refused_id = reserved.send_id.clone();
     let error = fixture
         .service
-        .prepare_and_admit_user_send(reserved, SECOND_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            reserved,
+            crate::service::messenger::HumanInput::composer(SECOND_PAYLOAD),
+            false,
+        )
         .err()
         .unwrap();
     assert!(error.starts_with("admission_unknown:"));

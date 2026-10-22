@@ -234,6 +234,12 @@ impl crate::service::ServiceContext {
             }
             return outcome;
         }
-        self.send_chat_text_with_enqueued(tab_id, text, enqueued)
+        self.send_chat_text_with_enqueued(
+            tab_id,
+            &crate::service::messenger::AgentInput::Human(
+                crate::service::messenger::HumanInput::composer(text),
+            ),
+            enqueued,
+        )
     }
 }

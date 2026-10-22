@@ -24,6 +24,11 @@ pub(super) fn prepare_routed_input(
     let body = sanitize_agent_prompt_input(&frame.body);
     let marker = marker_capability
         .filter(|capability| capability.marker_applies_to(&body))
+        .filter(|_| {
+            !frame
+                .suffix
+                .contains(codeterm_wire::domios::DOMIOS_PASTED_MARKER)
+        })
         .map(|_| codeterm_wire::domios::pasted_marker_tail())
         .unwrap_or_default();
     RoutedInput {
@@ -352,38 +357,13 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn send_to_authenticated_agent_session_pinned(
-        &self,
-        tab_id: &str,
-        expected_pty_id: &str,
-        expected_session_id: &str,
-        expected_binding_nonce: &str,
-        text: &str,
-    ) -> Result<(), String> {
-        self.send_to_authenticated_agent_session_pinned_with(
-            tab_id,
-            expected_pty_id,
-            expected_session_id,
-            expected_binding_nonce,
-            text,
-            |delivery, text| {
-                self.send_authenticated_delivery_with_options(
-                    delivery,
-                    text,
-                    super::submit_transaction::PtySubmitEntry::Messenger,
-                    true,
-                )
-            },
-        )
-    }
-
     pub(crate) fn send_to_authenticated_agent_session_pinned_routed(
         &self,
         tab_id: &str,
         expected_pty_id: &str,
         expected_session_id: &str,
         expected_binding_nonce: &str,
-        frame: codeterm_wire::domios::DomiosFrame,
+        frame: crate::service::messenger::FramedDelivery,
     ) -> Result<(), String> {
         let pty_claim = self.pty_ownership.acquire(tab_id);
         let result = self
@@ -400,6 +380,7 @@ impl ServiceContext {
         result
     }
 
+    #[cfg(test)]
     fn send_to_authenticated_agent_session_pinned_with<T>(
         &self,
         tab_id: &str,
@@ -422,73 +403,21 @@ impl ServiceContext {
         result
     }
 
-    fn send_authenticated_delivery_with_options(
+    fn send_authenticated_delivery_with_routed_frame(
         &self,
         delivery: AuthenticatedPtyDelivery,
-        text: &str,
-        entry: super::submit_transaction::PtySubmitEntry,
-        verify_submit: bool,
+        frame: crate::service::messenger::FramedDelivery,
     ) -> Result<(), String> {
         log::debug!(
-            "[agent-delivery] branch=send_authenticated_delivery_with_options provider={} pty={}",
+            "[agent-delivery] branch=send_authenticated_delivery_with_routed_frame provider={} pty={}",
             delivery.provider_id,
             delivery.pty_id
         );
         crate::service::codex_rpc::send::route_or_pty(
-            crate::service::codex_rpc::send::try_send_to_pty(self, &delivery.pty_id, text)
-                .map(|result| result.map_err(|error| error.ledger_message())),
-            || {
-                let strategy = self
-                    .agent_registry
-                    .with_provider(&delivery.provider_id, |provider| {
-                        provider.verify_submit_strategy()
-                    })
-                    .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?;
-                let track_exact_session_turn = !text.is_empty()
-                    && matches!(
-                        &strategy,
-                        crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
-                    );
-                let require_provider_turn = verify_submit && track_exact_session_turn;
-                let typed_follow_up = verify_submit
-                    .then(|| self.typed_follow_up_for_agent(Some(&delivery.provider_id), text))
-                    .flatten();
-                super::submit_transaction::submit_entry(entry, text, |text| {
-                    self.send_text_verified_guarded(
-                        &delivery.pty_id,
-                        text,
-                        typed_follow_up.as_deref(),
-                        true,
-                        strategy,
-                        delivery.permit.clone(),
-                        crate::service::inject_verify::VerifyOpts {
-                            require_prompt_first: false,
-                            verify_echo: false,
-                            verify_submit,
-                            ..Default::default()
-                        },
-                        track_exact_session_turn,
-                    )
-                    .and_then(|result| require_submission_result(result, require_provider_turn))
-                    .map_err(|error| {
-                        DeliveryError::from_injection(&delivery.pty_id, error).ledger_message()
-                    })
-                })
-            },
-        )
-    }
-
-    fn send_authenticated_delivery_with_routed_frame(
-        &self,
-        delivery: AuthenticatedPtyDelivery,
-        frame: codeterm_wire::domios::DomiosFrame,
-    ) -> Result<(), String> {
-        log::debug!("[agent-delivery] branch=send_authenticated_delivery_with_routed_frame provider={} pty={}", delivery.provider_id, delivery.pty_id);
-        crate::service::codex_rpc::send::route_or_pty(
             crate::service::codex_rpc::send::try_send_to_pty(
                 self,
                 &delivery.pty_id,
-                &frame.to_message(),
+                &crate::service::messenger::AgentInput::Framed(frame.clone()),
             )
             .map(|result| result.map_err(|error| error.ledger_message())),
             || {
@@ -506,8 +435,9 @@ impl ServiceContext {
                             .filter(|capability| capability.marks_routed_messages)
                     })
                     .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-                let input = prepare_routed_input(&frame, marker_capability.as_ref());
+                let input = prepare_routed_input(&frame.to_frame(), marker_capability.as_ref());
                 let body = input.body;
+                let framed = crate::service::messenger::Messenger::restore_framed_delivery(&body)?;
                 let track_exact_session_turn = !body.is_empty()
                     && matches!(
                         &strategy,
@@ -517,7 +447,7 @@ impl ServiceContext {
                 super::submit_transaction::submit_text_with_key_claimed(
                     self,
                     &delivery.pty_id,
-                    &body,
+                    &crate::service::messenger::AgentInput::Framed(framed),
                     false,
                     None,
                     true,
@@ -543,21 +473,34 @@ impl ServiceContext {
 
     /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
     /// a causal turn transition or an actionable delivery failure.
-    pub fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String> {
+    pub fn send_text(
+        &self,
+        tab_id: &str,
+        text: &crate::service::messenger::AgentInput,
+    ) -> Result<(), String> {
         self.send_text_input_delivery(tab_id, text, true, None)
             .map_err(|error| error.ledger_message())
     }
 
-    pub(crate) fn send_chat_text_claimed(
+    pub(crate) fn send_human_input(
         &self,
         tab_id: &str,
-        text: &str,
+        input: crate::service::messenger::HumanInput,
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
     ) -> Result<(), DeliveryError> {
-        self.send_text_input_delivery(tab_id, text, true, claim)
+        self.send_text_input_delivery(
+            tab_id,
+            &crate::service::messenger::AgentInput::Human(input),
+            true,
+            claim,
+        )
     }
 
-    pub(crate) fn insert_text(&self, tab_id: &str, text: &str) -> Result<(), String> {
+    pub(crate) fn insert_text(
+        &self,
+        tab_id: &str,
+        text: &crate::service::messenger::AgentInput,
+    ) -> Result<(), String> {
         self.send_text_input_delivery(tab_id, text, false, None)
             .map_err(|error| error.ledger_message())
     }
@@ -565,7 +508,7 @@ impl ServiceContext {
     pub fn send_text_input_delivery(
         &self,
         tab_id: &str,
-        text: &str,
+        text: &crate::service::messenger::AgentInput,
         submit: bool,
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
     ) -> Result<(), DeliveryError> {
@@ -575,7 +518,7 @@ impl ServiceContext {
     pub(crate) fn send_chat_text_with_enqueued(
         &self,
         tab_id: &str,
-        text: &str,
+        text: &crate::service::messenger::AgentInput,
         enqueued: std::sync::Arc<dyn Fn() + Send + Sync>,
     ) -> Result<(), DeliveryError> {
         self.send_text_input_delivery_with_enqueued(tab_id, text, true, None, Some(enqueued))
@@ -584,7 +527,7 @@ impl ServiceContext {
     fn send_text_input_delivery_with_enqueued(
         &self,
         tab_id: &str,
-        text: &str,
+        text: &crate::service::messenger::AgentInput,
         submit: bool,
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
@@ -653,12 +596,20 @@ impl ServiceContext {
         Ok(pty_id)
     }
 
-    pub fn send_text_to_pty(&self, pty_id: &str, text: &str) -> Result<(), String> {
+    pub fn send_text_to_pty(
+        &self,
+        pty_id: &str,
+        text: &crate::service::messenger::AgentInput,
+    ) -> Result<(), String> {
         self.send_text_to_pty_input_delivery(pty_id, text, true)
             .map_err(|error| error.ledger_message())
     }
 
-    pub fn insert_text_to_pty(&self, pty_id: &str, text: &str) -> Result<(), String> {
+    pub fn insert_text_to_pty(
+        &self,
+        pty_id: &str,
+        text: &crate::service::messenger::AgentInput,
+    ) -> Result<(), String> {
         self.send_text_to_pty_input_delivery(pty_id, text, false)
             .map_err(|error| error.ledger_message())
     }
@@ -666,7 +617,7 @@ impl ServiceContext {
     fn send_text_to_pty_input_delivery(
         &self,
         pty_id: &str,
-        text: &str,
+        text: &crate::service::messenger::AgentInput,
         submit: bool,
     ) -> Result<(), DeliveryError> {
         let claim = super::submit_transaction::claim_submit_cycle(pty_id);
@@ -676,7 +627,7 @@ impl ServiceContext {
     pub(crate) fn deliver_pty_input_claimed(
         &self,
         pty_id: &str,
-        text: &str,
+        text: &crate::service::messenger::AgentInput,
         submit: bool,
         claim: super::submit_transaction::SubmitCycleClaim,
     ) -> Result<(), DeliveryError> {
@@ -686,7 +637,7 @@ impl ServiceContext {
     fn deliver_pty_input_with_enqueued(
         &self,
         pty_id: &str,
-        text: &str,
+        text: &crate::service::messenger::AgentInput,
         submit: bool,
         claim: super::submit_transaction::SubmitCycleClaim,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
@@ -702,20 +653,64 @@ impl ServiceContext {
     fn deliver_plain_pty_input_claimed(
         &self,
         pty_id: &str,
-        text: &str,
+        text: &crate::service::messenger::AgentInput,
         submit: bool,
         claim: super::submit_transaction::SubmitCycleClaim,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
         let (tab_id, agent_type) = self.resolve_tab_and_agent(pty_id);
         let delivery_target = tab_id.as_deref().unwrap_or(pty_id);
-        let text = agent_type
-            .as_ref()
-            .map(|_| sanitize_agent_prompt_input(text))
-            .unwrap_or_else(|| text.to_string());
-        let typed_follow_up = submit
-            .then(|| self.typed_follow_up_for_agent(agent_type.as_deref(), &text))
-            .flatten();
+        if matches!(text, crate::service::messenger::AgentInput::Shell(_)) && agent_type.is_some() {
+            return Err(DeliveryError::TabBusyRefused {
+                tab: delivery_target.into(),
+                detail: "shell input cannot target an agent".into(),
+            });
+        }
+        let prepared = match text {
+            crate::service::messenger::AgentInput::Framed(frame) if agent_type.is_none() => {
+                self.programmatic_input(delivery_target, frame.body())
+            }
+            crate::service::messenger::AgentInput::Framed(frame) => {
+                let capability = agent_type.as_deref().and_then(|provider| {
+                    self.agent_registry
+                        .with_provider(provider, |provider| {
+                            provider
+                                .paste_capability()
+                                .filter(|capability| capability.marks_routed_messages)
+                        })
+                        .flatten()
+                });
+                let frame = prepare_routed_input(&frame.to_frame(), capability.as_ref());
+                crate::service::messenger::AgentInput::Framed(
+                    crate::service::messenger::Messenger::restore_framed_delivery(&frame.body)
+                        .map_err(|detail| DeliveryError::TabBusyRefused {
+                            tab: delivery_target.into(),
+                            detail,
+                        })?,
+                )
+            }
+            crate::service::messenger::AgentInput::Human(input) if agent_type.is_some() => {
+                crate::service::messenger::AgentInput::Human(
+                    crate::service::messenger::HumanInput::composer(sanitize_agent_prompt_input(
+                        input.text(),
+                    )),
+                )
+            }
+            crate::service::messenger::AgentInput::Launch(input) if agent_type.is_some() => {
+                crate::service::messenger::AgentInput::Launch(
+                    crate::service::messenger::LaunchBootstrap::new(sanitize_agent_prompt_input(
+                        input.text(),
+                    )),
+                )
+            }
+            other => other.clone(),
+        };
+        let rendered = prepared.text();
+        let text = rendered.as_ref();
+        let typed_follow_up = (submit
+            && !matches!(prepared, crate::service::messenger::AgentInput::Framed(_)))
+        .then(|| self.typed_follow_up_for_agent(agent_type.as_deref(), text))
+        .flatten();
         let strategy = agent_type
             .as_deref()
             .and_then(|agent_id| {
@@ -733,7 +728,7 @@ impl ServiceContext {
         super::submit_transaction::submit_text_with_key_claimed_and_follow_up_revalidated(
             self,
             pty_id,
-            &text,
+            &prepared,
             typed_follow_up.as_deref(),
             submit,
             submit_key,
@@ -810,11 +805,11 @@ impl ServiceContext {
     pub async fn send_text_when_ready(
         &self,
         tab_id: &str,
-        text: &str,
+        text: &crate::service::messenger::AgentInput,
     ) -> Result<(), DeliveryError> {
         let svc = self.clone();
         let tab = tab_id.to_string();
-        let text = text.to_string();
+        let text = text.clone();
         let failure_tab = tab.clone();
         tokio::task::spawn_blocking(move || svc.send_text_input_delivery(&tab, &text, true, None))
             .await
@@ -824,7 +819,11 @@ impl ServiceContext {
             })?
     }
 
-    pub async fn stage_text_when_ready(&self, tab_id: &str, text: &str) -> Result<(), String> {
+    pub async fn stage_text_when_ready(
+        &self,
+        tab_id: &str,
+        text: &crate::service::messenger::AgentInput,
+    ) -> Result<(), String> {
         self.insert_text_detached(tab_id, text);
         Ok(())
     }
@@ -968,7 +967,7 @@ impl ServiceContext {
         &self,
         pty_id: &str,
         provider_id: &str,
-        text: &str,
+        text: &crate::service::messenger::AgentInput,
         enter: bool,
     ) -> Result<
         crate::service::inject_verify::InjectionResult,
@@ -980,8 +979,8 @@ impl ServiceContext {
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
         super::submit_transaction::submit_entry(
             super::submit_transaction::PtySubmitEntry::Direct,
-            &text,
-            |text| {
+            &text.text(),
+            |_| {
                 super::submit_transaction::submit_text(
                     self,
                     pty_id,
@@ -1000,9 +999,14 @@ impl ServiceContext {
     }
 
     /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
-    pub fn write_raw(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
+    pub fn write_human_keys(
+        &self,
+        tab_id: &str,
+        input: &crate::service::messenger::HumanKeys,
+    ) -> Result<(), String> {
         self.wake_frozen_tab(tab_id)?;
         let pty_id = self.resolve_pty_id(tab_id)?;
+        let data = input.as_bytes();
         let encoded = self.encode_provider_control_key(&pty_id, data);
         let data = encoded.as_deref().unwrap_or(data);
         self.pty
@@ -1013,12 +1017,16 @@ impl ServiceContext {
 
     /// Inject ordered raw key sequences off-thread so the state reactor never
     /// blocks on the pty lock. PTY-only — chatBackend tabs have no keys.
-    pub fn inject_raw_keys_async(&self, tab_id: &str, writes: Vec<Vec<u8>>) -> Result<(), String> {
+    pub fn inject_human_keys_async(
+        &self,
+        tab_id: &str,
+        writes: Vec<crate::service::messenger::HumanKeys>,
+    ) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(tab_id)?;
         let pty = self.pty.clone();
         std::thread::spawn(move || {
             for bytes in writes {
-                let _ = pty.lock().write(&pty_id, &bytes);
+                let _ = pty.lock().write(&pty_id, bytes.as_bytes());
             }
         });
         Ok(())
@@ -1027,18 +1035,23 @@ impl ServiceContext {
     /// PTY work runs off-thread so CodeTerm-originated senders return immediately.
     /// Failures emit inline Chat status; delivery diagnostics never become
     /// global Notifications.
-    pub fn send_text_detached(&self, tab_id: &str, text: &str) {
+    pub fn send_text_detached(&self, tab_id: &str, text: &crate::service::messenger::AgentInput) {
         self.deliver_text_detached(tab_id, text, true);
     }
 
-    pub fn insert_text_detached(&self, tab_id: &str, text: &str) {
+    pub fn insert_text_detached(&self, tab_id: &str, text: &crate::service::messenger::AgentInput) {
         self.deliver_text_detached(tab_id, text, false);
     }
 
-    fn deliver_text_detached(&self, tab_id: &str, text: &str, submit: bool) {
+    fn deliver_text_detached(
+        &self,
+        tab_id: &str,
+        text: &crate::service::messenger::AgentInput,
+        submit: bool,
+    ) {
         let svc = self.clone();
         let tab = tab_id.to_string();
-        let text = text.to_string();
+        let text = text.clone();
         std::thread::spawn(move || {
             let result = if submit {
                 svc.send_text(&tab, &text)

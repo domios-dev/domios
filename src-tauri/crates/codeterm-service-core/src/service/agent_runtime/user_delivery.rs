@@ -165,7 +165,20 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             );
         }
         let dispatch_generation = owner.dispatch_generation.load(Ordering::Acquire);
-        let result = transport::send(svc, tab, &text, Some(&record.send_id));
+        let input = if record
+            .client_token
+            .as_deref()
+            .is_some_and(|token| token.starts_with("runtime-envelope:"))
+        {
+            crate::service::messenger::AgentInput::Framed(
+                crate::service::messenger::Messenger::restore_framed_delivery(&text)?,
+            )
+        } else {
+            crate::service::messenger::AgentInput::Human(
+                crate::service::messenger::HumanInput::composer(&text),
+            )
+        };
+        let result = transport::send(svc, tab, &input, Some(&record.send_id));
         let zero_write = result
             .as_ref()
             .err()

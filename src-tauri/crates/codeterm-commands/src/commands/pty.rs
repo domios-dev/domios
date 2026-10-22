@@ -500,16 +500,17 @@ fn dispatch_restored_snapshot_launch_with<R>(
 pub fn write_pty_string_core(
     svc: &ServiceState,
     pty_id: String,
-    data: String,
+    input: codeterm_service_core::service::messenger::HumanKeys,
 ) -> Result<(), String> {
-    svc.require_managed_terminal_input_allowed(&pty_id, data.as_bytes())?;
+    let data = input.into_bytes();
+    svc.require_managed_terminal_input_allowed(&pty_id, &data)?;
     let session = {
         let manager = svc.pty.lock();
         manager
             .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
-    let bytes = data.into_bytes();
+    let bytes = data;
     parse_pty_input(svc, &svc.mux, &pty_id, &bytes);
     mark_user_activity(svc, &svc.mux, &pty_id);
     codeterm_service_core::pty::capture::CaptureRegistry::global().tap_input(

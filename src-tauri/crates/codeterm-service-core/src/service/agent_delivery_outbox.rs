@@ -275,21 +275,11 @@ impl ServiceContext {
             if !receipt.settlement_notified {
                 self.publish_retired_delivery_status(receipt);
                 if receipt.status == Some(AgentDeliveryReceiptStatus::Delivered) {
-                    let payload = AgentDeliveryPayload {
-                        trace_id: None,
-                        transport: super::messenger::QueuedAgentPayload::Text {
-                            text: receipt.exact_text.clone(),
-                        },
-                        observer: receipt.observer.clone(),
-                        idempotency_key: None,
-                        expected_pty_id: None,
-                        expected_session_id: None,
-                        expected_binding_nonce: None,
-                    };
-                    self.record_agent_delivery_written(
+                    self.record_delivery_observed(
                         tab_id,
                         Some(&receipt.id),
-                        &payload,
+                        None,
+                        receipt.observer.as_ref(),
                         true,
                         "delivered_after_restart",
                     );
@@ -405,19 +395,7 @@ impl ServiceContext {
                 _ => "agent_message",
             }
         };
-        let exact_text = match &payload.transport {
-            super::messenger::QueuedAgentPayload::Text { text } => text.clone(),
-            super::messenger::QueuedAgentPayload::RoutedFrame {
-                opening_tag,
-                body,
-                suffix,
-            } => codeterm_wire::domios::DomiosFrame {
-                opening_tag: opening_tag.clone(),
-                body: body.clone(),
-                suffix: suffix.clone(),
-            }
-            .to_message(),
-        };
+        let exact_text = payload.transport.to_message();
         AgentDeliveryRecovery {
             payload_kind: payload_kind.into(),
             worker_brief,
@@ -632,21 +610,11 @@ impl ServiceContext {
         send_id: &str,
         observer: DeliveryWriteObserver,
     ) {
-        let payload = AgentDeliveryPayload {
-            trace_id: None,
-            transport: super::messenger::QueuedAgentPayload::Text {
-                text: String::new(),
-            },
-            observer: Some(observer),
-            idempotency_key: Some(send_id.into()),
-            expected_pty_id: None,
-            expected_session_id: None,
-            expected_binding_nonce: None,
-        };
-        self.record_agent_delivery_written(
+        self.record_delivery_observed(
             tab_id,
             Some(send_id),
-            &payload,
+            Some(send_id),
+            Some(&observer),
             true,
             "runtime-written",
         );
@@ -660,15 +628,32 @@ impl ServiceContext {
         queued: bool,
         outcome: &str,
     ) {
-        if let Some(id) = payload
-            .trace_id
-            .as_deref()
-            .or(payload.idempotency_key.as_deref())
-            .or(delivery_id)
-        {
+        self.record_delivery_observed(
+            tab_id,
+            delivery_id,
+            payload
+                .trace_id
+                .as_deref()
+                .or(payload.idempotency_key.as_deref()),
+            payload.observer.as_ref(),
+            queued,
+            outcome,
+        );
+    }
+
+    fn record_delivery_observed(
+        &self,
+        tab_id: &str,
+        delivery_id: Option<&str>,
+        flow_id: Option<&str>,
+        observer: Option<&DeliveryWriteObserver>,
+        queued: bool,
+        outcome: &str,
+    ) {
+        if let Some(id) = flow_id.or(delivery_id) {
             crate::flow_trace::record(id, "message.written", tab_id, "", outcome, delivery_id);
         }
-        if let Some(observer) = payload.observer.as_ref() {
+        if let Some(observer) = observer {
             match observer {
                 DeliveryWriteObserver::Report {
                     report_id,
