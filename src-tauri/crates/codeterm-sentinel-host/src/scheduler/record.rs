@@ -82,9 +82,17 @@ pub fn record(
     }))
 }
 
-pub(super) fn record_input_unavailable(handle: &Handle, svc: &ServiceState, lease: &Lease) {
+pub(super) fn record_input_unavailable(
+    handle: &Handle,
+    svc: &ServiceState,
+    lease: &Lease,
+    reason: &str,
+) {
     let mut job = lease.job.clone();
-    job.last_reason = Some("input_runtime_unavailable".into());
+    job.last_reason = Some(reason.into());
+    job.machine.held = Some(reason.into());
+    job.progress
+        .record(handle.store.lock().clock.now_ms(), Some("error"), false);
     if storage::commit(&handle.store, |store| store.stage_finish(&job)).unwrap_or(false) {
         let _ = journal(
             svc,

@@ -525,20 +525,25 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         });
         return;
     }
-    if lease.job.input().is_some_and(|input| {
-        input.kind != codeterm_blueprint_types::sentinel_input::MediaKind::Text
-            || input.convert_to.is_some()
-    }) {
-        record_input_unavailable(handle, svc, lease);
+    if let Err(reason) = crate::watch_input::validate(svc, &lease.job) {
+        record_input_unavailable(handle, svc, lease, &reason);
         return;
     }
     let remaining = {
         let now = handle.store.lock().clock.now_ms();
-        lease
+        let remaining = lease
             .job
             .expires_at
-            .map(|at| Duration::from_millis(at.saturating_sub(now)))
-            .unwrap_or(probe::PROBE_RUNTIME)
+            .map(|at| Duration::from_millis(at.saturating_sub(now)));
+        if let Some(input) = lease.job.input().filter(|input| input.convert_to.is_some()) {
+            let budget =
+                Duration::from_millis(input.convert_timeout_ms.unwrap_or(
+                    codeterm_blueprint_types::sentinel_input::DEFAULT_CONVERT_TIMEOUT_MS,
+                ));
+            remaining.unwrap_or(budget).min(budget)
+        } else {
+            remaining.unwrap_or(probe::PROBE_RUNTIME)
+        }
     };
     let observed = if lease.job.input().is_some() || lease.job.terminal().is_some() {
         let text = handle.inbox.lock().take(&lease.job.id);
@@ -551,8 +556,24 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                 ..probe::Output::default()
             }),
             None if lease.job.input().is_some() => {
-                super::input::text_output(&lease.job, std::time::Instant::now() + remaining)
-                    .map_err(|_| probe::process::ProbeFailure::new("input_text_unavailable"))
+                match crate::watch_input::output(
+                    svc,
+                    &lease.job,
+                    std::time::Instant::now() + remaining,
+                    &lease.cancelled,
+                ) {
+                    Ok(output) => Ok(output),
+                    Err(reason) => {
+                        record_failure(
+                            handle,
+                            svc,
+                            lease,
+                            &probe::process::ProbeFailure::new("input_processing_failed"),
+                            Some(reason),
+                        );
+                        return;
+                    }
+                }
             }
             None => return,
         }
