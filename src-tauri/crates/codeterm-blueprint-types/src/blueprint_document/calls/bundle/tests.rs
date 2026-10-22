@@ -180,3 +180,27 @@ fn blueprint_v2_call_host_bundle_refuses_unsealed_code_files_without_opening_lab
         .iter()
         .any(|d| d.message.contains("frozen into inline source")));
 }
+
+#[test]
+fn blueprint_v2_call_review_host_persists_safe_dependency_labels() {
+    let mut root = branch("local");
+    root.imports.insert("local".into(), "local:body".into());
+    let closure = resolve_bundle(
+        root,
+        &[LocalCallee {
+            id: "local:body".into(),
+            source_label: "/Users/private-owner/author/leaf.yaml".into(),
+            document: leaf(),
+        }],
+        &Memory(leaf()),
+    )
+    .unwrap();
+    for location in closure
+        .callees
+        .values()
+        .flat_map(|callee| callee.locations.values())
+    {
+        assert!(!location.file.contains("/Users/"), "{}", location.file);
+        assert!(!std::path::Path::new(&location.file).is_absolute());
+    }
+}

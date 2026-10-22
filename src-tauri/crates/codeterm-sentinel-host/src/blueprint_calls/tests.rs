@@ -487,3 +487,6 @@ fn blueprint_v2_call_default_arguments_feed_the_typed_callee_input() {
     assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
     assert_eq!(receipt.notices, vec!["8"]);
 }
+
+#[path = "review.rs"]
+mod review;
