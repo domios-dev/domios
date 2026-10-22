@@ -22,6 +22,10 @@ describe("purchaseIntent", () => {
     expect(run([signedIn(FREE)], signing)).toEqual({ kind: "opening", planKey: "pro_yearly" });
   });
 
+  it("signed in with an unknown plan never opens checkout", () => {
+    expect(run([choose("pro_monthly", "signed_in", null)])).toEqual(IDLE_INTENT);
+  });
+
   it("signed in: choose opens checkout at once", () => {
     expect(run([choose("sponsor_yearly", "signed_in", FREE)])).toEqual({ kind: "opening", planKey: "sponsor_yearly" });
   });
