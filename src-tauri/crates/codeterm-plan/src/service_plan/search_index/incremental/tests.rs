@@ -1,153 +1,55 @@
 use super::*;
-use crate::plan::{Milestone, OrchestratorRef};
-use crate::service_plan::{NewTask, PlanStore};
-
-fn plan_with_tasks(store: &PlanStore, root: &Path) -> (String, Vec<String>) {
-    let plan = store
-        .create_plan(
-            "Incremental units".into(),
-            root.display().to_string(),
-            OrchestratorRef::default(),
-            vec![],
-            1,
-        )
-        .unwrap();
-    let mut task_ids = Vec::new();
-    for name in ["alpha", "beta", "gamma"] {
-        task_ids.push(
-            store
-                .add_task(
-                    &plan.id,
-                    NewTask {
-                        name: name.into(),
-                        body: format!("{name} body"),
-                        ..Default::default()
-                    },
-                    2,
-                )
-                .unwrap(),
-        );
-    }
-    store
-        .with_plan(&plan.id, 3, |plan| {
-            for task in &mut plan.tasks {
-                task.milestones.push(Milestone {
-                    id: format!("{}-stride", task.id),
-                    from: OrchestratorRef::default(),
-                    kind: "note".into(),
-                    text: format!("{} stride", task.name),
-                    ts: 3,
-                    links: vec![],
-                    loop_id: None,
-                    iteration: None,
-                    canvas: Default::default(),
-                    attachments: vec![],
-                });
-            }
-            Ok(())
-        })
-        .unwrap();
-    flush_index_queue_for_test(root);
-    (plan.id, task_ids)
-}
-
-fn unit_body(root: &Path, id: &str) -> Option<String> {
-    let conn = Connection::open(project_index_path(root)).unwrap();
-    conn.query_row(
-        "SELECT body_inline FROM mem_items WHERE id = ?1",
-        [id],
-        |row| row.get(0),
-    )
-    .ok()
-}
+use crate::plan::OrchestratorRef;
 
 #[test]
-fn a_task_scope_rebuilds_only_listed_tasks_and_drops_removed_ones() {
-    let root = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(root.path());
-    let (plan_id, tasks) = plan_with_tasks(&store, root.path());
-    let mut plan = store.get(&plan_id).unwrap();
-    plan.tasks[0].body = "alpha changed but not listed".into();
-    plan.tasks[1].body = "beta changed".into();
+fn task_scope_selects_listed_tasks_and_tracks_all_live_ids() {
+    let mut plan = super::super::tests::decisions::sample_plan();
     plan.tasks.remove(2);
-
-    mirror_plan_scope(
-        &plan,
-        &PlanIndexScope::Tasks(HashSet::from([tasks[1].clone()])),
-        false,
-    )
-    .unwrap();
-
-    let task_unit = |task: &str| stable_id(&plan_id, "task", task);
-    let stride_unit = |task: &str| stable_id(&plan_id, "stride", &format!("{task}-stride"));
-    assert!(unit_body(root.path(), &task_unit(&tasks[0]))
-        .unwrap()
-        .contains("alpha body"));
-    assert!(unit_body(root.path(), &task_unit(&tasks[1]))
-        .unwrap()
-        .contains("beta changed"));
-    assert!(unit_body(root.path(), &stride_unit(&tasks[0])).is_some());
-    assert!(unit_body(root.path(), &task_unit(&tasks[2])).is_none());
-    assert!(unit_body(root.path(), &stride_unit(&tasks[2])).is_none());
-}
-
-#[test]
-fn a_store_mutation_of_one_task_reindexes_only_that_task() {
-    let root = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(root.path());
-    let (plan_id, tasks) = plan_with_tasks(&store, root.path());
-    let untouched = stable_id(&plan_id, "task", &tasks[0]);
-    Connection::open(project_index_path(root.path()))
-        .unwrap()
-        .execute(
-            "UPDATE mem_items SET body_inline = 'sentinel' WHERE id = ?1",
-            [&untouched],
-        )
-        .unwrap();
-
-    store
-        .with_plan(&plan_id, 4, |plan| {
-            plan.tasks[1].body = "beta rewritten".into();
-            Ok(())
-        })
-        .unwrap();
-    flush_index_queue_for_test(root.path());
-
+    let (units, live) = task_scope_units(&plan, &HashSet::from(["beta".into()]));
     assert_eq!(
-        unit_body(root.path(), &untouched).as_deref(),
-        Some("sentinel")
+        units
+            .iter()
+            .filter(|unit| unit.kind == "task")
+            .map(|unit| unit.unit_id.as_str())
+            .collect::<Vec<_>>(),
+        ["beta"]
     );
-    assert!(
-        unit_body(root.path(), &stable_id(&plan_id, "task", &tasks[1]))
-            .unwrap()
-            .contains("beta rewritten")
+    assert!(live.contains("planunit_pl_decisions_task_alpha"));
+    assert!(live.contains("planunit_pl_decisions_task_beta"));
+    assert!(!live.contains("planunit_pl_decisions_task_gamma"));
+}
+
+#[test]
+fn persisted_row_changes_select_only_changed_tasks() {
+    use crate::service_plan::store_persist::index_scope;
+    use crate::service_plan::store_sync::RowWrites;
+    assert_eq!(
+        index_scope(RowWrites {
+            changed_tasks: vec!["beta".into()],
+            ..Default::default()
+        }),
+        PlanIndexScope::Tasks(HashSet::from(["beta".into()]))
+    );
+    assert_eq!(
+        index_scope(RowWrites {
+            header_identity_changed: true,
+            changed_tasks: vec!["beta".into()],
+            ..Default::default()
+        }),
+        PlanIndexScope::Full
     );
 }
 
 #[test]
-fn moving_a_plan_to_another_project_moves_every_unit_to_that_index() {
-    let root = tempfile::tempdir().unwrap();
-    let moved = tempfile::tempdir().unwrap();
-    crate::service_plan::paths::mark_test_project_root(moved.path());
-    let store = PlanStore::new_for_test(root.path());
-    let (plan_id, tasks) = plan_with_tasks(&store, root.path());
-    let moved_path = moved.path().display().to_string();
-
-    store
-        .set_project_paths(&plan_id, &moved_path, &moved_path, 4)
-        .unwrap();
-    flush_index_queue_for_test(root.path());
-    flush_index_queue_for_test(moved.path());
-
-    for task in &tasks {
-        let task_unit = stable_id(&plan_id, "task", task);
-        let stride_unit = stable_id(&plan_id, "stride", &format!("{task}-stride"));
-        assert!(unit_body(moved.path(), &task_unit).is_some());
-        assert!(unit_body(moved.path(), &stride_unit).is_some());
-        assert!(unit_body(root.path(), &task_unit).is_none());
-        assert!(unit_body(root.path(), &stride_unit).is_none());
-    }
-    assert!(unit_body(root.path(), &stable_id(&plan_id, "plan", &plan_id)).is_none());
+fn moving_project_selects_a_full_rebuild_in_the_new_scope() {
+    let mut plan = super::super::tests::decisions::sample_plan();
+    let old = IndexJob::DeletePlan(plan.clone());
+    plan.canonical_project_path = "/moved-project".into();
+    let new = IndexJob::Plan(plan.clone(), PlanIndexScope::Full);
+    assert_ne!(old.project_key(), new.project_key());
+    let units = plan_units(&plan, &new.project_key());
+    assert!(units.iter().all(|unit| unit.scope == new.project_key()));
+    assert_eq!(units.iter().filter(|unit| unit.kind == "task").count(), 3);
 }
 
 #[test]

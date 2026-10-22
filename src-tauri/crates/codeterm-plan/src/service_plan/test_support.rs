@@ -129,3 +129,11 @@ impl PlanSearchPort for TestSearchPort {
         Ok(hits)
     }
 }
+
+#[cfg(test)]
+pub(crate) fn task(id: &str) -> crate::plan::Task {
+    serde_json::from_value(serde_json::json!({
+        "id": id, "name": id, "type": "implement", "status": "pending"
+    }))
+    .expect("plain task fixture")
+}

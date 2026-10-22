@@ -24,36 +24,11 @@ impl super::super::PlanStore {
         plans: &[Plan],
         specs: &[Spec],
     ) -> PlanReindexResult {
-        let scope = project_scope(root);
-        let plans = plans
-            .iter()
-            .filter(|plan| project_scope(plan_project_root(plan)) == scope)
-            .collect::<Vec<_>>();
-        let specs = specs
-            .iter()
-            .filter(|spec| project_scope(spec_project_root(spec)) == scope)
-            .collect::<Vec<_>>();
-        let ids = plans
-            .iter()
-            .flat_map(|plan| plan_units(plan, &scope))
-            .chain(specs.iter().flat_map(|spec| spec_units(spec, &scope)))
-            .map(|unit| unit.id)
-            .collect::<HashSet<_>>();
-        let units = ids.len();
-        index_queue().enqueue(IndexJob::Prune(root.to_path_buf(), ids));
-        for plan in &plans {
-            enqueue_plan_index((*plan).clone(), PlanIndexScope::Full);
+        let (result, jobs) = project_jobs(root, plans, specs);
+        for job in jobs {
+            index_queue().enqueue(job);
         }
-        for spec in &specs {
-            enqueue_spec_index((*spec).clone());
-        }
-        PlanReindexResult {
-            project: root.display().to_string(),
-            scope,
-            plans: plans.len(),
-            specs: specs.len(),
-            units,
-        }
+        result
     }
 
     pub fn reindex_project_index(&self, project: &Path) -> Result<PlanReindexResult, String> {
@@ -61,6 +36,42 @@ impl super::super::PlanStore {
         let root = super::super::paths::project_root(project);
         Ok(self.enqueue_project_index(&root, &self.list_full(), &self.list_specs_full()))
     }
+}
+
+fn project_jobs(root: &Path, plans: &[Plan], specs: &[Spec]) -> (PlanReindexResult, Vec<IndexJob>) {
+    let scope = project_scope(root);
+    let plans = plans
+        .iter()
+        .filter(|plan| project_scope(plan_project_root(plan)) == scope)
+        .collect::<Vec<_>>();
+    let specs = specs
+        .iter()
+        .filter(|spec| project_scope(spec_project_root(spec)) == scope)
+        .collect::<Vec<_>>();
+    let ids = plans
+        .iter()
+        .flat_map(|plan| plan_units(plan, &scope))
+        .chain(specs.iter().flat_map(|spec| spec_units(spec, &scope)))
+        .map(|unit| unit.id)
+        .collect::<HashSet<_>>();
+    let units = ids.len();
+    let mut jobs = vec![IndexJob::Prune(root.to_path_buf(), ids)];
+    jobs.extend(
+        plans
+            .iter()
+            .map(|plan| IndexJob::Plan((*plan).clone(), PlanIndexScope::Full)),
+    );
+    jobs.extend(specs.iter().map(|spec| IndexJob::Spec((*spec).clone())));
+    (
+        PlanReindexResult {
+            project: root.display().to_string(),
+            scope,
+            plans: plans.len(),
+            specs: specs.len(),
+            units,
+        },
+        jobs,
+    )
 }
 
 pub(super) fn prune_project(root: &Path, live: &HashSet<String>) -> Result<(), String> {
@@ -94,11 +105,29 @@ pub(super) fn purge_plan_indexes(plan: &Plan, specs: &[Spec]) -> Result<(), Stri
     let entities = std::iter::once(plan.id.as_str())
         .chain(specs.iter().map(|spec| spec.id.as_str()))
         .collect::<HashSet<_>>();
-    for db in indexes.into_iter().filter(|db| db.is_file()) {
-        purge_entities(&db, &entities)
-            .map_err(|error| format!("delete plan {} from {}: {error}", plan.id, db.display()))?;
+    purge_indexes(
+        &plan.id,
+        indexes.into_iter().filter(|db| db.is_file()),
+        |db| purge_entities(db, &entities),
+    )
+}
+
+fn purge_indexes(
+    plan_id: &str,
+    indexes: impl IntoIterator<Item = PathBuf>,
+    mut purge: impl FnMut(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    for db in indexes {
+        purge(&db)
+            .map_err(|error| format!("delete plan {plan_id} from {}: {error}", db.display()))?;
     }
     Ok(())
+}
+
+fn owns_unit(entities: &HashSet<&str>, id: &str) -> bool {
+    entities
+        .iter()
+        .any(|entity| id.starts_with(&format!("planunit_{entity}_")))
 }
 
 fn purge_entities(db: &Path, entities: &HashSet<&str>) -> Result<(), String> {
@@ -125,11 +154,7 @@ fn purge_entities(db: &Path, entities: &HashSet<&str>) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         }
     }
-    for id in units.keys().filter(|id| {
-        entities
-            .iter()
-            .any(|entity| id.starts_with(&format!("planunit_{entity}_")))
-    }) {
+    for id in units.keys().filter(|id| owns_unit(entities, id)) {
         tx.execute("DELETE FROM mem_fts WHERE mem_id = ?1", [id])
             .map_err(|error| error.to_string())?;
         tx.execute("DELETE FROM mem_items WHERE id = ?1", [id])
