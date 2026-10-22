@@ -370,6 +370,8 @@ test('FIXTURE extracted check-queue lane and gc entries succeed for two clones w
       ${gc}
       echo 'FIXTURE extracted build.sh gc exit=0'
     `;
+    const entry = path.join(f.directory, 'build-entries.sh');
+    fs.writeFileSync(entry, body);
     let firstRegistrations;
     const roots = [];
     for (const repository of [f.repository, second]) {
@@ -379,7 +381,7 @@ test('FIXTURE extracted check-queue lane and gc entries succeed for two clones w
       fs.mkdirSync(root, { recursive: true });
       const leftover = path.join(root, 'check-worktree.pending-stale');
       fs.mkdirSync(leftover);
-      const result = spawnSync(bash, ['-c', body, 'fixture', sourceRoot, repository, f.gateway, home, calls],
+      const result = spawnSync(bash, [entry, sourceRoot, repository, f.gateway, home, calls],
         { cwd: repository, encoding: 'utf8', timeout: 25000 });
       console.log(result.stdout);
       if (result.stderr) console.error(result.stderr);

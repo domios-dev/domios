@@ -11,7 +11,7 @@ function stageRoot(root) {
   return path.join(root, 'target', 'domios-package');
 }
 
-function requiredPaths(target) {
+export function requiredPaths(target) {
   const windows = target.endsWith('-pc-windows-msvc');
   const mac = target.endsWith('-apple-darwin');
   const server = windows ? 'domios-server.exe' : 'domios-server';

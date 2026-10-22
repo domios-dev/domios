@@ -14,10 +14,6 @@
       "measuredSeconds": 4.154
     },
     {
-      "key": "service::hierarchy::report_plan_ctx::tests::plan_evidence_role_test::planned_team_taskless_worker_reports_to_parent_without_plan_write",
-      "measuredSeconds": 20.095
-    },
-    {
       "key": "service::hierarchy::team_plan_creation::tests::planner_plan_creation_waits_until_the_binding_deadline",
       "measuredSeconds": 1.05
     },
