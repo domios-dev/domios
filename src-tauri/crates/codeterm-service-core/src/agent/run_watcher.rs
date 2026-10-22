@@ -637,7 +637,7 @@ fn surface_idle_provider_prompt(svc: &ServiceContext, tab_id: &str, pty_id: &str
     let Some(agent_type) = agent_type else {
         return false;
     };
-    let Some(screen) = svc.screen_state.lock().get_screen_text(pty_id) else {
+    let Some(screen) = svc.screen_state.get_screen_text(pty_id) else {
         return false;
     };
     let parsed = crate::agent::prompt::parse_prompt_safely(|| {
@@ -668,7 +668,7 @@ fn surface_idle_provider_prompt(svc: &ServiceContext, tab_id: &str, pty_id: &str
 /// True when the tab's screen shows a bare shell prompt and none of the agent's
 /// own UI markers — i.e. the agent process exited and we're back at the shell.
 fn agent_dropped_to_shell(svc: &ServiceContext, pty_id: &str) -> bool {
-    let Some(text) = svc.screen_state.lock().get_screen_text(pty_id) else {
+    let Some(text) = svc.screen_state.get_screen_text(pty_id) else {
         return false;
     };
     screen_is_bare_shell(&text)
@@ -680,7 +680,7 @@ fn agent_screen_busy(svc: &ServiceContext, pty_id: &str) -> bool {
     if idle_status_is_terminal_success(svc, pty_id) {
         return false;
     }
-    let Some(text) = svc.screen_state.lock().get_screen_text(pty_id) else {
+    let Some(text) = svc.screen_state.get_screen_text(pty_id) else {
         return false;
     };
     screen_shows_working(&text) || !screen_is_bare_shell(&text)

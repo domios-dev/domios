@@ -418,10 +418,7 @@ impl ServiceContext {
         record_final: impl FnOnce(&LaunchInputDiagnostic),
     ) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
         let mut diagnostic = LaunchInputDiagnostic::new(attempt, mode, timeout);
-        let signal = self
-            .screen_state
-            .lock()
-            .arm_screen_change_signal(&attempt.pty_id);
+        let signal = self.screen_state.arm_screen_change_signal(&attempt.pty_id);
         let _input_wake = (mode == LaunchInputMode::LazySessionStart).then(|| {
             crate::service::launch_readiness::register_input_wake(attempt, signal.clone())
         });
@@ -501,15 +498,12 @@ impl ServiceContext {
                 diagnostic.provider_process_alive = GateFact::Observed(provider_process_alive);
             }
             let (screen, screen_rows, input) = {
-                let screen_state = self.screen_state.lock();
+                let screen_state = self.screen_state.pty(&attempt.pty_id);
+                let screen_state = screen_state.lock();
                 (
-                    screen_state
-                        .get_screen_text(&attempt.pty_id)
-                        .unwrap_or_default(),
-                    screen_state
-                        .get_screen_rows(&attempt.pty_id)
-                        .unwrap_or_default(),
-                    screen_state.composer_input_state(&attempt.pty_id),
+                    screen_state.get_screen_text().unwrap_or_default(),
+                    screen_state.get_screen_rows().unwrap_or_default(),
+                    screen_state.composer_input_state(),
                 )
             };
             let snapshot = TabStateSnapshot {

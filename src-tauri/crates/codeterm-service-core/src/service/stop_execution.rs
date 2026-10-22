@@ -213,7 +213,7 @@ pub async fn stop_agent_turn(
     let screen_signal = if wait_for_output {
         pty_id
             .as_deref()
-            .map(|pty_id| svc.screen_state.lock().arm_screen_change_signal(pty_id))
+            .map(|pty_id| svc.screen_state.arm_screen_change_signal(pty_id))
     } else {
         None
     };

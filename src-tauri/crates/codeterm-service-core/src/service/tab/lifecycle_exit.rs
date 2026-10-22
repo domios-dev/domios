@@ -455,7 +455,7 @@ impl ServiceContext {
         }
         if source != "explicit-clear" {
             if let Some(pty_id) = identity.pty_id.as_deref() {
-                self.screen_state.lock().reset_input_modes(pty_id);
+                self.screen_state.reset_input_modes(pty_id);
             }
         }
         if let Some(identity) = identity.prompt_identity {

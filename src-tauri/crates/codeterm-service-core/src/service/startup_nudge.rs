@@ -145,7 +145,6 @@ impl ServiceContext {
     fn modal_owns_terminal(&self, pty_id: &str) -> bool {
         let screen = self
             .screen_state
-            .lock()
             .get_screen_text(pty_id)
             .unwrap_or_default();
         crate::agent::detector::detect_interactive_prompt(&screen)

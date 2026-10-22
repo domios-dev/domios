@@ -79,16 +79,17 @@ impl ServiceContext {
             .agent_registry
             .with_provider(agent_id, |provider| provider.composer_cursor_position())
             .unwrap_or(crate::agent::provider::ComposerCursorPosition::BottomRegion);
-        let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
+        let signal = self.screen_state.arm_screen_change_signal(pty_id);
         let deadline = std::time::Instant::now() + timeout;
         let generation = std::cell::Cell::new(signal.generation());
         wait_for_observed_readiness(
             deadline,
             || {
                 let (screen, input) = {
-                    let screen_state = self.screen_state.lock();
-                    let screen = screen_state.get_screen_text(pty_id).unwrap_or_default();
-                    let input = screen_state.composer_input_state(pty_id);
+                    let screen_state = self.screen_state.pty(pty_id);
+                    let screen_state = screen_state.lock();
+                    let screen = screen_state.get_screen_text().unwrap_or_default();
+                    let input = screen_state.composer_input_state();
                     (screen, input)
                 };
                 let provider_screen_has_tui = self

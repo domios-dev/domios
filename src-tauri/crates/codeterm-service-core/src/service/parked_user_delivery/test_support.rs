@@ -311,7 +311,6 @@ pub fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 {
     assert!(fixture
         .service
         .screen_state
-        .lock()
         .bind_pty_generation(&pty_id, generation));
     generation
 }

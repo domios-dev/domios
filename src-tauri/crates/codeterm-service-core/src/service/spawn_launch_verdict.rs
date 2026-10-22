@@ -164,7 +164,7 @@ impl ServiceContext {
 
     pub fn launch_output_tail(&self, tab_id: &str) -> Option<String> {
         let pty_id = self.mux.read().get_tab(tab_id)?.pty_id.clone()?;
-        let screen = self.screen_state.lock().get_screen_text(&pty_id)?;
+        let screen = self.screen_state.get_screen_text(&pty_id)?;
         output_tail(&screen)
     }
 }

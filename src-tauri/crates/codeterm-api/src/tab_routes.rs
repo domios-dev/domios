@@ -1021,7 +1021,7 @@ pub async fn stop_capture(
     let owner = state.clone();
     let (pty_id, screen) = tokio::task::spawn_blocking(move || {
         let pty_id = resolve_pty_id_with_fallback(&owner, &raw_tab_id)?;
-        let screen = owner.svc.screen_state.lock().get_screen_text(&pty_id);
+        let screen = owner.svc.screen_state.get_screen_text(&pty_id);
         Ok::<_, (StatusCode, &'static str)>((pty_id, screen))
     })
     .await
