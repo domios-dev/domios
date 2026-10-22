@@ -230,6 +230,13 @@ fn backend_error_codes_are_logged_only_when_they_match_the_safe_pattern() {
 fn refresh_http_failures_sign_out_only_for_credential_rejections() {
     for status in [429, 500, 503] {
         assert_eq!(classify_http_error(status, None), Error::Transport);
+        assert_eq!(
+            classify_http_error(
+                status,
+                Some(&json!({"error":{"message":"INVALID_REFRESH_TOKEN"}}))
+            ),
+            Error::Transport
+        );
     }
     assert_eq!(
         classify_http_error(
