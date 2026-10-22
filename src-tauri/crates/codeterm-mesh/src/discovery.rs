@@ -788,19 +788,10 @@ mod tests {
     use super::parse_first_ip;
 
     #[test]
-    fn parse_first_ip_happy_path() {
-        assert_eq!(
-            parse_first_ip("100.65.0.40\n").as_deref(),
-            Some("100.65.0.40")
-        );
-    }
-
-    #[test]
     fn parse_first_ip_trims_whitespace() {
-        assert_eq!(
-            parse_first_ip("   100.65.0.40   \n").as_deref(),
-            Some("100.65.0.40")
-        );
+        for input in ["100.65.0.40\n", "   100.65.0.40   \n"] {
+            assert_eq!(parse_first_ip(input).as_deref(), Some("100.65.0.40"));
+        }
     }
 
     #[test]

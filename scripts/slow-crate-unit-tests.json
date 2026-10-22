@@ -2,10 +2,6 @@
   "version": 1,
   "entries": [
     {
-      "key": "cmd::report_lane::tests::explicit_base_overrides_task_derived_fallback",
-      "measuredSeconds": 1.897
-    },
-    {
       "key": "json_error_contract_all_subcommands",
       "measuredSeconds": 3.758
     },
@@ -36,10 +32,6 @@
     {
       "key": "tests::ref_events::repository_watcher_emits_ref_and_index_events",
       "measuredSeconds": 1.741
-    },
-    {
-      "key": "tests::silence::repository_watcher_stays_silent_on_irrelevant_churn",
-      "measuredSeconds": 15.437
     },
     {
       "key": "tests::working_tree::repository_watcher_emits_working_tree_events",
