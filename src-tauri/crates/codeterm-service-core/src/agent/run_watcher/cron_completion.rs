@@ -191,7 +191,7 @@ impl RunWatcherRegistry {
             .lock()
             .get(&pty)
             .cloned()
-            .ok_or("cron watcher registration ended")
+            .ok_or_else(|| "cron watcher registration ended".to_owned())
     }
 
     pub(super) fn stop_pending_cron(&self, svc: &ServiceContext, tab_id: &str) -> bool {
