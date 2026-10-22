@@ -504,7 +504,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
 
 ### REST listener bind recovery
 
@@ -847,6 +847,16 @@ The production-mode frontend watcher and static server use the checkout's
 Named macOS `dev-server` refuses before shutdown because replacing nested code
 would change the seal beneath a running client; use the same scoped `dev`
 command for native/server edits. `dev-prebuilt --wait` reuses an unchanged signed
-pair with the same explicit instance/port settings. Stop only that owned named
-instance through `CODETERM_DEV_INSTANCE=macdev-fix CODETERM_DEV_API_PORT=17991
-./build.sh kill`; never address prod, canonical DEV or another app instance.
+pair with the same explicit instance/port settings.
+
+Detached named macOS cleanup has a follow-up limitation: scoped `build.sh kill`
+stops the server and watchers while the surviving native client may recover a
+new server. For an owned validation run, retain the native attachment receipt,
+exact executable and process creation identity; stop only that verified client
+first. Then use `node scripts/dev-server.mjs inspect <record> <data> <private-port>
+<owned-receipt>` and `node scripts/dev-server.mjs stop <record> <data>
+<private-port> <owned-receipt>` for required cleanup and pinned server exit.
+Finally use the same explicit instance/port with `./build.sh kill` to reap its
+watcher/static processes and verify all owned processes exited. Native-client
+shutdown automation needs a separate ownership-aware fix; never use global
+process-name kills or address prod, canonical DEV or another instance.
