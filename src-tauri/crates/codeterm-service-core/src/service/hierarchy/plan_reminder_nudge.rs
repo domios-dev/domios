@@ -813,7 +813,13 @@ pub(crate) fn deliver_tab_todo_recitation(
     tab_id: &str,
     text: &str,
 ) -> Result<bool, String> {
-    svc.deliver_automated_plan_reminder(tab_id, text, None)
+    svc.gateway_deliver(
+        tab_id,
+        crate::service::messenger::MessageEnvelope::codeterm_reminder("checklist"),
+        text,
+        crate::service::message_gateway::DeliveryClass::SystemNotice,
+    )
+    .map(|delivery| delivery.is_written())
 }
 
 fn plan_reminder_state_key(plan_id: &str, kind: NudgeKind, plan: &Plan) -> String {

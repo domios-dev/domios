@@ -138,12 +138,17 @@ test("late image dimensions preserve focus, then preserve a custom camera across
     };
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Next image"]')!.click());
     await act(async () => load(0, 1600, 300));
+    assert.equal(layer.querySelector<HTMLButtonElement>('[aria-label="View a"]')!.style.width, "1600px", "the load handler must run before asserting camera preservation");
     await act(async () => { runFrame(0); runFrame(500); });
     const expectedFocus = computeFitTransform({ x: 1640, y: 0, width: 800, height: 600 }, 800, 600, { minScale: 0.0001, maxScale: 8 })!;
     assert.equal(layer.style.transform, formatLayerTransform(expectedFocus));
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click());
     const custom = layer.style.transform;
+    const updated = [images[0], { ...images[1], src: "late-image.png" }];
+    await act(async () => root.render(<ImageFullscreen image={updated[0]} images={updated} anchorRef={{ current: host }} onClose={() => {}} />));
+    assert.equal(layer.querySelectorAll("img")[1].getAttribute("src"), "late-image.png");
     await act(async () => load(1, 400, 200));
+    assert.equal(layer.querySelector<HTMLButtonElement>('[aria-label="View b"]')!.style.width, "400px");
     assert.equal(layer.style.transform, custom);
     width = 1000; height = 700;
     await act(async () => resize());
@@ -155,6 +160,29 @@ test("late image dimensions preserve focus, then preserve a custom camera across
     await act(async () => root.unmount()); host.remove();
     window.HTMLElement.prototype.getBoundingClientRect = originalRect;
     Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: originalObserver });
+  }
+});
+
+test("phone fullscreen opens a selected image at readable scale among 32 slots", async () => {
+  frames.clear();
+  const originalMatchMedia = window.matchMedia;
+  const originalRect = window.HTMLElement.prototype.getBoundingClientRect;
+  window.matchMedia = ((query: string) => ({ matches: query === "(max-width: 600px)" })) as typeof window.matchMedia;
+  window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, right: 390, bottom: 600, width: 390, height: 600, toJSON() {} });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const images = Array.from({ length: 32 }, (_, index) => ({ name: String(index), src: `image-${index}.png` }));
+  try {
+    await act(async () => root.render(<ImageFullscreen image={images[17]} images={images} anchorRef={{ current: host }} onClose={() => {}} />));
+    await act(async () => { runFrame(0); runFrame(500); });
+    assert(document.querySelector('[aria-label="Save 17"]'));
+    assert.equal(document.querySelector('[aria-label="Show all"]')?.getAttribute("aria-pressed"), "false");
+    const layer = document.querySelector('[aria-label="Zoomable canvas"]')!.firstElementChild as HTMLElement;
+    assert(Number(/scale\(([^)]+)\)/.exec(layer.style.transform)![1]) > 0.3);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    window.matchMedia = originalMatchMedia;
+    window.HTMLElement.prototype.getBoundingClientRect = originalRect;
   }
 });
 
