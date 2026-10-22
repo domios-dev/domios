@@ -15,13 +15,12 @@ fn entry(id: Option<&str>, content: &str, state: TabTodoState) -> TabTodoWriteEn
 fn proposal_sharing_does_not_gate_live_work_and_only_notifies_once() {
     let team = team();
     let team_id = "checklist-team";
-    team.fixture
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&team.worker)
-        .unwrap()
-        .team_id = Some(team_id.into());
+    {
+        let mut mux = team.fixture.service.mux.write();
+        for tab in [&team.worker, &team.orchestrator] {
+            mux.get_tab_mut(tab).unwrap().team_id = Some(team_id.into());
+        }
+    }
     let plan = team
         .fixture
         .service
