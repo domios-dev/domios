@@ -7,6 +7,7 @@ use codeterm_blueprint_types::{
 use rusqlite::{params, Connection};
 use std::sync::atomic::{AtomicU64, Ordering};
 mod call_revisions;
+pub mod catalog;
 pub(crate) mod cleanup;
 pub mod dedupe;
 pub mod enrichment;
