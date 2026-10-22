@@ -145,7 +145,6 @@ pub enum NativeHostOperation<UpdateRequest> {
     CopyImageToClipboard {
         path: PathBuf,
     },
-    DebianPreflight,
     NativeUpdate {
         request: UpdateRequest,
         apply: Option<crate::native_update::apply::NativeUpdateApplyOptions>,
@@ -166,21 +165,6 @@ pub struct NativeWebviewRequest {
     pub height: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NativeDebianElevationStatus {
-    Ready,
-    ElevationRequired,
-    Blocked,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NativeDebianPreflight {
-    pub status: NativeDebianElevationStatus,
-    pub reason: Option<String>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "result", content = "payload", rename_all = "snake_case")]
 pub enum NativeHostResult<UpdateResult> {
@@ -189,7 +173,6 @@ pub enum NativeHostResult<UpdateResult> {
     ExactQuitRefused(crate::app_quit::QuitRefusal),
     WindowExists(bool),
     ToastPermission(String),
-    DebianPreflight(NativeDebianPreflight),
     NativeUpdate(UpdateResult),
     NativeUpdateApply(crate::native_update::apply::NativeUpdateApplyResult),
     NativeUpdateObservation(crate::native_update::NativeUpdateObservationOutcome),

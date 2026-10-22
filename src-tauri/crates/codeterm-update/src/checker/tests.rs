@@ -17,72 +17,34 @@ fn latest_release_request_bypasses_mutable_github_cache() {
 }
 
 #[test]
-fn debian_command_uses_manifest_asset_for_either_architecture() {
-    for arch in ["amd64", "arm64"] {
-        let url = format!("https://mirror.example/v1.15.2/domios_{arch}.deb");
-        let command = build_update_command(&InstallMethod::Deb, "1.15.2", Some(&url)).unwrap();
-        assert_eq!(command, format!("curl --fail --location --output domios-update.deb -- '{url}' && codeterm app quit --exact && sudo dpkg -i ./domios-update.deb && domios"));
-    }
-    assert!(build_update_command(&InstallMethod::Deb, "1.15.2", None).is_none());
+fn debian_discovery_never_advertises_an_unverified_install_command() {
     assert!(build_update_command(
-        &InstallMethod::AppImage,
+        &InstallMethod::Deb,
         "1.15.2",
-        Some("https://example/app")
+        Some("https://example/pkg.deb")
     )
     .is_none());
 }
 
-fn info(method: InstallMethod, available: bool) -> UpdateInfo {
-    UpdateInfo {
-        availability: codeterm_plugins::AvailabilityItem::release(
-            "app",
-            codeterm_plugins::UpdateKind::App,
-            "1.15.0",
-            "1.15.2",
-            true,
-        ),
-        current_version: "1.15.0".into(),
-        latest_version: "1.15.2".into(),
-        update_available: available,
-        update_command: build_update_command(
-            &method,
-            "1.15.2",
-            Some("https://mirror.example/pkg.deb"),
-        ),
-        install_method: method,
-        download_url: Some("https://mirror.example/pkg.deb".into()),
-        release_url: "https://mirror.example/release".into(),
-        release_notes: None,
-        published_at: None,
+#[test]
+fn manifest_url_override_requires_https_except_explicit_local_test_builds() {
+    assert!(crate::manifest::validate_url("https://example/manifest.json").is_ok());
+    for url in [
+        "http://evil.example/manifest.json",
+        "ftp://example/manifest.json",
+        "http://localhost.evil/manifest.json",
+        "http://localhost@evil/manifest.json",
+    ] {
+        assert!(crate::manifest::validate_url(url).is_err());
     }
-}
-
-#[test]
-fn package_guidance_requires_a_debian_update_and_a_real_asset() {
-    let (command, message) = debian_install_guidance(&info(InstallMethod::Deb, true))
-        .unwrap()
-        .unwrap();
-    assert!(message.contains(&command));
-    assert!(debian_install_guidance(&info(InstallMethod::Deb, false))
-        .unwrap()
-        .is_none());
-    assert!(
-        debian_install_guidance(&info(InstallMethod::AppImage, true))
-            .unwrap()
-            .is_none()
-    );
-    let mut missing = info(InstallMethod::Deb, true);
-    missing.update_command = None;
-    assert!(debian_install_guidance(&missing).is_err());
-}
-
-#[test]
-fn debian_command_quotes_remote_shell_metacharacters() {
-    let command = build_update_command(
-        &InstallMethod::Deb,
-        "1.15.2",
-        Some("https://example/a'$(touch bad).deb"),
-    )
-    .unwrap();
-    assert!(command.contains(r#"'https://example/a'\''$(touch bad).deb'"#));
+    for url in [
+        "http://localhost/manifest.json",
+        "http://127.0.0.1/manifest.json",
+        "file:///manifest.json",
+    ] {
+        assert_eq!(
+            crate::manifest::validate_url(url).is_ok(),
+            cfg!(feature = "dev-updater-allowlocal")
+        );
+    }
 }

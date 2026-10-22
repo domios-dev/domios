@@ -89,7 +89,7 @@ pub fn clean_relaunch_env_from(env: Vec<(OsString, OsString)>) -> Vec<(OsString,
         });
     let mut clean = Vec::new();
     for (key, value) in env {
-        if kept.iter().any(|(name, _)| key == OsString::from(name)) {
+        if key.to_str().is_none() || kept.iter().any(|(name, _)| key == OsString::from(name)) {
             if key == "XDG_DATA_DIRS" {
                 if let Ok(paths) =
                     std::env::join_paths(std::env::split_paths(&value).filter(|path| {
@@ -121,16 +121,37 @@ pub fn apply_relaunch_env(command: &mut std::process::Command) {
     command.env_clear().envs(clean_relaunch_env());
 }
 
-#[cfg(windows)]
-pub fn scrub_before_installer_exit() {
-    let clean = clean_relaunch_env();
-    for (key, _) in std::env::vars_os() {
-        if !clean.iter().any(|(name, _)| name == &key) {
-            std::env::remove_var(key);
-        }
+pub fn application_relaunch_env_from(env: Vec<(OsString, OsString)>) -> Vec<(OsString, OsString)> {
+    let selectors: Vec<_> = env
+        .iter()
+        .filter(|(key, _)| {
+            key.to_str().is_some_and(|key| {
+                matches!(
+                    key,
+                    "CODETERM_DATA_DIR"
+                        | "CODETERM_CONFIG_DIR"
+                        | "CODETERM_INSTANCE"
+                        | "CODETERM_DEV_INSTANCE"
+                        | "CODETERM_DEV_API_PORT"
+                )
+            })
+        })
+        .cloned()
+        .collect();
+    let mut clean = clean_relaunch_env_from(env);
+    clean.extend(selectors);
+    clean
+}
+
+pub struct ApplicationRelaunchEnv(Vec<(OsString, OsString)>);
+
+impl ApplicationRelaunchEnv {
+    pub fn capture() -> Self {
+        Self(application_relaunch_env_from(std::env::vars_os().collect()))
     }
-    for (key, value) in clean {
-        std::env::set_var(key, value);
+
+    pub fn apply(&self, command: &mut std::process::Command) {
+        command.env_clear().envs(self.0.iter().cloned());
     }
 }
 

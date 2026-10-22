@@ -74,29 +74,14 @@ pub async fn update_status(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let mut status = state.update_state.lock().runtime_status();
-    let handoff = tokio::task::spawn_blocking(|| {
-        codeterm_update::native_handoff::read(&codeterm_service_core::paths::data_dir())
+    match tokio::task::spawn_blocking(|| {
+        codeterm_update::native_handoff::read_optional(&codeterm_service_core::paths::data_dir())
     })
     .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "update_handoff_read_failed",
-        )
-    })?
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "update_handoff_read_failed",
-        )
-    })?;
-    if let Some(handoff) = handoff {
-        status["native_update"] = serde_json::to_value(handoff.result).map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "update_handoff_read_failed",
-            )
-        })?;
+    {
+        Ok(Some(handoff)) => status["native_update"] = serde_json::json!(handoff.result),
+        Ok(None) => {}
+        Err(error) => log::warn!("[updater] native status unavailable: {error}"),
     }
     Ok(Json(status))
 }
@@ -196,24 +181,33 @@ async fn install_update_inner(
     }
     let install_method = state.update_state.lock().install_method.clone();
     if q.method.as_deref() == Some("auto") && install_method == InstallMethod::Deb {
-        let info = codeterm_update::checker::check_for_update_at(
-            &install_method,
-            q.manifest_url.as_deref(),
-        )
-        .await
-        .map_err(|error| {
-            log::error!("[updater] POST /api/update/install status=502 reason={error}");
-            state.update_state.lock().set_error(error);
-            (
-                StatusCode::BAD_GATEWAY,
-                "Debian update discovery failed; see daemon log for URL and status",
-            )
-        })?;
-        let response = debian_install_response(&info)?;
-        if let Some(message) = response.0["message"].as_str() {
-            state.update_state.lock().set_error(message.to_string());
+        if q.after_update.is_some() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "after_update_requires_native_install",
+            ));
         }
-        return Ok(response);
+        let _lease = single_flight::global()
+            .try_acquire()
+            .ok_or((StatusCode::CONFLICT, single_flight::ALREADY_IN_FLIGHT))?;
+        let staged = codeterm_update::debian::stage(q.manifest_url.as_deref())
+            .await
+            .map_err(|error| {
+                log::error!("[updater] Debian staging failed: {error}");
+                state.update_state.lock().set_error(error);
+                (
+                    StatusCode::BAD_GATEWAY,
+                    "Debian package verification or staging failed",
+                )
+            })?;
+        let mut update = state.update_state.lock();
+        update.clear_error();
+        update.set_phase(UpdatePhase::Idle);
+        return Ok(Json(
+            staged
+                .map(|package| package.response())
+                .unwrap_or_else(|| serde_json::json!({"status": "up_to_date"})),
+        ));
     }
     let application_host = if q.method.as_deref() == Some("auto") {
         Some(
@@ -367,22 +361,6 @@ async fn install_update_inner(
                 "message": "Opened download page in browser"
             })))
         }
-    }
-}
-
-fn debian_install_response(
-    info: &codeterm_update::update_state::UpdateInfo,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    match codeterm_update::checker::debian_install_guidance(info) {
-        Ok(Some((command, message))) => Ok(Json(serde_json::json!({
-            "status": "elevation_required", "command": command, "message": message,
-            "install_method": "deb"
-        }))),
-        Ok(None) => Ok(Json(serde_json::json!({"status": "up_to_date"}))),
-        Err(_) => Err((
-            StatusCode::BAD_GATEWAY,
-            "Debian manifest has no package URL",
-        )),
     }
 }
 

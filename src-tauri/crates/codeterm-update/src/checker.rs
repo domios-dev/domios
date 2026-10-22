@@ -101,33 +101,18 @@ pub async fn check_for_update_at(
 fn build_update_command(
     method: &InstallMethod,
     version: &str,
-    download_url: Option<&str>,
+    _download_url: Option<&str>,
 ) -> Option<String> {
     match method {
         InstallMethod::Brew => Some("brew upgrade --cask codeterm".to_string()),
         InstallMethod::Scoop => Some("scoop update codeterm".to_string()),
-        InstallMethod::Deb => download_url.map(|url| format!(
-            "curl --fail --location --output domios-update.deb -- '{}' && codeterm app quit --exact && sudo dpkg -i ./domios-update.deb && domios",
-            url.replace('\'', "'\\''")
-        )),
+        InstallMethod::Deb => None,
         InstallMethod::Rpm => Some(format!(
             "curl -sLO https://github.com/{}/releases/download/v{}/CodeTerm-{}-1.x86_64.rpm && sudo rpm -U CodeTerm-{}-1.x86_64.rpm",
             GITHUB_REPO, version, version, version
         )),
         _ => None,
     }
-}
-
-pub fn debian_install_guidance(info: &UpdateInfo) -> Result<Option<(String, String)>, String> {
-    if info.install_method != InstallMethod::Deb || !info.update_available {
-        return Ok(None);
-    }
-    let command = info
-        .update_command
-        .clone()
-        .ok_or("Debian manifest has no package URL")?;
-    let message = format!("This Debian installation is package-managed and requires root to update. From a terminal outside Domios: download the package, quit Domios with codeterm app quit --exact (or UI Quit), confirm it has stopped, then run sudo dpkg -i ./domios-update.deb and relaunch Domios. If quitting fails, stop here; do not replace files while Domios is running.\n{command}");
-    Ok(Some((command, message)))
 }
 
 #[cfg(test)]

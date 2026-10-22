@@ -4,6 +4,7 @@ pub mod application_host;
 pub mod apply;
 pub mod channel;
 pub mod checker;
+pub mod debian;
 pub mod manifest;
 pub mod native_handoff;
 pub mod receipt;

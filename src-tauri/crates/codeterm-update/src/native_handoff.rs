@@ -36,7 +36,6 @@ pub fn validate_apply(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct NativeUpdateHandoff {
     pub request: NativeUpdateRequest,
     pub options: NativeUpdateApplyOptions,
@@ -55,6 +54,33 @@ pub fn read(data: &Path) -> Result<Option<NativeUpdateHandoff>, String> {
             .map_err(|e| e.to_string()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.to_string()),
+    }
+}
+
+pub fn read_optional(data: &Path) -> Option<NativeUpdateHandoff> {
+    match read(data) {
+        Ok(record) => record,
+        Err(error) => {
+            log::warn!("[updater] ignoring unreadable native handoff: {error}");
+            None
+        }
+    }
+}
+
+pub fn read_for_recovery(data: &Path) -> Option<NativeUpdateHandoff> {
+    match read(data) {
+        Ok(record) => record,
+        Err(error) => {
+            let quarantine = data.join(format!(
+                "native-update-handoff.rejected-{}.json",
+                uuid::Uuid::new_v4()
+            ));
+            log::warn!("[updater] quarantining invalid native handoff: {error}");
+            if let Err(error) = std::fs::rename(path(data), quarantine) {
+                log::warn!("[updater] could not quarantine native handoff: {error}");
+            }
+            None
+        }
     }
 }
 
@@ -85,6 +111,40 @@ impl NativeUpdateHandoff {
             .ok_or("update sequence exhausted")?;
         self.result.phase = phase;
         Ok(())
+    }
+
+    pub fn recover(
+        &mut self,
+        version: &str,
+        client_build: &str,
+        connection: &NativeHostConnection,
+        server: &ServerReady,
+    ) -> bool {
+        let outcome = if self.request.expected_server.identity != server.identity {
+            Err("native update handoff belongs to another instance".into())
+        } else {
+            self.reconcile(version, client_build, connection, server)
+        };
+        let failure = match outcome {
+            Ok(true) => return true,
+            Ok(false)
+                if matches!(
+                    self.result.phase,
+                    NativeUpdateApplyPhase::Admitted
+                        | NativeUpdateApplyPhase::Downloading
+                        | NativeUpdateApplyPhase::Applying
+                ) =>
+            {
+                "native update interrupted before installer handoff; execution was not replayed"
+                    .into()
+            }
+            Ok(false) => return false,
+            Err(error) => error,
+        };
+        log::warn!("[updater] native handoff recovery failed: {failure}");
+        self.result.sequence = self.result.sequence.saturating_add(1);
+        self.result.phase = NativeUpdateApplyPhase::Failed { message: failure };
+        true
     }
 
     pub fn reconcile(

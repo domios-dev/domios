@@ -13,6 +13,7 @@ pub fn check_available(service: Arc<ServiceContext>, api_port: u16, allow_non_pr
         .agent_registry
         .observe_provider_changes(Arc::new(move |provider| {
             if let Some(service) = weak.upgrade() {
+                super::agent_runtime::engine::stop_removed_provider(service.as_ref(), provider);
                 refresh_available(service.as_ref(), provider);
             }
         }));

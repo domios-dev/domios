@@ -38,3 +38,13 @@ async fn missing_native_attachment_refuses_before_registering_continuation() {
         .is_ok());
     assert!(codeterm_commands::application_host::require(&fixture.service).is_err());
 }
+
+#[test]
+fn persisted_relaunch_is_a_handoff_without_observing_the_dying_connection() {
+    assert_eq!(
+        terminal_outcome(&Phase::Relaunching),
+        Some(Ok(ApplyResult::Restarting))
+    );
+    assert_eq!(terminal_outcome(&Phase::Applying), None);
+    assert_eq!(terminal_outcome(&Phase::Admitted), None);
+}

@@ -61,15 +61,16 @@ pub async fn install_app_update(
         (us.channel, us.install_method.clone())
     };
     if install_method == codeterm_update::InstallMethod::Deb {
-        let info = codeterm_update::checker::check_for_update(&install_method).await?;
-        if let Some((_, message)) = codeterm_update::checker::debian_install_guidance(&info)? {
-            log::warn!("[updater] install_app_update status=package_managed: {message}");
-            update_state.lock().set_error(message.clone());
-            return Err(message);
-        }
-        return Ok(
-            serde_json::json!({"status": "no_update", "message": "No update is available."}),
-        );
+        let _lease = codeterm_update::single_flight::global()
+            .try_acquire()
+            .ok_or("already_in_flight")?;
+        let staged = codeterm_update::debian::stage(None).await?;
+        let mut state = update_state.lock();
+        state.clear_error();
+        state.set_phase(UpdatePhase::Idle);
+        return Ok(staged
+            .map(|package| package.response())
+            .unwrap_or_else(|| serde_json::json!({"status": "no_update"})));
     }
     let server_stop = app
         .try_state::<ServerStopState>()

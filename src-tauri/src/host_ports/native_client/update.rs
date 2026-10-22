@@ -40,7 +40,11 @@ impl UpdateOperation {
 }
 
 fn persist(record: &NativeUpdateHandoff) -> Result<(), String> {
-    let path = codeterm_update::native_handoff::path(&record.request.expected_server.identity.data);
+    persist_at(&record.request.expected_server.identity.data, record)
+}
+
+fn persist_at(data: &std::path::Path, record: &NativeUpdateHandoff) -> Result<(), String> {
+    let path = codeterm_update::native_handoff::path(data);
     codeterm_util::atomic_write::write_atomic(
         &path,
         serde_json::to_vec(record).map_err(|e| e.to_string())?,
@@ -58,34 +62,20 @@ pub(super) fn recover(client: &NativeHostClient) -> Result<(), String> {
     {
         return Ok(());
     }
-    let path = codeterm_update::native_handoff::path(&client.ready.identity.data);
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e.to_string()),
+    let Some(mut record) =
+        codeterm_update::native_handoff::read_for_recovery(&client.ready.identity.data)
+    else {
+        return Ok(());
     };
-    let mut record: NativeUpdateHandoff =
-        serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-    if record.request.expected_server.identity != client.ready.identity {
-        return Err("native update handoff belongs to another instance".into());
-    }
-    if record.reconcile(
+    if record.recover(
         codeterm_build_info::version(),
         codeterm_build_info::sha(),
         &client.connection,
         &client.ready,
-    )? {
-        persist(&record)?;
-    } else if matches!(
-        record.result.phase,
-        Phase::Admitted | Phase::Downloading | Phase::Applying
     ) {
-        record.advance(Phase::Failed {
-            message:
-                "native update interrupted before installer handoff; execution was not replayed"
-                    .into(),
-        })?;
-        persist(&record)?;
+        if let Err(error) = persist_at(&client.ready.identity.data, &record) {
+            log::warn!("[updater] could not persist recovered native handoff: {error}");
+        }
     }
     let operation = client.app.state::<Arc<UpdateOperation>>();
     operation.changed.send_replace(record.result.sequence);
