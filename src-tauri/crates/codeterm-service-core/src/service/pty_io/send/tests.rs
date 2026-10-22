@@ -748,19 +748,19 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
 
     let typed =
         super::prepare_routed_input(&frame, Some(&typed_capability(PasteMarkerWhen::Always)));
-    assert_eq!(typed.body, frame.body);
     assert_eq!(
-        typed.typed_prefix.as_deref(),
-        Some(frame.opening_tag.as_str())
+        typed.body,
+        format!(
+            "{}{}{}{}",
+            frame.opening_tag,
+            frame.body,
+            codeterm_wire::domios::pasted_marker_tail(),
+            super::compose_routed_suffix(&frame.suffix)
+        )
     );
-    assert_eq!(
-        typed.typed_suffix,
-        Some(super::compose_routed_suffix(&frame.suffix))
-    );
-    assert_eq!(
-        typed.pasted_tail,
-        Some(codeterm_wire::domios::pasted_marker_tail())
-    );
+    assert_eq!(typed.typed_prefix, None);
+    assert_eq!(typed.typed_suffix, None);
+    assert_eq!(typed.pasted_tail, None);
 }
 
 #[test]
@@ -772,18 +772,10 @@ fn routed_agent_and_report_hints_stay_out_of_the_body_in_both_transport_forms() 
         let frame = messenger.routed_frame("opaque body");
         let input =
             super::prepare_routed_input(&frame, Some(&typed_capability(PasteMarkerWhen::Always)));
-        assert_eq!(input.body, frame.body);
-        assert_eq!(
-            input.typed_prefix.as_deref(),
-            Some(frame.opening_tag.as_str())
-        );
-        let suffix = input.typed_suffix.unwrap();
-        assert!(!input.body.contains("<tip>"));
-        assert_eq!(suffix, super::compose_routed_suffix(&frame.suffix));
-        assert!(!suffix.contains(codeterm_wire::domios::DOMIOS_LEGACY_TYPED_INSTRUCTION));
-        let tail = input.pasted_tail.unwrap();
-        let delivered = format!("{}{}{}{}", frame.opening_tag, input.body, tail, suffix);
-        let parsed = codeterm_wire::domios::parse_message(&delivered).unwrap();
+        assert_eq!(input.typed_prefix, None);
+        assert_eq!(input.typed_suffix, None);
+        assert_eq!(input.pasted_tail, None);
+        let parsed = codeterm_wire::domios::parse_message(&input.body).unwrap();
         assert_eq!(parsed.body, frame.body);
         assert!(parsed.content.contains(&frame.suffix));
         let pasted = super::prepare_routed_input(&frame, None);
@@ -817,7 +809,8 @@ fn multiline_marker_capability_pastes_the_marker_only_for_a_line_break() {
     };
     let single = super::prepare_routed_input(&frame("opaque single line"), Some(&capability));
     assert_eq!(single.pasted_tail, None);
-    assert!(single.typed_prefix.is_some());
+    assert_eq!(single.typed_prefix, None);
+    assert_eq!(single.body, frame("opaque single line").to_message());
     let multi = super::prepare_routed_input(
         &frame(
             "opaque first
@@ -825,8 +818,10 @@ opaque second",
         ),
         Some(&capability),
     );
-    assert_eq!(
-        multi.pasted_tail,
-        Some(codeterm_wire::domios::pasted_marker_tail())
-    );
+    assert_eq!(multi.pasted_tail, None);
+    assert!(multi.body.ends_with(&format!(
+        "{}{}",
+        codeterm_wire::domios::pasted_marker_tail(),
+        codeterm_wire::domios::DOMIOS_CLOSE_TAG
+    )));
 }

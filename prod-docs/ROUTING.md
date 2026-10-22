@@ -1,9 +1,9 @@
 # Message Routing — follow the return hint
 
 Every routed message uses one leading `<domios>` tag for host provenance and
-one terminal `</domios>` tag. Depending on provider capability, PTY deliveries
-paste the complete frame or type its tags around a bracketed body paste. The
-suffix carries the reply hint and, when required by that capability, a short
+one terminal `</domios>` tag. PTY deliveries paste the complete frame as one
+unit, including its body, reply hint and any provider-required paste marker.
+The suffix carries the reply hint and, when required by that capability, a short
 instruction to handle the pasted body as the sender's request. Each is wrapped in
 `<tip>…</tip>` inside the frame. Agents receive these spans verbatim; desktop
 and mobile Chat omit them and show the frame as its sender header.
@@ -85,4 +85,4 @@ If a remote request needs a truly dangerous local decision, ack the remote
 channel first ("blocked pending local confirmation") and ask locally only
 when the local user is actually at the keyboard.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
