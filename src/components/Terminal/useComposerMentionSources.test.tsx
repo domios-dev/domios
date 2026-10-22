@@ -22,7 +22,7 @@ let renders = 0;
 let currentPlanTitle: string | undefined;
 let refetchPlans!: () => Promise<void>;
 __setListenForTest(async () => () => {});
-globalThis.fetch = async (input) => Response.json(String(input).includes("full=1") ? { plans: [{ ...FIXTURE_PLAN, title: `Update ${renders}` }] } : { plans: [] });
+globalThis.fetch = async (input) => Response.json(String(input).includes("/fs/list-dir") ? { entries: [{ name: "cdp.mjs", path: "/repo/cdp.mjs" }] } : String(input).includes("full=1") ? { plans: [{ ...FIXTURE_PLAN, project_path: "/repo", team_id: "team-a", title: `Update ${renders}` }] } : { plans: [] });
 configureDaemonTransport({ origin: harnessWindow.location.origin, token: "fixture" });
 const api = { enabled: true, host: "127.0.0.1", port: 7686, token: "fixture", cors: true };
 function Harness() { renders++; const feed = useSidebarPlansOptional(); currentPlanTitle = feed.plans[0]?.title; refetchPlans = feed.refetch; sources = useComposerMentionSources("t"); return null; }
@@ -31,6 +31,8 @@ async function main() {
   try {
     await act(async () => root.render(<MuxStateStoreContext.Provider value={mux}><PlansProvider api={api}><Harness /></PlansProvider></MuxStateStoreContext.Provider>));
     const ctx = () => ({ scope: sources.scope(), signal: new AbortController().signal });
+    const groups = new Set((await sources.registry.search("", ctx())).map(row => row.group));
+    assert(groups.has("Tasks") && groups.has("Plans") && groups.has("Files"), "mounted composer queries every non-tab source");
     await sources.registry.search("", ctx()); await sources.registry.search("r", ctx()); await sources.registry.search("ri", ctx());
     assert.equal(paths.length, 2, "one scoped Team and workspace read per open picker");
     assert.ok(paths.every((path) => path.startsWith("/api/automation/graph?") && !path.includes("__all_jobs__")));

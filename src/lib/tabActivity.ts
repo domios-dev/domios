@@ -89,6 +89,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   else if (authoritativeStatus === "Waiting") kind = "waiting-on-user";
   else if (utility && shell) kind = shell.activity === "running" ? "working" : "idle";
   else if (sessionBound && live?.state === "working") kind = "working";
+  else if (sessionBound && Object.keys(tab?.provider_signals?.background?.running ?? {}).length > 0) kind = "working";
   else kind = "idle";
   const quiet = kind === "idle" && live?.state === "quiet";
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";

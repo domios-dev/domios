@@ -4,6 +4,7 @@ import { tabMentionSource } from "./mentionSources/tabs";
 import { taskMentionSource } from "./mentionSources/tasks";
 import { planMentionSource } from "./mentionSources/plans";
 import { blueprintMentionSource } from "./mentionSources/blueprints";
+import { fileMentionSource } from "./mentionSources/files";
 import { projectIdentity } from "./mentionSources/scope";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../components/Canvas/cards/fixtures.testdata";
 import { fixtureGraph, fixtureNode } from "../components/Automation/fixtures.testdata";
@@ -26,6 +27,8 @@ const test = (name: string, fn: () => void | Promise<void>) => tests.push([name,
 test("project identity preserves case-sensitive project boundaries", () => {
   assert.notEqual(projectIdentity("/project/A"), projectIdentity("/project/a"));
   assert.equal(projectIdentity("C:\\Project\\Repo\\"), projectIdentity("c:/project/repo"));
+  assert.equal(projectIdentity("\\\\?\\C:\\Project\\Repo"), projectIdentity("c:/project/repo"));
+  assert.equal(projectIdentity("\\\\?\\UNC\\server\\share"), projectIdentity("//server/share"));
 });
 test("caret query spans a token in the middle and rejects email/selection", () => {
   assert.deepEqual(activeMentionQuery("hi @compose later", 7), { start: 3, end: 11, partial: "com" });
@@ -39,6 +42,19 @@ test("insertion preserves both sides of the draft", () => {
 });
 test("match quality is exact then prefix then subsequence", () => {
   assert.deepEqual([mentionMatch("cod", ["COD"]), mentionMatch("cod", ["Coding"]), mentionMatch("cd", ["Coding"]), mentionMatch("zz", ["Coding"])], [0, 1, 2, Infinity]);
+});
+test("extended Windows paths expose scoped Tasks and Plans alongside cwd Files", async () => {
+  const bound = { ...plans[0], project_path: "\\\\?\\C:\\Project\\Repo", tasks: [task("COD-1", "done", "Water the basil"), task("COD-2", "pending", "Water the basil")] };
+  const windows = { ...ctx, scope: { ...ctx.scope, projectPath: "c:/project/repo", cwd: "c:/project/repo/lane" } };
+  const calls: string[] = [];
+  const registry = createMentionRegistry([taskMentionSource(() => [bound]), planMentionSource(() => [bound]), fileMentionSource(async path => {
+    calls.push(path); return [{ name: "cdp.mjs", path: `${path}/cdp.mjs` }];
+  })]);
+  assert.deepEqual((await registry.search("water", windows)).map(row => row.label), ["COD-2", "COD-1"]);
+  assert.equal((await registry.search("pl_a", windows))[0].group, "Plans");
+  assert.equal((await registry.search("cdp", windows))[0].group, "Files");
+  assert.deepEqual(calls, Array(3).fill("c:/project/repo/lane"));
+  assert.equal((await registry.search("cdp", { ...ctx, scope: { ...ctx.scope, workspaceId: null } })).length, 0);
 });
 test("proximity then agents outrank match quality except exact title/id", async () => {
   const source = tabMentionSource(() => ({ tabs, workspaces }));
