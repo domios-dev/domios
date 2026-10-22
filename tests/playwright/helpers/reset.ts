@@ -7,7 +7,7 @@
  *   workspace + its tabs as the known baseline.
  * - `wipeDevState` — heavy, suite-level: stops the daemon and deletes
  *   mutable state dirs under the named Playwright data directory,
- *   keeping config.toml (token!) and bin/. Caller must restart via
+ *   keeping config.toml, .secrets (credential) and bin/. Caller must restart via
  *   `ensureDevConsole()` afterwards.
  *
  * HARD GUARD: every filesystem path this module touches must live under

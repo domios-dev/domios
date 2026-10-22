@@ -355,3 +355,33 @@ fn migration_reuses_persisted_rotation_and_preserves_legacy_backups() {
         .contains("tok-original"));
     assert_rotated(tmp.path(), &loaded);
 }
+
+#[test]
+fn failed_migration_config_write_keeps_runtime_authority_and_holds_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    std::fs::write(&path, VALID).unwrap();
+    let file = config_file(&path);
+    let mut config = toml::from_str::<AppConfig>(VALID).unwrap();
+    apply_instance_token(
+        root.path(),
+        &mut config,
+        VALID,
+        TokenPolicy::GenerateWhenMissing,
+        None,
+    )
+    .unwrap();
+    let authority = config.api.token.clone();
+    persist_migrated_config(&file, &config, |_| Err("injected write failure".into()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), VALID);
+    assert_eq!(config.api.token, authority);
+    assert_eq!(
+        codeterm_util::instance_token::read_at(root.path()).unwrap(),
+        authority
+    );
+    assert!(file.held().is_some());
+    assert!(file.save("[api]\nenabled = true\n").is_err());
+    assert!(incidents_for(&path)
+        .iter()
+        .any(|incident| incident.error.contains("injected write failure")));
+}

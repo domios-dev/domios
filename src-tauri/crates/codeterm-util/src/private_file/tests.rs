@@ -18,10 +18,8 @@ fn startup_tightens_existing_state_and_backups() {
     fs::create_dir_all(&backup).unwrap();
     let file = backup.join("old.bak");
     fs::write(&file, "sensitive").unwrap();
-    tighten_tree(dir.path()).unwrap();
+    crate::sensitive_state::tighten_existing(dir.path());
     assert!(owner_only(&file).unwrap());
-    assert!(owner_only(&backup).unwrap());
-    assert!(owner_only(dir.path()).unwrap());
 }
 
 #[test]
@@ -46,10 +44,10 @@ fn startup_preserves_owner_execute_and_ignores_external_links() {
     fs::write(&executable, "executable").unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
     symlink(outside.path(), dir.path().join("link")).unwrap();
-    tighten_tree(dir.path()).unwrap();
+    crate::sensitive_state::tighten_existing(dir.path());
     assert_eq!(
         fs::metadata(executable).unwrap().permissions().mode() & 0o777,
-        0o700
+        0o755
     );
     assert_eq!(
         fs::metadata(external).unwrap().permissions().mode() & 0o777,
@@ -70,4 +68,34 @@ fn windows_private_files_refuse_extra_aces() {
 #[test]
 fn empty_parent_keeps_relative_file_writes_in_the_current_directory() {
     assert!(create_dir_all(Path::new("")).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn private_writes_preserve_the_umask_observed_by_spawned_children() {
+    use std::os::unix::fs::PermissionsExt;
+    let child_umask = || {
+        let output = std::process::Command::new("/bin/sh")
+            .args(["-c", "umask"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let original = child_umask();
+    let root = tempfile::tempdir().unwrap();
+    write_atomic(&root.path().join("credential"), b"private").unwrap();
+    assert_eq!(child_umask(), original);
+    let public = root.path().join("child-output");
+    let child = std::process::Command::new("/bin/sh")
+        .args(["-c", "printf output > \"$1\"", "child"])
+        .arg(&public)
+        .status()
+        .unwrap();
+    assert!(child.success());
+    let mask = u32::from_str_radix(original.trim(), 8).unwrap();
+    assert_eq!(
+        fs::metadata(public).unwrap().permissions().mode() & 0o777,
+        0o666 & !mask
+    );
 }

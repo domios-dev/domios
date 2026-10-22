@@ -35,3 +35,20 @@ fn write_atomic_overwrites_existing_file() {
     write_atomic(&path, b"new").unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
 }
+
+#[cfg(unix)]
+#[test]
+fn generic_replacement_preserves_existing_modes_and_execute_bits() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    for mode in [0o644, 0o755, 0o640] {
+        let path = root.path().join(format!("external-{mode}"));
+        std::fs::write(&path, b"before").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+        write_atomic(&path, b"after").unwrap();
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            mode
+        );
+    }
+}

@@ -90,7 +90,7 @@ pub(super) fn add_deny_ace_for_test(path: &Path) -> io::Result<()> {
     write_acl(path, &entry, dacl)
 }
 
-fn access_entry(user: &CurrentUser, mode: ACCESS_MODE) -> EXPLICIT_ACCESS_W {
+pub(super) fn access_entry(user: &CurrentUser, mode: ACCESS_MODE) -> EXPLICIT_ACCESS_W {
     EXPLICIT_ACCESS_W {
         grfAccessPermissions: FILE_ALL_ACCESS,
         grfAccessMode: mode,
@@ -105,7 +105,11 @@ fn access_entry(user: &CurrentUser, mode: ACCESS_MODE) -> EXPLICIT_ACCESS_W {
     }
 }
 
-fn write_acl(path: &Path, entry: &EXPLICIT_ACCESS_W, old_acl: *const ACL) -> io::Result<()> {
+pub(super) fn write_acl(
+    path: &Path,
+    entry: &EXPLICIT_ACCESS_W,
+    old_acl: *const ACL,
+) -> io::Result<()> {
     let mut acl = null_mut();
     let result = unsafe { SetEntriesInAclW(1, entry, old_acl, &mut acl) };
     if result != 0 {
@@ -130,7 +134,7 @@ fn write_acl(path: &Path, entry: &EXPLICIT_ACCESS_W, old_acl: *const ACL) -> io:
     Ok(())
 }
 
-fn read_dacl(path: &Path) -> io::Result<(LocalAllocation, *mut ACL)> {
+pub(super) fn read_dacl(path: &Path) -> io::Result<(LocalAllocation, *mut ACL)> {
     let path = wide_path(path);
     let mut dacl = null_mut();
     let mut descriptor = null_mut();
@@ -152,16 +156,16 @@ fn read_dacl(path: &Path) -> io::Result<(LocalAllocation, *mut ACL)> {
     Ok((LocalAllocation(descriptor), dacl))
 }
 
-fn wide_path(path: &Path) -> Vec<u16> {
+pub(super) fn wide_path(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain(Some(0)).collect()
 }
 
-struct CurrentUser {
+pub(super) struct CurrentUser {
     token_info: Vec<usize>,
 }
 
 impl CurrentUser {
-    fn open() -> io::Result<Self> {
+    pub(super) fn open() -> io::Result<Self> {
         let mut token: HANDLE = null_mut();
         if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
             return Err(io::Error::last_os_error());
@@ -191,7 +195,7 @@ impl CurrentUser {
         Ok(Self { token_info })
     }
 
-    fn sid(&self) -> windows_sys::Win32::Security::PSID {
+    pub(super) fn sid(&self) -> windows_sys::Win32::Security::PSID {
         unsafe { (*self.token_info.as_ptr().cast::<TOKEN_USER>()).User.Sid }
     }
 }
@@ -204,7 +208,7 @@ impl Drop for TokenHandle {
     }
 }
 
-struct LocalAllocation(*mut c_void);
+pub(super) struct LocalAllocation(pub(super) *mut c_void);
 
 impl Drop for LocalAllocation {
     fn drop(&mut self) {
