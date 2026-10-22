@@ -155,60 +155,30 @@ fn changed_files_cover_the_live_attempt_base_after_a_redispatch() {
     );
 }
 
-/// NEGATIVE CONTROL. A caller who types a base that is not the environment value
-/// still names the interval — the live attempt base does not override it.
 #[test]
-fn a_typed_base_that_is_not_the_environment_still_wins_over_the_live_attempt() {
-    let fx = redispatched_lane();
-    let scope = fx.scope(Some(&fx.live_base));
-    let base = ReportBase::classify(
-        Some(fx.stale_env_base.clone()),
-        Some("some-other-dispatch-base".to_string()),
-    );
-
-    let (branch, sha, changed) = fx.report(base, &scope);
-
-    fx.assert_repo_facts(&branch, &sha);
-    assert_eq!(
-        changed,
-        vec!["lane_only.rs".to_string(), "moved_on.rs".to_string()],
-        "an explicitly typed base must keep behaving exactly as it does today"
-    );
-}
-
-/// NEGATIVE CONTROL. With no live attempt base to prefer, the dispatch
-/// environment is still the interval — it is a last resort, not a removed input.
-#[test]
-fn the_dispatch_environment_base_still_applies_when_no_live_attempt_base_exists() {
-    let fx = redispatched_lane();
-    let scope = fx.scope(None);
-    let base = ReportBase::classify(
-        Some(fx.stale_env_base.clone()),
-        Some(fx.stale_env_base.clone()),
-    );
-
-    let (branch, sha, changed) = fx.report(base, &scope);
-
-    fx.assert_repo_facts(&branch, &sha);
-    assert_eq!(
-        changed,
-        vec!["lane_only.rs".to_string(), "moved_on.rs".to_string()],
-        "without a live attempt base the environment snapshot is the only interval available"
-    );
-}
-
-/// The classification itself, pinned: a supplied value equal to the exported
-/// variable is the variable, and is stated as such rather than inferred later.
-#[test]
-fn a_supplied_base_equal_to_the_environment_is_classified_as_the_environment() {
-    let live = || Some("live".to_string());
-    let from_env = ReportBase::classify(Some("abc".into()), Some("abc".into()));
-    let typed = ReportBase::classify(Some("abc".into()), Some("zzz".into()));
-    let bare = ReportBase::typed("abc");
-
-    assert_eq!(from_env.resolve(live()).as_deref(), Some("live"));
-    assert_eq!(typed.resolve(live()).as_deref(), Some("abc"));
-    assert_eq!(bare.resolve(live()).as_deref(), Some("abc"));
-    assert_eq!(from_env.resolve(None).as_deref(), Some("abc"));
-    assert_eq!(ReportBase::default().resolve(None), None);
+fn base_precedence_uses_explicit_then_live_then_environment() {
+    for (supplied, environment, live, expected) in [
+        (Some("typed"), Some("env"), Some("live"), Some("typed")),
+        (Some("typed"), None, Some("stale-task-base"), Some("typed")),
+        (Some("env"), Some("env"), Some("live"), Some("live")),
+        (Some("env"), Some("env"), None, Some("env")),
+        (None, Some("env"), Some("live"), Some("live")),
+        (None, Some("env"), None, Some("env")),
+        (None, None, Some("live"), Some("live")),
+        (None, None, None, None),
+        (Some(" typed "), Some(" env "), Some("live"), Some("typed")),
+        (Some(" env "), Some("env"), Some(" live "), Some("live")),
+        (Some(" "), Some("env"), Some(" "), Some("env")),
+        (None, Some(" "), Some(" "), None),
+    ] {
+        let base = ReportBase::classify(
+            supplied.map(str::to_string),
+            environment.map(str::to_string),
+        );
+        assert_eq!(
+            base.resolve(live.map(str::to_string)).as_deref(),
+            expected,
+            "supplied={supplied:?}, environment={environment:?}, live={live:?}"
+        );
+    }
 }
