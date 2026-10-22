@@ -65,7 +65,7 @@ fn captured_submenu_option_two_writes_only_declared_enter() {
         Ok(vec![b"\r".to_vec()])
     );
 
-    let mut state = crate::pty::screen_state::ScreenState::new();
+    let state = crate::pty::screen_state::ScreenState::new();
     state.resize("fixture", 120, 24);
     state.process("fixture", CAPTURED_SCREEN.replace('\n', "\r\n").as_bytes());
     let rendered = state.get_screen_text("fixture").unwrap();
@@ -174,7 +174,7 @@ fn outside_directory_permission_parses_three_options_and_responds() {
     );
     assert_eq!(steps, Ok(vec![b"\r".to_vec()]));
 
-    let mut state = crate::pty::screen_state::ScreenState::new();
+    let state = crate::pty::screen_state::ScreenState::new();
     state.resize("fixture", 120, 24);
     state.process(
         "fixture",

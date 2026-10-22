@@ -178,7 +178,6 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
     // screen_state (3): the rendered tail the classifier fingerprints against.
     let screen_text = svc
         .screen_state
-        .lock()
         .tail_text(pty_id, SNAPSHOT_ROWS)
         .unwrap_or_default();
 
@@ -283,11 +282,7 @@ pub(crate) fn classify_adopted_launch_screen(svc: &ServiceContext, tab_id: &str,
         };
         (agent_type, tab.agent_session_id.clone(), tab.cwd.clone())
     };
-    let screen = svc
-        .screen_state
-        .lock()
-        .get_screen_text(pty_id)
-        .unwrap_or_default();
+    let screen = svc.screen_state.get_screen_text(pty_id).unwrap_or_default();
     let snapshot = TabStateSnapshot {
         tab_id: tab_id.to_string(),
         agent_type: agent_type.clone(),

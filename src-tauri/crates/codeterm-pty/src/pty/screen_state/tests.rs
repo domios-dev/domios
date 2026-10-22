@@ -85,7 +85,7 @@ fn test_empty_state_returns_none() {
 
 #[test]
 fn test_process_and_get_text() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"Hello, world!");
     let text = ss.get_screen_text("pty1").unwrap();
     assert!(text.contains("Hello, world!"));
@@ -93,7 +93,7 @@ fn test_process_and_get_text() {
 
 #[test]
 fn test_process_overwrites_at_cursor() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"ABCDE\rXY");
     let text = ss.get_screen_text("pty1").unwrap();
     assert!(text.contains("XYCDE"));
@@ -101,7 +101,7 @@ fn test_process_overwrites_at_cursor() {
 
 #[test]
 fn test_formatted_preserves_cursor_hide() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"Hello\x1b[?25l");
     let formatted = ss.get_screen_formatted("pty1").unwrap();
     let s = String::from_utf8_lossy(&formatted);
@@ -114,7 +114,7 @@ fn test_formatted_preserves_cursor_hide() {
 
 #[test]
 fn test_formatted_preserves_colors() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"\x1b[31mRed text\x1b[0m");
     let formatted = ss.get_screen_formatted("pty1").unwrap();
     assert!(!formatted.is_empty());
@@ -125,7 +125,7 @@ fn test_formatted_preserves_colors() {
 
 #[test]
 fn test_content_hash_changes_with_content() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"Content A");
     let hash1 = ss.get_content_hash("pty1", 0).unwrap();
 
@@ -137,7 +137,7 @@ fn test_content_hash_changes_with_content() {
 
 #[test]
 fn test_content_hash_excludes_bottom_rows() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"Top line\x1b[50;1HBottom line");
     let hash_all = ss.get_content_hash("pty1", 0).unwrap();
     let hash_no_bottom = ss.get_content_hash("pty1", 3).unwrap();
@@ -146,7 +146,7 @@ fn test_content_hash_excludes_bottom_rows() {
 
 #[test]
 fn cursor_input_state_clamps_a_composer_to_the_bottom_row() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"\x1b[999;1H\x1b[2m\xe2\x96\x8c\x1b[0m ");
 
     let (_alternate, visible, row, rows) = ss.cursor_input_state("pty1").unwrap();
@@ -159,7 +159,7 @@ fn cursor_input_state_clamps_a_composer_to_the_bottom_row() {
 
 #[test]
 fn resize_keeps_cursor_geometry_in_sync_with_the_pty() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"\x1b[40;1H\x1b[2m\xe2\x96\x8c\x1b[0m ");
     ss.resize("pty1", 120, 40);
 
@@ -183,7 +183,7 @@ fn primary_screen_hidden_inverse_composer_frame_exposes_structural_caret() {
         "\x1b[22;3HD:\\Developer\\codeterm · release-1.7.8",
         "\x1b[?25l\x1b[23;1H",
     );
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.resize("cursor", 120, 40);
     ss.process("cursor", CAPTURED_FRAME.as_bytes());
 
@@ -201,7 +201,7 @@ fn primary_screen_hidden_inverse_composer_frame_exposes_structural_caret() {
 
 #[test]
 fn inverse_selection_and_visible_cursor_are_not_structural_carets() {
-    let mut selection = ScreenState::new();
+    let selection = ScreenState::new();
     selection.resize("selection", 120, 23);
     selection.process(
         "selection",
@@ -212,7 +212,7 @@ fn inverse_selection_and_visible_cursor_are_not_structural_carets() {
     assert_eq!(selection.nonblank_inverse_cells, 2);
     assert_eq!(selection.sole_nonblank_inverse_row, None);
 
-    let mut visible_cursor = ScreenState::new();
+    let visible_cursor = ScreenState::new();
     visible_cursor.resize("visible", 120, 23);
     visible_cursor.process("visible", b"\x1b[?1049h\x1b[18;2H\x1b[7mP\x1b[27m\x1b[?25h");
     let visible_cursor = visible_cursor.composer_input_state("visible").unwrap();
@@ -223,7 +223,7 @@ fn inverse_selection_and_visible_cursor_are_not_structural_carets() {
 
 #[test]
 fn frame_without_inverse_cells_has_no_structural_caret() {
-    let mut state = ScreenState::new();
+    let state = ScreenState::new();
     state.resize("plain", 120, 40);
     state.process(
         "plain",
@@ -238,7 +238,7 @@ fn frame_without_inverse_cells_has_no_structural_caret() {
 
 #[test]
 fn test_remove_cleans_up() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"data");
     assert!(ss.get_screen_text("pty1").is_some());
     ss.remove("pty1");
@@ -247,7 +247,7 @@ fn test_remove_cleans_up() {
 
 #[test]
 fn test_multiple_ptys_isolated() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"First");
     ss.process("pty2", b"Second");
     assert!(ss.get_screen_text("pty1").unwrap().contains("First"));
@@ -257,7 +257,7 @@ fn test_multiple_ptys_isolated() {
 
 #[test]
 fn test_prompt_signal_fires_on_bash_prompt() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     let sig = ss.arm_prompt_signal("pty1");
     assert!(!sig.is_ready());
     ss.process("pty1", b"user@host:~$ ");
@@ -266,7 +266,7 @@ fn test_prompt_signal_fires_on_bash_prompt() {
 
 #[test]
 fn test_prompt_signal_fires_on_powershell_prompt() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     let sig = ss.arm_prompt_signal("pty1");
     ss.process("pty1", b"PS C:\\Developer> ");
     assert!(sig.is_ready());
@@ -274,7 +274,7 @@ fn test_prompt_signal_fires_on_powershell_prompt() {
 
 #[test]
 fn test_prompt_signal_fires_immediately_if_prompt_already_present() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"user@host:~$ ");
     let sig = ss.arm_prompt_signal("pty1");
     assert!(sig.is_ready());
@@ -282,7 +282,7 @@ fn test_prompt_signal_fires_immediately_if_prompt_already_present() {
 
 #[test]
 fn test_prompt_signal_not_fired_on_plain_output() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     let sig = ss.arm_prompt_signal("pty1");
     ss.process("pty1", b"some regular line without prompt marker");
     assert!(!sig.is_ready());
@@ -290,7 +290,7 @@ fn test_prompt_signal_not_fired_on_plain_output() {
 
 #[test]
 fn bare_prompt_signal_rejects_agent_tui_prompt() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process(
         "pty1",
         "╭──────────────────────────╮\n│ ❯                        │".as_bytes(),
@@ -315,7 +315,7 @@ fn bare_prompt_signal_rejects_agent_tui_prompt() {
 
 #[test]
 fn bare_prompt_signal_does_not_reuse_stale_ready_state() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"user@host:~$ ");
     let first = ss.arm_bare_prompt_signal("pty1");
     assert!(first.is_ready());
@@ -333,7 +333,7 @@ fn bare_prompt_signal_does_not_reuse_stale_ready_state() {
 
 #[test]
 fn shell_ready_accepts_an_integration_event_or_a_real_prompt() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     let signal = ss.arm_shell_ready_signal("pty1");
 
     ss.process("pty1", b"ordinary output");
@@ -347,7 +347,7 @@ fn shell_ready_accepts_an_integration_event_or_a_real_prompt() {
 /// readiness evidence that will ever arrive.
 #[test]
 fn macos_bash_zsh_migration_notice_still_reaches_shell_ready() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     let signal = ss.arm_shell_ready_signal("pty1");
 
     ss.process(
@@ -370,7 +370,7 @@ fn posix_and_windows_prompts_are_shell_ready_events() {
         "PS C:\\Developer\\codeterm> ",
         "C:\\Developer>",
     ] {
-        let mut ss = ScreenState::new();
+        let ss = ScreenState::new();
         assert!(ss.bind_pty_generation("pty1", 1));
 
         assert!(ss.process_if_generation("pty1", 1, prompt.as_bytes()));
@@ -384,7 +384,7 @@ fn posix_and_windows_prompts_are_shell_ready_events() {
 
 #[test]
 fn continuation_prompt_does_not_mark_shell_ready() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     assert!(ss.bind_pty_generation("pty1", 1));
     let signal = ss.arm_shell_ready_signal("pty1");
 
@@ -401,7 +401,7 @@ fn agent_composers_and_generic_output_are_not_shell_ready() {
         "download progress >",
         "Cogitated for 4s",
     ] {
-        let mut ss = ScreenState::new();
+        let ss = ScreenState::new();
         assert!(ss.bind_pty_generation("pty1", 1));
         let signal = ss.arm_shell_ready_signal("pty1");
 
@@ -417,7 +417,7 @@ fn agent_composers_and_generic_output_are_not_shell_ready() {
 /// and left recovery to a watchdog tick ~99s later.
 #[test]
 fn readiness_armed_before_the_reader_binds_survives_the_bind() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     let signal = ss.arm_shell_ready_signal("pty1");
 
     assert!(ss.bind_pty_generation("pty1", 7));
@@ -434,7 +434,7 @@ fn readiness_armed_before_the_reader_binds_survives_the_bind() {
 /// so a prompt already on screen still counts once the reader binds.
 #[test]
 fn prompt_observed_before_bind_counts_for_the_bound_generation() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     ss.process("pty1", b"user@host:~$ ");
 
     assert!(ss.bind_pty_generation("pty1", 3));
@@ -445,7 +445,7 @@ fn prompt_observed_before_bind_counts_for_the_bound_generation() {
 /// Replacing a generation is a real teardown — the old wait must still close.
 #[test]
 fn rebinding_a_new_generation_closes_the_previous_wait() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     assert!(ss.bind_pty_generation("pty1", 1));
     let signal = ss.arm_shell_ready_signal("pty1");
 
@@ -456,7 +456,7 @@ fn rebinding_a_new_generation_closes_the_previous_wait() {
 
 #[test]
 fn shell_ready_event_before_arm_is_remembered_for_current_generation() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     assert!(ss.bind_pty_generation("pty1", 1));
 
     assert!(ss.process_if_generation("pty1", 1, b"\x1b]633;A\x07"));
@@ -466,7 +466,7 @@ fn shell_ready_event_before_arm_is_remembered_for_current_generation() {
 
 #[test]
 fn raw_reader_generation_must_bind_before_output_is_accepted() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
 
     assert!(!ss.process_if_generation("pty1", 1, b"\x1b]133;A\x07"));
     assert!(ss.bind_pty_generation("pty1", 1));
@@ -476,7 +476,7 @@ fn raw_reader_generation_must_bind_before_output_is_accepted() {
 
 #[test]
 fn late_shell_ready_event_from_old_generation_is_rejected() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     assert!(ss.bind_pty_generation("pty1", 1));
     assert!(ss.bind_pty_generation("pty1", 2));
 
@@ -492,7 +492,7 @@ fn late_shell_ready_event_from_old_generation_is_rejected() {
 
 #[test]
 fn replacing_pty_generation_cancels_armed_shell_ready_waiter() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     assert!(ss.bind_pty_generation("pty1", 1));
     let signal = ss.arm_shell_ready_signal("pty1");
 
@@ -503,7 +503,7 @@ fn replacing_pty_generation_cancels_armed_shell_ready_waiter() {
 
 #[test]
 fn shell_event_wakes_all_waiters_and_prunes_them() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     let first = ss.arm_bare_prompt_signal("pty1");
     let second = ss.arm_bare_prompt_signal("pty1");
 
@@ -516,7 +516,7 @@ fn shell_event_wakes_all_waiters_and_prunes_them() {
 
 #[test]
 fn disarmed_bare_prompt_waiter_does_not_accumulate_after_timeout() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     let signal = ss.arm_bare_prompt_signal("pty1");
 
     ss.disarm_bare_prompt_signal("pty1", &signal);
@@ -526,7 +526,7 @@ fn disarmed_bare_prompt_waiter_does_not_accumulate_after_timeout() {
 
 #[test]
 fn test_prompt_signal_wait_returns_true_on_ready() {
-    let mut ss = ScreenState::new();
+    let ss = ScreenState::new();
     let sig = ss.arm_prompt_signal("pty1");
     let sig2 = sig.clone();
     let handle = std::thread::spawn(move || {
@@ -546,7 +546,7 @@ fn test_prompt_signal_wait_returns_false_on_timeout() {
 
 #[test]
 fn screen_change_signal_wakes_on_process_without_polling() {
-    let mut state = ScreenState::new();
+    let state = ScreenState::new();
     let signal = state.arm_screen_change_signal("pty1");
     let generation = signal.generation();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -564,7 +564,7 @@ fn screen_change_signal_wakes_on_process_without_polling() {
 
 #[test]
 fn unsubscribed_screen_change_signal_fails_waiters() {
-    let mut state = ScreenState::new();
+    let state = ScreenState::new();
     let signal = state.subscribe_screen_changes("pty1");
     let generation = signal.generation();
 
@@ -576,7 +576,7 @@ fn unsubscribed_screen_change_signal_fails_waiters() {
 
 #[test]
 fn pty_teardown_closes_all_screen_change_subscribers() {
-    let mut state = ScreenState::new();
+    let state = ScreenState::new();
     let first = state.subscribe_screen_changes("pty1");
     let second = state.subscribe_screen_changes("pty1");
     let first_generation = first.generation();
@@ -591,7 +591,7 @@ fn pty_teardown_closes_all_screen_change_subscribers() {
 
 #[test]
 fn old_generation_cannot_remove_replacement_screen() {
-    let mut state = ScreenState::new();
+    let state = ScreenState::new();
     assert!(state.bind_pty_generation("pty1", 1));
     state.process("pty1", b"old frame");
     assert!(state.bind_pty_generation("pty1", 2));
@@ -605,7 +605,7 @@ fn old_generation_cannot_remove_replacement_screen() {
 
 #[test]
 fn bracketed_paste_mode_tracks_the_live_terminal_mode() {
-    let mut state = ScreenState::new();
+    let state = ScreenState::new();
     assert_eq!(state.bracketed_paste_mode("pty1"), None);
 
     state.process("pty1", b"\x1b[?2004h");
@@ -617,17 +617,22 @@ fn bracketed_paste_mode_tracks_the_live_terminal_mode() {
 
 #[test]
 fn reset_input_modes_restores_shell_defaults() {
-    let mut state = ScreenState::new();
+    let state = ScreenState::new();
     state.process("pty1", b"\x1b[?2004h\x1b[?1h\x1b=\x1b[?1000h");
-    let screen = state.parsers.get("pty1").unwrap().screen();
-    assert!(screen.bracketed_paste());
-    assert!(screen.application_cursor());
-    assert!(screen.application_keypad());
-    assert_ne!(screen.mouse_protocol_mode(), vt100::MouseProtocolMode::None);
+    let pty = state.pty("pty1");
+    {
+        let state = pty.lock();
+        let screen = state.parser.as_ref().unwrap().screen();
+        assert!(screen.bracketed_paste());
+        assert!(screen.application_cursor());
+        assert!(screen.application_keypad());
+        assert_ne!(screen.mouse_protocol_mode(), vt100::MouseProtocolMode::None);
+    }
 
     assert!(state.reset_input_modes("pty1"));
 
-    let screen = state.parsers.get("pty1").unwrap().screen();
+    let state = pty.lock();
+    let screen = state.parser.as_ref().unwrap().screen();
     assert!(!screen.bracketed_paste());
     assert!(!screen.application_cursor());
     assert!(!screen.application_keypad());
@@ -636,7 +641,7 @@ fn reset_input_modes_restores_shell_defaults() {
 
 #[test]
 fn resized_screen_keeps_latest_output_at_current_height() {
-    let mut state = ScreenState::new();
+    let state = ScreenState::new();
     state.resize("fixture", 120, 40);
     for n in 1..=100 {
         state.process("fixture", format!("B3:{n:03}\r\n").as_bytes());

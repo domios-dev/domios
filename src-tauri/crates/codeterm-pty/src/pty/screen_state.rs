@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -161,121 +160,95 @@ impl ShellReadySignal {
     }
 }
 
-/// Current VT100 screen grid per PTY; historical output remains in `OutputBuffer`.
-/// Lines that scroll beyond the visible grid are not available through this state.
-pub struct ScreenState {
-    parsers: HashMap<String, vt100::Parser>,
-    input_modes: HashMap<String, super::input_mode::InputMode>,
-    prompt_signals: HashMap<String, Arc<PromptSignal>>,
-    shell_ready_signals: HashMap<String, Arc<ShellReadySignal>>,
-    shell_ready_generations: HashMap<String, Option<u64>>,
-    bare_prompt_signals: HashMap<String, Vec<Arc<PromptSignal>>>,
-    agent_signals: HashMap<String, Arc<PromptSignal>>,
-    screen_change_signals: HashMap<String, Arc<ScreenChangeSignal>>,
-    screen_change_subscribers: HashMap<String, Vec<Arc<ScreenChangeSignal>>>,
-    pty_generations: HashMap<String, u64>,
+mod content_hash;
+mod registry;
+pub use registry::{ScreenHandle, ScreenState};
+
+#[derive(Default)]
+pub struct PtyScreen {
+    parser: Option<vt100::Parser>,
+    input_mode: super::input_mode::InputMode,
+    prompt_signal: Option<Arc<PromptSignal>>,
+    shell_ready_signal: Option<Arc<ShellReadySignal>>,
+    shell_ready_generation: Option<Option<u64>>,
+    bare_prompt_signals: Vec<Arc<PromptSignal>>,
+    agent_signal: Option<Arc<PromptSignal>>,
+    screen_change_signal: Option<Arc<ScreenChangeSignal>>,
+    screen_change_subscribers: Vec<Arc<ScreenChangeSignal>>,
+    pty_generation: Option<u64>,
+    content_hash: content_hash::ContentHash,
 }
 
-impl ScreenState {
-    pub fn new() -> Self {
-        Self {
-            parsers: HashMap::new(),
-            input_modes: HashMap::new(),
-            prompt_signals: HashMap::new(),
-            shell_ready_signals: HashMap::new(),
-            shell_ready_generations: HashMap::new(),
-            bare_prompt_signals: HashMap::new(),
-            agent_signals: HashMap::new(),
-            screen_change_signals: HashMap::new(),
-            screen_change_subscribers: HashMap::new(),
-            pty_generations: HashMap::new(),
-        }
-    }
-
-    fn mark_shell_ready_observed(&mut self, pty_id: &str) {
-        self.shell_ready_generations.insert(
-            pty_id.to_string(),
-            self.pty_generations.get(pty_id).copied(),
-        );
-        if let Some(signal) = self.shell_ready_signals.get(pty_id) {
+impl PtyScreen {
+    fn mark_shell_ready_observed(&mut self) {
+        self.shell_ready_generation = Some(self.pty_generation);
+        if let Some(signal) = &self.shell_ready_signal {
             signal.mark_ready();
         }
     }
 
-    pub fn process(&mut self, pty_id: &str, data: &[u8]) {
-        self.input_modes
-            .entry(pty_id.to_string())
-            .or_default()
-            .process(data);
+    pub fn process(&mut self, data: &[u8]) {
+        self.input_mode.process(data);
         if data.windows(7).any(|window| window == b"\x1b]133;A")
             || data.windows(7).any(|window| window == b"\x1b]633;A")
         {
-            self.mark_shell_ready_observed(pty_id);
+            self.mark_shell_ready_observed();
         }
         let parser = self
-            .parsers
-            .entry(pty_id.to_string())
-            .or_insert_with(|| vt100::Parser::new(50, 120, 500));
+            .parser
+            .get_or_insert_with(|| vt100::Parser::new(50, 120, 500));
         parser.process(data);
-
+        self.content_hash.invalidate();
         let screen = parser.screen().contents();
-
         if screen_has_shell_readiness_prompt(&screen) {
-            self.mark_shell_ready_observed(pty_id);
+            self.mark_shell_ready_observed();
         }
-
-        if let Some(signal) = self.prompt_signals.get(pty_id) {
+        if let Some(signal) = &self.prompt_signal {
             if !signal.is_ready() && screen_has_shell_prompt(&screen) {
                 signal.mark_ready();
             }
         }
-        if let Some(signals) = self.bare_prompt_signals.get(pty_id) {
-            if screen_has_bare_shell_prompt(&screen) {
-                for signal in signals {
-                    signal.mark_ready();
-                }
+        if screen_has_bare_shell_prompt(&screen) {
+            for signal in &self.bare_prompt_signals {
+                signal.mark_ready();
             }
         }
-        if let Some(signals) = self.bare_prompt_signals.get_mut(pty_id) {
-            signals.retain(|signal| !signal.is_ready());
-        }
-        if let Some(signal) = self.agent_signals.get(pty_id) {
+        self.bare_prompt_signals.retain(|signal| !signal.is_ready());
+        if let Some(signal) = &self.agent_signal {
             if !signal.is_ready() && screen_has_agent_tui(&screen) {
                 signal.mark_ready();
             }
         }
-        if let Some(signal) = self.screen_change_signals.get(pty_id) {
+        if let Some(signal) = &self.screen_change_signal {
             signal.mark_changed();
         }
-        if let Some(subscribers) = self.screen_change_subscribers.get(pty_id) {
-            for signal in subscribers {
-                signal.mark_changed();
-            }
+        for signal in &self.screen_change_subscribers {
+            signal.mark_changed();
         }
     }
 
-    pub fn process_if_generation(&mut self, pty_id: &str, generation: u64, data: &[u8]) -> bool {
-        if self.pty_generations.get(pty_id).copied() != Some(generation) {
+    pub fn process_if_generation(&mut self, generation: u64, data: &[u8]) -> bool {
+        if self.pty_generation != Some(generation) {
             return false;
         }
-        self.process(pty_id, data);
+        self.process(data);
         true
     }
 
-    pub fn resize(&mut self, pty_id: &str, cols: u16, rows: u16) {
+    pub fn resize(&mut self, cols: u16, rows: u16) {
         let parser = self
-            .parsers
-            .entry(pty_id.to_string())
-            .or_insert_with(|| vt100::Parser::new(rows, cols, 500));
+            .parser
+            .get_or_insert_with(|| vt100::Parser::new(rows, cols, 500));
         parser.screen_mut().set_size(rows, cols);
+        self.content_hash.invalidate();
     }
 
-    pub fn get_screen_text(&self, pty_id: &str) -> Option<String> {
-        self.parsers.get(pty_id).map(|p| p.screen().contents())
+    pub fn get_screen_text(&self) -> Option<String> {
+        self.parser.as_ref().map(|p| p.screen().contents())
     }
 
-    pub fn get_screen_rows(&self, pty_id: &str) -> Option<Vec<String>> {
-        let screen = self.parsers.get(pty_id)?.screen();
+    pub fn get_screen_rows(&self) -> Option<Vec<String>> {
+        let screen = self.parser.as_ref()?.screen();
         let (rows, cols) = screen.size();
         Some(
             (0..rows)
@@ -289,34 +262,29 @@ impl ScreenState {
         )
     }
 
-    pub fn win32_input_mode(&self, pty_id: &str) -> bool {
-        self.input_modes
-            .get(pty_id)
-            .is_some_and(|mode| mode.win32())
+    pub fn win32_input_mode(&self) -> bool {
+        self.input_mode.win32()
     }
 
-    pub fn bracketed_paste_mode(&self, pty_id: &str) -> Option<bool> {
-        self.parsers
-            .get(pty_id)
+    pub fn bracketed_paste_mode(&self) -> Option<bool> {
+        self.parser
+            .as_ref()
             .map(|parser| parser.screen().bracketed_paste())
     }
 
-    pub fn reset_input_modes(&mut self, pty_id: &str) -> bool {
-        let Some(parser) = self.parsers.get_mut(pty_id) else {
+    pub fn reset_input_modes(&mut self) -> bool {
+        let Some(parser) = &mut self.parser else {
             return false;
         };
         let (rows, cols) = parser.screen().size();
         let defaults = vt100::Parser::new(rows, cols, 500);
         let reset = defaults.screen().input_mode_diff(parser.screen());
         parser.process(&reset);
+        self.content_hash.invalidate();
         true
     }
-
-    pub fn native_prompt_input(
-        &self,
-        pty_id: &str,
-    ) -> Option<crate::native_prompt::NativePromptInput> {
-        self.parsers.get(pty_id).map(|p| {
+    pub fn native_prompt_input(&self) -> Option<crate::native_prompt::NativePromptInput> {
+        self.parser.as_ref().map(|p| {
             let screen = p.screen();
             crate::native_prompt::NativePromptInput {
                 screen: crate::attributed_screen::AttributedScreen::from_vt100(screen),
@@ -329,8 +297,8 @@ impl ScreenState {
     /// VT cursor geometry for the live composer-ready signal: `(alt_screen,
     /// cursor_visible, cursor_row, rows)`. Mirrors what the offline `SignalExtractor`
     /// exposes so the live and replay classifiers agree (see `composer_cursor_ready`).
-    pub fn cursor_input_state(&self, pty_id: &str) -> Option<(bool, bool, u16, u16)> {
-        self.parsers.get(pty_id).map(|p| {
+    pub fn cursor_input_state(&self) -> Option<(bool, bool, u16, u16)> {
+        self.parser.as_ref().map(|p| {
             let screen = p.screen();
             let (rows, _cols) = screen.size();
             let (row, _col) = screen.cursor_position();
@@ -338,8 +306,8 @@ impl ScreenState {
         })
     }
 
-    pub fn composer_input_state(&self, pty_id: &str) -> Option<ComposerInputState> {
-        self.parsers.get(pty_id).map(|parser| {
+    pub fn composer_input_state(&self) -> Option<ComposerInputState> {
+        self.parser.as_ref().map(|parser| {
             let screen = parser.screen();
             let (rows, cols) = screen.size();
             let (cursor_row, _cursor_col) = screen.cursor_position();
@@ -361,8 +329,8 @@ impl ScreenState {
 
     /// Get screen as escape-coded bytes — preserves colors, cursor position, cursor visibility.
     /// Used for screen restore on tab remount (HMR, tab switch).
-    pub fn get_screen_formatted(&self, pty_id: &str) -> Option<Vec<u8>> {
-        self.parsers.get(pty_id).map(|p| {
+    pub fn get_screen_formatted(&self) -> Option<Vec<u8>> {
+        self.parser.as_ref().map(|p| {
             let screen = p.screen();
             let mut buf = screen.contents_formatted();
             buf.extend_from_slice(&screen.cursor_state_formatted());
@@ -370,22 +338,11 @@ impl ScreenState {
         })
     }
 
-    pub fn get_content_hash(&self, pty_id: &str, exclude_bottom_rows: u16) -> Option<[u8; 32]> {
-        use sha2::{Digest, Sha256};
-        self.parsers.get(pty_id).map(|p| {
-            let screen = p.screen();
-            let (rows, cols) = screen.size();
-            let end_row = rows.saturating_sub(exclude_bottom_rows);
-            let mut h = Sha256::new();
-            for row in 0..end_row {
-                let row_text = screen.contents_between(row, 0, row, cols);
-                let trimmed = row_text.trim();
-                if !trimmed.is_empty() {
-                    h.update(trimmed.as_bytes());
-                }
-            }
-            h.finalize().into()
-        })
+    pub fn get_content_hash(&mut self, exclude_bottom_rows: u16) -> Option<[u8; 32]> {
+        Some(
+            self.content_hash
+                .get(self.parser.as_ref()?.screen(), exclude_bottom_rows),
+        )
     }
 
     /// Trimmed per-row screen text plus the tail, derived from the existing
@@ -393,8 +350,8 @@ impl ScreenState {
     /// second parser. Feeds the live 3-state classifier's text-question /
     /// ready-prompt fingerprints (`screen_lines`) and picker-subtype fingerprints
     /// (`tail`). `tail_rows` anchors the tail to the last non-blank row.
-    pub fn lines_and_tail(&self, pty_id: &str, tail_rows: usize) -> Option<(Vec<String>, String)> {
-        let parser = self.parsers.get(pty_id)?;
+    pub fn lines_and_tail(&self, tail_rows: usize) -> Option<(Vec<String>, String)> {
+        let parser = self.parser.as_ref()?;
         let screen = parser.screen();
         let (rows, cols) = screen.size();
         let mut lines = Vec::with_capacity(rows as usize);
@@ -416,8 +373,8 @@ impl ScreenState {
     /// Returns the last `max_rows` non-blank rows of the screen plus all rows
     /// after them, joined with `\n`. On a fresh PTY where content lives near
     /// the top and bottom rows are blank, this still returns the content.
-    pub fn tail_text(&self, pty_id: &str, max_rows: usize) -> Option<String> {
-        let parser = self.parsers.get(pty_id)?;
+    pub fn tail_text(&self, max_rows: usize) -> Option<String> {
+        let parser = self.parser.as_ref()?;
         let screen = parser.screen();
         let (rows, cols) = screen.size();
         let last_nonblank: Option<u16> = (0..rows)
@@ -434,222 +391,142 @@ impl ScreenState {
         Some(out)
     }
 
-    /// Get or create the prompt-ready signal for a PTY. The first call arms detection:
-    /// subsequent `process` calls will `mark_ready` as soon as the screen looks like a prompt.
-    /// If a prompt is already on screen at arm-time, the signal fires immediately.
-    pub fn arm_prompt_signal(&mut self, pty_id: &str) -> Arc<PromptSignal> {
+    pub fn arm_prompt_signal(&mut self) -> Arc<PromptSignal> {
         let signal = self
-            .prompt_signals
-            .entry(pty_id.to_string())
-            .or_insert_with(PromptSignal::new)
+            .prompt_signal
+            .get_or_insert_with(PromptSignal::new)
             .clone();
-
-        if !signal.is_ready() {
-            if let Some(parser) = self.parsers.get(pty_id) {
-                if screen_has_shell_prompt(&parser.screen().contents()) {
-                    signal.mark_ready();
-                }
-            }
+        if !signal.is_ready()
+            && self
+                .get_screen_text()
+                .is_some_and(|screen| screen_has_shell_prompt(&screen))
+        {
+            signal.mark_ready();
         }
-
         signal
     }
 
-    /// Get or create the bare-shell prompt signal for a PTY. Unlike
-    /// `arm_prompt_signal`, this rejects agent TUI composers that also use `❯`.
-    pub fn arm_bare_prompt_signal(&mut self, pty_id: &str) -> Arc<PromptSignal> {
+    pub fn arm_bare_prompt_signal(&mut self) -> Arc<PromptSignal> {
         let signal = PromptSignal::new();
-        self.bare_prompt_signals
-            .entry(pty_id.to_string())
-            .or_default()
-            .push(signal.clone());
-
-        if !signal.is_ready() {
-            if let Some(parser) = self.parsers.get(pty_id) {
-                if screen_has_bare_shell_prompt(&parser.screen().contents()) {
-                    signal.mark_ready();
-                }
-            }
+        self.bare_prompt_signals.push(signal.clone());
+        if self
+            .get_screen_text()
+            .is_some_and(|screen| screen_has_bare_shell_prompt(&screen))
+        {
+            signal.mark_ready();
         }
-
         signal
     }
 
-    /// Arm (or re-hand-out) the shell-ready signal. Readiness that already
-    /// happened is not lost: a matching observation for this generation, or a
-    /// prompt still rendered on screen, fires the signal at arm time.
-    pub fn arm_shell_ready_signal(&mut self, pty_id: &str) -> Arc<ShellReadySignal> {
+    pub fn arm_shell_ready_signal(&mut self) -> Arc<ShellReadySignal> {
         if self
-            .shell_ready_signals
-            .get(pty_id)
+            .shell_ready_signal
+            .as_ref()
             .is_some_and(|signal| signal.is_closed())
         {
-            self.shell_ready_signals.remove(pty_id);
+            self.shell_ready_signal = None;
         }
         let signal = self
-            .shell_ready_signals
-            .entry(pty_id.to_string())
-            .or_insert_with(ShellReadySignal::new)
+            .shell_ready_signal
+            .get_or_insert_with(ShellReadySignal::new)
             .clone();
-        let current_generation = self.pty_generations.get(pty_id).copied();
-        let observed =
-            self.shell_ready_generations.get(pty_id).copied() == Some(current_generation);
+        let observed = self.shell_ready_generation == Some(self.pty_generation);
         let on_screen = self
-            .parsers
-            .get(pty_id)
-            .is_some_and(|parser| screen_has_shell_readiness_prompt(&parser.screen().contents()));
+            .get_screen_text()
+            .is_some_and(|screen| screen_has_shell_readiness_prompt(&screen));
         if on_screen {
-            self.mark_shell_ready_observed(pty_id);
+            self.mark_shell_ready_observed();
         } else if observed {
             signal.mark_ready();
         }
         signal
     }
 
-    /// Whether this PTY's output stream is already bound to a generation.
-    /// Arming a readiness wait before the reader binds is the ordering that
-    /// used to drop the wait entirely.
-    pub fn has_pty_generation(&self, pty_id: &str) -> bool {
-        self.pty_generations.contains_key(pty_id)
+    pub fn has_pty_generation(&self) -> bool {
+        self.pty_generation.is_some()
     }
 
-    pub fn disarm_bare_prompt_signal(&mut self, pty_id: &str, signal: &Arc<PromptSignal>) {
-        let remove_entry = self
-            .bare_prompt_signals
-            .get_mut(pty_id)
-            .map(|signals| {
-                signals.retain(|candidate| !Arc::ptr_eq(candidate, signal));
-                signals.is_empty()
-            })
-            .unwrap_or(false);
-        if remove_entry {
-            self.bare_prompt_signals.remove(pty_id);
-        }
+    pub fn disarm_bare_prompt_signal(&mut self, signal: &Arc<PromptSignal>) {
+        self.bare_prompt_signals
+            .retain(|candidate| !Arc::ptr_eq(candidate, signal));
     }
 
-    #[cfg(test)]
-    fn bare_prompt_waiter_count(&self, pty_id: &str) -> usize {
-        self.bare_prompt_signals.get(pty_id).map_or(0, Vec::len)
-    }
-
-    /// Arm a one-shot signal that fires as soon as `screen_has_agent_tui` is true
-    /// for this PTY. Fires immediately if a TUI is already on screen at arm-time.
-    /// Mirrors `arm_prompt_signal`; callers block with `signal.wait(timeout)`.
-    pub fn arm_agent_signal(&mut self, pty_id: &str) -> Arc<PromptSignal> {
+    pub fn arm_agent_signal(&mut self) -> Arc<PromptSignal> {
         let signal = self
-            .agent_signals
-            .entry(pty_id.to_string())
-            .or_insert_with(PromptSignal::new)
+            .agent_signal
+            .get_or_insert_with(PromptSignal::new)
             .clone();
-
-        if !signal.is_ready() {
-            if let Some(parser) = self.parsers.get(pty_id) {
-                if screen_has_agent_tui(&parser.screen().contents()) {
-                    signal.mark_ready();
-                }
-            }
+        if !signal.is_ready()
+            && self
+                .get_screen_text()
+                .is_some_and(|screen| screen_has_agent_tui(&screen))
+        {
+            signal.mark_ready();
         }
-
         signal
     }
 
-    pub fn pty_generation(&self, pty_id: &str) -> Option<u64> {
-        self.pty_generations.get(pty_id).copied()
+    pub fn pty_generation(&self) -> Option<u64> {
+        self.pty_generation
     }
 
-    pub fn arm_screen_change_signal(&mut self, pty_id: &str) -> Arc<ScreenChangeSignal> {
-        self.screen_change_signals
-            .entry(pty_id.to_string())
-            .or_insert_with(ScreenChangeSignal::new)
+    pub fn arm_screen_change_signal(&mut self) -> Arc<ScreenChangeSignal> {
+        self.screen_change_signal
+            .get_or_insert_with(ScreenChangeSignal::new)
             .clone()
     }
 
-    /// Bind this PTY's output stream to a generation. Replacing a generation
-    /// tears down the previous one's state; the FIRST bind must not, or it
-    /// closes waits armed by the launch thread before the reader started.
-    pub fn bind_pty_generation(&mut self, pty_id: &str, generation: u64) -> bool {
-        match self.pty_generations.get(pty_id).copied() {
+    pub fn bind_pty_generation(&mut self, generation: u64) -> bool {
+        match self.pty_generation {
             Some(current) if current > generation => false,
             Some(current) if current == generation => true,
             Some(_) => {
-                self.remove(pty_id);
-                self.pty_generations.insert(pty_id.to_string(), generation);
+                self.remove();
+                self.pty_generation = Some(generation);
                 true
             }
             None => {
-                if self.shell_ready_generations.get(pty_id).copied() == Some(None) {
-                    self.shell_ready_generations
-                        .insert(pty_id.to_string(), Some(generation));
+                if self.shell_ready_generation == Some(None) {
+                    self.shell_ready_generation = Some(Some(generation));
                 }
-                self.pty_generations.insert(pty_id.to_string(), generation);
+                self.pty_generation = Some(generation);
                 true
             }
         }
     }
 
-    pub fn remove_if_generation(&mut self, pty_id: &str, generation: u64) -> bool {
-        if self.pty_generations.get(pty_id).copied() != Some(generation) {
-            return false;
-        }
-        self.remove(pty_id);
-        true
-    }
-
-    pub fn subscribe_screen_changes(&mut self, pty_id: &str) -> Arc<ScreenChangeSignal> {
+    pub fn subscribe_screen_changes(&mut self) -> Arc<ScreenChangeSignal> {
         let signal = ScreenChangeSignal::new();
-        self.screen_change_subscribers
-            .entry(pty_id.to_string())
-            .or_default()
-            .push(signal.clone());
+        self.screen_change_subscribers.push(signal.clone());
         signal
     }
 
-    pub fn unsubscribe_screen_changes(&mut self, pty_id: &str, signal: &Arc<ScreenChangeSignal>) {
-        let should_remove = self
-            .screen_change_subscribers
-            .get_mut(pty_id)
-            .map(|subscribers| {
-                subscribers.retain(|active| !Arc::ptr_eq(active, signal));
-                subscribers.is_empty()
-            })
-            .unwrap_or(false);
-        if should_remove {
-            self.screen_change_subscribers.remove(pty_id);
-        }
+    pub fn unsubscribe_screen_changes(&mut self, signal: &Arc<ScreenChangeSignal>) {
+        self.screen_change_subscribers
+            .retain(|active| !Arc::ptr_eq(active, signal));
         signal.close();
     }
 
-    pub fn screen_change_subscriber_count(&self) -> usize {
-        self.screen_change_subscribers.values().map(Vec::len).sum()
-    }
-
-    pub fn remove(&mut self, pty_id: &str) {
-        self.pty_generations.remove(pty_id);
-        self.parsers.remove(pty_id);
-        self.input_modes.remove(pty_id);
-        self.shell_ready_generations.remove(pty_id);
-        if let Some(sig) = self.prompt_signals.remove(pty_id) {
-            sig.mark_ready();
+    fn remove(&mut self) {
+        if let Some(signal) = &self.prompt_signal {
+            signal.mark_ready();
         }
-        if let Some(sig) = self.shell_ready_signals.remove(pty_id) {
-            sig.close();
-        }
-        if let Some(signals) = self.bare_prompt_signals.remove(pty_id) {
-            for signal in signals {
-                signal.mark_ready();
-            }
-        }
-        if let Some(sig) = self.agent_signals.remove(pty_id) {
-            sig.mark_ready();
-        }
-        if let Some(signal) = self.screen_change_signals.remove(pty_id) {
+        if let Some(signal) = &self.shell_ready_signal {
             signal.close();
         }
-        if let Some(subscribers) = self.screen_change_subscribers.remove(pty_id) {
-            for signal in subscribers {
-                signal.close();
-            }
+        for signal in &self.bare_prompt_signals {
+            signal.mark_ready();
         }
+        if let Some(signal) = &self.agent_signal {
+            signal.mark_ready();
+        }
+        if let Some(signal) = &self.screen_change_signal {
+            signal.close();
+        }
+        for signal in &self.screen_change_subscribers {
+            signal.close();
+        }
+        *self = Self::default();
     }
 }
 
@@ -785,3 +662,6 @@ pub fn screen_has_shell_readiness_prompt(screen_text: &str) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod regression_tests;

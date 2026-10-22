@@ -77,7 +77,6 @@ impl ServiceContext {
             return false;
         }
         self.screen_state
-            .lock()
             .get_screen_text(&snap.pty_id)
             .is_some_and(|screen| {
                 codeterm_pty::pty::screen_state::screen_has_shell_readiness_prompt(&screen)

@@ -64,7 +64,7 @@ impl ServiceContext {
             if let Some(reaper) = reaper {
                 reaper.wait_bounded(Duration::from_secs(5))?;
             }
-            self.screen_state.lock().remove(old_pty_id);
+            self.screen_state.remove(old_pty_id);
             crate::service::stream_preview::remove(old_pty_id);
         }
 

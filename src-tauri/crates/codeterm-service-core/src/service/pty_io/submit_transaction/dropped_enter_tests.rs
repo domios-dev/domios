@@ -429,7 +429,6 @@ fn failed_agent_readiness_is_not_overridden_by_shell_prompt_text() {
     fixture
         .service
         .screen_state
-        .lock()
         .process(pty_id, b"PS C:\\Users\\Tester>");
 
     let error = fixture

@@ -54,7 +54,6 @@ fn fixture_with_screen(
     fixture
         .service
         .screen_state
-        .lock()
         .process(&pty_id, screen.as_bytes());
     {
         let gate = fixture.service.pty.lock().spawn_gate();
@@ -331,7 +330,6 @@ fn respond_prompt_rejects_transcript_menu_after_live_screen_clears() {
     fixture
         .service
         .screen_state
-        .lock()
         .process(&pty_id, b"\x1b[2J\x1b[H");
     let capture = crate::pty::capture::CaptureRegistry::global();
     capture
