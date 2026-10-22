@@ -510,7 +510,7 @@ pub fn planning_approval_blockers(readiness: &PlanningReadiness, plan_id: &str) 
     }
     if !readiness.has_verification_hint {
         blockers.push(format!(
-            "no verification/test-plan hint in plan sections — fix: name a test surface in a section body (build.sh / cargo test / playwright): codeterm plan section add {plan_id} --title Verification --body \"<test commands>\""
+            "no verification/test-plan hint in plan sections — fix: name a test surface in a section body (cargo test / playwright): codeterm plan section add {plan_id} --title Verification --body \"<test commands>\""
         ));
     }
     blockers

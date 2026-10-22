@@ -44,7 +44,7 @@ An agent tab that was mid-turn when Domios stopped continues its work after the 
 - **The working mark is persisted continuously.** Each live turn edge of a PTY agent tab (working, or idle/question) updates its `turn_resume` mark in Storage: the tab's own `session_id` and the `start_epoch` that observed it. A turn that ended before the stop clears the mark. Once a graceful shutdown is armed the mark is frozen, so teardown never erases the turn it interrupted.
 - **One continue per tab per start.** At start, a mark recorded by an earlier start and not yet settled is owed. The tab receives one system message from Domios through the post-ready send path, only when it is `agent_ready` with a nonce-verified binding on the same session the mark recorded. The claim (`settled: {start_epoch, outcome: "sent"}`) is saved before the payload is written, so a later crash never produces a second continue for the same turn. Work the agent resumes after that continue records a fresh mark for the following start.
 - **Skips are recorded, never retried.** A tab that resumes on another session, comes back as a shell, has no PTY agent session, or is not agent-ready within the 300-second failure deadline is settled with `outcome: {"skipped": "<reason>"}` (`session_not_resumed`, `no_agent_session`, `no_pty_agent_session`, `spawn_failed`, `session_unverified`, `agent_not_ready`, `claim_not_persisted`, `session_changed_before_send`, `send_refused`, `disabled`). Idle tabs carry no mark and receive nothing. Owner messages are never replayed.
-- **A requested continuation shares the same owner.** `update install --from-file` (and `build.sh install-local`) passes `--continue-tab`/`--continue-prompt` to `/api/session/save`; the tab's mark then carries that prompt, survives the caller's turn ending, and is delivered once in place of the default text. The installer helper itself never writes to a tab.
+- **A requested continuation shares the same owner.** `update install --from-file` passes `--continue-tab`/`--continue-prompt` to `/api/session/save`; the tab's mark then carries that prompt, survives the caller's turn ending, and is delivered once in place of the default text. The installer helper itself never writes to a tab.
 - `[agent] continue_after_restart = false` (`codeterm docs CONFIG`) disables delivery; owed marks settle as `disabled`.
 
 The mark is visible in the tab API object as `turn_resume`. The first start of a build that introduced it has no marks from the previous build to resume.
@@ -66,8 +66,6 @@ A pane observed `absent` is reconciled through the ordinary lifecycle teardown, 
 | Instance | Path |
 |----------|------|
 | Production | `~/.codeterm/sessions/tab-lifecycle.jsonl` |
-| Dev | `~/.codeterm-dev/sessions/tab-lifecycle.jsonl` |
-| Named dev instance | `~/.codeterm-dev-<name>/sessions/tab-lifecycle.jsonl` |
 
 The journal remains under the instance's `sessions/` directory. It is telemetry and is not a Storage restore source.
 
@@ -235,4 +233,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 57 -->
+<!-- revision: 58 -->

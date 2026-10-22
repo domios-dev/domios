@@ -445,7 +445,7 @@ fn handoff(
     };
     let narrative = resolve_text(None, from_file)?;
     let seed = format!(
-        "run `codeterm plan handoff show {} --latest --markdown` FIRST, load orchestrator role (.agents/skills/orchestration/SKILL.md + AGENTS.md), `codeterm plan get`, resume from next_actions; do not re-handoff.",
+        "run `codeterm plan handoff show {} --latest --markdown` FIRST, read `codeterm docs ORCHESTRATION` and the project's instructions, `codeterm plan get`, resume from next_actions; do not re-handoff.",
         plan_id
     );
 

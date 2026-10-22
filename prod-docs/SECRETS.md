@@ -135,7 +135,7 @@ The full REST contract is in `codeterm docs API-STATE` (Secrets).
 
 ## Storage and security
 
-The `local` backend stores values in a plaintext JSON file at `<data_dir>/.secrets` (`~/.codeterm/.secrets`; dev `~/.codeterm-dev/.secrets`), Unix mode `0600`, namespaced by service. Values are **not encrypted** and the OS keychain is never used, in release or dev builds. Treat the file like an `.env`. Names and ids (no values) are indexed at `<data_dir>/secrets/local-index.json`.
+The `local` backend stores values in a plaintext JSON file at `<data_dir>/.secrets` (`~/.codeterm/.secrets`), Unix mode `0600`, namespaced by service. Values are **not encrypted** and the OS keychain is never used. Treat the file like an `.env`. Names and ids (no values) are indexed at `<data_dir>/secrets/local-index.json`.
 
 Item ids look like `local-0000002a`. They are never reused, so they stay unique across daemon restarts. Names are case-insensitive, and `get`/`delete` accept a name or an item id. `save --overwrite` keeps the existing notes when `--notes` is not given.
 
@@ -145,4 +145,4 @@ Bitwarden owns vault encryption. Domios passes the master password and session t
 
 A process running as the same OS user can read that file. The mock backend has no security guarantees.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

@@ -37,7 +37,7 @@ The user creates the bot with @BotFather, which issues its token. When the user 
 ## Common transient errors
 
 - **409 Conflict** during restart (~1 second window): the previous `getUpdates` poller hasn't released. Normal.
-- **Persistent 409**: a second daemon is polling the same bot (e.g. dev port 7686 AND prod port 7685 both have telegram_enabled), OR a webhook URL is set on the bot:
+- **Persistent 409**: a second Domios instance is polling the same bot, OR a webhook URL is set on the bot:
   ```bash
   curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo
   curl https://api.telegram.org/bot<TOKEN>/deleteWebhook
@@ -130,4 +130,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->
