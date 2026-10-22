@@ -10,6 +10,17 @@ use codeterm_mem::{MemManager, SearchQuery};
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize)]
+struct SnapshotItem {
+    #[serde(flatten)]
+    item: NewMemItem,
+    created_at: String,
+    updated_at: String,
+    accessed_at: Option<String>,
+    access_count: i64,
+    recurrence_count: i64,
+}
+
 #[derive(Deserialize)]
 struct Query {
     gold: usize,
@@ -48,7 +59,7 @@ fn prepare(source_root: &Path, private: &Path) -> Result<(), Box<dyn std::error:
         OpenFlags::SQLITE_OPEN_READ_ONLY,
     )?;
     let mut statement = connection.prepare(
-        "SELECT kind,title,summary,area,tags_json,body_inline,body_blob_path,source,importance,is_pinned_wakeup FROM mem_items WHERE kind != 'archived' ORDER BY id",
+        "SELECT kind,title,summary,area,tags_json,body_inline,body_blob_path,source,importance,is_pinned_wakeup,scope,created_at,updated_at,accessed_at,access_count,recurrence_count FROM mem_items WHERE kind != 'archived' ORDER BY id",
     )?;
     let raw = statement.query_map([], |row| {
         Ok((
@@ -62,6 +73,12 @@ fn prepare(source_root: &Path, private: &Path) -> Result<(), Box<dyn std::error:
             row.get::<_, Option<String>>(7)?,
             row.get::<_, f64>(8)?,
             row.get::<_, bool>(9)?,
+            row.get::<_, String>(10)?,
+            row.get::<_, String>(11)?,
+            row.get::<_, String>(12)?,
+            row.get::<_, Option<String>>(13)?,
+            row.get::<_, i64>(14)?,
+            row.get::<_, i64>(15)?,
         ))
     })?;
     let mut items = Vec::new();
@@ -71,7 +88,24 @@ fn prepare(source_root: &Path, private: &Path) -> Result<(), Box<dyn std::error:
     let mut blueprint_solutions = 0;
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
     for row in raw {
-        let (kind, title, summary, area, tags, inline, blob, source, importance, pinned) = row?;
+        let (
+            kind,
+            title,
+            summary,
+            area,
+            tags,
+            inline,
+            blob,
+            source,
+            importance,
+            pinned,
+            scope,
+            created_at,
+            updated_at,
+            accessed_at,
+            access_count,
+            recurrence_count,
+        ) = row?;
         let body = match (inline, blob) {
             (Some(body), _) => body,
             (None, Some(blob)) => {
@@ -88,7 +122,7 @@ fn prepare(source_root: &Path, private: &Path) -> Result<(), Box<dyn std::error:
         };
         let mut item = NewMemItem {
             kind: MemKind::from_str(&kind).ok_or("unknown snapshot kind")?,
-            scope: MemScope::Global,
+            scope: MemScope::from_str(&scope)?,
             title,
             summary,
             area,
@@ -119,7 +153,14 @@ fn prepare(source_root: &Path, private: &Path) -> Result<(), Box<dyn std::error:
             blueprint_solutions += 1;
         }
         *kinds.entry(kind).or_default() += 1;
-        items.push(item);
+        items.push(SnapshotItem {
+            item,
+            created_at,
+            updated_at,
+            accessed_at,
+            access_count,
+            recurrence_count,
+        });
     }
     std::fs::create_dir_all(private)?;
     std::fs::write(private.join("corpus.json"), serde_json::to_vec(&items)?)?;
@@ -138,7 +179,7 @@ fn evaluate(model: &str, private: &Path, output: &Path) -> Result<(), Box<dyn st
     let row = local::find(model).ok_or("unknown model")?;
     let active = ActiveEmbedder::global();
     active.replace(Arc::new(local::LocalProvider::new(row)));
-    let items: Vec<NewMemItem> =
+    let items: Vec<SnapshotItem> =
         serde_json::from_slice(&std::fs::read(private.join("corpus.json"))?)?;
     let queries: Vec<Query> =
         serde_json::from_slice(&std::fs::read(private.join("queries.json"))?)?;
@@ -146,7 +187,12 @@ fn evaluate(model: &str, private: &Path, output: &Path) -> Result<(), Box<dyn st
     let mem = MemManager::open_offline(directory.path())?;
     let mut ids = HashMap::new();
     for (index, item) in items.iter().enumerate() {
-        ids.insert(index, mem.insert_raw(item)?);
+        let id = mem.insert_raw(&item.item)?;
+        mem.with_conn(|connection| connection.execute(
+            "UPDATE mem_items SET created_at=?1,updated_at=?2,accessed_at=?3,access_count=?4,recurrence_count=?5 WHERE id=?6",
+            rusqlite::params![item.created_at,item.updated_at,item.accessed_at,item.access_count,item.recurrence_count,id],
+        ))?;
+        ids.insert(index, id);
     }
     let start = Instant::now();
     let report = mem.reembed_bulk(true, false)?;
@@ -165,11 +211,14 @@ fn evaluate(model: &str, private: &Path, output: &Path) -> Result<(), Box<dyn st
         let gold = ids
             .get(&query.gold)
             .ok_or("query gold outside filtered corpus")?;
-        let hybrid = mem.recall(&SearchQuery {
-            query: query.text.clone(),
-            limit: Some(10),
-            ..Default::default()
-        })?;
+        let hybrid = mem.recall_with_config_untouched(
+            &SearchQuery {
+                query: query.text.clone(),
+                limit: Some(10),
+                ..Default::default()
+            },
+            &codeterm_mem::search::SearchConfig::default(),
+        )?;
         let vector = mem.vector_recall(&query.text, 10)?;
         let ranks = [
             ("hybrid", hybrid.iter().position(|hit| &hit.item.id == gold)),
@@ -179,7 +228,7 @@ fn evaluate(model: &str, private: &Path, output: &Path) -> Result<(), Box<dyn st
             for stratum in [
                 "all".to_string(),
                 format!("language:{}", query.language),
-                format!("kind:{:?}", items[query.gold].kind),
+                format!("kind:{:?}", items[query.gold].item.kind),
             ] {
                 tables
                     .entry(format!("{arm}/{stratum}"))
