@@ -272,6 +272,16 @@ fn shell_job_policy_uses_persisted_membership_and_purpose() {
     assert_eq!(super::shell_job_policy_for_mux(&mux, &tab_id), Contained);
     mux.get_tab_mut(&tab_id).unwrap().agent_type = None;
     mux.get_tab_mut(&tab_id).unwrap().purpose = ShellPurpose::Qa;
+    assert_eq!(
+        super::shell_job_policy_for_mux(&mux, &tab_id),
+        AllowExplicitServerBreakaway
+    );
+    mux.get_tab_mut(&tab_id).unwrap().purpose = ShellPurpose::Build;
+    assert_eq!(
+        super::shell_job_policy_for_mux(&mux, &tab_id),
+        AllowExplicitServerBreakaway
+    );
+    mux.get_tab_mut(&tab_id).unwrap().purpose = ShellPurpose::Shell;
     assert_eq!(super::shell_job_policy_for_mux(&mux, &tab_id), Contained);
     assert_eq!(
         super::shell_job_policy_for_mux(&mux, "missing-tab"),
