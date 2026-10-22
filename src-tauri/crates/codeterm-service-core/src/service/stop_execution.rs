@@ -241,7 +241,10 @@ pub async fn stop_agent_turn(
     for step in stop_sequence_steps(&keys, wait_for_output) {
         match step {
             StopSequenceStep::Key(key) => {
-                if let Err(error) = svc.write_raw(&tab_id, key.as_bytes()) {
+                if let Err(error) = svc.write_human_keys(
+                    &tab_id,
+                    &crate::service::messenger::HumanKeys::new(key.as_bytes()),
+                ) {
                     log::warn!("[tab-stop] write_failed tab={} error={}", tab_id, error);
                     return Err("Tab not found or has no PTY".to_string());
                 }

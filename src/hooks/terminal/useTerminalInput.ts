@@ -12,6 +12,7 @@ export interface UseTerminalInputOptions {
   containerRef: React.RefObject<HTMLDivElement | null>;
   termReady: boolean;
   terminalActive: boolean;
+  readOnly?: boolean;
   onTabKey: () => boolean;
   onNonTabKey: () => void;
   onInputData: (data: string) => void;
@@ -29,6 +30,7 @@ export function useTerminalInput({
   containerRef,
   termReady,
   terminalActive,
+  readOnly = false,
   onTabKey,
   onNonTabKey,
   onInputData,
@@ -45,8 +47,8 @@ export function useTerminalInput({
   // route as the keyboard path so file/image/text handling is consistent.
   const pasteFromClipboard = useCallback(() => {
     const term = termRef.current;
-    if (term) void routeClipboardToTerm(term);
-  }, [termRef]);
+    if (term && !readOnly) void routeClipboardToTerm(term);
+  }, [termRef, readOnly]);
 
   useEffect(() => {
     const term = termRef.current;
@@ -56,6 +58,7 @@ export function useTerminalInput({
     // Ctrl+V/Cmd+V: handle paste at keydown so we don't depend on WebView2's flaky `paste` event.
     term.attachCustomKeyEventHandler((e) => {
       if (!terminalActive) return false;
+      if (readOnly) return false;
       if (e.type !== "keydown") return true;
       const mod = isMac ? e.metaKey : e.ctrlKey;
       if (!mod || e.altKey) return true;
@@ -64,7 +67,7 @@ export function useTerminalInput({
       if (e.code === "KeyV" && !e.shiftKey) {
         e.preventDefault();
         e.stopPropagation();
-        void routeClipboardToTerm(term);
+        if (!readOnly) void routeClipboardToTerm(term);
         return false;
       }
 
@@ -84,7 +87,7 @@ export function useTerminalInput({
     });
 
     const onDataDisposable = term.onData((data) => {
-      if (!terminalActive) return;
+      if (!terminalActive || readOnly) return;
       const currentPty = connectedPtyRef.current;
       if (terminalReplyFilterPtyRef.current !== currentPty) {
         if (terminalReplyFlushTimerRef.current !== null) {
@@ -124,7 +127,7 @@ export function useTerminalInput({
     const onPaste = (ev: Event) => {
       ev.stopImmediatePropagation();
       ev.preventDefault();
-      void routeClipboardToTerm(term);
+      if (!readOnly) void routeClipboardToTerm(term);
     };
     el?.addEventListener("paste", onPaste, true);
 
@@ -140,7 +143,7 @@ export function useTerminalInput({
       el?.removeEventListener("mousedown", focusXterm);
       el?.removeEventListener("paste", onPaste, true);
     };
-  }, [tabId, termReady, terminalActive, termRef, connectedPtyRef, containerRef, onTabKey, onNonTabKey, onInputData]);
+  }, [tabId, termReady, terminalActive, readOnly, termRef, connectedPtyRef, containerRef, onTabKey, onNonTabKey, onInputData]);
 
   return { copySelection, pasteFromClipboard };
 }

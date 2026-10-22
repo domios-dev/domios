@@ -1,0 +1,3 @@
+probe::native_tests::sentinel_probe_process_receives_instance_cli_and_auth_environment -> probe::native_tests::sentinel_probe_process_strips_instance_cli_and_auth_environment
+probe::environment::tests::sentinel_probe_environment_uses_instance_cli_and_auth -> probe::environment::tests::sentinel_probe_environment_strips_instance_credentials_and_cli_path
+probe::environment::tests::sentinel_probe_environment_removes_token_for_tokenless_instance -> probe::environment::tests::sentinel_probe_environment_strips_all_mixed_case_instance_selectors

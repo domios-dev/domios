@@ -22,7 +22,7 @@ rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
-tempfile = { version = "3", optional = true }
+tempfile = "3"
 uuid = { version = "1", features = ["v4", "serde"] }
 wait-timeout = "0.2"
 
@@ -32,11 +32,8 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }
 
-[dev-dependencies]
-tempfile = "3"
-
 [features]
-test-support = ["dep:tempfile"]
+test-support = []
 
 [lints]
 workspace = true

@@ -3,7 +3,7 @@
 # emitted (fallback to PowerShell Compress-Archive if the Tauri bundler
 # skipped it) → minisign-sign the .nsis.zip with the key at ~/.tauri/codeterm.key.
 # Emits the final base64 signature to stdout so the caller (win-release.sh)
-# can drop it straight into latest.json.
+# can drop it straight into domios-latest.json.
 #
 # Assumes the tree is already at the v$VER tag (win-release.sh does the
 # checkout). Mirrors mac-bundle.sh contract.
@@ -23,9 +23,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 cd "$REPO_ROOT"
 
 NSIS_DIR="src-tauri/target/release/bundle/nsis"
-EXE="$NSIS_DIR/CodeTerm_${VER}_x64-setup.exe"
-ZIP="$NSIS_DIR/CodeTerm_${VER}_x64-setup.nsis.zip"
-SIG="$NSIS_DIR/CodeTerm_${VER}_x64-setup.nsis.zip.sig"
+EXE="$NSIS_DIR/Domios_${VER}_x64-setup.exe"
+ZIP="$NSIS_DIR/Domios_${VER}_x64-setup.nsis.zip"
+SIG="$NSIS_DIR/Domios_${VER}_x64-setup.nsis.zip.sig"
 KEY="$HOME/.tauri/codeterm.key"
 
 [ -f "$KEY" ] || { echo "minisign key missing at $KEY (restore from Bitwarden slug codeterm-tauri-minisign-private-key)" >&2; exit 1; }

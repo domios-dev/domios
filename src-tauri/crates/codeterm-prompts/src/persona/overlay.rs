@@ -49,7 +49,7 @@ pub const CONTRACT_CORE: &[CoreFragment] = &[
     },
     CoreFragment {
         id: "report_protocol",
-        needle: "codeterm agent report --status in_review",
+        needle: "domios agent report --status in_review",
     },
 ];
 

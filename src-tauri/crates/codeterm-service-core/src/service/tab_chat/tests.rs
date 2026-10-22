@@ -212,7 +212,7 @@ fn rich_text_and_tool_flatten() {
             },
             MessageBlock {
                 kind: "tool_use".into(),
-                data: json!({"name": "Bash", "input": {"command": "codeterm tab list"}}),
+                data: json!({"name": "Bash", "input": {"command": "domios tab list"}}),
             },
         ],
         ..Default::default()
@@ -225,7 +225,7 @@ fn rich_text_and_tool_flatten() {
     assert_eq!(msgs[1].tool_name.as_deref(), Some("Bash"));
     assert_eq!(
         msgs[1].tool_input.as_ref().unwrap()["command"],
-        "codeterm tab list"
+        "domios tab list"
     );
 }
 

@@ -1,5 +1,7 @@
 use std::sync::OnceLock;
 
+pub const PRODUCT_NAME: &str = "Domios";
+
 static INFO: OnceLock<(&'static str, &'static str)> = OnceLock::new();
 static VERSION: OnceLock<&'static str> = OnceLock::new();
 

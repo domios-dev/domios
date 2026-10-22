@@ -238,7 +238,7 @@ fn bundled_items() -> Vec<NewMemItem> {
             summary: Some("Spinal Cord explanation and connection playbook".into()),
             area: Some("codeterm".into()),
             tags: vec!["bundled".into(), "spinal-cord".into(), "supporter".into()],
-            body: "Read `codeterm docs SPINAL-CORD` for the authoritative explanation, connection, verification and disconnection procedure.".into(),
+            body: "Read `domios docs SPINAL-CORD` for the authoritative explanation, connection, verification and disconnection procedure.".into(),
             source: Some("bundled:v2".into()),
             importance: 4.0,
             source_path: None,

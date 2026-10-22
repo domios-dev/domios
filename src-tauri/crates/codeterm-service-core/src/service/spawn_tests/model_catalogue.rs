@@ -527,7 +527,7 @@ fn unavailable_authoritative_catalogue_warns_and_preserves_requested_model() {
         .warning
         .expect("unavailable live catalog must be visible");
     assert!(warning.contains("unchanged"), "{warning}");
-    assert!(warning.contains("codeterm agent models"), "{warning}");
+    assert!(warning.contains("domios agent models"), "{warning}");
 
     let resumed = resolve_fresh_agent_model_with_notice(
         &crate::config::schema::AppConfig::default(),

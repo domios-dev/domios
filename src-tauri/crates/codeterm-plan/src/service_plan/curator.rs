@@ -141,6 +141,7 @@ impl PlanStore {
                 move_line: note.next_move.clone(),
                 retro: note.retro.clone(),
                 learn: note.learnings.clone(),
+                next_checks: note.next_checks.clone(),
                 ready: note.ready.clone(),
                 next_delay_secs: curator_delay(Some(note.next_secs)),
                 reason: note.reason.clone(),

@@ -108,16 +108,16 @@ references, never prompt wording.
 ## Memory worker prompts
 Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_rem`, `mem_rerank`) are owned by the memory subsystem and used at runtime, but they are still plain `.md` files like everything else — no inline string literals. Quick map:
 
-- **`worker_task_preamble.md`** — wrapper applied by `workers::build_worker_task()` to every headless memory worker. Sets the "you are a Graph Worker" framing, tells the worker how to call back via `codeterm mem worker progress|report`, then injects the inner `{task}`.
-- **`mem_extraction.md`** — inner task body for the auto-extraction worker spawned on `mem save` unless `skip_extract` is set. The code excludes only `MemKind::Summary`; all other kinds are eligible. Worker extracts people, projects, decisions, problems, area; calls back via `codeterm mem graph` commands. The body is truncated to 50,000 chars before substitution.
-- **`dreaming_rem.md`** — inner task body for REM, the only LLM-driven dreaming phase; Light, Deep, Normalize, and Calibration run as server-side SQL in `mem_dream` before `dreaming::spawn_rem_worker()` fires it. The bundled `mem-dreaming-auto` cron triggers it daily (see RUNTIME-CONFIG). A capped stage checklist opens it; it uses CLI JSON only, never scripts: a hidden run cannot answer approvals. Stages: A structural cleanup (A.1 from hub `clusters`; A.3 merges duplicates with the reversible `mem merge`, never `mem delete`), B diary + worker report listing merged and archived ids with reasons, C maintenance, D read-only calibration summary. The supervisor runs the calibration sweep and gated stale archive; STAGE D only reads `mem calibration log`. Server-side gates and caps: `codeterm docs API-MEMORY`.
+- **`worker_task_preamble.md`** — wrapper applied by `workers::build_worker_task()` to every headless memory worker. Sets the "you are a Graph Worker" framing, tells the worker how to call back via `domios mem worker progress|report`, then injects the inner `{task}`.
+- **`mem_extraction.md`** — inner task body for the auto-extraction worker spawned on `mem save` unless `skip_extract` is set. The code excludes only `MemKind::Summary`; all other kinds are eligible. Worker extracts people, projects, decisions, problems, area; calls back via `domios mem graph` commands. The body is truncated to 50,000 chars before substitution.
+- **`dreaming_rem.md`** — inner task body for REM, the only LLM-driven dreaming phase; Light, Deep, Normalize, and Calibration run as server-side SQL in `mem_dream` before `dreaming::spawn_rem_worker()` fires it. The bundled `mem-dreaming-auto` cron triggers it daily (see RUNTIME-CONFIG). A capped stage checklist opens it; it uses CLI JSON only, never scripts: a hidden run cannot answer approvals. Stages: A structural cleanup (A.1 from hub `clusters`; A.3 merges duplicates with the reversible `mem merge`, never `mem delete`), B diary + worker report listing merged and archived ids with reasons, C maintenance, D read-only calibration summary. The supervisor runs the calibration sweep and gated stale archive; STAGE D only reads `mem calibration log`. Server-side gates and caps: `domios docs API-MEMORY`.
 - **`mem_rerank.md`** — sent via raw `reqwest` POST from `mem/rerank.rs` to `api.anthropic.com/v1/messages` (`call_anthropic`) or the OpenAI equivalent. The only place in Domios that talks to a model API directly. Used when search needs higher precision than FTS5 + vector cosine alone. The `{items}` placeholder is built in Rust by formatting each `SearchHit` and joining them.
 
 ## Plugin-spawned agent prompts
 
-`plugin_agent_task_preamble.md` is the wrapper applied by `service/plugin_host.rs` when a plugin spawns an agent through the host API. It injects the plugin-owned `{task}` and keeps that agent out of the memory graph-worker protocol: plugin agents should operate through verbs exposed as `codeterm plugin <id> <verb>`, which dispatches to the plugin's `onAgentCommand` handler.
+`plugin_agent_task_preamble.md` is the wrapper applied by `service/plugin_host.rs` when a plugin spawns an agent through the host API. It injects the plugin-owned `{task}` and keeps that agent out of the memory graph-worker protocol: plugin agents should operate through verbs exposed as `domios plugin <id> <verb>`, which dispatches to the plugin's `onAgentCommand` handler.
 
-`codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` as baseline memory items on every startup. Overwrite authority is each item's `seed_fingerprint` (see `prod-docs/MEMORY.md`): an edited seed reaches a machine on restart only while nothing else has changed that item; a real edit through `mem update` or the API clears the fingerprint, and the item is left alone from then on. Seeds reach agents only through `codeterm mem search`/`get`.
+`codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` as baseline memory items on every startup. Overwrite authority is each item's `seed_fingerprint` (see `prod-docs/MEMORY.md`): an edited seed reaches a machine on restart only while nothing else has changed that item; a real edit through `mem update` or the API clears the fingerprint, and the item is left alone from then on. Seeds reach agents only through `domios mem search`/`get`.
 
 ## Role presets — one resolver, one composition table
 
@@ -152,7 +152,7 @@ manager kind resolves, and only the `worker_launch_identity` occasion places it.
 ### Runtime overlays
 
 Files in `<data-dir>/role-presets/*.toml` add leaf kinds without a rebuild
-(`codeterm persona reload` re-reads them):
+(`domios persona reload` re-reads them):
 
 ```toml
 id = "rust-backend-dev"
@@ -163,7 +163,7 @@ guidance = "Stay inside src-tauri/."
 
 An overlay may add a kind id, a label, and layered guidance. It may never do
 anything else, and each refusal has its own reason, reported by
-`codeterm persona list`:
+`domios persona list`:
 
 | Reason | Trigger |
 |---|---|
@@ -179,8 +179,8 @@ spawn, or hold Team authority.
 
 ### Inspecting the resolver
 
-`codeterm persona list` shows every reachable kind with its capability columns
-and the refused overlays. `codeterm persona show --role Worker --kind
+`domios persona list` shows every reachable kind with its capability columns
+and the refused overlays. `domios persona show --role Worker --kind
 rust-backend-dev --guidance "You are Mira."` renders the exact text each
 occasion emits, which fragment supplied it, and whether the declared fallback
 was used. The text comes from the shared resolver, so what it prints is what the
@@ -222,7 +222,7 @@ owning loader module (pub const &str)
 2. **Rebuild** — `./build.sh dev` picks up changes on next start; nothing reloads live because `include_str!()` runs at compile time.
 3. **Verify** — check the running `AGENT.md` actually reflects your change:
    ```bash
-   cat ~/.codeterm/general/AGENT.md  # for general_agent.md edits
+   cat ~/.domios/general/AGENT.md  # for general_agent.md edits
    cat ~/.claude/rules/codeterm.md   # for codeterm_rule.md edits
    ```
 4. **Run the prompt-evaluator** before committing any prompt change: A/B compare `HEAD~1` against `HEAD` for the edited file. If any eval reports `Δ < 0`, fix or revert; if the file has no eval set, have the evaluator bootstrap one first. Harness: `.claude/skills/prompt-evaluator/SKILL.md` and `evals/`.

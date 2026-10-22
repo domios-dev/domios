@@ -42,7 +42,12 @@ fn lazy_composer_admits_one_first_turn_then_binding_releases_the_queue() {
     );
     let first = fixture
         .service
-        .start_chat_send(&tab, "first turn".into(), None, Some("first-client".into()))
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("first turn"),
+            None,
+            Some("first-client".into()),
+        )
         .unwrap();
     await_owner_idle(&fixture, &tab);
     assert_eq!(
@@ -73,16 +78,21 @@ fn lazy_composer_admits_one_first_turn_then_binding_releases_the_queue() {
 
     let second = fixture
         .service
-        .start_chat_send(
+        .start_human_chat_send(
             &tab,
-            "second turn".into(),
+            crate::service::messenger::HumanInput::composer("second turn"),
             None,
             Some("second-client".into()),
         )
         .unwrap();
     let third = fixture
         .service
-        .start_chat_send(&tab, "third turn".into(), None, Some("third-client".into()))
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("third turn"),
+            None,
+            Some("third-client".into()),
+        )
         .unwrap();
     await_owner_idle(&fixture, &tab);
     fixture.service.drain_user_owner(&tab).unwrap();
@@ -160,7 +170,12 @@ fn non_lazy_launch_binding_unconfirmed_does_not_get_first_turn_admission() {
     );
     let send = fixture
         .service
-        .start_chat_send(&tab, "held turn".into(), None, Some("held-client".into()))
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("held turn"),
+            None,
+            Some("held-client".into()),
+        )
         .unwrap();
     await_owner_idle(&fixture, &tab);
     assert!(matches!(
@@ -196,9 +211,9 @@ fn dead_lazy_launch_fails_held_send_without_first_turn_admission() {
     );
     let send = fixture
         .service
-        .start_chat_send(
+        .start_human_chat_send(
             &tab,
-            "never written".into(),
+            crate::service::messenger::HumanInput::composer("never written"),
             None,
             Some("dead-client".into()),
         )
@@ -259,7 +274,11 @@ fn lazy_session_provider_writes_every_send_after_agent_readiness() {
         .unwrap();
     let first = fixture
         .service
-        .prepare_and_admit_user_send(first_reservation, "first lazy send".into(), false)
+        .prepare_and_admit_user_send(
+            first_reservation,
+            crate::service::messenger::HumanInput::composer("first lazy send"),
+            false,
+        )
         .unwrap()
         .status;
     assert_eq!(
@@ -276,7 +295,11 @@ fn lazy_session_provider_writes_every_send_after_agent_readiness() {
                 .unwrap();
             fixture
                 .service
-                .prepare_and_admit_user_send(reservation, (*payload).into(), false)
+                .prepare_and_admit_user_send(
+                    reservation,
+                    crate::service::messenger::HumanInput::composer(*payload),
+                    false,
+                )
                 .unwrap()
                 .status
         })

@@ -17,7 +17,7 @@ When you add/rename/remove a command or flag:
    `cli-manifest --write` run by the CLI built from this checkout (`./build.sh cli`
    does both, and also installs into the active dev data directory; see
    `.agents/skills/build/SKILL.md` for regenerating without installing). Never hand-edit these
-   three files, and never regenerate them with the installed `codeterm`.
+   three files, and never regenerate them with the installed `domios`.
 3. If agent-facing behavior changed, update the wording in
    `src-tauri/prompts/codeterm_cli.md` (it is validated, not generated). For
    tab messaging behavior, also check `prod-docs/SKILLS.md`.
@@ -45,7 +45,7 @@ propose decomposition in reports but cannot spawn sub-Workers.
 - `cli_manifest_is_fresh`, `docs_cli_md_is_fresh`, `chat_ui_command_paths_are_fresh` —
   the three generated artifacts match the live clap tree.
 - `shipped_prescriptions_are_runnable` — the strict oracle. Every line a shipped
-  surface offers as a runnable `codeterm …` command resolves to a real
+  surface offers as a runnable `domios …` command resolves to a real
   subcommand chain, and every `--long` on it is an option of that leaf or an
   inherited global. Corpus: the embedded `DOCS`, `skills/**`,
   `src-tauri/prompts/**`, `generated/cli/cli.md`, and all clap help text.
@@ -64,7 +64,7 @@ Cover those yourself.
 Two structural blind spots, so you do not mistake green for complete:
 
 - A command named mid-sentence is invisible. The oracle only reads lines whose
-  runnable head is `codeterm …`, so ``… shows up in `codeterm mem worker list` ``
+  runnable head is `domios …`, so ``… shows up in `domios mem worker list` ``
   inside a paragraph is never checked.
 - Prescriptions stop at `—`, `·`, `//`, `#`, and inside `$(…)`. That is
   deliberate — those open prose or another program's flags — but anything after
@@ -107,11 +107,11 @@ must run without the daemon (filesystem-local: `plugin`, `docs`, `system`,
 `cli/src/main.rs` before socket discovery — but they are still real clap
 variants, so they appear in the manifest and docs. The `essence-map` command
 reads only `essences/capabilities.md` and `essences/core.md`; its JSONL contract
-and source-digest checks are documented in `codeterm docs ESSENCE-MAP`. Do not
+and source-digest checks are documented in `domios docs ESSENCE-MAP`. Do not
 reintroduce a separate hand-rolled arg parser.
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
+Moved out of the embedded `domios docs` pages because they describe Domios's own source:
 
 - [references/desktop-ipc.md](references/desktop-ipc.md) — desktop Tauri IPC commands

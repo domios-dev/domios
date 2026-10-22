@@ -52,8 +52,8 @@ fn explicit_shutdown_never_reopens_or_retains_daemon() {
 
 #[test]
 fn development_activation_arbitrates_only_under_a_separate_app_identity() {
-    assert!(!single_instance_enabled(true, "com.codeterm.app"));
-    assert!(single_instance_enabled(true, "com.codeterm.dev"));
-    assert!(single_instance_enabled(true, "com.codeterm.dev.harbor"));
-    assert!(single_instance_enabled(false, "com.codeterm.app"));
+    assert!(!single_instance_enabled(true, "com.domios.app"));
+    assert!(single_instance_enabled(true, "com.domios.dev"));
+    assert!(single_instance_enabled(true, "com.domios.dev.harbor"));
+    assert!(single_instance_enabled(false, "com.domios.app"));
 }

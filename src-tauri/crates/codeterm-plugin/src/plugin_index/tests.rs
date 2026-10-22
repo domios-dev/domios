@@ -72,7 +72,7 @@ fn manifest_metadata_becomes_a_plugin_entry_and_one_entry_per_verb() {
     assert!(plugin
         .body
         .contains("sendReceipts: Send receipts: Deliver a receipt after each message."));
-    assert!(plugin.body.contains("codeterm plugin get telegram-client"));
+    assert!(plugin.body.contains("domios plugin get telegram-client"));
 
     let send = entries
         .iter()
@@ -85,7 +85,7 @@ fn manifest_metadata_becomes_a_plugin_entry_and_one_entry_per_verb() {
         .contains("Send a Telegram message to the selected chat."));
     assert!(send
         .body
-        .contains("Invocation: `codeterm plugin telegram-client send <chat-id> <text>`"));
+        .contains("Invocation: `domios plugin telegram-client send <chat-id> <text>`"));
     assert!(send.tags.contains(&"telegram".to_string()));
 }
 

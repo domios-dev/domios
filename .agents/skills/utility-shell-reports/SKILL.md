@@ -7,13 +7,13 @@ description: Route dev readiness and QA summaries from utility shells back to th
 
 Use this skill when a dev launcher or QA run needs to report to an agent tab,
 especially when a named dev instance or a command pipeline can change where a
-bare `codeterm` call or exit status would go.
+bare `domios` call or exit status would go.
 
 Open build shells with `--purpose build` and foreground servers with `--purpose dev`. Purpose is retained when restarting the shell. The sidebar command state reports shell marks only; use the readiness and QA receipts below to establish the operation outcome.
 
-Set `--timeout 10m` for tests, QA and builds; leave servers unset. Reset or extend the same shell with `codeterm tab timeout --tab <ID> --timeout 20m`; `--timeout none` disables it. An idle expiry closes quietly; running or unknown activity produces one owner status and terminates with the shell. Ordinary shell commands add no message; long build verbs send their one result receipt.
+Set `--timeout 10m` for tests, QA and builds; leave servers unset. Reset or extend the same shell with `domios tab timeout --tab <ID> --timeout 20m`; `--timeout none` disables it. An idle expiry closes quietly; running or unknown activity produces one owner status and terminates with the shell. Ordinary shell commands add no message; long build verbs send their one result receipt.
 
-Shell restart renews the previous lifetime. Pass `codeterm tab restart --tab <ID> --timeout 20m` to override it, or `--timeout none` to disable it. `codeterm tab inspect --tab <ID>` shows `utility_deadline.started_ms` and `deadline_ms` in epoch milliseconds; their difference is the requested lifetime. Timeout notices distinguish shell lifetime from the latest command elapsed time.
+Shell restart renews the previous lifetime. Pass `domios tab restart --tab <ID> --timeout 20m` to override it, or `--timeout none` to disable it. `domios tab inspect --tab <ID>` shows `utility_deadline.started_ms` and `deadline_ms` in epoch milliseconds; their difference is the requested lifetime. Timeout notices distinguish shell lifetime from the latest command elapsed time.
 
 With `QA_NOTIFY_TAB`, QA streams each step to its log and sends one early
 failure receipt on the first Cargo compile error, nextest/Vitest failure,
@@ -37,7 +37,7 @@ Inside Domios, build.sh inspects the current shell tab and sends the ready or
 failure receipt to its live parent/owner. `--notify-tab <tab>` (or
 `BUILD_NOTIFY_TAB`) explicitly overrides that recipient. A remote shell uses
 its persisted mesh return route. If there is no parent, build.sh raises a
-`codeterm notify` from the shell's AgentPad (`verbose` when ready,
+`domios notify` from the shell's AgentPad (`verbose` when ready,
 `failure` on startup errors).
 
 If a named instance is already running with stale health, stop it before
@@ -76,7 +76,7 @@ PowerShell `$env:CODETERM_TAB_ID`, inside double quotes).
 
 | Operation | PowerShell caller and shell | bash caller and shell |
 |---|---|---|
-| install-local | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".\\build.ps1 install-local"` | `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd "./build.sh install-local"` |
+| install-local | `domios tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd ".\\build.ps1 install-local"` | `domios tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd "./build.sh install-local"` |
 | check | `... --cmd ".\\build.ps1 check"` | `... --cmd "./build.sh check"` |
 | check-queue | `... --purpose qa --cmd ".\\build.ps1 check-queue <sha>"` | `... --purpose qa --cmd "./build.sh check-queue <sha>"` |
 | test-one | `... --cmd ".\\build.ps1 test-one app NAME"` | `... --cmd "./build.sh test-one app NAME"` |
@@ -86,7 +86,7 @@ PowerShell `$env:CODETERM_TAB_ID`, inside double quotes).
 | dev-prebuilt | `... --purpose dev --cmd ".\\build.ps1 dev-prebuilt"` | `... --purpose dev --cmd "./build.sh dev-prebuilt"` |
 
 The `--notify-tab` values in the table are optional overrides; omit them to use
-the shell's inspected parent/owner route. `...` is `codeterm tab new --team
+the shell's inspected parent/owner route. `...` is `domios tab new --team
 <team-id> --purpose build --timeout 10m --cwd "<checkout>"`. `qa-batch <label>
 '<cmd>'...` always runs `./build.sh check` as step one, then your commands,
 and sends one QA summary.
@@ -113,11 +113,11 @@ From PowerShell, use:
 Create one Team-bound QA tab for repeated reports, then restart it for each run:
 
 ```bash
-codeterm tab new --team <team-id> --purpose qa --timeout 10m --title QA
-codeterm tab restart --tab <qa-tab-id> --cmd "QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'"
+domios tab new --team <team-id> --purpose qa --timeout 10m --title QA
+domios tab restart --tab <qa-tab-id> --cmd "QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'"
 ```
 
-The send uses `codeterm send --tab <agent-tab-id> --from-file <body-file>`.
+The send uses `domios send --tab <agent-tab-id> --from-file <body-file>`.
 Every report body is written to a file before it is sent.
 
 ## Shared Git config lock before Bash
@@ -130,7 +130,7 @@ or gateway job ran when the old wrapper stopped before forwarding.
 
 ## Parent environment trap
 
-`build.sh` captures the parent `codeterm` path and its connection and request
+`build.sh` captures the parent `domios` path and its connection and request
 identity values before `setup_env` and named-instance exports. It inspects the
 current shell tab through that captured CLI and resolves the live parent,
 creator, or persisted mesh return route. `CODETERM_PARENT_TAB_ID` is only a
@@ -141,7 +141,7 @@ captured parent URL, socket, token, tab and request identity, and leaves
 CLI path.
 
 Bench helpers use a dev-pinned `dc` wrapper, and named-instance exports retarget
-bare `codeterm` calls to dev. Capture the parent CLI and connection before those
+bare `domios` calls to dev. Capture the parent CLI and connection before those
 instance exports are applied.
 
 `qa-report.sh` captures that same parent context before running commands. A
@@ -185,7 +185,7 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
 
 DEV app stdout/stderr use .NET Framework synchronous pipes on Windows and regular
 files on Unix, through `scripts/dev-app-process.mjs`. The reader forwards log chunks

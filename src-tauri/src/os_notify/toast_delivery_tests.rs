@@ -9,7 +9,7 @@ fn dir(parts: &[&str]) -> PathBuf {
 }
 
 fn installed_dir() -> PathBuf {
-    dir(&["C:", "Program Files", "CodeTerm"])
+    dir(&["C:", "Program Files", "Domios"])
 }
 
 fn target_dir(profile: &str) -> PathBuf {

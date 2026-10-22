@@ -3,7 +3,8 @@ use crate::cmd::docs::{canonical_name, DOCS};
 use std::collections::HashSet;
 
 fn references(text: &str) -> Vec<String> {
-    let pattern = regex::Regex::new(r"\bcodeterm[ \t]+docs[ \t]+([A-Za-z][A-Za-z0-9-]*)").unwrap();
+    let pattern =
+        regex::Regex::new(r"\b(?:domios|codeterm)[ \t]+docs[ \t]+([A-Za-z][A-Za-z0-9-]*)").unwrap();
     pattern
         .captures_iter(text)
         .map(|capture| capture[1].to_string())
@@ -60,19 +61,19 @@ fn registered_documents_have_a_gate_or_index_reference() {
 #[test]
 fn doc_reference_checks_reject_broken_and_orphaned_targets() {
     assert_eq!(
-        unknown_references("in prose `codeterm docs MISSING-DOCUMENT`, then continue"),
+        unknown_references("in prose `domios docs MISSING-DOCUMENT`, then continue"),
         ["MISSING-DOCUMENT"]
     );
     assert_eq!(
-        unreferenced_documents(["CONFIG", "ROUTING"], "`codeterm docs CONFIG`"),
+        unreferenced_documents(["CONFIG", "ROUTING"], "`domios docs CONFIG`"),
         ["ROUTING"]
     );
-    assert!(unknown_references(
-        "codeterm docs <NAME>; codeterm docs --help; codeterm docs SENTINELS"
-    )
-    .is_empty());
+    assert!(
+        unknown_references("domios docs <NAME>; domios docs --help; domios docs SENTINELS")
+            .is_empty()
+    );
     assert_eq!(
-        references("`codeterm docs config`. `codeterm docs API-CLI`"),
+        references("`domios docs config`. `codeterm docs API-CLI`"),
         ["config", "API-CLI"]
     );
 }

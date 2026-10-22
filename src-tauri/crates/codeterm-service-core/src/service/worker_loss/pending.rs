@@ -192,7 +192,7 @@ impl ServiceContext {
             .collect::<Vec<_>>()
             .join("; ");
         self.log_system_notice("Worker losses withheld: Orchestrator has no live agent".into(), Some(format!(
-                "Orchestrator Tab {orchestrator} has no live agent, so {} worker-loss notice(s) were withheld instead of being typed into its shell. Affected tasks: {tasks}. They are delivered once its agent is ready again; restart it with `codeterm agent restart --tab {orchestrator}`.",
+                "Orchestrator Tab {orchestrator} has no live agent, so {} worker-loss notice(s) were withheld instead of being typed into its shell. Affected tasks: {tasks}. They are delivered once its agent is ready again; restart it with `domios agent restart --tab {orchestrator}`.",
                 held.len()
             )), Some("warning"));
     }

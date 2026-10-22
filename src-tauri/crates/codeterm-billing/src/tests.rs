@@ -1143,5 +1143,7 @@ fn limit_gate_binds_only_under_phase_b_enforcement() {
     assert_eq!((refusal.count, refusal.max), (35, 35));
 }
 
+#[path = "checkout_theme_tests.rs"]
+mod checkout_theme;
 #[path = "plan_payload_tests.rs"]
 mod plan_payload;

@@ -40,7 +40,7 @@ function one(items, predicate, label) {
 }
 export function packagedExecutables(extracted) {
   return {
-    app: one(extracted, file => /[/\\]domios(?:\.exe)?$/.test(file) && !/[/\\]cli[/\\]/.test(file), 'app executable'),
+    app: one(extracted, file => /[/\\]domios-app(?:\.exe)?$/.test(file) && !/[/\\]cli[/\\]/.test(file), 'app executable'),
     cli: one(extracted, file => /[/\\]cli[/\\]codeterm(?:-[^.]+)?(?:\.exe)?$/.test(file), 'embedded CLI'),
     server: one(extracted, file => /[/\\](?:MacOS|domios-server)[/\\]domios-server(?:\.exe)?$/.test(file), 'packaged server'),
   };
@@ -81,7 +81,7 @@ export function smoke(kind, directory, sha, expectedArch) {
       expectedArch = bundle.includes('aarch64') ? 'arm64' : 'x64';
       run('tar', ['-xzf', bundle, '-C', scratch]);
       format = 'Mach-O';
-      const app = path.join(scratch, 'CodeTerm.app');
+      const app = path.join(scratch, 'Domios.app');
       run('codesign', ['--verify', '--deep', '--strict', app]);
       const dmg = one(artifacts, file => file.endsWith('.dmg'), 'notarized DMG');
       run('xcrun', ['stapler', 'validate', dmg]);
@@ -124,7 +124,7 @@ export function smoke(kind, directory, sha, expectedArch) {
     const canExecute = canExecuteTarget(expectedArch);
     if (canExecute) {
       const output = run(cli, ['--version']).trim();
-      if (!new RegExp(`^codeterm ${version.replaceAll('.', '\\.')}$$`, 'i').test(output)) throw new Error(`Embedded CLI version mismatch: ${output}`);
+      if (!new RegExp(`^domios ${version.replaceAll('.', '\\.')}$$`, 'i').test(output)) throw new Error(`Embedded CLI version mismatch: ${output}`);
     }
     const summary = `${kind}/${expectedArch}: artifact architecture, source SHA, plugins, resources and version PASS; CLI execution ${canExecute ? 'PASS' : 'SKIPPED (cross-target)'}\n`;
     console.log(summary);

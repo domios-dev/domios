@@ -68,6 +68,8 @@ jobs:
         with:
           ref: ${{ github.event_name == 'push' && github.sha || inputs.tag || github.sha }}
           fetch-depth: 0
+          # History without blobs: unshallowing a workspace a shallow job left behind took minutes.
+          filter: blob:none
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -187,7 +189,7 @@ jobs:
           set -euo pipefail
           if ! gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "$SOURCE_REPO" --target "$SOURCE_SHA" --draft \
-              --title "CodeTerm $TAG" --notes "See the assets to download this version and install."
+              --title "Domios $TAG" --notes "See the assets to download this version and install."
           fi
           node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG"
 
@@ -195,7 +197,7 @@ jobs:
             export GH_TOKEN="$MIRROR_TOKEN"
             if ! gh release view "$TAG" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
               gh release create "$TAG" --repo rollacode/codeterm-releases \
-                --draft --title "CodeTerm $TAG" \
+                --draft --title "Domios $TAG" \
                 --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
             fi
             node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"

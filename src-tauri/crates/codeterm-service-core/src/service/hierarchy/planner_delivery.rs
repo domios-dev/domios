@@ -154,7 +154,7 @@ pub(super) fn planner_rehydrate_payload(plan: &crate::plan::Plan) -> String {
         ));
     }
     out.push_str(&format!(
-        "Full gate records: codeterm plan decision list {} --open",
+        "Full gate records: domios plan decision list {} --open",
         truncate_utf8(&plan.id, PLANNER_REHYDRATE_FIELD_BYTES)
     ));
     debug_assert!(out.len() <= PLANNER_REHYDRATE_MAX_BYTES);
@@ -191,7 +191,7 @@ pub(super) fn planner_request_payload(
 ) -> String {
     format!(
         "[planner request {}]\n{}\n\nAfter handling this request, acknowledge it exactly once with:\n\
-         codeterm plan decision ack-request {} {}",
+         domios plan decision ack-request {} {}",
         request.request_id, request.payload, plan_id, request.request_id
     )
 }

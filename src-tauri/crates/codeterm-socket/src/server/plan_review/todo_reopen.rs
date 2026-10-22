@@ -1,5 +1,5 @@
 //! A review bounce may name the failed checklist step; it is reopened through
-//! the same service operation as `codeterm tab todo reopen`.
+//! the same service operation as `domios tab todo reopen`.
 
 use codeterm_service_core::plan::AgentRef;
 use codeterm_service_core::service::ServiceState;

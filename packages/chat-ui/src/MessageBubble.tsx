@@ -48,6 +48,7 @@ import { ToolOutputContent } from "./ToolOutputContent";
 import { isImageOnlyToolOutput } from "./toolImageOutput";
 import { ContextRequestCard } from "./ContextRequestCard";
 import { WatcherVerdictCard } from "./WatcherVerdictCard";
+import { hasCanonicalMentions } from "./codeterm/canonicalMentions";
 import { LinkedText, PlanRefCards, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
@@ -231,13 +232,15 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
     if (effectiveOrigin?.kind === "system_prompt" || effectiveOrigin?.kind === "system") {
       const prompt = effectiveOrigin.kind === "system_prompt";
+      const curatorStarted = !prompt && effectiveOrigin.context
+        ? /^curator:round_started:(\d+)$/.exec(effectiveOrigin.context) : null;
       return (
         <ChatNoticeCard
           testId={prompt ? "chat-system-prompt-card" : "chat-system-event"}
           role={prompt ? undefined : "status"}
           tone={prompt ? "var(--ct-green)" : undefined}
           icon={<Info size={14} strokeWidth={2} aria-hidden="true" />}
-          title={prompt ? "System prompt" : systemOriginLabel(effectiveOrigin.context)}
+          title={curatorStarted ? `Curator round ${curatorStarted[1]} started` : prompt ? "System prompt" : systemOriginLabel(effectiveOrigin.context)}
           subtitle={prompt ? "This is the shell system prompt." : undefined}
           expanded={expanded}
           onToggle={() => setExpandedPersistent(!expanded)}
@@ -358,17 +361,15 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     const visibleUserContent = userAttachments.text;
     const renderUserText = (content: string) => {
       if (effectiveOrigin?.kind === "command") return <CommandBody commands={effectiveOrigin.commands} body={message.content} />;
-      if (message.segments) return hasPlanRefs(content)
-        ? <LinkedText text={content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
-        : renderUserContent(content, false);
+      const renderText = (text: string) => hasPlanRefs(text) || hasCanonicalMentions(text)
+        ? <LinkedText text={text} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : text;
+      if (message.segments) return renderUserContent(content, false, renderText);
       const userAttachments = userMessageAttachments(content, attachments);
       const visibleUserContent = userAttachments.text;
       const text = userAttachments.inline ? (
           <InlineAttachmentText segments={userAttachments.inline} />
-        ) : hasPlanRefs(visibleUserContent) ? (
-          <LinkedText text={visibleUserContent} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
-          visibleUserContent ? renderUserContent(visibleUserContent) : null
+          visibleUserContent ? renderUserContent(visibleUserContent, true, renderText) : null
         );
 
       return <>
@@ -687,6 +688,7 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
   const time = messageRowTime(props.message, props.item, props.origin);
   const content = <MessageBubbleContent {...props} />;
   if (!isRenderableMessage(props.message)) return null;
+  if (props.origin?.kind === "system" && props.origin.context === "checklist") return null;
   return (
     <MessageTimeFrame timestamp={props.showTimestamp === false || !time ? undefined : String(time.timestamp)} side="left">
       {content}

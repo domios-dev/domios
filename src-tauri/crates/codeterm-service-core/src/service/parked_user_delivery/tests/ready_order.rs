@@ -25,11 +25,21 @@ fn binding_ack_wait_preserves_held_sends_but_explicit_degradation_settles_them()
         );
         let first = fixture
             .service
-            .start_chat_send(&tab, "first".into(), None, None)
+            .start_human_chat_send(
+                &tab,
+                crate::service::messenger::HumanInput::composer("first"),
+                None,
+                None,
+            )
             .unwrap();
         let second = fixture
             .service
-            .start_chat_send(&tab, "second".into(), None, None)
+            .start_human_chat_send(
+                &tab,
+                crate::service::messenger::HumanInput::composer("second"),
+                None,
+                None,
+            )
             .unwrap();
         await_owner_idle(&fixture, &tab);
         if explicit_degradation {
@@ -163,7 +173,12 @@ fn concurrent_drain_cannot_skip_the_admission_owners_claimed_head() {
     );
     let first = fixture
         .service
-        .start_chat_send(&tab, "first".into(), None, None)
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("first"),
+            None,
+            None,
+        )
         .unwrap();
     assert_eq!(
         claimed_rx.recv_timeout(TEST_DEADLINE).unwrap(),
@@ -171,7 +186,12 @@ fn concurrent_drain_cannot_skip_the_admission_owners_claimed_head() {
     );
     let second = fixture
         .service
-        .start_chat_send(&tab, "second".into(), None, None)
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("second"),
+            None,
+            None,
+        )
         .unwrap();
     let owner = fixture
         .service
@@ -285,7 +305,12 @@ fn ready_owner_advances_after_enqueue_while_prior_recovery_is_pending() {
     );
     let first = fixture
         .service
-        .start_chat_send(&tab, "first".into(), None, None)
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("first"),
+            None,
+            None,
+        )
         .unwrap();
     assert_eq!(
         writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
@@ -293,7 +318,12 @@ fn ready_owner_advances_after_enqueue_while_prior_recovery_is_pending() {
     );
     let second = fixture
         .service
-        .start_chat_send(&tab, "second".into(), None, None)
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("second"),
+            None,
+            None,
+        )
         .unwrap();
     let second_write = writes_rx.recv_timeout(TEST_DEADLINE);
     release_tx.send(()).unwrap();
@@ -353,7 +383,11 @@ fn ready_owner_preserves_intake_order_when_preparation_finishes_reversed() {
     );
     fixture
         .service
-        .prepare_and_admit_user_send(second, "second".into(), false)
+        .prepare_and_admit_user_send(
+            second,
+            crate::service::messenger::HumanInput::composer("second"),
+            false,
+        )
         .unwrap();
     await_owner_idle(&fixture, &tab);
     assert!(matches!(
@@ -362,7 +396,11 @@ fn ready_owner_preserves_intake_order_when_preparation_finishes_reversed() {
     ));
     fixture
         .service
-        .prepare_and_admit_user_send(first, "first".into(), false)
+        .prepare_and_admit_user_send(
+            first,
+            crate::service::messenger::HumanInput::composer("first"),
+            false,
+        )
         .unwrap();
     await_owner_idle(&fixture, &tab);
     assert_eq!(
@@ -398,7 +436,12 @@ fn enqueued_payload_never_replays_after_a_late_zero_write_error() {
     );
     let send = fixture
         .service
-        .start_chat_send(&tab, "first".into(), None, None)
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("first"),
+            None,
+            None,
+        )
         .unwrap();
     await_owner_idle(&fixture, &tab);
     fixture.service.wake_parked_user_send(&tab);

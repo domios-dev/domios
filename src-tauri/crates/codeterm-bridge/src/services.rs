@@ -1,6 +1,6 @@
 //! The messaging services this build knows about.
 //!
-//! A service id here is the same value `codeterm bridge send --service <id>`
+//! A service id here is the same value `domios bridge send --service <id>`
 //! takes and the same value `MessagingService::id` reports, so every layer that
 //! names a service — the send gate, the push-channel registry, the settings
 //! grid — resolves it from this one table instead of restating a list.

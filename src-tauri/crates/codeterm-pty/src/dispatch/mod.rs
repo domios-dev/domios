@@ -460,7 +460,7 @@ pub fn health_result() -> Result<CommandResult, String> {
         "status": "ok",
         "version": codeterm_build_info::version(),
         "build": codeterm_build_info::hash(),
-        "name": "CodeTerm",
+        "name": codeterm_build_info::PRODUCT_NAME,
         "platform": std::env::consts::OS,
     })))
 }
@@ -506,7 +506,7 @@ fn cmd_tab_inspect(
     }
     let snapshot = ctx.mux_snapshot();
     let requested: std::collections::HashSet<&str> = tab_ids.iter().map(String::as_str).collect();
-    let mut tabs = build_tab_list_json(&snapshot)
+    let mut tabs = build_tab_projection_json(&snapshot, true)
         .into_iter()
         .filter(|tab| {
             tab.get("id")
@@ -539,6 +539,13 @@ fn cmd_tab_inspect(
 pub(crate) fn build_tab_list_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
 ) -> Vec<serde_json::Value> {
+    build_tab_projection_json(snapshot, false)
+}
+
+fn build_tab_projection_json(
+    snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
+    include_hidden: bool,
+) -> Vec<serde_json::Value> {
     let mut tab_index: std::collections::HashMap<String, (String, String, String)> =
         std::collections::HashMap::new();
     for ws in &snapshot.workspaces {
@@ -553,7 +560,7 @@ pub(crate) fn build_tab_list_json(
     snapshot
         .tabs
         .values()
-        .filter(|p| !p.hidden)
+        .filter(|p| include_hidden || !p.hidden)
         .map(|p| {
             let mut v = serde_json::to_value(p).unwrap_or_default();
             if let Some(obj) = v.as_object_mut() {

@@ -225,7 +225,7 @@ pub(crate) fn plan_agent_call(
             ))),
             (None, "close") => Ok(CallPlan::Answer(format!("no {noun} open"))),
             (None, _) => Err(format!(
-                "no {noun} open for this agent; run `codeterm plugin {plugin_id} open` first"
+                "no {noun} open for this agent; run `domios plugin {plugin_id} open` first"
             )),
         };
     }

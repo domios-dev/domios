@@ -17,7 +17,7 @@ function fixture(t) {
   write("src-tauri/tauri.conf.json", { version: "4.0.0" });
   for (const directory of ["src-tauri", "cli"]) write(`${directory}/Cargo.toml`, '[package]\nversion = "4.0.0"\n');
   write("src-tauri/crates/codeterm-service-core/Cargo.toml", '[package]\nversion = "0.0.0"\n');
-  for (const directory of ["chat-core", "chat-ui", "chat-engine", "plugin-sdk"]) write(`packages/${directory}/package.json`, { version: "4.0.0" });
+  for (const directory of ["canvas-camera", "chat-core", "chat-ui", "chat-engine", "plugin-sdk"]) write(`packages/${directory}/package.json`, { version: "4.0.0" });
   const plugins = ["claude", "codex", "opencode"].map((id) => ({ id, path: `provider-${id}`, version: "7.1.0", minCodeterm: "3.2.0" }));
   write("plugins/channel.json", { plugins });
   for (const plugin of plugins) {

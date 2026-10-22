@@ -105,7 +105,7 @@ fn moved_off_a_task() -> Fixture {
     }
 }
 
-/// Exactly what `codeterm plan record --task <id> --status done --body-file …
+/// Exactly what `domios plan record --task <id> --status done --body-file …
 /// --sections … --step …` puts on the wire.
 fn record_ops(task_id: &str, marker: &str) -> Value {
     json!([

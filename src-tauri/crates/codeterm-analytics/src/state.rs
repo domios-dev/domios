@@ -47,6 +47,7 @@ pub(crate) struct State {
     pub device_id: Option<Uuid>,
     pub user_id: Option<String>,
     pub last_active_day: Option<chrono::NaiveDate>,
+    pub first_run_recorded: bool,
     pub feature_days: BTreeMap<Feature, chrono::NaiveDate>,
     pub config: Config,
     pub queue: VecDeque<Queued>,

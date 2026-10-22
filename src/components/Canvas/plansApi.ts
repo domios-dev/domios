@@ -129,10 +129,12 @@ export async function resolvePlanRefs(
 export async function fetchPlans(
   api: ApiConfig,
   signal?: AbortSignal,
-  opts?: { project?: string | null },
+  opts?: { project?: string | null; chat?: boolean; query?: string; team?: string | null },
 ): Promise<Plan[]> {
-  const params = new URLSearchParams({ full: "1" });
+  const params = new URLSearchParams(opts?.chat ? { chat: "1" } : { full: "1" });
   if (opts?.project) params.set("project", opts.project);
+  if (opts?.query !== undefined) params.set("query", opts.query);
+  if (opts?.team !== undefined) params.set("team", opts.team ?? "");
   const res = await daemonFetch(api, `/api/plans?${params}`, {
     headers: authHeaders(api),
     signal,
@@ -251,7 +253,13 @@ export async function runPlanControlLoop(api: ApiConfig, planId: string): Promis
   const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/control-loop/run`, {
     method: "POST", headers: confirmedHeaders(api, planId), body: "{}",
   });
-  if (!res.ok) throw new Error(`Curator round request failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const body: unknown = await res.json().catch(() => null);
+    const record = body && typeof body === "object" ? body as Record<string, unknown> : null;
+    const error = record?.error ?? record?.message ?? null;
+    const message = error && typeof error === "object" && "message" in error ? error.message : error;
+    throw new Error(typeof message === "string" && message.trim() ? message : `The Curator round could not start (HTTP ${res.status}).`);
+  }
   return res.json();
 }
 

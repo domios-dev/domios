@@ -5,7 +5,7 @@ REST endpoints for agent restart, model switch, spawn, reports, keep-awake, and 
 
 Restart a live agent through its provider exit command, bounded shell-ready wait and PTY replacement. Resume its recorded session if present; otherwise launch fresh. Unobserved liveness allows fresh launch only with `LaunchBindingUnconfirmed`, no owning launch, a live shell prompt and no verified lineage/journal recovery session; it replaces the PTY and clears the unverified binding without sending exit. Other unobserved states refuse. An observed exited provider recovers in its surviving shell without teardown: select the newest lineage session (journal fallback), require nonce-verification evidence and exactly one owning provider, then resume through normal launch.
 
-Chat tabs with `agentRuntime` resume the tab's recorded thread with a new epoch and nonce, retaining identity and launch options without replay. After `tab rebind`, restart stops the stale runtime before loading the newly recorded thread and its own history. Explicit `fresh: true` opens a new thread under fresh guards. Readiness requires `thread_loaded`; PTY ids are null. Failures degrade and preserve the recorded thread for another `codeterm agent restart --tab ID`. Handoff refuses with `runtime_provider_handoff_unsupported`.
+Chat tabs with `agentRuntime` resume the tab's recorded thread with a new epoch and nonce, retaining identity and launch options without replay. After `tab rebind`, restart stops the stale runtime before loading the newly recorded thread and its own history. Explicit `fresh: true` opens a new thread under fresh guards. Readiness requires `thread_loaded`; PTY ids are null. Failures degrade and preserve the recorded thread for another `domios agent restart --tab ID`. Handoff refuses with `runtime_provider_handoff_unsupported`.
 
 ```json
 {"force": false, "grace_secs": 10, "provider": null, "handoff_history": false}
@@ -39,7 +39,7 @@ Chat tabs with `agentRuntime` resume the tab's recorded thread with a new epoch 
 
 Failures include `error` and observed transition fields; `new_pty_id` requires a linked PTY. Rejections precede acceptance. A failed restart never returns ready `202`.
 
-CLI: `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N] [--provider PROVIDER [--handoff-history]]`.
+CLI: `domios agent restart --tab TAB_ID [--force] [--grace-secs N] [--provider PROVIDER [--handoff-history]]`.
 Provider changes discard source launch settings; history handoff requires explicit opt-in.
 With `--mesh PEER`, `--tab TAB_ID` is required and identifies a Tab on that peer; the local caller's `CODETERM_TAB_ID` is never used.
 
@@ -74,11 +74,11 @@ Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fi
 - `502 model_mismatch` — the current binding's launch report or first post-relaunch turn names a different model; `launched_model`, `observed_model`, and `restart` are included. Missing model confirmation by its deadline is a pending success, not an error.
 - `502 live_switch_failed` — the tab server advertised the live route, but the POST failed. `mode_used` is `live`; Domios does not silently restart after a live request error.
 
-CLI: `codeterm agent model --tab TAB_ID [MODEL] [--force] [--reasoning-effort LEVEL] [--runtime-mode MODE] [--speed TIER|default] [--json]`; omit `MODEL` when changing only a setting. The CLI validates effort and mode against the selected provider catalogue before sending the request. Service tiers can be listed with `--list-speeds`; `GET /api/tabs/{id}/agent/service-tiers` reads that exact tab's runtime catalogue, returning available model-scoped tiers and bound requested/confirmed selections. Typed refusals include `no_runtime`, `no_tiers`, `unsupported_reasoning_effort`, `unsupported_runtime_mode`, and `not_found`. `--json` prints the success body, including `mode_used`, `model_confirmation`, and `evidence` when observed, or a non-zero error envelope carrying the refusal and supported list as `data`.
+CLI: `domios agent model --tab TAB_ID [MODEL] [--force] [--reasoning-effort LEVEL] [--runtime-mode MODE] [--speed TIER|default] [--json]`; omit `MODEL` when changing only a setting. The CLI validates effort and mode against the selected provider catalogue before sending the request. Service tiers can be listed with `--list-speeds`; `GET /api/tabs/{id}/agent/service-tiers` reads that exact tab's runtime catalogue, returning available model-scoped tiers and bound requested/confirmed selections. Typed refusals include `no_runtime`, `no_tiers`, `unsupported_reasoning_effort`, `unsupported_runtime_mode`, and `not_found`. `--json` prints the success body, including `mode_used`, `model_confirmation`, and `evidence` when observed, or a non-zero error envelope carrying the refusal and supported list as `data`.
 
 ### Plan task attempts and Teams
 
-Attempts, respawn, dispatch preflight and Team lifecycle: `codeterm docs API-TEAMS`.
+Attempts, respawn, dispatch preflight and Team lifecycle: `domios docs API-TEAMS`.
 
 ### Keep-Awake (GET/POST /api/keepawake*)
 
@@ -107,7 +107,7 @@ Replaces any existing session; returns `KeepAwakeStatus`.
 
 **Tauri event `keepawake-changed`** carries `KeepAwakeStatus` on start, stop, expiry and macOS `caffeinate` spawn failure.
 
-**Persistence:** state is written to `~/.codeterm/keepawake.json` (dev: `~/.codeterm-dev/keepawake.json`) and restored on startup: indefinite sessions resume as-is, timed ones with the remaining duration, expired ones are discarded.
+**Persistence:** state is written to `~/.domios/keepawake.json` (dev: `~/.domios-dev/keepawake.json`) and restored on startup: indefinite sessions resume as-is, timed ones with the remaining duration, expired ones are discarded.
 
 **Platform support:**
 - **macOS** — spawns `caffeinate -i -s` (plus `-d` when `display=true`).
@@ -115,18 +115,18 @@ Replaces any existing session; returns `KeepAwakeStatus`.
 - **Linux** — no-op; logs a warning and still returns a status object.
 
 ### Agent Spawn
-Full request, placement, model, and launch contracts: `codeterm docs API-SPAWN`.
+Full request, placement, model, and launch contracts: `domios docs API-SPAWN`.
 
 ### Remote mesh workers
 
-A worker spawned on another peer with `codeterm agent spawn <agent> --mesh PEER --cwd <peer-workspace> [--report-to <tab|main|general>]` gets a **durable cross-mesh report target**: the CLI relays the spawn to `PEER`, whose relay ingress stamps an authenticated `origin_peer` onto the body, and the spawned Tab persists `report_target_mesh_peer = <caller's peer>` + `report_target_tab_id = <report_to>` (defaults to the caller's Tab). `--cwd` is required; `--task-file` is read locally and only its body is relayed.
+A worker spawned on another peer with `domios agent spawn <agent> --mesh PEER --cwd <peer-workspace> [--report-to <tab|main|general>]` gets a **durable cross-mesh report target**: the CLI relays the spawn to `PEER`, whose relay ingress stamps an authenticated `origin_peer` onto the body, and the spawned Tab persists `report_target_mesh_peer = <caller's peer>` + `report_target_tab_id = <report_to>` (defaults to the caller's Tab). `--cwd` is required; `--task-file` is read locally and only its body is relayed.
 
-The worker runs `codeterm agent report "..."` (no `--mesh`/`--tab`); its daemon relays it over the signed `/send` path (`kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, like a local report. If no target resolves, `agent report` fails with an actionable hint, never a silent drop.
+The worker runs `domios agent report "..."` (no `--mesh`/`--tab`); its daemon relays it over the signed `/send` path (`kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, like a local report. If no target resolves, `agent report` fails with an actionable hint, never a silent drop.
 
 Report routing precedence: **remote mesh target → `parent_tab_id` → `report_target_tab_id` → `spawned_by_tab_id`**; never self.
 
 ### Plan-authorized task-less evidence reports
-The authenticated live Plan owner grants review/canonical-QA reporting via `plan.review.authorize-reporter` / `codeterm plan review authorize-reporter`. The grant stores exact tab/session ids and a one-way nonce digest; Plan history never exposes the bearer nonce. Reports carry only `plan_id`, no task/status/provenance. Success appends immutable `plan_evidence_report`, emits `agent-report` to the live owner and returns `plan_report` with stride id and `task_transition:false`. Capability grants, not role labels, authorize. Missing caller session resolves only from the exact registered tab with matching stored/hook nonce; explicitly wrong sessions refuse. Foreign, unbound, stale/rebound, task-bound or ungranted callers mutate neither history nor report store. Session changes require a fresh grant. Planner/task-bound Worker paths are unchanged.
+The authenticated live Plan owner grants review/canonical-QA reporting via `plan.review.authorize-reporter` / `domios plan review authorize-reporter`. The grant stores exact tab/session ids and a one-way nonce digest; Plan history never exposes the bearer nonce. Reports carry only `plan_id`, no task/status/provenance. Success appends immutable `plan_evidence_report`, emits `agent-report` to the live owner and returns `plan_report` with stride id and `task_transition:false`. Capability grants, not role labels, authorize. Missing caller session resolves only from the exact registered tab with matching stored/hook nonce; explicitly wrong sessions refuse. Foreign, unbound, stale/rebound, task-bound or ungranted callers mutate neither history nor report store. Session changes require a fresh grant. Planner/task-bound Worker paths are unchanged.
 
 Each inbound mesh report registers the worker in the orchestrator-side registry (`GET /api/remote-workers`, `remote-workers-changed` event); the sidebar renders it as a read-only "remote tab" ghost node under its orchestrator (peer chip + status, no local PTY).
 
@@ -170,18 +170,18 @@ Failures return `{"error":"message","method":"..."}`; later commands still execu
 | `can-spawn` | `tab_id` | `can_spawn` (default: true) |
 | `report` | `tab_id`, `message` | — |
 
-Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
+Plan surface contracts — planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `domios docs API-PLAN`.
 
-A provider declaring model-provider configuration support accepts `preset` on PTY spawn: Domios resolves its owned model and agent launch arguments before tab creation. See `codeterm docs INTEGRATIONS` for endpoint keys and preset commands. Provider changes publish versioned catalogue events; selectors refresh without reloading. OpenCode advertises per-model variants as reasoning levels, passed at launch and live switch. Model-switch responses and the chip expose the live or restart/resume path.
+A provider declaring model-provider configuration support accepts `preset` on PTY spawn: Domios resolves its owned model and agent launch arguments before tab creation. See `domios docs INTEGRATIONS` for endpoint keys and preset commands. Provider changes publish versioned catalogue events; selectors refresh without reloading. OpenCode advertises per-model variants as reasoning levels, passed at launch and live switch. Model-switch responses and the chip expose the live or restart/resume path.
 
 ### Background work and session forks
 
 With `background_work_guard` enabled, restarts and restart-based model switches return `409 background_work_running` with `running_items`. Provider updates defer until roster drain. Owner `--force` overrides with a visible warning.
 
-`codeterm agent fork --tab TAB_ID` / `POST /api/tabs/{id}/agent/fork` requires declared fork support and opens a new local tab, leaving the source intact. Response: `tab_id`, `source_tab_id`, `source_session_id`, `session_id`, `binding_pending`. Pending is not binding proof: inspect until launch evidence binds a distinct session. The tab menu uses the same capability; mesh is unsupported.
+`domios agent fork --tab TAB_ID` / `POST /api/tabs/{id}/agent/fork` requires declared fork support and opens a new local tab, leaving the source intact. Response: `tab_id`, `source_tab_id`, `source_session_id`, `session_id`, `binding_pending`. Pending is not binding proof: inspect until launch evidence binds a distinct session. The tab menu uses the same capability; mesh is unsupported.
 
 ### Model-free capabilities
 
 `spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.
 
-<!-- revision: 68 -->
+<!-- revision: 70 -->

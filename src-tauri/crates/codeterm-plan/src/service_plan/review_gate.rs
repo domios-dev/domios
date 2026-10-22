@@ -18,7 +18,7 @@ pub const REVIEW_CAPACITY_GRANT_MILESTONE_KIND: &str = "review_capacity_grant";
 pub const EVIDENCE_REPORTER_GRANT_MILESTONE_KIND: &str = "evidence_reporter_grant";
 pub const PLAN_EVIDENCE_REPORT_MILESTONE_KIND: &str = "plan_evidence_report";
 const ROUND_BOUND_STRATEGY_ADVICE: &str = "Round bound passed — this bounce and the Worker's next report are accepted, so treat it as advice, not a gate. Change strategy rather than re-running it: grant the Worker authority to run its own focused tests, take part of the work directly, or dispatch a second Worker with a distinct oracle.";
-const REPEATED_STRATEGY_MESSAGE: &str = "Stop iterating this strategy. Re-diagnose per `codeterm docs BOUNCE`. Consider a fresh independent reviewer with a distinct oracle, a decision gate, or model escalation; then continue autonomously.";
+const REPEATED_STRATEGY_MESSAGE: &str = "Stop iterating this strategy. Re-diagnose per `domios docs BOUNCE`. Consider a fresh independent reviewer with a distinct oracle, a decision gate, or model escalation; then continue autonomously.";
 
 fn max_review_rounds() -> u32 {
     std::env::var("CODETERM_PLAN_REVIEW_MAX_ROUNDS")
@@ -221,7 +221,7 @@ fn review_milestone(
     }
 }
 
-/// The milestone `kind` `codeterm plan record --step decision:<text>` writes.
+/// The milestone `kind` `domios plan record --step decision:<text>` writes.
 /// Selection for the strategy warning below keys off this constant, never off
 /// rendered message text, so the mechanism stays assertable independent of wording.
 pub const DECISION_STRIDE_KIND: &str = "decision";

@@ -1,8 +1,8 @@
 use crate::plan::{Plan, Task};
 
 pub const MAX_REMINDER_BYTES: usize = 4096;
-pub const ROLE_HEADER: &str = "You are the Orchestrator of Team {team} for plan {plan} ({title}).\nManual: codeterm docs ORCHESTRATION (operations: ORCHESTRATION-OPERATIONS, tasks: ORCHESTRATION-TASKS).";
-pub const MORE: &str = "\nMore: codeterm orchestrator status --plan ";
+pub const ROLE_HEADER: &str = "You are the Orchestrator of Team {team} for plan {plan} ({title}).\nManual: domios docs ORCHESTRATION (operations: ORCHESTRATION-OPERATIONS, tasks: ORCHESTRATION-TASKS).";
+pub const MORE: &str = "\nMore: domios orchestrator status --plan ";
 pub const TASK_NAME_CHARS: usize = 64;
 pub const REVIEW: &str = "Review";
 pub const DISPATCH: &str = "Dispatch";

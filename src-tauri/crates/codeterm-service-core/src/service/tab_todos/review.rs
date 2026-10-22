@@ -20,13 +20,13 @@ impl ServiceContext {
             .collect();
         if !open.is_empty() {
             return Ok(Some(format!(
-            "WARNING: report accepted with open locked criteria: {}. Update them by id with codeterm todo write.",
+            "WARNING: report accepted with open locked criteria: {}. Update them by id with domios todo write.",
             open.join("; ")
         )));
         }
         if checklist.proposal.is_none() && self.todo_tab(tab_id)?.parent_tab_id.is_some() {
             return Ok(Some(
-                "hint: checklist was never shared; use codeterm todo submit".into(),
+                "hint: checklist was never shared; use domios todo submit".into(),
             ));
         }
         let remaining = checklist
@@ -36,7 +36,7 @@ impl ServiceContext {
             .count();
         Ok((remaining > 0).then(|| {
             format!(
-                "hint: checklist has {remaining} open item(s); update it with codeterm todo write"
+                "hint: checklist has {remaining} open item(s); update it with domios todo write"
             )
         }))
     }

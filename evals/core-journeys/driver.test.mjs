@@ -17,11 +17,11 @@ const bash = process.env.CORE_JOURNEY_BASH ?? (process.platform === "win32"
   : "bash");
 
 test("parseArgs reads driver flags and refuses unknown or missing ones", () => {
-  const options = parseArgs(["verify", "--out", "/tmp/x", "--providers", "claude, codex", "--history-kb", "8", "--all-tabs", "--expect-build-change"]);
+  const options = parseArgs(["verify", "--out", "/tmp/x", "--providers", "claude, codex", "--history-kb", "8", "--all-tabs"]);
   assert.equal(options.mode, "verify");
   assert.deepEqual(options.providers, ["claude", "codex"]);
   assert.equal(options.historyBytes, 8192);
-  assert.ok(options.allTabs && options.expectBuildChange);
+  assert.ok(options.allTabs);
   assert.throws(() => parseArgs(["verify"]), /--out/);
   assert.throws(() => parseArgs(["deploy", "--out", "/tmp/x"]), /mode/);
   assert.throws(() => parseArgs(["setup", "--out", "/tmp/x", "--bogus"]), /flag/);
@@ -34,12 +34,10 @@ test("preferred picks by capability, ranking the required providers first", () =
   assert.equal(preferred([{ id: "claude", runtime: false }], true), null);
 });
 
-test("parseRestartArgs defaults to a prebuilt restart and accepts the upgrade shape", () => {
-  assert.equal(parseRestartArgs(["--out", "/tmp/r"]).start, "dev-prebuilt");
-  const upgrade = parseRestartArgs(["--out", "/tmp/r", "--stop-in", "/tmp/old", "--start", "dev", "--label", "upgrade"]);
-  assert.equal(upgrade.stopIn, resolve("/tmp/old"));
-  assert.equal(upgrade.label, "upgrade");
-  assert.throws(() => parseRestartArgs(["--out", "/tmp/r", "--start", "build"]), /--start/);
+test("parseRestartArgs requires an output directory and refuses unknown flags", () => {
+  assert.deepEqual(parseRestartArgs(["--out", "/tmp/r"]), {out: resolve("/tmp/r")});
+  assert.throws(() => parseRestartArgs([]), /--out/);
+  assert.throws(() => parseRestartArgs(["--out", "/tmp/r", "--unknown", "value"]), /unknown restart flag/);
 });
 
 const connection = (extra) => ({ CORE_JOURNEY_DATA_DIR: "/tmp/dev", CORE_JOURNEY_API_TOKEN: "t", ...extra });
@@ -75,8 +73,6 @@ test("the plan lists every stage, step and evidence path of each mode", () => {
   const plan = buildPlan({ mode: "all", out: "/o", instance: "curated", port: 7697 });
   assert.deepEqual(plan.stages.map((stage) => stage.phase), ["setup", "restart", "verify", "cleanup"]);
   assert.deepEqual(plan.evidence, ["/o/results.json", "/o/results.md", "/o/restart.json", "/o/screenshots/setup.png", "/o/screenshots/verify.png"]);
-  const upgrade = buildPlan({ mode: "upgrade", out: "/o", instance: "curated", port: 7697 });
-  assert.ok(upgrade.evidence.includes("/o/n-1-to-n/upgrade.json") && upgrade.evidence.includes("/o/n/restart.json"));
   assert.match(renderPlan(plan), /target: instance=curated port=7697[^]*evidence-contract[.]mjs/);
   assert.throws(() => buildPlan({ mode: "deploy", out: "/o", instance: "x" }), /unknown plan mode/);
   assert.throws(() => planFromEnv({ mode: "all", out: "/o", instance: "", port: "7697" }), /unset/);
@@ -114,7 +110,7 @@ test("run.sh --plan exits 0 on a named instance and prints steps and evidence pa
 });
 
 test("run.sh refuses ports 7685 and 7686 and an unset instance, in plan and live modes", () => {
-  for (const mode of [["all", "--plan"], ["all"], ["setup"], ["upgrade"]]) {
+  for (const mode of [["all", "--plan"], ["all"], ["setup"]]) {
     for (const [env, message] of [
       [previousTarget("curated", "7685"), /production port 7685/],
       [previousTarget("curated", "7686"), /shared DEV port 7686/],

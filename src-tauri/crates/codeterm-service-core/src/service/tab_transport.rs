@@ -11,7 +11,7 @@ use codeterm_types::pty::BootStage;
 /// Transport-agnostic tab I/O. One impl per [`TabBacking`].
 pub trait TabTransport {
     /// Send user text to the tab (PTY paste, or plugin `sendMessage`).
-    fn send(&self, text: &str, enter: bool) -> Result<(), String>;
+    fn send(&self, input: &super::messenger::AgentInput, enter: bool) -> Result<(), String>;
     /// Send a delayed/scripted batch.
     fn send_batch(&self, batch: Vec<SendBatchItem>) -> Result<(), String>;
     /// Resize the underlying terminal. No-op for non-PTY transports.
@@ -49,11 +49,11 @@ pub struct PtyTransport<'a> {
 }
 
 impl TabTransport for PtyTransport<'_> {
-    fn send(&self, text: &str, enter: bool) -> Result<(), String> {
+    fn send(&self, input: &super::messenger::AgentInput, enter: bool) -> Result<(), String> {
         if enter {
-            self.svc.send_text(&self.tab_id, text)
+            self.svc.send_text(&self.tab_id, input)
         } else {
-            self.svc.insert_text(&self.tab_id, text)
+            self.svc.insert_text(&self.tab_id, input)
         }
     }
 

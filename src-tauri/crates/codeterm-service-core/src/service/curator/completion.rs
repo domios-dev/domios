@@ -132,7 +132,7 @@ impl ServiceContext {
                     number: run.number,
                     started_at: run.started_at,
                     ended_at: now,
-                    outcome: if deadline {
+                    outcome: if closed || deadline {
                         codeterm_types::plan::CuratorOutcome::Partial
                     } else {
                         codeterm_types::plan::CuratorOutcome::Failed
@@ -165,9 +165,12 @@ impl ServiceContext {
                 };
                 plan.control_loop.running = None;
                 plan.control_loop.last_real_round_at = Some(now);
-                plan.control_loop.consecutive_failures += 1;
-                if plan.control_loop.consecutive_failures >= 2 {
-                    plan.control_loop.fallback_reason = Some(CuratorFailure::ConsecutiveFailures);
+                if !closed {
+                    plan.control_loop.consecutive_failures += 1;
+                    if plan.control_loop.consecutive_failures >= 2 {
+                        plan.control_loop.fallback_reason =
+                            Some(CuratorFailure::ConsecutiveFailures);
+                    }
                 }
                 curator::append_round(plan, round.clone());
                 Ok((round, true))
@@ -180,3 +183,6 @@ impl ServiceContext {
         Ok(round)
     }
 }
+
+#[cfg(test)]
+mod tests;

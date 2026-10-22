@@ -76,7 +76,7 @@ holding `faster-whisper large-v3` warm in VRAM.
   universal signal — no per-app hardcoding.
 - Autostart via a logon-trigger scheduled task (pythonw, headless).
 
-Find it: `codeterm mem search "transcribe telegram voice"` → the skill body has
+Find it: `domios mem search "transcribe telegram voice"` → the skill body has
 the scripts (`daemon.py`, `transcribe.py`, `client.sh`, autostart installer).
 
 ## Proxy layer (optional, powerful)
@@ -103,17 +103,17 @@ Until native support lands, dictation is an external driver you run. Recipe:
    `/transcribe`; read `text`. Collapse whisper's internal line breaks to spaces
    (`re.sub(r"\s+", " ", text)`) so auto-submit works.
 4. **Inject into a tab** — two ways:
-   - CLI: `codeterm send "<text>" --tab <id>` (auto-submits)
+   - CLI: `domios send "<text>" --tab <id>` (auto-submits)
    - HTTP: `POST /api/tabs/<tab_id>/send` with `Authorization: Bearer
-     <service_token>` (register via `codeterm service add`, token is scoped to
+     <service_token>` (register via `domios service add`, token is scoped to
      that endpoint). Good for a daemon with no shell.
 
 ### The focus caveat
 
 Targeting "the tab the user is looking at" is **not reliable today**:
-`codeterm tab current` is stale and `tab focus` doesn't update it (issue #123).
+`domios tab current` is stale and `tab focus` doesn't update it (issue #123).
 An external driver should inject into a **fixed tab id** (`MIC_TAB`) through the
-supported tab send API (`codeterm send` or `POST /api/tabs/{id}/send`).
+supported tab send API (`domios send` or `POST /api/tabs/{id}/send`).
 
 A working prototype lives in the `transcribe-telegram-voice` skill scripts
 (`mic-dictation.py` + `start-mic-dictation.ps1`).
@@ -122,4 +122,4 @@ A working prototype lives in the `transcribe-telegram-voice` skill scripts
 
 Transcription uses an external service; today an external dictation driver can submit through the supported tab-send API. To add a new STT backend, implement `/transcribe` and point a URL at it. Don't put the model in the binary.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

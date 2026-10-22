@@ -12,6 +12,7 @@ pub mod windows;
 pub mod cancellation;
 pub mod capture;
 pub mod environment;
+mod input;
 pub mod owner;
 pub mod process;
 
@@ -73,6 +74,31 @@ pub fn run_with_environment(
         &cancellation::Cancellation::default(),
         false,
         environment,
+        None,
+    )
+}
+
+pub fn run_with_budget_input(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    runtime: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+    environment: &environment::Environment,
+    previous: &str,
+) -> Result<Output, process::ProbeFailure> {
+    let deadlines = process::Deadlines::start(limit, runtime)?;
+    let stdin =
+        input::file(previous).map_err(|_| process::ProbeFailure::new("probe_input_failed"))?;
+    run_transaction(
+        command,
+        cwd,
+        deadlines,
+        owner,
+        &cancellation::Cancellation::default(),
+        false,
+        environment,
+        Some(stdin),
     )
 }
 
@@ -93,6 +119,7 @@ pub fn run_with_budget(
         &cancellation::Cancellation::default(),
         false,
         environment,
+        None,
     )
 }
 
@@ -140,6 +167,7 @@ fn run_with_runtime_and_receipt(
         &cancellation::Cancellation::default(),
         false,
         environment,
+        None,
     )
     .map(|output| (output, receipt))
     .map_err(|failure| (failure, Some(receipt)))
@@ -161,6 +189,7 @@ pub fn run_cancellable(
         cancellation,
         true,
         &environment::Environment::default(),
+        None,
     )
 }
 
@@ -172,6 +201,7 @@ fn run_transaction(
     cancellation: &cancellation::Cancellation,
     _cancellation_required: bool,
     environment: &environment::Environment,
+    stdin: Option<std::fs::File>,
 ) -> Result<Output, process::ProbeFailure> {
     if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(process::ProbeFailure::new("probe_cancelled"));
@@ -191,6 +221,7 @@ fn run_transaction(
                 cancellation,
                 _cancellation_required,
                 environment,
+                stdin,
             )
         }
         #[cfg(windows)]
@@ -203,6 +234,7 @@ fn run_transaction(
                 owner,
                 cancellation,
                 environment,
+                stdin,
             )
         }
     })

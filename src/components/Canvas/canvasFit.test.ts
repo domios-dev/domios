@@ -2,7 +2,7 @@
 
 import { buildDoneHeavyPerfFixturePlans } from "./perfFixture";
 import { layoutWorkspace, unionBox } from "./layout";
-import { computeFitTransform, fitZoomFloor, viewportShowsBounds } from "./useCanvasViewport";
+import { computeFitTransform, fitZoomFloor, viewportShowsBounds } from "@codeterm/canvas-camera";
 
 let passed = 0;
 let failed = 0;

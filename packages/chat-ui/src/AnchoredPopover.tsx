@@ -11,6 +11,7 @@ export interface AnchoredPopoverProps {
   placement?: FloatingPlacement;
   /** Space between anchor and popover; hover popovers pass 0 so the pointer never crosses a gap. */
   gap?: number;
+  keepSide?: boolean;
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
@@ -32,6 +33,7 @@ export function AnchoredPopover({
   anchor,
   placement = "bottom-start",
   gap,
+  keepSide,
   children,
   className = "",
   style,
@@ -43,7 +45,7 @@ export function AnchoredPopover({
 }: AnchoredPopoverProps) {
   const ownRef = useRef<HTMLDivElement>(null);
   const contentRef = floatingRef ?? ownRef;
-  const position = useAnchoredPopoverPosition(open, anchor, contentRef, placement, { gap });
+  const position = useAnchoredPopoverPosition(open, anchor, contentRef, placement, { gap, keepSide });
   const anchorElement = "current" in anchor ? anchor : null;
 
   // Capture phase: triggers often sit in containers that stop pointer and key propagation.

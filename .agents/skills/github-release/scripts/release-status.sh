@@ -24,8 +24,8 @@ PUB=$(gh release view "$TAG" --repo "$MIRROR" --json assets 2>/dev/null \
   || echo "missing")
 echo "public :  $PUB"
 
-# latest.json platform completeness (anon GET)
-MANIFEST_JSON=$(curl -sSL "https://github.com/$MIRROR/releases/latest/download/latest.json" 2>/dev/null)
+# domios-latest.json platform completeness (anon GET)
+MANIFEST_JSON=$(curl -sSL "https://github.com/$MIRROR/releases/latest/download/domios-latest.json" 2>/dev/null)
 if [ -n "$MANIFEST_JSON" ]; then
   PLATS=$(echo "$MANIFEST_JSON" | jq -r '
     .platforms

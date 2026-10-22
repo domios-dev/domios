@@ -119,7 +119,7 @@ impl RunWatcherRegistry {
     }
 
     /// Tell the watcher this run is already finished via an explicit
-    /// completion path (e.g. `codeterm cron complete`) so the idle / hard
+    /// completion path (e.g. `domios cron complete`) so the idle / hard
     /// timeout watchdog does NOT fire afterwards and clobber the Success
     /// status with Failed.
     pub fn mark_completed_externally(&self, pty_id: &str) {

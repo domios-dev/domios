@@ -6,7 +6,7 @@ use crate::transcribe::{TranscribeError, TranscribeRegistry};
 pub fn untranscribed_note(error: &TranscribeError) -> String {
     match error {
         TranscribeError::NoBackend => {
-            "No speech-to-text engine. Run codeterm plugin install transcriber, then open \
+            "No speech-to-text engine. Run domios plugin install transcriber, then open \
              the Transcriber panel, pick a model, and click Install — it downloads and \
              enables itself. Do not build anything by hand."
                 .to_string()

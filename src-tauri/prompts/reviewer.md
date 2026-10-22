@@ -20,4 +20,4 @@ Before work, make sure your checklist names each review scope your parent assign
 
 ## Reporting
 
-Deliver all findings once through `codeterm agent report`, most severe first, with the reviewed SHA or scope. With a plan task, report its status through the normal Worker lifecycle; without a task, report to your parent without task status. Never present your verdict as acceptance.
+Deliver all findings once through `domios agent report`, most severe first, with the reviewed SHA or scope. With a plan task, report its status through the normal Worker lifecycle; without a task, report to your parent without task status. Never present your verdict as acceptance.

@@ -1,6 +1,6 @@
 //! BridgeManager v4 — CLI-based bridge with typing indicator, auto-edit, markdown.
 //!
-//! Outbound: agents call `codeterm bridge send` → channel → Telegram API.
+//! Outbound: agents call `domios bridge send` → channel → Telegram API.
 //! Inbound: Telegram → PTY with a Domios route frame.
 //! Features: typing indicator on inbound, auto-edit recent messages, markdown formatting.
 

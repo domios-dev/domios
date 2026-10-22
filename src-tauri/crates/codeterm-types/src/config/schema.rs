@@ -118,7 +118,7 @@ pub struct KpiConfig {
     pub default_applied: bool,
 }
 
-/// Dot path of the opt-out, as `codeterm config get/set` and the REST config route
+/// Dot path of the opt-out, as `domios config get/set` and the REST config route
 /// address it. Surfaces that name the setting read it from here instead of retyping it.
 pub const KPI_ENABLED_KEY: &str = "kpi.enabled";
 
@@ -140,7 +140,7 @@ pub use super::updater::UpdaterConfig;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProviderConfig {
-    /// Resume previous sessions on CodeTerm restart (per provider).
+    /// Resume previous sessions on Domios restart (per provider).
     pub resume_sessions: Option<bool>,
     /// Default model id used for fresh sessions.
     pub default_model: Option<String>,
@@ -700,7 +700,7 @@ fn default_refresh_verify_timeout_secs() -> u64 {
 
 /// The orchestrator refresh cycle (S1..S5). Section `[orchestration.refresh]`.
 /// `after_reflection` stays OFF until the drill series passes — the manual
-/// `codeterm orchestrator refresh` trigger is always available regardless.
+/// `domios orchestrator refresh` trigger is always available regardless.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RefreshConfig {

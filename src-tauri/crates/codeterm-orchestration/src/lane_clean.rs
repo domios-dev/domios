@@ -61,7 +61,17 @@ pub fn preflight(lane: &TeamCloseLane, tabs: &[LiveTabCwd]) -> Option<String> {
     {
         return Some(format!("occupied by tab {} ({})", holder.id, holder.title));
     }
-    close::lane_hold_reason(lane)
+    close::lane_hold_reason(lane).or_else(|| {
+        lane.branch.as_deref().and_then(|branch| {
+            let reference = format!("refs/heads/{branch}");
+            git(
+                &lane.project_path,
+                &["show-ref", "--verify", "--quiet", &reference],
+            )
+            .ok()
+            .and_then(|_| close::merged_refusal(&lane.project_path, &reference, "HEAD"))
+        })
+    })
 }
 
 pub fn git(cwd: &str, args: &[&str]) -> Result<String, String> {
@@ -176,6 +186,11 @@ pub fn run_lane_with(
             return row;
         }
     };
+    if tips.is_empty() && already_removed(lane) {
+        row.action = "absent";
+        row.reason = "lane worktree and branches already removed".into();
+        return row;
+    }
     if !confirm {
         row.action = "remove";
         row.reason = "merged, clean, unoccupied; remote tips rechecked on confirm".into();
@@ -198,6 +213,35 @@ pub fn run_lane_with(
         }
     }
     row
+}
+
+fn already_removed(lane: &TeamCloseLane) -> bool {
+    let path_absent = lane
+        .worktree_path
+        .as_deref()
+        .is_none_or(|path| !std::path::Path::new(path).exists());
+    let worktree_absent = lane.worktree_path.as_deref().is_none_or(|path| {
+        git(&lane.project_path, &["worktree", "list", "--porcelain"]).is_ok_and(|listing| {
+            !listing
+                .lines()
+                .filter_map(|line| line.strip_prefix("worktree "))
+                .any(|registered| {
+                    codeterm_service_core::service::worker_lane::same_path(registered, path)
+                })
+        })
+    });
+    let branch_absent = lane.branch.as_deref().is_none_or(|branch| {
+        git(
+            &lane.project_path,
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                &format!("refs/heads/{branch}"),
+            ],
+        )
+        .is_ok_and(|references| references.is_empty())
+    });
+    path_absent && worktree_absent && branch_absent
 }
 
 pub fn cleanup_inventory(plan: &Plan) -> Vec<TeamCloseLane> {
@@ -320,6 +364,38 @@ pub fn clean_plan_lanes(
                 row.action = "failed";
                 row.reason =
                     format!("lane removed but cleanup bookkeeping is incomplete: {reason}");
+            }
+        }
+        rows.push(row);
+    }
+    for residue in codeterm_service_core::service::lane_removal::residue::inventory(
+        project,
+        &svc.live_tab_cwds(),
+    )? {
+        let mut row = LaneCleanRow {
+            task_id: String::new(),
+            worktree: Some(residue.path.display().to_string()),
+            branch: None,
+            action: "kept",
+            reason: residue
+                .refusal
+                .clone()
+                .unwrap_or_else(|| "unregistered artifact residue".into()),
+        };
+        if residue.refusal.is_none() {
+            row.action = "remove";
+            if confirm {
+                match codeterm_service_core::service::lane_removal::residue::remove(
+                    project,
+                    &residue.path,
+                    &svc.live_tab_cwds(),
+                ) {
+                    Ok(()) => row.action = "removed",
+                    Err(reason) => {
+                        row.action = "failed";
+                        row.reason = reason;
+                    }
+                }
             }
         }
         rows.push(row);

@@ -178,3 +178,43 @@ fn curator_move_requires_cited_ids() {
     .unwrap();
     assert_eq!(note.next_move, "inspect [task_1]");
 }
+
+#[test]
+fn curator_stride_preserves_next_checks_as_structured_data() {
+    let mut plan = Plan::new("fixture".into(), "/tmp".into(), Default::default());
+    let round = CuratorRound {
+        number: 1,
+        next_checks: vec!["opaque check".into()],
+        ..Default::default()
+    };
+    append_round(&mut plan, round.clone());
+    let stored: CuratorRound = serde_json::from_str(&plan.strides.last().unwrap().text).unwrap();
+    assert_eq!(stored.next_checks, round.next_checks);
+}
+
+#[test]
+fn curator_finished_next_checks_carry_into_the_following_digest() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = crate::service_plan::PlanStore::new_for_test(temp.path());
+    let mut plan = Plan::new("fixture".into(), "/tmp".into(), Default::default());
+    let task: crate::plan::Task = serde_json::from_value(serde_json::json!({
+        "id": "task_fixture", "name": "opaque", "type": "code", "status": "in_progress"
+    }))
+    .unwrap();
+    plan.tasks.push(task);
+    plan.control_loop.running = Some(crate::plan::CuratorRun {
+        number: 1,
+        ..Default::default()
+    });
+    store.save(&mut plan, 100).unwrap();
+    let note = note::parse("NEXT: 2h | opaque\nMOVE: inspect [task_fixture]\nNEXT-CHECK: opaque hypothesis [task_fixture]\nASKED: none", 7200).unwrap();
+    let round = store.finish_curator_round(&plan.id, 1, &note, 200).unwrap();
+    assert_eq!(round.next_checks, note.next_checks);
+    let persisted = store.get(&plan.id).unwrap();
+    let rows = digest::plan_rows(&persisted, 201);
+    assert!(rows["carried"]
+        .iter()
+        .any(|row| row.summary == note.next_checks[0]));
+    let built = digest::build("opaque header", &rows);
+    assert!(built.body.contains(&note.next_checks[0]));
+}

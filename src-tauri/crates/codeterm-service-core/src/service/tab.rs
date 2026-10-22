@@ -743,7 +743,9 @@ impl ServiceContext {
             );
             let mut messages = queued.into_iter();
             while let Some(message) = messages.next() {
-                if let Err(error) = service.start_chat_send(&tab_id, message.clone(), None, None) {
+                if let Err(error) = super::messenger::Messenger::restore_framed_delivery(&message)
+                    .and_then(|frame| service.deliver_framed_input(&tab_id, frame))
+                {
                     log::warn!("[bridge] buffered message admission held tab={tab_id}: {error}");
                     crate::bridge::inbound_buffer::push(&tab_id, message);
                     for remaining in messages {

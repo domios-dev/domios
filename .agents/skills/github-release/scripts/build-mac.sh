@@ -36,20 +36,20 @@ if [ "$ARCH" = "arm64" ]; then
     --source-sha "$(git rev-parse HEAD)" \
     --cargo-log release-artifacts/build-logs/aarch64-apple-darwin/server.jsonl \
     --tree-log release-artifacts/build-logs/aarch64-apple-darwin/closure.txt \
-    --client-file src-tauri/target/release/domios
+    --client-file src-tauri/target/release/domios-app
   node scripts/release-macos-bundle.mjs aarch64-apple-darwin
-  APP=src-tauri/target/release/bundle/macos/CodeTerm.app
+  APP=src-tauri/target/release/bundle/macos/Domios.app
 else
   rm -rf src-tauri/target/x86_64-apple-darwin/release/bundle
   bash scripts/release-macos-x86_64.sh
-  APP=src-tauri/target/x86_64-apple-darwin/release/bundle/macos/CodeTerm.app
+  APP=src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Domios.app
 fi
 
 # Verify the inner binary was signed by Developer ID, not the linker's ad-hoc.
 # If this check fails, the notarize step would reject with "signature is invalid
 # / no secure timestamp / hardened runtime not enabled" — better to catch here.
-echo "--- verifying $APP/Contents/MacOS/domios signature ---"
-INFO=$(codesign -dv --verbose=4 "$APP/Contents/MacOS/domios" 2>&1)
+echo "--- verifying $APP/Contents/MacOS/domios-app signature ---"
+INFO=$(codesign -dv --verbose=4 "$APP/Contents/MacOS/domios-app" 2>&1)
 echo "$INFO" | grep -E "Authority|flags" | head -3
 echo "$INFO" | grep -q "Authority=Developer ID Application" \
   || { echo "FAIL: not signed with Developer ID" >&2; exit 1; }
@@ -60,8 +60,8 @@ echo "OK: Developer ID + hardened runtime"
 # Verify arch of BOTH inner binaries matches the requested build target.
 EXPECT_ARCH=$([ "$ARCH" = "arm64" ] && echo "arm64" || echo "x86_64")
 echo "--- verifying CLI + GUI arch matches $EXPECT_ARCH ---"
-file "$APP/Contents/MacOS/domios"        | grep -q "$EXPECT_ARCH" \
-  || { echo "FAIL: $APP/Contents/MacOS/domios is not $EXPECT_ARCH: $(file "$APP/Contents/MacOS/domios")" >&2; exit 1; }
+file "$APP/Contents/MacOS/domios-app"        | grep -q "$EXPECT_ARCH" \
+  || { echo "FAIL: $APP/Contents/MacOS/domios-app is not $EXPECT_ARCH: $(file "$APP/Contents/MacOS/domios-app")" >&2; exit 1; }
 file "$APP/Contents/Resources/cli/codeterm" | grep -q "$EXPECT_ARCH" \
   || { echo "FAIL: $APP/Contents/Resources/cli/codeterm is not $EXPECT_ARCH: $(file "$APP/Contents/Resources/cli/codeterm")" >&2; exit 1; }
 echo "OK: both binaries are $EXPECT_ARCH"

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ViewportBox, ViewportTransform } from "../useCanvasViewport";
-import { CANVAS_MIN_SCALE, CANVAS_MAX_SCALE } from "../useCanvasViewport";
+import type { ViewportBox, ViewportTransform } from "@codeterm/canvas-camera";
+import { CANVAS_MIN_SCALE, CANVAS_MAX_SCALE } from "@codeterm/canvas-camera";
 import { resolveFlyToNodeId } from "../flyToTarget";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { Plan } from "../types";

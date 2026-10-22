@@ -39,9 +39,9 @@ fn mark_supervisor_disabled() -> Result<(), String> {
 
 fn cli_path() -> Result<std::path::PathBuf, String> {
     let name = if cfg!(windows) {
-        "codeterm.exe"
+        "domios.exe"
     } else {
-        "codeterm"
+        "domios"
     };
     let home = dirs::home_dir().ok_or_else(|| "home dir not found".to_string())?;
     for candidate in [
@@ -52,12 +52,12 @@ fn cli_path() -> Result<std::path::PathBuf, String> {
             return Ok(candidate);
         }
     }
-    Err("codeterm CLI is not installed yet; restart Domios and try again".into())
+    Err("domios CLI is not installed yet; restart Domios and try again".into())
 }
 
 #[cfg(target_os = "windows")]
 mod platform {
-    const TASK_NAME: &str = "CodeTerm-Autostart";
+    const TASK_NAME: &str = "Domios-Autostart";
 
     pub fn is_enabled() -> bool {
         run(&["/Query", "/TN", TASK_NAME, "/FO", "CSV", "/NH"])
@@ -178,7 +178,7 @@ mod platform {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    const LABEL: &str = "com.codeterm.app";
+    const LABEL: &str = "com.domios.app";
 
     pub fn is_enabled() -> bool {
         plist_path().exists()
@@ -215,7 +215,7 @@ mod platform {
     fn plist_path() -> std::path::PathBuf {
         dirs::home_dir()
             .unwrap_or_default()
-            .join("Library/LaunchAgents/com.codeterm.app.plist")
+            .join("Library/LaunchAgents/com.domios.app.plist")
     }
 
     fn xml_escape(value: &str) -> String {
@@ -244,7 +244,7 @@ mod platform {
 
 #[cfg(target_os = "linux")]
 mod platform {
-    const UNIT: &str = "codeterm.service";
+    const UNIT: &str = "domios.service";
 
     pub fn is_enabled() -> bool {
         unit_path().exists()

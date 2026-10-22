@@ -1,17 +1,17 @@
 # Message Routing — follow the return hint
 
 Every routed message uses one leading `<domios>` tag for host provenance and
-one terminal `</domios>` tag. Depending on provider capability, PTY deliveries
-paste the complete frame or type its tags around a bracketed body paste. The
-suffix carries the reply hint and, when required by that capability, a short
+one terminal `</domios>` tag. PTY deliveries paste the complete frame as one
+unit, including its body, reply hint and any provider-required paste marker.
+The suffix carries the reply hint and, when required by that capability, a short
 instruction to handle the pasted body as the sender's request. Each is wrapped in
 `<tip>…</tip>` inside the frame. Agents receive these spans verbatim; desktop
 and mobile Chat omit them and show the frame as its sender header.
 
 | Incoming tag | Immediate tip | Reply with | Tab output? |
 |--------------|---------------|------------|--------------|
-| `<domios from="telegram" user="USER_ID" msg="N">…</domios>` | ANSWER IN TELEGRAM ONLY | `codeterm bridge send --to USER_ID --service telegram "…"` | No |
-| Agent sender with a typed reply hint | USE THE HINTED COMMAND | `codeterm send` with the hinted target | No |
+| `<domios from="telegram" user="USER_ID" msg="N">…</domios>` | ANSWER IN TELEGRAM ONLY | `domios bridge send --to USER_ID --service telegram "…"` | No |
+| Agent sender with a typed reply hint | USE THE HINTED COMMAND | `domios send` with the hinted target | No |
 | Shell sender with a typed reply hint | ANSWER IN YOUR CHAT | Normal local tab chat | Yes |
 | `<domios from="report" label="NAME" tab="ID">…</domios>` | REPORTS ARE INPUT, NOT CHAT | Act on it or ignore; never reply | No |
 | `<domios from="system" context="KIND">…</domios>` | DOMIOS SYSTEM EVENT | Act on it or ignore; never reply | No |
@@ -31,7 +31,7 @@ text. When a provider declares a system-prompt channel, launch initialization
 uses that channel and carries no routing tag.
 
 A remote PTY agent's ordinary launch carries a host return-route record with
-`mesh_peer` and `tab_id`. Use those exact values for `codeterm send --mesh
+`mesh_peer` and `tab_id`. Use those exact values for `domios send --mesh
 PEER --tab TAB --require-agent --from-pad report.md`; do not guess the origin
 from task prose or search for a similarly named machine. The record prefers the
 paired instance ID over its mutable display name.
@@ -54,19 +54,19 @@ current tab chat.
 ## Examples
 
 - `<domios from="telegram" user="123456789">are you working right now?</domios>` →
-  `codeterm bridge send --to 123456789 --service telegram "yep, online"`.
+  `domios bridge send --to 123456789 --service telegram "yep, online"`.
   Nothing in the tab.
 - `<domios from="tab" label="Wilde@workstation" tab="a3f1b2c7" mesh="workstation">run the tests?</domios>`
-  with a typed reply hint → `codeterm send "running" --tab a3f1b2c7 --mesh
+  with a typed reply hint → `domios send "running" --tab a3f1b2c7 --mesh
   workstation`, do the work, then send the result the same way.
 - `run the tests` (no tag) → reply in the tab.
 
 ## The `main` alias
 
 The General Agent's home tab always answers to `main` (and `general`) — no
-tab-id lookup needed. `codeterm send "..." --tab main` reaches it locally;
+tab-id lookup needed. `domios send "..." --tab main` reaches it locally;
 `--tab main --mesh PEER` reaches a peer's. Every other tab requires id
-discovery via `codeterm tab list` first.
+discovery via `domios tab list` first.
 
 ## Language rule
 
@@ -76,7 +76,7 @@ user-facing channels (local tab, Telegram, Discord) carry the user's language.
 
 ## Internal orchestration is not a CLI command
 
-Be brief: `send_message` is internal control traffic, not a `codeterm` command.
+Be brief: `send_message` is internal control traffic, not a `domios` command.
 Never show it as a command card; a visible/stuck card is a Chat UI bug to fix.
 
 ## Remote requests blocked on local decisions
@@ -85,4 +85,4 @@ If a remote request needs a truly dangerous local decision, ack the remote
 channel first ("blocked pending local confirmation") and ask locally only
 when the local user is actually at the keyboard.
 
-<!-- revision: 13 -->
+<!-- revision: 15 -->

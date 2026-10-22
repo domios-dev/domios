@@ -19,23 +19,23 @@ You need a registered adapter and a model it lists. A remote adapter may require
 First discover the available adapters, models and token requirements:
 
 ```text
-codeterm supporter models
+domios supporter models
 ```
 
 For an adapter needing a token, store it **before activation**, using stdin only. Replace `<adapter>` with the discovered id. On Windows, copy the token to the clipboard, then run in PowerShell:
 
 ```powershell
-Get-Clipboard -Raw | codeterm supporter token set --adapter <adapter>
+Get-Clipboard -Raw | domios supporter token set --adapter <adapter>
 ```
 
-On macOS, use `pbpaste | codeterm supporter token set --adapter <adapter>`; on Linux, pipe the output of your secret manager to that same command. The token value must never appear in argv, shell history, memory, logs or agent messages. Clear the clipboard afterward if you used it.
+On macOS, use `pbpaste | domios supporter token set --adapter <adapter>`; on Linux, pipe the output of your secret manager to that same command. The token value must never appear in argv, shell history, memory, logs or agent messages. Clear the clipboard afterward if you used it.
 
 Select and activate the adapter, optionally specifying its listed model:
 
 ```text
-codeterm supporter use <adapter> --model <model>
-codeterm supporter status
-codeterm supporter status --json
+domios supporter use <adapter> --model <model>
+domios supporter status
+domios supporter status --json
 ```
 
 Omit `--model <model>` to use the adapter's saved or default model. `use` connects and activates immediately; there is no separate `enable` command or feature switch. If activation reports `saved_not_active`, resolve the reported issue and retry `use`.
@@ -47,10 +47,10 @@ The General Agent can discover the options, explain them briefly and offer to co
 ## Turn it off
 
 ```text
-codeterm supporter disconnect <adapter>
-codeterm supporter status
+domios supporter disconnect <adapter>
+domios supporter status
 ```
 
 Disconnecting the active adapter stops Spinal Cord and removes that saved connection and its token. Usage history remains. There is no separate `disable` command; reconnect with the setup above when needed. Switching adapters with `use` preserves the other saved connections.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

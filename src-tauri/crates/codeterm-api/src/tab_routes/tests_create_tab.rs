@@ -96,7 +96,7 @@ fn post_tabs_rejects_watcher_mode_chatbackend_config() {
     .unwrap_err();
     assert_eq!(
         err,
-        "watcher Tabs spawn via codeterm agent spawn --role Watcher"
+        "watcher Tabs spawn via domios agent spawn --role Watcher"
     );
 }
 
@@ -110,4 +110,33 @@ fn shell_profile_create_body_preserves_wire_selection() {
     assert_eq!(body.cmd.as_deref(), Some("uname -a"));
     let body: super::CreateShellTabBody = serde_json::from_value(serde_json::json!({})).unwrap();
     assert!(body.shell.is_none());
+}
+
+#[test]
+fn timeout_owner_errors_are_caller_errors() {
+    use axum::http::StatusCode;
+    for message in [
+        "timeout requires an owning agent",
+        "timeout requires a live owning agent",
+    ] {
+        assert_eq!(
+            super::create_shell_error_status(message),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(
+        super::create_shell_error_status("PTY creation failed"),
+        StatusCode::INTERNAL_SERVER_ERROR
+    );
+}
+
+#[test]
+fn restart_command_is_validated_before_replacing_shell() {
+    let body: super::RestartShellTabBody =
+        serde_json::from_value(serde_json::json!({"cmd": "ping -t 127.0.0.1"})).unwrap();
+    assert_eq!(body.cmd.as_deref(), Some("ping -t 127.0.0.1"));
+    assert!(serde_json::from_value::<super::RestartShellTabBody>(
+        serde_json::json!({"cmd": "a\u{8}b"})
+    )
+    .is_err());
 }

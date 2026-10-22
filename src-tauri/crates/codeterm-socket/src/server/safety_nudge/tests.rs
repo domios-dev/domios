@@ -18,7 +18,7 @@ fn nudges_ride_a_successful_result_and_merge_into_existing_hints() {
     let nudge = SafetyNudge::new(
         NUDGE_RETROSPECTIVE_UNRECORDED,
         "reason".into(),
-        "codeterm plan retrospective pl_x".into(),
+        "domios plan retrospective pl_x".into(),
     );
     apply_safety_nudges(&mut result, std::slice::from_ref(&nudge));
 

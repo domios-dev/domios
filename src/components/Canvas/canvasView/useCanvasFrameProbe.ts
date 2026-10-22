@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { ViewportTransform } from "../useCanvasViewport";
+import type { ViewportTransform } from "@codeterm/canvas-camera";
 import { DEV_BUILD } from "../../../lib/devBuild";
 
 

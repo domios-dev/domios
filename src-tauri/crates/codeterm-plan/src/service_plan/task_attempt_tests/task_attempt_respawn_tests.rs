@@ -479,7 +479,7 @@ fn respawn_keeps_persona() {
         .task_prompt
         .contains(&format!("attempt_id: {}", attempt.attempt_id)));
     assert!(draft.task_prompt.contains(&format!(
-        "codeterm agent report --plan {} --task {}",
+        "domios agent report --plan {} --task {}",
         p.id, task_id
     )));
     assert!(!draft.task_prompt.contains("--base "));
@@ -538,7 +538,7 @@ fn respawn_report_command_uses_attempt_base_not_task_lane_base() {
         )
         .unwrap();
 
-    assert!(draft.report_command.contains("codeterm agent report"));
+    assert!(draft.report_command.contains("domios agent report"));
     assert!(!draft.report_command.contains("attempt-base"));
     assert!(!draft.report_command.contains("task-base"));
 }
@@ -948,7 +948,7 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
     );
     assert_eq!(&draft.task_prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(draft.task_prompt.matches("You are Hopper.").count(), 1);
-    let ack = draft.task_prompt.find("codeterm agent ack").unwrap();
+    let ack = draft.task_prompt.find("domios agent ack").unwrap();
     let report = draft.task_prompt.find("When done, run exactly:").unwrap();
     assert!(ack < draft.task_prompt.find("Original task body:").unwrap());
     assert!(ack < report);
@@ -1003,7 +1003,7 @@ fn competition_prompt_starts_with_same_canonical_identity() {
     );
     assert_eq!(&prompt[..expected_prefix.len()], expected_prefix);
     assert_eq!(prompt.matches("You are Hopper.").count(), 1);
-    let ack = prompt.find("codeterm agent ack").unwrap();
+    let ack = prompt.find("domios agent ack").unwrap();
     let report = prompt.find("When done, run exactly:").unwrap();
     assert!(ack < prompt.find("Task body:").unwrap());
     assert!(ack < report);

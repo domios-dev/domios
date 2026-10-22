@@ -42,7 +42,7 @@ export function useAnchoredPopoverPosition(
   const anchorRef = "current" in anchor ? anchor : null;
   const pointX = "current" in anchor ? null : anchor.x;
   const pointY = "current" in anchor ? null : anchor.y;
-  const { margin, gap } = spacing;
+  const { margin, gap, keepSide } = spacing;
   useLayoutEffect(() => {
     if (!open) {
       setPosition(null);
@@ -53,7 +53,7 @@ export function useAnchoredPopoverPosition(
       const element = anchorRef?.current;
       const rect = element ? element.getBoundingClientRect() : pointX !== null && pointY !== null ? pointAnchor(pointX, pointY) : null;
       if (!floating || !rect) return;
-      const next = anchoredPopoverPosition(rect, naturalSize(floating), visualViewportBounds(), placement, { margin, gap });
+      const next = anchoredPopoverPosition(rect, naturalSize(floating), visualViewportBounds(), placement, { margin, gap, keepSide });
       setPosition((current) => (samePosition(current, next) ? current : next));
     };
     update();
@@ -75,6 +75,6 @@ export function useAnchoredPopoverPosition(
       visual?.removeEventListener("resize", update);
       visual?.removeEventListener("scroll", update);
     };
-  }, [open, anchorRef, pointX, pointY, floatingRef, placement, margin, gap]);
+  }, [open, anchorRef, pointX, pointY, floatingRef, placement, margin, gap, keepSide]);
   return open ? position : null;
 }

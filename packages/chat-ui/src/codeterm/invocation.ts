@@ -9,7 +9,7 @@ export interface CodetermInvocation {
   raw: string;
 }
 
-const BINARIES = new Set(["codeterm", "codeterm-dev"]);
+const BINARIES = new Set(["domios", "codeterm", "codeterm-dev"]);
 
 /** A known CodeTerm CLI invocation from one command's argv, or null. */
 export function invocationFromArgv(argv: readonly string[], raw: string): CodetermInvocation | null {

@@ -22,11 +22,6 @@ core_journey_product_env_for() {
 }
 
 core_journey_product_env() { core_journey_product_env_for "$CORE_JOURNEY_CLI_INSTANCE_ENV" "$1"; }
-core_journey_previous_product_env() {
-  [ -n "${CORE_JOURNEY_PREVIOUS_CLI_INSTANCE_ENV:-}" ] || return 1
-  core_journey_product_env_for "$CORE_JOURNEY_PREVIOUS_CLI_INSTANCE_ENV" "$1"
-}
-
 if [ -z "${CORE_JOURNEY_CLI_PATH:-}" ]; then
   core_journey_select_build_identity "$ROOT" || return 7
 fi
@@ -34,7 +29,7 @@ fi
 dev_bootstrap_cli() { printf '%s\n' "$CORE_JOURNEY_CLI_PATH"; }
 
 dev_resolve_identity() {
-  local requested_port output parsed cli_instance_env cli_port_env data_dir host port socket instance suffix previous_env
+  local requested_port output parsed cli_instance_env cli_port_env data_dir host port socket instance suffix
   instance="${EVAL_LIB_REQUESTED_INSTANCE:-}"
   requested_port="${EVAL_LIB_REQUESTED_API_PORT:-}"
   [ -n "$instance" ] || { echo 'ERROR [dev-resolution]: named instance is required.' >&2; return 7; }
@@ -50,7 +45,6 @@ dev_resolve_identity() {
   local -a unset_identity=()
   for suffix in INSTANCE API_PORT API_URL API_TOKEN DATA_DIR SOCKET_PATH TAB_ID PARENT_TAB_ID; do
     unset_identity+=(-u "$(core_journey_product_env "$suffix")")
-    if previous_env="$(core_journey_previous_product_env "$suffix")"; then unset_identity+=(-u "$previous_env"); fi
   done
   if ! output="$(env "${unset_identity[@]}" "$cli_instance_env=$instance" "$cli_port_env=$requested_port" \
     "$CORE_JOURNEY_CLI_PATH" identify --json)"; then
@@ -107,7 +101,7 @@ dev_run() {
     caller_tab_id="${2:-}"; [ -n "$caller_tab_id" ] || return 7; shift 2
   fi
   dev_resolve || return 7
-  local product_instance_env product_port_env product_api_url_env product_api_token_env product_data_dir_env product_socket_env suffix previous_env
+  local product_instance_env product_port_env product_api_url_env product_api_token_env product_data_dir_env product_socket_env suffix
   product_instance_env="$(core_journey_product_env INSTANCE)"
   product_port_env="$(core_journey_product_env API_PORT)"
   product_api_url_env="$(core_journey_product_env API_URL)"
@@ -137,7 +131,6 @@ dev_run() {
   for suffix in INSTANCE API_PORT API_URL API_TOKEN DATA_DIR SOCKET_PATH VITE_PORT CDP_PORT DEV_INSTANCE DEV_API_PORT DEV_VITE_PORT DEV_CDP_PORT DEV_DATA_DIR DEV_IDENTIFIER \
     STARTUP_ATTEMPT_ID SESSION_BINDING_NONCE SESSION_ID TEAM_ID PLAN_ID TASK_ID ATTEMPT_ID TAB_ID PARENT_TAB_ID; do
     unset_context+=(-u "$(core_journey_product_env "$suffix")")
-    if previous_env="$(core_journey_previous_product_env "$suffix")"; then unset_context+=(-u "$previous_env"); fi
   done
   env "${unset_context[@]}" "${vars[@]}" "$@"
 }

@@ -71,7 +71,7 @@ fn renders_undeclared_kind_fix() {
     .unwrap();
     assert!(msg.contains("✗ undeclared milestone kind"));
     assert!(msg.contains("valid kinds: status_update|review"));
-    assert!(msg.contains("codeterm plan kinds set plan_1 --kinds status_update,review,<new>"));
+    assert!(msg.contains("domios plan kinds set plan_1 --kinds status_update,review,<new>"));
     assert!(msg.contains("--add-kind"));
 }
 
@@ -84,7 +84,7 @@ fn renders_bad_status_fix() {
     .unwrap();
     assert!(msg.contains("valid task statuses"));
     assert!(msg.contains("pending|in_progress|in_review|blocked|paused|done|cancelled"));
-    assert!(msg.contains("codeterm plan task update plan_1 task_1 --status pending"));
+    assert!(msg.contains("domios plan task update plan_1 task_1 --status pending"));
     assert!(msg.contains("--status-label"));
 }
 
@@ -106,7 +106,7 @@ fn renders_plan_bad_status_fix() {
     )
     .unwrap();
     assert!(msg.contains("valid plan statuses: active|archived"));
-    assert!(msg.contains("codeterm plan update plan_1 --status active"));
+    assert!(msg.contains("domios plan update plan_1 --status active"));
 }
 
 #[test]
@@ -117,8 +117,8 @@ fn renders_bad_mode_fix() {
     )
     .unwrap();
     assert!(msg.contains("valid modes: planning|approved|execution|complete"));
-    assert!(msg.contains("codeterm plan mode plan_1 --set planning"));
-    assert!(msg.contains("codeterm plan approve plan_1"));
+    assert!(msg.contains("domios plan mode plan_1 --set planning"));
+    assert!(msg.contains("domios plan approve plan_1"));
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn renders_bad_priority_fix() {
     )
     .unwrap();
     assert!(msg.contains("valid priorities: p0|p1|p2|p3"));
-    assert!(msg.contains("codeterm plan task update plan_1 task_1 --priority p2"));
+    assert!(msg.contains("domios plan task update plan_1 task_1 --priority p2"));
 }
 
 #[test]
@@ -140,8 +140,8 @@ fn renders_unknown_plan_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ no plan 'missing'"));
-    assert!(msg.contains("codeterm plan list --active"));
-    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm"));
+    assert!(msg.contains("domios plan list --active"));
+    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 domios"));
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn renders_unknown_spec_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ no spec 'spec_missing'"));
-    assert!(msg.contains("codeterm spec list --active"));
+    assert!(msg.contains("domios spec list --active"));
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn renders_unknown_plan_section_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ no section 'sec_missing' was found in plan 'plan_1'"));
-    assert!(msg.contains("codeterm plan get plan_1 --sections"));
+    assert!(msg.contains("domios plan get plan_1 --sections"));
 }
 
 #[test]
@@ -174,7 +174,7 @@ fn renders_unknown_spec_section_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ no section 'sec_missing' was found in spec 'spec_1'"));
-    assert!(msg.contains("codeterm spec show spec_1"));
+    assert!(msg.contains("domios spec show spec_1"));
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn renders_unknown_loop_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ no loop 'loop_missing'"));
-    assert!(msg.contains("codeterm plan state <plan_id>"));
+    assert!(msg.contains("domios plan state <plan_id>"));
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn renders_unknown_heartbeat_plan_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ no heartbeat plan was found for this tab/session"));
-    assert!(msg.contains("codeterm orchestrator heartbeat show --plan <id>"));
+    assert!(msg.contains("domios orchestrator heartbeat show --plan <id>"));
     assert!(!msg.contains("heartbeat set"));
 }
 
@@ -208,8 +208,8 @@ fn renders_unknown_task_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ no task 'missing_task'"));
-    assert!(msg.contains("codeterm plan list --active"));
-    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm"));
+    assert!(msg.contains("domios plan list --active"));
+    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 domios"));
 }
 
 #[test]
@@ -220,8 +220,8 @@ fn renders_io_with_generic_plan_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ planner I/O failed: permission denied"));
-    assert!(msg.contains("codeterm plan get plan_1 --json"));
-    assert!(msg.contains("codeterm plan files plan_1"));
+    assert!(msg.contains("domios plan get plan_1 --json"));
+    assert!(msg.contains("domios plan files plan_1"));
 }
 
 #[test]
@@ -232,8 +232,8 @@ fn renders_io_with_handoff_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ handoff failed: handoff content must be an object"));
-    assert!(msg.contains("codeterm plan handoff list plan_1"));
-    assert!(msg.contains("codeterm plan handoff show plan_1 --latest --markdown"));
+    assert!(msg.contains("domios plan handoff list plan_1"));
+    assert!(msg.contains("domios plan handoff show plan_1 --latest --markdown"));
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn renders_unknown_element_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ no element 'missing_element'"));
-    assert!(msg.contains("codeterm plan element list plan_1"));
+    assert!(msg.contains("domios plan element list plan_1"));
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn review_recovery_pend_plan_task_refusal_uses_structured_remedy_verbs() {
         &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
     )
     .unwrap();
-    assert!(accept.contains("codeterm plan review accept"));
+    assert!(accept.contains("domios plan review accept"));
 
     let bounce = render_plan_error(
         &json!({
@@ -271,7 +271,7 @@ fn review_recovery_pend_plan_task_refusal_uses_structured_remedy_verbs() {
         &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
     )
     .unwrap();
-    assert!(bounce.contains("codeterm plan review bounce"));
+    assert!(bounce.contains("domios plan review bounce"));
 }
 
 #[test]
@@ -282,8 +282,8 @@ fn review_continuation_refusal_points_to_the_reopen_path() {
     )
     .unwrap();
 
-    assert!(message.contains("codeterm plan task show plan_1 task_1"));
-    assert!(message.contains("codeterm plan review bounce plan_1 task_1 --note"));
+    assert!(message.contains("domios plan task show plan_1 task_1"));
+    assert!(message.contains("domios plan review bounce plan_1 task_1 --note"));
 }
 
 #[test]
@@ -310,7 +310,7 @@ fn renders_loop_budget_fix() {
     )
     .unwrap();
     assert!(msg.contains("✗ loop budget 3/3 reached"));
-    assert!(msg.contains("codeterm plan loop set loop_1 --budget N"));
+    assert!(msg.contains("domios plan loop set loop_1 --budget N"));
 }
 
 #[test]
@@ -329,7 +329,7 @@ fn renders_write_pending_without_blind_retry() {
     assert!(msg.contains("pending after a committed write"));
     assert!(msg.contains("do not retry blindly"));
     assert!(msg.contains("task_committed"));
-    assert!(msg.contains("codeterm task show task_committed"));
+    assert!(msg.contains("domios task show task_committed"));
 }
 
 #[test]
@@ -345,7 +345,7 @@ fn renders_readback_mismatch_without_blind_retry() {
     .unwrap();
     assert!(msg.contains("did not read back"));
     assert!(msg.contains("do not retry blindly"));
-    assert!(msg.contains("codeterm task show task_1"));
+    assert!(msg.contains("domios task show task_1"));
 }
 
 #[test]
@@ -355,7 +355,7 @@ fn active_plan_requires_team_renderer_names_the_adoption_command() {
         &json!({ "plan_id": "plan_1" }),
     )
     .expect("active_plan_requires_team renderer");
-    assert!(msg.contains("codeterm team adopt-plan <team-id> plan_1"));
+    assert!(msg.contains("domios team adopt-plan <team-id> plan_1"));
 }
 
 #[test]
@@ -366,8 +366,8 @@ fn group_not_found_renderer_points_at_group_and_qa_commands() {
     )
     .expect("group_not_found renderer");
     assert!(msg.contains("task group"));
-    assert!(msg.contains("codeterm plan groups set pl_1"));
-    assert!(msg.contains("codeterm plan qa next pl_1 --group"));
+    assert!(msg.contains("domios plan groups set pl_1"));
+    assert!(msg.contains("domios plan qa next pl_1 --group"));
 }
 
 #[test]
@@ -403,7 +403,7 @@ fn ref_not_found_renderer_is_actionable() {
     .expect("ref_not_found renderer");
     assert!(msg.contains("not found"));
     assert!(msg.contains("pl_missing"));
-    assert!(msg.contains("codeterm plan list --active"));
+    assert!(msg.contains("domios plan list --active"));
 }
 
 #[test]

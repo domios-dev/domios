@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Command;
 
 use super::{PlanStore, TaskLaneUpdate};
-use crate::plan::Plan;
+use crate::plan::{Plan, TaskStatus};
 use codeterm_util::process_util;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,6 +146,15 @@ where
             tab_id.unwrap_or("worker")
         ));
     }
+    if task
+        .execution_attempts
+        .iter()
+        .any(|attempt| tab_live(&attempt.executor_tab_id))
+    {
+        return LaneCleanupOutcome::Refused(
+            "lane Worker tab is still live; close it before cleanup".into(),
+        );
+    }
 
     let worktree_exists = worktree_path.is_some_and(|path| Path::new(path).exists());
     let branch_is_present = branch.is_some_and(|name| branch_exists(project_path, name));
@@ -193,25 +202,30 @@ where
         };
     }
 
-    let integration_target = task
-        .lane
-        .destination
-        .as_deref()
-        .or(task.lane.base.as_deref())
-        .or_else(|| plan_integration_fallback(plan));
-
-    let decision = decide_lane_cleanup(
-        &LaneCleanupInput {
-            tab_id,
-            tab_live: false,
-            worktree_path: worktree_to_remove,
-            worktree_exists: worktree_to_remove.is_some(),
-            branch: branch_to_delete,
-            branch_exists: branch_to_delete.is_some(),
-            integration_target,
-        },
-        |branch, target| branch_is_merged(project_path, branch, target),
-    );
+    let merged =
+        branch_to_delete.is_none_or(|branch| branch_is_merged(project_path, branch, "HEAD"));
+    let cancelled = task.status == TaskStatus::Cancelled;
+    let decision = if cancelled && !merged {
+        LaneCleanupDecision::Clean(
+            worktree_to_remove
+                .into_iter()
+                .map(|path| LaneCleanupAction::RemoveWorktree(path.to_string()))
+                .collect(),
+        )
+    } else {
+        decide_lane_cleanup(
+            &LaneCleanupInput {
+                tab_id,
+                tab_live: false,
+                worktree_path: worktree_to_remove,
+                worktree_exists: worktree_to_remove.is_some(),
+                branch: branch_to_delete,
+                branch_exists: branch_to_delete.is_some(),
+                integration_target: Some("HEAD"),
+            },
+            |_, _| merged,
+        )
+    };
 
     match decision {
         LaneCleanupDecision::Noop => LaneCleanupOutcome::Noop,
@@ -221,7 +235,7 @@ where
         LaneCleanupDecision::Refuse(reason) => LaneCleanupOutcome::Refused(reason),
         LaneCleanupDecision::Clean(actions) => {
             for action in &actions {
-                if let Err(error) = run_action(project_path, action) {
+                if let Err(error) = run_action(project_path, action, cancelled && !merged) {
                     return LaneCleanupOutcome::Partial(error);
                 }
                 let update = match action {
@@ -245,7 +259,14 @@ where
                 &plan.id,
                 task_id,
                 TaskLaneUpdate {
-                    cleanup_status: Some(Some("done".into())),
+                    cleanup_status: Some(Some(
+                        if cancelled && !merged {
+                            "branch_retained"
+                        } else {
+                            "done"
+                        }
+                        .into(),
+                    )),
                     ..Default::default()
                 },
                 now_ms,
@@ -272,13 +293,6 @@ fn update_task_lane(
         .map_err(|error| format!("task lane metadata update failed: {error}"))
 }
 
-// Lanes in a plan share a base; borrow a sibling's target when this lane omits it.
-fn plan_integration_fallback(plan: &Plan) -> Option<&str> {
-    plan.tasks.iter().find_map(|task| {
-        non_empty(task.lane.destination.as_deref()).or_else(|| non_empty(task.lane.base.as_deref()))
-    })
-}
-
 fn plan_project_path(plan: &Plan) -> &str {
     if plan.canonical_project_path.trim().is_empty() {
         &plan.project_path
@@ -302,23 +316,27 @@ fn branch_exists(project_path: &str, branch: &str) -> bool {
     )
 }
 
-fn run_action(project_path: &str, action: &LaneCleanupAction) -> Result<(), String> {
+fn run_action(
+    project_path: &str,
+    action: &LaneCleanupAction,
+    retain_unmerged: bool,
+) -> Result<(), String> {
     match action {
         LaneCleanupAction::RemoveWorktree(path) => {
-            if git_ok(project_path, &["worktree", "remove", path]) {
-                Ok(())
-            } else {
-                Err(format!(
-                    "worktree {path} could not be removed (dirty or locked); leaving lane intact"
-                ))
+            if !retain_unmerged {
+                let tip =
+                    codeterm_util::worktree_cleanup::git(project_path, &["rev-parse", "HEAD"])?;
+                let tip = String::from_utf8_lossy(&tip.stdout);
+                codeterm_util::worktree_cleanup::git(
+                    path,
+                    &["merge-base", "--is-ancestor", "HEAD", tip.trim()],
+                )?;
             }
+            codeterm_util::worktree_cleanup::remove(project_path, path, false)
         }
         LaneCleanupAction::DeleteBranch(branch) => {
-            if git_ok(project_path, &["branch", "-D", branch]) {
-                Ok(())
-            } else {
-                Err(format!("branch {branch} could not be deleted"))
-            }
+            codeterm_util::worktree_cleanup::git(project_path, &["branch", "-d", branch])
+                .map(|_| ())
         }
     }
 }

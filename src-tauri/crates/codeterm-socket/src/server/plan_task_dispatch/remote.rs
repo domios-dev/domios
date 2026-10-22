@@ -764,7 +764,7 @@ pub(super) fn remote_worker_brief(
     origin_id: &str,
 ) -> String {
     let remote_ack = format!(
-        "Highest-priority startup action: run `codeterm plan task remote-ack {plan_id} {task_id} {attempt_id} --mesh {origin_id}` before any work. Do not continue until it prints the task id. This peer has no local plan, so `codeterm agent ack` and `codeterm agent report` do not apply here."
+        "Highest-priority startup action: run `domios plan task remote-ack {plan_id} {task_id} {attempt_id} --mesh {origin_id}` before any work. Do not continue until it prints the task id. This peer has no local plan, so `domios agent ack` and `domios agent report` do not apply here."
     );
     let ack = codeterm_plan::service_plan::worker_identity::WORKER_ACK_INSTRUCTION;
     let mut brief = if brief.contains(ack) {
@@ -779,7 +779,7 @@ pub(super) fn remote_worker_brief(
     brief.push_str(&format!(
         "
 
-Remote final report: write the report to a file, then run `codeterm plan task remote-report {plan_id} {task_id} {attempt_id} --message-file <report-path> --sha <lane-head> --mesh {origin_id}`. It persists your report on the origin attempt and moves the task to in_review.
+Remote final report: write the report to a file, then run `domios plan task remote-report {plan_id} {task_id} {attempt_id} --message-file <report-path> --sha <lane-head> --mesh {origin_id}`. It persists your report on the origin attempt and moves the task to in_review.
 "
     ));
     brief

@@ -321,8 +321,8 @@ fn restorable_identity(
 
 fn roleless_actions(tab_id: &str) -> serde_json::Value {
     serde_json::json!({
-        "promotion": format!("codeterm agent set-orchestrator --tab {tab_id}"),
-        "relink": format!("codeterm agent link --parent-tab <orchestrator-tab> --tab {tab_id}"),
+        "promotion": format!("domios agent set-orchestrator --tab {tab_id}"),
+        "relink": format!("domios agent link --parent-tab <orchestrator-tab> --tab {tab_id}"),
     })
 }
 

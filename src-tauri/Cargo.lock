@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm"
-version = "1.15.1"
+version = "1.15.2"
 dependencies = [
  "async-trait",
  "codeterm-build-info",
@@ -1353,6 +1353,7 @@ dependencies = [
  "objc2-foundation",
  "serde_json",
  "tauri",
+ "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tempfile",
  "tokio",
@@ -1822,6 +1823,7 @@ dependencies = [
  "dirs 5.0.1",
  "flate2",
  "log",
+ "notify 8.2.0",
  "reqwest 0.12.28",
  "semver",
  "serde",
@@ -2294,12 +2296,14 @@ name = "codeterm-update"
 version = "0.0.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "codeterm-build-info",
  "codeterm-paths",
  "codeterm-plugins",
  "codeterm-types",
  "libc",
  "log",
+ "minisign-verify",
  "parking_lot",
  "reqwest 0.12.28",
  "semver",
@@ -2334,6 +2338,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "socket2 0.6.3",
  "tempfile",
  "tokio",
  "uuid",
@@ -3123,11 +3128,9 @@ dependencies = [
  "libc",
  "log",
  "parking_lot",
- "rusqlite",
  "serde",
  "serde_json",
  "sha2",
- "sysinfo",
  "tempfile",
  "tokio",
  "url",

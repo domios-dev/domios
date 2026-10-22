@@ -1,6 +1,6 @@
 //! Installs CodeTerm's routing and memory rules on every registered provider at
 //! startup and on plugin changes. The old MEMORY.md watch loop is gone —
-//! persistent memory lives in `codeterm mem` (SQLite), not on disk.
+//! persistent memory lives in `domios mem` (SQLite), not on disk.
 
 use std::path::PathBuf;
 use std::sync::Arc;

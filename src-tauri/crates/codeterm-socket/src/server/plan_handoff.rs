@@ -145,9 +145,9 @@ pub(super) fn dispatch(
                     (result.mode == "new" && send.order == 1) || result.mode == "compact"
                 }) {
                     if send.enter {
-                        svc.send_text_detached(&result.tab_id, &send.text);
+                        svc.send_text_detached(&result.tab_id, &codeterm_service_core::service::messenger::AgentInput::Framed(codeterm_service_core::service::messenger::Messenger::from(codeterm_service_core::service::messenger::MessageEnvelope::codeterm_reminder("plan")).framed_delivery(&send.text)));
                     } else {
-                        svc.insert_text_detached(&result.tab_id, &send.text);
+                        svc.insert_text_detached(&result.tab_id, &codeterm_service_core::service::messenger::AgentInput::Framed(codeterm_service_core::service::messenger::Messenger::from(codeterm_service_core::service::messenger::MessageEnvelope::codeterm_reminder("plan")).framed_delivery(&send.text)));
                     }
                 }
                 emit_plan_changed(svc, &id);

@@ -168,7 +168,7 @@ pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
             let pointer = hit
                 .get("pointer")
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or("codeterm sessions get");
+                .unwrap_or("domios sessions get");
             let excerpt = hit
                 .get("excerpt")
                 .and_then(serde_json::Value::as_str)
@@ -200,7 +200,7 @@ pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
             let pointer = hit
                 .get("pointer")
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or("codeterm docs");
+                .unwrap_or("domios docs");
             match supporter_render::relevance_column(hit) {
                 Some(relevance) => {
                     out.push_str(&format!("{doc} § {section} | {pointer} | {relevance}\n"))

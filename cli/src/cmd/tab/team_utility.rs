@@ -76,7 +76,7 @@ fn render_team_utility_shells(tabs: &[serde_json::Value], team_id: &str) -> Opti
     let mut lines = vec![format!("Team utility shells ({}):", shells.len())];
     lines.extend(shells.iter().map(|(title, id)| format!("  {id} {title}")));
     if shells.len() > 1 {
-        lines.push("Clean up extras with `codeterm tab close --tab <ID>`.".to_string());
+        lines.push("Clean up extras with `domios tab close --tab <ID>`.".to_string());
     }
     Some(lines.join("\n"))
 }
@@ -107,7 +107,7 @@ mod tests {
 
         assert_eq!(
             output,
-            "Team utility shells (2):\n  shell-a dev\n  shell-b tests\nClean up extras with `codeterm tab close --tab <ID>`."
+            "Team utility shells (2):\n  shell-a dev\n  shell-b tests\nClean up extras with `domios tab close --tab <ID>`."
         );
     }
 

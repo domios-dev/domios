@@ -26,15 +26,15 @@ pub(super) fn startup_recovery_event(
         "attempt_id": attempt_id,
         "startup_stage": startup_stage,
         "inspect": {
-            "lifecycle": format!("codeterm tab inspect --tab {tab_id} --lifecycle"),
-            "screen": format!("codeterm tab get-text --tab {tab_id}"),
+            "lifecycle": format!("domios tab inspect --tab {tab_id} --lifecycle"),
+            "screen": format!("domios tab get-text --tab {tab_id}"),
         },
         "prompt_classification": {
             "source": "declared_provider_classifier",
             "confirm_with": "current_screen",
         },
         "respond": {
-            "command": format!("codeterm tab respond OPTION --tab {tab_id}"),
+            "command": format!("domios tab respond OPTION --tab {tab_id}"),
             "requires_recognized_safe_prompt": true,
         },
         "verification": {
@@ -57,7 +57,7 @@ pub(super) fn startup_recovery_event(
         event["startup_attempt_id"] = json!(startup_attempt_id);
         event["startup_hold"] = json!({
             "command": format!(
-                "codeterm agent startup-hold --tab {tab_id} --attempt {startup_attempt_id}"
+                "domios agent startup-hold --tab {tab_id} --attempt {startup_attempt_id}"
             ),
             "requires_prompt_bound_evidence": true,
         });

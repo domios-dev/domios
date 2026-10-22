@@ -8,7 +8,7 @@ const { request, rawBody, state } = vi.hoisted(() => ({
   request: vi.fn(), rawBody: vi.fn(() => "opaque-sensitive-response"), state: {
     identity:null as null | {uid:string;display_name:string;email:null;provider:string},
     failure:null as null | {stage:"redemption";error:"provider"},
-    failLogin:false, failStatus:false, failPlan:false, failBillingAction:false,
+    failLogin:false, failStatus:false, failPlan:false, failBillingAction:false, loginHeldElsewhere:false,
   },
 }));
 vi.mock("../../lib/webApi", async (importOriginal) => ({
@@ -18,6 +18,8 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
   if (url.endsWith("/status") && state.failStatus) throw new Error("opaque background status failure");
   if (url.endsWith("/plan") && state.failPlan) throw new Error("opaque background plan failure");
   if (url.endsWith("/portal") && state.failBillingAction) return {ok:false,text:rawBody};
+  if (url.split("?")[0].endsWith("/login") && state.loginHeldElsewhere) return {ok:false,text:rawBody};
+  if (url.endsWith("/status") && state.loginHeldElsewhere) return {ok:true,json:async () => ({identity:null,pending:true,last_sign_in_failure:null})};
   if (url.split("?")[0].endsWith("/login") && state.failLogin) {
     state.failure = {stage:"redemption",error:"provider"};
     return {ok:false,text:rawBody};
@@ -155,5 +157,26 @@ it("shows a direct sign-in failure in a retryable toast", async () => {
     await act(async () => root.unmount());
     host.remove();
     state.identity = null; state.failure = null; state.failLogin = false;
+  }
+});
+
+it("attaches to a sign-in another surface holds instead of reporting a failure", async () => {
+  state.identity = null; state.failure = null; state.loginHeldElsewhere = false;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTabWithToasts />));
+    state.loginHeldElsewhere = true;
+    const signIn = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Sign in");
+    await act(async () => signIn!.click());
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="notification-toast"]')).toBeNull();
+    state.loginHeldElsewhere = false;
+    state.identity = {uid:"user",display_name:"Ada",email:null,provider:"fake"};
+    await act(async () => window.dispatchEvent(new Event("domios:account-changed")));
+    expect(host.querySelector('[data-testid="settings-copy-row"] code')?.textContent).toBe("user");
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.identity = null; state.failure = null; state.loginHeldElsewhere = false;
   }
 });

@@ -349,6 +349,7 @@ fn main_impl() {
             count,
             require_agent,
             to_shell,
+            system_context,
         } => {
             cmd::local_io::handle_send_text(
                 &mut client,
@@ -366,6 +367,7 @@ fn main_impl() {
                 count,
                 require_agent,
                 to_shell,
+                system_context,
             );
             return;
         }
@@ -659,7 +661,10 @@ fn main_impl() {
                                     "connection_dropped": e.to_string(),
                                 }));
                             } else {
-                                eprintln!("[debug.crash] dispatch returned error (expected for segv/abort): {}", e);
+                                eprintln!(
+                                    "[debug.crash] dispatch returned error (expected for segv/abort): {}",
+                                    e
+                                );
                             }
                         }
                     }

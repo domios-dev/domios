@@ -1,4 +1,5 @@
 use super::enrollment::{enroll, verify_client_process, verify_component, EnrollmentPolicy};
+use super::peer::pin_peer;
 use super::wire_io::{encode_frame, read_frame, send_frame, write_encoded_frame};
 use crate::bootstrap::process::PinnedProcess;
 use codeterm_types::{
@@ -198,7 +199,11 @@ where
 fn create_listener(ready: &ServerReady) -> io::Result<Listener> {
     let address = codeterm_types::native_host::native_host_socket_address(&ready.bootstrap_address)
         .ok_or_else(|| io::Error::other("Invalid native host bootstrap address"))?;
-    let name = address.to_ns_name::<GenericNamespaced>()?;
+    codeterm_util::local_endpoint::prepare_namespaced(&address)?;
+    let target = codeterm_util::local_endpoint::display_name(&address);
+    let name = address
+        .to_ns_name::<GenericNamespaced>()
+        .map_err(|error| codeterm_util::local_endpoint::bind_error(&target, error))?;
     let options = ListenerOptions::new().name(name);
     // fchmod on a socket is EINVAL on macOS (interprocess: Unsupported); only Linux pins the mode.
     #[cfg(target_os = "linux")]
@@ -214,10 +219,50 @@ fn create_listener(ready: &ServerReady) -> io::Result<Listener> {
         let sddl = widestring::U16CString::from_str("D:P(A;;GA;;;OW)").map_err(io::Error::other)?;
         options.security_descriptor(SecurityDescriptor::deserialize(&sddl)?)
     };
-    options.create_tokio()
+    options
+        .create_tokio()
+        .map_err(|error| codeterm_util::local_endpoint::bind_error(&target, error))
 }
 
 impl NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult> {
+    pub(crate) async fn request_update_on_connection(
+        &self,
+        connection: &codeterm_types::native_host::NativeHostConnection,
+        operation: NativeHostOperation<NativeUpdateRequest>,
+    ) -> Completion<NativeUpdateResult> {
+        let session = self
+            .active
+            .read()
+            .as_ref()
+            .filter(|session| &session.connection == connection)
+            .cloned();
+        let Some(session) = session else {
+            return NativeHostCompletion::Rejected(NativeHostRejection::NotAttached);
+        };
+        self.request_captured(&session, NativeHostScope::Client, operation)
+            .await
+    }
+
+    pub(crate) fn update_request(&self) -> NativeUpdateRequest {
+        NativeUpdateRequest {
+            operation_id: codeterm_types::native_update::NativeUpdateOperationId::new(
+                uuid::Uuid::new_v4(),
+            )
+            .expect("new UUID is nonzero"),
+            action: codeterm_types::native_update::NativeUpdateAction::Pair,
+            expected_server: codeterm_types::native_update::ExpectedServer {
+                components: self.manifest.clone(),
+                identity: self.ready.identity.clone(),
+                incarnation: codeterm_types::server_bootstrap::ServerExpectation {
+                    epoch: self.ready.epoch.clone(),
+                    process: self.ready.process.clone(),
+                },
+            },
+            staged_components: self.manifest.clone(),
+            restart_authorized: true,
+        }
+    }
+
     pub fn active_native_update_executor(
         &self,
     ) -> Result<Arc<dyn NativeUpdateExecutor>, NativeUpdateRefusal> {
@@ -594,6 +639,11 @@ where
                 },
             );
         }
+        let deadline = if matches!(&operation, NativeHostOperation::ObserveNativeUpdate { .. }) {
+            codeterm_types::native_host::NATIVE_UPDATE_OBSERVATION_DEADLINE
+        } else {
+            NATIVE_HOST_REQUEST_DEADLINE
+        };
         let request = NativeHostRequest {
             request_id,
             connection: self.connection.clone(),
@@ -620,7 +670,7 @@ where
             armed: true,
         };
         let mut reply_rx = reply_rx;
-        match timeout(NATIVE_HOST_REQUEST_DEADLINE, &mut reply_rx).await {
+        match timeout(deadline, &mut reply_rx).await {
             Ok(Ok(reply)) => {
                 guard.disarm();
                 reply.completion
@@ -1113,40 +1163,4 @@ fn next_id(counter: &AtomicU64) -> Option<u64> {
             current.checked_add(1)
         })
         .ok()
-}
-
-fn pin_peer(stream: &Stream) -> io::Result<PinnedProcess> {
-    let credentials = stream.peer_creds()?;
-    #[cfg(unix)]
-    if credentials.euid() != Some(unsafe { libc::geteuid() }) {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Foreign native host user",
-        ));
-    }
-    #[cfg(not(target_os = "macos"))]
-    let pid = credentials
-        .pid()
-        .ok_or_else(|| io::Error::other("Native host peer PID unavailable"))? as u32;
-    #[cfg(target_os = "macos")]
-    let pid = {
-        use std::os::fd::{AsFd, AsRawFd};
-        let Stream::UdSocket(socket) = stream;
-        let mut pid: libc::pid_t = 0;
-        let mut len = std::mem::size_of_val(&pid) as libc::socklen_t;
-        if unsafe {
-            libc::getsockopt(
-                socket.as_fd().as_raw_fd(),
-                libc::SOL_LOCAL,
-                libc::LOCAL_PEERPID,
-                (&mut pid as *mut libc::pid_t).cast(),
-                &mut len,
-            )
-        } != 0
-        {
-            return Err(io::Error::last_os_error());
-        }
-        pid as u32
-    };
-    PinnedProcess::open(pid)
 }

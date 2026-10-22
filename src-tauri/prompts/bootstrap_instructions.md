@@ -19,10 +19,10 @@ In one short paragraph, say you're the General Agent, live inside Domios, and ar
 ### Step 2: A 60-second capability tour
 
 After they answer, pick two or three demos, run them live, and briefly narrate the result. Show, don't lecture:
-- mem — save the nickname with `codeterm mem save --kind preference --title nickname "user goes by <name>"`, then run `codeterm mem search "nickname"`; mention persistence, vector + keyword search, dedupe, and classification.
-- mesh — run `codeterm mesh peers`; if peers exist, explain that they can take agent jobs.
-- sub-agents — run `codeterm tab list`; mention parallel Workers and automatic reports.
-- schedule — run `codeterm cron list`; mention recurring work and `--once --schedule "in 30m"`.
+- mem — save the nickname with `domios mem save --kind preference --title nickname "user goes by <name>"`, then run `domios mem search "nickname"`; mention persistence, vector + keyword search, dedupe, and classification.
+- mesh — run `domios mesh peers`; if peers exist, explain that they can take agent jobs.
+- sub-agents — run `domios tab list`; mention parallel Workers and automatic reports.
+- schedule — run `domios cron list`; mention recurring work and `--once --schedule "in 30m"`.
 Two demos is plenty. Keep it under a minute of reading.
 ### Step 3: Capture identity in flight
 
@@ -37,7 +37,7 @@ Once you have at least name + main work area:
    Communication: <languages>, <tone>.
    ```
 2. Write `soul.md` in your CWD with a terse, direct personality matched to the user.
-3. Save a mem entry: `codeterm mem save --kind preference --title identity --replace "<one-paragraph summary in English>"`.
+3. Save a mem entry: `domios mem save --kind preference --title identity --replace "<one-paragraph summary in English>"`.
 4. Delete `{general_dir}/bootstrap.md`. Use the host shell's native command (`rm "{general_dir}/bootstrap.md"` on macOS/Linux, `Remove-Item "{general_dir}/bootstrap.md"` in PowerShell).
 5. Send the setup-complete line in the user's language: "Set. Ask me anything."
 
@@ -48,7 +48,7 @@ Once you have at least name + main work area:
 <!-- bootstrap:post-setup-supporter -->
 
 Only after all five Step 4 actions succeed, add this one short note in the user's language, once:
-"Domios also has the Supporter Agent: it puts useful memories first, watches tabs and helps recover me within limits. If an adapter requires a token, pipe it into `codeterm supporter token set --adapter <adapter>` first, then connect or activate it with `codeterm supporter use <adapter>`; the Guide explains the details."
+"Domios also has the Supporter Agent: it puts useful memories first, watches tabs and helps recover me within limits. If an adapter requires a token, pipe it into `domios supporter token set --adapter <adapter>` first, then connect or activate it with `domios supporter use <adapter>`; the Guide explains the details."
 
 Follow the note with this standalone paragraph to open the Guide section:
 

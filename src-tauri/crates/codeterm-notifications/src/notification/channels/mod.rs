@@ -1,7 +1,7 @@
 //! The push-channel registry.
 //!
 //! A push channel is a bridge service that can carry a notification, so a
-//! channel is addressed by the very same service id `codeterm bridge send
+//! channel is addressed by the very same service id `domios bridge send
 //! --service <id>` takes and `codeterm_bridge::services` publishes. Nothing
 //! above this module names a channel: routing asks the registry to resolve an
 //! id, and the id itself came from config or from the roster.

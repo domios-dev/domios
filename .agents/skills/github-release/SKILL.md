@@ -52,7 +52,7 @@ files, which select an application release. Frontend discovery is separate from 
 For a plugin release, run `node scripts/release-plugin.mjs bump <id> <version>`, with explicit
 `--min-codeterm` only when a new host capability is required. Verify `release-plugin.mjs check`
 and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag the verified master
-commit `plugin-<id>-v<version>`. Verify the installed version through `codeterm plugin update-system`.
+commit `plugin-<id>-v<version>`. Verify the installed version through `domios plugin update-system`.
 The tag's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
 `plugins/` tree as `codeterm-core.tar.gz` (+ `.sha256`, `.source-commit`) to the public
 `rollacode/codeterm-releases` release `codeterm-core-latest`, skips an older master commit, and
@@ -71,7 +71,7 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    `docs/release/<version>-pr.md`. Review changed commands/docs and remove obsolete callers.
 2. Before a release-branch push, qualify the exact committed release head in canonical using
    the gates skill. `build.sh check` is not release qualification. Required live evidence includes
-   [core journeys](../../../evals/core-journeys/README.md) and
+   [core journeys J1–J4](../../../evals/core-journeys/README.md) and
    [upgrade restore](../../../evals/upgrade-restore/README.md), with isolated named instances,
    their documented commands, passing evidence contracts and real startup/restore results.
    Source fixtures or capture/import alone do not replace these gates.
@@ -80,6 +80,27 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
    plugin versions remain independent. Run `build.sh release-preflight` per the gates skill on
    that committed head and `git diff --check`.
+   Before every push of `release/X.Y.Z` (the first one and each one carrying a fix or merge), the
+   Orchestrator mirrors the CI fast tier on that exact candidate in canonical, so a CI round never
+   stops on a one-minute defect. Rust jobs go through
+   the gateway one after another; the frontend and guards run in parallel in a second utility tab:
+   - Rust: `./build.sh fmt-check`, `./build.sh ci-clippy`, `./build.sh nextest cli 'all()'` (every
+     CLI target, generated manifest, essence map), and `./build.sh ci-tests full` with `RUNNER_OS`
+     set to the host OS (the whole workspace, one build).
+   - Frontend: `pnpm exec tsc --noEmit`, `pnpm check:api-effects`, `npm run test:unit` (all TS unit
+     files) and `pnpm exec vitest run` (all files). Never only the files that failed before.
+   - Guards: `bash scripts/check-file-sizes.sh --fail`, `node scripts/check-provider-boundary.mjs`,
+     `node scripts/check-installed-identity.mjs`, `node scripts/test-catalogue.mjs validate`,
+     `node scripts/check-plugin-bundles.mjs` (a changed plugin UI source needs its rebuilt bundle).
+   While iterating on a fix, `pnpm exec vitest related <files>` and the matching Rust filterset give
+   a quick signal, but the push to the release branch still waits for the whole list above: the warm
+   build keeps that rerun cheap.
+   Before every push to `release/X.Y.Z`, including each merge or fix, the release manager runs the
+   checks a CI round would otherwise find one at a time: `./build.sh fmt-check`,
+   `./build.sh nextest cli --wait-build` (every CLI target: transport rows, help text, generated
+   manifest, essence map), `node scripts/test-catalogue.mjs run --entry python-script-tests` (POSIX)
+   and `node --test` over the changed `scripts/**/*.test.mjs`. The owner authorizes these for the
+   release manager; a refused gate goes to the Orchestrator as the exact command to grant.
 4. Verify runner availability with `bash scripts/check-release-runners.sh` and credential
    preflight through `release-credentials.yml`. Confirm the intended version is unpublished.
    With publication GO, push `release/X.Y.Z` and open its PR to master. Do not manually create
@@ -135,7 +156,7 @@ gh workflow run release-publish.yml --repo rollacode/codeterm --ref master \
 on `release/X.Y.Z` whose platform, test and manifest jobs all succeeded. A rehearsal checks both
 tokens' write access, downloads and re-validates every retained byte and signature, and changes
 nothing. Publication creates both drafts, uploads the retained bytes (fragments only to the source
-draft) with read-back against each receipt, merges and verifies `latest.json`/`latest-deb.json`,
+draft) with read-back against each receipt, merges and verifies `domios-latest.json`/`domios-latest-deb.json`,
 tags `vX.Y.Z` on the run's SHA, publishes both releases and verifies the served manifests. With
 repository variable `RELEASE_AUTO_PROMOTE=true`, every green dry run of a release branch publishes
 itself through the same workflow; otherwise the run waits for this command. Issue closure and the
@@ -176,8 +197,8 @@ consume the same final server/CLI/resources; packaging must not compile them aga
 1. `release-inputs --for-bundle` builds inputs and stages the actual frontend at
    `target/domios-package/dist` before Tauri compilation. Compile-only resource stubs are marked;
    they never authorize packaging.
-2. `tauri build --no-bundle` compiles the native client (`domios`, with .exe on Windows); the
-   packaged CLI stays `codeterm`. Linux's compile-only config empties resources/externalBin to
+2. `tauri build --no-bundle` compiles the native client (`domios-app`, with .exe on Windows); the
+   packaged CLI ships `domios` and `codeterm` from identical signed bytes. Linux's compile-only config empties resources/externalBin to
    avoid the raw server-file/resource-directory collision. Restore full platform maps for bundling.
    macOS also empties compile-only externalBin: tauri-build otherwise copies the sidecar stub
    over the already signed Cargo server when both share the target release directory.
@@ -216,10 +237,10 @@ Tauri resource_dir, not hardcoded installation paths. Platform overlays provide 
 Sign/freeze CLI and nested server first. Tauri's sidecar source needs a byte-identical
 `domios-server-<rust-target>` alias; the installed server is `Contents/MacOS/domios-server`.
 The manifest is sealed at `Contents/Resources/server-component.json`.
-Its client identity contains team_id, identifier `com.codeterm.app`, and exactly:
+Its client identity contains team_id, identifier `com.domios.app`, and exactly:
 
 ```text
-anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "<TEAMID>"
+anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "<TEAMID>"
 ```
 
 Derive TEAMID from the approved signing identity. Do not embed the final outer app cdhash inside
@@ -251,6 +272,50 @@ Headless users launch from the extracted root with
 The default resource root is executable parent-parent; `--resources` overrides it. Authenticate
 through WebGate using protected local configuration. Never expose credentials in archive or output.
 
+## Manual move from CodeTerm (1.15.2)
+
+Publish [the exact owner install steps](../../../docs/release/1.15.2-manual-install.md)
+in both release bodies; `sync-release-notes.mjs` appends them for v1.15.2.
+Quit the old app and disable its autostart before installing Domios fresh:
+
+- Windows: run the new setup into `%LOCALAPPDATA%\Domios`, then run the old
+  uninstaller in `%LOCALAPPDATA%\CodeTerm` (normally `uninstall.exe`). Remove
+  any remaining `CodeTerm-Autostart` task and old shortcuts/pins.
+- macOS: install `/Applications/Domios.app` from its DMG, then delete
+  `/Applications/CodeTerm.app`. Remove the old Login Item and unload/remove
+  `~/Library/LaunchAgents/com.codeterm.app.plist` if present.
+- Linux: install the Domios package, then remove `codeterm` with the same package
+  manager (`sudo apt remove codeterm` or `sudo rpm -e codeterm`). Remove the old
+  AppImage/desktop entry instead for an AppImage install. Disable/remove the old
+  `codeterm.service` user unit. A package-file conflict requires removing the
+  old package before retrying the new install; never force-overwrite it.
+
+Launch Domios once to install/repair `~/.domios/bin/domios` and `codeterm`
+(the same CLI, with `.exe` on Windows), then re-enable autostart if desired.
+In a new terminal, `where.exe domios` / `where.exe codeterm` (Windows) or
+`command -v domios` / `command -v codeterm` (Unix) must select those CLI entries
+or their `~/.local/bin` links. Deb/RPM own `/usr/bin/domios` and `/usr/bin/codeterm`;
+the GUI is `domios-app[.exe]`, so CLI PATH never chooses a GUI executable.
+macOS and AppImage keep user CLI links; users control their shell PATH.
+The app never edits shell dotfiles. Remove old PATH entries,
+shortcuts, and URL/file handlers; verify `domios://` opens only Domios. Keep all
+`~/.domios` data. No automatic data migration, install shim or copied OS grants.
+
+macOS `com.domios.app` needs fresh TCC microphone/Accessibility grants; Keychain
+items authorized to the old signed identity may prompt or require sign-in again.
+Windows uses a new notification AUMID and preferences; allow Domios notifications.
+Verify those prompts on owner installs; source/config checks are not permission proof.
+
+The old 1.15.1 updater otherwise installs side by side on Windows, replaces the
+bundle at its old path on macOS, and risks side-by-side/conflicting packages on
+Linux (or an AppImage with the old filename). New clients exclusively use
+`domios-latest*.json`. Both publication paths generate `latest*.json` refusals
+for the old channels and Deb/RPM transports with manual notes and no platforms.
+Old discovery reports incompatible with these notes; forced install fails before
+artifact download or server shutdown. Metadata cannot add a custom old-binary dialog.
+Verify the served legacy refusals as well as the new signed manifests before calling
+publication complete. Never upload a Domios payload into a legacy manifest.
+
 ## Credentials, caches and runners
 
 Use repository secrets and `scripts/release-signing-material.py`. macOS jobs import the approved
@@ -258,7 +323,7 @@ certificate and pinned Apple intermediates into a unique RUNNER_TEMP keychain, v
 and notary credentials, and clean up only their own keychain/files in always(). No persistent login
 keychain changes or copied private keys are a release prerequisite. Updater keys use temporary
 restricted files; Tauri needs `TAURI_SIGNING_PRIVATE_KEY` pointing to the prepared key file.
-Off-CI recovery copies live in Bitwarden, read with `codeterm mem secret get --name <slug>` and
+Off-CI recovery copies live in Bitwarden, read with `domios mem secret get --name <slug>` and
 never printed: `codeterm-tauri-minisign-private-key` (updater signing, empty password; its public
 key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-env`. The Developer ID
 certificate is backed up only as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` repo secrets.
@@ -307,7 +372,7 @@ through the existing ci-artifact tooling rather than assuming GitHub artifact st
 
 ## Monitoring and failure recovery
 
-Read `codeterm docs BLUEPRINTS`. Use one named monitor per actual run ID; validate its probe once
+Read `domios docs BLUEPRINTS`. Use one named monitor per actual run ID; validate its probe once
 and verify blueprint show names that run's real bucket. Handle success, failure, cancellation,
 probe error and queued-too-long explicitly. Stop at terminal; never leave repeated failing probes,
 sleep/poll loops or duplicate watchers. A launch acknowledgement is not a completed build receipt.
@@ -341,10 +406,10 @@ The final job assembles all six updater keys (darwin/windows/linux × aarch64/x8
 private draft bytes, publishes and verifies public served bytes with a cache-busted URL and required
 version/platforms using `scripts/verify-updater-manifest.mjs`. HTTP 200 alone proves no installability.
 A partial recovery cannot mint complete release evidence. Manual mirror repair needs owner GO and
-must reuse original verified artifacts/fragments, not handwrite a reduced latest.json.
+must reuse original verified artifacts/fragments, not handwrite a reduced domios-latest.json.
 
 Served bytes are not the whole proof: on a host still running the previous version,
-`codeterm update install --auto` must install this release and come back on the new pair with
+`domios update install --auto` must install this release and come back on the new pair with
 sessions restored. A published defect ships as the next patch version through this same train;
 never move a tag or re-upload changed bytes under a published version.
 
@@ -372,7 +437,7 @@ Keep a handoff file current with candidate and workflow SHAs, run URL/ID, inputs
 runner names, first failures and owners, build counts per target, artifact names/sizes/SHA256,
 full/headless server/CLI equality, extraction/checksum readback, smoke receipts and every unrun or
 UNVERIFIED platform. Record signing/notarization/update gaps and any routing/config changes explicitly.
-Deliver results once through `codeterm agent report`; milestones and blockers may be short updates.
+Deliver results once through `domios agent report`; milestones and blockers may be short updates.
 
 After publication, verify the updater/install/restore surfaces authorized by the owner. Cleanup
 follows the lane-cleanup and build skills, with ancestry checks and preserved unmerged work;
@@ -381,4 +446,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 7 -->
+<!-- revision: 10 -->

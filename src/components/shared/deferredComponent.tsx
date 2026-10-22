@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, type ComponentType } from "react";
-import { DeferredLoader } from "./DeferredLoader";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 import { BrandState } from "../brand/BrandState";
 import { brandStateModel } from "../brand/brandStateModel";
 

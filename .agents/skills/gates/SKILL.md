@@ -129,13 +129,13 @@ no-tests check; every other runner fails it. The CI archive
 Delegate it:
 
 ```bash
-codeterm agent spawn codex --model gpt-5.6-luna --reasoning-effort xhigh \
+domios agent spawn codex --model gpt-5.6-luna --reasoning-effort xhigh \
   --title "gate" --cwd "D:\Developer\codeterm" --task-file <pad>/gate-brief.md
 ```
 
 The brief must say: run `./build.ps1 release-preflight` with **no**
 `CODETERM_INSTANCE` or `CODETERM_API_PORT` set, capture the whole log, and
-report back with `codeterm agent report`:
+report back with `domios agent report`:
 
 - the exit code,
 - every `release-rust: RED` line and the closing `release-rust:` summary,
@@ -168,7 +168,7 @@ reports the pipeline's success. Redirect to a file, then read the file.
 wait loop spins to timeout. Use `-Encoding utf8`, or read it with
 `Get-Content`.
 
-**Do not `codeterm send` build commands into a shell tab.** The prose guard
+**Do not `domios send` build commands into a shell tab.** The prose guard
 refuses them without `--to-shell`, and a tab that already has pending input
 corrupts the next command. Run them from the PowerShell tool.
 
@@ -217,13 +217,12 @@ then `node evals/core-journeys/lib/evidence-contract.mjs <run-dir>`. `run.sh`
 refuses ports 7685 and 7686 and an unnamed instance. Only exit 0 from both, with
 `Verdict: PASS` in `results.md`, clears the push; record its wall time and keep
 the run directory with the release evidence. A failed journey blocks the
-push until it is fixed and the suite rerun green on the new SHA. An app release
-also runs `run.sh upgrade` from the previous release on a disposable named
-instance. Offline node tests do not replace the live run. Frontend-only and
+push until it is fixed and the suite rerun green on the new SHA. Offline node
+tests do not replace the live run. Frontend-only and
 plugin-only releases are outside this gate.
 
 
-<!-- revision: 11 -->
+<!-- revision: 13 -->
 
 ## Rust warning inventory and cleanup
 
@@ -253,3 +252,14 @@ of collector verification; the next real release proves the six-platform deliver
 Lane verification uses one multi-package lane-check for all touched library crates, changed TS/JS test files and `tsc` when TS changes. Canonical integration verification owns Clippy and focused Rust tests. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` without default features. Root dev/default and core defaults remain aligned for the product; ordinary tests explicitly disable defaults. A batch failure in a lane's files is a bounce naming the integration SHA.
 
 Product DEV and check-queue library Clippy retain embeddings. Ordinary test profiles disable default features, including archives and CI. The required `rust-embeddings` CI job alone runs memory tests with embeddings enabled (`./build.sh ci-tests embeddings`). Full check-queue checks the ordinary service-core test profile and no longer repeats a dev-lib cargo check.
+
+## Installed application identity
+
+For bundle, installer or release-asset identity changes, include
+`node scripts/check-installed-identity.mjs` and
+`node --test scripts/tests/installed-identity.test.mjs` in the focused batch.
+These cover product/identifier/DEV names, installer-facing legacy-name rejection,
+new updater namespace and non-installable old manifests. Run the changed release
+script tests too. Native package extraction, signing, both CLI resource digests,
+system CLI ownership, OS registration and the manual old-app removal require release CI and owner
+installation on Windows, macOS and Linux; source assertions do not prove them.

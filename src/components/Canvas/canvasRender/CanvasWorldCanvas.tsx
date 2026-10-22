@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { LaidOutEdge, LaidOutNode, Point } from "../layout";
 import type { PresenceAgent } from "../presence/identity";
-import type { ViewportTransform } from "../useCanvasViewport";
+import type { ViewportTransform } from "@codeterm/canvas-camera";
 import type { Task } from "../types";
 import { buildReadback, drawScene, hitTestScene, resharpenVisible, type GroupGlyph, type RenderReadbackNode, type SceneExtras, type SectionZoneDraw, type ZoneLabel } from "./drawScene";
 import type { HitRegion, RegionAction } from "./drawCard";

@@ -2,7 +2,7 @@
 //! in-place recovery of a provider that exited to its shell.
 //!
 //! Wraps the manual /exit + resume dance documented in AGENT.md as a single
-//! atomic primitive callable from the CLI (`codeterm agent restart`) and from
+//! atomic primitive callable from the CLI (`domios agent restart`) and from
 //! the self-update flow (`feat/auto-update`) which restarts every agent tab
 //! around binary swap.
 

@@ -1,6 +1,6 @@
 use super::{AuthenticatedPlanCaller, ServiceContext};
-use crate::mem::{MemKind, NewMemItem, SearchQuery};
-use codeterm_blueprint_types::blueprint_memory::curator::{self, Decision, Relation};
+use crate::mem::{MemKind, NewMemItem};
+use codeterm_blueprint_types::blueprint_memory::curator::{self, Decision};
 use codeterm_mem::manager_crud::SaveOutcome;
 
 impl ServiceContext {
@@ -69,24 +69,7 @@ impl ServiceContext {
             episodes,
             now,
             |episodes, granted| {
-                let hits = self.mem.search(&SearchQuery {
-                    query: item.title.clone(),
-                    limit: Some(3),
-                    ..Default::default()
-                })?;
-                let relations = hits
-                    .iter()
-                    .map(|hit| {
-                        if hit.item.kind == "skill"
-                            && (hit.item.body == item.body
-                                || self.mem.curator_skill_covers(&hit.item.id, &item.body)?)
-                        {
-                            Ok(Relation::Covers(hit.item.id.clone()))
-                        } else {
-                            Ok(Relation::Conflict(hit.item.id.clone()))
-                        }
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
+                let relations = self.mem.curator_skill_relations(&item)?;
                 let decision = curator::decide(episodes, granted, false, &relations)?;
                 if let Decision::Improve(id) = &decision {
                     if !replace {

@@ -226,7 +226,7 @@ pub(crate) fn perform_mesh_relay_call(
             MeshSpawnFailure::new(
                 peer_name,
                 format!("transport error: {e}"),
-                "the peer may be down or unreachable — retry once, then check `codeterm mesh peers`",
+                "the peer may be down or unreachable — retry once, then check `domios mesh peers`",
             )
         })?;
     let status = resp.status();
@@ -306,7 +306,7 @@ pub(crate) fn mesh_relay_invoke_answered(
             MeshSpawnFailure::new(
                 target,
                 format!("local relay failed: {error}"),
-                "check `codeterm mesh peers`, then retry",
+                "check `domios mesh peers`, then retry",
             )
         })?;
     let status = response.status();
@@ -614,7 +614,7 @@ pub fn mesh_close_tab_and_forget_remote_worker(
         MeshSpawnFailure::new(
             target,
             "remote tab was not present before close",
-            "check `codeterm tab list --mesh <peer>` and retry with an existing tab id",
+            "check `domios tab list --mesh <peer>` and retry with an existing tab id",
         )
         .print_and_exit(json_mode);
     }

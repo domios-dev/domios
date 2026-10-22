@@ -115,7 +115,7 @@ pub(super) fn dispatch(
             ) {
                 return Err(JsonRpcError {
                     code: -32602,
-                    message: "structure readiness is derived; the Orchestrator approves and activates with `codeterm plan approve <plan>`".into(),
+                    message: "structure readiness is derived; the Orchestrator approves and activates with `domios plan approve <plan>`".into(),
                     data: Some(json!({ "type": "manual_structure_activation_forbidden" })),
                 });
             }

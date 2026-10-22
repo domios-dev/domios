@@ -2,6 +2,7 @@ pub mod adapters;
 mod build_config;
 mod cache;
 mod envelope;
+mod grant_activation;
 mod grant_store;
 pub use grant_store::{FileGrantStore, GrantStore};
 mod model;
@@ -13,7 +14,8 @@ pub use envelope::{
     Effective, Reading, Version,
 };
 pub use model::{
-    entitlement_allows, Capability, CheckoutKey, Entitlements, Plan, Status, CAPABILITY_PLANS,
+    checkout_url_with_theme, entitlement_allows, Capability, CheckoutKey, CheckoutTheme,
+    Entitlements, Plan, Status, CAPABILITY_PLANS,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
