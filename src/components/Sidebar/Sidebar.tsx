@@ -41,6 +41,7 @@ import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { SidebarGeneralSection } from "./SidebarGeneralSection";
 import { SidebarSkeleton } from "./SidebarSkeleton";
+import { useSidebarScrollAnchor } from "./useSidebarScrollAnchor";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
@@ -748,6 +749,8 @@ export const Sidebar = memo(function Sidebar({
     return groups;
   }, [generalWorkspace, isCompact, isWorkspaceMode, ordinaryWorkspaces, selectedWorkspaceId, state.activeTabIds, state.active_workspace_id, state.tabs, workspaceCanvasActive]);
 
+  const scrollAnchor = useSidebarScrollAnchor(!isSidebarCollapsed || isPeeking);
+
   return (
     <>
       <div
@@ -772,7 +775,8 @@ export const Sidebar = memo(function Sidebar({
         >
           {(!isSidebarCollapsed || isPeeking) && (
             <>
-            <div className="ct-sidebar-content flex-1 min-w-0 overflow-y-auto overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
+            <div ref={scrollAnchor.viewportRef} className="ct-sidebar-content flex-1 min-w-0 overflow-y-auto overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
+              <div ref={scrollAnchor.bodyRef}>
               {restoring && <SidebarSkeleton compact={isCompact} />}
               {isCompact && !restoring && (
                 <SidebarCompactRail
@@ -839,6 +843,8 @@ export const Sidebar = memo(function Sidebar({
                 )}
               </div>}
               </SidebarDnd>
+              </div>
+              <div ref={scrollAnchor.spaceRef} aria-hidden="true" />
             </div>
             {remotePickerWorkspaceId && (
               <RemoteTabPicker
