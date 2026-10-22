@@ -334,14 +334,7 @@ async fn ensure_locked(
         ));
     }
     let old = session.process.lock().clone();
-    let registered = svc.agent_registry.provider_arc(provider);
-    let same_adapter = session
-        .adapter
-        .lock()
-        .as_ref()
-        .zip(registered.as_ref())
-        .is_some_and(|(active, current)| Arc::ptr_eq(active, current));
-    let live = same_adapter
+    let live = session.adapter.lock().is_some()
         && old.as_ref().is_some_and(|process| {
             process.ended.borrow().is_none() && process.client.ended().borrow().is_none()
         });
@@ -983,16 +976,7 @@ fn validate_binding_inner(
     require_thread: bool,
 ) -> Result<(), RuntimeFailure> {
     let context = session.context.lock().clone();
-    let current = svc
-        .agent_registry
-        .provider_arc(&session.provider)
-        .ok_or(RuntimeFailure::Superseded)?;
-    if session
-        .adapter
-        .lock()
-        .as_ref()
-        .is_none_or(|adapter| !Arc::ptr_eq(adapter, &current))
-    {
+    if session.adapter.lock().is_none() {
         return Err(RuntimeFailure::Superseded);
     }
     if svc.mux.read().get_tab(&context.tab_id).is_some_and(|tab| {
