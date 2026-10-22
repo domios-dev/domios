@@ -14774,6 +14774,16 @@
           ]
         },
         {
+          "name": "system-context",
+          "positional": false,
+          "required": false,
+          "value_name": "CONTEXT",
+          "possible_values": [],
+          "default": null,
+          "help": "Deliver a host system notice with this context and no reply address",
+          "aliases": []
+        },
+        {
           "name": "tab",
           "positional": false,
           "required": false,

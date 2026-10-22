@@ -3179,6 +3179,7 @@ Send text to a tab (default: current tab)
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--require-agent` — Refuse unless the target tab has an agent attached. Guards task dispatch so prose never lands in a raw shell (issue #8)
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: domios send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
+- `--system-context` — Deliver a host system notice with this context and no reply address
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback). Comma-separated ids address several tabs in one call — the same payload is delivered per tab, every target is reported, and the call exits non-zero if any of them failed. Multi-target does not accept mesh ids: run it on the owning peer, one peer per call
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 - `--to-shell` — Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force
