@@ -88,15 +88,13 @@ pub fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
+    child_command.env_clear();
     child_command.envs(
         environment
             .variables
             .iter()
             .map(|(key, value)| (key, value)),
     );
-    for key in &environment.removed {
-        child_command.env_remove(key);
-    }
     if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
         process.set_failure("probe_cancelled");
         return process.finish_failure();

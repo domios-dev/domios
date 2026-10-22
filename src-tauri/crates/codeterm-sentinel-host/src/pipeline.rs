@@ -643,7 +643,7 @@ fn run_step(
     }
     match &step.kind {
         StepKind::Command { .. } | StepKind::Github { .. } | StepKind::Http { .. } => {
-            sources::run(handle, svc, lease, step, previous)
+            sources::run(handle, lease, step, previous)
         }
         StepKind::Agent {
             provider,

@@ -43,11 +43,9 @@ fn blueprint_pipeline_run_receives_previous_source_json_on_stdin() {
     use codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec;
     use codeterm_service_core::cron::clock::MockClock;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
-    use codeterm_service_core::service::test_fixture::ServiceFixture;
     let directory = tempfile::tempdir().unwrap();
     let (mux, creator) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&creator).unwrap();
-    let fixture = ServiceFixture::new(mux);
     let spec: BlueprintSpec = serde_json::from_value(serde_json::json!({
         "name":"stdin-pipeline", "trigger":{"type":"schedule","every":"20s"},
         "steps":[{"name":"read", "input":"text", "kind":{"kind":"command","command":"echo ignored"}}]
@@ -93,10 +91,32 @@ fn blueprint_pipeline_run_receives_previous_source_json_on_stdin() {
         },
         ..step
     };
-    let result = run(&handle, &fixture.service, &lease, &step, &source.next_text);
+    let result = run(&handle, &lease, &step, &source.next_text);
     assert_eq!(result.outcome, StepOutcome::Done);
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&result.next_text).unwrap(),
         serde_json::from_str::<serde_json::Value>(&source.next_text).unwrap()
     );
+}
+
+#[test]
+fn blueprint_run_environment_does_not_export_instance_authority() {
+    let environment = crate::probe_env::command();
+    #[cfg(windows)]
+    let command = "[Environment]::GetEnvironmentVariables().Keys | Where-Object { $_ -match '^(CODETERM|DOMIOS)(_|$)' }";
+    #[cfg(unix)]
+    let command = "env | while IFS='=' read -r key rest; do case \"$key\" in CODETERM|DOMIOS|CODETERM_*|DOMIOS_*) printf '%s\\n' \"$key\";; esac; done";
+    let directory = tempfile::tempdir().unwrap();
+    let output = probe::run_with_budget_input(
+        command,
+        directory.path(),
+        probe::PROBE_RUNTIME,
+        probe::PROBE_RUNTIME,
+        &std::sync::Arc::new(probe::owner::ProbeResourceOwner::new()),
+        &environment,
+        "opaque untrusted previous output",
+    )
+    .unwrap();
+    assert!(output.success);
+    assert!(output.stdout_text().trim().is_empty());
 }
