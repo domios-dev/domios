@@ -9,6 +9,11 @@ pub(super) fn source(name: &str) -> Result<String, String> {
     }
     pipeline_spec::read_spec(std::path::Path::new(name))
 }
+pub(super) fn local_bundle(name: &str) -> Result<blueprint_document::calls::LocalBundle, String> {
+    let raw = source(name)?;
+    blueprint_document::calls::collect_local(name, &raw)
+        .map_err(|errors| blueprint_document::checker::render(&errors, true))
+}
 pub(super) fn load_checked(name: &str, set: &[String]) -> Result<Value, String> {
     let source = source(name)?;
     let checked = blueprint_document::check(name, &source, set);
@@ -53,6 +58,14 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
             write,
         } => {
             let raw = source(name).unwrap_or_else(|error| crate::cmd::print::fail(2, error));
+            if !*fix
+                && blueprint_document::parse(name, &raw).is_ok_and(|parsed| {
+                    parsed.document.nodes().any(|node| node.call.is_some())
+                        || !parsed.document.imports.is_empty()
+                })
+            {
+                return false;
+            }
             let context = blueprint_document::checker::CheckContext::default();
             let repair = if *fix {
                 blueprint_document::parse(name, &raw)

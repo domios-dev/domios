@@ -64,8 +64,19 @@ pub struct ClosureDiff {
     pub callees: BTreeMap<String, DependencyDiff>,
 }
 pub fn diff(before: &FrozenClosure, after: &FrozenClosure) -> ClosureDiff {
-    let before_ids = by_id(before);
-    let after_ids = by_id(after);
+    let mut counts = BTreeMap::<String, usize>::new();
+    for closure in [before, after] {
+        let mut local = BTreeMap::<String, usize>::new();
+        for callee in closure.callees.values() {
+            *local.entry(callee.id.clone()).or_default() += 1;
+        }
+        for (id, count) in local {
+            let entry = counts.entry(id).or_default();
+            *entry = (*entry).max(count);
+        }
+    }
+    let before_ids = by_id(before, &counts);
+    let after_ids = by_id(after, &counts);
     let ids = before_ids
         .keys()
         .chain(after_ids.keys())
@@ -93,11 +104,23 @@ pub fn diff(before: &FrozenClosure, after: &FrozenClosure) -> ClosureDiff {
         callees,
     }
 }
-fn by_id(closure: &FrozenClosure) -> BTreeMap<String, &FrozenCallee> {
+fn by_id<'a>(
+    closure: &'a FrozenClosure,
+    counts: &BTreeMap<String, usize>,
+) -> BTreeMap<String, &'a FrozenCallee> {
     closure
         .callees
         .values()
-        .map(|c| (c.id.clone(), c))
+        .map(|c| {
+            (
+                if counts.get(&c.id).copied().unwrap_or(0) > 1 {
+                    c.pin().key()
+                } else {
+                    c.id.clone()
+                },
+                c,
+            )
+        })
         .collect()
 }
 pub fn bounded(value: &Value, depth: usize) -> Value {

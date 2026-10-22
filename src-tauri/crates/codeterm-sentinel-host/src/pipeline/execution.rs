@@ -205,21 +205,23 @@ pub fn execute_step(
             return Err(JournalReason::Deadline);
         }
         let result = match &step.kind {
-            StepKind::Call { call, grants } => crate::blueprint_calls::execute(ctx, &step.name, call, grants, &input)?,
+            StepKind::Call { call, grants } => {
+                crate::blueprint_calls::execute(ctx, &step.name, call, grants, &input)?
+            }
             StepKind::Effect { node } => crate::blueprint_calls::effect(ctx, node, &input)?,
             _ => dispatch::run_step(
-            ctx.handle,
-            ctx.service,
-            ctx.lease,
-            step,
-            &input,
-            ctx.input_kind,
-            ctx.input_source.as_deref(),
-            ctx.input_failure.as_deref(),
-            &ctx.input_display,
-            ctx.cleanup.clone(),
-            operation_limit,
-        ),
+                ctx.handle,
+                ctx.service,
+                ctx.lease,
+                step,
+                &input,
+                ctx.input_kind,
+                ctx.input_source.as_deref(),
+                ctx.input_failure.as_deref(),
+                &ctx.input_display,
+                ctx.cleanup.clone(),
+                operation_limit,
+            ),
         };
         if result.uncertain {
             return Err(JournalReason::UncertainEffect);

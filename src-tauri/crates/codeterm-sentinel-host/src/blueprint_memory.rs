@@ -29,6 +29,13 @@ pub trait BlueprintMemoryExt {
         id: &str,
         when: &[String],
     ) -> Result<Value, String>;
+    fn blueprint_keep_callable(
+        &self,
+        caller: &SentinelCaller,
+        document: codeterm_blueprint_types::blueprint_document::Document,
+        local_callees: &[codeterm_blueprint_types::blueprint_document::calls::LocalCallee],
+        when: &[String],
+    ) -> Result<Value, String>;
     fn blueprint_recall(&self, caller: &SentinelCaller, intent: &str) -> Result<Value, String>;
     fn blueprint_apply_recipe(
         &self,
@@ -138,6 +145,68 @@ impl BlueprintMemoryExt for ServiceContext {
             evidence,
         )?;
         Ok(json!({"id":saved.id,"evicted_ids":saved.evicted_ids,"status":"saved"}))
+    }
+    fn blueprint_keep_callable(
+        &self,
+        caller: &SentinelCaller,
+        document: codeterm_blueprint_types::blueprint_document::Document,
+        local_callees: &[codeterm_blueprint_types::blueprint_document::calls::LocalCallee],
+        when: &[String],
+    ) -> Result<Value, String> {
+        use codeterm_blueprint_types::blueprint_document::{calls, checker, Kind};
+        let when = codeterm_blueprint_types::blueprint_memory::validate_intents(when)?;
+        {
+            let mux = self.mux.read();
+            if !caller_is_live(&mux, caller)
+                || caller.team.is_none()
+                || !mux
+                    .get_tab(&caller.tab)
+                    .is_some_and(|tab| tab.has_team_orchestrator_authority())
+            {
+                return Err("Only the Team Orchestrator may keep callable solutions".into());
+            }
+        }
+        let team = caller
+            .team
+            .as_deref()
+            .ok_or("Callable save requires a Team")?;
+        if document.kind != Kind::Pipeline
+            || document.trigger.is_some()
+            || document.result.port.is_none()
+            || document.result.from.is_none()
+            || document.result.to.is_some()
+        {
+            return Err("keep --file requires a triggerless typed callable Blueprint".into());
+        }
+        let document = self.mem.pin_blueprint_bundle(
+            &area(&caller.workspace),
+            team,
+            document,
+            local_callees,
+        )?;
+        let closure = calls::FrozenClosure::from_document(document.clone())?;
+        let context = calls::check_context(&closure, &Default::default());
+        let diagnostics = checker::check_ir(&closure.root.ir(), &context);
+        if checker::has_errors(&diagnostics) {
+            return Err(checker::render(&diagnostics, true));
+        }
+        let saved = self.mem.save_blueprint_scoped(
+            &area(&caller.workspace),
+            team,
+            document,
+            &when,
+            Evidence {
+                kept: true,
+                ..Default::default()
+            },
+        )?;
+        let id = format!("mem:{}", saved.id);
+        let mut body = self
+            .mem
+            .blueprint_callable(&area(&caller.workspace), team, &id)?;
+        body.dependencies.clear();
+        let hash = codeterm_blueprint_types::blueprint_document::projection::identity(&body)?;
+        Ok(json!({"id":id,"hash":hash,"status":"saved","evicted_ids":saved.evicted_ids}))
     }
     fn blueprint_recall(&self, caller: &SentinelCaller, intent: &str) -> Result<Value, String> {
         if intent.len() > 4096 {

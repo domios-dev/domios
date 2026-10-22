@@ -37,7 +37,11 @@ impl MemManager {
         let joined = intents.join("; ");
         let when_to_use = joined.as_str();
         let index = index_row(&document, &intents);
-        let document = model::abstract_document(document);
+        let document = if document.trigger.is_none() && document.result.port.is_some() {
+            document
+        } else {
+            model::abstract_document(document)
+        };
         if !document.template_errors().is_empty() {
             return Err("Blueprint solution fails current template validation".into());
         }
