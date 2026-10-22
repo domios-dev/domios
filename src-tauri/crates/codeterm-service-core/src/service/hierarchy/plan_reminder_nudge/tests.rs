@@ -987,3 +987,34 @@ fn plan_events_cannot_advance_owner_heartbeat_deadline() {
     }
     assert_eq!(*deliveries.borrow(), vec![2700, 5400]);
 }
+
+#[test]
+fn heartbeat_owner_interval_drives_delivery_and_delayed_projection() {
+    let mut plan = plan(
+        "pl",
+        "owner-tab",
+        PlanMode::Execution,
+        vec![task("task", TaskStatus::InProgress, Some("worker-tab"))],
+    );
+    plan.control_loop.mode = codeterm_types::plan::ControlLoopMode::Heartbeat;
+    plan.control_loop.heartbeat_interval_secs = Some(900);
+    let plans = [plan];
+    let counter = TurnCounter::new();
+    counter.mark_time_nudged("owner-tab", 100);
+    let interval = effective_interval(
+        &plans,
+        &PlanReminderTarget::Owner {
+            plan_id: "pl".into(),
+        },
+        2700,
+    );
+    assert!(!counter.time_nudge_due("owner-tab", 999, interval));
+    assert!(counter.time_nudge_due("owner-tab", 1000, interval));
+    let projected = project_for_tab(&plans, "owner-tab", 2700, 500, Some(100), &[], true);
+    assert_eq!(projected[0].cadence_ms, 900_000);
+    assert_eq!(projected[0].next_due_ms, 1_000_000);
+    assert_eq!(
+        effective_interval(&plans, &PlanReminderTarget::Worker, 2700),
+        2700
+    );
+}

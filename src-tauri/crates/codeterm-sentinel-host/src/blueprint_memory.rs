@@ -101,7 +101,10 @@ impl BlueprintMemoryExt for ServiceContext {
         {
             return Err("When to use must contain 1..200 plain-text characters".into());
         }
-        if self.is_curator_tab(&caller.tab) {
+        if self
+            .role_policy_for_tab(&caller.tab)
+            .is_some_and(|policy| policy.conservative_save())
+        {
             return curator::keep(self, caller, id, when);
         }
         let handle = self

@@ -23,7 +23,8 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::GateNotFound
         | PlanError::GroupNotFound
         | PlanError::ReviewContinuationAttemptNotFound { .. } => StatusCode::NOT_FOUND,
-        PlanError::BadStatus
+        PlanError::Validation(_)
+        | PlanError::BadStatus
         | PlanError::BadMode
         | PlanError::BadPriority
         | PlanError::TaskCreationRequiresApproval

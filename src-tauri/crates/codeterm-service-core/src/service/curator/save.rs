@@ -84,7 +84,7 @@ impl ServiceContext {
                             && run.binding_nonce.as_deref() == Some(identity.binding_nonce.as_str())
                     })
                     .ok_or_else(|| {
-                        crate::service::plan::PlanError::Io("Curator round changed".into())
+                        crate::service::plan::PlanError::Validation("Curator round changed".into())
                     })?;
                 if plan
                     .control_loop
@@ -115,9 +115,7 @@ impl ServiceContext {
                         Ok(Ok(id))
                     }
                     Err(reason) => {
-                        run.refused_actions
-                            .push(format!("save:{candidate}: {reason}"));
-                        run.refused_actions.truncate(20);
+                        run.refuse_action(format!("save:{candidate}: {reason}"));
                         Ok(Err(reason))
                     }
                 }

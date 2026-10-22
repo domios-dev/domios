@@ -196,7 +196,11 @@ impl BlueprintExt for ServiceContext {
         spec: BlueprintSpec,
         stopped: bool,
     ) -> Result<Value, String> {
-        self.authorize_curator_operation(&caller.tab, None, "create")?;
+        self.authorize_role_blueprint(
+            &caller.tab,
+            None,
+            codeterm_service_core::service::role_policy::BlueprintAction::Create,
+        )?;
         self.validate_pipeline(&spec)?;
         self.validate_event_trigger(&spec)?;
         ensure_trigger_available(&spec.trigger)
@@ -285,7 +289,11 @@ impl BlueprintExt for ServiceContext {
         spec: BlueprintSpec,
         cause: Option<String>,
     ) -> Result<crate::store::Sentinel, String> {
-        let curator = self.authorize_curator_operation(&caller.tab, Some(id), "apply")?;
+        let curator = self.authorize_role_blueprint(
+            &caller.tab,
+            Some(id),
+            codeterm_service_core::service::role_policy::BlueprintAction::Apply,
+        )?;
         let current = self.pipeline_update_current(caller, id, expect_version)?;
         if curator
             && !crate::blueprint_apply::retarget_only(

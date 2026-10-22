@@ -6,7 +6,7 @@ async function main() {
   const win = new Window({ url: "http://localhost:7686" });
   Object.assign(globalThis, { window: win, localStorage: win.localStorage, sessionStorage: win.sessionStorage });
   const { setTokenFor } = await import("../../lib/webApi");
-  const { fetchPlanControlLoop, setPlanControlLoop } = await import("./plansApi");
+  const { fetchPlanControlLoop, setPlanControlLoop, runPlanControlLoop } = await import("./plansApi");
   const api: ApiConfig = { enabled: true, host: "localhost", port: 7686, token: "fixture", cors: true };
   setTokenFor("http://localhost:7686", "fixture");
   const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -26,7 +26,14 @@ async function main() {
   globalThis.fetch = async () => new Response("refused-fixture", { status: 403 });
   await assert.rejects(setPlanControlLoop(api, "plan/one", { mode: "curator" }), /403/);
   await assert.rejects(fetchPlanControlLoop(api, "plan/one"), /403/);
-  console.log("plansApi control-loop: 4 cases passed");
+  await assert.rejects(runPlanControlLoop(api, "plan/one"), /403/);
+  globalThis.fetch = async (input, init) => { calls.push({ url: String(input), init }); return Response.json(stored); };
+  await runPlanControlLoop(api, "plan/one");
+  const run = calls[calls.length - 1];
+  assert.equal(run.url, "http://localhost:7686/api/plans/plan%2Fone/control-loop/run");
+  assert.equal(run.init?.method, "POST");
+  assert.equal(new Headers(run.init?.headers).get("X-CodeTerm-Plan-Confirmation"), "plan/one");
+  console.log("plansApi control-loop: 6 cases passed");
 }
 
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });
