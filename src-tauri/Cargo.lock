@@ -2334,6 +2334,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "socket2 0.6.3",
  "tempfile",
  "tokio",
  "uuid",
