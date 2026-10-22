@@ -18,6 +18,7 @@ import { createAgentBlockHost } from "./agentBlockHost";
 import { createChecklistBlockHost } from "./checklistBlockHost";
 import { createJobBlockHost } from "./jobBlockHost";
 import { createJobsBlockStore } from "./jobsBlockStore";
+import { createMentionHost } from "./mentionHost";
 import { createTasksBlockHost, type PlansSnapshot } from "./tasksBlockHost";
 import { createValueFeed } from "./valueFeed";
 
@@ -70,6 +71,20 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
       watch: watchJobEvents,
     });
     return {
+      mentions: createMentionHost({
+        mux, plans: plainPlans,
+        readGraph: async (scope, signal) => {
+          const graphs = await Promise.all((scope.teamId ? [scope.teamId, null] : [null]).map((teamId) => hostAutomationAdapter.read({ connection_id: "composer", workspace_id: scope.workspaceId!, team_id: teamId }, signal)));
+          return { ...graphs[0], nodes: graphs.flatMap((graph) => graph.nodes) };
+        },
+        watchGraph: async (scope, changed) => {
+          const stops = await Promise.all((scope.teamId ? [scope.teamId, null] : [null]).map((teamId) => hostAutomationAdapter.subscribe({ connection_id: "composer", workspace_id: scope.workspaceId!, team_id: teamId }, changed)));
+          return () => stops.forEach((stop) => stop());
+        },
+        openPlan: (target) => live.current.navigate(target),
+        openTab: (workspaceId, tabId) => { void live.current.selectTabByTab(workspaceId, tabId); },
+        openBlueprint: (workspaceId, teamId, blueprintId) => requestOpenJob({ workspaceId, target: { teamId, blueprintId } }),
+      }),
       agents: createAgentBlockHost({
         mux: muxSource,
         plans: plainPlans,
