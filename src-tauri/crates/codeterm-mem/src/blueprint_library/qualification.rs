@@ -21,6 +21,9 @@ impl MemManager {
             return Err("When to use must contain 1..200 plain-text characters".into());
         }
         let document = model::abstract_document(document);
+        if !document.template_errors().is_empty() {
+            return Err("Blueprint solution fails current template validation".into());
+        }
         evidence.safe = model::safe_template(&document, when_to_use);
         let decision = model::decide(&evidence);
         if !decision.save {
