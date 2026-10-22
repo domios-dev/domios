@@ -2400,7 +2400,7 @@ dev_health_fields() {
     process.stdin.on("end", () => {
       const json=JSON.parse(input);
       const instance=json.instance ?? {};
-      process.stdout.write([json.status ?? "", json.build_sha ?? "", instance.name ?? "", instance.api_port ?? "", instance.vite_port ?? "", instance.cdp_port ?? "", instance.identifier ?? ""].join("\n"));
+      process.stdout.write([json.status ?? "", json.build_sha ?? "", instance.name ?? "", instance.api_port ?? "", instance.vite_port ?? "", instance.cdp_port ?? "", instance.identifier ?? "", json.startup?.state ?? ""].join("\n"));
     });
   '
 }
@@ -2409,7 +2409,7 @@ validate_dev_health() {
   local expected_sha="$1" expected_instance="$2" expected_port="$3" expected_vite="$4" expected_cdp="$5" expected_identifier="$6" health="$7"
   local role="${8:-combined}"
   case "$role" in combined|server) ;; *) echo "Unknown DEV health role" >&2; return 1 ;; esac
-  local status sha instance port vite cdp identifier fields
+  local status sha instance port vite cdp identifier fields startup
   fields="$(printf '%s' "$health" | dev_health_fields 2>/dev/null || true)"
   status="$(printf '%s\n' "$fields" | sed -n '1p')"
   sha="$(printf '%s\n' "$fields" | sed -n '2p')"
@@ -2418,8 +2418,13 @@ validate_dev_health() {
   vite="$(printf '%s\n' "$fields" | sed -n '5p')"
   cdp="$(printf '%s\n' "$fields" | sed -n '6p')"
   identifier="$(printf '%s\n' "$fields" | sed -n '7p')"
+  startup="$(printf '%s\n' "$fields" | sed -n '8p')"
   if [ "$status" != "ok" ]; then
     echo "Health endpoint did not report status=ok" >&2
+    return 1
+  fi
+  if [ "$startup" != "ready" ]; then
+    echo "Health endpoint did not report startup.state=ready" >&2
     return 1
   fi
   if [[ ! "$expected_sha" =~ ^[0-9a-f]{40}$ ]] || [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]] || [ "$sha" != "$expected_sha" ]; then
@@ -3812,8 +3817,7 @@ LOCK_STORM_PY
     ta_run "plugin"     pnpm -s test:plugins
 
     PYTHON_BIN="$(command -v python3 || command -v python)"
-    DEV_STATUS=$(dev_health_status | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
-    if [ "$DEV_STATUS" = "ok" ]; then
+    if dev_health_status | node scripts/server-readiness.mjs health-ready; then
       ta_run "e2e-pytest" bash -c "cd tests/e2e && '$PYTHON_BIN' -m pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:${CT_PORT} '$PYTHON_BIN' -m pytest -m 'not llm' -q"
     else
       echo

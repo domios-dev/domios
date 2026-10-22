@@ -446,21 +446,18 @@ pub(crate) fn start_servers(
                             let mut state = mesh.lock();
                             state.set_ready_listeners(ready)
                         };
-                        if changed {
-                            if mesh_config.lock().mesh.enabled {
-                                codeterm_service_core::async_runtime::spawn(async move {
-                                    let report = codeterm_service_core::mesh::broadcast_announce(
-                                        &mesh, None,
-                                    )
-                                    .await;
-                                    if !report.errors.is_empty() {
-                                        log::warn!(
-                                            "[mesh] listener-set announcement failed: {:?}",
-                                            report.errors
-                                        );
-                                    }
-                                });
-                            }
+                        if changed && mesh_config.lock().mesh.enabled {
+                            codeterm_service_core::async_runtime::spawn(async move {
+                                let report =
+                                    codeterm_service_core::mesh::broadcast_announce(&mesh, None)
+                                        .await;
+                                if !report.errors.is_empty() {
+                                    log::warn!(
+                                        "[mesh] listener-set announcement failed: {:?}",
+                                        report.errors
+                                    );
+                                }
+                            });
                         }
                     }
                 }),
