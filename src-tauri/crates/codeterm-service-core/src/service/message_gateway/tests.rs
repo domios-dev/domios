@@ -378,6 +378,10 @@ fn tab_not_found_and_delivered_unverified_are_distinct() {
 #[test]
 fn classify_maps_structural_markers() {
     assert!(matches!(
+        classify("p", "curator_read_only: opaque".into()),
+        DeliveryError::ReadOnly { .. }
+    ));
+    assert!(matches!(
         classify("p", "Tab p not found or has no PTY".to_string()),
         DeliveryError::TabNotFound { .. }
     ));

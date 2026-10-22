@@ -95,13 +95,24 @@ pub struct DeliveryReceipt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliveryError {
     /// The target tab could not be resolved to a live tab/PTY.
-    TabNotFound { target: String },
+    TabNotFound {
+        target: String,
+    },
     /// Bytes were written but submission could not be confirmed.
-    DeliveredUnverified { detail: String },
+    DeliveredUnverified {
+        detail: String,
+    },
     /// Any other failure from the underlying path, kept opaque for adapters.
-    Transport { detail: String },
+    Transport {
+        detail: String,
+    },
     /// A system notice was refused because the target has no live agent; nothing was written.
-    AgentUnavailable { target: String },
+    AgentUnavailable {
+        target: String,
+    },
+    ReadOnly {
+        target: String,
+    },
 }
 
 impl DeliveryError {
@@ -113,6 +124,7 @@ impl DeliveryError {
 impl std::fmt::Display for DeliveryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ReadOnly { .. } => f.write_str("curator_read_only: Curator round, read-only"),
             Self::TabNotFound { target } => write!(f, "Tab not found: {target}"),
             Self::DeliveredUnverified { detail } => write!(f, "delivered unverified: {detail}"),
             Self::Transport { detail } => write!(f, "transport error: {detail}"),
@@ -200,6 +212,9 @@ impl DeliverySeam for super::ServiceContext {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
+        if envelope.kind != super::messenger::MessageKind::System {
+            self.require_tab_input_allowed(to_tab, Some(&envelope.from_tab))?;
+        }
         Messenger::deliver(self, to_tab, envelope, body)
     }
 
@@ -209,18 +224,24 @@ impl DeliverySeam for super::ServiceContext {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        if envelope.kind != super::messenger::MessageKind::System {
+            self.require_tab_input_allowed(to_tab, Some(&envelope.from_tab))?;
+        }
         Messenger::deliver_with_pad_file(self, to_tab, envelope, body)
     }
 
     fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String> {
+        self.require_tab_input_allowed(tab, None)?;
         self.deliver(tab, Input::TextDetached(text))
     }
 
     fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
+        self.require_tab_input_allowed(tab, None)?;
         self.deliver(tab, Input::Batch(batch))
     }
 
     fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
+        self.require_tab_input_allowed(tab, None)?;
         let ordered = build_ordered(self, tab, strokes)?;
         execute_ordered_actions(
             text,
@@ -329,7 +350,11 @@ impl super::ServiceContext {
 /// structural markers those paths already emit until typed errors land upstream.
 fn classify(target: &str, err: String) -> DeliveryError {
     let low = err.to_lowercase();
-    if low.contains("not found")
+    if err.starts_with("curator_read_only:") {
+        DeliveryError::ReadOnly {
+            target: target.to_string(),
+        }
+    } else if low.contains("not found")
         || low.contains("Tab missing")
         || low.contains("has no pty")
         || low.contains("did not start")

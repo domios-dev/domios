@@ -451,10 +451,50 @@ fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_
 
 #[test]
 fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc() {
+    assert_routed_runtime_envelope(false, false);
+}
+
+#[test]
+fn curator_runtime_envelopes_accept_the_orchestrator_and_host() {
+    assert_routed_runtime_envelope(true, false);
+    assert_routed_runtime_envelope(true, true);
+}
+
+fn assert_routed_runtime_envelope(curator: bool, host: bool) {
     use crate::service::messenger::{Delivery, MessageEnvelope};
     const PAYLOAD: &str = "opaque routed payload";
     let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
-    let mut envelope = MessageEnvelope::tab("Source", "source").from_agent(Some(true));
+    let source = if curator {
+        let mut mux = fixture.service.mux.write();
+        mux.get_tab_mut(&tab_id).unwrap().role_profile = Some("curator".into());
+        let workspace = mux.get_active_workspace().unwrap().id.clone();
+        mux.create_tab(&workspace).unwrap()
+    } else {
+        "source".into()
+    };
+    if curator {
+        let service = &fixture.service;
+        service
+            .set_ext(crate::service::curator::CuratorTabs::default())
+            .ok()
+            .unwrap();
+        let mut plan = crate::plan::Plan::new(
+            "Fixture".into(),
+            fixture.temp.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_tab(&source),
+        );
+        service.plan_store.save(&mut plan, 1).unwrap();
+        service
+            .ext::<crate::service::curator::CuratorTabs>()
+            .0
+            .write()
+            .insert(tab_id.clone(), plan.id.clone());
+    }
+    let mut envelope = if host {
+        MessageEnvelope::from_codeterm()
+    } else {
+        MessageEnvelope::tab("Source", source).from_agent(Some(true))
+    };
     envelope.id = Some(uuid::Uuid::new_v4().to_string());
     let expected_text = crate::service::messenger::Messenger::from(envelope.clone())
         .routed_frame(PAYLOAD)
