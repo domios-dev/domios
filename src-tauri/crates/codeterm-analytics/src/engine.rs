@@ -130,17 +130,34 @@ impl Engine {
             }
             _ => {}
         }
-        next.queue.push_back(Queued {
-            insert_id: Uuid::new_v4(),
-            time: now,
-            event,
-            user_id: next.user_id.clone(),
-            failures: 0,
-            retry_at: now,
-        });
-        if next.queue.len() > QUEUE_CAP {
-            next.queue.pop_front();
-            next.counters.dropped_oldest += 1;
+        let mut events = Vec::with_capacity(3);
+        if let Event::AppStarted {
+            version, platform, ..
+        } = &event
+        {
+            if !next.first_run_recorded {
+                events.push(Event::AppFirstRun {
+                    version: *version,
+                    platform: *platform,
+                });
+                next.first_run_recorded = true;
+            }
+            events.push(Event::AppOpened {});
+        }
+        events.push(event);
+        for event in events {
+            next.queue.push_back(Queued {
+                insert_id: Uuid::new_v4(),
+                time: now,
+                event,
+                user_id: next.user_id.clone(),
+                failures: 0,
+                retry_at: now,
+            });
+            if next.queue.len() > QUEUE_CAP {
+                next.queue.pop_front();
+                next.counters.dropped_oldest += 1;
+            }
         }
         self.commit(next)?;
         Ok(true)

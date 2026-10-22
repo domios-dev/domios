@@ -153,6 +153,7 @@ fn run(
 ) {
     let mut suspended = false;
     let mut account_uid = None;
+    let mut startup = None;
     loop {
         let deadline = if suspended { None } else { engine.deadline() };
         let command = match receiver.try_recv() {
@@ -184,6 +185,9 @@ fn run(
                         engine.identity(account_uid.clone())?;
                         if previous == Consent::Off {
                             engine.enqueue(Event::AnalyticsOptedIn {}, now_ms())?;
+                            if let Some(event) = startup.clone() {
+                                engine.enqueue(event, now_ms())?;
+                            }
                         }
                     }
                     Ok(engine.status())
@@ -193,6 +197,9 @@ fn run(
             }
             Some(Command::Event(event, reply)) => {
                 suspended = false;
+                if matches!(event, Event::AppStarted { .. }) {
+                    startup = Some(event.clone());
+                }
                 let result = engine.enqueue(event, now_ms());
                 activity.publish(engine.state.consent, engine.state.last_active_day);
                 let _ = reply.send(result);
@@ -224,19 +231,4 @@ fn run(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn activity_full_queue_releases_claim_for_next_activity() {
-        let (sender, _receiver) = mpsc::sync_channel(1);
-        let worker = Worker {
-            sender,
-            activity: Arc::new(crate::activity::Activity::new(Consent::On, None)),
-        };
-        worker.record_nowait(Event::AnalyticsOptedIn {}).unwrap();
-        let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 13).unwrap();
-        assert!(worker.record_activity_on_day(day, || 1).is_err());
-        assert!(worker.activity.claim(day));
-    }
-}
+mod tests;

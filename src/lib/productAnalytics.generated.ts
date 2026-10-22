@@ -9,6 +9,9 @@ export type Feature = "dreaming_run" | "cron_created" | "blueprint_created" | "t
 export type ProviderId = "claude" | "codex" | "cursor" | "opencode" | "other";
 export type Version = `${number}.${number}.${number}`;
 export type ProductEvent =
+  | { event_type: "app_first_run"; event_properties: { version: Version; platform: Platform } }
+  | { event_type: "app_opened"; event_properties: Record<string, never> }
+  | { event_type: "plan_viewed"; event_properties: Record<string, never> }
   | { event_type: "app_started"; event_properties: { version: Version; platform: Platform; mesh_machines: number; workspaces: number } }
   | { event_type: "mesh_peer_paired"; event_properties: { mesh_machines: number } }
   | { event_type: "workspace_created"; event_properties: { workspaces: number } }
@@ -23,6 +26,12 @@ export type ProductEvent =
   | { event_type: "feature_used"; event_properties: { feature: Feature } }
 ;
 export const PRODUCT_EVENT_CATALOG = {
+  "app_first_run": {
+    "version": "Version",
+    "platform": "Platform"
+  },
+  "app_opened": {},
+  "plan_viewed": {},
   "app_started": {
     "version": "Version",
     "platform": "Platform",
