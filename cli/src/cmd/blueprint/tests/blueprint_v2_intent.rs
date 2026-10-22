@@ -69,6 +69,18 @@ fn blueprint_v2_intent_renderer_preserves_host_order_scores_and_typed_metadata()
     ] {
         assert!(rendered.contains(value), "{rendered}");
     }
+    let (mem_card, catalog_card) = rendered.split_once("\ncatalog:middle ").unwrap();
+    for (card, purpose, why) in [
+        (mem_card, "purpose", "intent vector"),
+        (catalog_card, "another purpose", "canon vector"),
+    ] {
+        assert!(card.lines().any(|line| line.trim() == purpose), "{card}");
+        assert!(
+            card.lines()
+                .any(|line| line.trim() == format!("WHY: {why}")),
+            "{card}"
+        );
+    }
     assert!(!rendered.contains("def main"));
 }
 
