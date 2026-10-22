@@ -413,7 +413,18 @@ run_nextest_scope() {
       # One feature resolution for every crate, so shared dependencies compile once.
       prepare_dev_frontend_dist "$(pwd -P)"
       prepare_bundle_stubs
-      targets+=(--workspace --lib --features codeterm-sentinel/test-support)
+      local lane_args cli_args=() arg
+      lane_args="$(node scripts/rust-test-lanes.mjs workspace)" || return $?
+      targets=()
+      while IFS= read -r arg; do targets+=("$arg"); done <<< "$lane_args"
+      local workspace_target cli_target
+      workspace_target="$(node scripts/rust-test-lanes.mjs workspace target)" || return $?
+      cli_target="$(node scripts/rust-test-lanes.mjs cli target)" || return $?
+      lane_args="$(node scripts/rust-test-lanes.mjs cli)" || return $?
+      while IFS= read -r arg; do cli_args+=("$arg"); done <<< "$lane_args"
+      CARGO_TARGET_DIR="$cli_target" cargo nextest list --manifest-path cli/Cargo.toml "${cli_args[@]}" \
+        --locked --list-type binaries-only --message-format json >/dev/null || return $?
+      export CARGO_TARGET_DIR="$workspace_target"
       ;;
     app|codeterm|service-core|codeterm-service-core)
       configure_app_test_cargo nextest
@@ -449,7 +460,15 @@ run_nextest_scope() {
     mesh|codeterm-mesh) package="codeterm-mesh"; targets+=(--lib) ;;
     plugin|codeterm-plugin) package="codeterm-plugin"; targets+=(--lib) ;;
     plugins|codeterm-plugins) package="codeterm-plugins"; targets+=(--lib) ;;
-    cli|codeterm-cli) manifest="cli/Cargo.toml"; package="codeterm-cli"; targets+=(--all-targets) ;;
+    cli|codeterm-cli)
+      manifest="cli/Cargo.toml"
+      local cli_selection cli_arg
+      cli_selection="$(node scripts/rust-test-lanes.mjs cli)" || return $?
+      targets=()
+      while IFS= read -r cli_arg; do targets+=("$cli_arg"); done <<< "$cli_selection"
+      cli_selection="$(node scripts/rust-test-lanes.mjs cli target)" || return $?
+      export CARGO_TARGET_DIR="$cli_selection"
+      ;;
     pty-fork) manifest="src-tauri/pty-fork/Cargo.toml" ;;
     codeterm-*) package="$scope"; targets+=(--lib) ;;
     *)
@@ -485,7 +504,7 @@ run_nextest_scope() {
     confirmation_args=(--archive-file "$archive")
   else
   if cargo nextest list --manifest-path "$manifest" "${targets[@]}" \
-    --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
+    --locked --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
     :
   else
     run_exit=$?
@@ -2925,6 +2944,7 @@ EOF
     ;;
   ci-tests)
     case "${2:-}" in full|platform|embeddings) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings" >&2; exit 2 ;; esac
+    prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2"
     ;;
@@ -3057,7 +3077,11 @@ EOF
     test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
-      cli|codeterm-cli|frontend-bundle|codeterm-frontend-bundle|input-macos|input-windows|pty-fork) ;;
+      cli|codeterm-cli)
+        SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope cli "test(~$test_filter)"
+        exit $?
+        ;;
+      frontend-bundle|codeterm-frontend-bundle|input-macos|input-windows|pty-fork) ;;
       *)
         if [ "$test_filter" != build_identity_required ]; then
           # Same workspace feature resolution as every other test run, so the warm build is reused.

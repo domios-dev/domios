@@ -136,35 +136,13 @@ test('nested links refuse deletion', (t) => {
   assert.equal(fs.existsSync(f.other), true);
 });
 
-test('sweep uses configurable age, exact checkout targets and propagates dry-run', (t) => {
+test('retention never sweeps the canonical Cargo target or starts Cargo', (t) => {
   const f = fixture(t);
-  for (const relative of ['src-tauri/target', 'cli/target']) {
-    fs.mkdirSync(path.join(f.checkout, relative), { recursive: true });
-  }
+  fs.mkdirSync(path.join(f.checkout, 'src-tauri/target'), { recursive: true });
   const calls = [];
-  f.run({ sweep: true, dryRun: true, maxAgeDays: 5, runner: (command, args, options) => {
-    calls.push({ command, args, options });
-    return { status: 0 };
+  f.run({ sweep: true, dryRun: true, runner: (command, args) => {
+    calls.push(command);
+    return { status: 1 };
   } });
-  const sweep = calls.filter(call => call.command === 'cargo');
-  assert.equal(sweep.length, 2);
-  for (const call of sweep) {
-    assert.deepEqual(call.args, ['sweep', '--time', '5', '--dry-run']);
-    assert.equal(call.options.env.CARGO_TARGET_DIR, path.join(call.options.cwd, 'target'));
-    assert.equal(path.dirname(call.options.cwd), physical(f.checkout));
-  }
-});
-
-test('sweep refuses redirected checkout targets and handles missing tools without failing', (t) => {
-  const f = fixture(t);
-  fs.mkdirSync(path.join(f.checkout, 'src-tauri'));
-  fs.symlinkSync(f.other, path.join(f.checkout, 'src-tauri/target'),
-    process.platform === 'win32' ? 'junction' : 'dir');
-  let cargoCalls = 0;
-  f.run({ sweep: true, runner: (command) => {
-    if (command === 'cargo') cargoCalls++;
-    return { status: 0 };
-  } });
-  assert.equal(cargoCalls, 0);
-  assert.doesNotThrow(() => f.run({ sweep: true, runner: () => ({ status: null }) }));
+  assert.deepEqual(calls, ['git']);
 });
