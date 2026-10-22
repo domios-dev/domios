@@ -13,7 +13,8 @@ pub use envelope::{
     Effective, Reading, Version,
 };
 pub use model::{
-    entitlement_allows, Capability, CheckoutKey, Entitlements, Plan, Status, CAPABILITY_PLANS,
+    checkout_url_with_theme, entitlement_allows, Capability, CheckoutKey, CheckoutTheme,
+    Entitlements, Plan, Status, CAPABILITY_PLANS,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
