@@ -465,28 +465,10 @@ pub(crate) fn start_servers(
                     }
                 }),
             );
-            let bind_addr = codeterm_service_core::config::canonical_api_bind_addr(&api_config)
-                .expect("validated API host must have a canonical socket address");
             states
                 .rest_api
-                .set_runtime_policy(super::RestApiRuntimePolicy {
-                    enabled: true,
-                    cors: api_config.cors,
-                    cors_allow_origins: if api_config.cors {
-                        api_config.cors_allow_origins.clone()
-                    } else {
-                        Vec::new()
-                    },
-                });
-            let port = api_config.port;
-            if !bind_addr.ip().is_loopback() {
-                log::warn!(
-                    "[api] explicit non-loopback listener {bind_addr} exposes authenticated control to the network"
-                );
-            }
-            std::env::set_var("CODETERM_API_PORT", port.to_string());
-            let control = states.rest_api.clone();
-            codeterm_service_core::startup::rest_api::spawn(control, bind_addr.to_string(), router);
+                .listeners
+                .publish(states.rest_api.listeners.ready());
         }
         bundles
     };

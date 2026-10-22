@@ -11,22 +11,6 @@ pub struct ComposedService {
     pub frontend_bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
 }
 
-pub fn compose(
-    ui_factory: impl FnOnce(codeterm_events::EventBroadcasterState) -> Arc<dyn UiEvents>,
-    shell: Arc<dyn Shell>,
-    frontend_dev_url: Option<url::Url>,
-    resource_dir: Option<std::path::PathBuf>,
-) -> Result<ComposedService, String> {
-    compose_observed(
-        ui_factory,
-        shell,
-        frontend_dev_url,
-        resource_dir,
-        None,
-        None,
-    )
-}
-
 pub(crate) fn compose_observed(
     ui_factory: impl FnOnce(codeterm_events::EventBroadcasterState) -> Arc<dyn UiEvents>,
     shell: Arc<dyn Shell>,
@@ -34,14 +18,17 @@ pub(crate) fn compose_observed(
     resource_dir: Option<std::path::PathBuf>,
     worker_observer: Option<std::sync::mpsc::SyncSender<mem::supervisor::observation::WorkerSpawn>>,
     quit_port: Option<codeterm_api::app_quit_routes::AppQuitPortHandle>,
+    prepared: startup::early_api::PreparedStartup,
 ) -> Result<ComposedService, String> {
+    let api = prepared.api;
     if let Some(resources) = &resource_dir {
         startup::setup_conpty_host(resources)?;
     }
     codeterm_service_core::raise_fd_limit();
     pty::shell_integration::ensure_scripts();
 
-    let states = startup::init_states();
+    let states = startup::init_states(prepared.config, prepared.control);
+    api.complete("states");
     let ui = ui_factory(states.event_broadcaster.clone());
     codeterm_service_core::service::seed_bundled_skills();
     codeterm_service_core::service::mirror_skills_to_providers();
@@ -329,6 +316,7 @@ pub(crate) fn compose_observed(
     agent::model_catalog::refresh_example_files();
 
     startup::refresh_providers(&agent_registry);
+    api.complete("providers");
 
     let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
     let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
@@ -477,6 +465,7 @@ pub(crate) fn compose_observed(
     codeterm_service_core::service::start_plan_reminder_scheduler(service_state.clone());
     drop(startup_step);
 
+    api.complete("service");
     let plan_started = std::time::Instant::now();
     let startup_step = startup::StartupStep::logged("restored plan loading");
     startup::restore_plans(&service_state);
@@ -485,6 +474,7 @@ pub(crate) fn compose_observed(
         "[boot-operation] restored plan loading elapsed_ms={}",
         plan_started.elapsed().as_millis()
     );
+    api.complete("plans");
 
     let startup_step = startup::StartupStep::logged("background service initialization");
     {
@@ -571,6 +561,7 @@ pub(crate) fn compose_observed(
     }
     drop(startup_step);
 
+    api.complete("background");
     let platform_started = std::time::Instant::now();
     let startup_step = startup::StartupStep::logged("platform and server initialization");
 
@@ -670,6 +661,7 @@ pub(crate) fn compose_observed(
         "[boot-operation] platform and server initialization elapsed_ms={}",
         platform_started.elapsed().as_millis()
     );
+    api.complete("platform");
 
     Ok(ComposedService {
         states,
