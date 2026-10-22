@@ -1,3 +1,4 @@
+import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { attachFrontendTerminalViewport } from "../../lib/frontendUpdate/terminal";
 import { useTabActivity } from "../../lib/useTabActivity";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -94,6 +95,7 @@ export const TerminalTab = memo(function TerminalTab({
   const tabWorkspace = useMuxSelector(workspaceSelector);
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
+  const readOnly = isReadOnlyTab(tab);
   const viewerLocalGeometry = terminalViewerLocalGeometry(tab, relayTarget()?.id ?? null);
   const agentActivity = useTabActivity(tabId);
   const managedView = managedTabPresentation(tab?.managed);
@@ -220,7 +222,7 @@ export const TerminalTab = memo(function TerminalTab({
   useTouchScroll({ containerRef, termRef, termReady });
 
   const touchUi = useTouchOptimizedUi();
-  const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady && !managedView.locked;
+  const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady && !managedView.locked && !readOnly;
   const [canScrollToBottom, setCanScrollToBottom] = useState(false);
   useEffect(() => {
     const term = termRef.current;
@@ -311,7 +313,7 @@ export const TerminalTab = memo(function TerminalTab({
   // Bracketed-paste rules stay active when chat is off.
   const { isDragOver: isFileDragOver } = useTauriFileDrop({
     containerRef: tabRootRef,
-    enabled: termReady,
+    enabled: termReady && !readOnly,
     onPaths: (paths) => {
       const term = termRef.current;
       if (!term || paths.length === 0 || uiMode !== "terminal") return;
@@ -328,7 +330,7 @@ export const TerminalTab = memo(function TerminalTab({
   });
 
   const { copySelection, pasteFromClipboard } = useTerminalInput({
-    tabId, termRef, connectedPtyRef, containerRef, termReady,
+    tabId, termRef, connectedPtyRef, containerRef, termReady, readOnly,
     terminalActive: terminalVisible && isVisible,
     onTabKey: completion.handleTab,
     onNonTabKey: completion.dismissCompletions,
@@ -415,7 +417,7 @@ export const TerminalTab = memo(function TerminalTab({
 
   const contextMenuActions: ContextMenuAction[] = [
     { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
-    { label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard },
+    ...(!readOnly ? [{ label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard }] : []),
   ];
 
   const topAccent = bellFlash
@@ -463,7 +465,7 @@ export const TerminalTab = memo(function TerminalTab({
       onContextMenu={handleContextMenu}
       onDragEnter={(e) => {
         // Only set overlay for real drags with transferable data.
-        if (e.dataTransfer.types.length > 0) setIsTextDragOver(true);
+        if (!readOnly && e.dataTransfer.types.length > 0) setIsTextDragOver(true);
       }}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
       onDragLeave={(e) => {
@@ -478,7 +480,7 @@ export const TerminalTab = memo(function TerminalTab({
         e.stopPropagation();
         setIsTextDragOver(false);
         const term = termRef.current;
-        if (!term || uiMode !== "terminal" || managedView.locked) return;
+        if (!term || uiMode !== "terminal" || managedView.locked || readOnly) return;
         const text = e.dataTransfer.getData("text/plain");
         if (text) term.paste(text);
       }}

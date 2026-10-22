@@ -1,3 +1,4 @@
+import { isReadOnlyTab } from "../../lib/tabInputPolicy";
 import { isGeneralAgent } from "../../lib/roleKind";
 import { pluginTabMenuEntries, type PluginTabMenuEntry, type PluginTabMenuState } from "../../lib/pluginTabMenu";
 import { canMakeOrchestrator } from "../../lib/orchestratorOnboard";
@@ -321,6 +322,10 @@ function pluginsSubmenu({ tab, pluginTabMenu, telegramThread }: TabMenuInput): T
 
 export function buildTabMenu(input: TabMenuInput): TabMenuEntry[] {
   const { tab, activity } = input;
+  if (isReadOnlyTab(tab)) return input.canClose ? [{
+    kind: "item", id: "close", label: TAB_MENU_LABELS.closeTab, icon: "close",
+    danger: true, action: { type: "close" },
+  }] : [];
   const session = tabSessionActionView(tab);
   const entries: TabMenuEntry[] = [];
   if (session.canReconnect) {

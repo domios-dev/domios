@@ -23,7 +23,12 @@ pub fn send(
     text: &str,
     send_id: Option<&str>,
 ) -> Result<(), DeliveryError> {
-    svc.require_managed_send_allowed(tab, None)
+    svc.require_admitted_input_allowed(tab, send_id)
+        .map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab.into(),
+            detail,
+        })?;
+    svc.require_managed_delivery_allowed(tab, None)
         .map_err(|detail| DeliveryError::TabBusyRefused {
             tab: tab.into(),
             detail,

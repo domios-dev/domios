@@ -650,6 +650,10 @@ impl ServiceContext {
             })
             .map_err(|e| e.to_string())?;
         let plan = self.plan_store.get(plan_id).ok_or("plan absent")?;
+        self.mux
+            .write()
+            .set_tab_description(tab_id, Some(format!("Round {number}")))?;
+        self.emit_state_changed(crate::service::MuxEmitCause::TabLifecycle);
         self.bind_curator_session(tab_id)?;
         if let Some(owner) = plan.owner.tab_id {
             let body=format!("Curator round {number} spawned (tab {tab_id}); it may ask you up to three questions in one message; answer with `domios send --tab {tab_id}` or skip; grants: `domios plan curator grant {plan_id} {tab_id} --blueprint <id> | --plan-skill <slug>`.");

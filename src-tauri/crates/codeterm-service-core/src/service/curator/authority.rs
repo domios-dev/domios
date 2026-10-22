@@ -124,7 +124,8 @@ impl ServiceContext {
                         Ok(_) => codeterm_types::plan::CuratorMessageReceipt::Accepted,
                         Err(
                             DeliveryError::TabNotFound { .. }
-                            | DeliveryError::AgentUnavailable { .. },
+                            | DeliveryError::AgentUnavailable { .. }
+                            | DeliveryError::ReadOnly { .. },
                         ) => codeterm_types::plan::CuratorMessageReceipt::NothingWritten,
                         // Opaque transport failures do not prove zero writes.
                         Err(_) => codeterm_types::plan::CuratorMessageReceipt::Uncertain,
