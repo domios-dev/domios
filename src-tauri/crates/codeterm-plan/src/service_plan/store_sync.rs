@@ -45,6 +45,8 @@ pub(crate) struct RowWrites {
     pub(crate) deleted: usize,
     pub(crate) changed_tasks: Vec<String>,
     pub(crate) header_identity_changed: bool,
+    /// The `(project_path, canonical_project_path)` this write moved the plan away from.
+    pub(crate) previous_project_paths: Option<(String, String)>,
 }
 
 struct StoredTaskState {
