@@ -1,5 +1,6 @@
 use super::*;
 use crate::engine::Engine;
+mod injected;
 trait TestDestination {
     fn destination(&mut self, endpoint: String);
 }
@@ -243,7 +244,24 @@ fn persisted_queue_survives_restart() {
 
 #[test]
 fn config_is_closed_and_projects_never_mix() {
-    assert_eq!(Config::parse(None, None, None).unwrap().mode, Mode::Off);
+    let defaults = Config::parse(None, None, None).unwrap();
+    assert_eq!(
+        defaults.mode,
+        if cfg!(debug_assertions) {
+            Mode::Off
+        } else {
+            Mode::Amplitude
+        }
+    );
+    assert_eq!(
+        defaults.project,
+        if cfg!(debug_assertions) {
+            Project::Test
+        } else {
+            Project::Prod
+        }
+    );
+    assert_eq!(defaults.zone, Zone::Us);
     assert!(Config::parse(Some("custom"), None, None).is_err());
     assert!(Config::parse(None, Some("private-host"), None).is_err());
     assert!(Config::parse(None, None, Some("private-project")).is_err());

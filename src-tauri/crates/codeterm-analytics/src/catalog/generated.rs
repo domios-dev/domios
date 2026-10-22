@@ -211,6 +211,12 @@ impl ProviderId {
     deny_unknown_fields
 )]
 pub enum Event {
+    AppFirstRun {
+        version: Version,
+        platform: Platform,
+    },
+    AppOpened {},
+    PlanViewed {},
     AppStarted {
         version: Version,
         platform: Platform,

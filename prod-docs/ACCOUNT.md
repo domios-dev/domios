@@ -28,13 +28,15 @@ The round avatar and chevron immediately left of Settings open the Account menu.
 
 ## Product analytics
 
-Product analytics is off by default; Settings > Privacy or `codeterm analytics status|enable|disable` records opt-in consent in `analytics-settings.json`, and turning it off clears queued events and installation/account identifiers. `DOMIOS_ANALYTICS_MODE` selects `off` (default), `console` (DEV debug logs, no external account) or `amplitude`; `DOMIOS_AMPLITUDE_SERVER_ZONE` is `us` (default) or `eu`; `DOMIOS_ANALYTICS_PROJECT` is `test` (default) or `prod`; set them before starting the daemon. The Amplitude adapter first reads build-time DOMIOS_AMPLITUDE_API_KEY_TEST or DOMIOS_AMPLITUDE_API_KEY_PROD, then reads `domios.amplitude.test.api_key` or `domios.amplitude.prod.api_key` from the secret store and holds the queue while it is missing; analytics status reports vendor_available=false. Every sink shares the consent gate, the closed product event catalog below, the persisted queue and the bounded retry policy.
+Product analytics is off by default; Settings > Privacy or `codeterm analytics status|enable|disable` records opt-in consent in `analytics-settings.json`, and turning it off clears queued events and installation/account identifiers. `DOMIOS_ANALYTICS_MODE` selects `off` (DEV default), `console` (DEV debug logs, no external account) or `amplitude` (release default); `DOMIOS_AMPLITUDE_SERVER_ZONE` is `us` (default) or `eu`; `DOMIOS_ANALYTICS_PROJECT` is `test` (DEV default) or `prod` (release default); set them before starting the daemon. The Amplitude HTTP V2 key is a public ingestion key embedded at build time through DOMIOS_AMPLITUDE_API_KEY_PROD (or DOMIOS_AMPLITUDE_API_KEY_TEST); the secret store `domios.amplitude.prod.api_key` overrides it for local builds (`domios.amplitude.test.api_key` for test projects). Key availability is cached for the process; restart after changing the override. With no key, the adapter holds the queue and analytics status reports vendor_available=false. Every sink shares the consent gate, the closed product event catalog below, the persisted queue and the bounded retry policy.
 
 Every event contains its catalog properties plus a random installation ID (`device_id`), unique event ID (`insert_id`) and timestamp (`time`). An authenticated account contributes only its exact Firebase account UID (`user_id`, without hashing). Sign-out removes it from subsequent events; events already queued keep the identity that owned them. Sign-in while analytics is off does not persist an analytics account ID. Opting in while signed in attaches the current account ID. A restarted daemon clears its active analytics account ID until account refresh establishes the identity again.
 
 Prompts, messages, terminal output, paths, workspace or tab names, email addresses, display names, session IDs, peer identities, credentials and arbitrary plugin model or provider names are never included. Custom providers become `other`; models are never collected. No emitter can bypass the consent gate: consent off prevents queueing and analytics network delivery, clears queued events and analytics identifiers, and a later opt-in creates a new random installation ID. Settings > Privacy > What we collect shows the same closed catalog.
 
 Managed app updates report only their kind after the requested app version is running. Frontend updates report only their kind after enrolled clients prove health and activation is saved. Plan creation follows successful persistence. Pairing and workspace creation carry the saved post-change counts. Checkout follows a successful browser open; subscription changes follow authoritative entitlement refresh, with unchanged plan/status and failed refreshes suppressed.
+
+`app_first_run` records the first consented startup with only version and platform; its saved marker is committed only after delivery and survives restarts and opt-out. An undelivered first-run event remains pending in the queue; if dropped, the next startup enqueues it again. `app_opened` accompanies each consented daemon startup. Enabling analytics during the current run records these startup events after consent, using the current signed-in UID when available. `plan_viewed` records a free-limit plans modal opening, an explicit subscription-plans request, or observed visibility of the plan cards, with no account or plan properties.
 
 `active_day` records the first app start, user message admission, agent spawn or workspace switch in a local calendar day. `feature_used` records successful use of each listed feature at most once per local calendar day. Both gates persist alongside analytics settings, survive restarts, and use activity events without timers or polling. Opt-out clears the saved days together with identifiers and queued events. Machine counts include this machine plus paired peers; workspace counts include all workspaces.
 
@@ -45,6 +47,9 @@ Versions contain numeric major, minor and patch only, without prerelease labels 
 <!-- analytics-catalog:start -->
 | Event | Properties |
 |---|---|
+| `app_first_run` | `version`: Version, `platform`: Platform |
+| `app_opened` | None |
+| `plan_viewed` | None |
 | `app_started` | `version`: Version, `platform`: Platform, `mesh_machines`: u32, `workspaces`: u32 |
 | `mesh_peer_paired` | `mesh_machines`: u32 |
 | `workspace_created` | `workspaces`: u32 |
@@ -82,4 +87,4 @@ Local callers only.
 | POST | `/api/account/upgrade` | `{plan, theme?}` | Open checkout in the system browser; `theme` (`light` or `dark`) sets the checkout page's theme |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

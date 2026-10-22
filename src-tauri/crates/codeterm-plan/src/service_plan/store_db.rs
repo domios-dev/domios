@@ -320,11 +320,13 @@ fn upsert_plan(
         .as_str()
         .unwrap_or("active")
         .to_string();
-    let previous_header: Option<(String, String)> = transaction
+    let previous_header: Option<(String, String, String, String)> = transaction
         .query_row(
-            "SELECT title, status FROM plans WHERE id = ?1",
+            "SELECT title, status, project_path,
+                    coalesce(json_extract(document_json, '$.canonical_project_path'), '')
+             FROM plans WHERE id = ?1",
             [&plan.id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(db_error)?;
@@ -349,8 +351,17 @@ fn upsert_plan(
         .map_err(db_error)?;
     let mut writes =
         store_sync::sync_task_rows(transaction, &plan.id, &rows.tasks).map_err(db_error)?;
-    writes.header_identity_changed = previous_header
-        .is_some_and(|(title, previous_status)| title != plan.title || previous_status != status);
+    if let Some((title, previous_status, project_path, canonical_project_path)) = previous_header {
+        if project_path != plan.project_path
+            || canonical_project_path != plan.canonical_project_path
+        {
+            writes.previous_project_paths = Some((project_path, canonical_project_path));
+        }
+        writes.header_identity_changed = title != plan.title
+            || previous_status != status
+            || writes.previous_project_paths.is_some();
+    }
+    writes.header_identity_changed |= rows.kept_whole.is_some();
     transaction
         .execute("DELETE FROM plan_fts WHERE plan_id = ?1", [&plan.id])
         .map_err(db_error)?;

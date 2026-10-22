@@ -2,7 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const fetches = vi.hoisted(() => ({ localFetch: vi.fn() }));
+const fetches = vi.hoisted(() => ({ localFetch: vi.fn(), localJson: vi.fn(async () => ({ consent: "off" })) }));
 const account = vi.hoisted(() => ({
   signedIn: true,
   plan: "free",
@@ -46,6 +46,7 @@ async function fakeDaemon(url: string) {
 }
 
 beforeEach(() => {
+  fetches.localJson.mockClear().mockResolvedValue({ consent: "off" });
   Object.assign(account, { signedIn: true, plan: "free", login: null, logins: 0 });
   fetches.localFetch.mockImplementation(fakeDaemon);
   toasts.length = 0;
@@ -91,6 +92,17 @@ describe("plans modal", () => {
     expect(dialog()?.querySelector("h2")?.textContent).toBe("The free version includes 3 workspaces.");
     expect(dialog()?.querySelectorAll("section[aria-label$=' plan']")).toHaveLength(4);
     expect(dialog()?.querySelector("section[aria-label='Enterprise plan']")).not.toBeNull();
+  });
+
+  it("records a consented plan view only when the limit modal opens", async () => {
+    fetches.localJson.mockResolvedValue({ consent: "on" });
+    await render(async () => {});
+    expect(fetches.localJson).not.toHaveBeenCalled();
+    await openModal("workspaces");
+    expect(fetches.localJson.mock.calls).toEqual([
+      ["GET", "/api/analytics/status"],
+      ["POST", "/api/analytics/event", { event_type: "plan_viewed", event_properties: {} }],
+    ]);
   });
 
   it("Upgrade checks out pro_monthly and closes", async () => {

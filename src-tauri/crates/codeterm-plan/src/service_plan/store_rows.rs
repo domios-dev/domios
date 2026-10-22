@@ -11,6 +11,8 @@ const ATTEMPTS: &str = "execution_attempts";
 pub(super) struct PlanRows {
     pub(super) plan: String,
     pub(super) tasks: Vec<TaskRows>,
+    /// Why `plan` still embeds its tasks; such a plan keeps whole-document storage.
+    pub(super) kept_whole: Option<String>,
 }
 
 #[derive(Debug)]
@@ -38,31 +40,48 @@ pub(super) struct AttemptRow {
     pub(super) hash: i64,
 }
 
-/// Splits a plan document into its plan row and per-task rows without interpreting any other field.
+/// Splits a plan document into its plan row and per-task rows without interpreting any other field;
+/// tasks that cannot be keyed by a unique id stay embedded in the plan row.
 pub(super) fn split_plan(mut plan: Value) -> Result<PlanRows, String> {
     let fields = plan
         .as_object_mut()
         .ok_or("plan document is not an object")?;
+    if let Some(reason) = fields.get(TASKS).and_then(unkeyable_tasks) {
+        return Ok(PlanRows {
+            plan: to_json(&plan)?,
+            tasks: Vec::new(),
+            kept_whole: Some(reason),
+        });
+    }
     let tasks = match fields.remove(TASKS) {
-        None => Vec::new(),
         Some(Value::Array(tasks)) => tasks,
-        Some(_) => return Err("plan tasks are not an array".into()),
+        _ => Vec::new(),
     };
-    let mut seen = HashSet::new();
     let tasks = tasks
         .into_iter()
-        .map(|task| {
-            let rows = split_task(task)?;
-            if !seen.insert(rows.id.clone()) {
-                return Err(format!("duplicate task id {}", rows.id));
-            }
-            Ok(rows)
-        })
+        .map(split_task)
         .collect::<Result<Vec<_>, String>>()?;
     Ok(PlanRows {
         plan: to_json(&plan)?,
         tasks,
+        kept_whole: None,
     })
+}
+
+fn unkeyable_tasks(tasks: &Value) -> Option<String> {
+    let Some(tasks) = tasks.as_array() else {
+        return Some("plan tasks are not an array".into());
+    };
+    let mut seen = HashSet::new();
+    for task in tasks {
+        let Some(id) = task.get("id").and_then(Value::as_str) else {
+            return Some("a task has no string id".into());
+        };
+        if !seen.insert(id) {
+            return Some(format!("duplicate task id {id}"));
+        }
+    }
+    None
 }
 
 fn split_task(mut task: Value) -> Result<TaskRows, String> {
@@ -96,7 +115,7 @@ fn split_task(mut task: Value) -> Result<TaskRows, String> {
             let attempt_id = attempt
                 .get("id")
                 .and_then(Value::as_str)
-                .ok_or_else(|| format!("task {id} has an attempt without a string id"))?
+                .unwrap_or_default()
                 .to_string();
             let document = to_json(attempt)?;
             Ok(AttemptRow {
@@ -159,8 +178,11 @@ pub(super) fn join_plan(mut plan: Value, tasks: Vec<StoredTask>) -> Result<Value
     Ok(plan)
 }
 
+/// A kept-whole plan row is bounded only by the per-field checks, so a legacy plan never becomes unwritable.
 pub(super) fn validate_row_sizes(rows: &PlanRows) -> Result<(), String> {
-    check_row("plan row", &rows.plan)?;
+    if rows.kept_whole.is_none() {
+        check_row("plan row", &rows.plan)?;
+    }
     for task in &rows.tasks {
         check_row("task row", &task.document)?;
         for milestone in &task.milestones {

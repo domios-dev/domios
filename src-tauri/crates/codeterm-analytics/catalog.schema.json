@@ -52,6 +52,12 @@
     ]
   },
   "events": {
+    "app_first_run": {
+      "version": "Version",
+      "platform": "Platform"
+    },
+    "app_opened": {},
+    "plan_viewed": {},
     "app_started": {
       "version": "Version",
       "platform": "Platform",
