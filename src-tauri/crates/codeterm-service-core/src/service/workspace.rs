@@ -400,13 +400,7 @@ impl ServiceContext {
             ));
         }
 
-        let service = self.clone();
-        let capture_workspace = workspace_id.to_string();
-        let inventory = tokio::task::spawn_blocking(move || {
-            service.capture_close_inventory(&capture_workspace, None)
-        })
-        .await
-        .map_err(|error| error.to_string())??;
+        let inventory = self.capture_close_inventory(workspace_id, None).await?;
         let _capture_guard = super::close_history::WorkspaceCloseGuard::new(workspace_id);
         let result = self
             .close_workspace_members(caller, workspace_id, force)
