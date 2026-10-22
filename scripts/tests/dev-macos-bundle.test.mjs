@@ -8,17 +8,18 @@ import { stagedDevPaths, devResourceRoot, devServerPath } from '../dev-native-la
 import { stageDevResources } from '../server-artifact.mjs';
 import { macDevSigning, sealMacDevBundle } from '../dev-macos-bundle.mjs';
 
+const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const signingEnv = { CODETERM_DEV_INSTANCE: 'opaque-instance', APPLE_SIGNING_IDENTITY: 'Developer ID Application: Fixture (ABCDE12345)', APPLE_TEAM_ID: 'ABCDE12345', RELEASE_KEYCHAIN: '/fixture.keychain' };
 const digest = file => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 for (const platform of ['win32', 'linux', 'darwin']) {
   for (const instance of ['', 'opaque-instance']) {
     test(`staged native resource and server paths agree with launch provenance: ${platform}/${instance || 'canonical'}`, () => {
-      const layout = stagedDevPaths(`/lane/target/dev-instances/${instance || 'default'}/debug/codeterm${platform === 'win32' ? '.exe' : ''}`, { platform, instance });
+      const layout = stagedDevPaths(path.resolve(`/lane/target/dev-instances/${instance || 'default'}/debug/codeterm${platform === 'win32' ? '.exe' : ''}`), { platform, instance });
       assert.equal(devResourceRoot(layout.client, platform), layout.resources);
       assert.equal(devServerPath(layout.client, platform), path.resolve(layout.resources, layout.serverRelative));
       assert.equal(layout.mac, platform === 'darwin' && Boolean(instance));
-      if (layout.mac) assert.ok(layout.resources.endsWith('/Domios.app/Contents/Resources'));
+      if (layout.mac) assert.ok(layout.resources.endsWith(path.join('Domios.app', 'Contents', 'Resources')));
     });
   }
 }
@@ -100,7 +101,7 @@ test('named macOS server reload refuses before inspecting or stopping the runnin
   const { spawnSync } = await import('node:child_process');
   const source = readFileSync(new URL('../../build.sh', import.meta.url), 'utf8');
   const reload = source.match(/^reload_dev_server\(\) \{[^]*?^\}/m)[0];
-  const result = spawnSync('bash', ['-c', `set -eu
+  const result = spawnSync(bash, ['-c', `set -eu
 ${reload}
 OSTYPE=darwin CODETERM_DEV_INSTANCE=opaque
 validate_dev_provenance() { echo unexpected-inspect; }
@@ -118,14 +119,15 @@ test('frontend output stays outside the named macOS seal and canonical paths rem
   const helpers = ['dev_resource_dir', 'dev_frontend_dir'].map(name => source.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
   for (const platform of ['darwin', 'linux-gnu', 'msys']) {
     for (const instance of ['', 'opaque']) {
-      const result = spawnSync('bash', ['-c', `set -eu
+      const result = spawnSync(bash, ['-c', `set -eu
 ${helpers}
 OSTYPE="$1" CODETERM_DEV_INSTANCE="$2"
 tauri_debug_dir() { echo target/debug; }
+pwd() { echo /fixture-checkout; }
 printf '%s\\n' "$(dev_frontend_dir)"
 `, '--', platform, instance], { encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
-      assert.equal(result.stdout.trim(), platform === 'darwin' && instance ? path.join(process.cwd(), 'dist')
+      assert.equal(result.stdout.trim(), platform === 'darwin' && instance ? '/fixture-checkout/dist'
         : platform === 'msys' ? 'target/debug/dist' : 'target/debug/.domios-dev-runtime/lib/codeterm/dist');
     }
   }
