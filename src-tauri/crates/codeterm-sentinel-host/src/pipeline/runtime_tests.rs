@@ -175,3 +175,89 @@ fn blueprint_v2_runtime_port_schema_and_capability_refusal() {
         );
     }
 }
+
+#[test]
+fn blueprint_v2_runtime_shared_context_binding_depth_and_step_budget() {
+    let root = tempfile::tempdir().unwrap();
+    let sink = root.path().join("must-not-run");
+    let (fixture, storage, handle, lease) = fixture(document("python", "pass", &sink), root.path());
+    let mut ctx = RunCtx::new(&handle, &fixture.service, &lease, "budget-proof");
+    for _ in 0..8 {
+        ctx.enter_call().unwrap();
+    }
+    assert_eq!(ctx.enter_call(), Err(JournalReason::BudgetExhausted));
+    for _ in 0..8 {
+        ctx.exit_call();
+    }
+    ctx.outputs.insert(
+        "source".into(),
+        ExecutionEnvelope::from_text("{\"n\":7,\"list\":[8]}"),
+    );
+    assert_eq!(ctx.resolve_binding("source.out.n").unwrap().value, json!(7));
+    assert_eq!(
+        ctx.resolve_binding("source.out.list.0").unwrap().value,
+        json!(8)
+    );
+    assert_eq!(
+        ctx.resolve_binding("source.out.missing"),
+        Err(JournalReason::ContractViolation)
+    );
+    let filter: Step = serde_json::from_value(json!({"name":"bounded","input":"text","kind":{"kind":"filter","pattern":".*","bucket":null}})).unwrap();
+    for _ in 0..64 {
+        execute_step(&mut ctx, &filter, ExecutionEnvelope::from_text("opaque")).unwrap();
+    }
+    assert_eq!(
+        execute_step(
+            &mut ctx,
+            &lease.job.pipeline().unwrap().steps[1],
+            ExecutionEnvelope::from_text("{\"n\":7}")
+        )
+        .err(),
+        Some(JournalReason::BudgetExhausted)
+    );
+    assert!(!sink.exists());
+    assert_eq!(handle.probe_owner.snapshot().settled_total, 0);
+    drop(ctx);
+    drop(handle);
+    drop(fixture);
+    close(storage);
+}
+
+#[test]
+fn blueprint_v2_runtime_input_contract_rejects_before_child_launch() {
+    let root = tempfile::tempdir().unwrap();
+    let sink = root.path().join("must-not-run");
+    let (fixture, storage, handle, lease) = fixture(document("python", PYTHON, &sink), root.path());
+    let mut ctx = RunCtx::new(&handle, &fixture.service, &lease, "input-proof");
+    let reason = execute_step(
+        &mut ctx,
+        &lease.job.pipeline().unwrap().steps[0],
+        ExecutionEnvelope::from_text("{\"n\":\"bad\"}"),
+    )
+    .err();
+    assert_eq!(reason, Some(JournalReason::ContractViolation));
+    assert_eq!(handle.probe_owner.snapshot().settled_total, 0);
+    assert!(journal(&handle, &lease.job.id)
+        .iter()
+        .any(|entry| entry.step_name == "transform"
+            && entry.reason == Some(JournalReason::ContractViolation)));
+    assert!(!sink.exists());
+    drop(ctx);
+    drop(handle);
+    drop(fixture);
+    close(storage);
+}
+
+#[test]
+fn blueprint_v2_runtime_envelope_requires_all_fields_and_preserves_text_type() {
+    for value in [
+        json!({"media":"json","value":7,"text":""}),
+        json!({"media":"json","schema_id":null,"value":7,"text":"", "extra":1}),
+        json!({"media":"text","schema_id":null,"value":"data","text":"different"}),
+    ] {
+        assert_eq!(
+            ExecutionEnvelope::decode(value.to_string().as_bytes()),
+            Err(JournalReason::ContractViolation)
+        );
+    }
+}

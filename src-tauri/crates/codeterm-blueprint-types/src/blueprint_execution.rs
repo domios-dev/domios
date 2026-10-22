@@ -10,9 +10,16 @@ pub const MAX_STDIN_BYTES: usize = 32 * 1024;
 #[serde(deny_unknown_fields)]
 pub struct ExecutionEnvelope {
     pub media: String,
+    #[serde(deserialize_with = "schema_id")]
     pub schema_id: Option<String>,
     pub value: Value,
     pub text: String,
+}
+
+fn schema_id<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(deserializer)
 }
 
 impl ExecutionEnvelope {
