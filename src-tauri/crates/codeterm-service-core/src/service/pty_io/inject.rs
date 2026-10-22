@@ -11,7 +11,7 @@ impl ServiceContext {
     fn write_spawn_bytes(&self, pty_id: &str, bytes: &[u8]) -> Result<usize, String> {
         #[cfg(windows)]
         {
-            let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
+            let signal = self.screen_state.arm_screen_change_signal(pty_id);
             let generation = signal.generation();
             self.pty
                 .lock()
@@ -122,7 +122,6 @@ impl ServiceContext {
         {
             let screen = self
                 .screen_state
-                .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
             if crate::service::agent_restart::screen_shows_agent_tui(&self.agent_registry, &screen)
@@ -167,10 +166,7 @@ impl ServiceContext {
                     }
                 }
                 VerifySubmitStrategy::None => Err(HelperErr::Timeout(
-                    self.screen_state
-                        .lock()
-                        .tail_text(pty_id, 8)
-                        .unwrap_or_default(),
+                    self.screen_state.tail_text(pty_id, 8).unwrap_or_default(),
                 )),
             };
             match res {

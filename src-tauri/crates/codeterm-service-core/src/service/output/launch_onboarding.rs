@@ -35,7 +35,7 @@ impl ServiceContext {
         };
         let screen = screen_text
             .map(str::to_string)
-            .or_else(|| self.screen_state.lock().get_screen_text(&pty_id));
+            .or_else(|| self.screen_state.get_screen_text(&pty_id));
         let Some(screen) = screen else {
             return false;
         };
@@ -46,7 +46,7 @@ impl ServiceContext {
             if service.respond_to_launch_onboarding_until_clear(&tab, &pty_id, &agent_type) {
                 return;
             }
-            let current_screen = service.screen_state.lock().get_screen_text(&pty_id);
+            let current_screen = service.screen_state.get_screen_text(&pty_id);
             if current_screen.as_deref() != Some(screen.as_str()) {
                 return;
             }

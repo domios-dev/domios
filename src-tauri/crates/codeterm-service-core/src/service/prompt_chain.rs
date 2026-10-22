@@ -313,7 +313,6 @@ impl super::ServiceContext {
                 let agent_type = tab.agent_type.clone()?;
                 let prior_screen = self
                     .screen_state
-                    .lock()
                     .get_screen_text(&pty_id)
                     .unwrap_or_default();
                 Some((pty_id, agent_type, prior_screen))
@@ -441,7 +440,7 @@ impl super::ServiceContext {
         agent_type: String,
         prior_screen: String,
     ) {
-        let signal = self.screen_state.lock().subscribe_screen_changes(&pty_id);
+        let signal = self.screen_state.subscribe_screen_changes(&pty_id);
         let mut generation = signal.generation();
         WATCHERS
             .lock()
@@ -458,7 +457,6 @@ impl super::ServiceContext {
                 generation = signal.generation();
                 let screen = service
                     .screen_state
-                    .lock()
                     .get_screen_text(&pty_id)
                     .unwrap_or_default();
                 if screen == prior_screen {
@@ -561,7 +559,6 @@ impl super::ServiceContext {
             }
             service
                 .screen_state
-                .lock()
                 .unsubscribe_screen_changes(&pty_id, &signal);
             let mut watchers = WATCHERS.lock();
             if let Some(signals) = watchers.get_mut(&key) {

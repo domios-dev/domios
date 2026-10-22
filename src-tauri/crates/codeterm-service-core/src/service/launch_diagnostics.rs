@@ -71,7 +71,7 @@ pub(crate) fn log_failure_screen(
     pty_id: &str,
     reason: &str,
 ) {
-    let screen = { svc.screen_state.lock().get_screen_text(pty_id) };
+    let screen = { svc.screen_state.get_screen_text(pty_id) };
     codeterm_worker_services::launch_diagnostics::log_failure_screen(
         screen.as_deref(),
         tab_id,

@@ -315,7 +315,7 @@ impl ServiceContext {
             let Some((prompt, skip_value)) = classified else {
                 return;
             };
-            let screen = svc.screen_state.lock().get_screen_text(&pty_id);
+            let screen = svc.screen_state.get_screen_text(&pty_id);
             if screen.as_deref() != Some(snapshot.screen_text.as_str()) {
                 return;
             }

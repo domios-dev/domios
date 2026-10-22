@@ -467,7 +467,6 @@ impl PtyChild {
                             frame.clear();
                             let screen = service
                                 .screen_state
-                                .lock()
                                 .get_screen_text(&pty)
                                 .unwrap_or_default();
                             evidence.lock().record_screen(&screen);
@@ -652,7 +651,6 @@ pub(super) fn run_modal(child: &mut PtyChild, command: &str) -> Result<(), Strin
     let bound = child
         .service
         .screen_state
-        .lock()
         .bind_pty_generation(&child.pty, child.generation);
     if !bound {
         return Err("fixture screen binding rejected its PTY generation".to_string());

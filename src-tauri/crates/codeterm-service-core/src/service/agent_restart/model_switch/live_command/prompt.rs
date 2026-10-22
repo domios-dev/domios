@@ -93,10 +93,13 @@ impl ServiceContext {
         let Some(readiness) = &target.readiness else {
             return false;
         };
-        let screens = self.screen_state.lock();
+        let Some(screens) = self.screen_state.existing(&target.pty_id) else {
+            return false;
+        };
+        let screens = screens.lock();
         screens
-            .get_screen_rows(&target.pty_id)
-            .zip(screens.composer_input_state(&target.pty_id))
+            .get_screen_rows()
+            .zip(screens.composer_input_state())
             .is_some_and(|(rows, input)| readiness.matches(&rows.join("\n"), &input))
     }
 
@@ -104,7 +107,7 @@ impl ServiceContext {
         &self,
         target: &CommandTarget,
     ) -> Result<(), String> {
-        let signal = command_signal(&mut self.screen_state.lock(), &target.pty_id);
+        let signal = command_signal(&self.screen_state, &target.pty_id);
         let deadline = Instant::now() + Duration::from_secs(3);
         let result = (|| loop {
             let generation = signal.generation();
@@ -126,7 +129,6 @@ impl ServiceContext {
             }
         })();
         self.screen_state
-            .lock()
             .unsubscribe_screen_changes(&target.pty_id, &signal);
         result
     }
@@ -143,10 +145,12 @@ impl ServiceContext {
         {
             return Err("the session changed before the live command confirmation".into());
         }
-        let screen_state = self.screen_state.lock();
-        let screen = screen_state
-            .get_screen_text(&target.pty_id)
-            .unwrap_or_default();
+        let screen_state = self
+            .screen_state
+            .existing(&target.pty_id)
+            .ok_or_else(|| "the command screen is unavailable".to_owned())?;
+        let screen_state = screen_state.lock();
+        let screen = screen_state.get_screen_text().unwrap_or_default();
         prompt.respond(&screen, |keys| self.pty.lock().write(&target.pty_id, keys))
     }
 
@@ -155,7 +159,7 @@ impl ServiceContext {
         target: &CommandTarget,
         prompt: &mut CommandPrompt,
     ) -> Result<(), String> {
-        let signal = command_signal(&mut self.screen_state.lock(), &target.pty_id);
+        let signal = command_signal(&self.screen_state, &target.pty_id);
         let deadline = Instant::now() + Duration::from_secs(3);
         let result = (|| loop {
             let generation = signal.generation();
@@ -167,9 +171,13 @@ impl ServiceContext {
                 {
                     return Err("session changed; the old command dialog was not touched".into());
                 }
-                let screen_state = self.screen_state.lock();
+                let screen_state = self
+                    .screen_state
+                    .existing(&target.pty_id)
+                    .ok_or_else(|| "the command screen is unavailable".to_owned())?;
+                let screen_state = screen_state.lock();
                 let screen = screen_state
-                    .get_screen_text(&target.pty_id)
+                    .get_screen_text()
                     .ok_or_else(|| "cannot verify the live command dialog cleared".to_owned())?;
                 prompt.cancel(&screen, |keys| self.pty.lock().write(&target.pty_id, keys))?
             };
@@ -182,7 +190,6 @@ impl ServiceContext {
             signal.wait_after(generation, remaining);
         })();
         self.screen_state
-            .lock()
             .unsubscribe_screen_changes(&target.pty_id, &signal);
         result
     }

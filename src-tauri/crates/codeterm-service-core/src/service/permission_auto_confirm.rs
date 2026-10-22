@@ -417,7 +417,6 @@ impl ServiceContext {
             Some(text) => text.to_string(),
             None => self
                 .screen_state
-                .lock()
                 .get_screen_text(&pty_id)
                 .unwrap_or_default(),
         };
@@ -550,7 +549,7 @@ impl ServiceContext {
         let live_fingerprint = facts
             .as_ref()
             .and_then(|facts| facts.pty_id.clone())
-            .and_then(|pty_id| self.screen_state.lock().get_screen_text(&pty_id))
+            .and_then(|pty_id| self.screen_state.get_screen_text(&pty_id))
             .and_then(|screen| {
                 crate::agent::prompt::parse_prompt_safely(|| {
                     self.agent_registry.parse_prompt(agent_type, &screen)

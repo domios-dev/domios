@@ -44,7 +44,6 @@ pub(super) fn pending_prompt_candidate(
     let current_screen = (has_active_prompt || changed_screen.is_none()).then(|| {
         service
             .screen_state
-            .lock()
             .get_screen_text(pty_id)
             .unwrap_or_default()
     });

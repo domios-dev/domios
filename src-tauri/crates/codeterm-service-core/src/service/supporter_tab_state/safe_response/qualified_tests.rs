@@ -529,7 +529,7 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
         })
     }
     .expect("spawn the modal fixture child in the ServiceContext PTY");
-    fixture.service.screen_state.lock().resize(&pty, 120, 40);
+    fixture.service.screen_state.resize(&pty, 120, 40);
     let mut child = PtyChild::new(fixture.service.clone(), pty, tab_id.clone(), session);
     let journal_path = fixture.temp.path().join("supporter/journal.jsonl");
     let primary = catch_unwind(AssertUnwindSafe(|| run_modal(&mut child, &command)));
