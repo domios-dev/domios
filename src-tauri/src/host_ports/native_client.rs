@@ -2,6 +2,7 @@ mod bootstrap;
 mod quit;
 mod recovery;
 mod startup_log;
+pub(super) mod update;
 #[cfg(test)]
 pub(super) use bootstrap::read_single_bounded_line;
 #[cfg(test)]
@@ -26,7 +27,7 @@ use codeterm_types::{
         NativeWebviewDiagnosticsSnapshot, MAX_NATIVE_HOST_FRAME_BYTES,
         MAX_PENDING_NATIVE_HOST_REQUESTS, NATIVE_HOST_PROTOCOL,
     },
-    native_update::{NativeUpdateObservationOutcome, NativeUpdateRequest, NativeUpdateResult},
+    native_update::{NativeUpdateRequest, NativeUpdateResult},
     server_bootstrap::{LaunchOptions, ProcessProvenance, ServerComponentManifest, ServerReady},
 };
 use interprocess::local_socket::{
@@ -474,6 +475,10 @@ async fn connect_native_host(
         cancellations: Mutex::new(VecDeque::new()),
         last_event_id: AtomicU64::new(0),
     });
+    let recovering = client.clone();
+    tokio::task::spawn_blocking(move || update::recover(&recovering))
+        .await
+        .map_err(|e| e.to_string())??;
     Ok((client, stream))
 }
 
@@ -928,26 +933,43 @@ impl NativeHostClient {
         {
             return Some(self.reply_rejected(request, NativeHostRejection::Unauthorized));
         }
-        let observation = match &request.operation {
-            NativeHostOperation::ObserveNativeUpdate { operation_id, .. } => {
-                Some(!operation_id.value().is_nil())
+        if matches!(
+            &request.operation,
+            NativeHostOperation::NativeUpdate { .. }
+                | NativeHostOperation::ObserveNativeUpdate { .. }
+        ) {
+            if request.scope != NativeHostScope::Client {
+                return Some(self.reply_rejected(request, NativeHostRejection::Unauthorized));
             }
-            _ => None,
-        };
-        if let Some(valid) = observation {
-            let completion = if valid {
-                NativeHostCompletion::Completed(NativeHostResult::NativeUpdateObservation(
-                    NativeUpdateObservationOutcome::NoNewEvidence,
-                ))
-            } else {
-                NativeHostCompletion::Rejected(NativeHostRejection::ProtocolMismatch)
+            let operation = request.operation.clone();
+            let completion = match operation {
+                NativeHostOperation::NativeUpdate {
+                    request: update,
+                    apply: Some(options),
+                } => self
+                    .apply_update(update, options)
+                    .await
+                    .map(NativeHostResult::NativeUpdateApply),
+                NativeHostOperation::ObserveNativeUpdate {
+                    operation_id,
+                    after_sequence,
+                } => {
+                    let observe = self.observe_update(operation_id, after_sequence);
+                    tokio::select! {
+                        _ = &mut cancel => return None,
+                        result = timeout(codeterm_types::native_host::NATIVE_UPDATE_OBSERVATION_DEADLINE, observe) => {
+                            result.unwrap_or(Err(NativeHostRejection::DeadlineBeforeDispatch)).map(NativeHostResult::NativeUpdateApply)
+                        }
+                    }
+                }
+                _ => Err(NativeHostRejection::Unsupported),
             };
-            return Some(self.reply(request, completion));
-        }
-        if matches!(&request.operation, NativeHostOperation::NativeUpdate { .. }) {
             return Some(self.reply(
                 request,
-                NativeHostCompletion::Rejected(NativeHostRejection::Unsupported),
+                match completion {
+                    Ok(result) => NativeHostCompletion::Completed(result),
+                    Err(reason) => NativeHostCompletion::Rejected(reason),
+                },
             ));
         }
         let operation = request.operation.clone();

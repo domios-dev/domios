@@ -1,3 +1,5 @@
+pub use async_trait::async_trait;
+
 use std::path::PathBuf;
 
 use crate::apply::{ApplyOptions, ApplyResult, DebianPreflight, DebianUpdatePlan};
@@ -15,6 +17,9 @@ impl std::error::Error for NativeUnavailable {}
 
 #[async_trait::async_trait]
 pub trait ApplicationHost: Send + Sync {
+    fn available(&self) -> bool {
+        true
+    }
     fn restart(&self) -> Result<(), String>;
     fn exit(&self, code: i32) -> Result<(), String>;
     async fn copy_image_to_clipboard(&self, path: String) -> Result<(), String>;
