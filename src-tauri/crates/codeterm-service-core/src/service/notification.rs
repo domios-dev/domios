@@ -107,6 +107,13 @@ impl ServiceContext {
         intent: PushIntent,
         offer: Option<SurfaceOffer>,
     ) -> Result<(String, Option<Unseen>), String> {
+        if origin.peer_name.is_none() {
+            if let Some(tab) = origin.caller_tab_id.as_deref() {
+                if let Some(policy) = self.role_policy_for_tab(tab) {
+                    policy.authorize_notification(self, tab)?;
+                }
+            }
+        }
         let live_agent_caller = origin.peer_name.is_none()
             && origin.caller_tab_id.as_deref().is_some_and(|id| {
                 self.mux

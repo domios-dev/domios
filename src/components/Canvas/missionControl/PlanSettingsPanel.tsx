@@ -76,7 +76,7 @@ function StatusDot({ tone }: { tone: OversightTone }) {
   return <span className="mc-status-dot" data-tone={tone} aria-hidden="true" />;
 }
 
-export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onIntervalChange, onOpenGuide, disabled = false, children }: {
+export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onIntervalChange, onOpenGuide, onRunNow, runPending = false, disabled = false, children }: {
   plan: Pick<Plan, "id" | "mode" | "status">;
   api?: ApiConfig;
   oversight: PlanOversight;
@@ -84,6 +84,8 @@ export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onI
   onModeChange: (mode: OversightMode) => void;
   onIntervalChange: (intervalMs: number | null) => void;
   onOpenGuide?: () => void;
+  onRunNow?: () => void;
+  runPending?: boolean;
   disabled?: boolean;
   /** Further rows built from PlanSettingRow. */
   children?: ReactNode;
@@ -114,6 +116,8 @@ export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onI
           control={<Segmented<OversightMode> aria-label="How the Orchestrator is kept on track" value={oversight.mode} onChange={onModeChange} height={26}
             options={[{ value: "curator", label: "Curator", disabled }, { value: "heartbeat", label: "Heartbeat", disabled }]} />}
         >
+          {!heartbeatPicker && onRunNow && <button type="button" className="mc-board-more mc-setting-link" onClick={onRunNow}
+            disabled={disabled || !running || Boolean(oversight.fallback_reason) || runPending}>Run now</button>}
           {onOpenGuide && <button type="button" className="mc-board-more mc-setting-link" onClick={onOpenGuide}>
             <BookOpen size={12} aria-hidden="true" />How the Curator works
           </button>}

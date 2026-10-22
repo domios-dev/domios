@@ -49,6 +49,36 @@ fn captured_switch_outputs_confirm_model_and_effort_from_exact_records() {
 }
 
 #[test]
+fn captured_busy_system_command_stdout_confirms_effort_without_an_assistant_turn() {
+    let manifest: serde_json::Value = serde_json::from_str(&provider_file("plugin.json")).unwrap();
+    let commands: crate::agent::provider::ModelSwitchCommands =
+        serde_json::from_value(manifest["commands"]["modelSwitchCommands"].clone()).unwrap();
+    let records: Vec<serde_json::Value> = serde_json::from_str(&provider_file(
+        "tests/fixtures/model-switch/busy-effort-records.json",
+    ))
+    .unwrap();
+    let pattern = confirmation_pattern(
+        &commands.effort.unwrap().confirmation,
+        "haiku",
+        "Haiku 5.5",
+        Some("high"),
+    )
+    .unwrap();
+    assert!(transcript_confirms(
+        &records[0].to_string(),
+        &commands.transcript,
+        &pattern
+    ));
+    let mut foreign = records[0].clone();
+    foreign["type"] = serde_json::json!("assistant");
+    assert!(!transcript_confirms(
+        &foreign.to_string(),
+        &commands.transcript,
+        &pattern
+    ));
+}
+
+#[test]
 fn session_identity_planner_uses_actual_model_after_unconfirmed_picker_switch() {
     use crate::agent::provider::ModelSwitchConfirmationSource::{SessionIdentity, Transcript};
     let current = planning_model(SessionIdentity, Some("previous".into()), || {
@@ -74,6 +104,7 @@ fn source() -> ModelSwitchTranscript {
         prefix: "<opaque>".into(),
         suffix: "</opaque>".into(),
         ignored_content_regexes: Vec::new(),
+        additional_record_sources: Vec::new(),
     }
 }
 

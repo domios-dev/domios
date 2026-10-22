@@ -1,5 +1,5 @@
-use crate::blueprint_pipeline::{self, BlueprintSpec, Step, Trigger};
-use serde_json::{json, Value};
+use crate::blueprint_pipeline::{self, Step, Trigger};
+use serde_json::Value;
 type Emit<'a> = dyn FnMut(&str, &str, &str, bool) + 'a;
 
 pub(super) fn document(value: &Value, emit: &mut Emit<'_>) {
@@ -63,7 +63,11 @@ pub(super) fn document(value: &Value, emit: &mut Emit<'_>) {
 }
 
 fn shape(value: &Value, schema: &Value, root: &Value, path: &str, emit: &mut Emit<'_>) {
-    if value.as_str().is_some_and(|s| s.contains("{{")) {
+    if value.as_str().is_some_and(|s| {
+        crate::blueprint_placeholder::tokens(s)
+            .iter()
+            .any(|token| token.key.is_some())
+    }) {
         return;
     }
     if let Some(reference) = schema["$ref"].as_str() {
@@ -270,119 +274,91 @@ fn join(path: &str, key: &str) -> String {
 
 pub(super) fn definition(value: &Value, emit: &mut Emit<'_>) {
     if let Some(spec) = value.get("spec") {
-        let mut repaired = spec.clone();
-        if let Err(error) = serde_json::from_value::<Trigger>(spec["trigger"].clone()) {
+        let trigger = decode::<Trigger>(&spec["trigger"], "pipeline.trigger", emit);
+        let steps = spec["steps"]
+            .as_array()
+            .map(|steps| {
+                steps
+                    .iter()
+                    .enumerate()
+                    .map(|(index, step)| {
+                        decode::<Step>(step, &format!("pipeline.steps[{index}]"), emit)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let result = spec
+            .get("result")
+            .map(|result| {
+                decode::<blueprint_pipeline::BlueprintResult>(result, "pipeline.result", emit)
+            })
+            .unwrap_or(Some(Default::default()));
+        if let Err(errors) = blueprint_pipeline::validate_parts(
+            spec["name"].as_str().unwrap_or(""),
+            spec["note"].as_str(),
+            trigger.as_ref(),
+            &steps,
+            result.as_ref(),
+            None,
+        ) {
+            for error in errors {
+                emit(
+                    &error.path.document_field(),
+                    &error.reason,
+                    "Check node input types, duration units and forward route names",
+                    false,
+                );
+            }
+        }
+        for (index, step) in steps.iter().enumerate() {
+            if step.as_ref().is_some_and(|step| {
+                matches!(step.kind, blueprint_pipeline::StepKind::Convert { .. })
+            }) {
+                emit(
+                    &format!("pipeline.steps[{index}].with"),
+                    "Converter availability is checked at apply",
+                    "Ensure the required converter plugin is installed",
+                    true,
+                );
+            }
+        }
+        if matches!(trigger, Some(Trigger::Event { .. })) {
             emit(
                 "pipeline.trigger",
-                &error.to_string(),
-                "Use schedule, event or input with its required fields",
-                false,
+                "Event source availability is checked at apply",
+                "Install the event source plugin before applying",
+                true,
             );
-            repaired["trigger"] = json!({"type":"schedule","every":"1m"});
         }
-        if let Some(steps) = repaired["steps"].as_array_mut() {
-            for (i, step) in steps.iter_mut().enumerate() {
-                if let Err(error) = serde_json::from_value::<Step>(step.clone()) {
-                    emit(
-                        &format!("pipeline.steps[{i}]"),
-                        &error.to_string(),
-                        "Supply all node parameters with their declared types",
-                        false,
-                    );
-                    *step = json!({"name":step["name"].as_str().unwrap_or("invalid"),"input":"text","kind":{"kind":"command","command":"invalid"},"on":step.get("on").cloned().filter(Value::is_object).unwrap_or(json!({}))});
-                }
-            }
-        }
-        match serde_json::from_value::<BlueprintSpec>(repaired) {
-            Ok(spec) => {
-                let media = [
-                    crate::sentinel_input::MediaKind::Text,
-                    crate::sentinel_input::MediaKind::Audio,
-                    crate::sentinel_input::MediaKind::Video,
-                    crate::sentinel_input::MediaKind::Image,
-                ];
-                let converters = media
-                    .iter()
-                    .flat_map(|from| {
-                        media
-                            .iter()
-                            .map(move |to| blueprint_pipeline::ConverterEdge {
-                                from: *from,
-                                to: *to,
-                            })
-                    })
-                    .collect::<Vec<_>>();
-                if let Err(errors) = blueprint_pipeline::validate(&spec, &converters) {
-                    for error in errors {
-                        let field = wire_field(&error.field);
-                        emit(
-                            &field,
-                            &error.reason,
-                            "Check node input types, duration units and forward route names",
-                            false,
-                        );
-                    }
-                }
-                for (i, step) in spec.steps.iter().enumerate() {
-                    if matches!(step.kind, blueprint_pipeline::StepKind::Convert { .. }) {
-                        emit(
-                            &format!("pipeline.steps[{i}].with"),
-                            "Converter availability is checked at apply",
-                            "Ensure the required converter plugin is installed",
-                            true,
-                        )
-                    }
-                }
-                if matches!(spec.trigger, Trigger::Event { .. }) {
-                    emit(
-                        "pipeline.trigger",
-                        "Event source availability is checked at apply",
-                        "Install the event source plugin before applying",
-                        true,
-                    )
-                }
-                unreachable(&spec, emit);
-            }
-            Err(error) => emit(
-                "pipeline",
-                &error.to_string(),
-                "Use blueprint schema to inspect required pipeline fields",
-                false,
-            ),
+        if steps.iter().all(Option::is_some) {
+            unreachable(&steps.into_iter().flatten().collect::<Vec<_>>(), emit);
         }
     }
     if let Some(watch) = value.get("create") {
         watch_checks(watch, emit)
     }
 }
-fn wire_field(field: &str) -> String {
-    if matches!(field, "name" | "note" | "owner") {
-        return field.into();
-    }
-    let mut field = format!("pipeline.{field}");
-    for (old, new) in [
-        (".http", ".with"),
-        (".github", ".with"),
-        (".command", ".run"),
-        (".question", ".with.question"),
-        (".buckets", ".with.buckets"),
-        (".pattern", ".with.pattern"),
-        (".bucket", ".with.bucket"),
-        (".from", ".with.from"),
-        (".convert", ".with"),
-        (".agent", ".with"),
-    ] {
-        if field.ends_with(old) {
-            field.truncate(field.len() - old.len());
-            field.push_str(new);
-            break;
+fn decode<T: serde::de::DeserializeOwned>(
+    value: &Value,
+    path: &str,
+    emit: &mut Emit<'_>,
+) -> Option<T> {
+    match serde_json::from_value(value.clone()) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            emit(
+                path,
+                &error.to_string(),
+                "Supply required fields with their declared types",
+                false,
+            );
+            None
         }
     }
-    field
 }
-fn unreachable(spec: &BlueprintSpec, emit: &mut Emit<'_>) {
+fn unreachable(steps: &[Step], emit: &mut Emit<'_>) {
     let mut reached = std::collections::BTreeSet::from([0]);
-    for (i, step) in spec.steps.iter().enumerate() {
+    for (i, step) in steps.iter().enumerate() {
         if !reached.contains(&i) {
             emit(
                 &format!("pipeline.steps[{i}].name"),
@@ -394,10 +370,10 @@ fn unreachable(spec: &BlueprintSpec, emit: &mut Emit<'_>) {
         }
         let outcomes = step.kind.outcomes().unwrap_or_default();
         for outcome in outcomes {
-            let target = step.on.get(&outcome).map(String::as_str).unwrap_or("next");
+            let target = blueprint_pipeline::route_target(&step.on, &outcome);
             if target == "next" {
                 reached.insert(i + 1);
-            } else if let Some(index) = spec.steps.iter().position(|s| s.name == target) {
+            } else if let Some(index) = steps.iter().position(|s| s.name == target) {
                 reached.insert(index);
             }
         }
@@ -437,26 +413,18 @@ fn lint_inputs(
 ) {
     match value {
         Value::String(text) => {
-            let mut rest = text.as_str();
-            while let Some((_, tail)) = rest.split_once("{{") {
-                let Some((key, tail)) = tail.split_once("}}") else {
-                    break;
-                };
-                let key = key.trim();
-                if !key.is_empty()
-                    && key
-                        .bytes()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
-                    && inputs.is_none_or(|inputs| !inputs.contains_key(key))
+            for token in crate::blueprint_placeholder::tokens(text) {
+                if let Some(key) = token
+                    .key
+                    .filter(|key| inputs.is_none_or(|inputs| !inputs.contains_key(*key)))
                 {
                     emit(
                         path,
                         &format!("Undeclared input {key}; kept as literal text"),
                         "Declare this input or keep the literal command template",
                         true,
-                    )
+                    );
                 }
-                rest = tail;
             }
         }
         Value::Object(fields) => {

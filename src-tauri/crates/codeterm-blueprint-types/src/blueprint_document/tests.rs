@@ -278,3 +278,61 @@ fn separator_only_derived_names_have_a_readable_prefix() {
     assert_eq!(name.len(), 16);
     assert!(!checked.ok);
 }
+
+#[test]
+fn implicit_failed_route_stops_and_explicit_next_makes_a_stage_reachable() {
+    let source = r#"schema_version: 1
+name: Routes agree
+pipeline:
+  trigger: {type: schedule, every: 20s}
+  steps:
+  - {name: first, input: text, run: echo first, on: {done: stop}}
+  - {name: second, input: text, run: echo second}
+"#;
+    let checked = check("routes.yaml", source, &[]);
+    assert!(checked.diagnostics.iter().any(
+        |error| error.field == "pipeline.steps[1].name" && error.message == "Unreachable stage"
+    ));
+    assert!(
+        check(
+            "routes.yaml",
+            &source.replace("done: stop", "done: stop, failed: next"),
+            &[]
+        )
+        .ok
+    );
+}
+
+#[test]
+fn malformed_nodes_are_not_replaced_and_semantic_paths_stay_in_the_document() {
+    let source = PIPELINE
+        .replace("every: 1m", "every: 0s")
+        .replace("run: echo diagnose", "run: ''");
+    let checked = check("paths.yaml", &source, &[]);
+    for field in ["pipeline.trigger.every", "pipeline.steps[1].run"] {
+        assert!(
+            checked.diagnostics.iter().any(|error| error.field == field),
+            "{field}: {:?}",
+            checked.diagnostics
+        );
+    }
+    let malformed = check(
+        "parts.yaml",
+        &PIPELINE
+            .replace("every: 1m", "every: [invalid]")
+            .replace("run: echo diagnose", "run: {}"),
+        &[],
+    );
+    assert!(malformed
+        .diagnostics
+        .iter()
+        .any(|error| error.field == "pipeline.trigger"));
+    assert!(malformed
+        .diagnostics
+        .iter()
+        .any(|error| error.field == "pipeline.steps[1]"));
+    assert!(!malformed
+        .diagnostics
+        .iter()
+        .any(|error| error.message.contains("previous result")));
+}

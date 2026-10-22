@@ -62,7 +62,9 @@ impl BlueprintPortableExt for ServiceContext {
             return Err("Blueprint import requires a caller in a Team".into());
         }
         let definition = recipe.bind(assignments)?;
-        let result = self.blueprint_apply_with_state(caller, definition, false, Some(stopped))?;
+        let result = self
+            .blueprint_apply_with_state(caller, definition, false, Some(stopped))
+            .map_err(|error| error.to_string())?;
         let id = result["id"]
             .as_str()
             .ok_or("Applied Blueprint ID missing")?;

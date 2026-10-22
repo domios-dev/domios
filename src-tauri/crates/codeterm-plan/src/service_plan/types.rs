@@ -145,6 +145,7 @@ pub enum PlanError {
         kind: super::AttemptBindingRefusalKind,
         reason: String,
     },
+    Validation(String),
     Io(String),
 }
 
@@ -427,6 +428,7 @@ impl fmt::Display for PlanError {
             PlanError::AttemptBindingRestoreRefused { kind, reason } => {
                 write!(f, "same-attempt binding restoration refused ({kind:?}): {reason}")
             }
+            PlanError::Validation(message) => write!(f, "{message}"),
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -447,7 +449,9 @@ impl PlanError {
             PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
             PlanError::DispatchInFlight { .. } => RPC_DISPATCH_IN_FLIGHT,
             PlanError::RespawnAttemptNotCurrent { .. } => RPC_DISPATCH_IN_FLIGHT,
-            PlanError::InvalidExecutorName(_) | PlanError::InvalidPlanText(_) => -32602,
+            PlanError::InvalidExecutorName(_)
+            | PlanError::InvalidPlanText(_)
+            | PlanError::Validation(_) => -32602,
             PlanError::InvalidSplitParent { .. } => -32602,
             _ => RPC_INTERNAL_ERROR,
         }
@@ -692,6 +696,9 @@ impl PlanError {
             PlanError::AttemptBindingRestoreRefused { kind, reason } => serde_json::json!({
                 "type": "attempt_binding_restore_refused", "kind": kind, "reason": reason,
             }),
+            PlanError::Validation(message) => {
+                serde_json::json!({ "type": "validation", "message": message })
+            }
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
     }

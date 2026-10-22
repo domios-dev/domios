@@ -106,6 +106,14 @@ pub async fn finish_session_binding(
         }
     }
     bind_planner_session_after_claim(svc, tab_id).await?;
+    if claim.nonce_verified {
+        let service = svc.clone();
+        let tab = tab_id.to_string();
+        tokio::task::spawn_blocking(move || service.bind_role_session(&tab))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(|error| (StatusCode::CONFLICT, error))?;
+    }
     if claim.changed {
         crate::service::provider_signals::refresh_auth(svc, tab_id);
         if let Some(previous_session_id) = claim.prev.as_deref() {

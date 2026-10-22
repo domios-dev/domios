@@ -555,6 +555,8 @@ pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
 pub struct PendingModelSelection {
     pub model: String,
     pub effort: Option<String>,
+    #[serde(default)]
+    pub confirmation_pending: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -2,8 +2,10 @@ use crate::blueprint_document::Document;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+mod credentials;
 pub mod curator;
 mod generalize;
+pub use credentials::contains_credentials;
 mod quality;
 pub use generalize::{abstract_document, safe_template};
 pub use quality::{decide, CuratorEvidence, Evidence, Qualification};
@@ -219,12 +221,12 @@ pub fn dream_merges(entries: &[Entry], budget: usize) -> Vec<Merge> {
             .push(entry);
     }
     for group in groups.values() {
-        for pair in group.chunks_exact(2) {
+        for [first, second] in group.as_chunks::<2>().0 {
             if remaining == 0 {
                 return merges;
             }
             remaining -= 1;
-            if let Some(merge) = merge_pair(pair[0], pair[1]) {
+            if let Some(merge) = merge_pair(first, second) {
                 merges.push(merge);
             }
         }

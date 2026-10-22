@@ -14,16 +14,18 @@ export function ConnectedPlanSettings({ plan, api, initial, now }: {
   initial?: PlanControlLoop;
   now?: number;
 }) {
-  const { value, busy, error, update } = usePlanControlLoop(api, plan.id, plan.updated_at, initial);
+  const { value, busy, loadError, update, runNow } = usePlanControlLoop(api, plan.id, plan.updated_at, initial);
   const guide = useGuideNavigation();
   const clock = usePlanSettingsClock(now);
-  const oversight = planOversight(plan, value, !api ? "disconnected" : error ? "unavailable" : "loading");
+  const oversight = planOversight(plan, value, !api ? "disconnected" : loadError ? "unavailable" : "loading");
   return <>
     <PlanSettingsPanel plan={plan} api={api} oversight={oversight} now={clock}
       disabled={!api || !value || busy || plan.status !== "active" || plan.mode === "complete"}
       onModeChange={mode => { if (mode !== value?.mode) void update({ mode }); }}
       onIntervalChange={ms => void update({ mode: "heartbeat", heartbeat_interval_secs: ms === null ? null : ms / 1000 })}
+      onRunNow={() => void runNow()}
+      runPending={Boolean(value?.running || value?.manual_run_requested)}
       onOpenGuide={guide ? () => guide.onOpen("curator") : undefined} />
-    {error && <div role="alert"><InlineErrorNotice error={error} operation="updating plan settings" /></div>}
+    {loadError && <InlineErrorNotice role="alert" error={loadError} operation="loading plan settings" />}
   </>;
 }

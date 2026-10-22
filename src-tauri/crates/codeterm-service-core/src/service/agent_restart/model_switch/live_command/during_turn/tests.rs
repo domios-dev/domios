@@ -33,7 +33,7 @@ fn recorded_mid_turn_frames_authorize_only_their_declared_keys_once() {
     let mut keys = Vec::new();
     let busy = fixture("tests/fixtures/tab-state/normal-working.txt");
     let picker_screen = fixture("tests/fixtures/model-switch/model-picker.txt");
-    let confirmation = fixture("tests/fixtures/model-switch/sonnet-confirmation.txt");
+    let confirmation = fixture("tests/fixtures/model-switch/busy-sonnet-confirmation.txt");
     for screen in [
         busy.as_str(),
         &picker_screen,
@@ -84,4 +84,30 @@ fn confirmation_in_history_and_unrelated_selection_never_authorize_keys() {
             .unwrap();
     }
     assert!(!prompt.answered());
+}
+
+#[test]
+fn picker_with_normal_composer_below_it_navigates_and_cancels_structurally() {
+    let (mut picker, _) = declarations();
+    picker.injected();
+    let screen = fixture("tests/fixtures/model-switch/model-picker-with-composer.txt");
+    assert_eq!(
+        screen_stage(&screen, Some(&picker), None, false),
+        ScreenStage::Picker
+    );
+    let mut keys = Vec::new();
+    picker
+        .respond(&screen, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap();
+    let selected = screen.replace("❯ 5.", "  5.").replace("    4.", "  ❯ 4.");
+    picker
+        .respond(&selected, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(keys, [b"\x1b[A".to_vec(), b"s".to_vec()]);
 }
