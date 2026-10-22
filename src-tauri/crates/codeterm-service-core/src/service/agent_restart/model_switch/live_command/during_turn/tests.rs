@@ -33,7 +33,7 @@ fn recorded_mid_turn_frames_authorize_only_their_declared_keys_once() {
     let mut keys = Vec::new();
     let busy = fixture("tests/fixtures/tab-state/normal-working.txt");
     let picker_screen = fixture("tests/fixtures/model-switch/model-picker.txt");
-    let confirmation = fixture("tests/fixtures/model-switch/sonnet-confirmation.txt");
+    let confirmation = fixture("tests/fixtures/model-switch/busy-sonnet-confirmation.txt");
     for screen in [
         busy.as_str(),
         &picker_screen,

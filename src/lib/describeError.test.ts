@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { describeError, type ErrorAction } from "./describeError";
+import { describeError, isPendingRuntimeDeadline, type ErrorAction } from "./describeError";
 
 const fixtures: { input: unknown; title: string; actions: ErrorAction[] }[] = [
   { input: { code: "constructor", raw: "opaque" }, title: "Something went wrong while opening this file", actions: ["retry"] },
@@ -60,4 +60,13 @@ test("an explicit typed code takes precedence over JSON-looking raw diagnostics"
   const input = { code: "provider_auth_lost", raw: '{"error":{"code":"workspace_cwd_missing"}}' };
   assert.deepEqual(describeError(input).actions, ["sign-in"]);
   assert.equal(describeError(input).raw, input.raw);
+});
+
+test("model switch incidents remain failures when their details mention a deadline", () => {
+  for (const input of ["mid-turn model switch incident at effort:UnknownPrompt: an unrecognized confirmation is waiting; deadline expired", {kind:"during_turn_switch_incident",raw:"an unrecognized confirmation is waiting; deadline expired"}]) {
+    const view = describeError(input);
+    assert.equal(view.title, "An unrecognized confirmation is waiting");
+    assert.equal(view.pending, undefined);
+    assert.equal(isPendingRuntimeDeadline(input), false);
+  }
 });

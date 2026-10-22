@@ -122,3 +122,12 @@ fn picker_cleanup_requires_normal_cursor_and_no_selection_anywhere_on_screen() {
     input.cursor_visible = false;
     assert!(!readiness.matches(&restored, &input));
 }
+
+#[test]
+fn unrecognized_confirmation_with_normal_composer_is_a_dialog_not_a_slow_command() {
+    let (readiness, _, mut input) = declared();
+    let screen = fixture("busy-sonnet-confirmation.txt").replace("Sonnet 5.5", "unknown effort");
+    input.cursor_row = screen.lines().position(|row| row.trim() == "❯").unwrap() as u16;
+    assert!(readiness.has_dialog(&screen));
+    assert!(!readiness.matches(&screen, &input));
+}
