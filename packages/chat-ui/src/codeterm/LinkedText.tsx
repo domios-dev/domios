@@ -3,6 +3,8 @@ import { localArtifactTextParts } from "@codeterm/chat-core";
 import { RichMarkdown } from "../MarkdownBody";
 import { ClipboardList, FileText, ListChecks } from "lucide-react";
 import { extractPlanRefs, linkifyPlanRefs, type PlanRefLinkSegment } from "./planRefs";
+import { canonicalMentions } from "./canonicalMentions";
+import { useChatBlockHost } from "../blocks/ChatBlockHost";
 
 export type PlanRefKind = PlanRefLinkSegment["targetKind"];
 export type OpenPlan = (planId: string, focusId?: string, focusKind?: PlanRefKind) => void;
@@ -20,6 +22,8 @@ interface Props {
   text: string;
   onOpenPlan?: OpenPlan;
   className?: string;
+  onFocusTab?: (tabId: string) => void;
+  onOpenBlueprint?: (id: string) => void;
   resolvePlanRef?: (planId: string, targetId?: string, targetKind?: PlanRefKind) => ResolvedChatPlanRef | null;
 }
 
@@ -65,7 +69,30 @@ export function LinkedText(props: Props) {
   const parts = localArtifactTextParts(props.text);
   return <>{parts.map((part, index) => part.directive
     ? <RichMarkdown key={index} text={part.text} />
-    : <PlainLinkedText key={index} {...props} text={part.text} />)}</>;
+    : <MentionLinkedText key={index} {...props} text={part.text} />)}</>;
+}
+
+function MentionLinkedText(props: Props) {
+  const host = useChatBlockHost();
+  const mentions = canonicalMentions(props.text);
+  if (!mentions.length) return <PlainLinkedText {...props} />;
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  for (const mention of mentions) {
+    nodes.push(<PlainLinkedText key={`text:${cursor}`} {...props} text={props.text.slice(cursor, mention.start)} />);
+    const open = mention.kind === "tab" && props.onFocusTab ? () => props.onFocusTab?.(mention.id)
+      : mention.kind === "plan" && props.onOpenPlan ? () => props.onOpenPlan?.(mention.id)
+      : mention.kind === "blueprint" && props.onOpenBlueprint ? () => props.onOpenBlueprint?.(mention.id)
+      : mention.kind === "task" && host.tasks?.openTaskKey ? () => host.tasks?.openTaskKey?.(mention.id) : undefined;
+    nodes.push(<button key={`mention:${mention.start}`} type="button" data-ref-kind={mention.kind} title={mention.text}
+      aria-label={`${mention.kind} ${mention.label}. ${mention.id}`} disabled={!open} onClick={open}
+      className="inline-flex items-center gap-1 rounded px-1 py-0.5 align-baseline text-[var(--ct-accent)] bg-[color-mix(in_srgb,var(--ct-accent)_10%,transparent)]">
+      {mention.label}
+    </button>);
+    cursor = mention.end;
+  }
+  nodes.push(<PlainLinkedText key={`text:${cursor}`} {...props} text={props.text.slice(cursor)} />);
+  return <span style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{nodes}</span>;
 }
 
 function PlainLinkedText({ text, onOpenPlan, className, resolvePlanRef }: Props) {

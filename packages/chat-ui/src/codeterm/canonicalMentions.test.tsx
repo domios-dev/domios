@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import React from "react";
+import { canonicalMentions } from "./canonicalMentions";
+import { renderToStaticMarkup } from "react-dom/server";
+import { LinkedText } from "./LinkedText";
+import { MessageBubble } from "../MessageBubble";
+const text = "Ask @Rivet (tab 20c61220) about COD-1442 in @Release (plan pl_abc) and @Checks (blueprint bp_abc).";
+assert.deepEqual(canonicalMentions(text).map(({ kind, id }) => [kind, id]), [["tab", "20c61220"], ["task", "COD-1442"], ["plan", "pl_abc"], ["blueprint", "bp_abc"]]);
+assert.deepEqual(canonicalMentions("`COD-1` ```@Rivet (tab abc)``` [COD-3](http://example.test)"), []);
+const html = renderToStaticMarkup(<LinkedText text={text} onFocusTab={() => {}} onOpenPlan={() => {}} onOpenBlueprint={() => {}} />);
+for (const kind of ["tab", "task", "plan", "blueprint"]) assert.ok(html.includes(`data-ref-kind="${kind}"`));
+const sent = renderToStaticMarkup(<MessageBubble message={{ id: "sent-mentions", provider: "fixture", type: "user", content: text }} onFocusTab={() => {}} onOpenPlan={() => {}} onOpenJobs={() => {}} />);
+for (const kind of ["tab", "task", "plan", "blueprint"]) assert.ok(sent.includes(`data-ref-kind="${kind}"`), `sent ${kind} chip`);
+console.log("4 canonical mention chip checks passed");

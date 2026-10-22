@@ -1,93 +1,36 @@
-import { useEffect, useMemo, useState, type KeyboardEvent, type RefObject } from "react";
-import {
-  activeMentionQuery,
-  applyComposerMention,
-  filterComposerMentions,
-  type ComposerMention,
-} from "../../lib/composerMentions";
+import { Fragment, useEffect, useRef, type RefObject } from "react";
+import { MENTION_PICKER_LAYOUT, type ComposerMention } from "../../lib/composerMentions";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 
-export function ComposerMentionPicker({
-  mentions,
-  highlighted,
-  onHighlight,
-  onPick,
-  triggerRef,
-}: {
+export function ComposerMentionPicker({ mentions, highlighted, onHighlight, onPick, onClose, triggerRef }: {
   mentions: ComposerMention[];
   highlighted: number;
   onHighlight: (index: number) => void;
   onPick: (mention: ComposerMention) => void;
+  onClose: () => void;
   triggerRef: RefObject<HTMLElement | null>;
 }) {
-  if (mentions.length === 0) return null;
-  return (
-    <AnchoredPopover open anchor={triggerRef} placement="top-start" width="anchor">
-    <div role="listbox" aria-label="Mention suggestions" className="ct-menu max-h-48 overflow-y-auto">
-      {mentions.map((mention, i) => {
-        const selected = i === highlighted;
-        return (
-          <button
-            key={mention.token}
-            type="button"
-            role="option"
-            aria-selected={selected}
-            aria-label={mention.token}
-            title={mention.description}
-            onMouseDown={(e) => e.preventDefault()}
-            onMouseEnter={() => onHighlight(i)}
-            onClick={() => onPick(mention)}
-            className="ct-menu-row"
-          >
-            <span className="shrink-0 font-medium text-[var(--ct-accent)]">{mention.token}</span>
-            <span className="ml-auto min-w-0 truncate text-[var(--ct-muted-fg)]">{mention.description}</span>
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: "nearest" });
+  }, [highlighted]);
+  if (!mentions.length) return null;
+  return <AnchoredPopover open anchor={triggerRef} placement={MENTION_PICKER_LAYOUT.placement} width={MENTION_PICKER_LAYOUT.width} keepSide onClose={onClose} style={{ overflow: "hidden" }}>
+    <div className="ct-menu flex flex-col" style={{ maxHeight: "inherit" }}>
+      <div className="flex items-center justify-between px-2">
+        <span className="hidden min-[761px]:inline">Mention</span><button type="button" aria-label="Close mentions" style={{ minHeight: 44, minWidth: 44 }} onClick={onClose}>×</button>
+      </div>
+      <div ref={list} role="listbox" aria-label="Mention suggestions" style={{ minHeight: 0, maxHeight: MENTION_PICKER_LAYOUT.rowHeight * MENTION_PICKER_LAYOUT.visibleRows, overflowY: "auto", overscrollBehavior: "contain" }}>
+        {mentions.map((mention, index) => <Fragment key={mention.id}>
+          {(index === 0 || mentions[index - 1].group !== mention.group) && <div className="sticky top-0 px-2 text-xs bg-[var(--ct-bg)]">{mention.group}</div>}
+          <button type="button" role="option" aria-selected={index === highlighted} aria-label={mention.label}
+            onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => onHighlight(index)} onClick={() => onPick(mention)}
+            className="ct-menu-row w-full flex-col items-start" style={{ minHeight: MENTION_PICKER_LAYOUT.rowHeight }}>
+            <span className="font-medium text-[var(--ct-accent)]">{mention.label}</span>
+            <span className="text-xs text-[var(--ct-muted-fg)] text-left">{mention.description}</span>
           </button>
-        );
-      })}
+        </Fragment>)}
+      </div>
     </div>
-    </AnchoredPopover>
-  );
-}
-
-/** Mention suggestions for the draft's trailing `@word`; Escape hides them until the draft changes. */
-export function useComposerMentions(input: string, setInput: (next: string) => void, onPicked: () => void) {
-  const [highlighted, setHighlighted] = useState(0);
-  const [dismissedFor, setDismissedFor] = useState<string | null>(null);
-  const query = useMemo(() => activeMentionQuery(input), [input]);
-  const mentions = useMemo(
-    () => (dismissedFor === input ? [] : filterComposerMentions(query)),
-    [dismissedFor, input, query],
-  );
-  useEffect(() => setHighlighted(0), [query?.partial]);
-
-  const pick = (mention: ComposerMention) => {
-    if (!query) return;
-    setInput(applyComposerMention(input, query, mention));
-    onPicked();
-  };
-
-  /** True when the key belonged to the open picker. */
-  const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    if (mentions.length === 0) return false;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      const step = e.key === "ArrowDown" ? 1 : -1;
-      setHighlighted((h) => Math.min(Math.max(h + step, 0), mentions.length - 1));
-      return true;
-    }
-    if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-      e.preventDefault();
-      const mention = mentions[Math.min(highlighted, mentions.length - 1)];
-      if (mention) pick(mention);
-      return true;
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setDismissedFor(input);
-      return true;
-    }
-    return false;
-  };
-
-  return { mentions, highlighted, setHighlighted, pick, handleKey };
+  </AnchoredPopover>;
 }
