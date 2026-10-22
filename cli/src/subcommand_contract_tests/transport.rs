@@ -449,7 +449,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 27, "unsupported command count changed");
+    assert_eq!(checked, 28, "unsupported command count changed");
 }
 
 #[test]
