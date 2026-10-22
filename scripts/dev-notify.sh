@@ -105,9 +105,9 @@ dev_notify_send() {
     fi
   fi
   if [ -n "${DEV_NOTIFY_TARGET_MESH:-}" ]; then
-    dev_notify_parent_cli send --mesh "$DEV_NOTIFY_TARGET_MESH" --tab "$tab_id" --from-file "$body_file"
+    dev_notify_parent_cli send --mesh "$DEV_NOTIFY_TARGET_MESH" --tab "$tab_id" --from-file "$body_file" --system-context build
   else
-    dev_notify_parent_cli send --tab "$tab_id" --from-file "$body_file"
+    dev_notify_parent_cli send --tab "$tab_id" --from-file "$body_file" --system-context build
   fi
 }
 

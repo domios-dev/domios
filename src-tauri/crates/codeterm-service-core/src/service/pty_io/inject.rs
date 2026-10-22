@@ -64,35 +64,6 @@ impl ServiceContext {
         self.feed_input_parser(pty_id, cmd, true);
         self.write_spawn_dispatch(pty_id, cmd).map(|_| ())
     }
-
-    pub(crate) fn send_text_verified_guarded(
-        &self,
-        pty_id: &str,
-        text: &str,
-        typed_follow_up: Option<&str>,
-        enter: bool,
-        submit_strategy: crate::agent::provider::VerifySubmitStrategy,
-        permit: crate::pty::write_queue::GuardedInputPermit,
-        opts: crate::service::inject_verify::VerifyOpts,
-        track_exact_session_turn: bool,
-    ) -> Result<
-        crate::service::inject_verify::InjectionResult,
-        crate::service::inject_verify::InjectionError,
-    > {
-        super::submit_transaction::submit_text_with_key_and_follow_up(
-            self,
-            pty_id,
-            text,
-            typed_follow_up,
-            enter,
-            b"\r",
-            submit_strategy,
-            opts,
-            Some(permit),
-            track_exact_session_turn,
-        )
-    }
-
     /// Inject a command into a plain shell tab via script-exec, bypassing
     /// bracketed-paste. Ensures the PTY exists and awaits the PTY link before
     /// writing; delegates to `send_shell_spawn` which calls `await_shell_ready`.

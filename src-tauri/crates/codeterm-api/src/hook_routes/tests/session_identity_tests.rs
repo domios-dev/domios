@@ -288,18 +288,18 @@ fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
     );
     let first = fixture
         .service
-        .start_chat_send(
+        .start_human_chat_send(
             &tab_id,
-            "opaque-hook-first".into(),
+            codeterm_service_core::service::messenger::HumanInput::composer("opaque-hook-first"),
             None,
             Some("client-a".into()),
         )
         .unwrap();
     let second = fixture
         .service
-        .start_chat_send(
+        .start_human_chat_send(
             &tab_id,
-            "opaque-hook-second".into(),
+            codeterm_service_core::service::messenger::HumanInput::composer("opaque-hook-second"),
             None,
             Some("client-b".into()),
         )
@@ -401,11 +401,21 @@ fn stale_nonce_ack_does_not_release_and_rebound_launch_expires_queued_user_owner
     let (fixture, tab_id) = queue_fixture(false, None);
     let first = fixture
         .service
-        .start_chat_send(&tab_id, "opaque-held-first".into(), None, None)
+        .start_human_chat_send(
+            &tab_id,
+            codeterm_service_core::service::messenger::HumanInput::composer("opaque-held-first"),
+            None,
+            None,
+        )
         .unwrap();
     let second = fixture
         .service
-        .start_chat_send(&tab_id, "opaque-held-second".into(), None, None)
+        .start_human_chat_send(
+            &tab_id,
+            codeterm_service_core::service::messenger::HumanInput::composer("opaque-held-second"),
+            None,
+            None,
+        )
         .unwrap();
     await_owner_idle(&fixture, &tab_id);
     let writes = Arc::new(AtomicUsize::new(0));

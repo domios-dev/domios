@@ -107,7 +107,7 @@ fn restored_retained_session_composer_evidence_releases_one_queued_send() {
         .and_then(|reservation| {
             fixture.service.prepare_and_admit_user_send(
                 reservation,
-                "opaque queued send".into(),
+                crate::service::messenger::HumanInput::composer("opaque queued send"),
                 false,
             )
         })

@@ -441,3 +441,122 @@ fn curator_system_notices_keep_frame_and_marker_in_one_paste() {
         );
     }
 }
+
+#[test]
+fn every_non_human_agent_delivery_has_exactly_one_frame_in_one_paste() {
+    use crate::service::messenger::{MessageEnvelope, MessageKind, Messenger};
+
+    let capability = serde_json::from_value(serde_json::json!({
+        "supportsBracketedPaste": true,
+        "marksRoutedMessages": true
+    }))
+    .unwrap();
+    let body = "opaque alpha\nopaque beta";
+    let mut cases = vec![
+        (MessageEnvelope::tab("Sender", "source"), "tab"),
+        (MessageEnvelope::tab("Self", "target"), "tab"),
+        (MessageEnvelope::default(), "cli"),
+        (MessageEnvelope::report("Worker", "source"), "report"),
+        (MessageEnvelope::report("", ""), "report"),
+        (MessageEnvelope::from_codeterm(), "system"),
+        (MessageEnvelope::codeterm_reminder("build"), "system"),
+        (MessageEnvelope::reminder("Sender", "source"), "reminder"),
+        (MessageEnvelope::pebble(), "pebble"),
+    ];
+    for (kind, from) in [
+        (MessageKind::Mesh, "mesh"),
+        (MessageKind::Telegram, "telegram"),
+    ] {
+        cases.push((
+            MessageEnvelope {
+                kind,
+                ..Default::default()
+            },
+            from,
+        ));
+    }
+    for (envelope, from) in cases {
+        let frame = Messenger::from(envelope.clone())
+            .delivery_frame(true, body)
+            .unwrap();
+        let input = crate::service::pty_io::send::prepare_routed_input(
+            &frame.to_frame(),
+            Some(&capability),
+        );
+        let bytes = encode_paste_payload(
+            &input.body,
+            false,
+            None,
+            Some(false),
+            PasteEncodingCapability::MultilineTui,
+        );
+        let encoded = std::str::from_utf8(&bytes).unwrap();
+        assert_eq!(encoded.matches(BRACKETED_PASTE_START).count(), 1);
+        assert_eq!(encoded.matches(BRACKETED_PASTE_END).count(), 1);
+        let pasted = encoded
+            .strip_prefix(BRACKETED_PASTE_START)
+            .unwrap()
+            .strip_suffix(BRACKETED_PASTE_END)
+            .unwrap();
+        assert_eq!(pasted.matches("<domios ").count(), 1);
+        assert_eq!(pasted.matches("</domios>").count(), 1);
+        let parsed = codeterm_wire::domios::parse_message(pasted).unwrap();
+        assert_eq!(parsed.attr("from"), Some(from));
+        assert_eq!(parsed.body, body);
+        if envelope.context.as_deref() == Some("build") {
+            assert_eq!(parsed.attr("context"), Some("build"));
+            assert!(!pasted.contains("<tip>"));
+        }
+        if from == "cli" {
+            assert_eq!(frame.to_frame().opening_tag, "<domios from=\"cli\">");
+            assert!(!pasted.contains("<tip>"));
+        }
+    }
+}
+
+#[test]
+fn human_input_is_one_unframed_paste() {
+    let input = crate::service::messenger::AgentInput::Human(
+        crate::service::messenger::HumanInput::composer("opaque human alpha\nopaque human beta"),
+    );
+    let rendered = input.text();
+    let body = rendered.as_ref();
+    let bytes = encode_paste_payload(
+        body,
+        false,
+        None,
+        Some(false),
+        PasteEncodingCapability::MultilineTui,
+    );
+    assert_eq!(
+        bytes,
+        format!("{BRACKETED_PASTE_START}{body}{BRACKETED_PASTE_END}").as_bytes()
+    );
+}
+
+#[test]
+fn restored_framed_delivery_keeps_existing_marker_and_tip_in_one_paste() {
+    use crate::service::messenger::{MessageEnvelope, Messenger};
+    let frame =
+        Messenger::from(MessageEnvelope::tab("Sender", "source")).framed_delivery("opaque\nbody");
+    let original = codeterm_wire::domios::with_pasted_marker(&frame.to_message()).unwrap();
+    let restored = Messenger::restore_framed_delivery(&original).unwrap();
+    let capability = serde_json::from_value(serde_json::json!({
+        "supportsBracketedPaste": true, "marksRoutedMessages": true
+    }))
+    .unwrap();
+    let input =
+        crate::service::pty_io::send::prepare_routed_input(&restored.to_frame(), Some(&capability));
+    assert_eq!(input.body, original);
+    let bytes = encode_paste_payload(
+        &input.body,
+        false,
+        None,
+        Some(false),
+        PasteEncodingCapability::MultilineTui,
+    );
+    assert_eq!(
+        bytes,
+        format!("{BRACKETED_PASTE_START}{original}{BRACKETED_PASTE_END}").as_bytes()
+    );
+}

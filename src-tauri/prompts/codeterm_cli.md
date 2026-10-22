@@ -8,6 +8,8 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 
 Worker kinds add role prompts automatically: use `agent spawn --role Worker --kind qa` for verification, `--kind reviewer` for read-only code review or `--kind release_manager` for release coordination, with `--parent-tab`; `plan task dispatch` takes the same `--kind`. Both can perform assigned mutating work with or without `--plan-task`; task-less reports omit `--status`. For parent-authorized task-bound canonical placement, use `plan task dispatch <plan> <task> --execution-intent mutating --canonical-writer --kind qa` or set `--kind release_manager`. Dispatch preserves task/attempt reporting identity and enforces one live writer. Direct task-bound spawn cannot reserve the canonical attempt. Task-less kinds with Plan context retain parent-directed placement behavior and do not reserve task attempts or participate in canonical writer occupancy, so the parent coordinates those canonical writes. Publication and tags require owner GO.
 
+Programmatic sends to agents are framed, including anonymous CLI sends. Host job reports use `domios send --system-context build --tab ID --from-file PATH`; system notices have no reply address.
+
 ## Hard invariants
 
 - DISCOVERY HABIT: CLI FIRST, ALWAYS. For anything Domios-related, run `domios <cmd> --help` and read the owning document BEFORE curling APIs, grepping source, or reading repo/doc files. If a `domios` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.

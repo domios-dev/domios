@@ -50,9 +50,10 @@ fn early_send_nonce_survives_initial_launch_registration() {
             super::super::generation::reserve_binding_nonce(&fixture.service, &tab_id, session);
         let mut payload = crate::service::messenger::AgentDeliveryPayload {
             trace_id: None,
-            transport: crate::service::messenger::QueuedAgentPayload::Text {
-                text: "opaque-payload".into(),
-            },
+            transport: crate::service::messenger::Messenger::from(
+                crate::service::messenger::MessageEnvelope::from_codeterm(),
+            )
+            .framed_delivery("opaque-payload"),
             observer: None,
             idempotency_key: None,
             expected_pty_id: None,

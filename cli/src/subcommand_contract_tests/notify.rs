@@ -138,3 +138,44 @@ fn notify_answer_choice_flag_repeats_and_takes_labels_only() {
     // silent empty choice.
     parse_error(&["codeterm", "notify", "send", "Which branch?", "--choice"]);
 }
+
+#[test]
+fn build_system_notice_send_parses_and_refuses_action_or_delayed_modes() {
+    use clap::Parser;
+    let parsed = crate::Cli::try_parse_from([
+        "domios",
+        "send",
+        "--tab",
+        "target",
+        "--system-context",
+        "build",
+        "--from-file",
+        "body.md",
+    ])
+    .unwrap();
+    assert!(matches!(parsed.command, crate::Commands::SendText {
+        system_context: Some(ref context), ..
+    } if context == "build"));
+    for option in [
+        "--actions",
+        "--delay",
+        "--at",
+        "--every",
+        "--until",
+        "--count",
+        "--to-shell",
+    ] {
+        let mut args = vec![
+            "domios",
+            "send",
+            "opaque",
+            "--system-context",
+            "build",
+            option,
+        ];
+        if option != "--to-shell" {
+            args.push("1");
+        }
+        assert!(crate::Cli::try_parse_from(args).is_err(), "{option}");
+    }
+}

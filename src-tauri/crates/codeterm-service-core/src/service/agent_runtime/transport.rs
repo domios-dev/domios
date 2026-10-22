@@ -20,9 +20,11 @@ fn before_write(tab: &str, error: RuntimeFailure) -> DeliveryError {
 pub fn send(
     svc: &ServiceContext,
     tab: &str,
-    text: &str,
+    input: &crate::service::messenger::AgentInput,
     send_id: Option<&str>,
 ) -> Result<(), DeliveryError> {
+    let rendered = input.text();
+    let text = rendered.as_ref();
     svc.require_managed_send_allowed(tab, None)
         .map_err(|detail| DeliveryError::TabBusyRefused {
             tab: tab.into(),
@@ -77,7 +79,7 @@ pub fn send(
         &session,
         &process,
         &pending.send_id,
-        turn_input(text),
+        input.clone(),
     ))
 }
 
@@ -133,8 +135,22 @@ pub(crate) async fn submit_loaded(
     session: &Arc<Session>,
     process: &Arc<super::process::Process>,
     send_id: &str,
-    input: TurnInput,
+    classified: crate::service::messenger::AgentInput,
 ) -> Result<(), DeliveryError> {
+    let rendered = classified.text();
+    let input = match &classified {
+        crate::service::messenger::AgentInput::Launch(_) => TurnInput {
+            text: rendered.into_owned(),
+            attachments: Vec::new(),
+        },
+        crate::service::messenger::AgentInput::Shell(_) => {
+            return Err(before_write(
+                &session.context.lock().tab_id,
+                RuntimeFailure::Refused("shell input cannot target a runtime agent".into()),
+            ))
+        }
+        _ => turn_input(&rendered),
+    };
     let context = session.context.lock().clone();
     let tab = context.tab_id.as_str();
     if session.compaction.lock().held(context.epoch) {
@@ -263,11 +279,11 @@ pub(crate) async fn submit_loaded(
 pub(crate) fn send_envelope(
     svc: &ServiceContext,
     tab: &str,
-    input: &str,
+    input: &crate::service::messenger::FramedDelivery,
     token: &str,
     observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
-    super::envelope_delivery::send(svc, tab, input, token, observer)
+    super::envelope_delivery::send(svc, tab, &input.to_message(), token, observer)
 }
 
 #[cfg(test)]

@@ -153,7 +153,12 @@ fn bridge_main_and_local_send_share_refreshed_runtime_exact_session() {
             let svc = fixture.service.clone();
             let target = id.clone();
             tokio::task::spawn_blocking(move || {
-                svc.chatbackend_tab_send(&target, "opaque-local-body")
+                svc.chatbackend_tab_send(
+                    &target,
+                    &crate::service::messenger::AgentInput::Human(
+                        crate::service::messenger::HumanInput::composer("opaque-local-body"),
+                    ),
+                )
             })
             .await
             .unwrap()
