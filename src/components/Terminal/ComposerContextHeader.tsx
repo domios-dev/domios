@@ -334,7 +334,8 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     <>
       <div className="ct-ctx__reveal" data-open={open !== null || undefined}>
         <div className="ct-ctx__reveal-inner">
-          <div className="ct-ctx__strip" data-kind={open} role={open === "goal" ? "dialog" : "group"} aria-label={KIND_LABEL[open]}>
+          <div className="ct-ctx__strip" data-kind={open} role={open === "goal" ? "dialog" : "group"} aria-label={KIND_LABEL[open]}
+            tabIndex={0} style={{ boxSizing: "border-box", maxHeight: 200, overflowY: "auto", overscrollBehaviorY: "contain", touchAction: "pan-y" }}>
             {strip[open]()}
           </div>
         </div>
