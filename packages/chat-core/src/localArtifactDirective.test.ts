@@ -16,3 +16,13 @@ for (const source of ["```md\n@ds-image /a.png\n```", "~~~~\n@ct-page /a.html\n~
 assert.equal(parseLocalArtifactDirective("@ds-image /a.png\n@ds-image /b.png"), null);
 assert.equal(localArtifactTextParts("@ds-image /a.png\n@ct-document /b.md").filter((part) => part.directive).length, 2);
 console.log("localArtifactDirective: 14 parser and segmentation cases passed");
+
+assert.deepEqual(parseLocalArtifactDirective('@ds-image "/a one.png" "/b two.png"'), { kind: "image", path: "/a one.png", paths: ["/a one.png", "/b two.png"] });
+assert.deepEqual(parseLocalArtifactDirective("@ds-image /a.png /b.png"), { kind: "image", path: "/a.png", paths: ["/a.png", "/b.png"] });
+assert.deepEqual(parseLocalArtifactDirective("@ds-image C:/a.png D:/b.png"), { kind: "image", path: "C:/a.png", paths: ["C:/a.png", "D:/b.png"] });
+
+assert.deepEqual(parseLocalArtifactDirective('@ds-image "/a one.png" /b.png'), { kind: "image", path: "/a one.png", paths: ["/a one.png", "/b.png"] });
+
+assert.deepEqual(parseLocalArtifactDirective("@ds-image /work/owner's image.png"), { kind: "image", path: "/work/owner's image.png" });
+
+assert.deepEqual(parseLocalArtifactDirective("@ds-image /owner's.png /two.png"), { kind: "image", path: "/owner's.png", paths: ["/owner's.png", "/two.png"] });

@@ -10,7 +10,7 @@ struct Directive {
     start: usize,
     end: usize,
     tag: String,
-    path: String,
+    paths: Vec<String>,
 }
 
 fn directives(text: &str) -> Vec<Directive> {
@@ -44,20 +44,14 @@ fn directives(text: &str) -> Vec<Directive> {
                 .iter()
                 .any(|known| tag.eq_ignore_ascii_case(known))
                 {
-                    let path = path.trim();
-                    let path = if path.starts_with(['\'', '"']) {
-                        path.chars()
-                            .next()
-                            .and_then(|quote| path.strip_prefix(quote)?.strip_suffix(quote))
-                    } else {
-                        Some(path)
-                    };
-                    if let Some(path) = path.filter(|path| !path.is_empty()) {
+                    let paths =
+                        codeterm_local_preview::artifact_directive::artifact_paths(tag, path);
+                    if !paths.is_empty() {
                         result.push(Directive {
                             start: offset,
                             end: offset + content.len(),
                             tag: tag.into(),
-                            path: path.into(),
+                            paths: paths.into_iter().map(str::to_owned).collect(),
                         });
                     }
                 }
@@ -89,14 +83,18 @@ fn rewrite(
     let mut output = String::new();
     let mut offset = 0;
     for directive in plan {
-        let path = paths
-            .get(&directive.path)
-            .ok_or("Artifact transfer did not return a target path")?;
-        if path.is_empty() || path.contains(['"', '\r', '\n']) {
-            return Err("Artifact transfer returned an invalid target path".into());
+        let mut targets = Vec::new();
+        for source in &directive.paths {
+            let path = paths
+                .get(source)
+                .ok_or("Artifact transfer did not return a target path")?;
+            if path.is_empty() || path.contains(['"', '\r', '\n']) {
+                return Err("Artifact transfer returned an invalid target path".into());
+            }
+            targets.push(format!("\"{path}\""));
         }
         output.push_str(&text[offset..directive.start]);
-        output.push_str(&format!("{} \"{}\"", directive.tag, path));
+        output.push_str(&format!("{} {}", directive.tag, targets.join(" ")));
         offset = directive.end;
     }
     output.push_str(&text[offset..]);
@@ -158,17 +156,23 @@ where
             (!plan.is_empty()).then_some((pointer, text, plan))
         })
         .collect();
-    if plans.iter().map(|(_, _, plan)| plan.len()).sum::<usize>() > 32 {
+    if plans
+        .iter()
+        .flat_map(|(_, _, plan)| plan)
+        .map(|directive| directive.paths.len())
+        .sum::<usize>()
+        > 32
+    {
         return Err("A remote message may contain at most 32 file previews".into());
     }
     let mut transferred = HashMap::new();
     for (_, _, plan) in &plans {
-        for directive in plan {
-            if transferred.contains_key(&directive.path) {
+        for source in plan.iter().flat_map(|directive| &directive.paths) {
+            if transferred.contains_key(source) {
                 continue;
             }
-            let target = transfer_file(directive.path.clone(), ingest_path.clone()).await?;
-            transferred.insert(directive.path.clone(), target);
+            let target = transfer_file(source.clone(), ingest_path.clone()).await?;
+            transferred.insert(source.clone(), target);
         }
     }
     for (pointer, text, plan) in plans {

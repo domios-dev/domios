@@ -5,6 +5,64 @@ use references::{path_key, referenced_paths};
 use std::path::PathBuf;
 
 #[test]
+fn gallery_references_authorize_each_image_without_bypassing_private_path_policy() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = crate::html_preview::preview_test_root(temp.path());
+    let allowed = root.join("allowed image.png");
+    let second = root.join("second.png");
+    let denied = root.join("private");
+    let private_image = denied.join("secret.png");
+    std::fs::create_dir(&denied).unwrap();
+    std::fs::write(&allowed, b"image").unwrap();
+    std::fs::write(&second, b"second").unwrap();
+    std::fs::write(&private_image, b"private").unwrap();
+    let messages = vec![ChatMsg {
+        content: format!(
+            "@ds-image \"{}\" \"{}\" \"{}\"",
+            allowed.display(),
+            second.display(),
+            private_image.display()
+        ),
+        ..Default::default()
+    }];
+    let references = referenced_paths(&messages, None);
+    assert_eq!(
+        references,
+        [&allowed, &second, &private_image]
+            .map(|path| path_key(path))
+            .into()
+    );
+    let policy = PreviewPolicy::new(references, &[denied]).unwrap();
+    assert!(policy.authorize(&allowed, Some(&allowed)).is_ok());
+    assert!(policy.authorize(&second, Some(&second)).is_ok());
+    assert_eq!(
+        policy
+            .authorize(&private_image, Some(&private_image))
+            .unwrap_err(),
+        "Preview path is private"
+    );
+    let read = |path: &std::path::Path| {
+        read_local_preview_file_guarded(path.to_str().unwrap(), "image", |path, canonical| {
+            policy.authorize(path, canonical)
+        })
+    };
+    assert_eq!(
+        read(&allowed).unwrap().data,
+        "data:image/png;base64,aW1hZ2U="
+    );
+    assert_eq!(
+        read(&second).unwrap().data,
+        "data:image/png;base64,c2Vjb25k"
+    );
+    assert_eq!(read(&private_image).unwrap_err(), "Preview path is private");
+    let combined = PathBuf::from(format!("{} {}", allowed.display(), private_image.display()));
+    assert_eq!(
+        policy.authorize(&combined, None).unwrap_err(),
+        "Preview path is not referenced"
+    );
+}
+
+#[test]
 fn refusal_diagnostics_use_fixed_reasons_without_error_details() {
     for (error, reason) in [
         ("Preview path is private", "private_path"),

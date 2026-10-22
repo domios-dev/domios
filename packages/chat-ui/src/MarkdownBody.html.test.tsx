@@ -312,6 +312,39 @@ test("file-backed HTML fence loads and sanitizes its single source", async () =>
   configureHtmlFileLoader(null);
 });
 
+test("multi-image directives load each path in scope and render one gallery", async () => {
+  const { LocalArtifactScope } = await import("./LocalArtifactScope");
+  const reads: string[] = [];
+  configureLocalArtifactLoader(async (path, kind, tabId) => {
+    assert(kind === "image" && tabId === "gallery-owner", "gallery preserves image kind and owner scope");
+    reads.push(path);
+    return { data: "data:image/png;base64,AA==", media_type: "image/png" };
+  });
+  const { host, root } = await render(<LocalArtifactScope tabId="gallery-owner"><RichMarkdown text={'@ds-image "/first image.png" /second.png'} /></LocalArtifactScope>);
+  try {
+    assert(reads.join("|") === "/first image.png|/second.png", "both exact paths reach the bounded loader");
+    assert(host.querySelectorAll('[data-testid="chat-ds-image"]').length === 1, "one directive produces one gallery");
+    assert(host.querySelectorAll('[data-testid="chat-ds-image"] img').length === 2, "both image thumbnails are delivered");
+  } finally {
+    await act(async () => root.unmount()); host.remove(); configureLocalArtifactLoader(null);
+  }
+});
+
+test("a denied gallery image leaves the allowed image visible with an unavailable tile", async () => {
+  configureLocalArtifactLoader(async path => {
+    if (path === "/denied.png") throw new Error("Preview path is private");
+    return { data: "data:image/png;base64,AA==", media_type: "image/png" };
+  });
+  const { host, root } = await render(<RichMarkdown text="@ds-image /allowed.png /denied.png" />);
+  try {
+    assert(host.querySelectorAll("img").length === 1, "the allowed image remains visible");
+    assert(host.querySelector('[aria-label="denied.png not available"]'), "the denied image has an explicit unavailable tile");
+    assert(!host.querySelector('img[alt="denied.png"]'), "a denial never becomes an image request");
+  } finally {
+    await act(async () => root.unmount()); host.remove(); configureLocalArtifactLoader(null);
+  }
+});
+
 test("standalone ct artifact directives render pages, images, and documents", async () => {
   const pagePath = "C:\\Users\\dev\\Desktop\\view.html";
   const imagePath = "C:\\Users\\dev\\Desktop\\preview.png";

@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "@codeterm/chat-core": "workspace:*",
-    "tlds": "^1.261.0"
+    "tlds": "^1.261.0",
+    "@codeterm/canvas-camera": "workspace:*"
   },
   "peerDependencies": {
     "lucide-react": "^1.7.0",
