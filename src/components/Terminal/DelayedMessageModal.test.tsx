@@ -11,9 +11,10 @@ async function main() {
     Object.defineProperty(globalThis, key, { configurable: true, value: (win as unknown as Record<string, unknown>)[key] });
   }
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  const [{ createRoot }, { DelayedMessageModal }] = await Promise.all([
+  const [{ createRoot }, { DelayedMessageModal }, { formatClock }] = await Promise.all([
     import("react-dom/client"),
     import("./DelayedMessageModal"),
+    import("./delayedSend"),
   ]);
 
   const host = document.createElement("div");
@@ -115,6 +116,9 @@ async function main() {
   assert.match(dialog()?.querySelector('[data-testid="heartbeat-reason"]')?.textContent ?? "", /task_a/);
   assert.equal(dialog()?.querySelector('[data-testid="heartbeat-content"]')?.textContent, system.text);
   assert.equal(dialog()?.querySelector('[data-testid="heartbeat-tick"]'), null, "the delivery log is not shown");
+  assert.match(dialog()?.querySelector("#system-heartbeat-title")?.textContent ?? "", /^System/);
+  assert.ok(dialog()?.querySelector('[data-testid="heartbeat-last-sent"]'), "the last real send is shown");
+  assert.equal(dialog()?.querySelector('[data-testid="heartbeat-next"]')?.textContent?.includes(formatClock(120_000)), false, "an unanchored next time is not invented");
   const labels = Array.from(dialog()!.querySelectorAll("button")).map((button) => button.textContent?.trim() || button.getAttribute("aria-label"));
   for (const forbidden of ["Delete", "Save", "Send now", "Cancel", "Schedule"]) {
     assert.equal(labels.includes(forbidden), false, `${forbidden} is absent`);
