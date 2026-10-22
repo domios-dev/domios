@@ -4,6 +4,19 @@ use super::spawn::{resolve_spawn_workspace_id, SpawnTabSpec, TabHandle};
 use super::ServiceContext;
 use crate::service::MuxEmitCause;
 
+pub(crate) fn apply_team_shell_path(env: &mut std::collections::HashMap<String, String>) {
+    #[cfg(windows)]
+    {
+        let profiles = crate::pty::shell_profiles::catalog().load_blocking(false);
+        let inherited = std::env::var_os("PATH").unwrap_or_default();
+        if let Some(path) = crate::pty::shell_profiles::path_with_git_bash(&profiles, &inherited) {
+            env.insert("PATH".into(), path.to_string_lossy().into_owned());
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = env;
+}
+
 impl ServiceContext {
     pub(crate) fn shell_job_policy_for_tab(
         &self,
