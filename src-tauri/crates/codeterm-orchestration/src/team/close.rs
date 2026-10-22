@@ -719,7 +719,16 @@ pub(crate) fn cleanup_lane_with_tabs(
         )?;
     }
     if let Some((reference, tip)) = branch_tip {
-        run_git(&lane.project_path, &["update-ref", "-d", &reference, &tip])
+        let current = git_output(&lane.project_path, &["rev-parse", "--verify", &reference])?;
+        if !current.status.success() || String::from_utf8_lossy(&current.stdout).trim() != tip {
+            return Err(format!(
+                "branch {reference} changed during lane removal; branch retained"
+            ));
+        }
+        let branch = reference
+            .strip_prefix("refs/heads/")
+            .ok_or("invalid lane branch reference")?;
+        run_git(&lane.project_path, &["branch", "-d", "--", branch])
             .map_err(|error| format!("branch {reference} could not be deleted: {error}"))?;
     }
     Ok(())
