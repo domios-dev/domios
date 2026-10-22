@@ -342,11 +342,10 @@ fn blueprint_v2_call_view_diff_lower_preserve_identity_and_contract_changes() {
         let after: Document = serde_json::from_value(after).unwrap();
         assert!(ir_projection::diff(&before, &after).changed["call"].contains(&field.into()));
     }
-    assert!(before
-        .lower()
-        .unwrap_err()
-        .iter()
-        .any(|(_, m)| m.contains("call")));
+    assert_eq!(
+        before.lower().unwrap()["spec"]["steps"][0]["kind"]["kind"],
+        "call"
+    );
     let mut after = before.clone();
     let key = after.dependencies.keys().next().unwrap().clone();
     after.dependencies.get_mut(&key).unwrap().document.steps[0]
@@ -473,4 +472,63 @@ fn blueprint_v2_call_diagnostic_has_stable_rule_proof_and_position() {
     assert_eq!(diagnostic.failing.len(), 1);
     assert!(diagnostic.line > 1);
     assert!(diagnostic.id.starts_with("C2:atom:"));
+}
+#[test]
+fn blueprint_v2_call_expanded_projection_and_semantic_diff_keep_nested_body_changes() {
+    let tree = Tree::new();
+    let before = good(&tree);
+    let view = projection::graph(&before).unwrap();
+    assert_eq!(view.calls.len(), 1);
+    assert_eq!(view.calls[0].graph["steps"][0]["id"], "increment");
+    assert_eq!(
+        view.calls[0].pin,
+        before.root.document.steps[0]
+            .call
+            .as_ref()
+            .unwrap()
+            .pin
+            .clone()
+            .unwrap()
+    );
+    let mut child = callee();
+    child["steps"][0]["code"]["src"] = json!("def main(p): return {'n': 42}");
+    child["steps"][0]["caps"] = json!(["net:example.test"]);
+    child["inputs"]["p"] = object("string");
+    child["result"]["type"] = object("string");
+    tree.put("callee.yaml", &child);
+    let after = tree.resolve("caller.yaml").unwrap();
+    let diff = projection::diff(&before, &after);
+    let changed = diff
+        .callees
+        .values()
+        .next()
+        .unwrap()
+        .fields
+        .as_ref()
+        .unwrap();
+    assert_eq!(changed.changed["increment"], vec!["caps", "code"]);
+    assert_eq!(changed.document_fields, vec!["inputs", "result"]);
+}
+#[test]
+fn blueprint_v2_call_lowered_runtime_keeps_exact_pin_and_full_v2_document() {
+    let tree = Tree::new();
+    let closure = good(&tree);
+    let lowered = closure.document().lower().unwrap();
+    assert_eq!(lowered["document"]["schema_version"], 2);
+    assert_eq!(lowered["spec"]["steps"][0]["kind"]["kind"], "call");
+    assert_eq!(
+        lowered["spec"]["steps"][0]["kind"]["call"]["pin"],
+        serde_json::to_value(&closure.root.document.steps[0].call.as_ref().unwrap().pin).unwrap()
+    );
+    assert_eq!(
+        lowered["document"]["dependencies"],
+        serde_json::to_value(&closure.callees).unwrap()
+    );
+}
+#[test]
+fn blueprint_v2_call_no_false_final_pass_without_checker_engine() {
+    let tree = Tree::new();
+    let closure = good(&tree);
+    let source = serde_yaml::to_string(&closure.document()).unwrap();
+    assert!(!crate::blueprint_document::check("caller.yaml", &source, &[]).ok);
 }

@@ -68,6 +68,19 @@ impl BlueprintApplyExt for ServiceContext {
         }
         let document =
             codeterm_blueprint_types::blueprint_document::Document::from_definition(&definition)?;
+        let document = self.mem.pin_blueprint_calls(
+            &format!("blueprints:{}", caller.workspace),
+            caller.team.as_deref().ok_or("Call requires a Team")?,
+            document,
+        )?;
+        if document.nodes().any(|node| node.call.is_some()) {
+            return Err(ApplyError::Validation {
+                checks: vec![FieldCheck::new(
+                    "steps",
+                    Err("Call checker admission is unavailable".into()),
+                )],
+            });
+        }
         let definition = serde_json::to_value(&document).map_err(|error| error.to_string())?;
         let checks = codeterm_blueprint_types::blueprint_document::definition_errors(&definition)
             .into_iter()

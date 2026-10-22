@@ -6,6 +6,7 @@ pub struct RunCtx<'a> {
     pub lease: &'a Lease,
     pub run_id: &'a str,
     pub deadline: Instant,
+    pub call_state: crate::blueprint_calls::CallContext,
     pub outputs: std::collections::BTreeMap<String, ExecutionEnvelope>,
     next_marker: u16,
     call_depth: u8,
@@ -35,6 +36,7 @@ impl<'a> RunCtx<'a> {
             run_id,
             deadline: Instant::now() + Duration::from_millis(remaining),
             outputs: Default::default(),
+            call_state: Default::default(),
             next_marker: 0,
             call_depth: 0,
             input_kind: None,
@@ -137,16 +139,7 @@ pub fn execute_step(
 ) -> Result<StepExecution, JournalReason> {
     let marker = ctx.allocate_marker()?;
     if effect_after_claim(
-        || {
-            claim_step(
-                ctx.handle,
-                ctx.lease,
-                ctx.run_id,
-                marker,
-                &step.name,
-                now(ctx.handle),
-            )
-        },
+        || crate::blueprint_calls::claim_step(ctx, marker, &step.name, now(ctx.handle)),
         || (),
     )
     .is_none()
@@ -155,6 +148,8 @@ pub fn execute_step(
     }
     let contract = step.execution.clone().unwrap_or_default();
     let checked = (|| {
+        ctx.call_state.current_marker = Some(marker);
+        crate::blueprint_calls::metadata(ctx, marker, &step.name, &step.kind)?;
         if ctx.lease.cancelled.load(Ordering::SeqCst) {
             return Err(JournalReason::Other("skip:lease_cancelled".into()));
         }
@@ -167,25 +162,32 @@ pub fn execute_step(
             input.clone()
         };
         contract.validate(&input, false)?;
-        let result = dispatch::run_step(
-            ctx.handle,
-            ctx.service,
-            ctx.lease,
-            step,
-            &input,
-            ctx.input_kind,
-            ctx.input_source.as_deref(),
-            ctx.input_failure.as_deref(),
-            &ctx.input_display,
-            ctx.cleanup.clone(),
-            ctx.remaining().min(Duration::from_millis(
-                contract
-                    .limits
-                    .as_ref()
-                    .and_then(|limits| limits.wall_ms)
-                    .unwrap_or(u64::MAX),
-            )),
-        );
+        let result = match &step.kind {
+            StepKind::Call { call, grants } => {
+                crate::blueprint_calls::execute(ctx, &step.name, call, grants, &input)?
+            }
+            StepKind::Effect { node } => crate::blueprint_calls::effect(ctx, node, &input)?,
+            _ => dispatch::run_step(
+                ctx.handle,
+                ctx.service,
+                ctx.lease,
+                step,
+                &input,
+                ctx.input_kind,
+                ctx.input_source.as_deref(),
+                ctx.input_failure.as_deref(),
+                &ctx.input_display,
+                ctx.cleanup.clone(),
+                ctx.remaining().min(Duration::from_millis(
+                    contract
+                        .limits
+                        .as_ref()
+                        .and_then(|limits| limits.wall_ms)
+                        .unwrap_or(u64::MAX),
+                )),
+            ),
+        };
+
         if result.uncertain {
             return Err(JournalReason::UncertainEffect);
         }
