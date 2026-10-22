@@ -1896,11 +1896,15 @@ Request one Curator round now, subject to the plan and human-wait gates
 
 #### `codeterm plan control-loop set`
 
+Switch the plan between Curator rounds and the plain heartbeat
+
 - `--interval`
 - `<mode>`
 - `<plan_id>`
 
 #### `codeterm plan control-loop show`
+
+Show the plan's control-loop mode and heartbeat interval
 
 - `<plan_id>`
 
@@ -1926,6 +1930,8 @@ Create a new plan
 Grant bounded authority to the active Curator round
 
 #### `codeterm plan curator grant`
+
+Grant the Curator tab the blueprints, plan skills and saves it may use
 
 - `--blueprint`
 - `<curator_tab>`
