@@ -24,6 +24,8 @@ struct State {
     wake: Option<Weak<dyn Wake>>,
     #[cfg(any(test, feature = "test-support"))]
     wait_observer: Option<std::sync::mpsc::Sender<WaitPhase>>,
+    #[cfg(any(test, feature = "test-support"))]
+    spawn_observer: Option<std::sync::mpsc::Sender<u32>>,
     #[cfg(all(any(test, feature = "test-support"), windows))]
     fixture_argv: Option<Arc<[String]>>,
 }
@@ -187,6 +189,18 @@ impl Cancellation {
         match readiness {
             Some(ready) => ready(),
             None => Ok(deadlines),
+        }
+    }
+
+    pub fn observe_spawned(&self) -> std::sync::mpsc::Receiver<u32> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.state.lock().spawn_observer = Some(tx);
+        rx
+    }
+
+    pub(super) fn spawned(&self, pid: u32) {
+        if let Some(observer) = &self.state.lock().spawn_observer {
+            let _ = observer.send(pid);
         }
     }
 

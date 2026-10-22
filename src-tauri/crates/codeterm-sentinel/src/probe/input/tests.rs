@@ -95,16 +95,25 @@ fn blueprint_v2_runtime_stdin_exact_boundary_and_argv_separation() {
 #[test]
 fn blueprint_v2_runtime_oversized_stdin_delivers_explicit_marker() {
     let dir = tempfile::tempdir().unwrap();
-    let result = run_with_budget_input(
+    let cancellation = crate::probe::cancellation::Cancellation::default();
+    let spawned = cancellation.observe_spawned();
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let deadlines = crate::probe::process::Deadlines::start(PROBE_RUNTIME, PROBE_RUNTIME).unwrap();
+    let input = file(&"x".repeat(32768)).unwrap();
+    let result = crate::probe::run_transaction(
         READ,
         dir.path(),
-        PROBE_RUNTIME,
-        PROBE_RUNTIME,
-        &Arc::new(ProbeResourceOwner::new()),
+        deadlines,
+        &owner,
+        &cancellation,
+        false,
         &Environment::default(),
-        &"x".repeat(32768),
+        Some(input),
     );
-    let output = result.unwrap();
+    let pids = spawned.try_iter().collect::<Vec<_>>();
+    eprintln!("blueprint_v2_runtime_oversized_stdin_delivers_explicit_marker child_pids={pids:?}; deadline={PROBE_RUNTIME:?}");
+    let output = result.unwrap_or_else(|failure| panic!("child_pids={pids:?}; {failure:?}"));
+    assert_eq!(pids.len(), 1, "the tested child must have a PID receipt");
     assert!(output.success);
     let marker = ExecutionEnvelope::decode(output.stdout_text().as_bytes()).unwrap();
     assert_eq!(marker.value["truncated"], true);
