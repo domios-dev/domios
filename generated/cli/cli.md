@@ -3498,7 +3498,7 @@ Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent 
 Install an OS login trigger for the external crash-aware supervisor. The supervisor alone applies clean-exit, backoff, and loop policy; platform wrappers never restart the app independently
 
 - `--binary` — Override the path to the Domios executable. Defaults to the installed app binary for the current platform
-- `--supervisor` — Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable
+- `--supervisor` — Select the installed Domios CLI supervisor. Defaults to the stable installed CLI; temporary worker copies are refused
 
 #### `domios tab`
 

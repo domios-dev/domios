@@ -16172,7 +16172,7 @@
               "value_name": "SUPERVISOR",
               "possible_values": [],
               "default": null,
-              "help": "Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable",
+              "help": "Select the installed Domios CLI supervisor. Defaults to the stable installed CLI; temporary worker copies are refused",
               "aliases": []
             }
           ],
