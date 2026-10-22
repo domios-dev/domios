@@ -8168,7 +8168,7 @@
             },
             {
               "name": "set",
-              "about": null,
+              "about": "Switch the plan between Curator rounds and the plain heartbeat",
               "aliases": [],
               "args": [
                 {
@@ -8209,7 +8209,7 @@
             },
             {
               "name": "show",
-              "about": null,
+              "about": "Show the plan's control-loop mode and heartbeat interval",
               "aliases": [],
               "args": [
                 {
@@ -8321,7 +8321,7 @@
           "subcommands": [
             {
               "name": "grant",
-              "about": null,
+              "about": "Grant the Curator tab the blueprints, plan skills and saves it may use",
               "aliases": [],
               "args": [
                 {

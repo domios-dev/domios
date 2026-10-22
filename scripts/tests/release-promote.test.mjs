@@ -109,7 +109,7 @@ test('a promotion run publishes without building, testing or a second warning re
   assert.equal(evaluate(release.jobs['frontend-dist'].if)({ prepare }, {}), false);
   for (const id of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64', 'rust-warnings']) {
     // Even a successful bundle job could not start a build in a promotion run.
-    const needs = { prepare, 'quick-checks': { result: 'skipped' }, 'frontend-dist': { result: 'success' } };
+    const needs = { prepare, 'quick-checks': { result: 'skipped' }, 'frontend-dist': { result: 'success' }, 'builds-tier': { result: 'skipped' } };
     assert.equal(evaluate(release.jobs[id].if)(needs, {}), false, id);
   }
   assert.equal(evaluate(release.jobs['quick-checks'].if)({ prepare }, {}), false);
