@@ -450,3 +450,41 @@ fn blueprint_v2_check_shared_ref_expansion_budget() {
         assert!(start.elapsed() < std::time::Duration::from_secs(1));
     }
 }
+
+#[test]
+fn blueprint_v2_check_pipeline_repair_is_admissible_or_refused() {
+    let doc = document(json!([{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"]}]));
+    let source = serde_yaml::to_string(&doc).unwrap();
+    assert!(blueprint_document::check("pipeline.yaml", &source, &[]).ok);
+    assert!(doc.lower().is_ok());
+    let parsed = blueprint_document::parse("pipeline.yaml", &source).unwrap();
+    let fixed = fix::fix(&parsed, &source, &CheckContext::default());
+    if let Some(text) = fixed.text {
+        let checked = blueprint_document::check("pipeline.yaml", &text, &[]);
+        assert!(checked.ok, "{:?}", checked.diagnostics);
+        assert!(blueprint_document::parse("pipeline.yaml", &text).unwrap().document.lower().is_ok());
+    } else {
+        assert!(!fixed.changed && !fixed.refusals.is_empty());
+    }
+}
+
+#[test]
+fn blueprint_v2_check_lower_refuses_self_routed_watch_effect() {
+    let doc: Document = serde_json::from_value(json!({"schema_version":2,"kind":"watch","name":"self-route","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}},"routes":{"ready":"alert"}},{"id":"alert","uses":"notify","routes":{"done":"alert"}}]})).unwrap();
+    // Guard the direct lowering assertion from the pre-fix infinite loop.
+    assert!(doc.template_errors().iter().any(|(_, message)| message.contains("forward")));
+    let errors = doc.lower().unwrap_err();
+    assert!(errors.iter().any(|(path, message)| path == "steps[2].routes.done" && message.contains("forward")));
+}
+
+#[test]
+fn blueprint_v2_check_template_enforces_storage_bounds() {
+    let mut doc = document(json!([{"id":"a","run":{"lit":"echo a"}}]));
+    doc.steps = (0..65).map(|i| { let mut node = doc.steps[0].clone(); node.id = format!("n{i}"); node }).collect();
+    assert!(doc.template_errors().iter().any(|(_, message)| message.contains("64")));
+    assert!(doc.lower().is_err());
+    doc.steps.truncate(1);
+    doc.steps[0].buckets = (0..33).map(|i| format!("b{i}")).collect();
+    assert!(doc.template_errors().iter().any(|(_, message)| message.contains("32")));
+    assert!(doc.lower().is_err());
+}
