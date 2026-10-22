@@ -1,7 +1,7 @@
 //! Mem CRUD operations: save, get, update, delete.
 
 #[cfg(feature = "embeddings")]
-use super::reindex::compose_embed_text;
+use super::reindex::compose_item_embed_text;
 use super::store::MemItem;
 use super::{store, MemManager, NewMemItem};
 use rusqlite::OptionalExtension;
@@ -67,12 +67,14 @@ impl MemManager {
                 item.body.clone()
             };
             if super::body_is_embeddable(&body_text) {
-                let embed_text = compose_embed_text(
+                let embed_text = compose_item_embed_text(
                     &format!("{:?}", item.kind).to_lowercase(),
                     &item.title,
                     item.area.as_deref(),
                     &item.tags,
                     &body_text,
+                    item.source.as_deref(),
+                    item.summary.as_deref(),
                 );
                 self.embed_queue.enqueue(id.clone(), embed_text);
             }
@@ -162,12 +164,14 @@ impl MemManager {
             };
             // otherwise index a title-only vector — pure noise in vector search.
             if super::body_is_embeddable(&body_text) {
-                let embed_text = compose_embed_text(
+                let embed_text = compose_item_embed_text(
                     &format!("{:?}", item.kind).to_lowercase(),
                     &item.title,
                     item.area.as_deref(),
                     &item.tags,
                     &body_text,
+                    item.source.as_deref(),
+                    item.summary.as_deref(),
                 );
                 self.embed_queue.enqueue(id.clone(), embed_text);
             }
@@ -182,12 +186,14 @@ impl MemManager {
         self.embed_queue.cancel(id);
         #[cfg(feature = "embeddings")]
         if super::body_is_embeddable(&item.body) {
-            let embed_text = compose_embed_text(
+            let embed_text = compose_item_embed_text(
                 &format!("{:?}", item.kind).to_lowercase(),
                 &item.title,
                 item.area.as_deref(),
                 &item.tags,
                 &item.body,
+                item.source.as_deref(),
+                item.summary.as_deref(),
             );
             self.embed_queue.enqueue(id.to_string(), embed_text);
         }
@@ -363,12 +369,14 @@ impl MemManager {
                 drop(conn);
                 // that shrank below the bar are swept by the dreamer's cleanup.
                 if super::body_is_embeddable(&item.body) {
-                    let embed_text = compose_embed_text(
+                    let embed_text = compose_item_embed_text(
                         &format!("{:?}", item.kind).to_lowercase(),
                         &item.title,
                         item.area.as_deref(),
                         &item.tags,
                         &item.body,
+                        item.source.as_deref(),
+                        item.summary.as_deref(),
                     );
                     self.embed_queue.enqueue(id.to_string(), embed_text);
                 }

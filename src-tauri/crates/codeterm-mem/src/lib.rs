@@ -36,6 +36,7 @@ pub mod rerank;
 pub mod search;
 pub mod seed;
 pub mod solution_metadata;
+mod solution_search;
 pub mod store;
 pub mod supervisor;
 pub mod worker_agent;
