@@ -125,6 +125,66 @@ fn a_store_mutation_of_one_task_reindexes_only_that_task() {
 }
 
 #[test]
+fn moving_a_plan_to_another_project_moves_every_unit_to_that_index() {
+    let root = tempfile::tempdir().unwrap();
+    let moved = tempfile::tempdir().unwrap();
+    crate::service_plan::paths::mark_test_project_root(moved.path());
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, tasks) = plan_with_tasks(&store, root.path());
+    let moved_path = moved.path().display().to_string();
+
+    store
+        .set_project_paths(&plan_id, &moved_path, &moved_path, 4)
+        .unwrap();
+    flush_index_queue_for_test(root.path());
+    flush_index_queue_for_test(moved.path());
+
+    for task in &tasks {
+        let task_unit = stable_id(&plan_id, "task", task);
+        let stride_unit = stable_id(&plan_id, "stride", &format!("{task}-stride"));
+        assert!(unit_body(moved.path(), &task_unit).is_some());
+        assert!(unit_body(moved.path(), &stride_unit).is_some());
+        assert!(unit_body(root.path(), &task_unit).is_none());
+        assert!(unit_body(root.path(), &stride_unit).is_none());
+    }
+    assert!(unit_body(root.path(), &stable_id(&plan_id, "plan", &plan_id)).is_none());
+}
+
+#[test]
+fn a_failed_plan_job_makes_the_next_job_for_that_plan_full() {
+    let queue = IndexQueue {
+        state: Mutex::new(IndexQueueState::default()),
+        ready: Condvar::new(),
+    };
+    let plan = Plan::new(
+        "Healing".into(),
+        "D:/project".into(),
+        OrchestratorRef::default(),
+    );
+    let tasks = || PlanIndexScope::Tasks(HashSet::from(["t".to_string()]));
+    let scope_of = |job: IndexJob| match job {
+        IndexJob::Plan(_, scope) => scope,
+        _ => unreachable!(),
+    };
+
+    queue.enqueue(IndexJob::Plan(plan.clone(), tasks()));
+    let (key, project, _) = queue.take();
+    queue.enqueue(IndexJob::Plan(plan.clone(), tasks()));
+    queue.complete(key, project, true);
+    let (key, project, job) = queue.take();
+    assert_eq!(scope_of(job), PlanIndexScope::Full);
+    queue.complete(key, project, true);
+
+    queue.enqueue(IndexJob::Plan(plan.clone(), tasks()));
+    let (key, project, job) = queue.take();
+    assert_eq!(scope_of(job), PlanIndexScope::Full);
+    queue.complete(key, project, false);
+
+    queue.enqueue(IndexJob::Plan(plan, tasks()));
+    assert_eq!(scope_of(queue.take().2), tasks());
+}
+
+#[test]
 fn queued_task_scopes_merge_and_full_wins() {
     let alpha = PlanIndexScope::Tasks(HashSet::from(["a".to_string()]));
     let beta = PlanIndexScope::Tasks(HashSet::from(["b".to_string()]));
