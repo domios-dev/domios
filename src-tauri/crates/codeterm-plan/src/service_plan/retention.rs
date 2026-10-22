@@ -31,7 +31,7 @@ impl PlanStore {
             .values()
             .filter_map(|plan| {
                 let plan = plan.lock();
-                (plan.updated_at < cutoff).then(|| plan.id.clone())
+                is_stale(plan.updated_at, cutoff).then(|| plan.id.clone())
             })
             .collect();
         let mut pruned = Vec::new();
@@ -68,12 +68,19 @@ impl PlanStore {
         cutoff: u64,
     ) -> std::io::Result<Option<Plan>> {
         let _writer_turn = self.mutation_writer.enter();
-        let Some(plan) = self.get(id).filter(|plan| plan.updated_at < cutoff) else {
+        let Some(plan) = self
+            .get(id)
+            .filter(|plan| is_stale(plan.updated_at, cutoff))
+        else {
             return Ok(None);
         };
         self.delete_in_writer(id, Some(plan.clone()))?;
         Ok(Some(plan))
     }
+}
+
+fn is_stale(updated_at: u64, cutoff: u64) -> bool {
+    updated_at < cutoff
 }
 
 #[cfg(test)]

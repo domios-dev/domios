@@ -12,6 +12,8 @@ use crate::plan::{Milestone, Plan, PlanStatus, Section, Spec, Task};
 
 pub use super::search_related::{RelatedGroup, RelatedUnit};
 
+mod changes;
+use changes::{unit_changes, UnitChanges};
 mod embedding;
 mod incremental;
 mod recovery;
@@ -151,6 +153,7 @@ struct IndexQueueState {
     in_flight: usize,
 }
 
+#[derive(Default)]
 struct IndexQueue {
     state: Mutex<IndexQueueState>,
     ready: Condvar,
@@ -226,60 +229,51 @@ impl IndexQueue {
         state.in_flight -= 1;
         self.ready.notify_all();
     }
-
-    #[cfg(test)]
-    fn wait_until_project_idle(&self, project_root: &Path) {
-        let project = project_scope(project_root);
-        let mut state = self.state.lock();
-        while state.in_flight_projects.contains(&project)
-            || state
-                .latest
-                .values()
-                .any(|job| job.project_key() == project)
-        {
-            self.ready.wait(&mut state);
-        }
-    }
 }
 
-fn index_queue() -> &'static Arc<IndexQueue> {
+#[cfg(not(test))]
+fn index_queue() -> Arc<IndexQueue> {
     static QUEUE: OnceLock<Arc<IndexQueue>> = OnceLock::new();
-    QUEUE.get_or_init(|| {
-        let queue = Arc::new(IndexQueue {
-            state: Mutex::new(IndexQueueState::default()),
-            ready: Condvar::new(),
-        });
-        for worker in 0..if cfg!(test) { 16 } else { 1 } {
+    QUEUE
+        .get_or_init(|| {
+            let queue = Arc::new(IndexQueue::default());
             let worker_queue = queue.clone();
             std::thread::Builder::new()
-                .name(format!("plan-index-queue-{worker}"))
+                .name("plan-index-queue".into())
                 .spawn(move || loop {
                     let (key, project, job) = worker_queue.take();
-                    let result = match &job {
-                        IndexJob::Embed(root, unit) => embedding::embed_current(root, unit),
-                        IndexJob::Prune(root, ids) => recovery::prune_project(root, ids),
-                        IndexJob::Plan(plan, scope) => embedding::queue_changed(
-                            plan_project_root(plan),
-                            incremental::mirror_plan_scope(plan, scope, false),
-                        ),
-                        IndexJob::DeletePlan(plan) => delete_plan_units(plan),
-                        IndexJob::PurgePlan(plan, specs) => {
-                            recovery::purge_plan_indexes(plan, specs)
-                        }
-                        IndexJob::Spec(spec) => embedding::queue_changed(
-                            spec_project_root(spec),
-                            mirror_spec(spec, false),
-                        ),
-                    };
+                    let result = run_job(&job);
                     if let Err(error) = &result {
                         log::warn!("[plan.index] {key}: {error}");
                     }
                     worker_queue.complete(key, project, result.is_err());
                 })
                 .expect("spawn plan index queue");
+            queue
+        })
+        .clone()
+}
+
+#[cfg(test)]
+fn index_queue() -> Arc<IndexQueue> {
+    thread_local! { static QUEUE: Arc<IndexQueue> = Arc::new(IndexQueue::default()); }
+    QUEUE.with(Arc::clone)
+}
+
+fn run_job(job: &IndexJob) -> Result<(), String> {
+    match job {
+        IndexJob::Embed(root, unit) => embedding::embed_current(root, unit),
+        IndexJob::Prune(root, ids) => recovery::prune_project(root, ids),
+        IndexJob::Plan(plan, scope) => embedding::queue_changed(
+            plan_project_root(plan),
+            incremental::mirror_plan_scope(plan, scope, false),
+        ),
+        IndexJob::DeletePlan(plan) => delete_plan_units(plan),
+        IndexJob::PurgePlan(plan, specs) => recovery::purge_plan_indexes(plan, specs),
+        IndexJob::Spec(spec) => {
+            embedding::queue_changed(spec_project_root(spec), mirror_spec(spec, false))
         }
-        queue
-    })
+    }
 }
 
 pub(super) fn enqueue_plan_index(plan: Plan, scope: PlanIndexScope) {
@@ -300,8 +294,14 @@ pub(super) fn enqueue_plan_removal(plan: Plan) {
 }
 
 #[cfg(test)]
-pub(crate) fn flush_index_queue_for_test(project_root: &Path) {
-    index_queue().wait_until_project_idle(project_root);
+pub(crate) fn flush_index_queue_for_test(_project_root: &Path) {
+    let queue = index_queue();
+    while !queue.state.lock().order.is_empty() {
+        let (key, project, job) = queue.take();
+        let result = run_job(&job);
+        queue.complete(key, project, result.is_err());
+        result.expect("test index job");
+    }
 }
 
 impl super::PlanStore {
@@ -484,31 +484,11 @@ fn apply_unit_changes(
     units: &[Unit],
     sync_embed: bool,
 ) -> Result<Vec<Unit>, String> {
-    let next_ids = units
-        .iter()
-        .map(|unit| unit.id.clone())
-        .collect::<HashSet<_>>();
-    let row_changes = units
-        .iter()
-        .filter(|unit| existing.get(&unit.id) != Some(&unit_signature(unit)))
-        .cloned()
-        .collect::<Vec<_>>();
-    let embedding_changes = row_changes
-        .iter()
-        .filter(|unit| {
-            existing
-                .get(&unit.id)
-                .map(|signature| signature.body != unit.body || signature.title != unit.title)
-                .unwrap_or(true)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let stale_vectors = existing
-        .keys()
-        .filter(|id| !next_ids.contains(*id))
-        .chain(embedding_changes.iter().map(|unit| &unit.id))
-        .cloned()
-        .collect::<HashSet<_>>();
+    let UnitChanges {
+        row_changes,
+        embedding_changes,
+        stale_vectors,
+    } = unit_changes(&existing, units);
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     delete_changed_unit_rows_tx(&tx, &stale_vectors, &row_changes, &existing)?;
     for unit in &row_changes {
@@ -529,27 +509,6 @@ fn apply_unit_changes(
 fn delete_units(project_root: &Path, prefix_like: &str) -> Result<(), String> {
     let conn = open_index(project_root)?;
     delete_units_tx(&conn, prefix_like)
-}
-
-#[cfg(test)]
-fn delete_units_by_scope(project_root: &Path, scope: &str) -> Result<(), String> {
-    let conn = open_index(project_root)?;
-    let mut stmt = conn
-        .prepare("SELECT id FROM mem_items WHERE scope = ?1 AND id LIKE 'planunit_%'")
-        .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map(params![scope], |r| r.get::<_, String>(0))
-        .map_err(|e| e.to_string())?;
-    let ids = rows.filter_map(Result::ok).collect::<Vec<_>>();
-    drop(stmt);
-    for id in ids {
-        delete_unit_vectors(&conn, &id)?;
-        conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&id])
-            .map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM mem_items WHERE id = ?1", params![&id])
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
 }
 
 fn delete_unit_vectors(conn: &Connection, id: &str) -> Result<(), String> {
@@ -1034,6 +993,13 @@ fn plan_hit_matches_status(hit: &PlanSearchHit, status: PlanSearchStatus) -> boo
 }
 
 fn plan_hit(hit: PlanIndexHit) -> PlanSearchHit {
+    plan_hit_at(
+        hit,
+        u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or_default(),
+    )
+}
+
+fn plan_hit_at(hit: PlanIndexHit, now_ms: u64) -> PlanSearchHit {
     let meta: serde_json::Value = hit
         .source
         .as_deref()
@@ -1053,9 +1019,7 @@ fn plan_hit(hit: PlanIndexHit) -> PlanSearchHit {
         body: hit.body,
         scope: hit.scope,
         updated_at,
-        age_ms: u64::try_from(chrono::Utc::now().timestamp_millis())
-            .unwrap_or_default()
-            .saturating_sub(updated_at),
+        age_ms: now_ms.saturating_sub(updated_at),
         plan_id: meta
             .get("plan_id")
             .and_then(|v| v.as_str())
