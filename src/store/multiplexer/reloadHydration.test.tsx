@@ -218,6 +218,66 @@ afterEach(async () => {
 });
 
 describe("webview reload rehydration", () => {
+  it("applies a status burst without reads, refetches once for a gap, and resumes deltas", async () => {
+    const backend = createBackend();
+    const page = await mountPage(backend);
+    await hydrate(backend);
+    await act(async () => backend.takeRead().resolve(snapshot(10)));
+    await settleUntil(() => page.state().generation === 10);
+    const workspaces = page.state().workspaces;
+    await act(async () => {
+      for (let i = 0; i < 126; i++) backend.emit("mux-state-changed", {
+        base_generation: 10 + i * 3, generation: 13 + i * 3,
+        status_deltas: { [MAIN_ID]: { status: i % 2 ? "Idle" : "Working", agent_state: { state: i % 2 ? "idle" : "working" } } },
+      });
+    });
+    expect(page.state().generation).toBe(388);
+    expect(page.state().tabStatuses[MAIN_ID]).toBe("Idle");
+    expect(page.state().tabs[MAIN_ID].agent_state).toEqual({ state: "idle" });
+    expect(page.state().workspaces).toBe(workspaces);
+    expect(backend.muxReads).toBe(1);
+
+    await act(async () => {
+      backend.emit("mux-state-changed", { base_generation: 391, generation: 394, status_deltas: {} });
+      backend.emit("mux-state-changed", { base_generation: 394, generation: 397, status_deltas: {} });
+    });
+    expect(backend.muxReads).toBe(2);
+    await act(async () => backend.takeRead().resolve(snapshot(400)));
+    await settleUntil(() => page.state().generation === 400);
+    expect(backend.muxReads).toBe(2);
+    await act(async () => backend.emit("mux-state-changed", {
+      base_generation: 400, generation: 403,
+      status_deltas: { [MAIN_ID]: { status: "Working", agent_state: { state: "working" } } },
+    }));
+    expect(page.state().generation).toBe(403);
+    expect(page.state().tabStatuses[MAIN_ID]).toBe("Working");
+    expect(backend.muxReads).toBe(2);
+  });
+
+  it("keeps newer deltas when an older read completes and resets the base after a daemon restart", async () => {
+    const backend = createBackend();
+    const page = await mountPage(backend);
+    await hydrate(backend);
+    await act(async () => backend.takeRead().resolve(snapshot(10)));
+    await settleUntil(() => page.state().generation === 10);
+    await act(async () => backend.emit("mux-state-changed"));
+    const oldRead = backend.takeRead();
+    await act(async () => backend.emit("mux-state-changed", {
+      base_generation: 10, generation: 15,
+      status_deltas: { [MAIN_ID]: { status: "Idle", agent_state: { state: "idle" } } },
+    }));
+    await act(async () => oldRead.resolve(snapshot(12)));
+    expect(page.state().generation).toBe(15);
+    expect(page.state().tabStatuses[MAIN_ID]).toBe("Idle");
+    await act(async () => window.dispatchEvent(new Event("codeterm-web-boot-changed")));
+    await act(async () => backend.emit("mux-state-changed", {
+      base_generation: 1, generation: 2, status_deltas: {},
+    }));
+    expect(backend.muxReads).toBe(3);
+    await act(async () => backend.takeRead().resolve(snapshot(3)));
+    expect(page.state().generation).toBe(3);
+  });
+
   it("issues the first authoritative read only after the mux event listener is bound", async () => {
     const backend = createBackend();
     const page = await mountPage(backend);

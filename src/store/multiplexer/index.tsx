@@ -52,6 +52,7 @@ import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSes
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedTab } from "./context";
 import { createMuxStateStore } from "./selectorStore";
 import { createRefreshCoalescer } from "./refreshCoalescer";
+import { isMuxStatusDelta, statusDeltaAction, type MuxStatusDelta } from "./statusDelta";
 import { mountNotificationHistory } from "./notificationHistory";
 import { onResync } from "../../lib/resync";
 import { EVENT_STREAM_READY } from "../../lib/eventStreamReady";
@@ -225,6 +226,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const cachedBackendGenerationRef = useRef<number | undefined>(undefined);
   const acceptBackendState = useCallback((s: MultiplexerState) => {
+    if (s.generation !== undefined && cachedBackendGenerationRef.current !== undefined
+      && s.generation <= cachedBackendGenerationRef.current) return;
     cachedBackendGenerationRef.current = s.generation;
     const wasReconciled = reconciledRef.current;
     applyBackendState(s);
@@ -531,12 +534,20 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     const eventStats = window as unknown as {
       __ctEvents?: { received: number; lastAt: number; reconnects: number; breakMuxStream?: () => void };
     };
-    const applyMuxEvent = (event: { payload: MultiplexerState }) => {
+    const applyMuxEvent = (event: { payload: MultiplexerState | MuxStatusDelta }) => {
       (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).received++;
       eventStats.__ctEvents.lastAt = Date.now();
       const s = event.payload;
-      if (muxStateEventAction(s) === "apply-snapshot") {
-        acceptBackendState(s);
+      if (isMuxStatusDelta(s)) {
+        const action = statusDeltaAction(cachedBackendGenerationRef.current, s);
+        if (action === "apply") {
+          cachedBackendGenerationRef.current = s.generation;
+          dispatch({ type: "APPLY_STATUS_DELTA", delta: s });
+        } else if (action === "refresh") {
+          void refreshFromBackend(s.generation);
+        }
+      } else if (muxStateEventAction(s) === "apply-snapshot") {
+        acceptBackendState(s as MultiplexerState);
         // Resize tabs after layout changes so xterms fit new container sizes.
         requestAnimationFrame(() => {
           window.dispatchEvent(new Event("codeterm-tab-resize"));
@@ -551,7 +562,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const generation = ++muxListenGeneration;
       muxUnlisten?.();
       muxUnlisten = null;
-      void listen<MultiplexerState>("mux-state-changed", applyMuxEvent)
+      void listen<MultiplexerState | MuxStatusDelta>("mux-state-changed", applyMuxEvent)
         .then((unlisten) => {
           if (generation !== muxListenGeneration) {
             unlisten();
@@ -587,6 +598,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       pendingTabSwitchRef.current = {};
       writeGateRef.current.lock();
       reconciledRef.current = false;
+      cachedBackendGenerationRef.current = undefined;
       dispatch({ type: "RESET_PEER_CONTEXT" });
     };
     const rebindPeerContext = (event: Event) => {
@@ -608,7 +620,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     unlisteners.push(() => window.removeEventListener("codeterm-peer-switch-reset", resetPeerContext));
     unlisteners.push(() => window.removeEventListener("codeterm-peer-switch-rebind", rebindPeerContext));
 
-    const onBootChanged = () => dispatch({ type: "RESET_GENERATION" });
+    const onBootChanged = () => {
+      cachedBackendGenerationRef.current = undefined;
+      dispatch({ type: "RESET_GENERATION" });
+    };
     window.addEventListener("codeterm-web-boot-changed", onBootChanged);
     unlisteners.push(() => window.removeEventListener("codeterm-web-boot-changed", onBootChanged));
 

@@ -26,7 +26,7 @@ export function createRefreshCoalescer(
         const batch = waiting;
         waiting = [];
         const needsFetch = batch.some(({ generation }) =>
-          generation === undefined || generation !== cachedGeneration());
+          generation === undefined || (cachedGeneration() ?? -1) < generation);
         if (!needsFetch) {
           refused = false;
           for (const { resolve } of batch) resolve(true);

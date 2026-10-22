@@ -16,8 +16,9 @@ fn observe_published_stage(
     let (published, observed) = std::sync::mpsc::channel();
     let tab_id = tab_id.to_owned();
     let expected = serde_json::to_value(stage).unwrap();
-    let listener = fixture.ui.listen("mux-state-changed", move |snapshot| {
-        if snapshot["tabs"][&tab_id]["boot_stage"] == expected {
+    let service = fixture.service.clone();
+    let listener = fixture.ui.listen("mux-state-changed", move |_| {
+        if published_stage(&service, &tab_id) == Some(expected.clone()) {
             let _ = published.send(());
         }
     });

@@ -64,6 +64,8 @@ void (async () => {
     assert(calls === 0, "cached snapshot needs no fetch");
     assert(await coalescer.request(8), "new generation succeeds");
     assert(Number(calls) === 1, "new snapshot fetches once");
+    assert(await coalescer.request(6), "older signal is already covered");
+    assert(Number(calls) === 1, "late signals need no fetch");
     await coalescer.request();
     assert(Number(calls) === 2, "unversioned requests always fetch");
   });
