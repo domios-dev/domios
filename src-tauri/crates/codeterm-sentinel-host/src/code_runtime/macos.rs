@@ -36,6 +36,13 @@ fn interpreter(language: &Language) -> Result<(PathBuf, PathBuf), RuntimeFailure
     } else {
         binary
     };
+    let framework_layout = root
+        .components()
+        .any(|part| part.as_os_str().to_string_lossy().ends_with(".framework"));
+    let cellar_layout = root.components().any(|part| part.as_os_str() == "Cellar");
+    if !framework_layout && !cellar_layout {
+        return Err(RuntimeFailure::new("runtime_unavailable"));
+    }
     Ok((program, root))
 }
 
@@ -125,7 +132,13 @@ pub(super) fn run(
             b"",
         )
         .map_err(|failure| RuntimeFailure {
-            reason: if failure.is_deadline() {
+            reason: if (failure.primary == "probe_spawn_failed" && code.limits.mem_mb.is_some())
+                || failure.primary == "budget_exhausted"
+            {
+                "budget_exhausted"
+            } else if failure.primary == "probe_cancelled" {
+                "skip:lease_cancelled"
+            } else if failure.is_deadline() {
                 "deadline"
             } else {
                 "sandbox_denied"
@@ -137,7 +150,7 @@ pub(super) fn run(
         }
     }
     args.push(body.into_os_string());
-    let output = executable::run(
+    let output = executable::run_limited(
         Path::new(SEATBELT),
         &args,
         &temp,
@@ -146,9 +159,24 @@ pub(super) fn run(
         cancellation,
         &Environment::isolated(&temp),
         input,
+        code.limits
+            .mem_mb
+            .map(|memory| {
+                memory
+                    .checked_mul(1024 * 1024)
+                    .ok_or_else(|| RuntimeFailure::new("budget_exhausted"))
+            })
+            .transpose()?,
+        code.limits.output_bytes.unwrap_or(32768).min(32768),
     )
     .map_err(|failure| RuntimeFailure {
-        reason: if failure.is_deadline() {
+        reason: if (failure.primary == "probe_spawn_failed" && code.limits.mem_mb.is_some())
+            || failure.primary == "budget_exhausted"
+        {
+            "budget_exhausted"
+        } else if failure.primary == "probe_cancelled" {
+            "skip:lease_cancelled"
+        } else if failure.is_deadline() {
             "deadline"
         } else {
             "sandbox_denied"

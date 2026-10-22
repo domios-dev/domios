@@ -20,6 +20,32 @@ pub fn run(
     environment: &Environment,
     stdin: &[u8],
 ) -> Result<Output, ProbeFailure> {
+    run_limited(
+        program,
+        args,
+        cwd,
+        timeout,
+        owner,
+        cancellation,
+        environment,
+        stdin,
+        None,
+        32768,
+    )
+}
+
+pub fn run_limited(
+    program: &Path,
+    args: &[OsString],
+    cwd: &Path,
+    timeout: Duration,
+    owner: &Arc<ProbeResourceOwner>,
+    cancellation: &Cancellation,
+    environment: &Environment,
+    stdin: &[u8],
+    memory_bytes: Option<u64>,
+    output_bytes: u64,
+) -> Result<Output, ProbeFailure> {
     let deadlines = Deadlines::start(timeout, timeout)?;
     if stdin.len() > 32768 {
         return Err(ProbeFailure::new("contract_violation"));
@@ -40,7 +66,12 @@ pub fn run(
             true,
             environment,
             Some(file),
-            Some((program, args)),
+            Some(super::unix::Executable {
+                program,
+                args,
+                memory_bytes,
+                output_bytes: Some(output_bytes.min(32768)),
+            }),
         )
     })
 }

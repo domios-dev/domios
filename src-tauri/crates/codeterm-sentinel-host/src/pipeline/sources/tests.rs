@@ -92,6 +92,7 @@ fn blueprint_pipeline_run_receives_previous_source_json_on_stdin() {
         &lease,
         &step,
         &ExecutionEnvelope::from_text(&source.next_text),
+        probe::PROBE_RUNTIME,
     );
     assert_eq!(result.outcome, StepOutcome::Done);
     assert_eq!(
