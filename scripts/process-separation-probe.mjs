@@ -570,6 +570,7 @@ async function run(options) {
   const port = await freePort();
   const launch = { instance: { kind: 'development', instance, port }, resources: receipt.resources, probe_sink: path.join(scratch, 'process-init.jsonl') };
   const launchers = []; const nativeClients = []; let reply; let observation; let stopped = false; let result; let alias = null; let tab = null; let data = null;
+  let failure = null;
   try {
     const homeBefore = treeSnapshot(home);
     const rejectedInstance = `${instance}-missing`;
@@ -654,6 +655,9 @@ async function run(options) {
       ready: reply.ready, maintenance, ...(alias ? { alias: { source: alias, target: realpathSync.native(alias), kind: process.platform === 'win32' ? 'junction' : 'symlink' } } : {}),
       missing_resource_refused_before_initialization: true, initialization_phases: audit.length, frontend_acknowledgements: 0,
       exact_exit_observed: true, ...(pair ? { rows: pair.rows, server_pid: pair.server_pid, pty_id: pair.pty_id, client_pids: pair.client_pids } : {}) };
+  } catch (error) {
+    failure = error;
+    throw error;
   } finally {
     if (reply && !stopped) {
       try { await inspect(receipt.executable, reply, { operation: 'shutdown' }, env); if (observation) { await observation.line(); await observation.exit; } stopped = true; } catch { /* Retain data if exact cleanup cannot be proven. */ }
@@ -666,7 +670,7 @@ async function run(options) {
     }
     for (const helper of launchers) if (helper.child.exitCode === null) { helper.child.kill(); await helper.exit; }
     if (stopped) rmSync(scratch, { recursive: true });
-    if (!stopped) throw new Error(`Exact server cleanup unproven; disposable data retained at ${scratch}`);
+    if (!stopped) throw new Error(`Exact server cleanup unproven; disposable data retained at ${scratch}`, { cause: failure ?? undefined });
   }
   console.log(JSON.stringify(result));
   return result;
@@ -689,5 +693,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     writeFileSync(output, `${JSON.stringify(receipt, null, 2)}\n`);
   } else run(parseProbeArgs(process.argv.slice(2))).then((result) => {
     process.exitCode = result.status === 'PASS' ? 0 : 1;
-  }, (error) => { console.error(`process-probe FAILED: ${error.message}`); process.exitCode = 1; });
+  }, (error) => {
+    console.error(`process-probe FAILED: ${error.message}`);
+    if (error.cause) console.error(`  caused by: ${error.cause.stack ?? error.cause}`);
+    process.exitCode = 1;
+  });
 }
