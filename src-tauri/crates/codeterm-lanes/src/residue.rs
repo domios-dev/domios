@@ -140,7 +140,6 @@ fn inspect(
     tabs: &[LiveTabCwd],
     snapshot: &RepositorySnapshot,
 ) -> Result<Option<String>, String> {
-    safe_tree::refuse_linked_ancestors(root)?;
     if path.parent() != Some(root) {
         return Err(format!(
             "residue outside worktree root: '{}'",
@@ -173,7 +172,11 @@ fn inspect(
 
 pub fn inventory(canonical: &str, tabs: &[LiveTabCwd]) -> Result<Vec<Residue>, String> {
     let root = worktree_root(Path::new(canonical))?;
-    safe_tree::refuse_linked_ancestors(&root)?;
+    let root = match std::fs::canonicalize(&root) {
+        Ok(root) => root,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("{}: {error}", root.display())),
+    };
     let directories = match std::fs::read_dir(&root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -193,11 +196,21 @@ pub fn inventory(canonical: &str, tabs: &[LiveTabCwd]) -> Result<Vec<Residue>, S
 
 pub fn remove(canonical: &str, path: &Path, tabs: &[LiveTabCwd]) -> Result<(), String> {
     let root = worktree_root(Path::new(canonical))?;
+    let root = std::fs::canonicalize(&root).map_err(|error| error.to_string())?;
+    let parent = path.parent().ok_or("residue has no parent")?;
+    let parent = std::fs::canonicalize(parent).map_err(|error| error.to_string())?;
+    if parent != root {
+        return Err(format!(
+            "residue outside worktree root: '{}'",
+            path.display()
+        ));
+    }
+    let path = root.join(path.file_name().ok_or("residue has no directory name")?);
     let snapshot = snapshot(canonical)?;
-    if let Some(reason) = inspect(canonical, &root, path, tabs, &snapshot)? {
+    if let Some(reason) = inspect(canonical, &root, &path, tabs, &snapshot)? {
         return Err(format!("{}: {reason}", path.display()));
     }
-    safe_tree::remove(path)
+    safe_tree::remove(&path)
 }
 
 #[cfg(test)]

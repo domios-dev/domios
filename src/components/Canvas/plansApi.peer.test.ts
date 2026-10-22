@@ -90,7 +90,7 @@ async function main() {
     await assert.rejects(plansApi.runPlanControlLoop(API, "pl_peer"), { message: "Opaque refusal" });
   }
   globalThis.fetch = async () => new Response("proxy failure", { status: 502 });
-  await assert.rejects(plansApi.runPlanControlLoop(API, "pl_peer"), { message: "The Curator round could not start." });
+  await assert.rejects(plansApi.runPlanControlLoop(API, "pl_peer"), { message: "The Curator round could not start (HTTP 502)." });
   globalThis.fetch = async (input) => {
     assert.equal(String(input), "http://gateway:7685/api/plans?full=1");
     return Response.json({ plans: [FIXTURE_PLAN] });

@@ -153,7 +153,6 @@ pub(crate) fn fixture_with_docs(
     clock: Arc<dyn Clock>,
     docs: bool,
 ) -> Fixture {
-    crate::embeddings::ensure_extension_registered();
     let dir = tempfile::tempdir().unwrap();
     let embedder = ActiveEmbedder::new(provider);
     let (sender, events) = mpsc::channel();
