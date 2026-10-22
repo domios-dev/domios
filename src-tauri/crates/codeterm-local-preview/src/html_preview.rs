@@ -40,11 +40,9 @@ pub fn refusal_reason(error: &str) -> &'static str {
 
 pub fn read_artifact_file(
     raw: &str,
-    denied: &[std::path::PathBuf],
+    policy: &crate::PreviewPolicy,
     limit: u64,
 ) -> Result<Vec<u8>, String> {
-    let path = checked_path(raw)?;
-    let policy = crate::PreviewPolicy::new([crate::references::path_key(&path)].into(), denied)?;
     let mut source =
         PreviewSource::open(raw, &|path, canonical| policy.authorize(path, canonical))?;
     source.read(limit)

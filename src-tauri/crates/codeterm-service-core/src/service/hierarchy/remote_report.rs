@@ -41,8 +41,11 @@ impl ServiceContext {
             // relay retry can never double-post it into the target tab.
             delivery_id: Some(uuid::Uuid::new_v4().to_string()),
         };
+        let svc = self.clone();
         crate::async_runtime::spawn(async move {
             if let Err(error) = crate::service::mesh_artifacts::transfer(
+                &svc,
+                Some(&from_tab),
                 &client,
                 &cmd.method,
                 &cmd.path,

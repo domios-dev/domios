@@ -33,19 +33,26 @@ if (descriptor.body !== "") throw new Error("a fully structured report must not 
 const markdownHost = document.createElement("div");
 document.body.append(markdownHost);
 const markdownRoot = createRoot(markdownHost);
+const openedPlans: unknown[][] = [];
 await act(async () => markdownRoot.render(
   <InboundReportCard
     message={{ id: "opaque-markdown", type: "user", inboundKind: "report",
-      content: "task: pl_a7c9/task_b8d1\nstatus: In Review\nsha: abc123456789\n\n## Result\n\nFollow pl_a7c9/task_b8d1.\n\n- **Opaque item**\n\n```text\nopaque code\n```\n\n[Evidence](https://example.test/evidence)" }}
-    sender="opaque" expanded onToggle={() => {}} onOpenPlan={() => {}}
+      content: "task: pl_a7c9/task_b8d1\nstatus: In Review\nsha: abc123456789\n\n## Result\n\nFollow pl_a7c9/task_b8d1.\n\n- **Opaque item pl_a7c9/task_b8d1**\n\n`pl_code/task_literal`\n\n```text\nopaque code pl_fenced/task_literal\n```\n\n[Evidence pl_link/task_literal](https://example.test/evidence)" }}
+    sender="opaque" expanded onToggle={() => {}} onOpenPlan={(...args) => openedPlans.push(args)}
+    resolvePlanRef={() => ({ title: "Linked task", planTitle: "Plan", state: "resolved", rawLabel: "pl_a7c9/task_b8d1", fullRef: "pl_a7c9/task_b8d1" })}
   />,
 ));
 const markdownBody = markdownHost.querySelector('[data-testid="chat-inbound-report-body"]');
 if (markdownBody?.querySelector("h2")?.textContent !== "Result") throw new Error("report heading must render with a plan reference present");
-if (!markdownBody.querySelector("li strong")) throw new Error("report list and emphasis must render");
-if (!markdownBody.querySelector("code")?.textContent?.includes("opaque code")) throw new Error("report code must render");
+if (!markdownBody.querySelector("li strong button[data-target-id=task_b8d1]")) throw new Error("report list and emphasis must retain clickable refs");
+if (markdownBody.querySelector("code button, a button")) throw new Error("code and existing links must stay literal");
+if (!markdownBody.querySelector("pre code")?.textContent?.includes("opaque code")) throw new Error("report code must render");
 if (!markdownBody.querySelector('a[href="https://example.test/evidence"]')) throw new Error("report link must render");
 if (!markdownHost.textContent?.includes("In Review") || !markdownHost.textContent?.includes("abc1234")) throw new Error("report header chips must remain");
+const taskLink = markdownBody.querySelector('[data-testid="chat-task-link"]') as HTMLButtonElement | null;
+if (!taskLink || taskLink.disabled || !taskLink.textContent?.includes("Linked task")) throw new Error("report markdown must resolve a clickable task reference");
+await act(async () => taskLink.click());
+if (JSON.stringify(openedPlans) !== JSON.stringify([["pl_a7c9", "task_b8d1", "task"]])) throw new Error("report markdown task link must open its exact target");
 await act(async () => markdownRoot.unmount());
 markdownHost.remove();
 

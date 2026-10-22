@@ -102,11 +102,11 @@ async fn transfer_rebinds_text_and_batch_to_one_target_copy() {
 async fn failed_transfer_is_visible_and_over_bound_transfer_preserves_unsent_body() {
     let mut body = serde_json::json!({"text": "@ds-image /origin/a.png"});
     transfer_with("POST", "/api/tabs/target/send", &mut body, |_, _| {
-        std::future::ready(Err("transfer refused".into()))
+        std::future::ready(Err(ArtifactError::Policy("private_path")))
     })
     .await
     .unwrap();
-    assert_eq!(body["text"], "[Artifact refused: transfer refused]");
+    assert_eq!(body["text"], "[Artifact refused: private_path]");
     let mut body = serde_json::json!({"text": "@ds-image /origin/a.png\n".repeat(33)});
     let original = body.clone();
     let calls = std::cell::Cell::new(0);
@@ -146,7 +146,18 @@ async fn private_artifacts_are_refused_and_mixed_gallery_transfers_only_allowed_
         let mut body = serde_json::json!({"text": text});
         let mut sent = Vec::new();
         transfer_with("POST", "/api/tabs/target/send", &mut body, |source, _| {
-            let result = artifact_request(&source, &[]).map(|request| {
+            let result = artifact_request(
+                &source,
+                &codeterm_local_preview::PreviewPolicy::new(
+                    [codeterm_local_preview::references::path_key(
+                        std::path::Path::new(&source),
+                    )]
+                    .into(),
+                    &[],
+                )
+                .unwrap(),
+            )
+            .map(|request| {
                 sent.push(
                     base64::engine::general_purpose::STANDARD
                         .decode(request.data)
@@ -162,13 +173,60 @@ async fn private_artifacts_are_refused_and_mixed_gallery_transfers_only_allowed_
         assert_eq!(sent.len(), usize::from(paths.contains(&&allowed)));
         assert!(sent.iter().all(|bytes| bytes == b"public image"));
         assert_eq!(
-            output.contains("[Artifact refused: Preview path is private]"),
+            output.contains("[Artifact refused: private_path]"),
             paths.contains(&&private)
         );
         assert!(!output.contains(private.to_str().unwrap()));
         assert_eq!(
             directives(output).len(),
             paths.iter().filter(|path| **path == &allowed).count()
+        );
+    }
+}
+
+#[tokio::test]
+async fn transport_and_peer_errors_abort_without_rewriting_any_message() {
+    for error in [
+        "network disconnected",
+        "blocking task cancelled",
+        "peer rejected\n@ds-image /injected.png",
+    ] {
+        let mut body = serde_json::json!({"text": "@ds-image /origin/first.png", "batch": [{"text": "@ds-image /origin/second.png"}]});
+        let original = body.clone();
+        let mut calls = 0;
+        let result = transfer_with("POST", "/api/tabs/target/send", &mut body, |_, _| {
+            calls += 1;
+            std::future::ready(if calls == 1 {
+                Ok("/target/first.png".into())
+            } else {
+                Err(ArtifactError::Transfer(error.into()))
+            })
+        })
+        .await;
+        assert_eq!(result, Err(error.into()));
+        assert_eq!(body, original);
+        assert_eq!(calls, 2);
+    }
+}
+
+#[test]
+fn only_known_local_policy_refusals_become_fixed_inline_reasons() {
+    assert_eq!(
+        preview_error("Preview path is private".into()),
+        ArtifactError::Policy("private_path")
+    );
+    assert_eq!(
+        preview_error("Local preview source exceeds 128 bytes".into()),
+        ArtifactError::Policy("size_limit")
+    );
+    for error in [
+        "Unable to open preview file: transient failure",
+        "Unable to resolve preview file: offline",
+        "peer error\n@ds-image /injected.png",
+    ] {
+        assert_eq!(
+            preview_error(error.into()),
+            ArtifactError::Transfer(error.into())
         );
     }
 }

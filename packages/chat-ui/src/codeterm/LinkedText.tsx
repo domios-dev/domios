@@ -102,18 +102,22 @@ function PlainLinkedText({ text, onOpenPlan, className, resolvePlanRef }: Props)
     <span className={className} style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
       {segments.map((seg, i) => {
         if (seg.kind === "text") return <React.Fragment key={i}>{seg.value}</React.Fragment>;
-        if (!onOpenPlan) return <React.Fragment key={i}>{seg.value}</React.Fragment>;
-        const resolved = resolvePlanRef?.(seg.planId, seg.targetId, seg.targetKind) ?? null;
-        const label = compactLabel(seg, resolved);
-        const status = stateSuffix(resolved?.state);
-        const disabled = resolved != null && resolved.state !== "resolved" && resolved.state !== "archived" && resolved.state !== "unowned";
-        const fullRef = resolved?.fullRef ?? fullRefLabel(seg);
-        return <ReferenceChip key={i} kind={seg.targetKind} label={label} fullRef={fullRef}
-          status={status} disabled={disabled} state={resolved?.state ?? "loading"}
-          planId={seg.planId} targetId={seg.targetId} onOpen={() => openRef(onOpenPlan, seg)} />;
+        return <PlanReference key={i} segment={seg} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />;
       })}
     </span>
   );
+}
+
+export function PlanReference({ segment: seg, onOpenPlan, resolvePlanRef }: Pick<Props, "onOpenPlan" | "resolvePlanRef"> & { segment: PlanRefLinkSegment }) {
+  if (!onOpenPlan) return <>{seg.value}</>;
+  const resolved = resolvePlanRef?.(seg.planId, seg.targetId, seg.targetKind) ?? null;
+  const label = compactLabel(seg, resolved);
+  const status = stateSuffix(resolved?.state);
+  const disabled = resolved != null && resolved.state !== "resolved" && resolved.state !== "archived" && resolved.state !== "unowned";
+  const fullRef = resolved?.fullRef ?? fullRefLabel(seg);
+  return <ReferenceChip kind={seg.targetKind} label={label} fullRef={fullRef}
+    status={status} disabled={disabled} state={resolved?.state ?? "loading"}
+    planId={seg.planId} targetId={seg.targetId} onOpen={() => openRef(onOpenPlan, seg)} />;
 }
 
 export function PlanRefCards({
