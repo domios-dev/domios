@@ -115,6 +115,30 @@ fn lane_turn_stats_deduplicates_repeated_settlement_for_same_transcript_turn() {
     assert!(!is_duplicate_transcript_turn(&stats, None));
 }
 
+struct CheckpointRepository<'a>(GitCheckpoint<'a>);
+
+fn checkpoint_repository(cwd: &Path) -> CheckpointRepository<'_> {
+    CheckpointRepository(GitCheckpoint {
+        cwd,
+        deadline: Instant::now() + CHECKPOINT_DEADLINE,
+        index: None,
+    })
+}
+
+impl checkpoint::Repository for CheckpointRepository<'_> {
+    fn uses_lfs(&mut self) -> Result<bool, CaptureFailure> {
+        Ok(false)
+    }
+
+    fn non_cone_sparse(&mut self) -> Result<bool, CaptureFailure> {
+        Ok(false)
+    }
+
+    fn run(&mut self, args: &[&str], isolated_index: bool) -> Result<String, CaptureFailure> {
+        self.0.run(args, isolated_index)
+    }
+}
+
 #[test]
 fn lane_checkpoint_preserves_user_index_worktree_branches_and_stash() {
     let root = repository();
@@ -130,13 +154,8 @@ fn lane_checkpoint_preserves_user_index_worktree_branches_and_stash() {
     );
     let stash = git_text(root.path(), &["stash", "list"]);
 
-    let result = create_checkpoint(
-        root.path(),
-        "attempt_safe",
-        1,
-        Instant::now() + CHECKPOINT_DEADLINE,
-    )
-    .unwrap();
+    let result =
+        checkpoint::create(&mut checkpoint_repository(root.path()), "attempt_safe", 1).unwrap();
 
     assert!(
         matches!(result, CheckpointResult::Created(ref name) if name == "refs/domios/checkpoints/attempt_safe/1")
@@ -304,13 +323,7 @@ fn lane_checkpoint_retains_latest_twenty_turn_refs() {
 fn lane_checkpoint_deletes_only_the_named_attempt_refs() {
     let root = repository();
     for (attempt, turn) in [("attempt_remove", 1), ("attempt_keep", 1)] {
-        create_checkpoint(
-            root.path(),
-            attempt,
-            turn,
-            Instant::now() + CHECKPOINT_DEADLINE,
-        )
-        .unwrap();
+        checkpoint::create(&mut checkpoint_repository(root.path()), attempt, turn).unwrap();
     }
 
     delete_attempt_checkpoint_refs(root.path(), "attempt_remove").unwrap();

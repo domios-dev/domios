@@ -556,7 +556,7 @@ mod cron_task {
         let task = &store.created[0].task;
         assert_eq!(
             task.split_whitespace().collect::<Vec<_>>(),
-            ["codeterm", "mem", "dream", "run"]
+            ["domios", "mem", "dream", "run"]
         );
     }
 
@@ -580,7 +580,7 @@ mod cron_task {
         assert_eq!(job.schedule, "30 12 * * *");
         assert_eq!(
             job.task.split_whitespace().collect::<Vec<_>>(),
-            ["codeterm", "mem", "dream", "run"]
+            ["domios", "mem", "dream", "run"]
         );
     }
 
