@@ -81,6 +81,14 @@ impl RolePolicy for CuratorPolicy {
             }
         }
     }
+    fn launch_failed(
+        &self,
+        service: &ServiceContext,
+        job: &CronJob,
+        now: u64,
+    ) -> Result<(), String> {
+        service.curator_fire_failed(&job.task, CuratorFailure::LaunchFailed, now)
+    }
     fn spawned(
         &self,
         service: &ServiceContext,
