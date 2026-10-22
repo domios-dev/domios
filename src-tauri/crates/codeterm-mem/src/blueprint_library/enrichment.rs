@@ -148,17 +148,14 @@ impl MemManager {
 
     pub fn backfill_blueprints(&self) -> Result<Vec<(String, IndexReport)>, String> {
         let ids = index::indexed_items(&self.conn.lock())?;
-        Ok(ids
-            .into_iter()
-            .map(|id| {
-                let report = IndexReport {
-                    vectors: 0,
-                    missing_vectors: 0,
-                    enrichment: EnrichmentStatus::Pending("backfill not implemented".into()),
-                };
-                (id, report)
-            })
-            .collect())
+        let mut reports = Vec::new();
+        for id in ids {
+            match self.index_blueprint(&id) {
+                Ok(report) => reports.push((id, report)),
+                Err(error) => log::warn!("[blueprint-memory] backfill {id}: {error}"),
+            }
+        }
+        Ok(reports)
     }
 
     fn desired_vectors(&self, id: &str) -> Result<Option<Desired>, String> {
