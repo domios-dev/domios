@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
   "name": "@codeterm/plugin-analytics",
-  "version": "1.10.20",
+  "version": "1.10.21",
   "private": true,
   "type": "module",
   "description": "CodeTerm core Analytics plugin: the machine-wide KPI dashboard view.",

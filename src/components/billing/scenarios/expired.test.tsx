@@ -11,7 +11,7 @@ afterEach(closeScenario);
 describe("expired subscription", () => {
   it("refuses new items over the free limits and keeps every existing one", async () => {
     const scenario = await openScenario(PLAN_PAYLOADS.expired, { workspaces: 4, teams: 9, tabs: 50 });
-    expect(scenario.tray).toBe("pro (canceled)");
+    expect(scenario.tray).toBe("Pro · canceled");
     const before = scenario.app.state();
     const existing = { workspaces: before.workspaces.length, teams: before.teams?.length, tabs: Object.keys(before.tabs).length };
 
