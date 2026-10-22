@@ -1,0 +1,23 @@
+schema_version: 1
+name: '{{name}}'
+note: Extract the text from a screenshot image and file it as a note.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  screenshot:
+    type: string
+    description: Absolute path to the screenshot image
+watch:
+  input:
+    kind: image
+    data:
+      file: '{{screenshot}}'
+    convert_to: text
+  question: what-text-is-in-the-image
+  buckets:
+  - extracted
+  timeout: 1h
+  model_classification: true
+  routes:
+    extracted: notify

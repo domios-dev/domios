@@ -1,6 +1,7 @@
 //! Socket RPC surface for memory operations; validation is shared with HTTP routes.
 //! Plaintext-capable secret operations retain bearer-authenticated HTTP.
 
+mod embedder;
 mod graph;
 mod hygiene;
 
@@ -31,6 +32,9 @@ pub(super) fn dispatch(
     }
     if let Some(rest) = method.strip_prefix("mem.graph.") {
         return graph::dispatch(rest, params, svc);
+    }
+    if let Some(rest) = method.strip_prefix("mem.embedder.") {
+        return embedder::dispatch(rest, params, svc);
     }
     match method {
         "mem.stats" => svc

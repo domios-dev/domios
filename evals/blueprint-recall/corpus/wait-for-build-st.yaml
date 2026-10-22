@@ -1,0 +1,32 @@
+schema_version: 1
+name: '{{title}}'
+note: Hold on until compilation finishes and ping me for success or breakage alike.
+inputs:
+  ok_regex:
+    type: string
+    description: Passed pattern
+  title:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  compile_status_command:
+    type: string
+    description: Read only build probe
+  broken_regex:
+    type: string
+    description: Failed pattern
+watch:
+  probe: '{{compile_status_command}}'
+  question: how-did-compilation-end
+  buckets:
+  - running
+  - ok
+  - broken
+  matches:
+    ok: '{{ok_regex}}'
+    broken: '{{broken_regex}}'
+  until: ok
+  timeout: 90m
+  routes:
+    running: none
+    ok: notify
+    broken: notify

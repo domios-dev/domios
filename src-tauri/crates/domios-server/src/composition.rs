@@ -395,6 +395,7 @@ pub(crate) fn compose_observed(
             .ext::<Arc<mem::supervisor::Supervisor>>()
             .observe_spawns(observer);
     }
+    codeterm_service_core::mem_ops::embedder::start(&service_state);
     codeterm_service_core::ports::orchestration::install(&service_state);
     service_state
         .chat_send_ledger
@@ -532,6 +533,7 @@ pub(crate) fn compose_observed(
             }
         });
     }
+    codeterm_service_core::mem::blueprint_enrichment::install(&service_state);
     if codeterm_service_core::config::memory_config().auto_extract {
         let svc_for_extract = service_state.clone();
         let queued =

@@ -1,9 +1,8 @@
 use super::*;
 
-#[cfg(feature = "embeddings")]
 pub(crate) fn scoped_vectors(
     conn: &Connection,
-    vector: &[f32],
+    vector: &StampedVector,
     limit: usize,
     query: &SearchQuery,
     cfg: &SearchConfig,
@@ -11,6 +10,7 @@ pub(crate) fn scoped_vectors(
     let Some(source) = &cfg.source_filter else {
         return crate::embeddings::recall_vector(conn, vector, limit);
     };
+    crate::embedder::index::check(conn, &vector.identity)?;
     let mut statement = conn
         .prepare(
             "SELECT m.id, MIN(vec_distance_cosine(v.embedding, ?1)) AS distance
@@ -29,7 +29,7 @@ pub(crate) fn scoped_vectors(
     let rows = statement
         .query_map(
             rusqlite::params![
-                crate::embeddings::inner::encode_vector(vector),
+                crate::embeddings::encode_vector(&vector.vector),
                 source,
                 query.kind,
                 query.area,

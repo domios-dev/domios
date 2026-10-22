@@ -1,0 +1,19 @@
+schema_version: 1
+name: Issue label sync
+note: Copy the shared issue label set into one repository every day so labels stay consistent.
+owner: team
+inputs:
+  repo:
+    type: string
+    description: GitHub owner/repository
+  source_repo:
+    type: string
+    description: Repository holding the canonical labels
+pipeline:
+  trigger: {type: schedule, every: 24h}
+  steps:
+    - name: sync
+      input: text
+      run: gh label clone '{{source_repo}}' --repo '{{repo}}' --force
+      on: {done: stop, failed: stop}
+  result: {to: owner}

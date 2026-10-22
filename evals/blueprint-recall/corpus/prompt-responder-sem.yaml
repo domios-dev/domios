@@ -1,0 +1,30 @@
+schema_version: 1
+name: '{{name}}'
+note: Poll an agent tab's status; when it waits on a supported permission prompt, request the safe answer.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  tab_status_probe:
+    type: string
+    description: Read-only codeterm tab status command for one agent tab
+watch:
+  probe: '{{tab_status_probe}}'
+  question: is-the-agent-waiting-on-permission
+  buckets:
+  - working
+  - permission
+  matches:
+    working: '"state":\s*"working"'
+    permission: '"prompt":\s*"permission"'
+  every: 15s
+  rearm_on_change:
+  - permission
+  timeout: 8h
+  handlers:
+    working: []
+    permission:
+    - type: respond_prompt
+      parameters:
+        target: permission
+    - type: notify

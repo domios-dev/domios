@@ -63,7 +63,14 @@ pub(super) fn dispatch(
             .blueprint_keep(
                 &caller,
                 &get_string_param(params, "id")?,
-                &get_string_param(params, "when")?,
+                &serde_json::from_value::<Vec<String>>(
+                    params
+                        .as_ref()
+                        .and_then(|args| args.get("when"))
+                        .cloned()
+                        .unwrap_or(json!([])),
+                )
+                .map_err(|e| error(e.to_string()))?,
             )
             .map_err(error),
         "blueprint.recall" => svc

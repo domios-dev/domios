@@ -31,7 +31,11 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     let (method, params) = request(
         BlueprintAction::Keep {
             id: "graph".into(),
-            when: "Watch CI failure".into(),
+            when: vec![
+                "Watch CI failure".into(),
+                "tell me when the build goes red".into(),
+                "ping me about failing checks".into(),
+            ],
         },
         None,
         None,
@@ -39,6 +43,24 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     .unwrap();
     assert_eq!(method, "blueprint.keep");
     assert_eq!(params["id"], "graph");
+    assert_eq!(
+        params["when"],
+        json!([
+            "Watch CI failure",
+            "tell me when the build goes red",
+            "ping me about failing checks"
+        ])
+    );
+    let six = (0..6).map(|index| format!("intent {index}")).collect();
+    assert!(request(
+        BlueprintAction::Keep {
+            id: "graph".into(),
+            when: six,
+        },
+        None,
+        None,
+    )
+    .is_err());
     let (method, params) = request(
         BlueprintAction::Apply {
             source: "memory:skill_saved".into(),
@@ -54,7 +76,22 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     assert_eq!(method, "blueprint.apply_recipe");
     assert_eq!(params["id"], "skill_saved");
     assert_eq!(params["dry_run"], true);
-    assert_eq!(memory::offers(json!([])), json!([]));
+    let offers = memory::offers(json!([]), "HTTP endpoint response code");
+    assert!(offers
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|offer| offer["id"] == "http-health"));
+    let yaml = "schema_version: 1\nname: frozen\nwatch:\n  probe: '{{command}}'\n  question: Frozen?\n  buckets: [frozen]\n  routes: {frozen: notify}\n";
+    let stored = json!([{"id":"skill_vector","yaml":yaml,"intents":["Detect stalled deployments"],"uses":0,"successes":1,"why":"intent 0.81"}]);
+    let offers = memory::offers(stored, "Identify frozen releases HTTP endpoint");
+    assert_eq!(offers[0]["id"], "memory:skill_vector");
+    assert_eq!(offers[0]["why"], "intent 0.81");
+    assert_eq!(offers[0]["intents"], json!(["Detect stalled deployments"]));
+    assert_eq!(
+        memory::offers(json!([]), "unmatched opaque zebra"),
+        json!([])
+    );
 }
 
 #[test]
@@ -470,21 +507,69 @@ mod command_tests {
 }
 
 #[test]
+fn blueprint_save_receipt_surfaces_every_evicted_id() {
+    let result =
+        json!({"id":"saved-new", "status":"saved", "evicted_ids":["old-first", "old-second"]});
+    let text = memory::save_receipt(&result);
+    for id in ["saved-new", "old-first", "old-second"] {
+        assert!(text.contains(id), "missing {id} in {text}");
+    }
+    assert!(text.contains("Archived"));
+}
+
+#[test]
 fn blueprint_like_preserves_hybrid_recall_without_shared_words() {
     let query = "Transmit structured output downstream";
     let stored = json!([
-        {"id":"skill_pipeline", "when_to_use":"Chain shell commands", "yaml":"opaque recipe"},
-        {"id":"skill_second", "when_to_use":"Parse JSON", "yaml":"another recipe"}
+        {"id":"skill_pipeline", "when_to_use":"Chain shell commands", "yaml":"opaque recipe", "why":"intent 0.92", "enrichment_pending":true},
+        {"id":"skill_second", "when_to_use":"Parse JSON", "yaml":"another recipe", "why":"intent 0.81", "intents":["Parse JSON"]}
     ]);
     assert!(stored[0]["when_to_use"]
         .as_str()
         .unwrap()
         .split_whitespace()
         .all(|word| !query.to_lowercase().contains(&word.to_lowercase())));
-    let offers = memory::offers(stored.clone());
-    assert_eq!(offers.as_array().unwrap().len(), 2);
+    let offers = memory::offers(stored.clone(), query);
+    let offers = offers.as_array().unwrap();
     for (index, id) in ["skill_pipeline", "skill_second"].iter().enumerate() {
-        assert_eq!(offers[index]["id"], format!("memory:{id}"));
-        assert_eq!(offers[index]["yaml"], stored[index]["yaml"]);
+        let mut expected = stored[index].clone();
+        expected["id"] = json!(format!("memory:{id}"));
+        assert_eq!(offers[index], expected);
+    }
+    for offer in &offers[2..] {
+        assert!(recipe_files::FILES.iter().any(|(id, _)| offer["id"] == *id));
+    }
+    let ids = offers
+        .iter()
+        .map(|offer| offer["id"].as_str().unwrap())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(ids.len(), offers.len());
+}
+
+#[test]
+fn blueprint_like_appends_builtins_after_daemon_results_within_five_offers() {
+    for count in [4, 5, 6] {
+        let stored = (0..count)
+            .map(|index| {
+                json!({
+                    "id":format!("saved-{index}"),
+                    "yaml":format!("opaque recipe {index}"),
+                    "intents":["A semantic match with no shared query words"],
+                    "why":"intent 0.92",
+                    "enrichment_pending":true
+                })
+            })
+            .collect::<Vec<_>>();
+        let offers = memory::offers(json!(stored), "HTTP endpoint response code");
+        let offers = offers.as_array().unwrap();
+        assert_eq!(offers.len(), 5);
+        for (index, original) in stored.iter().take(5).enumerate() {
+            let mut expected = original.clone();
+            expected["id"] = json!(format!("memory:saved-{index}"));
+            assert_eq!(offers[index], expected);
+        }
+        if count == 4 {
+            assert_eq!(offers[4]["id"], "http-health");
+        }
     }
 }

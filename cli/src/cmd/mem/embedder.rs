@@ -1,0 +1,226 @@
+use serde_json::Value;
+
+use crate::client::{SocketCallError, SocketClient};
+use crate::MemEmbedderAction;
+
+const REFUSED: i32 = -32009;
+
+pub(crate) fn method_and_params(action: &MemEmbedderAction) -> (&'static str, Option<Value>) {
+    match action {
+        MemEmbedderAction::List => ("mem.embedder.list", None),
+        MemEmbedderAction::Status => ("mem.embedder.status", None),
+        MemEmbedderAction::Use {
+            provider,
+            model,
+            dimension,
+        } => (
+            "mem.embedder.use",
+            Some(
+                serde_json::json!({ "provider": provider, "model": model, "dimension": dimension }),
+            ),
+        ),
+    }
+}
+
+pub(crate) fn handle(client: &mut SocketClient, json_mode: bool, action: MemEmbedderAction) {
+    let (method, params) = method_and_params(&action);
+    let value = match client.call_detailed(method, params) {
+        Ok(value) => value,
+        Err(SocketCallError::Rpc(error)) if error.code == REFUSED => {
+            let hints: Vec<String> = error
+                .data
+                .as_ref()
+                .and_then(|data| data["hints"].as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|hint| hint.as_str().map(str::to_owned))
+                .collect();
+            let hints: Vec<&str> = hints.iter().map(String::as_str).collect();
+            crate::cmd::print::fail_with_hints(2, error.message, &hints);
+        }
+        Err(error) => crate::cmd::print::fail(1, error.to_string()),
+    };
+    if json_mode {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).unwrap_or_default()
+        );
+        return;
+    }
+    let text = match action {
+        MemEmbedderAction::List => render_list(&value),
+        MemEmbedderAction::Status => render_status(&value),
+        MemEmbedderAction::Use { .. } => render_use(&value),
+    };
+    print!("{text}");
+}
+
+fn str_of<'v>(value: &'v Value, key: &str) -> &'v str {
+    value[key].as_str().unwrap_or("")
+}
+
+pub(crate) fn render_list(value: &Value) -> String {
+    let mut out = String::new();
+    for provider in value["providers"].as_array().into_iter().flatten() {
+        let marker = if provider["active"].as_bool() == Some(true) {
+            "*"
+        } else {
+            " "
+        };
+        out.push_str(&format!(
+            "{marker} {}  {}\n",
+            str_of(provider, "id"),
+            str_of(provider, "label")
+        ));
+        for model in provider["models"].as_array().into_iter().flatten() {
+            let dimension = model["dimension"].as_u64().unwrap_or(0);
+            let min = model["min_dimension"].as_u64().unwrap_or(dimension);
+            let dims = if min == dimension {
+                format!("{dimension} dims")
+            } else {
+                format!("{dimension} dims ({min}..{dimension})")
+            };
+            let default = if model["default"].as_bool() == Some(true) {
+                "  (default)"
+            } else {
+                ""
+            };
+            out.push_str(&format!(
+                "    {}  {dims}  {} tokens{default}\n",
+                str_of(model, "model"),
+                model["max_tokens"].as_u64().unwrap_or(0)
+            ));
+        }
+        if let Some(refusal) = provider.get("refusal").filter(|r| !r.is_null()) {
+            out.push_str(&format!(
+                "    unavailable: {}\n",
+                str_of(refusal, "message")
+            ));
+            for hint in refusal["hints"].as_array().into_iter().flatten() {
+                out.push_str(&format!("    hint: {}\n", hint.as_str().unwrap_or("")));
+            }
+        }
+    }
+    out
+}
+
+fn progress_line(reembed: &Value) -> String {
+    let (done, total, failed) = (
+        reembed["done"].as_u64().unwrap_or(0),
+        reembed["total"].as_u64().unwrap_or(0),
+        reembed["failed"].as_u64().unwrap_or(0),
+    );
+    match str_of(reembed, "state") {
+        "running" => format!(
+            "running {done}/{total} ({}%), {failed} failed",
+            (done * 100).checked_div(total).unwrap_or(100)
+        ),
+        "completed" => format!("completed {done}/{total}, {failed} failed"),
+        _ => "idle".into(),
+    }
+}
+
+pub(crate) fn render_status(value: &Value) -> String {
+    let index = &value["index"];
+    let index = if index.is_null() {
+        "none".to_string()
+    } else {
+        format!(
+            "{}/{} ({} dims){}",
+            str_of(index, "provider"),
+            str_of(index, "model"),
+            index["dimension"].as_u64().unwrap_or(0),
+            if value["index_matches"].as_bool() == Some(true) {
+                ""
+            } else {
+                "  — differs from the active embedder"
+            }
+        )
+    };
+    let remote = if value["remote"].as_bool() == Some(true) {
+        " (remote)"
+    } else {
+        ""
+    };
+    format!(
+        "provider   {}{remote}\nmodel      {}\ndimension  {}\navailable  {}\nindex      {index}\nvectors    {}\npending    {}\nre-embed   {}\n",
+        str_of(value, "provider"),
+        str_of(value, "model"),
+        value["dimension"].as_u64().unwrap_or(0),
+        if value["available"].as_bool() == Some(true) { "yes" } else { "no" },
+        value["vectors"].as_u64().unwrap_or(0),
+        value["pending"].as_u64().unwrap_or(0),
+        progress_line(&value["reembed"]),
+    )
+}
+
+pub(crate) fn render_use(value: &Value) -> String {
+    let target = &value["target"];
+    let plan = &value["plan"];
+    let mut out = format!(
+        "Switched the embedder to {}/{} ({} dims).\nRe-embedding {} items in the background (items {}, entities {}, docs {}).\n",
+        str_of(target, "provider"),
+        str_of(target, "model"),
+        target["dimension"].as_u64().unwrap_or(0),
+        value["total"].as_u64().unwrap_or(0),
+        plan["items"].as_u64().unwrap_or(0),
+        plan["entities"].as_u64().unwrap_or(0),
+        plan["docs"].as_u64().unwrap_or(0),
+    );
+    if let Some(warning) = value["warning"].as_str() {
+        out.push_str(&format!("WARNING: {warning}\n"));
+    }
+    out.push_str("hint: follow progress with `domios mem embedder status`\n");
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn parse(args: &[&str]) -> MemEmbedderAction {
+        let cli = crate::Cli::try_parse_from(args).unwrap();
+        let crate::Commands::Mem {
+            action: crate::MemAction::Embedder { action },
+        } = cli.command
+        else {
+            panic!("not a mem embedder command");
+        };
+        action
+    }
+
+    #[test]
+    fn mem_embedder_verbs_parse_and_map_to_their_daemon_methods() {
+        assert_eq!(
+            method_and_params(&parse(&["domios", "mem", "embedder", "list"])).0,
+            "mem.embedder.list"
+        );
+        assert_eq!(
+            method_and_params(&parse(&["domios", "mem", "embedder", "status"])).0,
+            "mem.embedder.status"
+        );
+        let action = parse(&[
+            "domios",
+            "mem",
+            "embedder",
+            "use",
+            "openai",
+            "--model",
+            "text-embedding-3-small",
+            "--dimension",
+            "256",
+        ]);
+        let (method, params) = method_and_params(&action);
+        assert_eq!(method, "mem.embedder.use");
+        assert_eq!(
+            params.unwrap(),
+            serde_json::json!({ "provider": "openai", "model": "text-embedding-3-small", "dimension": 256 })
+        );
+        let rendered = render_use(&serde_json::json!({
+            "target": { "provider": "local", "model": "m", "dimension": 384 },
+            "plan": { "items": 3, "entities": 2, "docs": 1 }, "total": 6, "warning": null
+        }));
+        assert!(rendered.contains("Re-embedding 6 items"));
+    }
+}

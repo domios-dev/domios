@@ -1,0 +1,26 @@
+schema_version: 1
+name: health-triage
+note: Probe a URL; classify failures; escalate unknowns.
+owner: team
+inputs:
+  url: {type: string, description: Service health endpoint}
+pipeline:
+  trigger: {type: schedule, every: 60s}
+  steps:
+    - name: probe
+      input: text
+      uses: http
+      with: {url: '{{url}}'}
+      on: {up: stop, down: measure, failed: measure}
+    - name: measure
+      input: text
+      run: >-
+        python3 -c 'import json, sys; p = json.load(sys.stdin);
+        print("high" if p["status"] >= 500 or p["latency_ms"] > 2000 else "low", "status", p["status"])'
+      on: {done: next, failed: stop}
+    - name: triage
+      input: text
+      uses: ask
+      with: {question: 'Is this a transient blip or an outage?', buckets: [transient, outage]}
+      on: {transient: stop, outage: next}
+  result: {to: notify}

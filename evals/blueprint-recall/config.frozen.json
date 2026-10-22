@@ -1,0 +1,27 @@
+{
+  "about": "C* frozen from grid.json before any b3 file entered the worktree; gate arm = this config, degraded arm = enrichment false, rerank arm = this config + rerank.",
+  "config_id": "C10",
+  "config": {
+    "fusion": "score",
+    "rrf_k": 60.0,
+    "list_depth": 50,
+    "enrichment": true,
+    "pool_intents": true,
+    "weights": {
+      "intent": 1.0,
+      "worker_intent": 0.0,
+      "summary": 0.3,
+      "canon": 0.3,
+      "lexical": 0.2,
+      "structure": 0.0
+    }
+  },
+  "thresholds": {
+    "near_struct": 0.8,
+    "desc": 0.7,
+    "intent": 0.65
+  },
+  "embedder": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "grid_sha256": "fdea8c4a08cbfd803ff582f3bcaa5491756813f06b081bde4e0b7bcf89eb64ff",
+  "prereg_sha": "88f2e63b042dbe91b3b7cbba99bd849b636ab766"
+}

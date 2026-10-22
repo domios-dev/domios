@@ -1,0 +1,18 @@
+schema_version: 1
+name: Plan coverage watch
+note: Probe plan gaps until every section is covered by a task, then recommend approval to the human owner.
+inputs:
+  plan_gaps_probe:
+    type: string
+    description: Read-only codeterm plan gaps command printing covered or gaps
+watch:
+  probe: '{{plan_gaps_probe}}'
+  question: does-the-plan-cover-every-section
+  buckets: [gaps, covered]
+  matches: {gaps: '(?m)^gaps$', covered: '(?m)^covered$'}
+  every: 10m
+  until: covered
+  timeout: 2d
+  routes:
+    gaps: none
+    covered: notify

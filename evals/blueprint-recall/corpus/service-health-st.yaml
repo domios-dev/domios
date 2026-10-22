@@ -1,0 +1,22 @@
+schema_version: 1
+name: Backend check
+note: Investigate when the backend stops answering and send me what was found
+owner: team
+inputs:
+  address:
+    type: string
+    description: Backend status URL
+    default: https://api.example.org/status
+pipeline:
+  trigger: {type: schedule, every: 5m}
+  steps:
+    - name: ping
+      input: text
+      uses: http
+      with: {timeout_ms: 8000, url: '{{address}}'}
+      on: {failed: investigate, down: investigate, up: stop}
+    - name: investigate
+      input: text
+      run: echo look-at-backend
+      on: {failed: stop, done: stop}
+  result: {to: notify}

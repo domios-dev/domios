@@ -1,0 +1,22 @@
+schema_version: 1
+name: Follow {{member_tab}}
+note: Keep looking at a colleague's terminal and alert me when what it shows moves on.
+inputs:
+  member_tab:
+    type: string
+    description: Tab id
+  moved_regex:
+    type: string
+    description: Changed pattern
+watch:
+  observe: tab:{{member_tab}}
+  question: did-the-colleague-tab-move-on
+  buckets:
+  - idle
+  - moved
+  matches:
+    moved: '{{moved_regex}}'
+  timeout: 4h
+  routes:
+    idle: none
+    moved: notify

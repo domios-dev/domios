@@ -1,0 +1,30 @@
+schema_version: 1
+name: Cron result poller
+note: Poll a scheduled job's latest execution record and tell me when it has completed.
+owner: team
+inputs:
+  cron:
+    type: string
+    description: Cron name or id
+pipeline:
+  trigger:
+    type: schedule
+    every: 1m
+  steps:
+  - name: last run
+    input: text
+    run: codeterm cron show '{{cron}}' --json
+  - name: completed
+    input: text
+    uses: filter
+    with:
+      pattern: '"state":\s*"(finished|succeeded|failed)"'
+      bucket: completed
+    'on':
+      completed: next
+      done: stop
+  - name: tell
+    input: text
+    run: echo cron-run-completed
+  result:
+    to: notify
