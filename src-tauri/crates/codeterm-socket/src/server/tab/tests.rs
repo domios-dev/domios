@@ -175,6 +175,9 @@ fn tab_send_text_dispatch_returns_written_recipient_pad_file() {
         .unwrap();
     mux.get_tab_mut(&recipient).unwrap().agent_type = Some("limited-test-provider".into());
     mux.get_tab_mut(&recipient).unwrap().session_binding_nonce = Some("pad-send-launch".into());
+    mux.get_tab_mut(&recipient).unwrap().agent_booting = true;
+    mux.get_tab_mut(&recipient).unwrap().boot_stage =
+        Some(codeterm_types::pty::BootStage::PtyStarting);
     let fixture = ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
         codeterm_service_core::agent::test_provider::MockProvider::new("limited-test-provider")
@@ -190,6 +193,10 @@ fn tab_send_text_dispatch_returns_written_recipient_pad_file() {
         &std::sync::Arc::new(fixture.service.clone()),
     )
     .unwrap();
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["delivery"], "pending");
+    assert_eq!(value["bytes_written"], false);
+    assert!(value["send_id"].as_str().is_some());
     let path = std::path::PathBuf::from(value["pad_file"].as_str().unwrap());
     assert_eq!(std::fs::read(path).unwrap(), body.as_bytes());
 }
