@@ -1,0 +1,54 @@
+# COD-1521: reviewed removals; targets name surviving behavior coverage.
+# Dead apply_enter tests asserted only a local fake; key suppression is no longer a product behavior.
+# Ignored obsolete screen-ingestion oracle; current exact-turn confirmation is covered by the active transport test.
+service::pty_io::submit_transaction::tests::normal_path_fires_cr_on_the_ingestion_event_with_no_anomaly -> service::pty_io::submit_transaction::tests::tui_turn_transition_confirms_submission
+# Ignored obsolete screen-ingestion oracle; current exact-turn confirmation is covered by the active transport test.
+service::pty_io::submit_transaction::tests::stale_repaint_cannot_release_enter_before_new_fuzzy_echo -> service::pty_io::submit_transaction::tests::tui_turn_transition_confirms_submission
+# Ignored obsolete screen-ingestion oracle; current exact-turn confirmation is covered by the active transport test.
+service::pty_io::submit_transaction::tests::visible_paste_without_generation_still_submits -> service::pty_io::submit_transaction::tests::tui_turn_transition_confirms_submission
+# Ignored obsolete screen-ingestion oracle; current exact-turn confirmation is covered by the active transport test.
+service::pty_io::submit_transaction::tests::long_wrapped_chat_message_enters_after_paste_placeholder_echo -> service::pty_io::submit_transaction::tests::tui_turn_transition_confirms_submission
+# Ignored obsolete screen-ingestion oracle; current exact-turn confirmation is covered by the active transport test.
+service::pty_io::submit_transaction::tests::complete_echo_is_diagnostic_but_not_required_for_enter -> service::pty_io::submit_transaction::tests::tui_turn_transition_confirms_submission
+# Ignored duplicate bounded recovery and honest uncertainty; active dropped-Enter test covers writes and ledger outcome.
+service::pty_io::submit_transaction::tests::missing_paste_evidence_surfaces_actionable_failure -> service::pty_io::submit_transaction::dropped_enter_tests::unrecoverable_dropped_enter_stays_submit_unconfirmed_with_single_payload
+# Ignored duplicate bounded recovery and honest uncertainty; active dropped-Enter test covers writes and ledger outcome.
+service::pty_io::submit_transaction::tests::repeated_swallowed_enters_use_bounded_submit_key_recovery -> service::pty_io::submit_transaction::dropped_enter_tests::unrecoverable_dropped_enter_stays_submit_unconfirmed_with_single_payload
+# Ignored synthetic ingestion/working-state authorization no longer exists; active key-only recovery proves the retained behavior.
+service::pty_io::submit_transaction::tests::paste_accepted_then_enter_swallowed_recovers_without_duplicate_payload -> service::pty_io::submit_transaction::dropped_enter_tests::parked_draft_after_dropped_enter_recovers_before_turn_deadline
+# Ignored synthetic ingestion/working-state authorization no longer exists; active key-only recovery proves the retained behavior.
+service::pty_io::submit_transaction::tests::enter_that_inserts_newline_retries_until_the_turn_starts -> service::pty_io::submit_transaction::dropped_enter_tests::parked_draft_after_dropped_enter_recovers_before_turn_deadline
+# Ignored synthetic ingestion/working-state authorization no longer exists; active key-only recovery proves the retained behavior.
+service::pty_io::submit_transaction::tests::working_provider_recovers_swallowed_enter_when_draft_leaves_composer -> service::pty_io::submit_transaction::dropped_enter_tests::parked_draft_after_dropped_enter_recovers_before_turn_deadline
+# Ignored duplicate paste-before-key assertion; no distinct launch path is exercised by submit_entry identity closure.
+service::pty_io::submit_transaction::tests::every_pty_provider_strategy_preserves_paste_then_enter_order -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Ignored duplicate paste-before-key assertion; no distinct launch path is exercised by submit_entry identity closure.
+service::pty_io::submit_transaction::tests::spawn_introduction_uses_the_same_paste_then_enter_contract -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Duplicate absence-of-evidence schedule assertion; active bounded recovery test covers the same no-ack path.
+service::pty_io::submit_transaction::tests::first_submit_key_does_not_wait_for_paste_evidence -> service::pty_io::submit_transaction::tests::bounded_recovery::total_acknowledgement_failure_is_payload_singular_and_key_bounded
+# Duplicate zero-deadline payload, first key, and uncertainty assertions.
+service::pty_io::submit_transaction::tests::zero_deadline_still_attempts_the_first_submit_key -> service::pty_io::submit_transaction::classification_tests::expired_phase_deadline_stops_retry_writes_before_enqueue
+# Dead test-only apply_enter implementation has no production caller; trailing-newline key suppression is not the current paste-plus-key contract.
+service::pty_io::tests::enter_true_appends_cr_when_missing -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Dead test-only apply_enter implementation has no production caller; trailing-newline key suppression is not the current paste-plus-key contract.
+service::pty_io::tests::enter_true_no_double_cr -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Dead test-only apply_enter implementation has no production caller; trailing-newline key suppression is not the current paste-plus-key contract.
+service::pty_io::tests::enter_false_passthrough -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Dead test-only apply_enter implementation has no production caller; trailing-newline key suppression is not the current paste-plus-key contract.
+service::pty_io::tests::enter_false_preserves_trailing_cr -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Dead test-only apply_enter implementation has no production caller; trailing-newline key suppression is not the current paste-plus-key contract.
+service::pty_io::tests::empty_text_enter_true_sends_just_cr -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Dead test-only apply_enter implementation has no production caller; trailing-newline key suppression is not the current paste-plus-key contract.
+service::pty_io::tests::empty_text_enter_false_sends_nothing -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Dead test-only apply_enter implementation has no production caller; trailing-newline key suppression is not the current paste-plus-key contract.
+service::pty_io::tests::enter_true_text_ending_newline -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Dead test-only apply_enter implementation has no production caller; trailing-newline key suppression is not the current paste-plus-key contract.
+service::pty_io::tests::text_with_embedded_cr_but_not_trailing -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Dead test-only apply_enter implementation has no production caller; trailing-newline key suppression is not the current paste-plus-key contract.
+service::pty_io::tests::multiline_text_enter_true -> service::pty_io::submit_transaction::tests::routed_prefix_body_and_suffix_share_one_write_before_the_submit_key
+# Test-only describe function does not exercise product behavior; the active class matrix exercises gateway dispatch.
+service::message_gateway::tests::delivery_class_semantics_are_documented_and_exhaustive -> service::message_gateway::tests::every_delivery_class_dispatches_optimistically
+# Strict subset: the retained real watcher test writes both claimed files and receives notifications, additionally proving isolation and teardown.
+service::tab_chat::file_events::tests::filesystem_append_wakes_without_a_polling_clock -> service::tab_chat::file_events::tests::sibling_subscribers_share_one_native_watcher_and_drop_independently
+# Merged contextual system notices into the existing envelope matrix, preserving context, marker and no-escape assertions.
+service::pty_io::submit_transaction::paste_encoding_tests::curator_system_notices_keep_frame_and_marker_in_one_paste -> service::pty_io::submit_transaction::paste_encoding_tests::every_non_human_agent_delivery_has_exactly_one_frame_in_one_paste
