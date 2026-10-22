@@ -156,6 +156,14 @@ pub(super) fn create_router_with_preview_admission(
             "/api/automation/blueprints/solutions/archive",
             post(super::blueprint_solution_routes::archive),
         )
+        .route(
+            "/api/automation/blueprints/viewer/history",
+            get(super::blueprint_viewer_routes::history),
+        )
+        .route(
+            "/api/automation/blueprints/project",
+            get(super::blueprint_viewer_routes::project),
+        )
         .route("/api/health", get(health_routes::health))
         .route("/api/identify", get(health_routes::identify))
         .route(

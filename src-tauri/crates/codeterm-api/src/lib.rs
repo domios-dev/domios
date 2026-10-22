@@ -102,3 +102,5 @@ mod process_split_contract;
 pub mod test_support;
 
 pub mod app_quit_routes;
+
+pub mod blueprint_viewer_routes;

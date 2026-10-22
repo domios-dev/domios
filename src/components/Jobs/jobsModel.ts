@@ -10,7 +10,7 @@ export interface BlueprintJob {
 }
 
 export function blueprintJobs(graph: AutomationGraph): BlueprintJob[] {
-  return (graph.blueprints ?? []).map((blueprint) => {
+  return (graph.blueprints ?? []).filter((blueprint) => blueprint.call_graph?.kind !== "watch").map((blueprint) => {
     const scenario = graph.scenarios.find((entry) => entry.id === blueprint.id);
     const identity: AutomationIdentity = scenario?.root ?? {
       kind: "blueprint", id: blueprint.id, workspace_id: graph.workspace_id,
