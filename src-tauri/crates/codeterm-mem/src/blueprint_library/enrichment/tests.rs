@@ -29,7 +29,7 @@ fn save(mem: &MemManager, yaml: &str) -> String {
         evidence(),
     )
     .unwrap()
-    .unwrap()
+    .id
 }
 
 #[test]

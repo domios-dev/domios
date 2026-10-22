@@ -385,21 +385,19 @@ fn canon_drops_credentials_and_instance_paths() {
 
 #[test]
 fn canon_drops_secrets_that_follow_a_credential_keyword() {
-    let source = BASE.replace(
-        "run: echo release-blocked",
-        "run: \"deploy --password hunter-two-secret --token abcdefghij && curl -H 'Authorization: Bearer zyxwvutsrqponmlkjihgfedcba' https://x.example.com\"",
-    );
-    let text = canon(&source);
-    for leaked in [
-        "hunter",
-        "abcdefghij",
-        "zyxwvutsrqponmlkjihgfedcba",
-        "password",
-        "token",
-        "authorization",
-        "bearer",
+    for command in [
+        "deploy --password hunter-two-secret --token abcdefghij && curl -H 'Authorization: Bearer zyxwvutsrqponmlkjihgfedcba' https://x.example.com",
+        "deploy --password 'hunter two secret' --token abcdefghij && curl -H 'Authorization: Bearer shortvalue' https://x.example.com",
+        "deploy --password=abcdefghi --token abcdefghij && curl --header=\"Authorization: Bearer shortvalue\" https://x.example.com",
+        "deploy --password hunter-two-secret --token abcdefghij && curl -H 'Authorization: {{token}}' https://x.example.com",
     ] {
-        assert!(!text.contains(leaked), "{leaked} in {text}");
+        let mut document = parse_document(BASE).unwrap();
+        document.pipeline.as_mut().unwrap()["steps"][0]["run"] = serde_json::json!(command);
+        let text = semantic_canon(&document, INTENT);
+        for leaked in ["hunter", "abcdefgh", "zyxwvutsrqponmlkjihgfedcba", "shortvalue", "password", "token", "authorization", "bearer", "secret"] {
+            assert!(!text.contains(leaked), "{leaked} in {text}");
+        }
+        assert!(text.contains("runs deploy curl"), "{text}");
+        assert!(text.contains("{url}"), "{text}");
     }
-    assert!(text.contains("runs deploy curl h {url}"), "{text}");
 }

@@ -6,6 +6,24 @@ use serde_json::{json, Value};
 
 const OFFERS: usize = 5;
 
+pub(super) fn save_receipt(saved: &Value) -> String {
+    let mut text = format!(
+        "Saved {} in Blueprint memory.",
+        saved["id"].as_str().unwrap_or("?")
+    );
+    for id in saved["evicted_ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        text.push_str(&format!(
+            "\nArchived Blueprint memory entry {id} (area storage cap)."
+        ));
+    }
+    text
+}
+
 pub(super) fn offers(stored: Value, intent: &str) -> Value {
     let stored = stored
         .as_array()

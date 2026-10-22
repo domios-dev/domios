@@ -352,9 +352,15 @@ fn words(text: &str) -> String {
 }
 
 fn scrub(text: &str, keywords: bool) -> Vec<&str> {
-    let tokens = text.split_whitespace().collect::<Vec<_>>();
+    scrub_tokens(text.split_whitespace().collect(), keywords)
+}
+
+fn scrub_tokens(tokens: Vec<&str>, keywords: bool) -> Vec<&str> {
     let sensitive = |token: &str| {
         let key = token
+            .split([':', '='])
+            .next()
+            .unwrap_or_default()
             .trim_matches(|c: char| !c.is_ascii_alphanumeric())
             .to_ascii_lowercase()
             .replace(['-', '_'], "");
@@ -379,9 +385,16 @@ fn scrub(text: &str, keywords: bool) -> Vec<&str> {
         let next = tokens.get(index + 1).copied().unwrap_or_default();
         let bearing = (keywords && sensitive(token))
             || super::contains_credentials(token)
-            || super::contains_credentials(&format!("{token} {next}"));
-        if skip_next || bearing {
-            skip_next = bearing;
+            || (!keywords && super::contains_credentials(&format!("{token} {next}")));
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if bearing {
+            skip_next = !keywords
+                || (sensitive(token)
+                    && !token.contains([':', '='])
+                    && !token.contains(char::is_whitespace));
             continue;
         }
         kept.push(*token);
@@ -422,7 +435,10 @@ fn shell_token(token: &str) -> String {
 
 fn command_gist(command: &str) -> String {
     let command = template(command);
-    let tokens = scrub(&command, true)
+    let Ok(arguments) = shell_words::split(&command) else {
+        return String::new();
+    };
+    let tokens = scrub_tokens(arguments.iter().map(String::as_str).collect(), true)
         .into_iter()
         .map(shell_token)
         .filter(|token| !token.is_empty())

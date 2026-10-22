@@ -181,7 +181,7 @@ fn score_rewards_success_reuse_and_keep_penalizes_failures_and_decays() {
     let library = (0..51)
         .map(|index| entry(&format!("item-{index:02}"), index))
         .collect::<Vec<_>>();
-    assert_eq!(evictions(&library, AREA_CAP, 100), vec!["item-00"]);
+    assert_eq!(evictions(&library, 50, 100, "saved"), vec!["item-00"]);
 }
 
 #[test]

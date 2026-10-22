@@ -1,7 +1,7 @@
 use super::index::{self, cosine, IndexRow, Slot, Vectors};
 use crate::blueprint_wl::{self, Signature};
 use crate::MemManager;
-use codeterm_blueprint_types::blueprint_memory::{self as model, Entry, AREA_CAP};
+use codeterm_blueprint_types::blueprint_memory::{self as model, Entry};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -39,7 +39,7 @@ impl Default for RecallConfig {
         Self {
             fusion: Fusion::Score,
             rrf_k: 60.0,
-            list_depth: 50,
+            list_depth: usize::MAX,
             enrichment: true,
             pool_intents: true,
             weights: Weights {
@@ -372,7 +372,7 @@ impl MemManager {
             config,
             chrono::Utc::now().timestamp(),
         );
-        hits.truncate(limit.min(AREA_CAP));
+        hits.truncate(limit);
         Ok(hits)
     }
 }

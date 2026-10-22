@@ -105,6 +105,7 @@ pub(super) fn keep(
         .as_millis() as u64;
     let shape_key =
         model::curator::fingerprint(&format!("{}:{:?}:{}", job.workspace_id, job.team_id, shape));
+    let mut evicted_ids = Vec::new();
     let saved = ctx.curator_save_solution(
         &identity,
         id,
@@ -118,10 +119,12 @@ pub(super) fn keep(
                 episodes: episodes.iter().cloned().collect(),
                 granted,
             });
-            ctx.mem
-                .save_blueprint(&area(&caller.workspace), document, when, proof)?
-                .ok_or("Curator solution was not saved".into())
+            let saved = ctx
+                .mem
+                .save_blueprint(&area(&caller.workspace), document, when, proof)?;
+            evicted_ids = saved.evicted_ids;
+            Ok(saved.id)
         },
     )?;
-    Ok(json!({"id":saved,"status":"saved"}))
+    Ok(json!({"id":saved,"evicted_ids":evicted_ids,"status":"saved"}))
 }

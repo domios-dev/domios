@@ -501,3 +501,14 @@ mod command_tests {
         assert_eq!(params["spec"], spec);
     }
 }
+
+#[test]
+fn blueprint_save_receipt_surfaces_every_evicted_id() {
+    let result =
+        json!({"id":"saved-new", "status":"saved", "evicted_ids":["old-first", "old-second"]});
+    let text = memory::save_receipt(&result);
+    for id in ["saved-new", "old-first", "old-second"] {
+        assert!(text.contains(id), "missing {id} in {text}");
+    }
+    assert!(text.contains("Archived"));
+}

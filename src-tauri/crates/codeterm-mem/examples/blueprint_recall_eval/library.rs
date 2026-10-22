@@ -77,7 +77,7 @@ pub fn ingest(
             ..Evidence::default()
         };
         let id = match mem.save_blueprint_without_merge(&area, document, &doc_intents, evidence) {
-            Ok(id) => id,
+            Ok(saved) => saved.id,
             Err(error) => {
                 refused.insert(doc.id.clone(), error);
                 continue;

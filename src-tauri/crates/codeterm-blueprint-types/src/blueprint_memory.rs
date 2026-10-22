@@ -11,7 +11,7 @@ pub mod semantic_canon;
 pub use generalize::{abstract_document, safe_template};
 pub use quality::{decide, CuratorEvidence, Evidence, Qualification};
 
-pub const AREA_CAP: usize = 50;
+pub const AREA_CAP: usize = 1000;
 pub const MERGE_BUDGET: usize = 8;
 pub const MAX_INTENTS: usize = 5;
 pub const MAX_INTENT_CHARS: usize = 200;
@@ -134,8 +134,11 @@ pub fn duplicate<'a>(entries: &'a [Entry], candidate: &Document) -> Option<&'a E
         .max_by_key(|entry| (entry.successes.saturating_add(entry.uses), entry.last_used))
 }
 
-pub fn evictions(entries: &[Entry], cap: usize, now: i64) -> Vec<String> {
-    let mut ordered = entries.iter().collect::<Vec<_>>();
+pub fn evictions(entries: &[Entry], cap: usize, now: i64, saved_id: &str) -> Vec<String> {
+    let mut ordered = entries
+        .iter()
+        .filter(|entry| entry.id != saved_id)
+        .collect::<Vec<_>>();
     ordered.sort_by(|a, b| {
         score(a, now)
             .total_cmp(&score(b, now))
@@ -196,7 +199,7 @@ pub fn recall(entries: &[Entry], intent: &str, limit: usize, now: i64) -> Vec<En
     });
     ranked
         .into_iter()
-        .take(limit.min(AREA_CAP))
+        .take(limit)
         .map(|(_, entry)| entry.clone())
         .collect()
 }
