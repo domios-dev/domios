@@ -4,7 +4,7 @@ import type { PluginUiHostState } from "../../lib/pluginUiHostModel";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { Button } from "../shared/Button";
 import { BusyState } from "../shared/BusyState";
-import { DeferredLoader } from "../shared/DeferredLoader";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 
 export function PluginUiHost({ pluginId, state, onRetry, children, height = "100%" }: {
   pluginId: string;

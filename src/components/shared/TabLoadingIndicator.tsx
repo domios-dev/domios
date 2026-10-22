@@ -1,6 +1,6 @@
 import { Clock } from "lucide-react";
 import { ProviderGlyph } from "../ProviderGlyph";
-import { DeferredLoader } from "./DeferredLoader";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 
 export function TabLoadingIndicator({ label, iconSvg, iconColor, iconHint, compact = false, deferred = true, role = "status", className }: {
   label: string;

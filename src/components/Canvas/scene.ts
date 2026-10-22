@@ -1,6 +1,6 @@
 import { resolveEdgeEnds } from "./edges";
 import type { Box, LaidOutEdge, Point, WorkspaceLayout } from "./layout";
-import type { ViewportTransform } from "./useCanvasViewport";
+import type { ViewportTransform } from "@codeterm/canvas-camera";
 import type { Plan, TaskStatus } from "./types";
 import { bumpCanvasChurn } from "./canvasChurn";
 

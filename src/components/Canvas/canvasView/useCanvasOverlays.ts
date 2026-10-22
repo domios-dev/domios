@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ViewportTransform } from "../useCanvasViewport";
+import type { ViewportTransform } from "@codeterm/canvas-camera";
 import type { World } from "../worlds";
 import { MAX_ACTIVE_PRESENCE_OVERLAYS, buildPresenceOverlays, type PresenceSource } from "../presenceOverlays";
 import { presenceAnimateDemoEnabled, rotatePresenceForDemo } from "../presenceDemo";

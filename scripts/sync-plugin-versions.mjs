@@ -19,6 +19,7 @@ if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
 }
 
 const workspacePackages = [
+  "packages/canvas-camera",
   "packages/chat-core",
   "packages/chat-ui",
   "packages/chat-engine",
