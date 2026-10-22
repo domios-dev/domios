@@ -129,7 +129,7 @@ impl ServiceContext {
         }
         let handle = self.spawn_tab_with_ready(spec, ready_tx)?;
         if let Some(tab) = self.mux.write().get_tab_mut(&handle.tab_id) {
-            crate::service::reasoning_effort::persist_launch_identity(
+            crate::service::reasoning_effort::persist_completed_launch_identity(
                 tab,
                 bind_params.planned_reasoning_effort.as_deref(),
                 bind_params.reasoning_effort.as_deref(),
