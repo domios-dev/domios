@@ -8,6 +8,7 @@ import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
+import { TAB_MENU_LABELS } from "../Terminal/tabMenuModel";
 import {
   boundAgent,
   plan,
@@ -832,7 +833,7 @@ test("tab rich menu opens from right click and exposes session actions", async (
   assert(labels.includes("Rename"), "rename remains available");
   assert(labels.includes("Reconnect"), "reconnect is available");
   assert(labels.includes("Restart session"), "restart is available");
-  assert(labels.includes("Close Session"), "close remains available");
+  assert(labels.includes(TAB_MENU_LABELS.closeSession), "close remains available");
   assert(!menu.textContent?.includes("Remove Role"), "legacy role removal is gone");
   assert(!menu.textContent?.includes("Open Terminal"), "legacy terminal toggle is gone");
 
