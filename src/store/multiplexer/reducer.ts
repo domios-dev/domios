@@ -49,6 +49,7 @@ export type Action =
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
   | { type: "SET_TAB_TITLE"; tabId: string; title: string; level?: TitleLevel }
+  | { type: "REVERT_TAB_TITLE"; tabId: string; attempted: string; title: string; level?: TitleLevel }
   | { type: "SET_AGENT_TYPE"; tabId: string; agentType: string | null }
   | { type: "UPDATE_TAB_STATUS"; tabId: string; status: TabStatus }
   | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null; agent_booting?: boolean; session_bound?: boolean; provisional_launch?: Tab["provisional_launch"]; launchGeneration?: TabBootStageEvent["launch_generation"] }
@@ -515,6 +516,19 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             title_level: newLevel,
             title_pending_local: true,
           },
+        },
+      };
+    }
+
+    // A newer title since the refused rename wins; only the attempted one is rolled back.
+    case "REVERT_TAB_TITLE": {
+      const tab = state.tabs[action.tabId];
+      if (!tab || tab.title !== action.attempted) return state;
+      return {
+        ...state,
+        tabs: {
+          ...state.tabs,
+          [action.tabId]: { ...tab, title: action.title, title_level: action.level, title_pending_local: false },
         },
       };
     }

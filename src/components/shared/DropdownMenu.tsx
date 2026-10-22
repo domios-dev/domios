@@ -2,6 +2,7 @@ import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, us
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
+import { useBackDismissal } from "../../lib/backDismissal";
 
 const DROPDOWN_OPEN_EVENT = "codeterm:dropdown-open";
 const MENU_ITEM_SELECTOR =
@@ -178,6 +179,7 @@ export function DropdownMenu({
     pendingFocusRef.current = null;
     if (restoreFocus) triggerRef.current?.querySelector<HTMLElement>(TRIGGER_FOCUSABLE)?.focus();
   }, []);
+  useBackDismissal(open, () => closeMenu(false));
 
   const toggleGroup = useCallback((key: string) => {
     setCollapsedGroups((current) => {
