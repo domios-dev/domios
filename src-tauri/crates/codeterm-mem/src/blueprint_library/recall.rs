@@ -37,17 +37,17 @@ pub struct RecallConfig {
 impl Default for RecallConfig {
     fn default() -> Self {
         Self {
-            fusion: Fusion::Rrf,
+            fusion: Fusion::Score,
             rrf_k: 60.0,
             list_depth: 50,
             enrichment: true,
-            pool_intents: false,
+            pool_intents: true,
             weights: Weights {
                 intent: 1.0,
-                worker_intent: 1.0,
-                summary: 1.0,
-                canon: 1.0,
-                lexical: 0.5,
+                worker_intent: 0.0,
+                summary: 0.3,
+                canon: 0.3,
+                lexical: 0.2,
                 structure: 0.5,
             },
         }

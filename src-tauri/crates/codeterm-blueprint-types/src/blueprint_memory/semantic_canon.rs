@@ -339,7 +339,7 @@ fn template(text: &str) -> String {
 
 fn words(text: &str) -> String {
     static TOKEN: OnceLock<Regex> = OnceLock::new();
-    let text = scrub(&template(text)).join(" ");
+    let text = scrub(&template(text), false).join(" ");
     TOKEN
         .get_or_init(|| {
             Regex::new(r"\{[A-Za-z0-9_]+\}|[A-Za-z][A-Za-z0-9]*").expect("static regex")
@@ -351,7 +351,7 @@ fn words(text: &str) -> String {
         .join(" ")
 }
 
-fn scrub(text: &str) -> Vec<&str> {
+fn scrub(text: &str, keywords: bool) -> Vec<&str> {
     let tokens = text.split_whitespace().collect::<Vec<_>>();
     let sensitive = |token: &str| {
         let key = token
@@ -373,19 +373,20 @@ fn scrub(text: &str) -> Vec<&str> {
                 | "pat"
         )
     };
-    tokens
-        .iter()
-        .enumerate()
-        .filter(|(index, token)| {
-            let previous = index.checked_sub(1).map(|index| tokens[index]);
-            !super::contains_credentials(token)
-                && !previous.is_some_and(|previous| {
-                    sensitive(previous)
-                        || super::contains_credentials(&format!("{previous} {token}"))
-                })
-        })
-        .map(|(_, token)| *token)
-        .collect()
+    let mut kept = Vec::new();
+    let mut skip_next = false;
+    for (index, token) in tokens.iter().enumerate() {
+        let next = tokens.get(index + 1).copied().unwrap_or_default();
+        let bearing = (keywords && sensitive(token))
+            || super::contains_credentials(token)
+            || super::contains_credentials(&format!("{token} {next}"));
+        if skip_next || bearing {
+            skip_next = bearing;
+            continue;
+        }
+        kept.push(*token);
+    }
+    kept
 }
 
 fn shell_token(token: &str) -> String {
@@ -421,7 +422,7 @@ fn shell_token(token: &str) -> String {
 
 fn command_gist(command: &str) -> String {
     let command = template(command);
-    let tokens = scrub(&command)
+    let tokens = scrub(&command, true)
         .into_iter()
         .map(shell_token)
         .filter(|token| !token.is_empty())
