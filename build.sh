@@ -1318,9 +1318,9 @@ dev_built_app_path() {
 
 dev_app_path() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/domios-dev"
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/domios-dev-app"
   else
-    printf '%s\n' "$(tauri_debug_dir)/domios-dev.exe"
+    printf '%s\n' "$(tauri_debug_dir)/domios-dev-app.exe"
   fi
 }
 
@@ -1995,7 +1995,7 @@ dev_live_window_exe() {
   local target_win
   target_win="$(cat "$(dev_target_record)" 2>/dev/null || true)"
   [ -n "$target_win" ] || return 1
-  powershell.exe -NoProfile -Command "\$dir = [IO.Path]::GetFullPath('$target_win').TrimEnd('\\'); Get-Process domios-dev -ErrorAction SilentlyContinue | Where-Object { \$_.Path -and [IO.Path]::GetDirectoryName(\$_.Path) -ieq \$dir } | Select-Object -First 1 -ExpandProperty Path" 2>/dev/null | tr -d '\r' | grep -m1 .
+  powershell.exe -NoProfile -Command "\$dir = [IO.Path]::GetFullPath('$target_win').TrimEnd('\\'); Get-Process domios-dev-app -ErrorAction SilentlyContinue | Where-Object { \$_.Path -and [IO.Path]::GetDirectoryName(\$_.Path) -ieq \$dir } | Select-Object -First 1 -ExpandProperty Path" 2>/dev/null | tr -d '\r' | grep -m1 .
 }
 
 # Only the split dev-back owns a window it can keep; Windows proves an unchanged client through its exe lock.
@@ -2472,7 +2472,7 @@ package_platform() {
 # Arguments, when given, prefix each Tauri command (local builds add their build config).
 bundle_common_stage() {
   local target="${CARGO_BUILD_TARGET:-$(ct_host_triple)}" client_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
-  local platform client=domios target_args=() compile_config=() run=("$@")
+  local platform client=domios-app target_args=() compile_config=() run=("$@")
   platform="$(package_platform "$target")" || return
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     target_args=(--target "$CARGO_BUILD_TARGET")
@@ -2480,7 +2480,7 @@ bundle_common_stage() {
   fi
   # The raw Cargo server and sidecar stub would occupy the staged pair paths during compilation.
   case "$platform" in
-    windows) client=domios.exe ;;
+    windows) client=domios-app.exe ;;
     macos) compile_config=(--config '{"bundle":{"externalBin":[]}}') ;;
     linux) compile_config=(--config '{"bundle":{"resources":[],"externalBin":[]}}') ;;
   esac

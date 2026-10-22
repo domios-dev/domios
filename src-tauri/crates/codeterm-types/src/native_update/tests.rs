@@ -203,7 +203,7 @@ impl NativeUpdateExecutor for Port {
             client_process: ProcessProvenance {
                 pid: 72,
                 created: "start-72".into(),
-                executable: PathBuf::from("C:/Domios/domios.exe"),
+                executable: PathBuf::from("C:/Domios/domios-app.exe"),
             },
         })
     }
@@ -387,7 +387,7 @@ fn replacement_verification_resolves_relative_executable_against_ready_root() {
         client_process: ProcessProvenance {
             pid: 72,
             created: "start-72".into(),
-            executable: PathBuf::from("/opt/domios/domios.exe"),
+            executable: PathBuf::from("/opt/domios/domios-app.exe"),
         },
     };
     let result_for = |server: ServerReady| NativeUpdateResult {
@@ -475,7 +475,7 @@ fn result_fences_operation_and_completed_artifact_identity() {
     let client_process = ProcessProvenance {
         pid: 72,
         created: "start-72".into(),
-        executable: PathBuf::from("C:/Domios/domios.exe"),
+        executable: PathBuf::from("C:/Domios/domios-app.exe"),
     };
     let completed = NativeUpdateResult {
         operation_id: request.operation_id,
@@ -508,7 +508,7 @@ fn verified_client_reconnect_requires_monotonic_generation_and_same_server_epoch
         client_process: ProcessProvenance {
             pid: 72,
             created: "start-72".into(),
-            executable: PathBuf::from("C:/Domios/domios.exe"),
+            executable: PathBuf::from("C:/Domios/domios-app.exe"),
         },
     };
     let previous = NativeUpdateResult {

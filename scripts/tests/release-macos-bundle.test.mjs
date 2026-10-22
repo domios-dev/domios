@@ -31,7 +31,7 @@ async function fixture(target, options, check) {
       if (program === 'pnpm') {
         await mkdir(path.join(app, 'Contents', 'MacOS'), { recursive: true });
         await mkdir(path.join(app, 'Contents', 'Resources'), { recursive: true });
-        await writeFile(path.join(app, 'Contents', 'MacOS', 'domios'), 'fixture native client');
+        await writeFile(path.join(app, 'Contents', 'MacOS', 'domios-app'), 'fixture native client');
         await cp(path.join(stage, 'domios-server', 'domios-server'), path.join(app, 'Contents', 'MacOS', 'domios-server'));
         await cp(path.join(stage, 'cli'), path.join(app, 'Contents', 'Resources', 'cli'), { recursive: true });
         await cp(path.join(stage, 'server-component.json'), path.join(app, 'Contents', 'Resources', 'server-component.json'));

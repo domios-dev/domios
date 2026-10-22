@@ -17,7 +17,7 @@ async function regularBytes(file) {
 
 export async function verifyMacPayload({ app, stage, expected }) {
   const names = (await readdir(path.join(app, 'Contents', 'MacOS'))).sort();
-  if (JSON.stringify(names) !== JSON.stringify(['domios', 'domios-server'])) {
+  if (JSON.stringify(names) !== JSON.stringify(['domios-app', 'domios-server'])) {
     throw new Error('unexpected macOS executable inventory: ' + names.join(', '));
   }
   for (const [relative, bytes] of [
@@ -30,7 +30,7 @@ export async function verifyMacPayload({ app, stage, expected }) {
       throw new Error('macOS bundling changed frozen bytes: ' + relative + ' (stage ' + stage + ')');
     }
   }
-  await regularBytes(path.join(app, 'Contents', 'MacOS', 'domios'));
+  await regularBytes(path.join(app, 'Contents', 'MacOS', 'domios-app'));
 }
 
 function command(program, args, cwd) {

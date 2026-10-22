@@ -40,7 +40,7 @@ function one(items, predicate, label) {
 }
 export function packagedExecutables(extracted) {
   return {
-    app: one(extracted, file => /[/\\]domios(?:\.exe)?$/.test(file) && !/[/\\]cli[/\\]/.test(file), 'app executable'),
+    app: one(extracted, file => /[/\\]domios-app(?:\.exe)?$/.test(file) && !/[/\\]cli[/\\]/.test(file), 'app executable'),
     cli: one(extracted, file => /[/\\]cli[/\\]codeterm(?:-[^.]+)?(?:\.exe)?$/.test(file), 'embedded CLI'),
     server: one(extracted, file => /[/\\](?:MacOS|domios-server)[/\\]domios-server(?:\.exe)?$/.test(file), 'packaged server'),
   };

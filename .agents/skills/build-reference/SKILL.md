@@ -86,8 +86,8 @@ After `./build.sh build`:
 |------|----------|
 | **NSIS installer** | printed build-gateway release target; see Local production build and self-install |
 | **MSI installer** | `src-tauri/target/release/bundle/msi/Domios_X.Y.Z_x64_en-US.msi` |
-| **Portable exe** | `src-tauri/target/release/codeterm.exe` |
-| **CLI binary** | bundled in the production app; installed to `~/.codeterm/bin/` by production startup/update |
+| **Portable exe** | `src-tauri/target/release/domios-app.exe` |
+| **CLI binary** | bundled in the production app; installed to `~/.domios/bin/` by production startup/update |
 
 ## Running Tests
 

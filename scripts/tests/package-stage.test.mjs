@@ -47,7 +47,7 @@ test('Windows stages the pair from the compiled client and bundles NSIS without 
   assert.deepEqual(stage('x86_64-pc-windows-msvc'), [
     'prefix <pnpm>',
     'pnpm <tauri> <build> <--no-bundle>',
-    stageFull('x86_64-pc-windows-msvc', '/fixture/target/release/domios.exe'),
+    stageFull('x86_64-pc-windows-msvc', '/fixture/target/release/domios-app.exe'),
     'prefix <pnpm>',
     'pnpm <tauri> <bundle> <--no-binary-patching> <--bundles> <nsis>',
   ]);
@@ -57,7 +57,7 @@ test('macOS compiles without the sidecar stub and assembles the signed pair app 
   assert.deepEqual(stage('aarch64-apple-darwin'), [
     'prefix <pnpm>',
     'pnpm <tauri> <build> <--no-bundle> <--config> <{"bundle":{"externalBin":[]}}>',
-    stageFull('aarch64-apple-darwin', '/fixture/target/release/domios'),
+    stageFull('aarch64-apple-darwin', '/fixture/target/release/domios-app'),
     'prefix <node>',
     'node <scripts/release-macos-bundle.mjs> <aarch64-apple-darwin>',
   ]);
@@ -67,7 +67,7 @@ test('Linux compiles without pair resources and bundles the release package form
   assert.deepEqual(stage('x86_64-unknown-linux-gnu'), [
     'prefix <pnpm>',
     'pnpm <tauri> <build> <--no-bundle> <--config> <{"bundle":{"resources":[],"externalBin":[]}}>',
-    stageFull('x86_64-unknown-linux-gnu', '/fixture/target/release/domios'),
+    stageFull('x86_64-unknown-linux-gnu', '/fixture/target/release/domios-app'),
     'prefix <pnpm>',
     'pnpm <tauri> <bundle> <--no-binary-patching> <--bundles> <deb,appimage>',
   ]);
@@ -77,7 +77,7 @@ test('an explicit cross target and release features reach every stage command', 
   const calls = stage('aarch64-apple-darwin', { CARGO_BUILD_TARGET: 'x86_64-apple-darwin', CODETERM_RELEASE_FEATURES: 'fixture' });
   assert.equal(calls[1], 'pnpm <tauri> <build> <--no-bundle> <--target> <x86_64-apple-darwin> <--features> <fixture> ' +
     '<--config> <{"bundle":{"externalBin":[]}}>');
-  assert.equal(calls[2], stageFull('x86_64-apple-darwin', '/fixture/target/x86_64-apple-darwin/release/domios'));
+  assert.equal(calls[2], stageFull('x86_64-apple-darwin', '/fixture/target/x86_64-apple-darwin/release/domios-app'));
   assert.equal(calls[4], 'node <scripts/release-macos-bundle.mjs> <x86_64-apple-darwin>');
 });
 

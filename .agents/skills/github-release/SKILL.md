@@ -182,7 +182,7 @@ consume the same final server/CLI/resources; packaging must not compile them aga
 1. `release-inputs --for-bundle` builds inputs and stages the actual frontend at
    `target/domios-package/dist` before Tauri compilation. Compile-only resource stubs are marked;
    they never authorize packaging.
-2. `tauri build --no-bundle` compiles the native client (`domios`, with .exe on Windows); the
+2. `tauri build --no-bundle` compiles the native client (`domios-app`, with .exe on Windows); the
    packaged CLI ships `domios` and `codeterm` from identical signed bytes. Linux's compile-only config empties resources/externalBin to
    avoid the raw server-file/resource-directory collision. Restore full platform maps for bundling.
    macOS also empties compile-only externalBin: tauri-build otherwise copies the sidecar stub
@@ -279,7 +279,10 @@ Launch Domios once to install/repair `~/.domios/bin/domios` and `codeterm`
 (the same CLI, with `.exe` on Windows), then re-enable autostart if desired.
 In a new terminal, `where.exe domios` / `where.exe codeterm` (Windows) or
 `command -v domios` / `command -v codeterm` (Unix) must select those CLI entries
-or their `~/.local/bin` links before any GUI executable. Remove old PATH entries,
+or their `~/.local/bin` links. Deb/RPM own `/usr/bin/domios` and `/usr/bin/codeterm`;
+the GUI is `domios-app[.exe]`, so CLI PATH never chooses a GUI executable.
+macOS and AppImage keep user CLI links; users control their shell PATH.
+The app never edits shell dotfiles. Remove old PATH entries,
 shortcuts, and URL/file handlers; verify `domios://` opens only Domios. Keep all
 `~/.domios` data. No automatic data migration, install shim or copied OS grants.
 

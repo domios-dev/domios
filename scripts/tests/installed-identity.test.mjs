@@ -11,12 +11,22 @@ const read = relative => readFileSync(new URL(`../../${relative}`, import.meta.u
 test('production and development bundle identities select distinct Domios binaries', () => {
   const prod = JSON.parse(read('src-tauri/tauri.conf.json'));
   const dev = JSON.parse(read('src-tauri/tauri.dev.conf.json'));
-  assert.deepEqual([prod.productName, prod.identifier, prod.mainBinaryName], ['Domios', 'com.domios.app', 'domios']);
-  assert.deepEqual([dev.productName, dev.identifier, dev.mainBinaryName], ['Domios Dev', 'com.domios.dev', 'domios-dev']);
+  assert.deepEqual([prod.productName, prod.identifier, prod.mainBinaryName], ['Domios', 'com.domios.app', 'domios-app']);
+  assert.deepEqual([dev.productName, dev.identifier, dev.mainBinaryName], ['Domios Dev', 'com.domios.dev', 'domios-dev-app']);
   assert.equal(prod.bundle.windows.nsis.installMode, 'currentUser');
   assert.deepEqual(prod.plugins['deep-link'].desktop.schemes, ['domios']);
   assert.match(prod.plugins.updater.endpoints[0], /\/domios-latest\.json$/);
   assert.match(read('src-tauri/Info.plist'), /CFBundleDisplayName<\/key>\s*<string>Domios<\/string>/);
+});
+
+test('Linux package managers own both CLI commands independently of the GUI', () => {
+  const config = JSON.parse(read('src-tauri/tauri.linux.conf.json'));
+  for (const kind of ['deb', 'rpm']) {
+    assert.deepEqual(config.bundle.linux[kind].files, {
+      '/usr/bin/domios': '../target/domios-package/cli/domios',
+      '/usr/bin/codeterm': '../target/domios-package/cli/codeterm',
+    });
+  }
 });
 
 test('installed and released identity has no former product name or bundle identifier', () => {
