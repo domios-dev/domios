@@ -560,3 +560,19 @@ fn provider_switch_refuses_an_attempt_owned_by_another_tab_before_mutation() {
         Some("source-nonce")
     );
 }
+
+#[test]
+fn unavailable_switch_details_omit_the_executable_search_path() {
+    let error = crate::service::spawn_cli::ProviderPreflightError::BinaryUnavailable {
+        provider_id: "target".into(),
+        display_name: "Target".into(),
+        binary: "target-cli".into(),
+        searched: vec![std::path::PathBuf::from("opaque-private-path".repeat(1000))],
+        install_hint: None,
+    };
+    let message = super::switch_preflight_error(error);
+    assert!(message.starts_with("provider_switch_unavailable:"));
+    assert!(message.contains("target-cli"));
+    assert!(!message.contains("opaque-private-path"));
+    assert!(message.len() < 256);
+}
