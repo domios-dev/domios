@@ -1,6 +1,6 @@
 mod composition;
 pub mod startup;
-pub use composition::{compose, ComposedService};
+pub use composition::ComposedService;
 pub mod bootstrap;
 mod bundle;
 pub mod launch;

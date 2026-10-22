@@ -47,6 +47,8 @@ The hub. One service owns every operation on workspaces, tabs, agents and plans,
 - Invariants: production listens on 7685 and is never killed by development, which uses 7686 or a named instance with its own data; workspace close follows the [Team teardown contract](orchestration.md#team-teardown) before removing remaining tabs; a headerless REST close is Unattributed unless its body confirms the exact target; an outdated or versionless protocol is refused; service requests stay responsive while blocking and memory-intensive work runs; background work is bounded and isolated so it cannot starve or take down the API; coordination waits on observed events, never on sleeps; utility shell lifetimes follow the [orchestration contract](orchestration.md), and declared deadlines survive restart or are reported lost; subsystems stop and start without restarting the daemon where they can.
 - Dependent capabilities: workspaces and tabs, health and diagnostics, updates, and the web UI.
 
+The daemon binds its health listener before expensive subsystem initialization. Health proves liveness; startup events establish service readiness. Requests needing an unfinished subsystem receive a typed starting refusal without queuing mutations, and integrity verification precedes native attachment and trusted resource use. Clients wait on readiness events before loading application state.
+
 ### General Agent {#core:general-agent}
 
 Main is the protected, always-on agent singleton for one installation. It owns the General workspace identity, represents the machine in the mesh, receives bridge and mesh traffic, and coordinates project agents. The General workspace also hosts independent General-role sessions created by the owner.

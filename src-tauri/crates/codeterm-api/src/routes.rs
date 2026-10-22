@@ -43,7 +43,7 @@ fn configured_origin(origin: &str) -> Option<axum::http::HeaderValue> {
     origin.parse().ok()
 }
 
-fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> CorsLayer {
+pub fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> CorsLayer {
     let mut origins = frontend_origins
         .iter()
         .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
