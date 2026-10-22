@@ -1,0 +1,4 @@
+BROWSER.md
+plugin.js
+plugin.json
+runtime-files.txt
