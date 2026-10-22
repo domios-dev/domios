@@ -78,6 +78,8 @@ impl ExecutionEnvelope {
 #[serde(deny_unknown_fields)]
 pub struct ExecutionContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_binding: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<Port>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<Port>,

@@ -26,13 +26,13 @@ pub(super) fn lower(doc: &Document) -> LowerResult {
     }
     for (i, node) in doc.nodes().enumerate() {
         let path = format!("steps[{i}]");
-        if node.code.is_some() || node.call.is_some() {
+        if node.call.is_some() {
             errors.push((
                 path.clone(),
                 format!("unsupported: {} execution", node.kind()),
             ));
         }
-        if !node.caps.is_empty() || node.limits.is_some() {
+        if !node.caps.is_empty() {
             errors.push((
                 path.clone(),
                 "unsupported: per-node capability or budget enforcement".into(),
@@ -58,26 +58,6 @@ pub(super) fn lower(doc: &Document) -> LowerResult {
             errors.push((
                 path.clone(),
                 "unsupported: watch settings on pipeline nodes".into(),
-            ));
-        }
-        for (field, port) in [("in", &node.input), ("out", &node.output)] {
-            if port.as_ref().is_some_and(|p| {
-                p != &Port {
-                    kind: "string".into(),
-                    media: Some("text".into()),
-                    ..Default::default()
-                }
-            }) {
-                errors.push((
-                    format!("{path}.{field}"),
-                    "unsupported: typed JSON port runtime".into(),
-                ));
-            }
-        }
-        if !node.bind.is_empty() {
-            errors.push((
-                format!("{path}.bind"),
-                "unsupported: runtime port bindings".into(),
             ));
         }
         for (key, value) in node.params.iter().chain(&node.matches) {
@@ -147,7 +127,9 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
         if node.kind() != "ask" && !node.buckets.is_empty() {
             return Err(format!("unsupported: buckets on {}", node.id));
         }
-        let kind = if let Some(run) = &node.run {
+        let kind = if let Some(code) = &node.code {
+            json!({"kind":"code","code":code})
+        } else if let Some(run) = &node.run {
             json!({"kind":"command","command":lit(run)?})
         } else {
             match node.uses.as_ref().ok_or("Node kind required")? {
@@ -169,19 +151,20 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
             .iter()
             .map(|(k, v)| (k.clone(), route(v)))
             .collect::<BTreeMap<_, _>>();
-        steps.push(json!({"name":node.id,"input":node.input.as_ref().and_then(|p|p.media.as_deref()).unwrap_or("text"),"kind":kind,"on":routes}));
+        let execution = crate::blueprint_execution::ExecutionContract {
+            input_binding: node.bind.get("in").cloned(),
+            input: node.input.clone(),
+            output: node.output.clone(),
+            types: doc.types.clone(),
+            limits: node.limits.clone(),
+        };
+        let mut step = json!({"name":node.id,"input":node.input.as_ref().and_then(|p|p.media.as_deref()).filter(|media| *media != "json").unwrap_or("text"),"kind":kind,"on":routes});
+        if execution != crate::blueprint_execution::ExecutionContract::default() {
+            step["execution"] = json!(execution);
+        }
+        steps.push(step);
     }
     let spec:crate::blueprint_pipeline::BlueprintSpec=serde_json::from_value(json!({"name":doc.name,"note":doc.note,"owner":doc.owner.as_deref().unwrap_or("team"),"trigger":trigger,"steps":steps,"result":{"to":doc.result.to.as_ref().and_then(ResultTarget::fixed).unwrap_or("owner")}})).map_err(|e|e.to_string())?;
-    for (node, step) in doc.steps.iter().zip(&spec.steps) {
-        if node.output.is_some()
-            && step.kind.output_type() != crate::blueprint_pipeline::IoType::Text
-        {
-            return Err(format!(
-                "unsupported: output port on {} does not match the runtime media",
-                node.id
-            ));
-        }
-    }
     crate::blueprint_pipeline::validate_parts(
         &spec.name,
         spec.note.as_deref(),

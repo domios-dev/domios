@@ -1,3 +1,4 @@
+mod code;
 mod dispatch;
 mod execution;
 mod sources;
@@ -254,6 +255,21 @@ fn run_pipeline(
         input_display,
         mut input_run,
     } = prepare_input(handle, lease, spec, run_id);
+    let mut envelope = ExecutionEnvelope::from_text(&text);
+    if let Some(port) = spec
+        .steps
+        .first()
+        .and_then(|step| step.execution.as_ref())
+        .and_then(|contract| contract.input.as_ref())
+    {
+        envelope.schema_id = port.reference.clone();
+    }
+    let mut ctx = RunCtx::new(handle, svc, lease, run_id);
+    ctx.input_kind = input_kind;
+    ctx.input_source = input_source;
+    ctx.input_failure = input_failure;
+    ctx.input_display = input_display.unwrap_or_default();
+    ctx.cleanup = cleanup.clone();
     let mut terminal_failure = None;
     while let Some(index) = state.current_step {
         if lease.cancelled.load(Ordering::SeqCst) {
@@ -279,115 +295,31 @@ fn run_pipeline(
                 let _ = run.advance(InputRun::Converting);
             }
         }
-        let started = now(handle);
-        let Some(result) = effect_after_claim(
-            || {
-                claim_step(
-                    handle,
-                    lease,
-                    &run_id,
-                    JournalMarker::Step(index as u16),
-                    &step.name,
-                    started,
-                )
-            },
-            || {
-                dispatch::run_step(
-                    handle,
-                    svc,
-                    lease,
-                    step,
-                    &ExecutionEnvelope::from_text(&text),
-                    input_kind,
-                    input_source.as_deref(),
-                    input_failure.as_deref(),
-                    input_display.as_deref().unwrap_or_default(),
-                    cleanup.clone(),
-                )
-            },
-        ) else {
-            return Ok(RunCompletion::held(JournalReason::UncertainClaim));
-        };
-        let agent_body = if matches!(&step.kind, StepKind::Agent { .. }) {
-            Some(
-                super::agent_stage::persist_result(run_id, index, &result.next_text)
-                    .map_err(|_| JournalReason::Other("agent_result_write_failed".into()))?,
-            )
-        } else {
-            None
-        };
-        if lease.cancelled.load(Ordering::SeqCst) {
-            if matches!(&step.kind, StepKind::Agent { .. }) {
-                required_journal(write_journal(
-                    handle,
-                    &lease.job,
-                    BlueprintJournalWrite::Finish {
-                        run_id: run_id.into(),
-                        marker: JournalMarker::Step(index as u16),
-                        state: JournalState::Failed,
-                        outcome: "failed".into(),
-                        ended_at_ms: now(handle),
-                        result_summary: "agent task cancelled".into(),
-                        body_ref: agent_body,
-                        reason: Some("agent_cancelled".into()),
-                    },
-                ))?;
-                return Ok(RunCompletion::new(JournalState::Failed, "agent_cancelled"));
-            }
-            if matches!(&step.kind, StepKind::Convert { .. }) {
-                let reason = result.reason.as_deref().unwrap_or("conversion_cancelled");
-                let _ = write_journal(
-                    handle,
-                    &lease.job,
-                    BlueprintJournalWrite::Finish {
-                        run_id: run_id.to_string(),
-                        marker: JournalMarker::Step(index as u16),
-                        state: "failed".into(),
-                        outcome: "failed".into(),
-                        ended_at_ms: now(handle),
-                        result_summary: format!("conversion failed: {reason}"),
-                        body_ref: None,
-                        reason: Some(reason.into()),
-                    },
+        let result = match execute_step(&mut ctx, step, envelope) {
+            Ok(result) => result,
+            Err(reason) => {
+                let held = matches!(
+                    reason,
+                    JournalReason::UncertainClaim
+                        | JournalReason::UncertainEffect
+                        | JournalReason::JournalWriteFailed
                 );
-                return Ok(RunCompletion::new("failed".into(), reason));
-            } else {
-                return Ok(RunCompletion::new("skipped".into(), "skip:lease_cancelled"));
+                return Ok(RunCompletion::new(
+                    if held {
+                        JournalState::Held
+                    } else {
+                        JournalState::Failed
+                    },
+                    reason,
+                ));
             }
-        }
+        };
         let ended = now(handle);
-        if result.uncertain {
-            let _ = write_journal(
-                handle,
-                &lease.job,
-                BlueprintJournalWrite::Decision {
-                    run_id: run_id.to_string(),
-                    marker: JournalMarker::Step(index as u16),
-                    step_name: step.name.clone(),
-                    outcome: "probe_error".into(),
-                    at_ms: ended,
-                    result_summary: Some("command completion was unconfirmed".into()),
-                    reason: Some(JournalReason::UncertainEffect),
-                },
-            );
-            return Ok(RunCompletion::held(JournalReason::UncertainEffect));
-        }
-        if result.state == "failed" {
+        if result.state == JournalState::Failed {
             if let (Some(run), Some(reason)) = (input_run.as_mut(), result.reason.as_ref()) {
                 let _ = run.advance(InputRun::Failed(reason.as_str().into()));
             }
         }
-        let finish = BlueprintJournalWrite::Finish {
-            run_id: run_id.to_string(),
-            marker: JournalMarker::Step(index as u16),
-            state: result.state.into(),
-            outcome: result.stored_outcome.clone().into(),
-            ended_at_ms: ended,
-            result_summary: StepJournalEntry::bound_summary(&result.summary),
-            body_ref: agent_body,
-            reason: result.reason.clone(),
-        };
-        required_journal(write_journal(handle, &lease.job, finish))?;
         if result.reason.as_deref() == Some("probe_owner_capacity") {
             let _ = storage::commit(&handle.store, |store| {
                 store.stage_stop(&lease.job.id, "probe_owner_capacity")
@@ -398,31 +330,8 @@ fn run_pipeline(
                 "probe_owner_capacity",
             ));
         }
-        if let Some((outcome, reason)) = result.decision {
-            let decision = BlueprintJournalWrite::Decision {
-                run_id: run_id.to_string(),
-                marker: JournalMarker::Step(index as u16),
-                step_name: step.name.clone(),
-                outcome,
-                at_ms: ended,
-                result_summary: None,
-                reason,
-            };
-            required_journal(write_journal(handle, &lease.job, decision))?;
-        }
-        if matches!(&step.kind, StepKind::Command { .. }) && result.next_text == text {
-            let unchanged = BlueprintJournalWrite::Decision {
-                run_id: run_id.to_string(),
-                marker: JournalMarker::Step(index as u16),
-                step_name: step.name.clone(),
-                outcome: "unchanged".into(),
-                at_ms: ended,
-                result_summary: Some("step output was unchanged".into()),
-                reason: None,
-            };
-            required_journal(write_journal(handle, &lease.job, unchanged))?;
-        }
-        text = result.next_text;
+        text = result.output.payload_text();
+        envelope = result.output;
         let prior_index = index;
         let next = match blueprint_pipeline::advance(&state, result.outcome) {
             Ok(next) => next,
@@ -863,3 +772,6 @@ fn now(handle: &Handle) -> u64 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, target_os = "macos"))]
+mod runtime_tests;
