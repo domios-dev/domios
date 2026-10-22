@@ -54,8 +54,38 @@ function isEligiblePath(root, relativePath) {
   return realPath === root || realPath.startsWith(rootPrefix);
 }
 
-export function collectChangedFiles(root, baseRef = 'origin/develop') {
+export function defaultBase(root, env = process.env) {
+  if (env.CODETERM_LANE_BASE) return env.CODETERM_LANE_BASE;
+  const common = git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']).stdout.trim();
+  const canonical = path.dirname(common);
+  if (path.resolve(canonical) !== path.resolve(root)) {
+    const head = git(canonical, ['rev-parse', 'HEAD'], { allowFailure: true });
+    if (head.status === 0) return head.stdout.trim();
+  }
+  for (const ref of ['@{upstream}', 'develop', 'origin/develop', 'HEAD']) {
+    if (git(root, ['rev-parse', '--verify', ref], { allowFailure: true }).status === 0) return ref;
+  }
+  throw new Error('Could not resolve a formatting base; pass --base REF');
+}
+
+export function argumentBatches(files, prefix, limit = 24_000) {
+  const size = value => value.length * 2 + 3;
+  const overhead = prefix.reduce((total, value) => total + size(value), 1);
+  const batches = [];
+  let batch = [], length = overhead;
+  for (const file of files) {
+    if (overhead + size(file) > limit) throw new Error(`Formatting path exceeds command-line budget: ${file}`);
+    if (length + size(file) > limit) { batches.push(batch); batch = []; length = overhead; }
+    batch.push(file);
+    length += size(file);
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+export function collectChangedFiles(root, baseRef) {
   const absoluteRoot = realpathSync(root);
+  baseRef ??= defaultBase(absoluteRoot);
   const mergeBase = git(absoluteRoot, ['merge-base', 'HEAD', baseRef]).stdout.trim();
   if (!mergeBase) throw new Error(`Could not find merge-base for ${baseRef}`);
 
@@ -93,11 +123,10 @@ function nearestCargoManifest(root, filePath) {
   throw new Error(`No Cargo.toml found for ${filePath}`);
 }
 
-function biomeCommand() {
-  if (process.platform !== 'win32') return ['pnpm', []];
-  const corepackCli = path.join(path.dirname(process.execPath), 'node_modules', 'corepack', 'dist', 'pnpm.js');
-  if (!existsSync(corepackCli)) throw new Error(`Could not find Corepack pnpm entrypoint: ${corepackCli}`);
-  return [process.execPath, [corepackCli]];
+export function biomeCommand(root) {
+  const cli = path.join(root, 'node_modules', '@biomejs', 'biome', 'bin', 'biome');
+  if (!existsSync(cli)) throw new Error(`Biome is missing in ${root}. Run pnpm install --frozen-lockfile in this lane, then retry build.sh fmt.`);
+  return [process.execPath, [cli]];
 }
 
 function editionForFile(root, filePath, editions) {
@@ -128,7 +157,7 @@ function fileFingerprint(filePath) {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex');
 }
 
-export function formatChangedFiles(root, baseRef = 'origin/develop') {
+export function formatChangedFiles(root, baseRef) {
   const absoluteRoot = realpathSync(root);
   const changedFiles = collectChangedFiles(absoluteRoot, baseRef);
   const rustFiles = changedFiles.filter(file => rustExtensions.has(path.extname(file)));
@@ -165,11 +194,11 @@ export function formatChangedFiles(root, baseRef = 'origin/develop') {
   }
 
   if (biomeFiles.length > 0) {
-    const [command, prefixArgs] = biomeCommand();
-    run(command, [
-      ...prefixArgs, 'exec', 'biome', 'check', '--write', '--formatter-enabled=false',
-      '--no-errors-on-unmatched', '--', ...biomeFiles,
-    ], { cwd: absoluteRoot });
+    const [command, prefixArgs] = biomeCommand(absoluteRoot);
+    const args = [...prefixArgs, 'check', '--write', '--formatter-enabled=false', '--no-errors-on-unmatched', '--'];
+    for (const batch of argumentBatches(biomeFiles, [command, ...args])) {
+      run(command, [...args, ...batch], { cwd: absoluteRoot });
+    }
   }
 
   const changedByTools = formatFiles.some(file =>
@@ -179,7 +208,7 @@ export function formatChangedFiles(root, baseRef = 'origin/develop') {
 }
 
 function parseArgs(args) {
-  let baseRef = 'origin/develop';
+  let baseRef;
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] !== '--base' || !args[index + 1] || args[index + 1].startsWith('--')) {
       throw new Error('Usage: build.sh fmt [--base REF]');

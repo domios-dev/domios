@@ -401,7 +401,14 @@ pub fn shell_job_policy(
     agent: bool,
     purpose: crate::multiplexer::types::ShellPurpose,
 ) -> WindowsJobPolicy {
-    if team_member && !agent && purpose == crate::multiplexer::types::ShellPurpose::Dev {
+    use crate::multiplexer::types::ShellPurpose;
+    if team_member
+        && !agent
+        && matches!(
+            purpose,
+            ShellPurpose::Dev | ShellPurpose::Build | ShellPurpose::Qa
+        )
+    {
         WindowsJobPolicy::AllowExplicitServerBreakaway
     } else {
         WindowsJobPolicy::Contained

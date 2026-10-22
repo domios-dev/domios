@@ -923,12 +923,17 @@ fn task_launch_env_survives_gui_and_normal_paths_without_ambient_authority() {
 }
 
 #[test]
-fn shell_job_policy_requires_team_dev_and_excludes_agents() {
+fn shell_job_policy_requires_team_build_qa_or_dev_and_excludes_agents() {
     use crate::multiplexer::types::ShellPurpose;
     for purpose in ShellPurpose::ALL {
         for team_member in [false, true] {
             for agent in [false, true] {
-                let expected = if team_member && !agent && purpose == ShellPurpose::Dev {
+                let expected = if team_member
+                    && !agent
+                    && matches!(
+                        purpose,
+                        ShellPurpose::Dev | ShellPurpose::Build | ShellPurpose::Qa
+                    ) {
                     WindowsJobPolicy::AllowExplicitServerBreakaway
                 } else {
                     WindowsJobPolicy::Contained
