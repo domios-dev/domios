@@ -8,7 +8,6 @@ pub enum Pooling {
     Cls,
 }
 
-/// One row per local candle model; the embedder eval adds candidates as rows.
 #[derive(Debug, PartialEq, Eq)]
 pub struct LocalModel {
     pub model: &'static str,
@@ -20,15 +19,73 @@ pub struct LocalModel {
     pub dimension: usize,
 }
 
-pub static MODELS: &[LocalModel] = &[LocalModel {
-    model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    revision: "main",
-    pooling: Pooling::Mean,
-    query_prefix: "",
-    passage_prefix: "",
-    max_tokens: 512,
-    dimension: 384,
-}];
+pub static MODELS: &[LocalModel] = &[
+    LocalModel {
+        model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        revision: "main",
+        pooling: Pooling::Mean,
+        query_prefix: "",
+        passage_prefix: "",
+        max_tokens: 512,
+        dimension: 384,
+    },
+    LocalModel {
+        model: "intfloat/multilingual-e5-small",
+        revision: "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+        pooling: Pooling::Mean,
+        query_prefix: "query: ",
+        passage_prefix: "passage: ",
+        max_tokens: 512,
+        dimension: 384,
+    },
+    LocalModel {
+        model: "BAAI/bge-small-en-v1.5",
+        revision: "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+        pooling: Pooling::Cls,
+        query_prefix: "Represent this sentence for searching relevant passages: ",
+        passage_prefix: "",
+        max_tokens: 512,
+        dimension: 384,
+    },
+    LocalModel {
+        model: "intfloat/e5-small-v2",
+        revision: "ffb93f3bd4047442299a41ebb6fa998a38507c52",
+        pooling: Pooling::Mean,
+        query_prefix: "query: ",
+        passage_prefix: "passage: ",
+        max_tokens: 512,
+        dimension: 384,
+    },
+];
+
+impl Pooling {
+    #[cfg(any(feature = "embeddings", test))]
+    pub(crate) fn weights(self, mask: &[u32]) -> Result<Vec<f32>, String> {
+        let total = mask.iter().map(|&value| value as f32).sum::<f32>();
+        if mask.is_empty() || total == 0.0 {
+            return Err("pooling needs at least one unmasked token".into());
+        }
+        Ok(match self {
+            Self::Mean => mask.iter().map(|&value| value as f32 / total).collect(),
+            Self::Cls => (0..mask.len()).map(|index| f32::from(index == 0)).collect(),
+        })
+    }
+}
+
+impl LocalModel {
+    fn input(&self, content: &Content, query: bool) -> Result<String, EmbedError> {
+        let text = provider::supported_text(MODALITIES, content)?;
+        let prefix = if query {
+            self.query_prefix
+        } else {
+            self.passage_prefix
+        };
+        Ok(format!("{prefix}{text}"))
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 const MODALITIES: &[Modality] = &[Modality::Text];
 
@@ -49,9 +106,8 @@ impl LocalProvider {
         Self { model }
     }
 
-    fn embed(&self, content: &Content, prefix: &str, query: bool) -> Result<Vec<f32>, EmbedError> {
-        let text = provider::supported_text(MODALITIES, content)?;
-        let input = format!("{prefix}{text}");
+    fn embed(&self, content: &Content, query: bool) -> Result<Vec<f32>, EmbedError> {
+        let input = self.model.input(content, query)?;
         let vector = run(self.model, &input, query)?;
         provider::validate_vector(&vector, self.model.dimension)?;
         Ok(vector)
@@ -96,10 +152,10 @@ impl EmbeddingProvider for LocalProvider {
     }
 
     fn embed_passage(&self, content: &Content) -> Result<Vec<f32>, EmbedError> {
-        self.embed(content, self.model.passage_prefix, false)
+        self.embed(content, false)
     }
 
     fn embed_query(&self, content: &Content) -> Result<Vec<f32>, EmbedError> {
-        self.embed(content, self.model.query_prefix, true)
+        self.embed(content, true)
     }
 }
