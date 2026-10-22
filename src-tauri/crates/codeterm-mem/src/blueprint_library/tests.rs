@@ -193,12 +193,16 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
     assert!(!item.body.contains("different-instance"));
     assert!(!item.body.contains("echo ready"));
     let yaml = model::parse_document(&item.body).unwrap();
-    assert_eq!(yaml.inputs["watch_probe"].default, None);
+    assert_eq!(
+        yaml.inputs.keys().map(String::as_str).collect::<Vec<_>>(),
+        vec!["command"]
+    );
+    assert_eq!(yaml.inputs["command"].default, None);
     assert!(mem.blueprint_recipe("project-b", &id).is_err());
     let bound = mem
         .blueprint_recipe("project-a", &id)
         .unwrap()
-        .bind(&["watch_probe=echo rebound".into()])
+        .bind(&["command=echo rebound".into()])
         .unwrap();
     assert_eq!(bound["create"]["probe"], "echo rebound");
     assert!(mem
