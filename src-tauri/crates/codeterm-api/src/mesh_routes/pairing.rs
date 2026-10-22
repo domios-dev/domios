@@ -48,7 +48,11 @@ pub async fn mesh_unpair(
     }
 
     let mut mesh = state.mesh.lock();
-    if mesh.unpair(&instance_id).is_some() {
+    if mesh
+        .unpair(&instance_id)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+        .is_some()
+    {
         log::info!("[mesh] Unpaired from {}", instance_id);
     }
     drop(mesh);
