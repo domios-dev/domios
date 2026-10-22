@@ -12,7 +12,6 @@ pub mod relaunch_env;
 pub use port_policy::{runtime_api_port, validate_listener_port, PRODUCTION_PORT};
 
 /// Sanitize a raw instance slug to `[a-z0-9-]+` (lowercase; other chars → `-`).
-#[cfg(debug_assertions)]
 fn sanitize_slug(raw: &str) -> String {
     raw.trim()
         .to_lowercase()
@@ -99,22 +98,35 @@ pub fn namespaced_socket_display_path(name: &str) -> String {
 
 /// Resolve the Domios data directory without creating it.
 pub fn data_dir_path() -> PathBuf {
+    data_dir_path_for_name(&dir_name())
+}
+
+pub fn data_dir_path_for_instance(dev: bool, instance: Option<&str>) -> PathBuf {
+    let suffix = instance
+        .filter(|instance| !instance.trim().is_empty())
+        .map(|instance| format!("-{}", sanitize_slug(instance)))
+        .unwrap_or_default();
+    let name = identity_names_for(dev, if dev { &suffix } else { "" }).0;
+    data_dir_path_for_name(&name)
+}
+
+fn data_dir_path_for_name(name: &str) -> PathBuf {
     if let Some(path) = std::env::var_os("CODETERM_DATA_DIR").map(PathBuf::from) {
         if path.is_absolute() {
             return path;
         }
     }
-    default_data_dir().unwrap_or_else(|| PathBuf::from(".").join(dir_name()))
+    default_data_dir(name).unwrap_or_else(|| PathBuf::from(".").join(name))
 }
 
 #[cfg(not(feature = "isolated-data-root"))]
-fn default_data_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(dir_name()))
+fn default_data_dir(name: &str) -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(name))
 }
 
 /// Test builds swap the per-user root for one process-wide temp root so no test reaches it.
 #[cfg(feature = "isolated-data-root")]
-fn default_data_dir() -> Option<PathBuf> {
+fn default_data_dir(name: &str) -> Option<PathBuf> {
     static ROOT: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
     let root = ROOT.get_or_init(|| {
         tempfile::Builder::new()
@@ -122,7 +134,7 @@ fn default_data_dir() -> Option<PathBuf> {
             .tempdir()
             .expect("create isolated test data root")
     });
-    Some(root.path().join(dir_name()))
+    Some(root.path().join(name))
 }
 
 /// Get the Domios data directory, honoring an absolute explicit override.
@@ -146,7 +158,8 @@ pub fn config_path() -> Result<PathBuf, String> {
             return Ok(data_dir.join("config.toml"));
         }
     }
-    let dir = default_data_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
+    let dir = default_data_dir(&dir_name())
+        .ok_or_else(|| "Could not determine home directory".to_string())?;
     Ok(dir.join("config.toml"))
 }
 
