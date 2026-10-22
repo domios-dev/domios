@@ -74,7 +74,7 @@ fn account_mesh_refresh_errors_are_classified_for_retry_or_sign_in() {
     );
     assert_eq!(
         session_refusal(codeterm_account::Error::Provider),
-        AccountMeshRefusal::Unauthenticated
+        AccountMeshRefusal::Unavailable
     );
     assert_eq!(
         session_refusal(codeterm_account::Error::Transport),
