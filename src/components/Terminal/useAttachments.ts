@@ -93,7 +93,7 @@ export function useAttachments({
   const uploadFiles = useCallback(async (files: Iterable<File>) => { await Promise.all(Array.from(files, (file) => upload(file, file.name || "file.bin"))); }, [upload]);
 
   const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
-    if (handledPastes.has(e)) return;
+    if (!enabled || handledPastes.has(e)) return;
     handledPastes.add(e);
     const cd = e.clipboardData;
     const files = cd ? extractTransferFiles(cd) : [];
@@ -128,7 +128,7 @@ export function useAttachments({
         onError(err instanceof Error ? err.message : String(err));
       }
     }
-  }, [deliverPaths, onError, uploadFiles, upload]);
+  }, [deliverPaths, onError, uploadFiles, upload, enabled]);
 
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {
