@@ -54,9 +54,11 @@ export function compareMentions(a: ComposerMention, b: ComposerMention): number 
     || a.match - b.match
     || a.label.localeCompare(b.label, undefined, { numeric: true });
 }
-export function createMentionRegistry(sources: readonly MentionSource[]) {
+export function createMentionRegistry(sources: readonly MentionSource[], lifecycle: { subscribe?: (changed: () => void) => () => void; close?: () => void } = {}) {
   if (new Set(sources.map((source) => source.id)).size !== sources.length) throw new Error("Duplicate mention source");
   return {
+    subscribe: lifecycle.subscribe,
+    close: lifecycle.close,
     async search(query: string, ctx: MentionContext): Promise<ComposerMention[]> {
       ctx.signal.throwIfAborted();
       const groups = await Promise.all(sources.map(async (source) => {

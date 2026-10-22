@@ -15,7 +15,7 @@ const row = (label: string, extra: Partial<ComposerMention> = {}): ComposerMenti
 const task = (key: string, status: Task["status"], name = "Compose"): Task => ({ ...FIXTURE_TASK, id: `task_${key}`, key, status, name });
 const plan = (id: string, team: string, project: string, tasks: Task[]): Plan => ({ ...FIXTURE_PLAN, id, title: id, team_id: team, project_path: project, status: "active", mode: "execution", tasks });
 const plans = [plan("pl_a", "team1", "/project1", [task("COD-1", "done"), task("COD-2", "pending"), task("COD-3", "in_progress", "Complete composer"), task("COD-4", "cancelled"), task("COD-5", "in_review"), task("COD-6", "blocked")]),
-  plan("pl_b", "team2", "/project1", [task("COD-7", "done")]), plan("pl_c", "team3", "/project2", [task("COD-8", "done")]),
+  plan("pl_b", "team2", "/project1", [task("COD-7", "done")]), { ...plan("pl_solo", "", "/project1", [task("COD-9", "done")]), team_id: null }, plan("pl_c", "team3", "/project2", [task("COD-8", "done")]),
   { ...plan("pl_archived", "team1", "/project1", []), status: "archived" as const },
   { ...plan("pl_closed", "team1", "/project1", []), mode: "complete" as const }];
 const tab = (id: string, team: string | null, ws: string, title: string, agent = true): Tab => ({ id, team_id: team, workspace_id: ws, title, description: "Compose code", agent_type: agent ? "fixture" : null, tab_type: "Terminal", pty_id: null, cwd: null });
@@ -51,7 +51,7 @@ test("same workspace precedes others for non-Team callers and mesh is labelled",
   const mesh = { ...tabs.far, id: "mesh:peer:far", remote_peer_id: "peer", remote_peer_name: "Remote" };
   const result = await createMentionRegistry([tabMentionSource(() => ({ tabs: { ...tabs, mesh }, workspaces }))]).search("co", { ...ctx, scope: { ...ctx.scope, teamId: null } });
   assert.equal(result[result.length - 1]?.group, "Tabs · Mesh");
-  assert.equal(result[0].group, "Tabs · Workspace");
+  assert.equal(result[0].group, "Tabs · Other Teams");
 });
 test("Team task scope never leaks another Team or project, including exact keys", async () => {
   const registry = createMentionRegistry([taskMentionSource(() => plans)]);
@@ -68,7 +68,8 @@ test("task status precedes text quality and exact key overrides status", async (
 test("non-Team tasks and plans stay in current project; closed plans are excluded", async () => {
   const registry = createMentionRegistry([planMentionSource(() => plans), taskMentionSource(() => plans)]);
   const caller = { ...ctx, scope: { ...ctx.scope, teamId: null } };
-  assert.equal((await registry.search("COD-7", caller))[0].label, "COD-7");
+  assert.equal((await registry.search("COD-7", caller)).length, 0);
+  assert.equal((await registry.search("COD-9", caller))[0].label, "COD-9");
   assert.equal((await registry.search("COD-8", caller)).length, 0);
   assert.deepEqual((await createMentionRegistry([planMentionSource(() => plans)]).search("pl", ctx)).map((r) => r.label), ["pl_a"]);
 });

@@ -359,17 +359,15 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     const visibleUserContent = userAttachments.text;
     const renderUserText = (content: string) => {
       if (effectiveOrigin?.kind === "command") return <CommandBody commands={effectiveOrigin.commands} body={message.content} />;
-      if (message.segments) return (hasPlanRefs(content) || hasCanonicalMentions(content))
-        ? <LinkedText text={content} onFocusTab={onFocusTab} onOpenBlueprint={() => onOpenJobs?.()} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
-        : renderUserContent(content, false);
+      const renderText = (text: string) => hasPlanRefs(text) || hasCanonicalMentions(text)
+        ? <LinkedText text={text} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : text;
+      if (message.segments) return renderUserContent(content, false, renderText);
       const userAttachments = userMessageAttachments(content, attachments);
       const visibleUserContent = userAttachments.text;
       const text = userAttachments.inline ? (
           <InlineAttachmentText segments={userAttachments.inline} />
-        ) : (hasPlanRefs(visibleUserContent) || hasCanonicalMentions(visibleUserContent)) ? (
-          <LinkedText text={visibleUserContent} onFocusTab={onFocusTab} onOpenBlueprint={() => onOpenJobs?.()} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
-          visibleUserContent ? renderUserContent(visibleUserContent) : null
+          visibleUserContent ? renderUserContent(visibleUserContent, true, renderText) : null
         );
 
       return <>

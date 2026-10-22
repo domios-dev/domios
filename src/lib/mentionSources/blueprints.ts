@@ -1,8 +1,9 @@
+import { canonicalMentionText } from "../../../packages/chat-ui/src/codeterm/canonicalMentions";
 import type { AutomationGraph, AutomationNode } from "../../components/Automation/types";
 import { mentionMatch, type MentionContext, type MentionSource } from "../composerMentions";
 import type { Tab } from "../types";
 
-export function blueprintInMentionScope(node: AutomationNode, { scope }: MentionContext, tabs: Record<string, Tab>): boolean {
+export function blueprintInMentionScope(node: AutomationNode, { scope }: Pick<MentionContext, "scope">, tabs: Record<string, Tab>): boolean {
   const identity = node.identity;
   const owner = identity.owner_tab_id ? tabs[identity.owner_tab_id] : null;
   const teamId = identity.team_id ?? owner?.team_id ?? null;
@@ -21,7 +22,7 @@ export function blueprintMentionSource(read: (ctx: MentionContext) => Promise<Au
       return graph.nodes.filter((node) => blueprintInMentionScope(node, ctx, tabs())).map((node) => ({
         id: `blueprints:${node.identity.id}`, label: node.name, group: "Blueprints",
         description: `${node.identity.id} · ${node.state ?? "idle"} · ${node.purpose ?? ""}`,
-        insertText: `@${node.name} (blueprint ${node.identity.id})`,
+        insertText: canonicalMentionText("blueprint", node.name, node.identity.id),
         match: mentionMatch(query, [node.identity.id, node.name, node.purpose ?? ""]),
       }));
     },

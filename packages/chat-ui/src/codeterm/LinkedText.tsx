@@ -3,8 +3,10 @@ import { localArtifactTextParts } from "@codeterm/chat-core";
 import { RichMarkdown } from "../MarkdownBody";
 import { ClipboardList, FileText, ListChecks } from "lucide-react";
 import { extractPlanRefs, linkifyPlanRefs, type PlanRefLinkSegment } from "./planRefs";
-import { canonicalMentions } from "./canonicalMentions";
+import { canonicalMentions, type CanonicalMention } from "./canonicalMentions";
 import { useChatBlockHost } from "../blocks/ChatBlockHost";
+import { useLiveBinding } from "../blocks/liveBinding";
+import { ReferenceChip } from "./ReferenceChip";
 
 export type PlanRefKind = PlanRefLinkSegment["targetKind"];
 export type OpenPlan = (planId: string, focusId?: string, focusKind?: PlanRefKind) => void;
@@ -22,8 +24,6 @@ interface Props {
   text: string;
   onOpenPlan?: OpenPlan;
   className?: string;
-  onFocusTab?: (tabId: string) => void;
-  onOpenBlueprint?: (id: string) => void;
   resolvePlanRef?: (planId: string, targetId?: string, targetKind?: PlanRefKind) => ResolvedChatPlanRef | null;
 }
 
@@ -73,26 +73,27 @@ export function LinkedText(props: Props) {
 }
 
 function MentionLinkedText(props: Props) {
-  const host = useChatBlockHost();
   const mentions = canonicalMentions(props.text);
   if (!mentions.length) return <PlainLinkedText {...props} />;
   const nodes: React.ReactNode[] = [];
   let cursor = 0;
   for (const mention of mentions) {
     nodes.push(<PlainLinkedText key={`text:${cursor}`} {...props} text={props.text.slice(cursor, mention.start)} />);
-    const open = mention.kind === "tab" && props.onFocusTab ? () => props.onFocusTab?.(mention.id)
-      : mention.kind === "plan" && props.onOpenPlan ? () => props.onOpenPlan?.(mention.id)
-      : mention.kind === "blueprint" && props.onOpenBlueprint ? () => props.onOpenBlueprint?.(mention.id)
-      : mention.kind === "task" && host.tasks?.openTaskKey ? () => host.tasks?.openTaskKey?.(mention.id) : undefined;
-    nodes.push(<button key={`mention:${mention.start}`} type="button" data-ref-kind={mention.kind} title={mention.text}
-      aria-label={`${mention.kind} ${mention.label}. ${mention.id}`} disabled={!open} onClick={open}
-      className="inline-flex items-center gap-1 rounded px-1 py-0.5 align-baseline text-[var(--ct-accent)] bg-[color-mix(in_srgb,var(--ct-accent)_10%,transparent)]">
-      {mention.label}
-    </button>);
+    nodes.push(<MentionChip key={`mention:${mention.start}`} mention={mention} />);
     cursor = mention.end;
   }
   nodes.push(<PlainLinkedText key={`text:${cursor}`} {...props} text={props.text.slice(cursor)} />);
   return <span style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{nodes}</span>;
+}
+
+function MentionChip({ mention }: { mention: CanonicalMention }) {
+  const host = useChatBlockHost();
+  const key = JSON.stringify([host.mentionTabId ?? "", mention.kind, mention.id]);
+  const value = useLiveBinding(host.mentions?.binding, key, null);
+  if (!value && mention.kind === "task") return <>{mention.text}</>;
+  return <ReferenceChip kind={mention.kind} label={value?.title ?? mention.id} fullRef={mention.id}
+    planId={value?.planId} targetId={value?.targetId} disabled={!value} state={value ? "resolved" : "missing"}
+    onOpen={() => host.mentions?.open(key)} />;
 }
 
 function PlainLinkedText({ text, onOpenPlan, className, resolvePlanRef }: Props) {
@@ -107,35 +108,9 @@ function PlainLinkedText({ text, onOpenPlan, className, resolvePlanRef }: Props)
         const status = stateSuffix(resolved?.state);
         const disabled = resolved != null && resolved.state !== "resolved" && resolved.state !== "archived" && resolved.state !== "unowned";
         const fullRef = resolved?.fullRef ?? fullRefLabel(seg);
-        return (
-          <button
-            key={i}
-            type="button"
-            data-testid={`chat-${seg.targetKind}-link`}
-            data-ref-kind={seg.targetKind}
-            data-ref-state={resolved?.state ?? "loading"}
-            data-target-id={seg.targetId}
-            data-plan-id={seg.planId}
-            disabled={disabled}
-            aria-label={`${REF_LABEL[seg.targetKind]} ${label}${status ? ` (${status})` : ""}. ${fullRef}`}
-            title={status ? `${label} (${status})\n${fullRef}` : `${label}\n${fullRef}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (disabled) return;
-              openRef(onOpenPlan, seg);
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              void navigator.clipboard.writeText(fullRef);
-            }}
-            className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1 rounded px-1 py-0.5 align-baseline font-mono text-[0.92em] transition-colors hover:brightness-110"
-            style={{ color: disabled ? "var(--ct-muted-fg, #8b949e)" : "var(--ct-accent, #6ea8fe)" }}
-          >
-            <RefIcon kind={seg.targetKind} />
-            <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{label}</span>
-            {status && <span className="text-[0.82em] opacity-70">({status})</span>}
-          </button>
-        );
+        return <ReferenceChip key={i} kind={seg.targetKind} label={label} fullRef={fullRef}
+          status={status} disabled={disabled} state={resolved?.state ?? "loading"}
+          planId={seg.planId} targetId={seg.targetId} onOpen={() => openRef(onOpenPlan, seg)} />;
       })}
     </span>
   );
