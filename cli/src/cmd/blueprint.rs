@@ -5,6 +5,7 @@ use crate::client::SocketClient;
 use crate::cmd::print::{fail, print_json};
 mod apply_output;
 mod authoring;
+mod call_view;
 mod memory;
 mod pipeline_spec;
 mod recipe_files;
@@ -35,6 +36,13 @@ fn read_text_input_file(path: &std::path::Path) -> Result<String, String> {
 }
 
 fn render(job: &Value) {
+    let calls=call_view::text(job);
+    if !calls.is_empty(){println!("{calls}");}
+    if job["saved_solution"]==true {
+        if let Ok(body)=serde_json::to_string_pretty(&job["call_graph"]){println!("{body}");}
+        println!("{} [callable] {}@{}",job["name"].as_str().unwrap_or("?"),job["id"].as_str().unwrap_or("?"),job["hash"].as_str().unwrap_or("?"));
+        return;
+    }
     if let Some(note) = job["note"].as_str().filter(|note| !note.is_empty()) {
         println!("Note: {note}");
     }

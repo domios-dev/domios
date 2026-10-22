@@ -157,11 +157,24 @@ pub(super) fn dispatch(
             .map_err(|e| error(e.to_string())),
         "blueprint.show" => {
             let id = get_string_param(params, "id")?;
+            if id.starts_with("mem:") {
+                let team=caller.team.as_deref().ok_or_else(||error("Saved callable requires a Team"))?;
+                let document=svc.mem.blueprint_callable(&format!("blueprints:{}",caller.workspace),team,&id).map_err(error)?;
+                let mut body=document.clone();body.dependencies.clear();
+                let hash=codeterm_blueprint_types::blueprint_document::projection::identity(&body).map_err(error)?;
+                let mut value=codeterm_sentinel_host::blueprint_calls::project(&document,&[]).map_err(error)?;
+                value["id"]=json!(id);value["hash"]=json!(hash);value["name"]=json!(document.name);value["saved_solution"]=json!(true);
+                return Ok(value);
+            }
             let job = svc.sentinel_show(&caller, &id).map_err(error)?;
             let mut value = serde_json::to_value(&job).map_err(|e| error(e.to_string()))?;
             if let Some(spec) = &job.pipeline().cloned() {
                 let entries = svc.blueprint_log(&caller, &id, 200).map_err(error)?;
                 add_pipeline_show(&mut value, spec, &entries);
+                if let Some(document)=job.document.as_ref().and_then(|raw|serde_json::from_value::<codeterm_blueprint_types::blueprint_document::Document>(raw.clone()).ok()).filter(|doc|doc.nodes().any(|node|node.call.is_some())) {
+                    let projection=codeterm_sentinel_host::blueprint_calls::project(&document,&entries).map_err(error)?;
+                    if let (Some(value),Some(fields))=(value.as_object_mut(),projection.as_object()){value.extend(fields.clone());}
+                }
             }
             Ok(value)
         }
@@ -293,17 +306,17 @@ fn add_pipeline_show(
         .map(|(index, step)| {
             let accepted = step.kind.outcomes().unwrap_or_default().into_iter().collect::<Vec<_>>();
             let outcome = run_entries.iter().find(|entry| {
-                entry.step_index == index as i64
+                root_step_entry(step,entry)
                     && entry.outcome.as_ref().is_some_and(|outcome| accepted.iter().any(|value| value == outcome.as_str()))
             }).or_else(|| {
                 run_entries.iter().find(|entry| {
-                    entry.step_index == index as i64
+                    root_step_entry(step,entry)
                         && matches!(entry.state.as_str(), "running" | "skipped")
                 })
             });
             let summary = run_entries
                 .iter()
-                .find(|entry| entry.step_index == index as i64 && entry.result_summary.is_some());
+                .find(|entry| root_step_entry(step,entry) && entry.result_summary.is_some());
             json!({
                 "index":index,
                 "name":step.name,
@@ -318,6 +331,10 @@ fn add_pipeline_show(
             })
         })
         .collect::<Vec<_>>());
+}
+
+fn root_step_entry(step:&codeterm_blueprint_types::blueprint_pipeline::Step,entry:&codeterm_service_core::storage::BlueprintJournalEntry)->bool{
+    entry.step_name==step.name && if matches!(step.kind,codeterm_blueprint_types::blueprint_pipeline::StepKind::Call{..}){entry.call_stack.len()==1&&entry.call_stack.first().is_some_and(|frame|frame.node==step.name)}else{entry.call_stack.is_empty()}
 }
 
 fn step_kind_name(kind: &codeterm_blueprint_types::blueprint_pipeline::StepKind) -> &'static str {
