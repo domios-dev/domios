@@ -6,6 +6,11 @@ use std::collections::BTreeSet;
 pub(crate) struct CuratorTabs(pub parking_lot::RwLock<std::collections::BTreeMap<String, String>>);
 
 impl ServiceContext {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn reconcile_curator_for_test(&self, id: &str, now: u64) {
+        self.reconcile_curator_id(id, now);
+    }
+
     pub fn start_curator_events(&self) -> Result<(), String> {
         self.set_ext(CuratorTabs::default())
             .map_err(|_| "Curator runtime could not be started".to_string())?;
