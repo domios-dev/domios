@@ -253,23 +253,25 @@ impl Account {
         let Some(current) = current else {
             return Ok(None);
         };
-        if current.expires_at.is_some_and(|expires_at| token_expiring(expires_at)) {
+        if current
+            .expires_at
+            .is_some_and(|expires_at| token_expiring(expires_at))
+        {
             if let Err(error) = self.refresh_locked().await {
                 if matches!(error, Error::Credentials | Error::Provider) {
-                    let expired = {
-                        let mut state = self.state.lock().await;
-                        if state
-                            .session
-                            .as_ref()
-                            .is_some_and(|session| session.expires_at.is_some_and(token_expiring))
+                    let expired =
                         {
-                            state.generation += 1;
-                            state.session = None;
-                            true
-                        } else {
-                            false
-                        }
-                    };
+                            let mut state = self.state.lock().await;
+                            if state.session.as_ref().is_some_and(|session| {
+                                session.expires_at.is_some_and(token_expiring)
+                            }) {
+                                state.generation += 1;
+                                state.session = None;
+                                true
+                            } else {
+                                false
+                            }
+                        };
                     if expired {
                         if let Some(observer) = &self.observer {
                             observer.changed(None).await;

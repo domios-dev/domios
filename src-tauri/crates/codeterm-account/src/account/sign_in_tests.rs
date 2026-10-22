@@ -224,7 +224,10 @@ async fn current_session_returns_one_refresh_failure_without_using_the_expired_t
     );
     account.state.lock().await.session = Some(expired_session());
 
-    assert_eq!(account.current_session().await.unwrap_err(), Error::Credentials);
+    assert_eq!(
+        account.current_session().await.unwrap_err(),
+        Error::Credentials
+    );
     assert_eq!(provider.refreshes.load(Ordering::SeqCst), 1);
     assert!(account.session().await.is_none());
     assert!(account.status().await.identity.is_none());

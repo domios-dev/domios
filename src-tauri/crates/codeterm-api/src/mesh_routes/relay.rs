@@ -502,11 +502,7 @@ pub async fn mesh_relay(
                 delivery_id
             );
             let response = entry.wait().await;
-            return Ok(Json(fence_relay_response(
-                &state,
-                &sender_id,
-                response,
-            )));
+            return Ok(Json(fence_relay_response(&state, &sender_id, response)));
         }
         super::send_dedupe::Admission::AtCapacity => {
             log::warn!(

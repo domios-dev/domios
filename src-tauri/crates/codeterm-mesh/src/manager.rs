@@ -73,12 +73,8 @@ impl MeshManager {
         } else {
             records.load
         };
-        let (links, migrate_now) = LinkLedger::migrate(
-            records.ledger,
-            &records.peers,
-            &revocation_list,
-            load,
-        );
+        let (links, migrate_now) =
+            LinkLedger::migrate(records.ledger, &records.peers, &revocation_list, load);
         let persist_now = migrate_now || records.ledger_needs_persist;
 
         log::info!(
@@ -269,10 +265,9 @@ impl MeshManager {
     fn tombstone_peer(&mut self, instance_id: &str) {
         let generation = self.removal_watermark().saturating_add(1);
         self.revocation_list.next_tombstone_generation = generation;
-        self.revocation_list.tombstones.insert(
-            instance_id.to_string(),
-            generation,
-        );
+        self.revocation_list
+            .tombstones
+            .insert(instance_id.to_string(), generation);
         if !self
             .revocation_list
             .revoked

@@ -176,13 +176,7 @@ impl AccountMesh {
     /// The server key generation for this account, enrolling the installation key once.
     async fn generation(&self, signed: &Signed) -> Outcome<u64> {
         let key_id = signed.key.key_id();
-        let known = self.with(|inner| {
-            inner
-                .record
-                .keys
-                .get(&signed.account)
-                .cloned()
-        });
+        let known = self.with(|inner| inner.record.keys.get(&signed.account).cloned());
         if let Some(binding) = known.as_ref().filter(|binding| binding.key_id == key_id) {
             return Ok(binding.generation);
         }
@@ -262,9 +256,7 @@ impl AccountMesh {
             .iter()
             .find(|row| row.installation_id == self.installation())
             .filter(|row| {
-                row.key_id == signed.key.key_id()
-                    && row.key_generation > 0
-                    && row.slot_revision > 0
+                row.key_id == signed.key.key_id() && row.key_generation > 0 && row.slot_revision > 0
             })
         else {
             return Ok(None);
@@ -276,10 +268,10 @@ impl AccountMesh {
             if !inner.is_current(signed.epoch) && signed.epoch != 0 {
                 return false;
             }
-            inner.record.keys.insert(
-                signed.account.clone(),
-                KeyBinding { key_id, generation },
-            );
+            inner
+                .record
+                .keys
+                .insert(signed.account.clone(), KeyBinding { key_id, generation });
             inner
                 .record
                 .slots
@@ -570,9 +562,7 @@ impl AccountMesh {
                 return Err(AccountMeshRefusal::Cancelled);
             }
             match result {
-                Ok(observation) => {
-                    Ok(observation)
-                }
+                Ok(observation) => Ok(observation),
                 Err(refusal) => {
                     inner.update(&self.watch, |state| state.registry_failure = Some(refusal));
                     Err(refusal)

@@ -61,7 +61,10 @@ pub async fn broadcast_sync(mesh: &MeshState) {
         .await;
         match result {
             Ok(()) => log::debug!("[mesh/broadcast] Synced to {}", peer_id),
-            Err(e) => log::warn!("[mesh/broadcast] Sync failed: {}", peer_request_error(peer_id, &e)),
+            Err(e) => log::warn!(
+                "[mesh/broadcast] Sync failed: {}",
+                peer_request_error(peer_id, &e)
+            ),
         }
     }
 }

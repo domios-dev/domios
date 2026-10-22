@@ -58,7 +58,12 @@ async fn account_mesh_sign_in_enrolls_once_and_restart_renews_the_same_slot() {
 async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry() {
     let harness = Harness::new().await;
     harness.sign_in(UID).await;
-    harness.registry.script.lock().unwrap().lose_membership_reply = Some(RegistryRefusal::Offline);
+    harness
+        .registry
+        .script
+        .lock()
+        .unwrap()
+        .lose_membership_reply = Some(RegistryRefusal::Offline);
 
     assert_eq!(
         harness.mesh.refresh(EnrollTrigger::Automatic).await,
@@ -73,28 +78,59 @@ async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry
         .slots
         .contains_key(&account_id(UID)));
 
-    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
     assert_eq!(harness.registry.slot(UID), Some(2));
     assert_eq!(
-        harness.store.record.lock().unwrap().slots.get(&account_id(UID)),
+        harness
+            .store
+            .record
+            .lock()
+            .unwrap()
+            .slots
+            .get(&account_id(UID)),
         Some(&2)
     );
 
-    harness.registry.script.lock().unwrap().lose_membership_reply = Some(RegistryRefusal::Offline);
+    harness
+        .registry
+        .script
+        .lock()
+        .unwrap()
+        .lose_membership_reply = Some(RegistryRefusal::Offline);
     assert_eq!(
         harness.mesh.refresh(EnrollTrigger::Automatic).await,
         Err(AccountMeshRefusal::Offline)
     );
     assert_eq!(harness.registry.slot(UID), Some(3));
     assert_eq!(
-        harness.store.record.lock().unwrap().slots.get(&account_id(UID)),
+        harness
+            .store
+            .record
+            .lock()
+            .unwrap()
+            .slots
+            .get(&account_id(UID)),
         Some(&2)
     );
 
-    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
     assert_eq!(harness.registry.slot(UID), Some(4));
     assert_eq!(
-        harness.store.record.lock().unwrap().slots.get(&account_id(UID)),
+        harness
+            .store
+            .record
+            .lock()
+            .unwrap()
+            .slots
+            .get(&account_id(UID)),
         Some(&4)
     );
 }
@@ -112,14 +148,20 @@ async fn account_mesh_recovers_a_memory_only_key_after_restart_and_renews() {
         .cloned()
         .unwrap();
     let seed = harness.keys.0.lock().unwrap().clone().unwrap();
-    assert!(!serde_json::to_string(&*harness.store.record.lock().unwrap())
-        .unwrap()
-        .contains(seed.expose()));
+    assert!(
+        !serde_json::to_string(&*harness.store.record.lock().unwrap())
+            .unwrap()
+            .contains(seed.expose())
+    );
 
     *harness.keys.0.lock().unwrap() = None;
     harness.restart().await;
     harness.sign_in(UID).await;
-    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
 
     assert_eq!(harness.calls("recover_key"), 1);
     assert_eq!(harness.registry.slot(UID), Some(2));
@@ -516,7 +558,11 @@ async fn account_mesh_internal_registry_reads_update_the_snapshot() {
 
     harness.mesh.resolve_link_identity(PEER).await.unwrap();
 
-    let observation = harness.state().registry.clone().expect("stored registry read");
+    let observation = harness
+        .state()
+        .registry
+        .clone()
+        .expect("stored registry read");
     assert_eq!(observation.rows.len(), 2);
     assert_eq!(observation.rows[0].installation_id, INSTALLATION);
 }

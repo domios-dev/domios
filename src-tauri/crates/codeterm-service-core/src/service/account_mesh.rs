@@ -264,9 +264,8 @@ impl ServiceContext {
 
     pub(super) async fn sign_out_without_account_mesh(&self) -> Result<(), String> {
         let mesh = self.try_ext::<crate::MeshStateHandle>().cloned();
-        let store: Arc<dyn AccountMeshStore> = Arc::new(FileAccountMeshStore::new(
-            crate::paths::data_dir(),
-        ));
+        let store: Arc<dyn AccountMeshStore> =
+            Arc::new(FileAccountMeshStore::new(crate::paths::data_dir()));
         block_and_persist_sign_out(mesh, store).await
     }
 
@@ -387,10 +386,7 @@ async fn block_and_persist_sign_out(
 ) -> Result<(), String> {
     if let Some(mesh) = mesh {
         let mut manager = mesh.lock();
-        let account_epoch = manager
-            .account_state()
-            .account_epoch
-            .saturating_add(1);
+        let account_epoch = manager.account_state().account_epoch.saturating_add(1);
         manager.apply_account_state(codeterm_mesh::account_mesh::AccountMeshState {
             account_epoch,
             presence: codeterm_mesh::account_mesh::AccountPresence::SignedOut,

@@ -25,7 +25,9 @@ impl super::Transport for Transport {
         let mut requests = self.0.lock().await;
         let response = match requests.len() {
             0 => serde_json::json!({"custom_token":"custom-fixture"}),
-            1 => serde_json::json!({"idToken":"id-fixture", "refreshToken":"refresh-fixture", "expiresIn":"3600"}),
+            1 => {
+                serde_json::json!({"idToken":"id-fixture", "refreshToken":"refresh-fixture", "expiresIn":"3600"})
+            }
             2 => {
                 serde_json::json!({"users":[{"localId":"uid-fixture","email":"fixture@example.test","displayName":"Fixture"}]})
             }
