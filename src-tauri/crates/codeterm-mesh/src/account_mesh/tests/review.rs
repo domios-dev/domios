@@ -134,9 +134,10 @@ async fn account_mesh_add_started_before_unpair_cannot_clear_its_removal() {
     };
     let mesh = a.mesh.clone();
     let installation_id = b.installation_id.clone();
-    let add = tokio::spawn(async move {
-        link_installation_with(&mesh, &transport, &installation_id).await
-    });
+    let add =
+        tokio::spawn(
+            async move { link_installation_with(&mesh, &transport, &installation_id).await },
+        );
 
     entered.notified().await;
     assert!(a.mesh.lock().unpair(&b.id()).is_some());

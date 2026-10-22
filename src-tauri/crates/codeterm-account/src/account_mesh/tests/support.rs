@@ -313,11 +313,10 @@ impl MeshRegistry for FakeRegistry {
             return Err(RegistryRefusal::Invalid);
         }
         let mut accounts = self.accounts.lock().unwrap();
-        let account = accounts
-            .entry(session.identity.uid.clone())
-            .or_default();
+        let account = accounts.entry(session.identity.uid.clone()).or_default();
         match &request.body.operation {
-            KeyOperation::Enroll if account.key.is_none() && request.body.expected_generation == 0 => {}
+            KeyOperation::Enroll
+                if account.key.is_none() && request.body.expected_generation == 0 => {}
             KeyOperation::Recover
                 if account.key.is_some()
                     && account.key_generation == request.body.expected_generation => {}

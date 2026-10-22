@@ -86,7 +86,9 @@ pub enum AdmissionRefusal {
         limit: u32,
         active_count: u32,
     },
-    RateLimited { retry_after_seconds: u64 },
+    RateLimited {
+        retry_after_seconds: u64,
+    },
     Revoked,
     SignedOut,
     PeerUnreachable,
