@@ -152,13 +152,15 @@ fn run_action_removes_clean_worktree_and_deletes_branch() {
     assert!(branch_is_merged(dir.to_str().unwrap(), "lane/x", "main"));
     assert!(run_action(
         dir.to_str().unwrap(),
-        &LaneCleanupAction::RemoveWorktree(wt_str.into())
+        &LaneCleanupAction::RemoveWorktree(wt_str.into()),
+        false
     )
     .is_ok());
     assert!(!wt.exists());
     assert!(run_action(
         dir.to_str().unwrap(),
-        &LaneCleanupAction::DeleteBranch("lane/x".into())
+        &LaneCleanupAction::DeleteBranch("lane/x".into()),
+        false
     )
     .is_ok());
 }
@@ -175,9 +177,10 @@ fn run_action_refuses_dirty_worktree() {
     let err = run_action(
         dir.to_str().unwrap(),
         &LaneCleanupAction::RemoveWorktree(wt_str.into()),
+        false,
     )
     .unwrap_err();
-    assert!(err.contains("could not be removed"));
+    assert!(err.contains("dirty lane protected"));
     assert!(
         wt.exists(),
         "dirty worktree must be left intact, never forced"

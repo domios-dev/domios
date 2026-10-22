@@ -176,6 +176,7 @@ pub fn render_lane_cleanup(val: &Value) -> String {
     for row in rows {
         let cells = ["action", "task_id", "branch", "worktree", "reason"].map(|key| {
             opt(row, key)
+                .filter(|value| !value.is_empty())
                 .unwrap_or("-")
                 .split_whitespace()
                 .collect::<Vec<_>>()

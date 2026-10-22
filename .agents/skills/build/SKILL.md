@@ -591,6 +591,13 @@ At the same hook, installed `cargo-sweep` prunes the current checkout's `src-tau
 
 Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `./build.ps1 gc --dry-run` / `./build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
 
+Retention also checks exact lane `target`, `src-tauri/target` and `cli/target`
+directories under the provisioned worktree root. It trims them only when all
+artifact timestamps exceed `CODETERM_CACHE_MAX_AGE_DAYS`, the index tracks no
+content there, and the lane is not the calling checkout. Linked lanes and target
+roots are refused; nested output links are unlinked without entering their
+targets. Preview and safety fixtures: `node --test scripts/lane-target-gc.test.mjs`.
+
 Orphan build-directory GC runs in manual GC and in the hourly automatic retention.
 It maps every existing Git worktree of this repository and the sibling
 `codeterm-plugins` repository, plus the gateway's stable `X:` checkout, through
