@@ -34,6 +34,17 @@ impl PlanStore {
         let path = self.database.path();
         #[cfg(test)]
         self.persist_test_sidecars(plan, owned.as_ref())?;
+        if let Some((project_path, canonical_project_path)) = writes.previous_project_paths.clone()
+        {
+            let mut moved_from = Plan::new(
+                String::new(),
+                project_path,
+                crate::plan::OrchestratorRef::default(),
+            );
+            moved_from.id = plan.id.clone();
+            moved_from.canonical_project_path = canonical_project_path;
+            super::search_index::enqueue_plan_removal(moved_from);
+        }
         super::search_index::enqueue_plan_index(plan.clone(), index_scope(writes));
         if let Some(spec) = owned {
             super::search_index::enqueue_spec_index(spec.clone());
