@@ -72,7 +72,10 @@ pub fn report() -> Result<(), String> {
         .filter(|path| {
             path.file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("results-") && name.ends_with(".json"))
+                .is_some_and(|name| {
+                    (name.starts_with("results-") || name.starts_with("posthoc-"))
+                        && name.ends_with(".json")
+                })
         })
         .collect::<Vec<_>>();
     files.sort();

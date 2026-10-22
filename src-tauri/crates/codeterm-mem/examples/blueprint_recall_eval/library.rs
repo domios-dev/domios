@@ -8,7 +8,9 @@ use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-pub const AREA: &str = "blueprints:eval";
+pub const ALL_AREAS: &str = "";
+const AREA_PREFIX: &str = "blueprints:eval-";
+const PER_AREA: usize = 35;
 pub const WORKER_MODEL: &str = "claude-haiku-4-5-20251001";
 
 #[derive(Default)]
@@ -50,7 +52,9 @@ pub fn ingest(
     let mut doc_of = BTreeMap::new();
     let mut item_of = BTreeMap::new();
     let mut refused = BTreeMap::new();
-    for doc in corpus {
+    let mut per_area: BTreeMap<String, usize> = BTreeMap::new();
+    for (position, doc) in corpus.iter().enumerate() {
+        let area = format!("{AREA_PREFIX}{}", position / PER_AREA);
         let document =
             parse_document(&doc.source).map_err(|error| format!("{}: {error}", doc.id))?;
         let doc_intents = match &intents {
@@ -72,7 +76,7 @@ pub fn ingest(
             note: document.note.clone().unwrap_or_default(),
             ..Evidence::default()
         };
-        let id = match mem.save_blueprint_without_merge(AREA, document, &doc_intents, evidence) {
+        let id = match mem.save_blueprint_without_merge(&area, document, &doc_intents, evidence) {
             Ok(id) => id,
             Err(error) => {
                 refused.insert(doc.id.clone(), error);
@@ -95,8 +99,15 @@ pub fn ingest(
                 ));
             }
         }
+        *per_area.entry(area).or_default() += 1;
         doc_of.insert(id.clone(), doc.id.clone());
         item_of.insert(doc.id.clone(), id);
+    }
+    for (area, saved) in &per_area {
+        let live = mem.list_blueprint_solutions(area)?.len();
+        if live != *saved {
+            return Err(format!("{area}: {live} of {saved} saved documents are recallable; the area cap evicted the rest"));
+        }
     }
     let jobs = enricher
         .jobs
