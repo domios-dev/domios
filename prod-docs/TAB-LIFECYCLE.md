@@ -157,7 +157,7 @@ Bound-session access refusals immediately raise one `error` / `action_needed` in
 
 ## Unattended launch prompts
 
-Visible/hidden owned prompt policy: `domios docs AGENT-CONTROL` (calibrated >=0.80 choices, structural fallback, owner-only blockers, provenance exceptions, direct owner-launched tabs).
+Visible/hidden owned prompt policy lives in the same document (calibrated >=0.80 choices, structural fallback, owner-only blockers, provenance exceptions, direct owner-launched tabs).
 
 Unresolved prompts route parsed options to owner. User-audience tabs notify once/blocker kind/launch, including parent agent if present. Supporter journals each decision as `owned_prompt_answer`, `decided_by: adapter` or `fallback(<reason>)`, without raw screen text/credentials. Hidden PTYs and screen parsers use 120x40 geometry.
 
@@ -171,4 +171,4 @@ Working tabs continue. Success: idle tabs (General included) `agent restart` as 
 
 Summary counts restarted/pending/failed restarts and updates in place as pending tabs finish. Supporter journals update runs, safe prompt answers and individual restart outcomes.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->
