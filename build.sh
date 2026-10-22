@@ -1552,14 +1552,16 @@ cleanup_failed_prebuilt_launch() {
 
 install_cli_to() {
   local bin_dir="$1"
-  local source="${2:-}" expected_hash="${3:-}" destination source_hash destination_hash
+  local source="${2:-}" expected_hash="${3:-}" destination alias source_hash destination_hash
   if [ -z "$source" ]; then
     source="$(cli_release_binary)"
   fi
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     destination="$bin_dir/codeterm"
+    alias="$bin_dir/domios"
   else
     destination="$bin_dir/codeterm.exe"
+    alias="$bin_dir/domios.exe"
   fi
 
   source_hash="$(cli_file_sha256_or_status "$source")"
@@ -1589,6 +1591,20 @@ install_cli_to() {
   if [ "$destination_hash" != "$expected_hash" ]; then
     report_cli_install_failure "installed binary does not match the built artifact" \
       "$source" "$destination" "$expected_hash" "$destination_hash"
+    return 1
+  fi
+  destination_hash="$(cli_file_sha256_or_status "$alias")"
+  if [ "$destination_hash" != "$expected_hash" ]; then
+    if ! rm -f "$alias" || ! cp "$destination" "$alias"; then
+      report_cli_install_failure "primary command copy did not succeed" \
+        "$source" "$alias" "$expected_hash" "$(cli_file_sha256_or_status "$alias")"
+      return 1
+    fi
+  fi
+  destination_hash="$(cli_file_sha256_or_status "$alias")"
+  if [ "$destination_hash" != "$expected_hash" ]; then
+    report_cli_install_failure "primary command does not match the built artifact" \
+      "$source" "$alias" "$expected_hash" "$destination_hash"
     return 1
   fi
   echo "CLI installed to $bin_dir"

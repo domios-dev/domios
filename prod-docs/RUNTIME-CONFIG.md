@@ -39,10 +39,7 @@ Domios tracks the current working directory of each tab via invisible OSC 7 shel
 
 Generated integration files need no manual edits.
 
-Shell integration scripts are stored in the platform data directory:
-- **macOS:** `~/Library/Application Support/codeterm/shell-integration/`
-- **Linux:** `~/.local/share/codeterm/shell-integration/`
-- **Windows:** `%APPDATA%/codeterm/shell-integration/`
+Shell integration scripts are stored in `shell-integration/` beneath the active instance data directory (`~/.domios/` for production, `~/.domios-dev/` for development) on every platform.
 
 Domios creates these scripts at startup.
 
@@ -111,7 +108,7 @@ mesh_tab_enabled = true
 
 ## Memory
 
-Mem state lives in `~/.codeterm/mem.sqlite` (dev: `~/.codeterm-dev/mem.sqlite`). Config knobs that affect mem are under `[memory]` in `config.toml`.
+Mem state lives in `~/.domios/mem/knowledge.db` (dev: `~/.domios-dev/mem/knowledge.db`). Config knobs that affect mem are under `[memory]` in `config.toml`.
 
 Saves can finish before semantic indexing; text search remains available meanwhile.
 
@@ -209,4 +206,4 @@ librarian_enabled = true
 
 There is no per-session config: each provider owns where its sessions live. The `domios sessions` commands and `/api/sessions/*` find and resume them; `domios docs API-STATE` has the contract.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

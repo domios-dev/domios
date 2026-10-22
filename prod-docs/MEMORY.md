@@ -4,7 +4,7 @@ Persistent memory survives restarts, provider switches and upgrades.
 
 ## TL;DR
 
-- **Storage** — one local database at `~/.codeterm/mem/knowledge.db` plus large bodies as files beside it
+- **Storage** — one local database at `~/.domios/mem/knowledge.db` plus large bodies as files beside it
 - **Search** — text and semantic matches combined; filters narrow results, and Supporter re-rank works automatically when connected
 - **Graph** — temporal entity-relation triples (people, projects; NO tech nodes)
 - **L1 selection** — pinned items first, then ranked by importance, use, workspace and recency; budget defaults to 300 tokens (`[memory] l1_budget_tokens`)
@@ -24,7 +24,7 @@ Separate stores:
 
 | Surface | Stored where | Asks | Used for |
 |---|---|---|---|
-| **mem** (`~/.codeterm/mem/knowledge.db`) | local database with text and vector indexes | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
+| **mem** (`~/.domios/mem/knowledge.db`) | local database with text and vector indexes | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
 | **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts / OpenCode's sqlite store | "what did we talk about that one time?" | Raw conversation history; on-demand search via `domios sessions search`, atomic resume via `domios sessions resume` |
 
 These stores never share storage. Session API: `domios docs API-STATE`.
@@ -49,7 +49,7 @@ Three layers:
 
 | Layer | What | When | Size |
 |---|---|---|---|
-| **L0 — Identity** | `~/.codeterm/general/identity.md` | Injected into every GA init | ~100 tok |
+| **L0 — Identity** | `~/.domios/general/identity.md` | Injected into every GA init | ~100 tok |
 | **L1 — Wake-up** | Pinned items + ranked by score (see below) | `domios mem wake-up` (GA runs on init) | ~300 tok (config: `[memory] l1_budget_tokens`) |
 | **L2 — Targeted** | `search --area X --kind Y` | On-demand when topic comes up | variable |
 | **L3 — Hybrid** | text and semantic recall | `domios mem search` / `recall` | variable |
@@ -69,7 +69,7 @@ A second stage over `mem search` that runs automatically when an adapter is conn
 - **Access.** Pool candidates, recall or graph, record no access while they are graded. Only the hits the search returns count as accessed, once each.
 - **Low confidence.** `low_confidence: true` means even the best hit scored below `low_confidence_threshold`: nothing relevant was found. The human render says so in one line; treat the hits as weak leads, not answers.
 - **Token mode.** Each adapter declares `required`, `optional`, or `none`. TypeSafe Jev requires its token. In plugin manifests, legacy bare `"decisionModel": true` means optional; `{ "tokenMode": "required" | "optional" | "none" }` is the explicit form. A selected, registered optional or none adapter connects without a token. A required adapter connects with a usable stored token. Connected status is `active`, or `budget_reached` when its shared call budget is exhausted; no selected adapter reports `not_connected`. Token-related states explain why a required adapter cannot connect.
-- **Token.** Adapter tokens never enter `config.toml` or argv. `printf %s "$TOKEN" | domios supporter token set` (or `pbpaste | ...`) reads stdin only and refuses a terminal; `token clear`, `token status [--adapter]` and `status` show `token_mode`, presence, path and `mode_ok`, never the value. A none-mode adapter reports that it needs no token and ignores token writes. The token lives in `<data dir>/supporter/<adapter>.json`: Unix uses a `0600` file in a `0700` directory, and Windows uses protected DACLs granting only the current user full control on the file and directory. Each instance keeps its own: `~/.codeterm/` for prod, `~/.codeterm-dev/` for dev. These commands use bearer HTTP on the local machine and never cross `--mesh`.
+- **Token.** Adapter tokens never enter `config.toml` or argv. `printf %s "$TOKEN" | domios supporter token set` (or `pbpaste | ...`) reads stdin only and refuses a terminal; `token clear`, `token status [--adapter]` and `status` show `token_mode`, presence, path and `mode_ok`, never the value. A none-mode adapter reports that it needs no token and ignores token writes. The token lives in `<data dir>/supporter/<adapter>.json`: Unix uses a `0600` file in a `0700` directory, and Windows uses protected DACLs granting only the current user full control on the file and directory. Each instance keeps its own: `~/.domios/` for prod, `~/.domios-dev/` for dev. These commands use bearer HTTP on the local machine and never cross `--mesh`.
 
 Decision adapters target deterministic models such as [TypeSafe Jev](https://typesafe.ai). Fine-tunes and general LLMs may differ in accuracy and latency. Calibrated choice/noul probabilities describe decisions; sampled-text logprobs describe generated tokens and are not equivalent.
 
@@ -181,4 +181,4 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 48 -->
+<!-- revision: 49 -->

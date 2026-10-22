@@ -303,7 +303,7 @@ pub enum MemAction {
         limit: usize,
     },
     /// Skill management — folder-on-disk skills with mem index.
-    /// Skills live as ~/.codeterm/skills/<name>/SKILL.md (+ optional support files).
+    /// Skills live as ~/.domios/skills/<name>/SKILL.md (+ optional support files).
     /// `add` registers the folder; Librarian re-vectorizes if SKILL.md changes.
     Skill {
         #[command(subcommand)]
@@ -367,8 +367,8 @@ pub enum MemAction {
         /// Which phase to run: dreaming-light | dreaming-deep | dreaming-normalize | librarian-once
         kind: String,
         /// Override the path to knowledge.db. Defaults to the same data dir
-        /// the CLI uses elsewhere (`~/.codeterm/mem/knowledge.db` for prod,
-        /// `~/.codeterm-dev/mem/knowledge.db` for dev).
+        /// the CLI uses elsewhere (`~/.domios/mem/knowledge.db` for prod,
+        /// `~/.domios-dev/mem/knowledge.db` for dev).
         #[arg(long)]
         db_path: Option<String>,
     },
@@ -590,9 +590,9 @@ pub enum MemSkillAction {
     /// Register an existing skill folder. Reads <folder>/SKILL.md and saves
     /// a mem item with source_path linked to it. Re-runs are idempotent.
     /// Area can come from --area flag, YAML frontmatter (`area: foo`), or
-    /// the parent folder name (~/.codeterm/skills/<area>/<skill>/SKILL.md).
+    /// the parent folder name (~/.domios/skills/<area>/<skill>/SKILL.md).
     Add {
-        /// Folder containing SKILL.md (e.g. ~/.codeterm/skills/mem-testing).
+        /// Folder containing SKILL.md (e.g. ~/.domios/skills/mem-testing).
         folder: String,
         /// Override the auto-detected area.
         #[arg(long)]

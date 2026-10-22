@@ -10,7 +10,7 @@ Worker kinds add role prompts automatically: use `agent spawn --role Worker --ki
 
 ## Hard invariants
 
-- DISCOVERY HABIT: CLI FIRST, ALWAYS. For anything Domios-related, run `domios <cmd> --help` and read the owning document BEFORE curling APIs, grepping source, or reading repo/doc files. If a `domios` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
+- DISCOVERY HABIT: CLI FIRST, ALWAYS. For anything Domios-related, run `domios <cmd> --help` and read the owning document BEFORE curling APIs, grepping source, or reading repo/doc files. If a `domios` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.domios*` internals.
 - INTERACTIVE DISCOVERY STAYS HUMAN-READABLE. Use plain `domios tab list` for the complete local workspace → Team/Plan → Tab map, including empty workspaces, and preserve `(self)`; pass `--workspace <id>` when one workspace's scoped tree is intended. Inspect one selected tab with `domios tab inspect <id>`; add `--lifecycle` only for its journal telemetry. Never request whole-list JSON merely to orient yourself; it is an automation contract.
 - `domios tab release-ownership` frees a local tab from stale remote control.
 - LAUNCH SPEED: `agent spawn`, `plan task dispatch`, and `plan task respawn` accept `--speed <TIER>` from the provider's declared service tiers. `plan task update --speed <TIER>` stores the task default; dispatch and respawn inherit it unless overridden. `default` explicitly selects the provider default.
