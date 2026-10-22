@@ -17,6 +17,15 @@ pub fn semantic_canon(document: &Document, intent: &str) -> String {
     if let Some(trigger) = gists.trigger() {
         head.push(format!("trigger: {trigger}"));
     }
+    let inputs = document
+        .inputs
+        .values()
+        .filter_map(|input| input.description.as_deref().map(plain))
+        .filter(|description| !description.is_empty())
+        .collect::<Vec<_>>();
+    if !inputs.is_empty() {
+        head.push(format!("inputs: {}", inputs.join("; ")));
+    }
     let nodes = gists.nodes();
     let mut text = head.join(". ");
     if !nodes.is_empty() {

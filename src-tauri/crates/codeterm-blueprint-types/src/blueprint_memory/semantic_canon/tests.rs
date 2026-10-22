@@ -46,13 +46,13 @@ fn golden_pipeline_and_watch() {
     assert_eq!(
         canon(BASE),
         "halt a release when the essence map breaks. block a release until the map is valid. \
-         trigger: schedule every 1h. map check: runs codeterm essence map validate root {root}; \
+         trigger: schedule every 1h. inputs: canonical checkout. map check: runs codeterm essence map validate root {root}; \
          health: get {host} api health; verdict: matches ok; blocked: runs echo release blocked."
     );
     assert_eq!(
         canon(WATCH),
         "halt a release when the essence map breaks. tell me when ci turns red. \
-         trigger: checks every 1m. source: runs read-only gh pr checks command; \
+         trigger: checks every 1m. inputs: read-only gh pr checks command. source: runs read-only gh pr checks command; \
          decide: asks is ci red, matches all checks were successful, matches fail; \
          send: send, agent, please look at the failing job; notify: notify, ci went red; notify."
     );
@@ -188,20 +188,7 @@ pipeline:
 "#,
     r#"{"schema_version": 1, "name": "release-gate", "note": "Block a release until the map is valid.", "inputs": {"root": {"type": "string", "description": "Canonical checkout"}}, "pipeline": {"trigger": {"type": "schedule", "every": "1h"}, "steps": [{"name": "map-check", "input": "text", "run": "codeterm essence-map validate --root '{{root}}'", "on": {"failed": "blocked"}}, {"name": "health", "uses": "http", "with": {"url": "https://status.example.com/api/health"}, "on": {"down": "blocked"}}, {"name": "verdict", "uses": "filter", "with": {"pattern": "(?m)^ok$", "bucket": "green"}, "on": {"green": "next", "failed": "blocked"}}, {"name": "blocked", "run": "echo release-blocked"}], "result": {"to": "notify"}}}
 "#,
-    r#"schema_version: 1
-name: release-gate
-note: Block a release until the map is valid.
-inputs:
-  root: {type: string, description: Canonical checkout}
-pipeline:
-  trigger: {type: schedule, every: 1h}
-  steps:
-    - {name: map-check, input: text, run: "codeterm essence-map validate --root '{{root}}'", on: {failed: blocked}}
-    - {name: health, uses: http, with: {url: "https://status.example.com/api/health"}, on: {down: blocked}}
-    - {name: verdict, uses: filter, with: {pattern: '(?m)^ok$', bucket: green}, on: {green: next, failed: blocked}}
-    - {name: blocked, run: echo release-blocked}
-  result: {to: notify}
-"#,
+    "{BASE_TRAILING}",
     "{BASE_CRLF}",
     r#"schema_version: 1
 name: release-gate
@@ -276,6 +263,7 @@ fn expand(template: &str) -> String {
     template
         .replace("{BASE_CRLF}", &BASE.replace('\n', "\r\n"))
         .replace("{BASE_BLANK}", &BASE.replace("\n    - ", "\n\n    - "))
+        .replace("{BASE_TRAILING}", &BASE.replace('\n', "   \n"))
         .replace("{BASE}", BASE)
 }
 
@@ -385,8 +373,8 @@ fn canon_carries_no_topology_wording() {
 #[test]
 fn canon_drops_credentials_and_instance_paths() {
     let source = BASE.replace(
-        "echo release-blocked",
-        "curl -H 'Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789' /Users/me/secret.txt",
+        "run: echo release-blocked",
+        "run: \"curl -H 'Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz0123456789' /Users/me/secret.txt\"",
     );
     let text = canon(&source);
     assert!(!text.contains("ghp_"), "{text}");
@@ -397,8 +385,8 @@ fn canon_drops_credentials_and_instance_paths() {
 #[test]
 fn canon_drops_secrets_that_follow_a_credential_keyword() {
     let source = BASE.replace(
-        "echo release-blocked",
-        "deploy --password hunter-two-secret --token abcdefghij && curl -H 'Authorization: Bearer zyxwvutsrqponmlkjihgfedcba' https://x.example.com",
+        "run: echo release-blocked",
+        "run: \"deploy --password hunter-two-secret --token abcdefghij && curl -H 'Authorization: Bearer zyxwvutsrqponmlkjihgfedcba' https://x.example.com\"",
     );
     let text = canon(&source);
     for secret in ["hunter", "abcdefghij", "zyxwvutsrqponmlkjihgfedcba"] {
