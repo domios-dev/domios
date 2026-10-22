@@ -61,10 +61,10 @@ pub fn node(document: &Document, node: &Node) -> Result<Step, String> {
             } else {
                 node.input.clone()
             },
+            input_binding: node.bind.get("in").cloned(),
             output: node.output.clone(),
             types: document.types.clone(),
             limits: node.limits.clone(),
-            ..Default::default()
         }),
         on: node
             .routes

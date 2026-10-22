@@ -179,6 +179,20 @@ pub fn check(file: &str, source: &str, assignments: &[String]) -> Check {
             }
         }
     };
+    if parsed.document.nodes().any(|node| node.call.is_some())
+        || !parsed.document.imports.is_empty()
+    {
+        return Check {
+            ok: false,
+            diagnostics: vec![Diagnostic::error(
+                parsed.at("steps"),
+                "steps",
+                "Call checker admission is unavailable",
+                "Resolve the call closure through the single host checker before execution",
+            )],
+            definition: None,
+        };
+    }
     match parsed.document.bind(assignments) {
         Ok(definition) => Check {
             ok: true,

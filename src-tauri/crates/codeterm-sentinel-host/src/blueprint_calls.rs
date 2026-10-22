@@ -138,22 +138,42 @@ pub(crate) fn execute(
             .ok_or(JournalReason::ContractViolation)?,
     )
     .map_err(|_| JournalReason::ContractViolation)?;
-    let closure = FrozenClosure::from_document(document.clone())
-        .map_err(|_| JournalReason::ContractViolation)?;
+    let mut root = document.clone();
+    let dependencies = std::mem::take(&mut root.dependencies);
+    let closure = FrozenClosure {
+        root: codeterm_blueprint_types::blueprint_document::Parsed {
+            document: root,
+            locations: BTreeMap::new(),
+        },
+        callees: dependencies,
+    };
+    for callee in closure.callees.values() {
+        callee
+            .verify()
+            .map_err(|_| JournalReason::ContractViolation)?;
+    }
     let team = ctx
         .lease
         .job
         .team_id
         .as_deref()
         .ok_or(JournalReason::ContractViolation)?;
-    ctx.service
-        .mem
-        .blueprint_call_drift(
-            &format!("blueprints:{}", ctx.lease.job.workspace_id),
-            team,
-            document,
-        )
-        .map_err(|_| JournalReason::ContractViolation)?;
+    if closure.callees.values().any(|c| c.id.starts_with("mem:")) {
+        ctx.service
+            .mem
+            .blueprint_call_drift(
+                &format!("blueprints:{}", ctx.lease.job.workspace_id),
+                team,
+                document,
+            )
+            .map_err(|error| {
+                if error.contains("budget_exhausted") {
+                    JournalReason::BudgetExhausted
+                } else {
+                    JournalReason::ContractViolation
+                }
+            })?;
+    }
     let callee = closure
         .callee(pin)
         .map_err(|_| JournalReason::ContractViolation)?;
@@ -240,7 +260,11 @@ fn run_callee(
         input = result.output;
         let route = codeterm_blueprint_types::blueprint_pipeline::route_target(
             &step.on,
-            result.outcome.as_str(),
+            match &result.outcome {
+                StepOutcome::Done => "done",
+                StepOutcome::Failed => "failed",
+                StepOutcome::Bucket(bucket) => bucket,
+            },
         );
         if route == "stop" {
             break;
@@ -423,3 +447,23 @@ fn success(output: &ExecutionEnvelope, label: &str) -> crate::pipeline::StepResu
 }
 #[cfg(test)]
 mod tests;
+
+pub fn project(
+    document: &Document,
+    entries: &[codeterm_storage::BlueprintJournalEntry],
+) -> Result<Value, String> {
+    let closure = FrozenClosure::from_document(document.clone())?;
+    let graph = calls::projection::graph(&closure)?;
+    let latest = entries.first().map(|entry| entry.run_id.as_str());
+    let mut seen = BTreeSet::new();
+    let nodes = entries
+        .iter()
+        .filter(|entry| Some(entry.run_id.as_str()) == latest)
+        .filter(|entry| seen.insert(entry.marker()))
+        .take(66)
+        .map(|entry| calls::projection::bounded(&json!(entry), 0))
+        .collect::<Vec<_>>();
+    Ok(
+        json!({"expanded_calls":graph.calls,"call_graph":graph.root,"nested_run":{"id":latest,"nodes":nodes}}),
+    )
+}
