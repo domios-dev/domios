@@ -152,7 +152,6 @@ fn restore_resolves_payload_into_launch_option() {
         &std::collections::HashSet::new(),
     )
     .unwrap();
-    store.write(&digest, payload).unwrap();
     let (mut state, tab_id) = MultiplexerState::new();
     let tab = state.get_tab_mut(&tab_id).unwrap();
     tab.agent_type = Some("fixture-provider".into());
@@ -163,7 +162,15 @@ fn restore_resolves_payload_into_launch_option() {
         crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
     ));
     let mux: MuxState = Arc::new(TimedRwLock::new("restore-payload-test", state));
-    let resolved = store.resolve(&digest).unwrap();
+    let pending = mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_delivery
+        .clone()
+        .unwrap();
+    store.write(&pending, payload).unwrap();
+    let resolved = store.resolve(&pending).unwrap();
     let observed = std::sync::Arc::new(parking_lot::Mutex::new(None));
     let sink = observed.clone();
 
@@ -222,9 +229,9 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
         None,
         Some("fixture-cwd"),
         false,
-        |_| {
+        |pending| {
             store
-                .resolve(&digest)
+                .resolve(pending.unwrap())
                 .map(Some)
                 .map_err(|error| error.to_string())
         },
