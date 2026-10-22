@@ -26,21 +26,17 @@ function phasePlan(name) {
   return { phase: name, steps: PHASE_STEPS[name].flatMap(([journey, checks]) => checks.map((check) => ({ journey, check, title: JOURNEYS[journey] }))) };
 }
 
-export function buildPlan({ mode, out, instance, port, from = null }) {
-  const sequence = { setup: ["setup"], verify: ["verify"], cleanup: ["cleanup"], all: ["setup", "restart", "verify", "cleanup"],
-    upgrade: ["setup", "restart", "verify", "cleanup", "setup", "restart", "verify", "cleanup"] }[mode];
+export function buildPlan({ mode, out, instance, port }) {
+  const sequence = { setup: ["setup"], verify: ["verify"], cleanup: ["cleanup"], all: ["setup", "restart", "verify", "cleanup"] }[mode];
   if (!sequence) throw new Error(`unknown plan mode ${mode}`);
   const stages = sequence.map((name) => (name === "restart" ? { phase: "restart", steps: [{ journey: "J4", check: RESTART_STEP }] } : phasePlan(name)));
-  const evidence = mode === "upgrade"
-    ? [...cycleEvidence(`${out}/n-1-to-n`, "upgrade.json"), ...cycleEvidence(`${out}/n`)]
-    : mode === "all" ? cycleEvidence(out) : [`${out}/results.json`, `${out}/results.md`, ...(mode === "cleanup" ? [] : [`${out}/${screenshotPath(mode)}`])];
-  return { mode, out, target: { instance, port: port ?? null }, from, stages, evidence };
+  const evidence = mode === "all" ? cycleEvidence(out) : [`${out}/results.json`, `${out}/results.md`, ...(mode === "cleanup" ? [] : [`${out}/${screenshotPath(mode)}`])];
+  return { mode, out, target: { instance, port: port ?? null }, stages, evidence };
 }
 
 export function renderPlan(plan) {
   const port = plan.target.port ?? "resolved from the instance by identify";
   const lines = [`PLAN ${plan.mode} (dry: no instance contacted, nothing written)`, `target: instance=${plan.target.instance} port=${port}`];
-  if (plan.from) lines.push(`N-1 checkout: ${plan.from}`);
   plan.stages.forEach((stage, index) => {
     lines.push(`stage ${index + 1}: ${stage.phase}`);
     let last = null;
@@ -55,10 +51,10 @@ export function renderPlan(plan) {
   return `${lines.join("\n")}\n`;
 }
 
-export function planFromEnv({ mode, out, instance, port, from }) {
+export function planFromEnv({ mode, out, instance, port }) {
   const parsed = port === undefined || port === "" ? null : Number(port);
   assertIsolated({ instance, port: parsed });
-  return buildPlan({ mode, out: resolve(out), instance: instance.trim(), port: parsed, from });
+  return buildPlan({ mode, out: resolve(out), instance: instance.trim(), port: parsed });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -66,7 +62,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const flag = (name) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined);
   try {
     process.stdout.write(renderPlan(planFromEnv({
-      mode, out: flag("--out"), instance: flag("--instance") ?? "", port: flag("--port"), from: flag("--from") ?? null,
+      mode, out: flag("--out"), instance: flag("--instance") ?? "", port: flag("--port"),
     })));
   } catch (error) {
     console.error(`FAIL ${error.message}`);
