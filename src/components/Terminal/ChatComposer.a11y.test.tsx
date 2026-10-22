@@ -59,7 +59,10 @@ async function renderComposer(tabId: string): Promise<Harness> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const store = createMuxStateStore(emptyMuxState);
+  const state = emptyMuxState();
+  state.tabs[tabId] = { id: tabId, title: "Rivet", tab_type: "Terminal", pty_id: null, cwd: "/repo", workspace_id: "ws-a11y", description: "Builds", role: "Worker" };
+  state.workspaces = [{ id: "ws-a11y", name: "Project", tabs: [tabId], active_tab_id: tabId, cwd: "/repo" }];
+  const store = createMuxStateStore(() => state);
   await act(async () => {
     root.render(
       <MuxStateStoreContext.Provider value={store}>
@@ -154,13 +157,14 @@ test("a rejected send clears the composer without marking it invalid; the bubble
   await teardown(h);
 });
 
-test("typing @ offers the @ds-tasks mention as a named suggestion option", async () => {
+test("typing @ offers scoped tabs as named options and never ds-tasks", async () => {
   const h = await renderComposer("tab-a11y-mention");
-  await type(h, "show me @ds");
+  await type(h, "show me @Ri");
   const listbox = document.querySelector('[role="listbox"][aria-label="Mention suggestions"]');
   assert(listbox, "mention suggestions must render as a named listbox");
-  const option = listbox.querySelector('[role="option"][aria-label="@ds-tasks"]');
-  assert(option, "the @ds-tasks suggestion must expose its accessible name");
+  const option = listbox.querySelector('[role="option"][aria-label="Rivet"]');
+  assert(option, "the live tab suggestion exposes its accessible name");
+  assert(!listbox.textContent?.includes("@ds-tasks"), "chat blocks are not mention sources");
   await teardown(h);
 });
 

@@ -68,6 +68,7 @@ export interface TasksBlockHost {
   binding: LiveBindingSource<TasksBlockState>;
   openPlan(planId: string): void;
   openTask(planId: string, taskId: string): void;
+  openTaskKey?(key: string): void;
 }
 
 export interface ChatCardMenuItem {

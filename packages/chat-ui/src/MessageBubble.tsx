@@ -48,6 +48,7 @@ import { ToolOutputContent } from "./ToolOutputContent";
 import { isImageOnlyToolOutput } from "./toolImageOutput";
 import { ContextRequestCard } from "./ContextRequestCard";
 import { WatcherVerdictCard } from "./WatcherVerdictCard";
+import { hasCanonicalMentions } from "./codeterm/canonicalMentions";
 import { LinkedText, PlanRefCards, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
@@ -358,15 +359,15 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
     const visibleUserContent = userAttachments.text;
     const renderUserText = (content: string) => {
       if (effectiveOrigin?.kind === "command") return <CommandBody commands={effectiveOrigin.commands} body={message.content} />;
-      if (message.segments) return hasPlanRefs(content)
-        ? <LinkedText text={content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+      if (message.segments) return (hasPlanRefs(content) || hasCanonicalMentions(content))
+        ? <LinkedText text={content} onFocusTab={onFocusTab} onOpenBlueprint={() => onOpenJobs?.()} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         : renderUserContent(content, false);
       const userAttachments = userMessageAttachments(content, attachments);
       const visibleUserContent = userAttachments.text;
       const text = userAttachments.inline ? (
           <InlineAttachmentText segments={userAttachments.inline} />
-        ) : hasPlanRefs(visibleUserContent) ? (
-          <LinkedText text={visibleUserContent} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+        ) : (hasPlanRefs(visibleUserContent) || hasCanonicalMentions(visibleUserContent)) ? (
+          <LinkedText text={visibleUserContent} onFocusTab={onFocusTab} onOpenBlueprint={() => onOpenJobs?.()} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
           visibleUserContent ? renderUserContent(visibleUserContent) : null
         );
