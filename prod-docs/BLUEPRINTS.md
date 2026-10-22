@@ -132,4 +132,6 @@ domios blueprint show mem:<solution-id> --json
 
 Keep preserves the callable input signature and returns its stable `mem:` identity and hash. Reuse that identity in `call.ref` with structural `lit`, `input`, or `bind` arguments. The CLI reads relative local imports from each authoring file and sends their document bytes; the host resolves nested `mem:` calls within the caller's Team and workspace. Saving or applying freezes the exact transitive closure. Existing pins stay fixed, and head drift produces a semantic warning. Missing pinned bytes refuse execution. Callable files use `keep --file`; `apply` admits scheduled graphs. `show` includes expanded pinned callee bodies and bounded nested run results, stops and call stacks. Call checks require host resolution and use the same admission checker as apply.
 
-<!-- revision: 49 -->
+Inside callees, notify/send/cron/escalate use caller scope and the shared executor claim. Blueprint activation, stop and prompt-response effects require scheduler custody and are refused at check time inside calls; put those effects in the caller.
+
+<!-- revision: 50 -->

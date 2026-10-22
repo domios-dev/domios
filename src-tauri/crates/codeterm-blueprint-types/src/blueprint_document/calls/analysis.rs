@@ -248,6 +248,22 @@ fn graph(
             }
         }
         for (child_index, child) in callee.document.nodes().enumerate() {
+            if matches!(child.kind(), "blueprint" | "stop" | "respond_prompt") {
+                fail(&path,"C11","scheduler_custody",format!("callee effect {} requires scheduler custody and is not supported inside call; move it to the caller (callee node {})",child.kind(),child.id));
+            }
+            if child
+                .caps
+                .iter()
+                .chain(child.code.iter().flat_map(|code| &code.caps))
+                .any(|cap| !node.caps.contains(cap) || cap == "domios-cli")
+            {
+                fail(
+                    &path,
+                    "C9",
+                    "callee_grant_widening",
+                    format!("Callee node {} exceeds caller call grants", child.id),
+                );
+            }
             for (slot, value) in executable_values(child) {
                 if is_tainted(value, &tainted, &BTreeMap::new()) {
                     fail(&path,"C8","boundary_taint",format!("Tainted argument reaches callee node {} executable slot {slot} (node {child_index})",child.id));

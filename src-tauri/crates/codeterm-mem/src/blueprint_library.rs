@@ -495,6 +495,9 @@ impl MemManager {
                 }
             }
             for merge in model::dream_merges(&library, MERGE_BUDGET) {
+                if !call_revisions::merge_allowed(&tx, &merge.keeper.id, &merge.superseded)? {
+                    continue;
+                }
                 let mut record =
                     metadata::read(&tx, &merge.keeper.id)?.ok_or("Blueprint metadata absent")?;
                 record.merge(

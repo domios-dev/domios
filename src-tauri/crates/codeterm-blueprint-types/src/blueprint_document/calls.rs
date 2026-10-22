@@ -124,11 +124,20 @@ impl FrozenClosure {
             }
             callee.verify()?;
         }
-        self.verify_graph(&self.root.document, &mut Vec::new())
+        self.verify_graph(&self.root.document, &mut Vec::new(), &mut 0)
     }
-    fn verify_graph(&self, document: &Document, stack: &mut Vec<CallPin>) -> Result<(), String> {
+    fn verify_graph(
+        &self,
+        document: &Document,
+        stack: &mut Vec<CallPin>,
+        expanded: &mut usize,
+    ) -> Result<(), String> {
         if stack.len() > MAX_CALL_DEPTH {
             return Err("budget_exhausted: call depth exceeds eight".into());
+        }
+        *expanded = expanded.saturating_add(document.nodes().count());
+        if *expanded > 64 {
+            return Err("budget_exhausted: expanded call graph exceeds 64 executed nodes".into());
         }
         for node in document.nodes() {
             let Some(call) = &node.call else { continue };
@@ -141,7 +150,7 @@ impl FrozenClosure {
             }
             let callee = self.callee(pin)?;
             stack.push(pin.clone());
-            self.verify_graph(&callee.document, stack)?;
+            self.verify_graph(&callee.document, stack, expanded)?;
             stack.pop();
         }
         Ok(())

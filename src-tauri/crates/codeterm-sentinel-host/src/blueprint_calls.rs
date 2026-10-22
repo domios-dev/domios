@@ -415,8 +415,7 @@ fn route(ctx: &RunCtx<'_>, node: &Node) -> Result<crate::machine::Route, Journal
         "notify" => Route::Notify,
         "send" => Route::Send(target()?),
         "cron" => Route::Cron(target()?),
-        "blueprint" => Route::Sentinel(target()?),
-        "stop" => Route::Stop,
+        "blueprint" | "stop" | "respond_prompt" => return Err(JournalReason::RuntimeUnavailable),
         "escalate" => Route::Escalate(EscalateTarget::Creator),
         _ => return Err(JournalReason::RuntimeUnavailable),
     };

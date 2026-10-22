@@ -77,8 +77,7 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
         .team_id;
     mux.get_tab_mut(&creator).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
     if saved_case.is_some() {
-        mux.get_tab_mut(&creator).unwrap().role =
-            Some(codeterm_types::agent::AgentRole::Orchestrator);
+        mux.get_tab_mut(&creator).unwrap().role = Some(codeterm_types::agent::AgentRole::Manager);
     }
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let service = &instance.fixture.service;
@@ -151,7 +150,7 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
                     .mem
                     .update(
                         raw,
-                        codeterm_mem::store::MemUpdate {
+                        codeterm_service_core::mem::store::MemUpdate {
                             body: Some(head.yaml().unwrap()),
                             ..Default::default()
                         },
@@ -425,6 +424,29 @@ fn blueprint_v2_call_missing_mem_hash_or_callee_refuses_before_any_nested_effect
     for case in [SavedCase::MissingHash, SavedCase::MissingCallee] {
         let receipt = run_saved(source(false), false, Some(case));
         assert!(receipt.output.is_err());
+        assert!(receipt.notices.is_empty());
+        assert!(!receipt
+            .journal
+            .iter()
+            .any(|row| row.step_name == "increment" || row.step_name == "fixed-sink"));
+    }
+}
+
+#[test]
+fn blueprint_v2_call_scheduler_owned_effects_refuse_at_runtime_before_any_nested_effect() {
+    for kind in ["blueprint", "stop", "respond_prompt"] {
+        let mut document = source(false);
+        let key = document.dependencies.keys().next().unwrap().clone();
+        let mut frozen = document.dependencies.remove(&key).unwrap();
+        frozen.document.steps[1].uses = Some(serde_json::from_value(json!(kind)).unwrap());
+        frozen.hash = blueprint_document::projection::identity(&frozen.document).unwrap();
+        document.steps[0].call.as_mut().unwrap().pin = Some(frozen.pin());
+        document.dependencies.insert(frozen.pin().key(), frozen);
+        let receipt = run(document, false);
+        assert_eq!(
+            receipt.output.unwrap_err(),
+            JournalReason::RuntimeUnavailable
+        );
         assert!(receipt.notices.is_empty());
         assert!(!receipt
             .journal

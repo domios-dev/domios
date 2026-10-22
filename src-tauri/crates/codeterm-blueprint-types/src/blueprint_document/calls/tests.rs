@@ -151,9 +151,15 @@ fn blueprint_v2_call_import_cycle_is_refused() {
 #[test]
 fn blueprint_v2_call_import_noncallable_and_network_and_repo_are_refused() {
     let tree = Tree::new();
-    tree.put("callee.yaml", &caller());
+    let mut noncallable = callee();
+    noncallable["trigger"] = json!({"type":"schedule","every":{"lit":"20s"}});
+    tree.put("callee.yaml", &noncallable);
     tree.put("caller.yaml", &caller());
-    assert!(tree.resolve("caller.yaml").is_err());
+    assert!(tree
+        .resolve("caller.yaml")
+        .unwrap_err()
+        .iter()
+        .any(|d| d.message.contains("not a typed callable")));
     for path in [
         "https://example.test/a.yaml",
         "repo:helper",
@@ -531,4 +537,86 @@ fn blueprint_v2_call_no_false_final_pass_without_checker_engine() {
     let closure = good(&tree);
     let source = serde_yaml::to_string(&closure.document()).unwrap();
     assert!(!crate::blueprint_document::check("caller.yaml", &source, &[]).ok);
+}
+
+fn scheduler_effect(kind: &str) -> FrozenClosure {
+    let tree = Tree::new();
+    let mut closure = good(&tree);
+    let frozen = closure.callees.values_mut().next().unwrap();
+    frozen
+        .document
+        .steps
+        .push(serde_json::from_value(json!({"id":"scheduler-effect","uses":kind})).unwrap());
+    frozen.hash = ir_projection::identity(&frozen.document).unwrap();
+    let pin = frozen.pin();
+    let frozen = closure.callees.pop_first().unwrap().1;
+    closure.callees.insert(pin.key(), frozen);
+    closure.root.document.steps[0].call.as_mut().unwrap().pin = Some(pin);
+    closure
+}
+#[test]
+fn blueprint_v2_call_checker_refuses_nested_blueprint_activation_with_positioned_call_rule() {
+    let closure = scheduler_effect("blueprint");
+    let context = check_context(&closure, &Default::default());
+    let diagnostics = crate::blueprint_document::checker::check_ir(&closure.root.ir(), &context);
+    assert!(diagnostics.iter().any(|d| d.rule == "C11"
+        && d.field == "steps[0].call"
+        && d.line > 0
+        && d.message.contains("move it to the caller")));
+}
+#[test]
+fn blueprint_v2_call_checker_refuses_nested_stop() {
+    assert!(has_rule(&scheduler_effect("stop"), "C11"));
+}
+#[test]
+fn blueprint_v2_call_checker_refuses_nested_respond_prompt() {
+    assert!(has_rule(&scheduler_effect("respond_prompt"), "C11"));
+}
+#[test]
+fn blueprint_v2_call_static_expanded_graph_budget_stops_repeated_dag_expansion() {
+    let tree = Tree::new();
+    let mut closure = good(&tree);
+    let repeated = closure.root.document.steps[0].clone();
+    for index in 1..64 {
+        let mut node = repeated.clone();
+        node.id = format!("call-{index}");
+        closure.root.document.steps.push(node);
+    }
+    assert!(closure
+        .verify()
+        .unwrap_err()
+        .contains("expanded call graph exceeds 64"));
+}
+
+#[test]
+fn blueprint_v2_call_diff_keeps_all_revisions_of_one_stable_identity() {
+    let tree = Tree::new();
+    let before = good(&tree);
+    let mut after = before.clone();
+    let original = after.callees.pop_first().unwrap().1;
+    for name in ["First revised body", "Second revised body"] {
+        let mut callee = original.clone();
+        callee.document.note = Some(name.into());
+        callee.hash = ir_projection::identity(&callee.document).unwrap();
+        if after.callees.is_empty() {
+            after.root.document.steps[0].call.as_mut().unwrap().pin = Some(callee.pin());
+        }
+        after.callees.insert(callee.pin().key(), callee);
+    }
+    let diff = projection::diff(&before, &after);
+    assert_eq!(diff.callees.len(), 3);
+    assert_eq!(
+        diff.callees
+            .values()
+            .filter(|change| change.before.is_some())
+            .count(),
+        1
+    );
+    assert_eq!(
+        diff.callees
+            .values()
+            .filter(|change| change.after.is_some())
+            .count(),
+        2
+    );
 }
