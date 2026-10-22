@@ -53,7 +53,7 @@ fn restored_owed_continue_waits_for_first_composer_then_claims_once() {
         panic!("composer-ready own session must release the owed original");
     };
     assert_eq!(claim.session_id, "own-saved-session");
-    assert_eq!(claim.pty_id, "restored-pty");
+    assert_eq!(claim.pty_id.as_deref(), Some("restored-pty"));
     assert_eq!(claim.binding_nonce, "current-nonce");
     assert_eq!(claim.prompt.as_deref(), Some("opaque-continue"));
     assert_eq!(step(&mux, &tab_id, "current-start"), Step::Settled);

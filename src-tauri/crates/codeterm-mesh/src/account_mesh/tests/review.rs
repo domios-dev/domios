@@ -29,13 +29,14 @@ async fn account_mesh_unpaired_peer_cannot_relink_itself_from_the_other_side() {
         refused.unwrap_err(),
         AdmissionRefusal::HandshakeFailed { .. }
     ));
-    let manager = b.mesh.lock();
-    assert!(
-        manager.is_revoked(&a.id()),
-        "the removal survives a remote re-link"
-    );
-    assert!(!manager.paired_peers.contains_key(&a.id()));
-    drop(manager);
+    {
+        let manager = b.mesh.lock();
+        assert!(
+            manager.is_revoked(&a.id()),
+            "the removal survives a remote re-link"
+        );
+        assert!(!manager.paired_peers.contains_key(&a.id()));
+    }
 
     link_installation_with(&b.mesh, &transport, &a.installation_id)
         .await
@@ -52,14 +53,15 @@ async fn account_mesh_lost_confirm_reply_leaves_no_pair_on_the_responder() {
 
     let lost = link_installation_with(&a.mesh, &transport, &b.installation_id).await;
     assert_eq!(lost.unwrap_err(), AdmissionRefusal::PeerUnreachable);
-    let manager = b.mesh.lock();
-    assert!(
-        manager.paired_peers.is_empty(),
-        "nothing recorded before the commit"
-    );
-    assert!(manager.link_record(&a.id()).is_none());
-    assert!(!manager.traffic_open(&a.id()));
-    drop(manager);
+    {
+        let manager = b.mesh.lock();
+        assert!(
+            manager.paired_peers.is_empty(),
+            "nothing recorded before the commit"
+        );
+        assert!(manager.link_record(&a.id()).is_none());
+        assert!(!manager.traffic_open(&a.id()));
+    }
     assert!(a.mesh.lock().paired_peers.is_empty());
 
     let transport = Loopback::new(&[&a, &b]);
