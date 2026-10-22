@@ -385,7 +385,7 @@ impl RegistryRefusal {
     pub fn from_details(details: &serde_json::Value) -> Self {
         match serde_json::from_value::<Self>(details.clone()) {
             Ok(Self::Offline) | Err(_) => Self::Unavailable,
-            Ok(Self::MachineLimit { limit, .. }) if limit == 0 => Self::Unavailable,
+            Ok(Self::MachineLimit { limit: 0, .. }) => Self::Unavailable,
             Ok(Self::RateLimited {
                 retry_after_seconds: 0,
             }) => Self::Unavailable,

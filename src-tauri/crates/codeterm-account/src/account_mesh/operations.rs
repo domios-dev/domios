@@ -557,7 +557,7 @@ impl AccountMesh {
     pub async fn list(&self) -> Outcome<RegistryObservation> {
         let signed = self.signed(None).await?;
         let result = self.read_registry(&signed).await;
-        let outcome = self.with(|inner| {
+        self.with(|inner| {
             if !inner.is_current(signed.epoch) {
                 return Err(AccountMeshRefusal::Cancelled);
             }
@@ -568,8 +568,7 @@ impl AccountMesh {
                     Err(refusal)
                 }
             }
-        });
-        outcome
+        })
     }
 
     /// Server `update`, actor-only: renames this installation.
