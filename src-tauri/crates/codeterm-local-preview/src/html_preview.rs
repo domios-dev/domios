@@ -38,6 +38,16 @@ pub fn refusal_reason(error: &str) -> &'static str {
     }
 }
 
+pub fn read_artifact_file(
+    raw: &str,
+    policy: &crate::PreviewPolicy,
+    limit: u64,
+) -> Result<Vec<u8>, String> {
+    let mut source =
+        PreviewSource::open(raw, &|path, canonical| policy.authorize(path, canonical))?;
+    source.read(limit)
+}
+
 #[derive(Debug, Serialize)]
 pub struct LocalPreviewFile {
     pub data: String,

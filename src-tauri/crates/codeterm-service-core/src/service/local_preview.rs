@@ -9,6 +9,7 @@ use codeterm_local_preview::PreviewPolicy;
 pub use codeterm_local_preview::{html_preview, references};
 
 fn agent_pad_root(svc: &super::ServiceContext, tab_id: &str) -> Option<PathBuf> {
+    svc.mux.read().get_tab(tab_id)?;
     let pad = super::agent_pad::AgentPad::open(&svc.agent_pad_data_dir, tab_id).ok()?;
     let root = pad.path().canonicalize().ok()?;
     let pads = pad.path().parent()?.canonicalize().ok()?;
@@ -56,31 +57,33 @@ fn tab_policy(
     let references = references::referenced_paths(&messages, authority.cwd.as_deref());
     let references_us = references_started.elapsed().as_micros();
     let policy_started = std::time::Instant::now();
-    let configured: Vec<_> = configured.iter().map(PathBuf::from).collect();
-    let mut denied = configured.clone();
-    let data_dir = crate::paths::data_dir();
-    denied.push(data_dir.clone());
-    denied.push(svc.agent_pad_data_dir.clone());
-    let mut evidence_denied = configured.clone();
-    if let Some(home) = dirs::home_dir() {
-        let ssh = home.join(".ssh");
-        denied.push(ssh.clone());
-        evidence_denied.push(ssh);
-    }
-    let mut policy = PreviewPolicy::new(references, &denied)?
-        .with_uploads(&crate::service::web_access::uploads_dir(), &configured)?;
-    for bucket in ["chat", "images", "files"] {
-        policy = policy.with_uploads(&crate::attachments::bucket_dir(bucket), &configured)?;
-    }
-    if let Some(pad) = agent_pad_root(svc, tab_id) {
-        policy = policy.with_own_pad(&pad, &evidence_denied)?;
-    }
+    let policy = artifact_policy(svc, Some(tab_id), references, configured)?;
     log::debug!(
         "[preview.policy] tab={} authority_us={} transcript_us={} binding_us={} references_us={} roots_us={} total_us={} messages={}",
         tab_id, authority_us, transcript_us, binding_us, references_us,
         policy_started.elapsed().as_micros(), started.elapsed().as_micros(), messages.len()
     );
     Ok(policy)
+}
+
+pub(super) fn artifact_policy(
+    svc: &super::ServiceContext,
+    tab_id: Option<&str>,
+    references: std::collections::HashSet<String>,
+    configured: &[String],
+) -> Result<PreviewPolicy, String> {
+    codeterm_local_preview::PreviewPolicy::for_context(
+        references,
+        codeterm_local_preview::PreviewRoots {
+            configured: configured.iter().map(PathBuf::from).collect(),
+            private: vec![crate::paths::data_dir(), svc.agent_pad_data_dir.clone()],
+            uploads: std::iter::once(crate::service::web_access::uploads_dir())
+                .chain(["chat", "images", "files"].map(crate::attachments::bucket_dir))
+                .collect(),
+            own_pad: tab_id.and_then(|tab| agent_pad_root(svc, tab)),
+            ssh: dirs::home_dir().map(|home| home.join(".ssh")),
+        },
+    )
 }
 
 pub fn read(

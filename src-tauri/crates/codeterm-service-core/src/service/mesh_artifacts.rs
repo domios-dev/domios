@@ -2,8 +2,30 @@ use std::collections::HashMap;
 
 use crate::mesh::{transport::PeerClient, types::RelayCommand};
 use crate::service::mesh_attachment::{
-    build_ingest_request, parse_ingest_response, AttachmentKind,
+    parse_ingest_response, AttachmentKind, IngestRequest, MESH_ATTACHMENT_MAX_BYTES,
 };
+
+#[derive(Debug, PartialEq, Eq)]
+enum ArtifactError {
+    Policy(&'static str),
+    Transfer(String),
+}
+
+impl From<String> for ArtifactError {
+    fn from(error: String) -> Self {
+        Self::Transfer(error)
+    }
+}
+
+fn preview_error(error: String) -> ArtifactError {
+    let reason = codeterm_local_preview::html_preview::refusal_reason(&error);
+    match reason {
+        "private_path" | "unreferenced" | "size_limit" | "invalid_path" | "unsafe_file" => {
+            ArtifactError::Policy(reason)
+        }
+        _ => ArtifactError::Transfer(error),
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 struct Directive {
@@ -84,7 +106,7 @@ fn ingest_path(method: &str, path: &str) -> Option<String> {
 fn rewrite(
     text: &str,
     plan: &[Directive],
-    paths: &HashMap<String, String>,
+    paths: &HashMap<String, Result<String, &'static str>>,
 ) -> Result<String, String> {
     let mut output = String::new();
     let mut offset = 0;
@@ -92,10 +114,18 @@ fn rewrite(
         let path = paths
             .get(&directive.path)
             .ok_or("Artifact transfer did not return a target path")?;
+        output.push_str(&text[offset..directive.start]);
+        let path = match path {
+            Ok(path) => path,
+            Err(reason) => {
+                output.push_str(&format!("[Artifact refused: {reason}]"));
+                offset = directive.end;
+                continue;
+            }
+        };
         if path.is_empty() || path.contains(['"', '\r', '\n']) {
             return Err("Artifact transfer returned an invalid target path".into());
         }
-        output.push_str(&text[offset..directive.start]);
         output.push_str(&format!("{} \"{}\"", directive.tag, path));
         offset = directive.end;
     }
@@ -104,33 +134,75 @@ fn rewrite(
 }
 
 pub async fn transfer(
+    svc: &super::ServiceContext,
+    source_tab: Option<&str>,
     client: &PeerClient,
     method: &str,
     path: &str,
     body: &mut serde_json::Value,
 ) -> Result<(), String> {
-    transfer_with(method, path, body, |source, ingest_path| async move {
-        let source_path = source.clone();
-        let request = tokio::task::spawn_blocking(move || {
-            let source_path =
-                crate::service::local_preview::html_preview::checked_path(&source_path)?;
-            build_ingest_request(&source_path, AttachmentKind::File)
-        })
-        .await
-        .map_err(|error| error.to_string())??;
-        let command = RelayCommand {
-            method: "POST".into(),
-            path: ingest_path,
-            body: serde_json::to_value(request).map_err(|error| error.to_string())?,
-            delivery_id: None,
-        };
-        let response = client
-            .send_relay(&command)
+    let source_tab = source_tab.map(str::to_string);
+    transfer_with(method, path, body, |source, ingest_path| {
+        let svc = svc.clone();
+        let source_tab = source_tab.clone();
+        async move {
+            let source_path = source.clone();
+            let request = tokio::task::spawn_blocking(move || {
+                let configured = crate::config::load_config().api.preview_secret_paths;
+                let file = codeterm_local_preview::html_preview::checked_path(&source_path)
+                    .map_err(preview_error)?;
+                let references = [codeterm_local_preview::references::path_key(&file)].into();
+                let policy = super::local_preview::artifact_policy(
+                    &svc,
+                    source_tab.as_deref(),
+                    references,
+                    &configured,
+                )
+                .map_err(ArtifactError::Transfer)?;
+                artifact_request(&source_path, &policy)
+            })
             .await
-            .map_err(|error| error.to_string())?;
-        Ok(parse_ingest_response(&source, response)?.path)
+            .map_err(|error| ArtifactError::Transfer(error.to_string()))??;
+            let command = RelayCommand {
+                method: "POST".into(),
+                path: ingest_path,
+                body: serde_json::to_value(request).map_err(|error| error.to_string())?,
+                delivery_id: None,
+            };
+            let response = client
+                .send_relay(&command)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(parse_ingest_response(&source, response)?.path)
+        }
     })
     .await
+}
+
+fn artifact_request(
+    source: &str,
+    policy: &codeterm_local_preview::PreviewPolicy,
+) -> Result<IngestRequest, ArtifactError> {
+    use base64::Engine as _;
+    let bytes = codeterm_local_preview::html_preview::read_artifact_file(
+        source,
+        policy,
+        MESH_ATTACHMENT_MAX_BYTES,
+    )
+    .map_err(preview_error)?;
+    if bytes.is_empty() {
+        return Err(ArtifactError::Policy("empty_file"));
+    }
+    Ok(IngestRequest {
+        kind: AttachmentKind::File,
+        name: std::path::Path::new(source)
+            .file_name()
+            .ok_or(ArtifactError::Policy("invalid_path"))?
+            .to_string_lossy()
+            .into_owned(),
+        size: bytes.len() as u64,
+        data: base64::engine::general_purpose::STANDARD.encode(bytes),
+    })
 }
 
 async fn transfer_with<F, Fut>(
@@ -141,7 +213,7 @@ async fn transfer_with<F, Fut>(
 ) -> Result<(), String>
 where
     F: FnMut(String, String) -> Fut,
-    Fut: std::future::Future<Output = Result<String, String>>,
+    Fut: std::future::Future<Output = Result<String, ArtifactError>>,
 {
     let Some(ingest_path) = ingest_path(method, path) else {
         return Ok(());
@@ -167,7 +239,12 @@ where
             if transferred.contains_key(&directive.path) {
                 continue;
             }
-            let target = transfer_file(directive.path.clone(), ingest_path.clone()).await?;
+            let target = transfer_file(directive.path.clone(), ingest_path.clone()).await;
+            let target = match target {
+                Ok(path) => Ok(path),
+                Err(ArtifactError::Policy(reason)) => Err(reason),
+                Err(ArtifactError::Transfer(error)) => return Err(error),
+            };
             transferred.insert(directive.path.clone(), target);
         }
     }

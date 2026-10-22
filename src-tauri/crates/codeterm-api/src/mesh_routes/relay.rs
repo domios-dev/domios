@@ -455,6 +455,8 @@ pub async fn mesh_relay_to_peer(
     }
     let mut relay_body = req.body;
     codeterm_service_core::service::mesh_artifacts_transfer(
+        &state.svc,
+        crate::tab_routes::caller_tab_header(&headers).as_deref(),
         &client,
         &req.method,
         &req.path,

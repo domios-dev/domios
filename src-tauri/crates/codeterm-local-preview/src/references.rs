@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::html_preview::checked_path;
 use codeterm_types::agent::chat_types::ChatMsg;
 
-pub(super) fn path_key(path: &Path) -> String {
+pub fn path_key(path: &Path) -> String {
     let value = path.to_string_lossy().replace('\\', "/");
     let key = value.strip_prefix("//?/").unwrap_or(&value).to_string();
     if cfg!(windows) {
