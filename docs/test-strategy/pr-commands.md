@@ -4,7 +4,7 @@ Baseline: `d20a0a4ed`. Captured before editing tests.yml. Each run step is recor
 
 Full Rust coverage runs through release CI (`workflow_call`) and manual dispatch, subject to change scope. There is no schedule trigger.
 
-The tests.yml projection is selected by catalogue `ci: [tests.yml:<job>]` ownership. Other workflows keep their own PR path filters and commands. The selector emits commands from `select --tier pr --format json`; each execution step reads its entry from that output. Existing job conditions remain in place; individual catalogue execution steps retain their conditions. The earlier catalogue migration consolidates release-contracts file groups: node:test executes all discovered Node files despite individual test failures, and the Python group uses !cancelled() so later contracts still run after Node failures. This widens failure-path coverage while preserving change scope. Selected core-journeys-offline is added to release-contracts by Orchestrator decision.
+The tests.yml projection is selected by catalogue `ci: [tests-fast.yml:<job>]` ownership: on a pull request tests.yml calls only the fast tier, `tests-fast.yml`; the Rust tier, `tests-rust.yml`, runs on master pushes and release calls. Other workflows keep their own PR path filters and commands. The selector emits commands from `select --tier pr --format json`; each execution step reads its entry from that output. Existing job conditions remain in place; individual catalogue execution steps retain their conditions. The earlier catalogue migration consolidates release-contracts file groups: node:test executes all discovered Node files despite individual test failures, and the Python group uses !cancelled() so later contracts still run after Node failures. This widens failure-path coverage while preserving change scope. Selected core-journeys-offline is added to release-contracts by Orchestrator decision.
 
 `rust-warnings` calls `rust-warnings-summary.yml:report`, whose timeout remains 5; reusable callers cannot declare timeout-minutes. Other PR jobs are capped at 8; `changed` stays at 5. Heavy-only job timeouts are unchanged.
 
@@ -73,7 +73,7 @@ The plugin-metadata two-file command is an explicit subset exception to node-scr
 
 The table above is the pre-catalogue baseline. Since then `file-sizes`, `plugin-metadata`, `fmt` and `release-contracts` merged into one `guards` job; its Rust-scoped steps carry `needs.changed.outputs.rust == 'true'`, and an entry's recorded step condition decides in which change classes the drift guard expects it.
 
-The JSON below is the exact infrastructure/subset exception set used by the drift guard. Run text and step conditions must match; adding arbitrary run steps is rejected. Catalogue commands are compared separately in both directions for every change class, including plugin-only and docs-only PRs.
+Job conditions below are the tier files' own; the `phase` input that once selected a tier inside one tests.yml is gone. The JSON below is the exact infrastructure/subset exception set used by the drift guard. Run text and step conditions must match; adding arbitrary run steps is rejected. Catalogue commands are compared separately in both directions for every change class, including plugin-only and docs-only PRs.
 
 ```json
 [
@@ -103,77 +103,77 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
     "if": null,
     "reason": "Catalogue selection and GITHUB_OUTPUT transport",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+    "job_if": null
   },
   {
     "job": "guards",
     "run": "bash scripts/check-file-sizes.sh --fail",
     "if": null,
     "reason": "Source size gate; first guard, and guards gate every other fast check",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+    "job_if": null
   },
   {
     "job": "guards",
     "run": "bash scripts/check-build-gateway-serialization.sh\nbash scripts/check-build-gateway-policy.sh\nbash scripts/check-build-gateway-mutex-cleanup.sh\nnode scripts/test-catalogue.mjs run --entry node-script-tests-serial",
     "if": "${{ !cancelled() }}",
     "reason": "POSIX-only build-gateway guards and serial gateway script tests a Windows release-preflight cannot run",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+    "job_if": null
   },
   {
     "job": "guards",
     "run": "node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs",
     "if": "${{ !cancelled() }}",
     "reason": "Explicit two-file plugin-metadata subset",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+    "job_if": null
   },
   {
     "job": "guards",
     "run": "if command -v cargo >/dev/null 2>&1; then exit 0; fi\nfor dir in \"${CARGO_HOME:-}/bin\" \"$HOME/.cargo/bin\" /home/*/.cargo/bin /Users/*/.cargo/bin; do\n  if [ -x \"$dir/cargo\" ]; then echo \"$dir\" >> \"$GITHUB_PATH\"; exit 0; fi\ndone\necho \"cargo not found; restore Rust on the runner\" >&2\nexit 1",
     "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}",
     "reason": "Runner Rust PATH preparation",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+    "job_if": null
   },
   {
     "job": "guards",
     "run": "node scripts/check-archive-portable-test-paths.mjs",
     "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}",
     "reason": "Rust test paths stay portable across runners",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+    "job_if": null
   },
   {
     "job": "guards",
     "run": "pnpm install --frozen-lockfile --store-dir \"$RUNNER_TOOL_CACHE/pnpm-store\"",
     "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}",
     "reason": "Frozen dependency installation",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}"
+    "job_if": null
   },
   {
     "job": "guards",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}",
+    "job_if": null,
     "entry": "plugin-release-contracts",
     "if": "${{ !cancelled() }}"
   },
   {
     "job": "guards",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}",
+    "job_if": null,
     "entry": "rust-fmt",
     "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "guards",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}",
+    "job_if": null,
     "entry": "node-script-tests",
     "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "guards",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}",
+    "job_if": null,
     "entry": "python-script-tests",
     "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "guards",
-    "job_if": "${{ inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast' }}",
+    "job_if": null,
     "entry": "core-journeys-offline",
     "if": "${{ !cancelled() && needs.changed.outputs.rust == 'true' }}"
   },
@@ -182,140 +182,140 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "run": "pnpm install --frozen-lockfile --store-dir \"$RUNNER_TOOL_CACHE/pnpm-store\"",
     "if": null,
     "reason": "Frozen dependency installation",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.plugins != '[]') }}"
+    "job_if": "${{ needs.changed.outputs.plugins != '[]' }}"
   },
   {
     "job": "plugins",
     "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
     "if": null,
     "reason": "Catalogue selection and GITHUB_OUTPUT transport",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.plugins != '[]') }}"
+    "job_if": "${{ needs.changed.outputs.plugins != '[]' }}"
   },
   {
     "job": "plugins",
     "run": "gh api --method POST \"repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel\"",
     "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
     "reason": "Release cancellation (unreachable on PR)",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.plugins != '[]') }}"
+    "job_if": "${{ needs.changed.outputs.plugins != '[]' }}"
   },
   {
     "job": "ts-static",
     "run": "pnpm install --frozen-lockfile --store-dir \"$RUNNER_TOOL_CACHE/pnpm-store\"",
     "if": null,
     "reason": "Frozen dependency installation",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}"
   },
   {
     "job": "ts-static",
     "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
     "if": null,
     "reason": "Catalogue selection and GITHUB_OUTPUT transport",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}"
   },
   {
     "job": "ts-static",
     "run": "gh api --method POST \"repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel\"",
     "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
     "reason": "Release cancellation (unreachable on PR)",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}"
   },
   {
     "job": "ts-types",
     "run": "if command -v cargo >/dev/null 2>&1; then exit 0; fi\nfor dir in \"${CARGO_HOME:-}/bin\" \"$HOME/.cargo/bin\" /home/*/.cargo/bin /Users/*/.cargo/bin; do\n  if [ -x \"$dir/cargo\" ]; then echo \"$dir\" >> \"$GITHUB_PATH\"; exit 0; fi\ndone\necho \"cargo not found; restore Rust on the runner\" >&2\nexit 1",
     "if": null,
     "reason": "Runner Rust PATH preparation",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "ts-types",
     "run": "pnpm install --frozen-lockfile --store-dir \"$RUNNER_TOOL_CACHE/pnpm-store\"",
     "if": null,
     "reason": "Frozen dependency installation",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "ts-types",
     "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
     "if": null,
     "reason": "Catalogue selection and GITHUB_OUTPUT transport",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "ts-types",
     "run": "node -e \"require('fs').writeFileSync('ci-rust-warnings.log', '')\"",
     "if": null,
     "reason": "Warning capture reset",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "ts-types",
     "run": "gh api --method POST \"repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel\"",
     "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
     "reason": "Release cancellation (unreachable on PR)",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "ts-unit",
     "run": "pnpm install --frozen-lockfile --store-dir \"$RUNNER_TOOL_CACHE/pnpm-store\"",
     "if": null,
     "reason": "Frozen dependency installation",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}"
   },
   {
     "job": "ts-unit",
     "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
     "if": null,
     "reason": "Catalogue selection and GITHUB_OUTPUT transport",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}"
   },
   {
     "job": "ts-unit",
     "run": "gh api --method POST \"repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel\"",
     "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
     "reason": "Release cancellation (unreachable on PR)",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}"
   },
   {
     "job": "ts-vitest",
     "run": "pnpm install --frozen-lockfile --store-dir \"$RUNNER_TOOL_CACHE/pnpm-store\"",
     "if": null,
     "reason": "Frozen dependency installation",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}"
   },
   {
     "job": "ts-vitest",
     "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
     "if": null,
     "reason": "Catalogue selection and GITHUB_OUTPUT transport",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}"
   },
   {
     "job": "ts-vitest",
     "run": "gh api --method POST \"repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel\"",
     "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
     "reason": "Release cancellation (unreachable on PR)",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}"
   },
   {
     "job": "ts-plugins",
     "run": "pnpm install --frozen-lockfile --store-dir \"$RUNNER_TOOL_CACHE/pnpm-store\"",
     "if": null,
     "reason": "Frozen dependency installation",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "ts-plugins",
     "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
     "if": null,
     "reason": "Catalogue selection and GITHUB_OUTPUT transport",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "ts-plugins",
     "run": "gh api --method POST \"repos/$GH_REPO/actions/runs/$GH_RUN_ID/cancel\"",
     "if": "${{ failure() && inputs.cancel_release_on_failure && inputs.source_ref != '' }}",
     "reason": "Release cancellation (unreachable on PR)",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "rust-warnings → report",
@@ -340,73 +340,73 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
   },
   {
     "job": "plugins",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.plugins != '[]') }}",
+    "job_if": "${{ needs.changed.outputs.plugins != '[]' }}",
     "entry": "plugin-check",
     "if": null
   },
   {
     "job": "ts-static",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}",
     "entry": "ts-typecheck",
     "if": null
   },
   {
     "job": "ts-static",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}",
     "entry": "ts-unused-exports",
     "if": "${{ !cancelled() }}"
   },
   {
     "job": "ts-static",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}",
     "entry": "ts-knip-report",
     "if": "${{ !cancelled() }}"
   },
   {
     "job": "ts-static",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}",
     "entry": "ts-api-effects",
     "if": "${{ !cancelled() }}"
   },
   {
     "job": "ts-static",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}",
     "entry": "ts-biome",
     "if": "${{ !cancelled() }}"
   },
   {
     "job": "ts-types",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}",
     "entry": "ts-generated-types",
     "if": null
   },
   {
     "job": "ts-unit",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}",
     "entry": "ts-unit-runner-tests",
     "if": "${{ !cancelled() }}"
   },
   {
     "job": "ts-unit",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}",
     "entry": "ts-unit",
     "if": null
   },
   {
     "job": "ts-vitest",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' }}",
     "entry": "ts-vitest",
     "if": null
   },
   {
     "job": "ts-plugins",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.rust == 'true' }}",
     "entry": "plugin-bundles",
     "if": null
   },
   {
     "job": "ts-plugins",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.rust == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.rust == 'true' }}",
     "entry": "plugin-tests",
     "if": "${{ !cancelled() }}"
   },
@@ -415,25 +415,25 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "run": "node scripts/ci-workspace-cleanup.mjs",
     "if": "always()",
     "reason": "Removes job outputs and sweeps old Rust targets",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "ts-types",
     "run": "bash build.sh cache-release",
     "if": "always()",
     "reason": "Stops the job-local compile cache started while the private store is unreachable",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "frontend-windows",
     "run": "node scripts/test-catalogue.mjs select --tier pr --format json > \"$RUNNER_TEMP/pr-catalogue.json\"\nnode -e 'const fs = require(\"node:fs\"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + \"/pr-catalogue.json\", \"utf8\")); fs.appendFileSync(process.env.GITHUB_OUTPUT, \"commands=\" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + \"\\n\");'",
     "if": null,
     "reason": "Catalogue selector",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}"
   },
   {
     "job": "frontend-windows",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}",
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}",
     "entry": "frontend-windows-build",
     "if": null
   },
@@ -456,7 +456,7 @@ The JSON below is the exact infrastructure/subset exception set used by the drif
     "run": "test ! -f ci-rust-warnings/rust-warnings-win32-frontend.json || bash scripts/ci-artifact.sh put \"$GITHUB_RUN_ID/rust-warnings/rust-warnings-win32-frontend.json\" ci-rust-warnings/rust-warnings-win32-frontend.json",
     "if": "always()",
     "reason": "Warning collection to the MinIO ci-artifacts bucket",
-    "job_if": "${{ (inputs.phase == '' || inputs.phase == 'all' || inputs.phase == 'fast') && (needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true') }}"
+    "job_if": "${{ needs.changed.outputs.frontend == 'true' || needs.changed.outputs.rust == 'true' }}"
   }
 ]
 ```
