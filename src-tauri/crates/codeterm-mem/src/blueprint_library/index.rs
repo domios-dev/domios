@@ -259,8 +259,11 @@ fn decode(blob: &[u8], dimension: usize) -> Option<Vec<f32>> {
         return None;
     }
     let vector = blob
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .copied()
+        .map(f32::from_le_bytes)
         .collect::<Vec<_>>();
     valid_dimension(&vector, dimension).then_some(vector)
 }
