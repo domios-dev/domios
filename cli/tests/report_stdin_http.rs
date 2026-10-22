@@ -52,6 +52,7 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
+            let mut identify_probes = 0;
             for incoming in listener.incoming() {
                 let mut stream = incoming.unwrap();
                 let Some((headers, body)) = request(&stream) else {
@@ -62,6 +63,8 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
                     Some("Bearer fixture-token")
                 );
                 if body["method"] == "system.identify" {
+                    identify_probes += 1;
+                    assert_eq!(identify_probes, 1);
                     reply(&mut stream, true, json!({"result":{"ok":true}}));
                     continue;
                 }
@@ -70,6 +73,7 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
                     continue;
                 }
                 assert_eq!(body["method"], "agent.report");
+                assert_eq!(identify_probes, 1);
                 let params = &body["params"];
                 let matches = [
                     ("x-codeterm-tab-id", "tab_id"),
