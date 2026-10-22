@@ -161,8 +161,10 @@ fn blueprint_v2_runtime_denied_body_stops_before_sink() {
 #[test]
 fn blueprint_v2_runtime_port_schema_and_capability_refusal() {
     let mut doc = document("python", "pass", Path::new("opaque-sink"));
+    assert!(Document::from_definition(&doc).unwrap().lower().is_ok());
     doc["steps"][0]["code"]["caps"] = json!(["domios-cli"]);
-    assert!(Document::from_definition(&doc).unwrap().lower().is_err());
+    let refusal = Document::from_definition(&doc).unwrap_err();
+    assert!(refusal.contains("domios-cli capability is not approved"));
     let contract: codeterm_blueprint_types::blueprint_execution::ExecutionContract =
         serde_json::from_value(json!({"input":schema(),"output":schema()})).unwrap();
     assert!(contract

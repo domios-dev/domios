@@ -34,7 +34,11 @@ pub(super) fn run_step(
             let remaining = lease
                 .job
                 .expires_at
-                .map(|at| at.saturating_sub(now(handle)));
+                .map(|at| {
+                    at.saturating_sub(now(handle))
+                        .min(limit.as_millis().min(u64::MAX as u128) as u64)
+                })
+                .or(Some(limit.as_millis().min(u64::MAX as u128) as u64));
             let deadline =
                 crate::agent_stage::effective_deadline(*deadline_ms, remaining, Instant::now());
             let request = codeterm_plugin::agent_task::AgentTaskRequest {
@@ -96,8 +100,12 @@ pub(super) fn run_step(
             classify_job.question = question.clone();
             classify_job.buckets = buckets.clone();
             classify_job.matches.clear();
-            let classification =
-                crate::classify::classify(svc, &classify_job, previous, Duration::from_secs(30));
+            let classification = crate::classify::classify(
+                svc,
+                &classify_job,
+                previous,
+                Duration::from_secs(30).min(limit),
+            );
             classify_step(classification, buckets, previous)
         }
         StepKind::Filter { pattern, bucket } => match regex::Regex::new(pattern) {
@@ -148,7 +156,7 @@ pub(super) fn run_step(
                     path.parent().unwrap_or_else(|| Path::new(".")),
                     *from,
                     *to,
-                    input_deadline(handle, lease),
+                    input_deadline(handle, lease).min(Instant::now() + limit),
                     lease.cancelled.conversion_token(),
                     cleanup,
                     Instant::now,

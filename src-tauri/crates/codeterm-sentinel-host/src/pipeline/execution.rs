@@ -199,6 +199,16 @@ pub fn execute_step(
         {
             return Err(JournalReason::BudgetExhausted);
         }
+        let operation_limit = ctx.remaining().min(Duration::from_millis(
+            contract
+                .limits
+                .as_ref()
+                .and_then(|limits| limits.wall_ms)
+                .unwrap_or(u64::MAX),
+        ));
+        if operation_limit.is_zero() {
+            return Err(JournalReason::Deadline);
+        }
         let result = dispatch::run_step(
             ctx.handle,
             ctx.service,
@@ -210,13 +220,7 @@ pub fn execute_step(
             ctx.input_failure.as_deref(),
             &ctx.input_display,
             ctx.cleanup.clone(),
-            ctx.remaining().min(Duration::from_millis(
-                contract
-                    .limits
-                    .as_ref()
-                    .and_then(|limits| limits.wall_ms)
-                    .unwrap_or(u64::MAX),
-            )),
+            operation_limit,
         );
         if result.uncertain {
             return Err(JournalReason::UncertainEffect);
