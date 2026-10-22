@@ -186,6 +186,18 @@ pub fn run(
         )),
     )
     .map_err(io::Error::other)?;
+    running
+        .service
+        .register_host_extension(Arc::new(
+            codeterm_commands::application_host::ApplicationHostState(Arc::new(
+                crate::native_application_host::NativeApplicationHost {
+                    native: native_events.clone(),
+                    service: running.service.clone(),
+                    update_state: running.states.update.clone(),
+                },
+            )),
+        ))
+        .map_err(|_| io::Error::other("native application host already registered"))?;
     for notice in relocation_notices {
         log::warn!("[upgrade] {notice}");
         running.service.log_system_notice(
