@@ -151,7 +151,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   const descriptor = useAgentDescriptor(providerId);
   const backgroundWork = useComposerBackgroundWorkStatus();
   const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items);
-  const hasSubagents = backgroundWork.items.some(item => item.kind === "agent");
+  const onlySubagents = backgroundWork.items.length > 0 && backgroundWork.items.every(item => item.kind === "agent");
   const internalAgentLabel = `Internal agent of ${descriptor?.display_name ?? "parent harness"}`;
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
@@ -347,7 +347,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       <div id={linkedGroupId} hidden={phone && !unfolded} className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
         {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
         {kinds.map((kind) => {
-          const Icon = kind === "background" && hasSubagents ? Bot : KIND_ICON[kind];
+          const Icon = kind === "background" && onlySubagents ? Bot : KIND_ICON[kind];
           return (
             <ComposerContextChip
               key={kind}
@@ -355,8 +355,8 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
               kind={kind}
               open={open === kind}
               aria-pressed={open === kind}
-              aria-label={kind === "goal" ? KIND_LABEL.goal : `${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${kind === "delayed" && heartbeats.length > 0 ? ", plan heartbeat" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && hasSubagents ? `, ${internalAgentLabel}` : ""}`}
-              title={kind === "background" && hasSubagents ? `${KIND_LABEL[kind]} · ${internalAgentLabel}` : KIND_LABEL[kind]}
+              aria-label={kind === "goal" ? KIND_LABEL.goal : `${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${kind === "delayed" && heartbeats.length > 0 ? ", plan heartbeat" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && onlySubagents ? `, ${internalAgentLabel}` : ""}`}
+              title={kind === "background" && onlySubagents ? `${KIND_LABEL[kind]} · ${internalAgentLabel}` : KIND_LABEL[kind]}
               onClick={() => toggle(kind)}
             >
               <Icon size={13} aria-hidden="true" />
