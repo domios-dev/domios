@@ -50,16 +50,12 @@ impl EmbeddingModel {
         let types = Tensor::new(encoding.get_type_ids(), &Device::Cpu)?.unsqueeze(0)?;
         let mask = Tensor::new(encoding.get_attention_mask(), &Device::Cpu)?.unsqueeze(0)?;
         let hidden = self.model.forward(&ids, &types, Some(&mask))?;
-        let pooled = match self.pooling {
-            Pooling::Mean => {
-                let mask = mask.to_dtype(DType::F32)?.unsqueeze(2)?;
-                hidden
-                    .broadcast_mul(&mask)?
-                    .sum(1)?
-                    .broadcast_div(&mask.sum(1)?)?
-            }
-            Pooling::Cls => hidden.narrow(1, 0, 1)?.squeeze(1)?,
-        };
+        let weights = self
+            .pooling
+            .weights(encoding.get_attention_mask())
+            .map_err(candle_core::Error::Msg)?;
+        let weights = Tensor::new(weights, &Device::Cpu)?.reshape((1, encoding.len(), 1))?;
+        let pooled = hidden.broadcast_mul(&weights)?.sum(1)?;
         let vector = pooled.squeeze(0)?.to_vec1::<f32>()?;
         let norm = vector.iter().map(|v| v * v).sum::<f32>().sqrt() + 1e-12;
         Ok(vector.into_iter().map(|v| v / norm).collect())
