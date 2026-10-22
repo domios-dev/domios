@@ -79,6 +79,11 @@ pub(crate) fn verifies(svc: &ServiceContext, tab: &str, provider: &str, nonce: &
     exact && (retained || restored) && super::engine::requested(svc, provider)
 }
 
+#[cfg(test)]
+pub(crate) fn record_spawn_for_test(svc: &ServiceContext, tab: &str, provider: &str, nonce: &str) {
+    record_spawn(svc, tab, provider, nonce).unwrap();
+}
+
 pub(super) fn revoke(tab: &str) {
     LAUNCHES.lock().retain(|key, _| key.tab != tab);
 }
