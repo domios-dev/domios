@@ -56,9 +56,7 @@ impl RunWatcherRegistry {
         if let Some(result) = self.request_runtime_cron_completion(svc, tab_id, run_id, summary) {
             return result;
         }
-        let state = self.runs.lock().values().find(|state| state.tab_id == tab_id
-            && matches!(&state.kind, AgentRunKind::Cron { run_id: own, .. } if own == run_id))
-            .cloned().ok_or("cron run has no active watcher")?;
+        let state = self.cron_completion_state(svc, tab_id, run_id)?;
         if state.cron_completion.lock().is_some() {
             return Ok(());
         }
@@ -142,6 +140,58 @@ impl RunWatcherRegistry {
         });
         log::info!("[cron] completion requested; awaiting completed turn and durable answer: tab={tab_id} run={run_id}");
         Ok(())
+    }
+
+    fn cron_completion_state(
+        &self,
+        svc: &ServiceContext,
+        tab_id: &str,
+        run_id: &str,
+    ) -> Result<std::sync::Arc<super::RunState>, String> {
+        let existing = self.runs.lock().values().find(|state| state.tab_id == tab_id
+            && matches!(&state.kind, AgentRunKind::Cron { run_id: own, .. } if own == run_id)).cloned();
+        if let Some(state) = existing {
+            return Ok(state);
+        }
+        let (job_id, timeout) = {
+            let cron = svc
+                .try_ext::<crate::CronState>()
+                .ok_or("cron unavailable")?
+                .lock();
+            let (job, own_run) = cron
+                .get_tab_owner(tab_id)
+                .ok_or("cron tab has no active run")?;
+            if own_run != run_id {
+                return Err("cron run ownership changed".into());
+            }
+            let timeout = cron
+                .get(job)
+                .and_then(|job| job.timeout_seconds)
+                .unwrap_or(svc.configuration().memory.worker_timeout_seconds);
+            (job.to_string(), timeout)
+        };
+        let pty = svc
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone())
+            .ok_or("cron tab has no current PTY")?;
+        self.register(
+            svc.clone(),
+            pty.clone(),
+            tab_id.into(),
+            AgentRunKind::Cron {
+                job_id,
+                run_id: run_id.into(),
+            },
+            timeout,
+            None,
+        );
+        self.runs
+            .lock()
+            .get(&pty)
+            .cloned()
+            .ok_or("cron watcher registration ended")
     }
 
     pub(super) fn stop_pending_cron(&self, svc: &ServiceContext, tab_id: &str) -> bool {
