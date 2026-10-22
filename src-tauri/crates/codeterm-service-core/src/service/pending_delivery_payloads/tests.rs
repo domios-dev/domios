@@ -115,7 +115,9 @@ fn confirmed_terminal_frees_record_and_payload_together() {
     let mut record = Some(owner.clone());
 
     record.as_mut().unwrap().confirm().unwrap();
-    store.free_terminal_pair(&mut record, "confirmed").unwrap();
+    store
+        .free_terminal_pair(&mut record, "confirmed", &HashSet::new())
+        .unwrap();
 
     assert!(record.is_none());
     assert_eq!(
@@ -141,7 +143,7 @@ fn explicit_discard_frees_record_and_payload_together() {
     let mut record = Some(owner.clone());
 
     store
-        .free_terminal_pair(&mut record, "explicit_discard")
+        .free_terminal_pair(&mut record, "explicit_discard", &HashSet::new())
         .unwrap();
 
     assert!(record.is_none());
@@ -172,7 +174,7 @@ fn retry_exhaustion_frees_record_and_payload_together() {
     record.as_mut().unwrap().mark_unconfirmed();
 
     store
-        .free_terminal_pair(&mut record, "retry_exhausted")
+        .free_terminal_pair(&mut record, "retry_exhausted", &HashSet::new())
         .unwrap();
 
     assert!(record.is_none());
@@ -198,7 +200,7 @@ fn terminal_cleanup_failure_keeps_record_addressable() {
     ));
 
     assert_eq!(
-        store.free_terminal_pair(&mut record, "confirmed"),
+        store.free_terminal_pair(&mut record, "confirmed", &HashSet::new()),
         Err(PayloadStoreError::InvalidDigest)
     );
     assert!(record.is_some());
@@ -215,8 +217,9 @@ fn superseding_payload_removes_prior_digest() {
     let replacement_owner = record(&replacement_digest);
     let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
     store.write(&first_owner, first).unwrap();
+    store.write(&replacement_owner, replacement).unwrap();
     store
-        .replace(Some(&first_owner), &replacement_owner, replacement)
+        .retire_replaced(Some(&first_owner), &replacement_owner, &HashSet::new())
         .unwrap();
 
     assert_eq!(store.resolve(&replacement_owner).unwrap(), replacement);
@@ -272,8 +275,9 @@ fn write_and_replace_do_not_run_acl_setup_after_open() {
     let calls_after_open = acl_setup_calls();
 
     store.write(&first_owner, first).unwrap();
+    store.write(&second_owner, second).unwrap();
     store
-        .replace(Some(&first_owner), &second_owner, second)
+        .retire_replaced(Some(&first_owner), &second_owner, &HashSet::new())
         .unwrap();
 
     #[cfg(windows)]
@@ -398,7 +402,11 @@ fn identical_payload_sibling_survives_confirmation_and_restart() {
     let mut terminal = Some(first.clone());
     terminal.as_mut().unwrap().confirm().unwrap();
     store
-        .free_terminal_pair(&mut terminal, "confirmed")
+        .free_terminal_pair(
+            &mut terminal,
+            "confirmed",
+            &HashSet::from([second.content_digest.clone()]),
+        )
         .unwrap();
     assert!(!store.path_for_test(&first).exists());
     assert!(store.path_for_test(&second).exists());
@@ -421,17 +429,16 @@ fn replacing_identical_payload_owner_never_deletes_sibling() {
     let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
     store.write(&first, payload).unwrap();
     store.write(&second, payload).unwrap();
+    let live = HashSet::from([second.content_digest.clone()]);
+    store.write(&same_payload_replacement, payload).unwrap();
     store
-        .replace(Some(&first), &same_payload_replacement, payload)
+        .retire_replaced(Some(&first), &same_payload_replacement, &live)
         .unwrap();
     assert!(!store.path_for_test(&first).exists());
     assert_eq!(store.resolve(&second).unwrap(), payload);
+    store.write(&replacement, "opaque-replacement").unwrap();
     store
-        .replace(
-            Some(&same_payload_replacement),
-            &replacement,
-            "opaque-replacement",
-        )
+        .retire_replaced(Some(&same_payload_replacement), &replacement, &live)
         .unwrap();
     assert!(!store.path_for_test(&same_payload_replacement).exists());
     assert_eq!(store.resolve(&replacement).unwrap(), "opaque-replacement");
@@ -477,12 +484,21 @@ fn upgrade_digest_payload_survives_sibling_terminal_and_replace_until_orphaned()
     let mut terminal = Some(first.clone());
     terminal.as_mut().unwrap().confirm().unwrap();
     reopened
-        .free_terminal_pair(&mut terminal, "confirmed")
+        .free_terminal_pair(
+            &mut terminal,
+            "confirmed",
+            &HashSet::from([second.content_digest.clone()]),
+        )
         .unwrap();
     assert_eq!(reopened.resolve(&second).unwrap(), payload);
     let replacement = record(&digest("opaque-new-body"));
+    reopened.write(&replacement, "opaque-new-body").unwrap();
     reopened
-        .replace(Some(&first), &replacement, "opaque-new-body")
+        .retire_replaced(
+            Some(&first),
+            &replacement,
+            &live_payload_keys(&state.snapshot()),
+        )
         .unwrap();
     assert_eq!(reopened.resolve(&second).unwrap(), payload);
     reopened
@@ -508,3 +524,5 @@ fn corrupt_owned_payload_does_not_fall_back_to_valid_upgrade_payload() {
         })
     );
 }
+
+mod replacement;

@@ -188,17 +188,19 @@ impl crate::service::ServiceContext {
                 });
             }
         }
-        let record_is_live = self.mux.read().snapshot().tabs.values().any(|tab| {
+        let snapshot = self.mux.read().snapshot();
+        let record_is_live = snapshot.tabs.values().any(|tab| {
             tab.pending_delivery
                 .as_ref()
                 .is_some_and(|pending| pending.record_id() == record.record_id())
         });
         if !record_is_live {
             let mut consumed = Some(record);
-            if let Err(error) = self
-                .pending_delivery_payloads
-                .free_terminal_pair(&mut consumed, "interactive_send_claimed")
-            {
+            if let Err(error) = self.pending_delivery_payloads.free_terminal_pair(
+                &mut consumed,
+                "interactive_send_claimed",
+                &crate::service::pending_delivery_payloads::live_payload_keys(&snapshot),
+            ) {
                 log::warn!(
                     "[chat-send] parked send {} payload cleanup failed: {error}",
                     delivery_id
