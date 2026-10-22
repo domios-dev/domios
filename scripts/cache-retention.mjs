@@ -5,6 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { collectCargoBuilds, mapCheckouts, trimBuildDirectories } from './cargo-build-gc.mjs';
 import { trimLaneTargets } from './lane-target-gc.mjs';
+import { collectCheckWorktrees } from './check-worktree-paths.mjs';
 
 const DAY = 86400000;
 const markerName = '.codeterm-cache.json';
@@ -192,6 +193,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const [operation, gateway, checkout, target, home = gateway] = process.argv.slice(2);
     if (operation === 'mark') mark(gateway, checkout, target, Date.now(), process.ppid, home);
     else if (operation === 'gc' || operation === 'auto') {
+      if (operation === 'gc') collectCheckWorktrees(checkout, gateway, { dryRun: target === '--dry-run', log });
       if (process.env.CT_BUILD_GATEWAY_SCOPE !== 'fixture' && (operation === 'gc' || retentionDue(gateway, Date.now()))) {
         try {
           collectCargoBuilds(checkout, { dryRun: target === '--dry-run', record: path.join(gateway, 'stable-build-dirs.json') });
