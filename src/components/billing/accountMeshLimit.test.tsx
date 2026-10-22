@@ -1,6 +1,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const fetches = vi.hoisted(() => ({ localFetch: vi.fn(), localJson: vi.fn(async () => ({ consent: "off" })) }));
+vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...fetches }));
+
 import { AccountMeshRefusalError, openOnMeshRefusal, raiseMeshMachineLimit } from "./accountMeshLimit";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
 import { freeLimitGate, raiseFreeLimit } from "./freeLimitGate";
@@ -15,7 +19,17 @@ let root: Root | null = null;
 let nextRequest = 0;
 const requestId = () => `opaque-request-${++nextRequest}`;
 
+const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+const signedInDaemon = async (url: string) => {
+  const path = url.split("?")[0];
+  if (path.endsWith("/status")) return json({ identity: { uid: "user", display_name: "Ada", email: "ada@example.test", provider: "fake" }, pending: false, last_sign_in_failure: null });
+  if (path.includes("/plan")) return json({ entitlements: { plan: "free", status: "active", current_period_end: 0, cancel_at_period_end: false },
+    access: { authority: "free", full_access: false }, stale: false });
+  return json({});
+};
+
 async function mountModal(upgrade: (planKey: string) => Promise<void> = async () => {}) {
+  fetches.localFetch.mockImplementation(signedInDaemon);
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -25,7 +39,11 @@ async function mountModal(upgrade: (planKey: string) => Promise<void> = async ()
 const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
 const headline = () => dialog()?.querySelector("h2")?.textContent ?? null;
 const button = (name: string) => [...document.querySelectorAll("button")].find((candidate) => candidate.textContent === name)!;
-const click = (name: string) => act(async () => { button(name).click(); });
+const settle = () => act(async () => { for (let turn = 0; turn < 10; turn++) await Promise.resolve(); });
+const click = async (name: string) => {
+  await act(async () => { button(name).click(); });
+  await settle();
+};
 const deliver = (id: string, refusal: unknown) => act(async () => { raiseMeshMachineLimit({ requestId: id, refusal }); });
 
 /** Stands in for the account-Mesh facade: admits by the server's answer and never writes a record it refused. */
