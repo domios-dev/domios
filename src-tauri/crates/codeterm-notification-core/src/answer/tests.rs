@@ -190,6 +190,26 @@ fn notify_answer_takes_exactly_one_answer_per_notification() {
     );
 }
 
+/// Answering a question is reading it: the record leaves the unread set the
+/// moment the answer is recorded, and a refused answer leaves it unread.
+#[test]
+fn notify_answer_marks_the_question_read() {
+    let (mut store, id) = asked_from(Some("asking-tab"));
+    assert_eq!(
+        store.record_answer(&id, "Retreat"),
+        AnswerAdmission::NotOffered
+    );
+    assert_eq!(
+        store.list(true).len(),
+        1,
+        "a refused answer leaves the question unread"
+    );
+
+    store.record_answer(&id, "Rebase");
+
+    assert!(store.list(true).is_empty(), "the answered question is read");
+}
+
 /// An answer already recorded is history: closing the tab afterwards does not
 /// rewrite what the user chose.
 #[test]

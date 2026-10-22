@@ -27,6 +27,7 @@ export function updateNotificationAnswer(notification: import("./types").Notific
   if (!("answered" in update)) return { ...notification, answer_pending: false, answer_error: update.error };
   return {
     ...notification,
+    read: true,
     answer_pending: false,
     answer_error: update.delivered ? undefined : update.error ?? "The answer could not be delivered. Try again.",
     answer: {

@@ -26,6 +26,8 @@ export function createComposerUploads(deps: {
   registry: () => CapsuleRegistry;
   commit: (registry: CapsuleRegistry) => void;
   insert: (capsule: ComposerCapsule) => void;
+  /** The current draft text, so a capsule removed from it stops holding its number. */
+  draft?: () => string | undefined;
   store: (blob: Blob, name: string) => Promise<string>;
   publish: (uploads: ComposerUpload[]) => void;
 }) {
@@ -35,7 +37,7 @@ export function createComposerUploads(deps: {
     begin: (upload) => {
       const added = addCapsule(deps.registry(), {
         path: upload.name, kind: attachmentKindForUpload({ name: upload.name, mime: upload.blob.type }),
-      });
+      }, deps.draft?.());
       const capsule = { ...added.capsule, path: "", uploadId: upload.id };
       labels.set(upload.id, capsule.label);
       deps.commit({ ...added.registry, [capsule.label]: capsule });

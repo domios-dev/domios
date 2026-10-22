@@ -194,6 +194,17 @@ describe("drafting active plan on the team Board", () => {
     await unmount();
   });
 
+  it("shows a Team with no plan as planless instead of loading the plan feed forever", async () => {
+    installDaemon({ team: teamState(null), board: boardState(0) });
+    const { unmount } = await render(
+      <MissionControlPlanSurface mode="workspace" teamId={TEAM_ID} workspaceId="ws-test" plans={[]} loading tabs={{}} api={API} />,
+    );
+
+    expect(byTestId("mission-control-loading")).toBeNull();
+    expect(byTestId("mc-board-plan-empty")?.textContent).toBe("No active plan");
+    await unmount();
+  });
+
   it("keeps an archived plan out of the active slot", async () => {
     installDaemon({ team: teamState(null, [ARCHIVED]), board: boardState(1) });
     const { unmount } = await render(surface([ARCHIVED]));

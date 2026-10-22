@@ -50,6 +50,17 @@ type OwnedBlueprint = ReturnType<typeof useTabJobs>["blueprints"][number];
 const KIND_ICON = { blueprints: Workflow, crons: Clock3, delayed: Timer, goal: Target, background: Activity } as const;
 const KIND_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed messages", goal: "Session goal", background: "Background work" } as const;
 const KIND_SHORT_LABEL = { blueprints: "Blueprints", crons: "Crons", delayed: "Delayed", goal: "Goal", background: "Background" } as const;
+const KIND_NOUN: Record<Exclude<ContextKind, "goal">, [string, string]> = {
+  blueprints: ["blueprint", "blueprints"],
+  crons: ["cron", "crons"],
+  delayed: ["delayed message", "delayed messages"],
+  background: ["background work", "background work"],
+};
+
+function kindCount(kind: Exclude<ContextKind, "goal">, count: number): string {
+  const [one, many] = KIND_NOUN[kind];
+  return `${count} ${count === 1 ? one : many}`;
+}
 
 const keepComposerFocus = (event: MouseEvent) => event.preventDefault();
 
@@ -359,7 +370,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
               kind={kind}
               open={open === kind}
               aria-pressed={open === kind}
-              aria-label={kind === "goal" ? KIND_LABEL.goal : `${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${kind === "delayed" && heartbeats.length > 0 ? ", system reminder" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && onlySubagents ? `, ${internalAgentLabel}` : ""}`}
+              aria-label={kind === "goal" ? KIND_LABEL.goal : `${kindCount(kind, counts[kind])}${kind === "delayed" && heartbeats.length > 0 ? ", system reminder" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && onlySubagents ? `, ${internalAgentLabel}` : ""}`}
               title={kind === "background" && onlySubagents ? `${KIND_LABEL[kind]} · ${internalAgentLabel}` : KIND_LABEL[kind]}
               onClick={() => toggle(kind)}
             >
