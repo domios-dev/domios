@@ -1,7 +1,11 @@
+mod dispatch;
+mod execution;
 mod sources;
+use codeterm_blueprint_types::blueprint_execution::ExecutionEnvelope;
 use codeterm_blueprint_types::blueprint_journal::{
     JournalMarker, JournalOutcome, JournalReason, JournalState,
 };
+pub use execution::{execute_step, RunCtx, StepExecution};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -288,12 +292,12 @@ fn run_pipeline(
                 )
             },
             || {
-                run_step(
+                dispatch::run_step(
                     handle,
                     svc,
                     lease,
                     step,
-                    &text,
+                    &ExecutionEnvelope::from_text(&text),
                     input_kind,
                     input_source.as_deref(),
                     input_failure.as_deref(),
@@ -624,190 +628,6 @@ fn run_pipeline(
         terminal_state.into(),
         terminal_failure.unwrap_or_else(|| outcome.into()),
     ))
-}
-
-fn run_step(
-    handle: &Handle,
-    svc: &ServiceContext,
-    lease: &Lease,
-    step: &Step,
-    previous: &str,
-    input_kind: Option<MediaKind>,
-    input_source: Option<&Path>,
-    input_failure: Option<&str>,
-    input_display: &str,
-    cleanup: Option<std::sync::Arc<super::input::Cleanup>>,
-) -> StepResult {
-    if let Some(reason) = input_failure {
-        return failed_input_step(reason);
-    }
-    match &step.kind {
-        StepKind::Command { .. } | StepKind::Github { .. } | StepKind::Http { .. } => {
-            sources::run(handle, lease, step, previous)
-        }
-        StepKind::Agent {
-            provider,
-            profile,
-            task,
-            deadline_ms,
-            max_tokens,
-            max_turns,
-        } => {
-            let remaining = lease
-                .job
-                .expires_at
-                .map(|at| at.saturating_sub(now(handle)));
-            let deadline =
-                super::agent_stage::effective_deadline(*deadline_ms, remaining, Instant::now());
-            let request = codeterm_plugin::agent_task::AgentTaskRequest {
-                input: codeterm_plugin::agent_task::AgentTaskInput {
-                    run_id: uuid::Uuid::new_v4().simple().to_string(),
-                    tab_id: lease.job.creator_tab_id.clone(),
-                    workspace_id: lease.job.workspace_id.clone(),
-                    profile: profile.clone(),
-                    task: task.clone(),
-                    input: previous.into(),
-                    timeout_ms: deadline
-                        .saturating_duration_since(Instant::now())
-                        .as_millis()
-                        .max(1) as u64,
-                    max_tokens: *max_tokens,
-                    max_turns: *max_turns,
-                },
-                deadline,
-                cancellation: lease.cancelled.conversion_token(),
-            };
-            let result = svc
-                .chatbackend_registry
-                .get(provider)
-                .ok_or_else(|| "agent provider unavailable".to_string())
-                .and_then(|provider| super::agent_stage::run(provider, request));
-            let result =
-                result.unwrap_or_else(|error| codeterm_plugin::agent_task::AgentTaskResult {
-                    status: codeterm_plugin::agent_task::AgentTaskStatus::Failed,
-                    output: serde_json::Value::Null,
-                    error: Some(error),
-                });
-            let (done, _) = super::agent_stage::result_fields(&result);
-            StepResult {
-                outcome: if done {
-                    StepOutcome::Done
-                } else {
-                    StepOutcome::Failed
-                },
-                stored_outcome: if done { "done" } else { "failed" }.into(),
-                state: if done {
-                    JournalState::Done
-                } else {
-                    JournalState::Failed
-                },
-                summary: if done {
-                    "agent task completed"
-                } else {
-                    "agent task failed or aborted"
-                }
-                .into(),
-                reason: result.error.clone().map(Into::into),
-                next_text: serde_json::to_string(&result).unwrap_or_default(),
-                decision: None,
-                uncertain: false,
-            }
-        }
-        StepKind::Ask { question, buckets } => {
-            let mut classify_job = lease.job.clone();
-            classify_job.question = question.clone();
-            classify_job.buckets = buckets.clone();
-            classify_job.matches.clear();
-            let classification =
-                super::classify::classify(svc, &classify_job, previous, Duration::from_secs(30));
-            classify_step(classification, buckets, previous)
-        }
-        StepKind::Filter { pattern, bucket } => match regex::Regex::new(pattern) {
-            Ok(regex) if regex.is_match(previous) => {
-                let outcome = bucket.clone().unwrap_or_else(|| "done".into());
-                let step_outcome = if outcome == "done" {
-                    StepOutcome::Done
-                } else {
-                    StepOutcome::Bucket(outcome.clone())
-                };
-                StepResult {
-                    outcome: step_outcome,
-                    stored_outcome: outcome.into(),
-                    state: JournalState::Done,
-                    summary: "filter matched".into(),
-                    reason: None,
-                    next_text: previous.into(),
-                    decision: Some(("filter_match".into(), None)),
-                    uncertain: false,
-                }
-            }
-            Ok(_) => StepResult {
-                outcome: StepOutcome::Failed,
-                stored_outcome: "failed".into(),
-                state: JournalState::Failed,
-                summary: "filter did not match".into(),
-                reason: Some("filter_no_match".into()),
-                next_text: previous.into(),
-                decision: Some(("filter_no_match".into(), Some("filter_no_match".into()))),
-                uncertain: false,
-            },
-            Err(_) => StepResult {
-                outcome: StepOutcome::Failed,
-                stored_outcome: "failed".into(),
-                state: JournalState::Failed,
-                summary: "filter pattern failed to compile".into(),
-                reason: Some("invalid_filter".into()),
-                next_text: previous.into(),
-                decision: Some(("probe_error".into(), Some("invalid_filter".into()))),
-                uncertain: false,
-            },
-        },
-        StepKind::Convert { from, to } => {
-            let conversion = match (input_kind, input_source) {
-                (Some(kind), Some(path)) if kind == *from => super::input::convert(
-                    svc.ext::<std::sync::Arc<codeterm_plugin::converter::ConverterRegistry>>(),
-                    path,
-                    path.parent().unwrap_or_else(|| Path::new(".")),
-                    *from,
-                    *to,
-                    input_deadline(handle, lease),
-                    lease.cancelled.conversion_token(),
-                    cleanup,
-                    Instant::now,
-                ),
-                (Some(_), Some(_)) => Err("conversion_input_kind_mismatch".into()),
-                _ => Err("conversion_input_missing".into()),
-            };
-            match conversion {
-                Ok(output) => StepResult {
-                    outcome: StepOutcome::Done,
-                    stored_outcome: "done".into(),
-                    state: JournalState::Done,
-                    summary: format!(
-                        "{} {} -> {}, {} chars",
-                        from.as_str(),
-                        input_display,
-                        to.as_str(),
-                        output.chars().count()
-                    ),
-                    reason: None,
-                    next_text: output,
-                    decision: None,
-                    uncertain: false,
-                },
-                Err(reason) => StepResult {
-                    outcome: StepOutcome::Failed,
-                    stored_outcome: "failed".into(),
-                    state: JournalState::Failed,
-                    summary: format!("conversion failed: {reason}"),
-                    reason: Some(reason.clone().into()),
-                    next_text: format!("Input conversion failed: {reason}"),
-                    decision: None,
-                    uncertain: false,
-                },
-            }
-        }
-    }
 }
 
 fn command_failure(failure: probe::process::ProbeFailure, previous: &str) -> StepResult {

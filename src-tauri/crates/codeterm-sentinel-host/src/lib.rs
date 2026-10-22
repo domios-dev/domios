@@ -23,7 +23,7 @@ pub(crate) mod classify;
 pub mod code_runtime;
 pub mod event_subscription;
 pub mod graph;
-mod pipeline;
+pub mod pipeline;
 mod probe_env;
 pub(crate) mod routes;
 pub(crate) mod run_binding;

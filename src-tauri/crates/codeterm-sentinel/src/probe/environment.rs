@@ -20,6 +20,10 @@ impl Environment {
                 ("HOME".into(), directory.as_os_str().to_owned()),
                 ("TMPDIR".into(), directory.as_os_str().to_owned()),
                 ("LANG".into(), "C.UTF-8".into()),
+                (
+                    "OPENSSL_CONF".into(),
+                    directory.join("openssl.cnf").into_os_string(),
+                ),
             ],
         }
     }
@@ -44,20 +48,36 @@ impl Environment {
                 }
             }
         }
-        let mut variables = Vec::new();
-        for (key, value) in inherited {
-            if is_instance_variable(&key) {
-                continue;
-            }
-            if key.to_string_lossy().eq_ignore_ascii_case("PATH") {
-                let path = probe_path(Some(&value), path_defaults).unwrap_or_default();
-                let paths = std::env::split_paths(&path)
-                    .filter(|path| !cli_dirs.iter().any(|cli| same_directory(path, cli)));
-                variables.push((key, std::env::join_paths(paths).unwrap_or_default()));
-            } else {
-                variables.push((key, value));
+        let mut paths: Vec<PathBuf> = if cfg!(windows) {
+            Vec::new()
+        } else {
+            vec!["/usr/bin".into(), "/bin".into()]
+        };
+        paths.extend(path_defaults.iter().map(PathBuf::from));
+        let mut variables = vec![("LANG".into(), "C.UTF-8".into())];
+        #[cfg(windows)]
+        if let Some((_, root)) = inherited
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("SystemRoot"))
+        {
+            let root_path = PathBuf::from(root);
+            if root_path.is_absolute() {
+                paths.push(root_path.join("System32"));
+                variables.push(("SystemRoot".into(), root.clone()));
             }
         }
+        paths.retain(|path| {
+            path.is_absolute()
+                && !cli_dirs.iter().any(|cli| same_directory(path, cli))
+                && !["codeterm", "domios", "codeterm.exe", "domios.exe"]
+                    .iter()
+                    .any(|name| path.join(name).is_file())
+        });
+        paths.dedup();
+        variables.push((
+            "PATH".into(),
+            std::env::join_paths(paths).unwrap_or_default(),
+        ));
         Self { variables }
     }
 
@@ -81,22 +101,13 @@ impl Environment {
     }
 }
 
-fn is_instance_variable(key: &OsStr) -> bool {
-    let key = key.to_string_lossy().to_ascii_uppercase();
-    key == "CODETERM"
-        || key == "DOMIOS"
-        || key.starts_with("CODETERM_")
-        || key.starts_with("DOMIOS_")
-}
-
 fn same_directory(left: &Path, right: &Path) -> bool {
-    let left: PathBuf = left.components().collect();
-    let right: PathBuf = right.components().collect();
-    if cfg!(windows) {
-        left.to_string_lossy()
-            .eq_ignore_ascii_case(&right.to_string_lossy())
-    } else {
-        left == right
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ if cfg!(windows) => left
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&right.to_string_lossy()),
+        _ => left == right,
     }
 }
 

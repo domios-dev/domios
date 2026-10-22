@@ -92,7 +92,10 @@ socket.on('error',(e)=>{{ if(!['EPERM','EACCES'].includes(e.code)) throw e; x.va
             &Cancellation::default(),
         )
         .expect("native sandbox must execute; unavailable confinement is a FAILED proof");
-        if !result.success { failures.push(format!("native {:?} failed: {}",code.lang,result.text)); continue; }
+        if !result.success {
+            failures.push(format!("native {:?} failed: {}", code.lang, result.text));
+            continue;
+        }
         let value: serde_json::Value = serde_json::from_str(&result.stdout_text()).unwrap();
         assert_eq!(value["value"]["n"], 8);
         assert!(!forbidden.exists());
