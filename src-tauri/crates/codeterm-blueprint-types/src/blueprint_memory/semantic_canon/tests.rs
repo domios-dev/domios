@@ -379,7 +379,8 @@ fn canon_drops_credentials_and_instance_paths() {
     let text = canon(&source);
     assert!(!text.contains("ghp_"), "{text}");
     assert!(!text.contains("/users"), "{text}");
-    assert!(text.contains("{path}"), "{text}");
+    assert!(!text.contains("authorization"), "{text}");
+    assert!(text.contains("runs curl h"), "{text}");
 }
 
 #[test]
@@ -389,8 +390,16 @@ fn canon_drops_secrets_that_follow_a_credential_keyword() {
         "run: \"deploy --password hunter-two-secret --token abcdefghij && curl -H 'Authorization: Bearer zyxwvutsrqponmlkjihgfedcba' https://x.example.com\"",
     );
     let text = canon(&source);
-    for secret in ["hunter", "abcdefghij", "zyxwvutsrqponmlkjihgfedcba"] {
-        assert!(!text.contains(secret), "{secret} in {text}");
+    for leaked in [
+        "hunter",
+        "abcdefghij",
+        "zyxwvutsrqponmlkjihgfedcba",
+        "password",
+        "token",
+        "authorization",
+        "bearer",
+    ] {
+        assert!(!text.contains(leaked), "{leaked} in {text}");
     }
-    assert!(text.contains("runs deploy password token"), "{text}");
+    assert!(text.contains("runs deploy curl h {url}"), "{text}");
 }

@@ -122,7 +122,14 @@ fn structure_only_fuses_when_a_draft_is_given() {
     let mem = MemManager::open_in_memory().unwrap();
     let logs = keep(&mem, "project", LOGS, &["shared words here"]);
     let backup = keep(&mem, "project", BACKUP, &["shared words here"]);
-    let config = RecallConfig::default();
+    let config = RecallConfig {
+        fusion: Fusion::Rrf,
+        weights: Weights {
+            structure: 2.0,
+            ..RecallConfig::default().weights
+        },
+        ..RecallConfig::default()
+    };
     let plain = mem
         .recall_blueprint_hits("project", "shared words", None, 5, &config)
         .unwrap();
