@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -13,6 +13,34 @@ const helpers = ['cli_profile_dir', 'cli_release_dir', 'cli_profile_binary', 'cl
 const start = source.indexOf('    echo "Building CLI..."');
 const end = source.indexOf('\n    build_and_launch_dev "${@:2}"', start);
 const body = source.slice(start, end);
+
+for (const [platform, extension] of [['linux-gnu', ''], ['darwin', ''], ['msys', '.exe']]) {
+  test(`CLI installation exposes byte-identical domios and codeterm commands: ${platform}`, () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'cli alias install-'));
+    try {
+      const artifact = path.join(directory, 'artifact');
+      writeFileSync(artifact, '#!/bin/sh\nprintf instance-cli', { mode: 0o755 });
+      const installer = ['install_cli_to', 'cli_file_sha256', 'cli_file_sha256_or_status']
+        .map(name => source.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
+      const result = spawnSync(bash, ['-c', `set -euo pipefail
+${installer}
+OSTYPE="$2"
+report_cli_install_failure() { printf '%s\\n' "$*" >&2; }
+install_cli_to "$1/bin" "$1/artifact"
+cmp "$1/bin/codeterm$3" "$1/bin/domios$3"
+rm "$1/bin/domios$3"
+ln "$1/bin/codeterm$3" "$1/bin/domios$3"
+install_cli_to "$1/bin" "$1/artifact"
+cmp "$1/bin/codeterm$3" "$1/bin/domios$3"
+export PATH="$1/bin:$PATH"
+command -v domios$3
+`, '--', directory.replaceAll('\\', '/'), platform, extension], { encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      assert.ok(result.stdout.trim().endsWith(`/bin/domios${extension}`), result.stdout);
+      assert.deepEqual(readFileSync(path.join(directory, `bin/domios${extension}`)), readFileSync(artifact));
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+}
 
 for (const [platform, extension] of [['linux-gnu', ''], ['darwin', ''], ['msys', '.exe']]) {
   for (const target of ['', 'opaque-target']) {

@@ -51,8 +51,8 @@ pub fn forward_to_cli_if_invoked() {
             eprintln!(
                 "codeterm: this binary is the GUI app, not the CLI. \
                  Install the CLI by launching Domios at least once \
-                 (it auto-installs to ~/.codeterm/bin/codeterm and symlinks \
-                 ~/.local/bin/codeterm), then re-run."
+                 (it auto-installs to ~/.domios/bin/domios and symlinks \
+                 ~/.local/bin/domios), then re-run."
             );
             std::process::exit(2);
         }
