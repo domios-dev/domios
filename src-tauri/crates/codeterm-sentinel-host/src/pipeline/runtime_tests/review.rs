@@ -1,6 +1,5 @@
 use super::*;
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_review_memory_is_positioned_refusal() {
     let source = "schema_version: 2\nkind: pipeline\nname: memory-proof\ntrigger: {type: input, kind: {lit: text}, source: {lit: {text: hi}}}\nsteps:\n  - id: bounded\n    code:\n      lang: python\n      src: 'def main(value): return value'\n      limits: {mem_mb: 64}\nresult: {to: notify}\n";
@@ -14,7 +13,11 @@ fn blueprint_v2_runtime_review_memory_is_positioned_refusal() {
         .iter()
         .any(|d| d.field == "steps[0].code.limits.mem_mb"
             && d.line == 10
-            && d.message.contains("unsupported: memory budget on macOS")));
+            && d.message.contains(if cfg!(target_os = "macos") {
+                "unsupported: memory budget on macOS"
+            } else {
+                "unsupported: memory budget on this node"
+            })));
 }
 
 #[test]
@@ -72,7 +75,7 @@ fn blueprint_v2_runtime_review_ordinary_raise_routes_failed_with_stderr() {
     close(storage);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 #[test]
 fn blueprint_v2_runtime_review_code_file_is_frozen_at_admission() {
     let root = tempfile::tempdir().unwrap();
@@ -94,13 +97,27 @@ fn blueprint_v2_runtime_review_code_file_is_frozen_at_admission() {
     assert_eq!(code.file, None, "persisted root graphs must seal code.file");
     assert_eq!(code.src.as_deref(), Some(src));
     let (completion, diagnostic) = run_recorded(&handle, &fixture.service, &lease, "freeze-proof");
-    assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
-    assert_eq!(
-        ExecutionEnvelope::decode(&std::fs::read(&sink).unwrap())
-            .unwrap()
-            .value,
-        json!({"n":8})
-    );
+    #[cfg(target_os = "macos")]
+    {
+        assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
+        assert_eq!(
+            ExecutionEnvelope::decode(&std::fs::read(&sink).unwrap())
+                .unwrap()
+                .value,
+            json!({"n":8})
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        assert_eq!(completion.state, JournalState::Failed, "{diagnostic}");
+        assert_eq!(
+            completion.reason,
+            JournalReason::UnsupportedPlatform,
+            "{diagnostic}"
+        );
+        assert!(!sink.exists());
+        assert_eq!(handle.probe_owner.snapshot().settled_total, 0);
+    }
     drop(handle);
     drop(fixture);
     close(storage);
@@ -233,7 +250,6 @@ fn blueprint_v2_runtime_review_raising_main_redacts_and_bounds_stderr() {
     close(storage);
 }
 
-#[cfg(target_os = "macos")]
 #[test]
 fn blueprint_v2_runtime_review_missing_main_refuses_before_launch() {
     use codeterm_blueprint_types::blueprint_document::{Code, Language, Limits};
@@ -245,12 +261,13 @@ fn blueprint_v2_runtime_review_missing_main_refuses_before_launch() {
         caps: vec![],
         limits: Limits::default(),
     };
-    let failure = crate::code_runtime::run(
+    let failure = crate::code_runtime::run_with_output(
         &code,
         b"{}",
         Duration::from_secs(3),
         &owner,
         &Default::default(),
+        None,
     )
     .unwrap_err();
     assert_eq!(failure.reason, "contract_violation");

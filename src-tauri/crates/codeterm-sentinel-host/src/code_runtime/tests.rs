@@ -150,7 +150,7 @@ fn blueprint_v2_runtime_native_cancellation_uses_child_events() {
     assert_eq!(owner.snapshot().unconfirmed, 0);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 #[test]
 fn blueprint_v2_runtime_code_file_refuses_symlink_escape() {
     use std::os::unix::fs::symlink;
@@ -173,4 +173,29 @@ fn blueprint_v2_runtime_code_file_refuses_symlink_escape() {
         super::source::read(root.path(), "fixed.py").unwrap(),
         "print('fixed')"
     );
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn blueprint_v2_runtime_unsupported_host_never_launches_code() {
+    use codeterm_blueprint_types::blueprint_document::Limits;
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("must-not-execute");
+    let path = serde_json::to_string(&marker).unwrap();
+    let owner = Arc::new(ProbeResourceOwner::new());
+    for (lang, src) in [
+        (Language::Python, format!("def main(value):\n open({path}, 'w').write('unconfined')\n return value\n")),
+        (Language::Ts, format!("import fs from 'node:fs';\nexport default function main(value) {{ fs.writeFileSync({path}, 'unconfined'); return value; }}")),
+    ] {
+        let cancellation = Cancellation::default();
+        let receipt = crate::probe::test_receipt::Receipt::start("unsupported-code", &cancellation);
+        let code = Code { lang, src: Some(src), file: None, caps: vec![], limits: Limits::default() };
+        let failure = run_with_output(&code, b"{}", Duration::from_secs(3), &owner, &cancellation, None).unwrap_err();
+        let receipt = receipt.finish(false, failure.reason, &format!("{failure:?}"));
+        assert_eq!(failure.reason, "unsupported_platform", "{}", receipt.diagnostic);
+        assert!(!failure.uncertain);
+        assert!(receipt.child_pids.is_empty());
+        assert!(!marker.exists());
+    }
+    assert_eq!(owner.snapshot().settled_total, 0);
 }
