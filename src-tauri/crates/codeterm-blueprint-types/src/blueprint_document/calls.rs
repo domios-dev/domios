@@ -1,0 +1,185 @@
+use super::{projection, Diagnostic, Document, Location, Parsed};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+mod imports;
+pub mod ports;
+pub use imports::{resolve, resolve_local, verify_local_sources};
+mod analysis;
+pub use analysis::{arguments, check_facts, CallFinding, VerifiedCall};
+#[cfg(test)]
+mod tests;
+
+pub const MAX_CALL_DEPTH: usize = 8;
+pub const MAX_CLOSURE_BYTES: usize = 262_144;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CallPin {
+    pub id: String,
+    pub hash: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FrozenCallee {
+    pub id: String,
+    pub hash: String,
+    pub document: Box<Document>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub locations: BTreeMap<String, Location>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_hash: Option<String>,
+}
+impl FrozenCallee {
+    pub fn verify(&self) -> Result<(), String> {
+        if !self.document.dependencies.is_empty() {
+            return Err("A callee snapshot must use the flat dependency closure".into());
+        }
+        if projection::identity(&self.document)? != self.hash {
+            return Err(format!(
+                "Pinned bytes do not match {}@{}",
+                self.id, self.hash
+            ));
+        }
+        if self.document.trigger.is_some()
+            || self.document.kind != super::Kind::Pipeline
+            || self.document.result.port.is_none()
+            || self.document.result.from.is_none()
+            || self.document.result.to.is_some()
+        {
+            return Err(format!("{} is not a typed callable Blueprint", self.id));
+        }
+        let errors = self.document.template_errors();
+        if !errors.is_empty() {
+            return Err(format!("Invalid callable: {errors:?}"));
+        }
+        Ok(())
+    }
+    pub fn pin(&self) -> CallPin {
+        CallPin {
+            id: self.id.clone(),
+            hash: self.hash.clone(),
+        }
+    }
+    pub fn parsed(&self) -> Parsed {
+        Parsed {
+            document: (*self.document).clone(),
+            locations: self.locations.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FrozenClosure {
+    pub root: Parsed,
+    pub callees: BTreeMap<String, FrozenCallee>,
+}
+impl FrozenClosure {
+    pub fn from_document(document: Document) -> Result<Self, String> {
+        let mut document = document;
+        let callees = std::mem::take(&mut document.dependencies);
+        let closure = Self {
+            root: Parsed {
+                document,
+                locations: BTreeMap::new(),
+            },
+            callees,
+        };
+        closure.verify()?;
+        Ok(closure)
+    }
+    pub fn document(&self) -> Document {
+        let mut document = self.root.document.clone();
+        document.dependencies = self.callees.clone();
+        document
+    }
+    pub fn callee(&self, pin: &CallPin) -> Result<&FrozenCallee, String> {
+        let callee = self
+            .callees
+            .get(&pin.hash)
+            .ok_or_else(|| format!("Missing pinned hash {}@{}", pin.id, pin.hash))?;
+        if callee.id != pin.id {
+            return Err(format!("Pinned identity mismatch: {}@{}", pin.id, pin.hash));
+        }
+        callee.verify()?;
+        Ok(callee)
+    }
+    pub fn verify(&self) -> Result<(), String> {
+        let bytes = serde_json::to_vec(&self.document()).map_err(|e| e.to_string())?;
+        if bytes.len() > MAX_CLOSURE_BYTES {
+            return Err("Call closure exceeds 256 KiB".into());
+        }
+        for (hash, callee) in &self.callees {
+            if hash != &callee.hash {
+                return Err("Dependency key is not its content hash".into());
+            }
+            callee.verify()?;
+        }
+        self.verify_graph(&self.root.document, &mut Vec::new())
+    }
+    fn verify_graph(&self, document: &Document, stack: &mut Vec<CallPin>) -> Result<(), String> {
+        if stack.len() > MAX_CALL_DEPTH {
+            return Err("budget_exhausted: call depth exceeds eight".into());
+        }
+        for node in document.nodes() {
+            let Some(call) = &node.call else { continue };
+            let pin = call
+                .pin
+                .as_ref()
+                .ok_or("Unresolved call has no immutable pin")?;
+            if stack.contains(pin) {
+                return Err("Recursive call closure".into());
+            }
+            let callee = self.callee(pin)?;
+            stack.push(pin.clone());
+            self.verify_graph(&callee.document, stack)?;
+            stack.pop();
+        }
+        Ok(())
+    }
+    pub fn drift(&self, resolver: &dyn MemoryResolver) -> Result<Vec<Drift>, String> {
+        let mut result = Vec::new();
+        for callee in self.callees.values().filter(|c| c.id.starts_with("mem:")) {
+            let pinned = resolver.revision(&callee.pin())?;
+            if projection::identity(&pinned)? != callee.hash {
+                return Err("Missing or corrupted pinned revision".into());
+            }
+            let head = resolver.head(&callee.id)?;
+            let hash = projection::identity(&head)?;
+            if hash != callee.hash {
+                result.push(Drift {
+                    pin: callee.pin(),
+                    head_hash: hash,
+                    diff: projection::diff(&callee.document, &head),
+                });
+            }
+        }
+        Ok(result)
+    }
+}
+
+pub trait MemoryResolver {
+    fn head(&self, id: &str) -> Result<Document, String>;
+    fn revision(&self, pin: &CallPin) -> Result<Document, String>;
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Drift {
+    pub pin: CallPin,
+    pub head_hash: String,
+    pub diff: projection::SemanticDiff,
+}
+
+pub(super) fn finding(parsed: &Parsed, field: &str, message: impl Into<String>) -> Diagnostic {
+    let location = parsed.at(field);
+    Diagnostic {
+        file: location.file,
+        line: location.line,
+        column: location.column,
+        field: field.into(),
+        severity: "error".into(),
+        message: message.into(),
+        hint: "Use a unique local/inline callable or an exact scoped mem id/hash".into(),
+    }
+}
