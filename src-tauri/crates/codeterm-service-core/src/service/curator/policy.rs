@@ -27,6 +27,9 @@ impl RolePolicy for CuratorPolicy {
     fn conservative_save(&self) -> bool {
         true
     }
+    fn authorize_notification(&self, service: &ServiceContext, tab: &str) -> Result<(), String> {
+        Err(super::ask::notification_refusal(service, tab))
+    }
     fn run_completion(&self) -> crate::service::role_policy::RunCompletion {
         crate::service::role_policy::RunCompletion::ExplicitFinish
     }
