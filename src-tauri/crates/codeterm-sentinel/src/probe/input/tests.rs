@@ -38,7 +38,7 @@ fn blueprint_command_stdin_preserves_typed_result_and_eof() {
     assert_eq!(
         ExecutionEnvelope::decode(output.stdout_text().as_bytes())
             .unwrap()
-            .text,
+            .payload_text(),
         "opaque plain text"
     );
 }
@@ -50,10 +50,11 @@ fn blueprint_command_stdin_bounds_oversized_result_with_typed_marker() {
         "\u{0000}".repeat(20_000),
         "界".repeat(40_000),
     ] {
-        assert_eq!(
-            encode(&text).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
+        let encoded = encode(&text).unwrap();
+        assert!(encoded.len() <= 32768);
+        let marker = ExecutionEnvelope::decode(&encoded).unwrap();
+        assert_eq!(marker.value["truncated"], true);
+        assert_eq!(marker.value["total_bytes"], text.len());
     }
 }
 
@@ -67,10 +68,11 @@ fn blueprint_command_ignoring_stdin_completes() {
 #[test]
 fn blueprint_v2_runtime_stdin_exact_boundary_and_argv_separation() {
     let empty = ExecutionEnvelope::from_text("").encode().unwrap().len();
-    let payload = "x".repeat((32768 - empty) / 2);
+    let payload = "x".repeat(32768 - empty);
     let encoded = encode(&payload).unwrap();
     assert!(encoded.len() <= 32768);
-    assert!(encode(&(payload + "x")).is_err());
+    let marker = ExecutionEnvelope::decode(&encode(&(payload + "x")).unwrap()).unwrap();
+    assert_eq!(marker.value["truncated"], true);
     let opaque = "$(touch forbidden) `exit 19` ; exit 21";
     #[cfg(unix)]
     let command = "printf '%s\\n' \"$#\"; cat";
@@ -83,16 +85,18 @@ fn blueprint_v2_runtime_stdin_exact_boundary_and_argv_separation() {
     let (argc, stdin) = stdout.split_once('\n').unwrap();
     assert_eq!(argc.trim(), "0");
     assert_eq!(
-        ExecutionEnvelope::decode(stdin.as_bytes()).unwrap().text,
+        ExecutionEnvelope::decode(stdin.as_bytes())
+            .unwrap()
+            .payload_text(),
         opaque
     );
 }
 
 #[test]
-fn blueprint_v2_runtime_oversized_stdin_refuses_before_command_effect() {
+fn blueprint_v2_runtime_oversized_stdin_delivers_explicit_marker() {
     let dir = tempfile::tempdir().unwrap();
     let result = run_with_budget_input(
-        "echo effect",
+        READ,
         dir.path(),
         PROBE_RUNTIME,
         PROBE_RUNTIME,
@@ -100,5 +104,9 @@ fn blueprint_v2_runtime_oversized_stdin_refuses_before_command_effect() {
         &Environment::default(),
         &"x".repeat(32768),
     );
-    assert_eq!(result.unwrap_err().primary, "contract_violation");
+    let output = result.unwrap();
+    assert!(output.success);
+    let marker = ExecutionEnvelope::decode(output.stdout_text().as_bytes()).unwrap();
+    assert_eq!(marker.value["truncated"], true);
+    assert_eq!(marker.value["total_bytes"], 32768);
 }

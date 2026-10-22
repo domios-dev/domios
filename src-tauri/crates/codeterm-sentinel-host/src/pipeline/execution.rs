@@ -246,7 +246,7 @@ pub fn execute_step(
                         media: "text".into(),
                         schema_id: None,
                         value: serde_json::Value::String(result.next_text.clone()),
-                        text: result.next_text.clone(),
+                        text: String::new(),
                     },
                     Some(media @ ("file" | "audio" | "video" | "image")) => ExecutionEnvelope {
                         media: media.into(),
@@ -264,6 +264,7 @@ pub fn execute_step(
                 .as_ref()
                 .and_then(|port| port.reference.clone());
         }
+        let output = ExecutionEnvelope::decode(&output.encode()?)?;
         if result.state == JournalState::Done {
             contract.validate(&output, true)?;
         }

@@ -199,6 +199,7 @@ fn nodes(
                 "Choose exactly one uses, run, code or call".into(),
             ));
         }
+        errors.extend(super::code_contract::errors(node, &path));
         if let Some(code) = &node.code {
             if code.src.is_some() == code.file.is_some() {
                 errors.push((

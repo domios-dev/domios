@@ -25,20 +25,33 @@ pub(super) fn run(
             output_bytes: minimum(code.limits.output_bytes, limits.output_bytes),
         };
     }
+    let body_sha256 =
+        codeterm_blueprint_types::blueprint_document::code_contract::body_sha256(&code)
+            .unwrap_or_default();
     let timeout = Duration::from_millis(code.limits.wall_ms.unwrap_or(3000)).min(limit);
-    match crate::code_runtime::run_from_directory(
+    match crate::code_runtime::run_with_output(
         &code,
-        Path::new(&lease.job.cwd),
         &input,
         timeout,
         &handle.probe_owner,
         &lease.cancelled,
+        step.execution
+            .as_ref()
+            .and_then(|contract| contract.output.as_ref()),
     ) {
-        Ok(output) if !output.success => failed_input_step(if code.limits.mem_mb.is_some() {
-            "budget_exhausted"
-        } else {
-            "sandbox_denied"
-        }),
+        Ok(output) if !output.success => {
+            let mut result = failed_input_step("code_failed");
+            let stderr = codeterm_util::redact::text(&output.stderr_text());
+            let mut start = stderr.len().saturating_sub(1536);
+            while !stderr.is_char_boundary(start) {
+                start += 1;
+            }
+            result.summary = format!(
+                "code failed; body_sha256={body_sha256}: {}",
+                &stderr[start..]
+            );
+            result
+        }
         Ok(output) => {
             let bound = code.limits.output_bytes.unwrap_or(32768).min(32768);
             if output.stdout.truncated
@@ -59,7 +72,7 @@ pub(super) fn run(
                 outcome: StepOutcome::Done,
                 stored_outcome: JournalOutcome::Done,
                 state: JournalState::Done,
-                summary: "confined code completed".into(),
+                summary: format!("confined code completed; body_sha256={body_sha256}"),
                 reason: None,
                 next_text: String::from_utf8(envelope.encode().unwrap_or_default())
                     .unwrap_or_default(),
@@ -69,6 +82,10 @@ pub(super) fn run(
         }
         Err(failure) => {
             let mut result = failed_input_step(failure.reason);
+            result.summary = format!(
+                "code stopped: {}; body_sha256={body_sha256}",
+                failure.reason
+            );
             result.uncertain = failure.uncertain;
             result
         }
