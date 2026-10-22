@@ -123,4 +123,6 @@ pub fn probe_path(inherited: Option<&OsStr>, defaults: &[&str]) -> Option<OsStri
 }
 
 #[cfg(test)]
+mod command_tests;
+#[cfg(test)]
 mod tests;

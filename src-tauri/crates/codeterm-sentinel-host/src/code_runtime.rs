@@ -118,7 +118,7 @@ pub fn run_with_output(
     }
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, unix))]
 mod source;
 
 #[cfg(target_os = "macos")]

@@ -142,7 +142,6 @@ fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
     close(storage);
 }
 
-#[cfg(target_os = "macos")]
 const PYTHON: &str = "def main(value):\n value['n']+=1\n return value\n";
 #[cfg(target_os = "macos")]
 const TS: &str = "export default function main(value: {n:number}) { value.n++; return value; }";
