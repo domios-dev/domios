@@ -13,7 +13,7 @@ export function cloudExports(hostRef: () => Host): Pick<PluginModule, "discoverR
     if (backend) return backend;
     const host = hostRef();
     const manifest = JSON.parse(host.manifestJson() ?? "{}") as {id: string; capabilities: {remoteTask: RemoteTaskCapability}};
-    const root = host.fs.expandHome("~/.codeterm/codex/tasks");
+    const root = `${host.dataDir().replace(/[\\/]$/, "")}/codex/tasks`;
     if (!root) throw new Error("Cloud task storage is unavailable");
     capability = manifest.capabilities.remoteTask;
     transport = createCodexCloudTransport(host);
