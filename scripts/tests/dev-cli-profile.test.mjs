@@ -154,3 +154,23 @@ printf '%s\\n' "$(dev_built_app_path)" "$(dev_app_path)" "$(dev_resource_dir)"
     });
   }
 }
+
+for (const target of ['', 'aarch64-apple-darwin']) {
+  test(`named macOS resource root is an app bundle beside its exact Cargo artifacts: ${target || 'host'}`, () => {
+    const layout = ['tauri_debug_dir', 'dev_resource_dir', 'dev_built_app_path', 'dev_app_path']
+      .map(name => source.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
+    const result = spawnSync(bash, ['-c', `set -eu
+${layout}
+OSTYPE=darwin CARGO_TARGET_DIR='cache root/dev-instances/macdev-fix' CARGO_BUILD_TARGET="$1"
+CODETERM_DEV_INSTANCE=macdev-fix
+printf '%s\\n' "$(dev_built_app_path)" "$(dev_app_path)" "$(dev_resource_dir)"
+`, '--', target], { cwd: root, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const debug = `cache root/dev-instances/macdev-fix/${target ? target + '/' : ''}debug`;
+    assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
+      `${debug}/codeterm`,
+      `${debug}/.domios-dev-runtime/Domios.app/Contents/MacOS/domios-dev-app`,
+      `${debug}/.domios-dev-runtime/Domios.app/Contents/Resources`,
+    ]);
+  });
+}
