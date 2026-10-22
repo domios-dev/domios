@@ -72,24 +72,31 @@ fn runtime_recipient(
     use codeterm_service_core::multiplexer::types::TabBacking;
     use std::sync::Arc;
     const PROVIDER: &str = "todo-runtime-fixture";
-    let manifest = PluginManifest::from_json_str(&json!({
-        "id": PROVIDER, "version": "1.0.0", "displayName": "Fixture",
-        "capabilities": {
-            "agentProvider": true,
-            "chatBackend": {"spawnable": true, "sessionConfig": true, "agentTasks": true},
-            "agentRuntime": {
-                "runtime": "stdio-jsonrpc",
-                "command": {"binary": "fixture-cli", "args": []},
-                "requestMethods": {"submitTurn": ["fixture/submit"]},
-                "notificationMethods": []
-            }
-        },
-        "permissions": {"subprocess": {"allow": ["fixture-cli"]}}
-    }).to_string()).unwrap();
-    fixture.service.agent_registry.register_provider(Box::new(JsProvider::new(
-        manifest,
-        Arc::new(PluginVm::from_source(PROVIDER, "module.exports = {};".into()).unwrap()),
-    )));
+    let manifest = PluginManifest::from_json_str(
+        &json!({
+            "id": PROVIDER, "version": "1.0.0", "displayName": "Fixture",
+            "capabilities": {
+                "agentProvider": true,
+                "chatBackend": {"spawnable": true, "sessionConfig": true, "agentTasks": true},
+                "agentRuntime": {
+                    "runtime": "stdio-jsonrpc",
+                    "command": {"binary": "fixture-cli", "args": []},
+                    "requestMethods": {"submitTurn": ["fixture/submit"]},
+                    "notificationMethods": []
+                }
+            },
+            "permissions": {"subprocess": {"allow": ["fixture-cli"]}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(
+            manifest,
+            Arc::new(PluginVm::from_source(PROVIDER, "module.exports = {};".into()).unwrap()),
+        )));
     let mut mux = fixture.service.mux.write();
     let tab = mux.get_tab_mut(target).unwrap();
     tab.agent_type = Some(PROVIDER.into());
@@ -104,25 +111,40 @@ fn rpc_proposal_review_runtime_notice_preserves_seeded_and_unseeded_checklists()
     for seeded in [false, true] {
         for amend in [false, true] {
             let (fixture, parent, worker) = proposal_fixture();
-            let _parent_deliveries = fixture.bind_recorded_agent_recipient(
-                &parent, "parent-session", "parent-nonce",
-            );
+            let _parent_deliveries =
+                fixture.bind_recorded_agent_recipient(&parent, "parent-session", "parent-nonce");
             runtime_recipient(&fixture, &worker);
             let created = if seeded {
-                dispatch("tab.todo.create", &Some(json!({
-                    "tab_id": worker, "caller_tab_id": parent,
-                    "acceptance_criteria": ["Opaque criterion"]
-                })), &std::sync::Arc::new(fixture.service.clone())).unwrap()
+                dispatch(
+                    "tab.todo.create",
+                    &Some(json!({
+                        "tab_id": worker, "caller_tab_id": parent,
+                        "acceptance_criteria": ["Opaque criterion"]
+                    })),
+                    &std::sync::Arc::new(fixture.service.clone()),
+                )
+                .unwrap()
             } else {
-                dispatch("tab.todo.write", &Some(json!({
-                    "tab_id": worker, "caller_tab_id": worker,
-                    "items": [{"content": "Opaque step", "state": "open"}]
-                })), &std::sync::Arc::new(fixture.service.clone())).unwrap()["checklist"].clone()
+                dispatch(
+                    "tab.todo.write",
+                    &Some(json!({
+                        "tab_id": worker, "caller_tab_id": worker,
+                        "items": [{"content": "Opaque step", "state": "open"}]
+                    })),
+                    &std::sync::Arc::new(fixture.service.clone()),
+                )
+                .unwrap()["checklist"]
+                    .clone()
             };
             let service = std::sync::Arc::new(fixture.service.clone());
-            dispatch("tab.todo.submit", &Some(json!({
-                "tab_id": worker, "caller_tab_id": worker
-            })), &service).unwrap();
+            dispatch(
+                "tab.todo.submit",
+                &Some(json!({
+                    "tab_id": worker, "caller_tab_id": worker
+                })),
+                &service,
+            )
+            .unwrap();
             let mut params = json!({"tab_id": worker, "caller_tab_id": parent});
             if amend {
                 params["items"] = json!([
@@ -131,15 +153,32 @@ fn rpc_proposal_review_runtime_notice_preserves_seeded_and_unseeded_checklists()
                 ]);
             }
             let reviewed = dispatch(
-                if amend { "tab.todo.review_amend" } else { "tab.todo.approve" },
-                &Some(params), &service,
-            ).unwrap();
-            assert_eq!(reviewed["proposal"]["state"], if amend { "amended" } else { "approved" });
+                if amend {
+                    "tab.todo.review_amend"
+                } else {
+                    "tab.todo.approve"
+                },
+                &Some(params),
+                &service,
+            )
+            .unwrap();
+            assert_eq!(
+                reviewed["proposal"]["state"],
+                if amend { "amended" } else { "approved" }
+            );
             assert_eq!(reviewed["items"][0]["locked"], seeded);
-            assert_eq!(reviewed["items"].as_array().unwrap().len(), if amend { 2 } else { 1 });
-            let persisted = dispatch("tab.todo.list", &Some(json!({
-                "tab_id": worker, "caller_tab_id": worker
-            })), &service).unwrap();
+            assert_eq!(
+                reviewed["items"].as_array().unwrap().len(),
+                if amend { 2 } else { 1 }
+            );
+            let persisted = dispatch(
+                "tab.todo.list",
+                &Some(json!({
+                    "tab_id": worker, "caller_tab_id": worker
+                })),
+                &service,
+            )
+            .unwrap();
             assert_eq!(persisted, reviewed);
         }
     }
@@ -150,16 +189,31 @@ fn rpc_proposal_submit_runtime_notice_persists_shared_checklist() {
     let (fixture, parent, worker) = proposal_fixture();
     runtime_recipient(&fixture, &parent);
     let service = std::sync::Arc::new(fixture.service.clone());
-    dispatch("tab.todo.create", &Some(json!({
-        "tab_id": worker, "caller_tab_id": parent,
-        "acceptance_criteria": ["Opaque criterion"]
-    })), &service).unwrap();
-    let shared = dispatch("tab.todo.submit", &Some(json!({
-        "tab_id": worker, "caller_tab_id": worker
-    })), &service).unwrap();
+    dispatch(
+        "tab.todo.create",
+        &Some(json!({
+            "tab_id": worker, "caller_tab_id": parent,
+            "acceptance_criteria": ["Opaque criterion"]
+        })),
+        &service,
+    )
+    .unwrap();
+    let shared = dispatch(
+        "tab.todo.submit",
+        &Some(json!({
+            "tab_id": worker, "caller_tab_id": worker
+        })),
+        &service,
+    )
+    .unwrap();
     assert_eq!(shared["proposal"]["state"], "proposed");
-    let persisted = dispatch("tab.todo.list", &Some(json!({
-        "tab_id": worker, "caller_tab_id": worker
-    })), &service).unwrap();
+    let persisted = dispatch(
+        "tab.todo.list",
+        &Some(json!({
+            "tab_id": worker, "caller_tab_id": worker
+        })),
+        &service,
+    )
+    .unwrap();
     assert_eq!(persisted, shared);
 }
