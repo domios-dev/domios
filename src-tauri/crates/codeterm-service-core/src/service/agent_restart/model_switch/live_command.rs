@@ -11,6 +11,7 @@ use crate::agent::provider::{ModelSwitchCommand, ModelSwitchTranscript};
 const MAX_CONFIRMATION_BYTES: u64 = 1024 * 1024;
 
 mod during_turn;
+mod pending;
 mod picker;
 mod prompt;
 mod readiness;
@@ -497,6 +498,7 @@ impl ServiceContext {
         if after_turn {
             sequence.wait_for_idle(self, &target, true)?;
         }
+        let mut pending = Vec::new();
         for (index, (command, command_effort)) in
             planned_commands(&commands, model_changed, effort, current_effort.as_deref())
                 .into_iter()
@@ -505,17 +507,61 @@ impl ServiceContext {
             if index > 0 && !commands.during_turn {
                 sequence.wait_for_idle(self, &target, false)?;
             }
-            self.run_declared_model_command(&target, command_effort, command, &commands, deadline)
+            let evidence = self
+                .run_declared_model_command(&target, command_effort, command, &commands, deadline)
                 .map_err(|error| match error {
                     ModelSwitchError::InputNotReady(reason) if index > 0 => {
                         ModelSwitchError::LiveCommandFailed(reason)
                     }
                     error => error,
                 })?;
+            if let Some(evidence) = evidence {
+                pending.push(evidence);
+            }
             if !target.current(self) {
                 return Err(ModelSwitchError::LiveCommandFailed(
                     "the command session identity changed".into(),
                 ));
+            }
+        }
+        if !pending.is_empty() {
+            self.observe_pending_model_commands(
+                snap.clone(),
+                target.clone(),
+                pending,
+                commands.transcript.clone(),
+                effort.map(str::to_owned),
+                model_changed,
+            );
+            return Ok(ModelSwitchOutcome {
+                tab_id: snap.tab_id.clone(),
+                provider: snap.provider.clone(),
+                session_id: session_id.into(),
+                restart: None,
+                mechanism: ModelSwitchMode::LiveCommand,
+                fallback_reason: None,
+                previous_model,
+                requested_model: model.into(),
+                launched_model: model.into(),
+                confirmation_detail: Some(pending::PENDING_DETAIL.into()),
+                confirmation: ModelSwitchConfirmation::Pending,
+            });
+        }
+        if let Some((_, signal)) = self
+            .ext::<crate::service::agent_restart::RestartTracker>()
+            .lock()
+            .pending_command_observers
+            .remove(&snap.tab_id)
+        {
+            signal.mark_changed();
+        }
+        if let Some(tab) = self.mux.write().get_tab_mut(&snap.tab_id) {
+            if tab
+                .pending_model_selection
+                .as_ref()
+                .is_some_and(|selection| selection.confirmation_pending)
+            {
+                tab.pending_model_selection = None;
             }
         }
         if model_changed {
@@ -579,13 +625,25 @@ impl ServiceContext {
         template: &ModelSwitchCommand,
         commands: &crate::agent::provider::ModelSwitchCommands,
         deadline: Instant,
-    ) -> Result<(), ModelSwitchError> {
+    ) -> Result<Option<pending::CommandEvidence>, ModelSwitchError> {
         if commands.confirmation_source
             == crate::agent::provider::ModelSwitchConfirmationSource::SessionIdentity
         {
             self.run_session_identity_command(target, effort, template, deadline)
+                .map(|_| None)
         } else {
-            self.run_model_command(target, effort, template, &commands.transcript, deadline)
+            let buffering = commands.during_turn
+                && self.mux.read().get_tab(&target.tab_id).is_some_and(|tab| {
+                    self.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Working)
+                });
+            self.run_model_command(
+                target,
+                effort,
+                template,
+                &commands.transcript,
+                deadline,
+                buffering,
+            )
         }
     }
 
@@ -596,7 +654,8 @@ impl ServiceContext {
         template: &ModelSwitchCommand,
         source: &ModelSwitchTranscript,
         deadline: Instant,
-    ) -> Result<(), ModelSwitchError> {
+        buffering: bool,
+    ) -> Result<Option<pending::CommandEvidence>, ModelSwitchError> {
         let model = target.model.as_str();
         let display_name = target.display_name.as_str();
         let command = render_command(&template.command, model, effort)
@@ -684,6 +743,8 @@ impl ServiceContext {
         });
         let mut prompt_error = None;
         let injected = std::cell::Cell::new(false);
+        let awaiting_buffer = std::cell::Cell::new(false);
+        let injected_generation = std::cell::Cell::new(signal.generation());
         let not_ready = std::cell::Cell::new(false);
         let stage = std::cell::Cell::new(during_turn::ScreenStage::Admission);
         let observed_screen = std::cell::RefCell::new(
@@ -761,6 +822,7 @@ impl ServiceContext {
                         .map_err(|error| error.to_string())?
                         .len(),
                 );
+                injected_generation.set(signal.generation());
                 transport::enqueue_command_observed(
                     &session.write_queue,
                     permit,
@@ -843,6 +905,16 @@ impl ServiceContext {
                         log::info!("[agent-model/timing] tab={} command={} phase=transcript_confirmed elapsed_ms={}", target.tab_id, command, started.elapsed().as_millis());
                         break true;
                     }
+                    if pending::can_await_buffered_stdout(
+                        buffering,
+                        generation != injected_generation.get(),
+                        picker.as_ref().is_none_or(CommandPicker::submitted),
+                        prompt.as_ref().is_none_or(CommandPrompt::answered),
+                        self.command_input_restored(target),
+                    ) {
+                        awaiting_buffer.set(true);
+                        break true;
+                    }
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         break false;
                     };
@@ -892,7 +964,18 @@ impl ServiceContext {
         self.screen_state
             .lock()
             .unsubscribe_screen_changes(pty_id, &signal);
-        let result = result.map_err(|error| prompt_error.unwrap_or(error));
+        let result = if result.is_err()
+            && prompt_error.is_none()
+            && buffering
+            && injected.get()
+            && target.current(self)
+            && self.command_input_restored(target)
+        {
+            awaiting_buffer.set(true);
+            Ok(())
+        } else {
+            result.map_err(|error| prompt_error.unwrap_or(error))
+        };
         transport::finish_command(
             result,
             injected.get(),
@@ -942,6 +1025,13 @@ impl ServiceContext {
             } else {
                 ModelSwitchError::LiveCommandFailed(error)
             }
+        })
+        .map(|_| {
+            awaiting_buffer.get().then(|| pending::CommandEvidence {
+                path,
+                boundary: boundary.get(),
+                pattern,
+            })
         })
     }
 }

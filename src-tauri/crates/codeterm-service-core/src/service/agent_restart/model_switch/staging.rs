@@ -487,7 +487,13 @@ impl ServiceContext {
             .staged_models
             .cancel(tab_id);
         if let Some(tab) = mux.get_tab_mut(tab_id) {
-            tab.pending_model_selection = None;
+            if !tab
+                .pending_model_selection
+                .as_ref()
+                .is_some_and(|selection| selection.confirmation_pending)
+            {
+                tab.pending_model_selection = None;
+            }
         }
         drop(mux);
         self.emit_state_changed(MuxEmitCause::Model);
@@ -560,6 +566,7 @@ impl ServiceContext {
             tab.pending_model_selection = Some(PendingModelSelection {
                 model: model.into(),
                 effort: effort.map(str::to_owned),
+                confirmation_pending: false,
             });
             let already_idle =
                 self.resolved_tab_status(tab) == Some(codeterm_types::pty::TabStatus::Idle);

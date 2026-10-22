@@ -6,6 +6,7 @@ fn staged_model_selection_is_visible_but_never_restores_execution() {
     tab.pending_model_selection = Some(PendingModelSelection {
         model: "selected-model".into(),
         effort: Some("selected-effort".into()),
+        confirmation_pending: false,
     });
     let snapshot = serde_json::to_value(&tab).unwrap();
     assert_eq!(

@@ -82,6 +82,10 @@ impl CommandPicker {
         self.injected = true;
     }
 
+    pub(super) fn submitted(&self) -> bool {
+        self.submitted
+    }
+
     fn position(&self, captures: &regex::Captures<'_>) -> Option<usize> {
         let value = captures.name("position")?.as_str();
         match self.declaration.position {
