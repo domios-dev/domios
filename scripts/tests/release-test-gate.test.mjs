@@ -18,7 +18,7 @@ const rust = workflow("tests-rust");
 const builds = ["macos-arm64", "macos-x64", "linux-arm64", "linux-x86_64", "windows-x64", "windows-arm64"];
 const dependencies = job => [job.needs].flat();
 
-const fastJobs = ["guards", "plugins", "clippy-linux", "ts-static", "frontend-windows", "ts-types", "ts-unit", "ts-vitest", "ts-plugins"];
+const fastJobs = ["guards", "plugins", "clippy-linux", "cli-tests", "ts-static", "frontend-windows", "ts-types", "ts-unit", "ts-vitest", "ts-plugins"];
 const longJobs = ["rust-tests", "rust-platform", "rust-embeddings", "rust-receipts"];
 const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
 

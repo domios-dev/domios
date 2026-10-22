@@ -304,6 +304,48 @@ jobs:
         continue-on-error: true
         run: node scripts/ci-workspace-cleanup.mjs
 
+  # CLI contracts (transport rows, help text, generated manifest, essence map) fail in minutes here, not in the Rust tier.
+  cli-tests:
+    name: cli tests
+    needs: [changed, guards]
+    if: ${{ needs.changed.outputs.heavy == 'true' }}
+    runs-on: [self-hosted, linux-ci]
+    permissions:
+      contents: read
+      actions: write
+    timeout-minutes: 30
+    env:
+      CI_TARGET_ROOT: ${{ github.workspace }}/../ci-targets/cli-tests
+      CODETERM_ALLOW_EXTERNAL_TARGET: '1'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Ensure Rust toolchain on PATH
+        run: |
+          if command -v cargo >/dev/null 2>&1; then exit 0; fi
+          for dir in "${CARGO_HOME:-}/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin /Users/*/.cargo/bin; do
+            if [ -x "$dir/cargo" ]; then echo "$dir" >> "$GITHUB_PATH"; exit 0; fi
+          done
+          echo "cargo not found; restore Rust on the runner" >&2
+          exit 1
+      - name: CLI tests
+        run: bash build.sh ci-cli-tests
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
+      - name: Clean 0-byte stubs
+        if: always()
+        run: find src-tauri/bundled-cli -maxdepth 1 -type f -size 0 -delete 2>/dev/null || true
+      - *release-job-cache
+      - *cancel-run-on-failure
+      - *clean-job-outputs
+
   ts-static:
     name: ts static checks
     needs: [changed, guards]
