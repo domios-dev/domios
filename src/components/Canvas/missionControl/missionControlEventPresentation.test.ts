@@ -44,3 +44,17 @@ const unrecorded = curatorPresentation(JSON.stringify({ ...record, asked: "" }))
 assert(!unrecorded.body.includes("ASKED:"));
 assert(curatorPresentation(JSON.stringify({ ...record, asked: "none" }))!.body.includes("ASKED:"));
 console.log("8 event presentation behavior cases passed");
+
+const nullRun = { number: 5, started_at: 1720000000, ended_at: 1720000000, run_id: null, tab_id: null,
+  outcome: "fallback", move_line: "", summary: "provider_unavailable", reason: "provider_unavailable",
+  retro: [], learn: [], next_checks: [], asked: "", ready: "", next_delay_secs: 7200 };
+const skipped = curatorPresentation(JSON.stringify(nullRun))!;
+assert.equal(skipped.preview, `round 5 skipped: provider unavailable · next in ${formatDuration(7200000)}`);
+assert(skipped.body.includes("skipped: provider unavailable"));
+assert.equal(eventKindLabel("curator_round"), "Curator");
+for (const outcome of ["fallback", "failed", "completed"]) {
+  const empty = curatorPresentation(JSON.stringify({ ...nullRun, outcome, summary: "", reason: "" }))!;
+  assert(!empty.preview.includes(" ·  · "));
+  assert(empty.preview.startsWith("round 5 skipped"));
+}
+assert(curatorPresentation(JSON.stringify({ ...nullRun, reason: "", summary: "budget_exhausted" }))!.preview.includes("budget exhausted"));

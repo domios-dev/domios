@@ -11,6 +11,7 @@ import type { TasksBlockState } from "./tasksBlockModel";
 import type { CanonicalMentionKind } from "../codeterm/canonicalMentions";
 
 export interface ChatMentionValue {
+  state?: "loading";
   title: string;
   kind: CanonicalMentionKind;
   id: string;

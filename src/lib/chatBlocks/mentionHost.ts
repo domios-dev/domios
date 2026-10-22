@@ -24,6 +24,10 @@ export function createMentionHost(ports: {
   const values = new Map<string, ChatMentionValue | null>();
   const listeners = new Set<() => void>();
   const graphWatches = new Map<string, Promise<() => void>>();
+  let stopSources: (() => void) | null = null;
+  let planSnapshot = ports.plans.get();
+  const indexes = new Map<string, Map<string, ChatMentionValue | null>>();
+  const notify = () => { for (const changed of listeners) changed(); };
   const graphKey = (scope: MentionScope) => JSON.stringify([scope.workspaceId, scope.teamId]);
   const read = (key: string): ChatMentionValue | null => {
     let args: [string, CanonicalMentionKind, string];
@@ -36,18 +40,30 @@ export function createMentionHost(ports: {
       const tab = state.tabs[id];
       if (tab) value = { title: tab.title, kind, id };
     } else if (kind === "plan" || kind === "task") {
-      for (const plan of ports.plans.get().filter((item) => planInMentionScope(item, scope))) {
-        if (kind === "plan" && plan.id === id) value = { title: plan.title, kind, id, planId: plan.id };
-        const task = kind === "task" ? plan.tasks.find((item) => item.key?.toLowerCase() === id.toLowerCase() || item.id === id) : null;
-        if (task) {
-          if (value) return null;
-          value = { title: `${task.key ?? task.id} ${task.name}`, kind, id, planId: plan.id, targetId: task.id };
+      const plans = ports.plans.get();
+      if (plans !== planSnapshot) { planSnapshot = plans; indexes.clear(); }
+      const scopeKey = JSON.stringify([scope.projectPath, scope.teamId]);
+      let index = indexes.get(scopeKey);
+      if (!index) {
+        index = new Map();
+        for (const plan of plans.filter((item) => planInMentionScope(item, scope))) {
+          index.set(`plan:${plan.id}`, { title: plan.title, kind: "plan", id: plan.id, planId: plan.id });
+          for (const task of plan.tasks) {
+            for (const ref of new Set([task.id.toLowerCase(), task.key?.toLowerCase()].filter((key): key is string => !!key))) {
+              const key = `task:${ref}`;
+              index.set(key, index.has(key) ? null : { title: `${task.key ?? task.id} ${task.name}`, kind: "task", id: ref, planId: plan.id, targetId: task.id });
+            }
+          }
         }
+        indexes.set(scopeKey, index);
       }
+      const found = index.get(`${kind}:${kind === "task" ? id.toLowerCase() : id}`);
+      if (found) value = { ...found, id };
     } else if (kind === "blueprint") {
       const node = graphs.get(graphKey(scope))?.nodes.find((item) => item.identity.id === id
         && blueprintInMentionScope(item, { scope }, state.tabs));
       if (node) value = { title: node.name, kind, id, teamId: node.identity.team_id };
+      else if (pending.has(graphKey(scope))) value = { title: id, kind, id, state: "loading" };
     }
     const previous = values.get(key);
     if (previous !== undefined && JSON.stringify(previous) === JSON.stringify(value)) return previous;
@@ -59,11 +75,19 @@ export function createMentionHost(ports: {
       read,
       subscribe(listener) {
         listeners.add(listener);
-        const offMux = watchMentionState(ports.mux, listener);
-        const offPlans = ports.plans.subscribe(listener);
+        if (!stopSources) {
+          const offMux = watchMentionState(ports.mux, notify);
+          const offPlans = ports.plans.subscribe(() => { indexes.clear(); planSnapshot = ports.plans.get(); notify(); });
+          stopSources = () => { offMux(); offPlans(); };
+        }
         return () => {
-          listeners.delete(listener); offMux(); offPlans();
-          if (!listeners.size) { for (const stop of graphWatches.values()) void stop.then((off) => off()); graphWatches.clear(); }
+          listeners.delete(listener);
+          if (!listeners.size) {
+            stopSources?.(); stopSources = null;
+            for (const stop of graphWatches.values()) void stop.then((off) => off());
+            graphWatches.clear(); graphs.clear(); values.clear();
+            pending.clear();
+          }
         };
       },
       refresh(key) {
@@ -76,15 +100,17 @@ export function createMentionHost(ports: {
         }
         if (!scope.workspaceId || pending.has(cacheKey) || graphs.has(cacheKey)) return;
         const reading = ports.readGraph(scope, new AbortController().signal).then((graph) => {
-          graphs.set(cacheKey, graph);
-          for (const changed of listeners) changed();
-        }).catch(() => {}).finally(() => pending.delete(cacheKey));
+          if (pending.get(cacheKey) === reading) graphs.set(cacheKey, graph);
+        }).catch(() => {}).finally(() => {
+          if (pending.get(cacheKey) === reading) { pending.delete(cacheKey); notify(); }
+        });
         pending.set(cacheKey, reading);
+        notify();
       },
     },
     open(key) {
       const value = read(key);
-      if (!value) return;
+      if (!value || value.state === "loading") return;
       const [tabId] = JSON.parse(key) as [string];
       const state = ports.mux.getState();
       const scope = mentionScopeForTab(state, tabId);

@@ -11,9 +11,9 @@ export function tabMentionSource(read: () => { tabs: Record<string, Tab>; worksp
       const { tabs, workspaces } = read();
       return Object.values(tabs).filter((tab) => tab.tab_type === "Terminal").map((tab) => {
         const workspace = workspaces.find((ws) => ws.id === tab.workspace_id || ws.tabs.includes(tab.id));
-        const proximity = tab.remote_peer_id ? 3 : scope.teamId && tab.team_id === scope.teamId ? 0
-          : workspace?.id === scope.workspaceId ? 1 : 2;
-        const group = proximity === 3 ? "Tabs · Mesh" : proximity === 2 ? "Tabs · Other workspaces" : proximity === 0 ? "Tabs · Team"
+        const proximity = tab.remote_peer_id ? 4 : scope.teamId && tab.team_id === scope.teamId ? 0
+          : workspace?.id !== scope.workspaceId ? 3 : tab.team_id && tab.team_id !== scope.teamId ? 2 : 1;
+        const group = proximity === 4 ? "Tabs · Mesh" : proximity === 3 ? "Tabs · Other workspaces" : proximity === 0 ? "Tabs · Team"
           : tab.team_id && tab.team_id !== scope.teamId ? "Tabs · Other Teams" : "Tabs · Workspace";
         return {
           id: `tabs:${tab.id}`, label: tab.title, group,
