@@ -10,7 +10,7 @@ pub async fn spawn(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(request): Json<FreshGeneralSessionRequest>,
-) -> Result<Json<AtomicSpawn>, (StatusCode, String)> {
+) -> Result<Json<AtomicSpawn<serde_json::Value>>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     tokio::task::spawn_blocking(move || {
         state
