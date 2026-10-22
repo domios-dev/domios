@@ -67,22 +67,7 @@ fn write_entry(
     mut record: SolutionMetadata,
 ) -> Result<(), String> {
     record.set_entry(entry);
-    let mut document = entry.document.clone();
-    if let Some(curator) = &record.curator {
-        let how = model::abstract_document(document.clone())
-            .note
-            .unwrap_or_default();
-        document.note = Some(format!(
-            "{how}\nEvidence: {} Grants: {}",
-            curator
-                .episodes
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(" "),
-            curator.grants.iter().cloned().collect::<Vec<_>>().join(" ")
-        ));
-    }
+    let document = &entry.document;
     let mut tags = vec!["blueprint-library".into()];
     if let Some(curator) = &record.curator {
         tags.push("curator".into());

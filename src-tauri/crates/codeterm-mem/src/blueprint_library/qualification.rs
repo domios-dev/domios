@@ -20,11 +20,7 @@ impl MemManager {
         {
             return Err("When to use must contain 1..200 plain-text characters".into());
         }
-        let mut document = model::abstract_document(document);
-        document.name = format!(
-            "Saved solution {}",
-            model::curator::fingerprint(&model::structure(&document).to_string())
-        );
+        let document = model::abstract_document(document);
         evidence.safe = model::safe_template(&document, when_to_use);
         let decision = model::decide(&evidence);
         if !decision.save {
@@ -57,16 +53,6 @@ impl MemManager {
                 false,
                 &relations,
             )?;
-            let grant = if curator.granted {
-                format!(" grant:{}:{}", curator.plan, curator.round)
-            } else {
-                String::new()
-            };
-            document.note = Some(format!(
-                "{}\nEvidence: {}{grant}",
-                document.note.as_deref().unwrap_or(""),
-                curator.episodes.join(" ")
-            ));
         }
         if !model::safe_template(&document, when_to_use) {
             return Err("Unsafe Blueprint evidence cannot be saved".into());
