@@ -28,6 +28,9 @@ pub(super) fn system_now() -> u64 {
 impl MeshManager {
     /// Applies an account transition. Blocking takes effect before any caller-side cleanup.
     pub fn apply_account_state(&mut self, state: AccountMeshState) {
+        if state != self.account {
+            self.adoptions.clear();
+        }
         if state.account_epoch != self.account.account_epoch {
             self.pending_links.clear();
             self.pending_adoptions.clear();
