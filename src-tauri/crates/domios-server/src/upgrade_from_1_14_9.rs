@@ -1,5 +1,7 @@
 use codeterm_service_core::{PathOwnership, ResolvedInstancePaths};
 use rusqlite::{Connection, OpenFlags};
+pub(super) mod legacy_references;
+mod legacy_scratch;
 mod relocation_holders;
 mod stored_paths;
 use relocation_holders::{rename_legacy_root, SystemLegacyRootHolderProbe};
@@ -58,7 +60,7 @@ fn migrate(
     let new_data = identity.data();
     let old_data = legacy_data_path(new_data);
     let new_exists = directory_exists(new_data)?;
-    let old_exists = old_data
+    let mut old_exists = old_data
         .as_deref()
         .map(directory_exists)
         .transpose()?
@@ -69,6 +71,7 @@ fn migrate(
     } else {
         None
     };
+    let mut notices = Vec::new();
     let destination_content = if old_exists && new_exists {
         let mut inventory = destination_inventory(new_data).map_err(|error| {
             io::Error::new(
@@ -88,18 +91,18 @@ fn migrate(
         }
         let content = classify_destination(&inventory);
         if content == DestinationContent::Other {
-            return Err(io::Error::other(format!(
-                "Cannot relocate data: both {} and {} exist; resolve them separately before starting Domios",
-                old_data.as_deref().unwrap().display(),
-                new_data.display()
-            )));
+            let old = old_data.as_deref().unwrap();
+            let old_owner =
+                PathOwnership::try_acquire(legacy_identity(&identity, old)?, ownership_registry)?;
+            notices.push(legacy_scratch::move_aside(old, new_data)?);
+            drop(old_owner);
+            old_exists = false;
         }
         Some(content)
     } else {
         None
     };
 
-    let mut notices = Vec::new();
     let mut project_roots = Vec::new();
     if old_exists {
         let old_data = old_data.as_deref().expect("old directory exists");
@@ -155,6 +158,15 @@ fn migrate(
         .and_then(|old_data| PathRebase::new(old_data, new_data))
     {
         notices.extend(rebase_stored_paths(new_data, &rebase));
+        if identity.config() != new_data.join("config.json") {
+            if let Err(error) = stored_paths::rebase_json_file(identity.config(), &rebase) {
+                notices.push(format!(
+                "Cannot rewrite stored paths in {}: {error}. Update legacy data-root paths to {}.",
+                identity.config().display(),
+                new_data.display()
+            ));
+            }
+        }
         for root in &mut project_roots {
             *root = rebase.rebase_path(root);
         }
@@ -454,13 +466,23 @@ fn require_table(
 }
 
 fn validate_1_14_9_schema(root: &Path) -> io::Result<Vec<PathBuf>> {
+    validate_schema(root, true)
+}
+
+fn validate_schema(root: &Path, legacy: bool) -> io::Result<Vec<PathBuf>> {
     let state_path = root.join("storage").join("state.db");
     let state = open_read_only(root, "storage", &state_path)?;
     let app_id: i32 = state
         .query_row("PRAGMA application_id", [], |row| row.get(0))
         .map_err(|error| schema_refusal(root, "storage", error))?;
     let version = pragma_version(root, "storage", &state)?;
-    if app_id != STORAGE_APPLICATION_ID || version != STORAGE_SCHEMA_VERSION {
+    if app_id != STORAGE_APPLICATION_ID
+        || if legacy {
+            version != STORAGE_SCHEMA_VERSION
+        } else {
+            version < STORAGE_SCHEMA_VERSION
+        }
+    {
         return Err(schema_refusal(
             root,
             "storage",

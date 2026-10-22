@@ -147,42 +147,6 @@ impl JsonRpcResponse {
 pub struct SocketServer;
 
 impl SocketServer {
-    /// Clean up stale sockets from previous runs that didn't exit cleanly.
-    pub fn cleanup_stale_sockets() {
-        #[cfg(not(target_os = "windows"))]
-        {
-            if let Ok(entries) = std::fs::read_dir("/tmp") {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        let sock_prefix =
-                            format!("{}-", codeterm_service_core::paths::socket_prefix());
-                        if name.starts_with(&sock_prefix) && name.ends_with(".sock") {
-                            if let Some(pid_str) = name
-                                .strip_prefix(&sock_prefix)
-                                .and_then(|s| s.strip_suffix(".sock"))
-                            {
-                                if let Ok(pid) = pid_str.parse::<u32>() {
-                                    let alive = std::process::Command::new("kill")
-                                        .args(["-0", &pid.to_string()])
-                                        .stdout(std::process::Stdio::null())
-                                        .stderr(std::process::Stdio::null())
-                                        .status()
-                                        .map(|s| s.success())
-                                        .unwrap_or(false);
-                                    if !alive {
-                                        let _ = std::fs::remove_file(&path);
-                                        log::info!("Cleaned stale socket: {}", name);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     /// Start the JSON-RPC server in a background thread.
     pub fn start(
         mux_state: MuxState,
@@ -191,23 +155,14 @@ impl SocketServer {
         output_buf: OutputBufferState,
         svc_state: ServiceState,
     ) -> Result<(), String> {
-        Self::cleanup_stale_sockets();
-
-        #[cfg(all(debug_assertions, not(target_os = "windows")))]
-        {
-            let display = codeterm_service_core::paths::socket_display_path();
-            let path = std::path::Path::new(&display);
-            if path.exists() {
-                let _ = std::fs::remove_file(path);
-                log::info!("Removed stale dev socket: {}", display);
-            }
-        }
-
         let name = codeterm_service_core::paths::socket_path();
 
+        codeterm_util::local_endpoint::prepare_namespaced(&name)
+            .map_err(|error| error.to_string())?;
+        let target = codeterm_util::local_endpoint::display_name(&name);
         let name = name
             .to_ns_name::<GenericNamespaced>()
-            .map_err(|e| format!("Failed to create namespaced name: {}", e))?;
+            .map_err(|e| codeterm_util::local_endpoint::bind_error(&target, e).to_string())?;
 
         let opts = ListenerOptions::new().name(name);
 
@@ -216,7 +171,7 @@ impl SocketServer {
 
         let listener = opts
             .create_sync()
-            .map_err(|e| format!("Failed to create socket listener: {}", e))?;
+            .map_err(|e| codeterm_util::local_endpoint::bind_error(&target, e).to_string())?;
 
         log::info!(
             "Socket server listening at {}",

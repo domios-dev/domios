@@ -120,7 +120,8 @@ fn stores() -> Stores {
     let data = home.path().join(".domios-dev");
     std::fs::create_dir_all(data.join("storage")).unwrap();
     std::fs::create_dir_all(data.join("mem")).unwrap();
-    let rebase = PathRebase::new(&legacy, &data).unwrap();
+    let mut rebase = PathRebase::new(&legacy, &data).unwrap();
+    rebase.home_root = true;
     Stores {
         _home: home,
         legacy,
@@ -430,4 +431,70 @@ fn stored_paths_skip_missing_stores_and_columns() {
     assert!(outcome.notices.is_empty(), "{:?}", outcome.notices);
     assert!(!stores.data.join("plans.db").exists());
     assert!(!stores.data.join("plugin-channels.json").exists());
+}
+
+#[test]
+fn stored_paths_rebase_crons_and_nested_plugin_config_idempotently() {
+    let stores = stores();
+    let old = stores.legacy.join("general").display().to_string();
+    let new = stores.data.join("general").display().to_string();
+    let crons = serde_json::json!({"jobs":[{"cwd":old}, {"cwd":"~/outside"}]});
+    let config = serde_json::json!({"plugins":{"fixture":{"dataRoot":"~/.codeterm-dev/fixture", "other":"~/.codeterm-dev-other/fixture"}}});
+    std::fs::write(stores.data.join("crons.json"), crons.to_string()).unwrap();
+    std::fs::write(stores.data.join("config.json"), config.to_string()).unwrap();
+    let first = rebase_stores(&stores.data, &stores.rebase);
+    assert_eq!(first.rewritten, 2);
+    assert!(first.notices.is_empty());
+    let crons: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(stores.data.join("crons.json")).unwrap()).unwrap();
+    assert_eq!(crons["jobs"][0]["cwd"], new);
+    assert_eq!(crons["jobs"][1]["cwd"], "~/outside");
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(stores.data.join("config.json")).unwrap()).unwrap();
+    assert_eq!(
+        config["plugins"]["fixture"]["dataRoot"],
+        "~/.domios-dev/fixture"
+    );
+    assert_eq!(
+        config["plugins"]["fixture"]["other"],
+        "~/.codeterm-dev-other/fixture"
+    );
+    let second = rebase_stores(&stores.data, &stores.rebase);
+    assert_eq!(second.rewritten, 0);
+    assert!(second.notices.is_empty());
+}
+
+#[test]
+fn stored_paths_tilde_rewrite_is_scoped_to_the_exact_instance() {
+    let mut rebase = PathRebase::with_platform(
+        Path::new("C:/Users/Owner/.codeterm-dev-fixture"),
+        Path::new("C:/Users/Owner/.domios-dev-fixture"),
+        true,
+    )
+    .unwrap();
+    rebase.home_root = true;
+    assert_eq!(
+        rebase.rebase_value("~/.codeterm-dev-fixture/general"),
+        Some("~/.domios-dev-fixture/general".into())
+    );
+    assert_eq!(rebase.rebase_value("~/.codeterm/general"), None);
+    assert_eq!(
+        rebase.rebase_value("~/.codeterm-dev-fixture-other/general"),
+        None
+    );
+}
+
+#[test]
+fn stored_paths_custom_root_does_not_rewrite_home_shorthand() {
+    let rebase = PathRebase::with_platform(
+        Path::new("/custom/.codeterm"),
+        Path::new("/custom/.domios"),
+        false,
+    )
+    .unwrap();
+    assert_eq!(rebase.rebase_value("~/.codeterm/general"), None);
+    assert_eq!(
+        rebase.rebase_value("/custom/.codeterm/general"),
+        Some("/custom/.domios/general".into())
+    );
 }
