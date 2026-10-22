@@ -48,6 +48,13 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Unsupported("capabilities is socket-only; run it on the target machine"),
     ),
     (
+        "curator",
+        &["codeterm", "curator", "finish", "--next", "1h", "--from-pad", "retro.md"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported("Curator rounds are local to the owning Team"),
+    ),
+    (
         "pad",
         &["codeterm", "pad", "path"],
         Local::Socket,
