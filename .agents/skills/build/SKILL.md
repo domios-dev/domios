@@ -1343,6 +1343,14 @@ writer, so standalone `dev-prebuilt` verifies after the mapped drive is released
 For a same-build restart, call `dev-prebuilt --wait` directly: provenance and runtime
 preflight precede dev-only stop. Never prepend `kill` to a prebuilt restart.
 
+DEV readiness requires healthy status, `startup.state=ready`, exact build and
+instance identity, and authenticated native attachment. The prebuilt launcher
+waits on startup events inside its existing 30-second phase deadline; listener
+availability alone cannot finish launch. An unsupported startup-event endpoint
+is an explicit failure. Preserve that receipt and rebuild the intended source,
+without extending the deadline. Focused tooling coverage is
+`node --test scripts/tests/server-readiness.test.mjs scripts/tests/dev-wait.test.mjs scripts/tests/dev-app-process.test.mjs`.
+
 DEV Cargo runs at the gateway's Windows `X:` cwd: default target directories are
 `X:/src-tauri/target` and `X:/cli/target` (the physical checkout targets). Named
 `--wait` instances retain their explicit instance target. `check-queue` instead
