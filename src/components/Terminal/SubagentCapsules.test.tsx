@@ -46,3 +46,30 @@ it("keeps stop single-flight, displays refusal, and retains details behind expan
     expect(host.querySelector('[role="region"] pre')?.textContent).toBe(item.outputTail);
   } finally { await act(async()=>root.unmount()); }
 });
+
+it("discloses the full task only on request while keeping transcript inspection available", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const inspect = vi.fn();
+  const item: ComposerBackgroundWorkItem = { id: "child", kind: "agent", name: "Task fixture", threadId: "child", transcriptThreadId: "child", startedAtMs: 0, elapsed: "", prompt: "Opaque first paragraph\n\nOpaque second paragraph", model: "fixture" };
+  try {
+    await act(async () => root.render(<AgentInspectionProvider onInspect={inspect}><ComposerBackgroundWorkPanel items={[item]} onStop={async () => {}} internalAgentLabel="Internal agent of Fixture Harness" /></AgentInspectionProvider>));
+    const disclosure = host.querySelector<HTMLButtonElement>('button[aria-label="Task details for Task fixture"]');
+    expect(disclosure).not.toBeNull();
+    expect(disclosure!.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector('[role="region"]')).toBeNull();
+    const transcript = host.querySelector<HTMLButtonElement>('button[aria-label^="Open transcript for "]')!;
+    expect(transcript.title).not.toContain(item.prompt);
+    await act(async () => { disclosure!.click(); });
+    const region = host.querySelector('[role="region"]');
+    expect(disclosure!.getAttribute("aria-expanded")).toBe("true");
+    expect(region?.id).toBe(disclosure!.getAttribute("aria-controls"));
+    expect(region?.textContent).toBe(item.prompt);
+    await act(async () => { transcript.click(); });
+    expect(inspect).toHaveBeenCalledExactlyOnceWith("child");
+    await act(async () => { disclosure!.click(); });
+    expect(host.querySelector('[role="region"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
