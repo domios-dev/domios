@@ -121,10 +121,39 @@ async fn journey(finish: bool, deadline: bool) {
     assert!(fixture.service.curator_identity(&caller).is_err());
     caller.session_id = None;
     if deadline {
+        let (owner, team) = {
+            let mut mux = fixture.service.mux.write();
+            let owner = mux.create_tab(&workspace).unwrap();
+            mux.set_orchestrator_role(&owner).unwrap();
+            let team = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
+            let tab = mux.get_tab_mut(&owner).unwrap();
+            tab.agent_type = Some(PROVIDER.into());
+            tab.agent_session_id = Some("owner-session".into());
+            tab.agent_session_model = Some("owner-model".into());
+            tab.session_binding_nonce = Some("owner-nonce".into());
+            tab.reported_session_binding_nonce = Some("owner-nonce".into());
+            tab.pty_id = Some("owner-pty".into());
+            tab.chat_view = true;
+            assert!(codeterm_service_core::service::plan_reconcile::tab_has_live_agent(tab));
+            mux.get_tab_mut(&tab_id).unwrap().team_id = Some(team.clone());
+            (owner, team)
+        };
+        job.team_id = Some(team.clone());
+        job.protected = true;
+        job.oneshot = true;
+        commit(&state.cron, |_| {
+            Ok(Prepared::new(CronChange::Patch(job.clone()), ()))
+        })
+        .unwrap();
         fixture
             .service
             .plan_store
             .with_plan(&plan.id, now, |plan| {
+                plan.mode = codeterm_service_core::plan::PlanMode::Execution;
+                plan.team_id = Some(team.clone());
+                plan.owner = OrchestratorRef::from_tab(&owner);
+                plan.owner.session_id = Some("owner-session".into());
+                plan.control_loop.cron_id = Some(job.id.clone());
                 plan.control_loop.running.as_mut().unwrap().started_at = now - 900_000;
                 Ok(())
             })
@@ -155,6 +184,9 @@ async fn journey(finish: bool, deadline: bool) {
             .is_err());
     }
     fixture.service.close_tab(&tab_id).unwrap();
+    if deadline {
+        fixture.service.reconcile_curator_for_test(&plan.id, now);
+    }
     let closed = fixture.service.plan_store.get(&plan.id).unwrap();
     assert!(closed.control_loop.running.is_none());
     let round = closed.control_loop.last_round.unwrap();
@@ -188,6 +220,10 @@ async fn journey(finish: bool, deadline: bool) {
     if deadline {
         assert_eq!(round.reason, "deadline");
         assert_eq!(closed.control_loop.next_at, Some(now + 2_700_000));
+        let cron = state.cron.lock();
+        let job = cron.get(&job.id).unwrap();
+        assert!(job.enabled);
+        assert_eq!(job.next_run, closed.control_loop.next_at);
         assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
     } else if !finish {
         assert_eq!(round.reason, "tab_closed");
