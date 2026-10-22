@@ -47,7 +47,7 @@ fn golden_pipeline_and_watch() {
         "decide: asks is ci red",
         "matches fail",
         "matches all checks were successful",
-        "send: send, agent, please look at the failing job",
+        "send: send agent please look at the failing job",
         "notify: notify ci went red",
     ] {
         assert!(text.contains(meaning), "{meaning} absent: {text}");

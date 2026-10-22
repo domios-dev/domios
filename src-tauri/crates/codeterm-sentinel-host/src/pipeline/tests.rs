@@ -404,7 +404,7 @@ fn native_recipe_probe_bindings_run_in_the_runtime_probe_shell() {
         let output =
             probe::run(command, directory.path(), Duration::from_secs(20), &owner).unwrap();
         assert!(output.success, "{}: {}", path.display(), output.text);
-        assert_eq!(output.text, "ready");
+        assert_eq!(output.stdout_text(), "ready");
         executed += 1;
     }
     assert_eq!(
