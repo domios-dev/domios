@@ -125,9 +125,7 @@ impl ServiceContext {
                     .find(|item| entry.id.as_deref() == Some(&item.id))
                 {
                     if !entry.content.is_empty() && entry.content != item.title {
-                        if item.locked {
-                            return Err("seeded criteria stay locked".into());
-                        }
+                        item.validate_amendment_title(&entry.content)?;
                         amendments.push((
                             item.id.clone(),
                             item.revision,
@@ -177,8 +175,10 @@ impl ServiceContext {
                         Some(format!("~ {} -> {}", old.title, item.title))
                     }
                     Some(old) if old.state != item.state => Some(format!(
-                        "~ {}: {:?} -> {:?}",
-                        item.title, old.state, item.state
+                        "~ {}: {} -> {}",
+                        item.title,
+                        old.state.label(),
+                        item.state.label()
                     )),
                     _ => None,
                 },
@@ -199,8 +199,8 @@ impl ServiceContext {
         self.deliver_checklist_notice(
             &target.id,
             &format!(
-                "Checklist {:?}. {}\n{}",
-                proposal.state,
+                "Checklist {}. {}\n{}",
+                proposal.state.label(),
                 proposal.note.as_deref().unwrap_or(""),
                 changes
             ),

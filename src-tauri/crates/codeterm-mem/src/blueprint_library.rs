@@ -1,3 +1,4 @@
+use crate::solution_metadata::{self as metadata, SolutionMetadata};
 use crate::{store, MemKind, MemManager, MemScope, NewMemItem};
 use codeterm_blueprint_types::{
     blueprint_document::Document,
@@ -5,6 +6,8 @@ use codeterm_blueprint_types::{
 };
 use rusqlite::{params, Connection};
 use std::sync::atomic::{AtomicU64, Ordering};
+mod qualification;
+use qualification::PreparedBlueprint;
 
 const SOURCE: &str = "blueprint-library";
 static RECALLS: AtomicU64 = AtomicU64::new(0);
@@ -14,46 +17,52 @@ static DREAM_AREA: AtomicU64 = AtomicU64::new(0);
 pub(crate) enum Pending {
     Keep {
         area: String,
-        definition: serde_json::Value,
-        when_to_use: String,
-        evidence: Evidence,
+        prepared: PreparedBlueprint,
     },
     Reuse(Vec<String>),
 }
 
-fn entries(conn: &Connection, blobs: &std::path::Path, area: &str) -> Result<Vec<Entry>, String> {
-    let mut stmt=conn.prepare("SELECT id FROM mem_items WHERE kind='skill' AND area=?1 AND source=?2 ORDER BY recurrence_count DESC, accessed_at DESC, id LIMIT 51").map_err(|e|e.to_string())?;
+fn load_entries(
+    conn: &Connection,
+    blobs: &std::path::Path,
+    area: &str,
+    validate: bool,
+) -> Result<Vec<Entry>, String> {
+    let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND m.area=?1 AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id LIMIT 51").map_err(|error|error.to_string())?;
     let ids = stmt
         .query_map(params![area, SOURCE], |row| row.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
+        .map_err(|error| error.to_string())?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    ids.into_iter()
-        .map(|id| {
-            let item = store::get(conn, &id, blobs)?.ok_or("Blueprint solution disappeared")?;
-            let document = model::parse_document(&item.body)?;
-            let last_used = item
-                .accessed_at
-                .as_deref()
-                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-                .map_or(0, |time| time.timestamp());
-            let failures = item
-                .tags
-                .iter()
-                .find_map(|tag| tag.strip_prefix("failures:")?.parse().ok())
-                .unwrap_or(0);
-            Ok(Entry {
-                id,
-                document,
-                when_to_use: item.title,
-                uses: item.access_count.max(0) as u64,
-                successes: item.recurrence_count.max(0) as u64,
-                failures,
-                kept: item.tags.iter().any(|tag| tag == "explicitly-kept"),
-                last_used,
-            })
-        })
-        .collect()
+        .map_err(|error| error.to_string())?;
+    let mut result = Vec::new();
+    for id in ids {
+        let item = store::get(conn, &id, blobs)?.ok_or("Blueprint solution disappeared")?;
+        let stats = metadata::read(conn, &id)?
+            .and_then(|record| record.blueprint)
+            .ok_or("Blueprint metadata absent")?;
+        let document = match model::parse_document(&item.body) {
+            Ok(document) if !validate || document.template_errors().is_empty() => document,
+            _ => {
+                archive(conn, &id, "Blueprint recipe fails current validation")?;
+                continue;
+            }
+        };
+        result.push(Entry {
+            id,
+            document,
+            when_to_use: stats.when_to_use,
+            uses: stats.uses,
+            successes: stats.successes,
+            failures: stats.failures,
+            kept: stats.explicitly_kept,
+            last_used: stats.last_used,
+        });
+    }
+    Ok(result)
+}
+
+fn entries(conn: &Connection, blobs: &std::path::Path, area: &str) -> Result<Vec<Entry>, String> {
+    load_entries(conn, blobs, area, true)
 }
 
 fn archive(conn: &Connection, id: &str, reason: &str) -> Result<(), String> {
@@ -67,116 +76,32 @@ fn archive(conn: &Connection, id: &str, reason: &str) -> Result<(), String> {
     )
 }
 
-fn write_entry(conn: &Connection, blobs: &std::path::Path, entry: &Entry) -> Result<(), String> {
-    if !model::safe_template(&entry.document, &entry.when_to_use) {
-        return Err("Unsafe Blueprint solution cannot be persisted".into());
-    }
-    let mut tags = vec![
-        "blueprint-library".into(),
-        format!("failures:{}", entry.failures),
-    ];
-    if let Some(item) = store::get(conn, &entry.id, blobs)? {
-        tags.extend(item.tags.into_iter().filter(|tag| {
-            tag.starts_with("evidence:")
-                || tag.starts_with("curator:")
-                || tag.starts_with("confidence:")
-                || tag == "curator"
-                || tag.starts_with("pl_")
-        }));
-    }
-    if entry.kept {
-        tags.push("explicitly-kept".into());
+fn write_entry(
+    conn: &Connection,
+    blobs: &std::path::Path,
+    entry: &Entry,
+    mut record: SolutionMetadata,
+) -> Result<(), String> {
+    record.set_entry(entry);
+    let document = &entry.document;
+    let mut tags = vec!["blueprint-library".into()];
+    if let Some(curator) = &record.curator {
+        tags.push("curator".into());
+        tags.extend(curator.rounds.keys().cloned());
     }
     store::update(
         conn,
         &entry.id,
         &store::MemUpdate {
-            title: Some(entry.when_to_use.clone()),
-            body: Some(entry.document.yaml()?),
-            summary: entry.document.note.clone(),
+            title: Some(document.name.clone()),
+            body: Some(document.yaml()?),
+            summary: Some(entry.when_to_use.clone()),
             tags: Some(tags),
             ..Default::default()
         },
         blobs,
     )?;
-    conn.execute(
-        "UPDATE mem_items SET recurrence_count=?2, access_count=?3, accessed_at=?4 WHERE id=?1",
-        params![
-            entry.id,
-            entry.successes.min(i64::MAX as u64) as i64,
-            entry.uses.min(i64::MAX as u64) as i64,
-            chrono::DateTime::from_timestamp(entry.last_used, 0).map(|time| time.to_rfc3339())
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-fn evidence_prefix(origin: &str) -> String {
-    let hash = origin.bytes().fold(0xcbf29ce484222325u64, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-    });
-    format!("evidence:{hash:016x}:")
-}
-
-fn prior_evidence(
-    conn: &Connection,
-    blobs: &std::path::Path,
-    id: &str,
-    origin: &str,
-) -> Result<(u64, u64), String> {
-    let prefix = evidence_prefix(origin);
-    let item = store::get(conn, id, blobs)?.ok_or("Blueprint solution disappeared")?;
-    Ok(item
-        .tags
-        .iter()
-        .find_map(|tag| {
-            let (successes, failures) = tag.strip_prefix(&prefix)?.split_once(':')?;
-            Some((successes.parse().ok()?, failures.parse().ok()?))
-        })
-        .unwrap_or_default())
-}
-
-fn record_evidence(
-    conn: &Connection,
-    blobs: &std::path::Path,
-    id: &str,
-    evidence: &Evidence,
-) -> Result<(), String> {
-    let Some(origin) = &evidence.origin else {
-        return Ok(());
-    };
-    let prefix = evidence_prefix(origin);
-    let (successes, failures) = prior_evidence(conn, blobs, id, origin)?;
-    let mut tags = store::get(conn, id, blobs)?
-        .ok_or("Blueprint solution disappeared")?
-        .tags;
-    tags.retain(|tag| !tag.starts_with(&prefix));
-    tags.push(format!(
-        "{prefix}{}:{}",
-        evidence.successes.max(successes),
-        evidence.failures.max(failures)
-    ));
-    while tags
-        .iter()
-        .filter(|tag| tag.starts_with("evidence:"))
-        .count()
-        > 32
-    {
-        if let Some(index) = tags.iter().position(|tag| tag.starts_with("evidence:")) {
-            tags.remove(index);
-        }
-    }
-    store::update(
-        conn,
-        id,
-        &store::MemUpdate {
-            tags: Some(tags),
-            ..Default::default()
-        },
-        blobs,
-    )?;
-    Ok(())
+    metadata::write(conn, &entry.id, &record)
 }
 
 impl MemManager {
@@ -191,20 +116,13 @@ impl MemManager {
                     while let Ok(pending) = receiver.recv() {
                         let Some(mem) = weak.upgrade() else { break };
                         let result = match pending {
-                            Pending::Keep {
-                                area,
-                                definition,
-                                when_to_use,
-                                evidence,
-                            } => Document::from_definition(&definition)
-                                .and_then(|document| {
-                                    mem.save_blueprint(&area, document, &when_to_use, evidence)
-                                })
-                                .map(|_| ()),
+                            Pending::Keep { area, prepared } => {
+                                mem.persist_blueprint(&area, prepared).map(|_| ())
+                            }
                             Pending::Reuse(ids) => mem.reuse_blueprints(&ids),
                         };
                         if let Err(error) = result {
-                            log::debug!("[blueprint-memory] write refused: {error}");
+                            log::error!("[blueprint-memory] persistence failed: {error}");
                         }
                     }
                 })
@@ -225,12 +143,14 @@ impl MemManager {
         when_to_use: String,
         evidence: Evidence,
     ) -> Result<(), String> {
-        self.queue_blueprint(Pending::Keep {
-            area,
-            definition,
-            when_to_use,
+        self.guard_commit()?;
+        let prepared = self.qualify_blueprint(
+            &area,
+            Document::from_definition(&definition)?,
+            &when_to_use,
             evidence,
-        })
+        )?;
+        self.queue_blueprint(Pending::Keep { area, prepared })
     }
 
     pub fn save_blueprint(
@@ -238,108 +158,52 @@ impl MemManager {
         area: &str,
         document: Document,
         when_to_use: &str,
-        mut evidence: Evidence,
+        evidence: Evidence,
+    ) -> Result<Option<String>, String> {
+        let prepared = self.qualify_blueprint(area, document, when_to_use, evidence)?;
+        self.persist_blueprint(area, prepared)
+    }
+
+    fn persist_blueprint(
+        &self,
+        area: &str,
+        prepared: PreparedBlueprint,
     ) -> Result<Option<String>, String> {
         self.guard_commit()?;
-        let mut document = model::abstract_document(document);
-        let hash = model::structure(&document)
-            .to_string()
-            .bytes()
-            .fold(0xcbf29ce484222325u64, |hash, byte| {
-                (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-            });
-        document.name = format!("Saved solution {hash:016x}");
-        evidence.safe = model::safe_template(&document, when_to_use);
-        let decision = model::decide(&evidence);
-        log::debug!(
-            "[blueprint-memory] qualification={} save={}",
-            decision.reason,
-            decision.save
-        );
-        if !decision.save {
-            return Err(format!("Blueprint solution refused: {}", decision.reason));
-        }
-        if when_to_use.trim().is_empty()
-            || when_to_use.chars().count() > 200
-            || when_to_use.chars().any(char::is_control)
-        {
-            return Err("When to use must contain 1..200 plain-text characters".into());
-        }
+        let PreparedBlueprint {
+            document,
+            when_to_use,
+            evidence,
+        } = prepared;
         let yaml = document.yaml()?;
-        if yaml.len() > codeterm_blueprint_types::blueprint_recipe::MAX_RECIPE_BYTES {
-            return Err("Blueprint solution exceeds document limit".into());
-        }
-        if let Some(curator) = &evidence.curator {
-            let relations = self
-                .search(&crate::SearchQuery {
-                    query: when_to_use.into(),
-                    limit: Some(3),
-                    ..Default::default()
-                })?
-                .into_iter()
-                .map(|hit| {
-                    if hit.item.source.as_deref() == Some(SOURCE)
-                        && hit.item.area.as_deref() == Some(area)
-                    {
-                        match model::parse_document(&hit.item.body) {
-                            Ok(existing)
-                                if model::structure(&existing) == model::structure(&document) =>
-                            {
-                                model::curator::Relation::Covers(hit.item.id)
-                            }
-                            _ => model::curator::Relation::Conflict(hit.item.id),
-                        }
-                    } else {
-                        model::curator::Relation::Conflict(hit.item.id)
-                    }
-                })
-                .collect::<Vec<_>>();
-            model::curator::decide(
-                &curator.episodes.iter().cloned().collect(),
-                curator.granted,
-                false,
-                &relations,
-            )?;
-            let evidence_note = format!(
-                "Evidence: {}{}",
-                curator.episodes.join(" "),
-                if curator.granted {
-                    format!(" grant:{}:{}", curator.plan, curator.round)
-                } else {
-                    String::new()
-                }
-            );
-            document.note = Some(format!(
-                "{}\n{evidence_note}",
-                document.note.as_deref().unwrap_or("")
-            ));
-        }
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-        let mut library = entries(&tx, &self.blobs_dir, area)?;
+        let mut library = load_entries(&tx, &self.blobs_dir, area, !evidence.kept)?;
         let now = chrono::Utc::now();
         let id = if let Some(existing) = model::duplicate(&library, &document) {
-            let (prior_successes, prior_failures) = evidence
-                .origin
-                .as_deref()
-                .map(|origin| prior_evidence(&tx, &self.blobs_dir, &existing.id, origin))
-                .transpose()?
-                .unwrap_or_default();
+            let mut record =
+                metadata::read(&tx, &existing.id)?.ok_or("Blueprint metadata absent")?;
+            let prior = record.prior(evidence.origin.as_deref());
             let candidate = Entry {
                 id: "candidate".into(),
                 document,
-                when_to_use: when_to_use.into(),
+                when_to_use: when_to_use.clone(),
                 uses: 0,
-                successes: evidence.successes.saturating_sub(prior_successes),
-                failures: evidence.failures.saturating_sub(prior_failures),
+                successes: evidence.successes.saturating_sub(prior.successes),
+                failures: evidence.failures.saturating_sub(prior.failures),
                 kept: evidence.kept,
                 last_used: now.timestamp(),
             };
             let mut next = model::merge_pair(existing, &candidate)
                 .ok_or("Blueprint structure changed")?
                 .keeper;
+            if evidence.kept {
+                next.document = candidate.document;
+                next.when_to_use = candidate.when_to_use;
+            }
             next.id = existing.id.clone();
-            write_entry(&tx, &self.blobs_dir, &next)?;
+            record.observe(&evidence, now.timestamp());
+            write_entry(&tx, &self.blobs_dir, &next, record)?;
             let id = next.id.clone();
             library.retain(|entry| entry.id != id);
             library.push(next);
@@ -365,73 +229,19 @@ impl MemManager {
             let next = Entry {
                 id: id.clone(),
                 document,
-                when_to_use: when_to_use.into(),
+                when_to_use: when_to_use.clone(),
                 uses: 0,
                 successes: evidence.successes,
                 failures: evidence.failures,
                 kept: evidence.kept,
                 last_used: now.timestamp(),
             };
-            write_entry(&tx, &self.blobs_dir, &next)?;
+            let mut record = SolutionMetadata::default();
+            record.observe(&evidence, now.timestamp());
+            write_entry(&tx, &self.blobs_dir, &next, record)?;
             library.push(next);
             id
         };
-        record_evidence(&tx, &self.blobs_dir, &id, &evidence)?;
-        if let Some(curator) = &evidence.curator {
-            let item = store::get(&tx, &id, &self.blobs_dir)?.ok_or("saved solution absent")?;
-            let mut persisted = model::parse_document(&item.body)?;
-            let proof = format!(
-                "Evidence: {}{}",
-                curator.episodes.join(" "),
-                if curator.granted {
-                    format!(" grant:{}:{}", curator.plan, curator.round)
-                } else {
-                    String::new()
-                }
-            );
-            if !persisted.note.as_deref().unwrap_or("").contains(&proof) {
-                persisted.note = Some(format!(
-                    "{}\n{proof}",
-                    persisted.note.as_deref().unwrap_or("")
-                ));
-            }
-            let prior_round = item.tags.iter().find_map(|tag| {
-                tag.strip_prefix(&format!("curator:round:{}:", curator.plan))?
-                    .parse()
-                    .ok()
-            });
-            let prior = item
-                .tags
-                .iter()
-                .find_map(|tag| tag.strip_prefix("confidence:"))
-                .unwrap_or("low");
-            let confidence = model::curator::confidence(prior_round, curator.round, prior);
-            let mut tags = item.tags;
-            tags.retain(|tag| {
-                !tag.starts_with("confidence:")
-                    && !tag.starts_with("curator:observed:")
-                    && !tag.starts_with(&format!("curator:round:{}:", curator.plan))
-            });
-            tags.extend([
-                "curator".into(),
-                curator.plan.clone(),
-                format!("confidence:{confidence}"),
-                format!("curator:round:{}:{}", curator.plan, curator.round),
-                format!("curator:observed:{}", now.timestamp()),
-            ]);
-            tags.sort();
-            tags.dedup();
-            store::update(
-                &tx,
-                &id,
-                &store::MemUpdate {
-                    tags: Some(tags),
-                    body: Some(persisted.yaml()?),
-                    ..Default::default()
-                },
-                &self.blobs_dir,
-            )?;
-        }
         for evicted in model::evictions(&library, AREA_CAP, now.timestamp()) {
             archive(&tx, &evicted, "blueprint solution area cap")?;
         }
@@ -451,10 +261,22 @@ impl MemManager {
 
     fn reuse_blueprints(&self, ids: &[String]) -> Result<(), String> {
         let conn = self.conn.lock();
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
         for id in ids.iter().take(5) {
-            conn.execute("UPDATE mem_items SET access_count=access_count+1, accessed_at=?2 WHERE id=?1 AND source=?3 AND kind='skill'",params![id,chrono::Utc::now().to_rfc3339(),SOURCE]).map_err(|e|e.to_string())?;
+            let Some(mut record) = metadata::read(&tx, id)? else {
+                continue;
+            };
+            let stats = record
+                .blueprint
+                .as_mut()
+                .ok_or("Blueprint metadata absent")?;
+            stats.uses = stats.uses.saturating_add(1);
+            stats.last_used = chrono::Utc::now().timestamp();
+            metadata::write(&tx, id, &record)?;
         }
-        Ok(())
+        tx.commit().map_err(|error| error.to_string())
     }
 
     pub fn recall_blueprints(
@@ -553,7 +375,12 @@ impl MemManager {
                 }
             }
             for merge in model::dream_merges(&library, MERGE_BUDGET) {
-                write_entry(&tx, &self.blobs_dir, &merge.keeper)?;
+                let mut record =
+                    metadata::read(&tx, &merge.keeper.id)?.ok_or("Blueprint metadata absent")?;
+                record.merge(
+                    metadata::read(&tx, &merge.superseded)?.ok_or("Blueprint metadata absent")?,
+                );
+                write_entry(&tx, &self.blobs_dir, &merge.keeper, record)?;
                 archive(
                     &tx,
                     &merge.superseded,

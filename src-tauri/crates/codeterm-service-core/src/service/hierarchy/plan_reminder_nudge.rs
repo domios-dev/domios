@@ -84,6 +84,17 @@ trait TimeReminderPorts {
     fn agent_lost(&self, tab_id: &str, target: &PlanReminderTarget);
 }
 
+fn effective_interval(plans: &[Plan], target: &PlanReminderTarget, machine_default: u64) -> u64 {
+    match target {
+        PlanReminderTarget::Owner { plan_id } => plans
+            .iter()
+            .find(|plan| &plan.id == plan_id)
+            .map_or(machine_default, |plan| {
+                plan.control_loop.interval(machine_default)
+            }),
+        PlanReminderTarget::Worker => machine_default,
+    }
+}
 fn send_due_plan_time_reminders_via(
     plans: &[Plan],
     counter: &TurnCounter,
@@ -98,14 +109,7 @@ fn send_due_plan_time_reminders_via(
     let mut due = 0usize;
     for timed in targets {
         counter.record_time_tick(&timed.tab_id, now);
-        let interval = match &timed.target {
-            PlanReminderTarget::Owner { plan_id } => plans
-                .iter()
-                .find(|p| &p.id == plan_id)
-                .map(|p| p.control_loop.interval(interval_secs))
-                .unwrap_or(interval_secs),
-            PlanReminderTarget::Worker => interval_secs,
-        };
+        let interval = effective_interval(plans, &timed.target, interval_secs);
         let is_due = counter.time_nudge_due(&timed.tab_id, now, interval);
         if !is_due {
             ports.note(&timed.tab_id, &timed.target, TickFact::NotDue);

@@ -54,8 +54,8 @@ export function MissionControlTeamBoard({
       data-board-scope="team"
       className="mc-board"
     >
-      {error && <div role="alert"><InlineErrorNotice error={error} operation="loading team board" /></div>}
-      {spendError && <div role="alert"><InlineErrorNotice error={spendError} operation="loading team spend" /></div>}
+      {error && <InlineErrorNotice role="alert" error={error} operation="loading team board" />}
+      {spendError && <InlineErrorNotice role="alert" error={spendError} operation="loading team spend" />}
       <div
         data-testid="mc-board-row"
         className="mc-board-row"

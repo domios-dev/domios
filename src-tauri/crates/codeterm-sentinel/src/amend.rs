@@ -340,7 +340,14 @@ impl Store {
         authored_at: u64,
         update: PreparedUpdate,
     ) -> Staged<Sentinel> {
-        self.stage_definition(expect_version, author_tab_id, authored_at, update, false)
+        self.stage_definition(
+            expect_version,
+            author_tab_id,
+            authored_at,
+            update,
+            false,
+            None,
+        )
     }
 
     pub fn stage_apply_definition(
@@ -349,8 +356,16 @@ impl Store {
         author_tab_id: &str,
         authored_at: u64,
         update: PreparedUpdate,
+        stopped: Option<bool>,
     ) -> Staged<Sentinel> {
-        self.stage_definition(expect_version, author_tab_id, authored_at, update, true)
+        self.stage_definition(
+            expect_version,
+            author_tab_id,
+            authored_at,
+            update,
+            true,
+            stopped,
+        )
     }
 
     fn stage_definition(
@@ -360,6 +375,7 @@ impl Store {
         authored_at: u64,
         update: PreparedUpdate,
         retarget: bool,
+        stopped: Option<bool>,
     ) -> Staged<Sentinel> {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
@@ -416,6 +432,10 @@ impl Store {
             next.last_reason = None;
             next.expires_at = None;
             next.next_run = authored_at;
+        }
+        if let Some(stopped) = stopped {
+            next.machine.stopped = stopped;
+            next.cleanup.sync(stopped, authored_at);
         }
         next.session = update.job.session;
         next.name = update.job.name;

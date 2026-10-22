@@ -2,6 +2,8 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { GuideNavigationProvider } from "@codeterm/chat-ui";
+import { publishNotice } from "../../../lib/notices";
+import { usePlanControlLoop } from "./usePlanControlLoop";
 import { daemonFetch } from "../../../lib/webApi";
 import { FIXTURE_MILESTONE, FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import type { PlanControlLoop } from "../planControlLoop";
@@ -11,6 +13,8 @@ import { ConnectedPlanSettings } from "./ConnectedPlanSettings";
 import { PlanRecentActivityRail } from "../planView/PlanRecentActivityRail";
 import { planOversight } from "./planOversightAdapter";
 import { CronRunHistory } from "../../MeshPanel/CronDrawerSection/CronRunHistory";
+
+vi.mock("../../../lib/notices", () => ({ publishNotice: vi.fn() }));
 
 vi.mock("../../../lib/webApi", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../../lib/webApi")>(),
@@ -34,6 +38,7 @@ beforeEach(() => {
   localStorage.clear();
   stored = { ...BASE };
   requests.length = 0;
+  vi.mocked(publishNotice).mockClear();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -62,6 +67,22 @@ async function click(label: string, parent?: ParentNode) {
   });
 }
 function panel(plan = FIXTURE_PLAN) { return <ConnectedPlanSettings plan={plan} api={API} now={NOW} />; }
+
+it("requests a round through the owner-confirmed endpoint and disables it while suspended", async () => {
+  await render(panel());
+  await click("Run now");
+  const run = requests.find(({ path }) => path.endsWith("/control-loop/run"));
+  expect(run?.init?.method).toBe("POST");
+  expect(new Headers(run?.init?.headers).get("X-CodeTerm-Plan-Confirmation")).toBe(FIXTURE_PLAN.id);
+  await render(<ConnectedPlanSettings plan={FIXTURE_PLAN} initial={{ ...BASE, suspended_reason: "waiting_on_human" }} api={API} now={NOW} />);
+  expect(button("Run now").disabled).toBe(true);
+});
+
+it("shows the authoritative Curator outcome in Jobs history", async () => {
+  await render(<CronRunHistory allowed runLabel="Curator round" runs={[{ run_id: "round-one", started_at: NOW, finished_at: NOW + 1000, status: "Failed", summary: "failed", tab_id: "closed-tab", session_id: "retained-session" }]} onOpen={() => undefined} />);
+  expect(host.textContent).toContain("Curator round · failed");
+  expect(host.textContent).not.toContain("Success");
+});
 
 it("reads persisted Curator settings, switches mode, and persists interval presets", async () => {
   await render(panel());
@@ -124,7 +145,9 @@ it("shows refusal without switching the displayed persisted mode", async () => {
   vi.mocked(daemonFetch).mockResolvedValueOnce(new Response("fixture refusal", { status: 403 }));
   await click("Heartbeat");
   expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Curator");
-  expect(host.querySelector('[role="alert"]')).not.toBeNull();
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(publishNotice).toHaveBeenCalledWith(expect.objectContaining({ kind: "toast", severity: "Error" }));
+  expect(button("Heartbeat").disabled).toBe(false);
 });
 
 it("accepts live plan state updates and refreshes the countdown from its injected clock", async () => {
@@ -163,4 +186,40 @@ it("renders Curator runs with the standard transcript action", async () => {
   expect(transcript?.getAttribute("aria-label")).toContain("Curator round");
   await act(async () => transcript?.click());
   expect(open).toHaveBeenCalledWith(run);
+});
+
+
+it("shows a load failure in one alert and keeps update failures off that surface", async () => {
+  vi.mocked(daemonFetch).mockResolvedValueOnce(new Response("fixture load refusal", { status: 403 }));
+  await render(panel());
+  expect(host.querySelectorAll('[role="alert"]')).toHaveLength(1);
+  expect(host.querySelector('[role="alert"] [role]')).toBeNull();
+  expect(publishNotice).not.toHaveBeenCalled();
+});
+
+it("queues overlapping updates and uses write responses without refetching", async () => {
+  let control: ReturnType<typeof usePlanControlLoop> | undefined;
+  function Harness() {
+    control = usePlanControlLoop(API, FIXTURE_PLAN.id, 1);
+    return <span>{control.value?.heartbeat_interval_secs}</span>;
+  }
+  await render(<Harness />);
+  let release: ((value: Response) => void) | undefined;
+  vi.mocked(daemonFetch).mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  let first: Promise<void> | undefined;
+  let second: Promise<void> | undefined;
+  await act(async () => {
+    first = control!.update({ mode: "heartbeat" });
+    second = control!.update({ mode: "heartbeat", heartbeat_interval_secs: 5400 });
+  });
+  expect(control!.busy).toBe(true);
+  expect(requests.filter(({ init }) => init?.method !== "POST")).toHaveLength(1);
+  await act(async () => {
+    release!(Response.json({ ...BASE, mode: "heartbeat" }));
+    await first;
+    await second;
+  });
+  expect(control!.value?.heartbeat_interval_secs).toBe(5400);
+  expect(control!.busy).toBe(false);
+  expect(requests.filter(({ init }) => init?.method !== "POST")).toHaveLength(1);
 });

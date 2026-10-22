@@ -1039,3 +1039,16 @@ describe("mission control board layout", () => {
     await unmount();
   });
 });
+
+it("announces each board load failure once without nested live regions", async () => {
+  for (const ui of [
+    <MissionControlBoard plan={FIXTURE_PLAN} state={null} spendError="opaque-spend-error" />,
+    <MissionControlTeamBoard team={null} error="opaque-board-error" spendError="opaque-spend-error" />,
+  ]) {
+    const view = await render(ui);
+    const alerts = view.host.querySelectorAll('[role="alert"]');
+    expect(alerts.length).toBe(ui.type === MissionControlBoard ? 1 : 2);
+    for (const alert of alerts) expect(alert.querySelector('[role]')).toBeNull();
+    await view.unmount();
+  }
+});

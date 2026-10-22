@@ -19,35 +19,8 @@ fn generic(key: &str) -> bool {
 }
 
 fn unsafe_text(text: &str) -> bool {
-    static SECRET: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
     static PATH: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
-    let lower = text.to_ascii_lowercase();
-    let secret = [
-        "bearer ",
-        "token=",
-        "token:",
-        "password=",
-        "password:",
-        "secret=",
-        "api_key=",
-        "apikey=",
-        "authorization:",
-        "github_pat_",
-        "ghp_",
-        "sk-",
-        "akia",
-    ]
-    .iter()
-    .any(|pattern| lower.contains(pattern))
-        || SECRET
-            .get_or_init(|| {
-                regex::Regex::new(
-                    r"(?i)(token|password|secret|api[_-]?key|authorization)\s*[:=]\s*\S+",
-                )
-                .ok()
-            })
-            .as_ref()
-            .is_some_and(|pattern| pattern.is_match(text));
+    let secret = super::contains_credentials(text);
     let path = text.contains("/Users/")
         || text.contains("/home/")
         || PATH
@@ -55,10 +28,7 @@ fn unsafe_text(text: &str) -> bool {
             .as_ref()
             .is_some_and(|pattern| pattern.is_match(text))
         || text.split_whitespace().any(|word| word.starts_with('/'));
-    secret
-        || path
-        || ((lower.contains("https://") || lower.contains("http://"))
-            && (text.contains('?') || text.contains('@')))
+    secret || path
 }
 
 pub fn safe_template(document: &Document, when_to_use: &str) -> bool {
@@ -76,8 +46,6 @@ pub fn safe_template(document: &Document, when_to_use: &str) -> bool {
 }
 
 pub fn abstract_document(mut document: Document) -> Document {
-    document.name = "Saved solution".into();
-    document.note = None;
     for (key, input) in &mut document.inputs {
         if !generic(key) {
             input.default = None;
@@ -90,53 +58,7 @@ pub fn abstract_document(mut document: Document) -> Document {
     }
     if let Some(pipeline) = &mut document.pipeline {
         abstract_values(pipeline, "pipeline", &mut document.inputs);
-        let names = pipeline["steps"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .enumerate()
-            .filter_map(|(index, step)| {
-                step["name"]
-                    .as_str()
-                    .map(|name| (name.to_owned(), format!("step-{}", index + 1)))
-            })
-            .collect::<BTreeMap<_, _>>();
-        if let Some(steps) = pipeline["steps"].as_array_mut() {
-            for (index, step) in steps.iter_mut().enumerate() {
-                step["name"] = json!(format!("step-{}", index + 1));
-                if let Some(routes) = step["on"].as_object_mut() {
-                    for target in routes.values_mut() {
-                        if let Some(name) = target.as_str().and_then(|name| names.get(name)) {
-                            *target = json!(name);
-                        }
-                    }
-                }
-            }
-        }
     }
-    let how = if let Some(pipeline) = &document.pipeline {
-        let kinds = pipeline["steps"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|step| {
-                if step.get("run").is_some() {
-                    "command"
-                } else {
-                    step["uses"].as_str().unwrap_or("step")
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" -> ");
-        format!(
-            "{} trigger; {}; deliver result",
-            pipeline["trigger"]["type"].as_str().unwrap_or("input"),
-            kinds
-        )
-    } else {
-        "Observe source; classify declared outcomes; execute matching routes".into()
-    };
-    document.note = Some(how.chars().take(200).collect());
     document
 }
 
@@ -144,6 +66,9 @@ fn abstract_values(value: &mut Value, path: &str, inputs: &mut BTreeMap<String, 
     match value {
         Value::Object(fields) => {
             for (key, value) in fields {
+                if matches!(key.as_str(), "on" | "routes" | "matches" | "note" | "name") {
+                    continue;
+                }
                 let path = format!("{path}_{key}");
                 let parameter = path.contains("_params_")
                     || (path.contains("_with_")
@@ -175,9 +100,16 @@ fn abstract_values(value: &mut Value, path: &str, inputs: &mut BTreeMap<String, 
                     && (value.is_string() || value.is_number())
                     && !value.as_str().is_some_and(|text| text.contains("{{"))
                 {
-                    let mut name = path.clone();
+                    let role = match key.as_str() {
+                        "run" | "probe" => "command",
+                        "text" => "message",
+                        other => other,
+                    };
+                    let mut name = role.to_owned();
+                    let mut suffix = 2;
                     while inputs.contains_key(&name) {
-                        name.push('_');
+                        name = format!("{role}_{suffix}");
+                        suffix += 1;
                     }
                     inputs.insert(
                         name.clone(),
@@ -189,7 +121,7 @@ fn abstract_values(value: &mut Value, path: &str, inputs: &mut BTreeMap<String, 
                             }
                             .into(),
                             default: None,
-                            description: Some(format!("Provide {}", path.replace('_', " "))),
+                            description: Some(format!("Provide {}", role.replace('_', " "))),
                             choices: None,
                         },
                     );
@@ -227,9 +159,16 @@ pub(super) fn merge_variants(keeper: &mut Document, lesser: &Document) {
                         && !value.as_str().is_some_and(|text| text.contains("{{"))
                         && !other.as_str().is_some_and(|text| text.contains("{{"))
                     {
-                        let mut name = path.clone();
+                        let role = match key.as_str() {
+                            "run" | "probe" => "command",
+                            "text" => "message",
+                            other => other,
+                        };
+                        let mut name = role.to_owned();
+                        let mut suffix = 2;
                         while inputs.contains_key(&name) {
-                            name.push('_');
+                            name = format!("{role}_{suffix}");
+                            suffix += 1;
                         }
                         inputs.insert(
                             name.clone(),

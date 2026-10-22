@@ -47,13 +47,7 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
         .blueprint_apply_recipe(&caller, &id, &[], None, false)
         .is_err());
     let result = service
-        .blueprint_apply_recipe(
-            &caller,
-            &id,
-            &["watch_probe=echo rebound".into()],
-            None,
-            false,
-        )
+        .blueprint_apply_recipe(&caller, &id, &["command=echo rebound".into()], None, false)
         .unwrap();
     let job = service
         .sentinel_show(&caller, result["id"].as_str().unwrap())

@@ -11,7 +11,7 @@ export function CronRunHistory({ runs, allowed, reason, onOpen, runLabel }: { ru
       : runs.length === 0 ? <p className="ct-job-note">No runs yet</p>
       : <ol aria-label="Run history" className="ct-rows">{runs.map((run) => {
         const started = formatTime(run.started_at);
-        const label = `${runLabel ? `${runLabel} · ` : ""}${runStatusLabel(run.status)}`;
+        const label = `${runLabel ? `${runLabel} · ` : ""}${runLabel && run.summary ? run.summary : runStatusLabel(run.status)}`;
         const live = run.status === "Running" || run.status === "AwaitingOwnerPrompt";
         const content = <>
           <span className="ct-detail__dot" data-live={live || undefined} style={{ "--ct-detail-tone": runTone(run.status) } as CSSProperties} aria-hidden="true" />

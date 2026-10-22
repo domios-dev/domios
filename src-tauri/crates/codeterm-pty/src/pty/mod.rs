@@ -4,6 +4,7 @@ pub mod capture;
 pub mod cast;
 pub mod child_env;
 mod child_exit;
+pub mod input_mode;
 pub mod login_shell;
 pub mod manager;
 mod output_buffer;

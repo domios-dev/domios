@@ -7,21 +7,52 @@ pub struct Mirror {
     pub effort: Option<String>,
 }
 
-pub fn resolve_mirror(tab: &crate::multiplexer::types::Tab) -> Result<Mirror, String> {
+pub(crate) struct CuratorFireError {
+    pub reason: CuratorFailure,
+    detail: String,
+}
+impl From<CuratorFailure> for CuratorFireError {
+    fn from(reason: CuratorFailure) -> Self {
+        Self {
+            reason,
+            detail: reason.as_str().into(),
+        }
+    }
+}
+impl From<String> for CuratorFireError {
+    fn from(detail: String) -> Self {
+        Self {
+            reason: CuratorFailure::LaunchFailed,
+            detail,
+        }
+    }
+}
+impl From<&str> for CuratorFireError {
+    fn from(detail: &str) -> Self {
+        detail.to_string().into()
+    }
+}
+impl std::fmt::Display for CuratorFireError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
+
+pub fn resolve_mirror(tab: &crate::multiplexer::types::Tab) -> Result<Mirror, CuratorFailure> {
     if crate::service::hierarchy::heartbeat_gate::binding_digest(tab, None).is_none() {
-        return Err("orchestrator_unbound".into());
+        return Err(CuratorFailure::OrchestratorUnbound);
     }
     Ok(Mirror {
         provider: tab
             .agent_type
             .clone()
             .filter(|s| !s.is_empty())
-            .ok_or("mirror_unavailable")?,
+            .ok_or(CuratorFailure::MirrorUnavailable)?,
         model: tab
             .agent_session_model
             .clone()
             .filter(|s| !s.is_empty())
-            .ok_or("mirror_unavailable")?,
+            .ok_or(CuratorFailure::MirrorUnavailable)?,
         effort: tab
             .reasoning_effort_identity
             .actual
@@ -31,10 +62,33 @@ pub fn resolve_mirror(tab: &crate::multiplexer::types::Tab) -> Result<Mirror, St
 }
 
 impl ServiceContext {
+    fn wake_curator_schedule(&self) {
+        if let Some(wake) = self
+            .extensions
+            .try_get::<crate::cron::scheduler::CronWake>()
+        {
+            wake.notify_all();
+        }
+    }
+    pub(super) fn available_mirror(&self, mirror: Mirror) -> Result<Mirror, CuratorFailure> {
+        if self
+            .agent_registry
+            .with_provider(&mirror.provider, |_| ())
+            .is_none()
+            && !self
+                .chatbackend_registry
+                .get(&mirror.provider)
+                .is_some_and(|backend| backend.spawnable())
+        {
+            Err(CuratorFailure::ProviderUnavailable)
+        } else {
+            Ok(mirror)
+        }
+    }
     pub(crate) fn curator_fire_failed(
         &self,
         plan_id: &str,
-        reason: &str,
+        reason: CuratorFailure,
         now: u64,
     ) -> Result<(), String> {
         let round = self
@@ -42,9 +96,10 @@ impl ServiceContext {
             .with_plan(plan_id, now, |plan| {
                 let state = &mut plan.control_loop;
                 state.consecutive_failures += 1;
-                let fallback = state.consecutive_failures >= 2 || reason == "provider_unavailable";
+                let fallback = state.consecutive_failures >= 2
+                    || reason == CuratorFailure::ProviderUnavailable;
                 if fallback {
-                    state.fallback_reason = Some(reason.into());
+                    state.fallback_reason = Some(reason);
                 }
                 let number = state
                     .running
@@ -57,9 +112,13 @@ impl ServiceContext {
                     number,
                     started_at: now,
                     ended_at: now,
-                    outcome: if fallback { "fallback" } else { "failed" }.into(),
-                    summary: reason.into(),
-                    reason: reason.into(),
+                    outcome: if fallback {
+                        codeterm_types::plan::CuratorOutcome::Fallback
+                    } else {
+                        codeterm_types::plan::CuratorOutcome::Failed
+                    },
+                    summary: reason.as_str().into(),
+                    reason: reason.as_str().into(),
                     next_delay_secs: curator_delay(None),
                     ..Default::default()
                 };
@@ -71,18 +130,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn reconcile_curators(&self, now: u64) {
-        let Some(cron) = self.extensions.try_get::<crate::CronState>() else {
-            return;
-        };
-        for plan in self.plan_store.list_full() {
-            if let Err(error) = self.reconcile_curator_plan(cron, &plan, now) {
-                log::debug!("[curator] reconcile {}: {error}", plan.id);
-            }
-        }
-    }
-
-    fn reconcile_curator_plan(
+    pub(super) fn reconcile_curator_plan(
         &self,
         cron: &crate::CronState,
         plan: &Plan,
@@ -95,7 +143,9 @@ impl ServiceContext {
             suspended.is_some(),
         );
         let mut loop_state = plan.control_loop.clone();
-        loop_state.agent_states = super::movement_sources::observed_agents(self, plan, now);
+        if eligible && loop_state.running.is_some() {
+            loop_state.agent_states = super::movement_sources::observed_agents(self, plan, now);
+        }
         if loop_state.cron_id.is_none() {
             loop_state.cron_id = cron
                 .lock()
@@ -105,7 +155,7 @@ impl ServiceContext {
                     job.protected
                         && job.role.as_deref() == Some("curator")
                         && job.team_id == plan.team_id
-                        && job.name == format!("curator:{}", plan.id)
+                        && job.task == plan.id
                 })
                 .map(|job| job.id.clone());
         }
@@ -122,8 +172,8 @@ impl ServiceContext {
                             CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt
                         )
                 });
-            if ended.is_some() || now.saturating_sub(run.started_at) >= 900_000 {
-                let deadline = now.saturating_sub(run.started_at) >= 900_000;
+            if ended.is_some() || now.saturating_sub(run.started_at) >= CURATOR_TIMEOUT_MS {
+                let deadline = now.saturating_sub(run.started_at) >= CURATOR_TIMEOUT_MS;
                 let reason = if deadline {
                     "deadline"
                 } else {
@@ -131,9 +181,15 @@ impl ServiceContext {
                 };
                 let round = CuratorRound {
                     number: run.number,
+                    run_id: run.run_id.clone(),
+                    tab_id: run.tab_id.clone(),
                     started_at: run.started_at,
                     ended_at: now,
-                    outcome: if deadline { "partial" } else { "failed" }.into(),
+                    outcome: if deadline {
+                        codeterm_types::plan::CuratorOutcome::Partial
+                    } else {
+                        codeterm_types::plan::CuratorOutcome::Failed
+                    },
                     reason: reason.into(),
                     summary: reason.into(),
                     next_delay_secs: curator_delay(None),
@@ -142,23 +198,36 @@ impl ServiceContext {
                     turns: run.turns,
                     output_tokens: run.output_tokens,
                     save_id: run.save_id.clone(),
+                    synthesis: run.synthesis,
                     duration_ms: now.saturating_sub(run.started_at),
                     ..Default::default()
                 };
+                if run.synthesis_group_close_at.is_some() {
+                    loop_state.last_synthesis_group_close_at = run.synthesis_group_close_at;
+                }
                 loop_state.running = None;
                 loop_state.consecutive_failures += 1;
                 if loop_state.consecutive_failures >= 2 {
-                    loop_state.fallback_reason = Some("consecutive_failures".into());
+                    loop_state.fallback_reason = Some(CuratorFailure::ConsecutiveFailures);
                 }
                 loop_state.last_real_round_at = Some(now);
                 loop_state.next_at = Some(now + curator_delay(None) * 1000);
-                self.plan_store
+                let applied = self
+                    .plan_store
                     .with_plan(&plan.id, now, |p| {
+                        if p.control_loop != plan.control_loop {
+                            return Ok(false);
+                        }
                         p.control_loop = loop_state.clone();
                         curator::append_round(p, round.clone());
-                        Ok(())
+                        Ok(true)
                     })
                     .map_err(|e| e.to_string())?;
+                if !applied {
+                    self.events
+                        .publish_internal("curator-reconcile", json!({"plan_id":plan.id}));
+                    return Ok(());
+                }
                 self.journal_curator(&plan.id, &round);
                 return Ok(());
             }
@@ -175,6 +244,7 @@ impl ServiceContext {
                             Ok(Prepared::new(CronChange::Patch(job.clone()), ()))
                         })
                         .map_err(|e| e.to_string())?;
+                        self.wake_curator_schedule();
                     }
                 }
             }
@@ -186,29 +256,25 @@ impl ServiceContext {
                 .and_then(|id| self.mux.read().get_tab(id).cloned());
             let mirror = tab
                 .as_ref()
-                .ok_or_else(|| "orchestrator_absent".to_string())
+                .ok_or(CuratorFailure::OrchestratorAbsent)
                 .and_then(resolve_mirror)
-                .and_then(|mirror| {
-                    if self
-                        .agent_registry
-                        .with_provider(&mirror.provider, |_| ())
-                        .is_none()
-                        && !self
-                            .chatbackend_registry
-                            .get(&mirror.provider)
-                            .is_some_and(|b| b.spawnable())
-                    {
-                        Err("provider_unavailable".into())
-                    } else {
-                        Ok(mirror)
-                    }
-                });
+                .and_then(|mirror| self.available_mirror(mirror));
             match mirror {
                 Err(reason) => {
                     loop_state.fallback_reason = Some(reason);
                     loop_state.next_at = None;
                 }
                 Ok(_) => {
+                    let close = curator::synthesis::group_close(plan);
+                    if close.is_some_and(|at| {
+                        loop_state
+                            .last_synthesis_group_close_at
+                            .is_none_or(|prior| at > prior)
+                    }) {
+                        let wake = now.saturating_add(1000);
+                        loop_state.next_at =
+                            Some(loop_state.next_at.map_or(wake, |next| next.min(wake)));
+                    }
                     let next = *loop_state
                         .next_at
                         .get_or_insert(now + curator_delay(None) * 1000);
@@ -231,15 +297,41 @@ impl ServiceContext {
                             .as_deref()
                             .and_then(|team| self.mux.read().team_workspace(team))
                             .ok_or("Team workspace absent")?;
-                        let params: CronCreateParams = serde_json::from_value(json!({"name":format!("curator:{}",plan.id),"workspace_id":workspace,"team_id":plan.team_id,"schedule":next.to_string(),"task":plan.id,"agent":"mirror:orchestrator","role":"curator","oneshot":true,"enabled":true,"timeout_seconds":900,"jitter_max_ms":0,"creator_tab_id":plan.owner.tab_id,"cwd":plan.project_path})).map_err(|e|e.to_string())?;
+                        let params = CronCreateParams {
+                            name: format!("curator:{}", plan.id),
+                            workspace_id: workspace,
+                            team_id: plan.team_id.clone(),
+                            detach_from_team: false,
+                            schedule: next.to_string(),
+                            task: plan.id.clone(),
+                            description: None,
+                            agent: Some("mirror:orchestrator".into()),
+                            model: None,
+                            reasoning_effort: None,
+                            cwd: Some(plan.project_path.clone()),
+                            role: Some(
+                                crate::service::role_policy::RoleProfile::Curator
+                                    .as_str()
+                                    .into(),
+                            ),
+                            skill: None,
+                            creator_tab_id: plan.owner.tab_id.clone(),
+                            report_target_tab_id: None,
+                            enabled: Some(true),
+                            max_history: None,
+                            oneshot: Some(true),
+                            jitter_max_ms: Some(0),
+                            tz: None,
+                            timeout_seconds: Some(CURATOR_TIMEOUT_SECS),
+                        };
                         let job = commit(cron, |store| {
-                            if let Some(mut job) = existing {
+                            if let Some(mut job) = existing.clone() {
                                 job.enabled = true;
                                 job.next_run = Some(next);
                                 job.schedule = next.to_string();
                                 Ok(Prepared::new(CronChange::Patch(job.clone()), job))
                             } else {
-                                let mut prepared = store.prepare_create(params)?;
+                                let mut prepared = store.prepare_create(params.clone())?;
                                 prepared.value.protected = true;
                                 prepared.changes = vec![CronChange::Create(prepared.value.clone())];
                                 Ok(prepared)
@@ -248,6 +340,7 @@ impl ServiceContext {
                         .map_err(|e| e.to_string())?
                         .value;
                         loop_state.cron_id = Some(job.id);
+                        self.wake_curator_schedule();
                     }
                 }
             }
@@ -260,8 +353,11 @@ impl ServiceContext {
             if let Some(mut job) = job.filter(|job| job.enabled) {
                 job.enabled = false;
                 job.next_run = None;
-                commit(cron, |_| Ok(Prepared::new(CronChange::Patch(job), ())))
-                    .map_err(|e| e.to_string())?;
+                commit(cron, |_| {
+                    Ok(Prepared::new(CronChange::Patch(job.clone()), ()))
+                })
+                .map_err(|e| e.to_string())?;
+                self.wake_curator_schedule();
             }
         }
         if loop_state != plan.control_loop {
@@ -276,23 +372,32 @@ impl ServiceContext {
                         .map_or(1, |round| round.number + 1),
                     started_at: now,
                     ended_at: now,
-                    outcome: "fallback".into(),
-                    reason: reason.clone(),
-                    summary: reason.clone(),
+                    outcome: codeterm_types::plan::CuratorOutcome::Fallback,
+                    reason: reason.as_str().into(),
+                    summary: reason.as_str().into(),
                     next_delay_secs: curator_delay(None),
                     ..Default::default()
                 });
-            self.plan_store
+            let applied = self
+                .plan_store
                 .with_plan(&plan.id, now, |p| {
+                    if p.control_loop != plan.control_loop {
+                        return Ok(false);
+                    }
                     let next = loop_state.next_at;
                     p.control_loop = loop_state;
                     if let Some(round) = &fallback {
                         curator::append_round(p, round.clone());
                         p.control_loop.next_at = next;
                     }
-                    Ok(())
+                    Ok(true)
                 })
                 .map_err(|e| e.to_string())?;
+            if !applied {
+                self.events
+                    .publish_internal("curator-reconcile", json!({"plan_id":plan.id}));
+                return Ok(());
+            }
             if let Some(round) = fallback {
                 self.journal_curator(&plan.id, &round);
             }
@@ -305,7 +410,10 @@ impl ServiceContext {
         &self,
         job: &CronJob,
         now: u64,
-    ) -> Result<Option<(Mirror, String)>, String> {
+    ) -> Result<Option<(Mirror, String)>, CuratorFireError> {
+        self.extensions
+            .try_get::<super::CuratorTabs>()
+            .ok_or("Curator runtime is unavailable")?;
         let plan = self.plan_store.get(&job.task).ok_or("plan absent")?;
         if !curator::eligible(
             &plan,
@@ -330,31 +438,25 @@ impl ServiceContext {
                 .map_err(|e| e.to_string())?;
             return Ok(None);
         }
-        let owner = plan.owner.tab_id.as_deref().ok_or("orchestrator_absent")?;
+        let owner = plan
+            .owner
+            .tab_id
+            .as_deref()
+            .ok_or(CuratorFailure::OrchestratorAbsent)?;
         let tab = self
             .mux
             .read()
             .get_tab(owner)
             .cloned()
-            .ok_or("orchestrator_absent")?;
+            .ok_or(CuratorFailure::OrchestratorAbsent)?;
         let mirror = resolve_mirror(&tab)?;
-        if self
-            .agent_registry
-            .with_provider(&mirror.provider, |_| ())
-            .is_none()
-            && !self
-                .chatbackend_registry
-                .get(&mirror.provider)
-                .is_some_and(|b| b.spawnable())
-        {
-            return Err("provider_unavailable".into());
-        }
+        let mirror = self.available_mirror(mirror)?;
         let since = plan
             .control_loop
             .last_round
             .as_ref()
             .map(|r| r.ended_at)
-            .unwrap_or(now.saturating_sub(7_200_000));
+            .unwrap_or(now.saturating_sub(CURATOR_INITIAL_WINDOW_MS));
         let mut rows = digest::plan_rows(&plan, since);
         super::movement_sources::append(self, &plan, since, now, &mut rows)?;
         let candidates = self.curator_save_candidates(&plan.id, now)?;
@@ -420,21 +522,45 @@ impl ServiceContext {
                 t.lane.worktree_path.is_some() && t.lane.cleanup_status.as_deref() != Some("done")
             })
             .count();
-        let handoff_age = self
-            .plan_store
-            .list_handoffs(&plan.id)
-            .ok()
-            .and_then(|h| h.into_iter().filter_map(|h| h.ts).max())
-            .map(|at| now.saturating_sub(at));
-        let mut header=format!("plan {} | {:?} | control loop curator | orchestrator {} activity {:?} | open {} in_progress {} review {} blocked {} | lanes {} pressure {} | handoff_age_ms {:?} | round {}",plan.id,plan.mode,owner,self.resolved_tab_status(&tab),counts.pending,counts.in_progress,counts.in_review,counts.blocked,lanes,if lanes>10 {"high"}else if lanes>5 {"elevated"}else{"normal"},handoff_age,number);
-        if let Some(resources) = super::resources::line() {
-            header.push('\n');
-            header.push_str(&resources);
-        }
+        let handoff_age = match self.plan_store.list_handoffs(&plan.id) {
+            Ok(handoffs) => handoffs
+                .into_iter()
+                .filter_map(|handoff| handoff.ts)
+                .max()
+                .map(|at| now.saturating_sub(at)),
+            Err(error) => {
+                log::debug!("[curator] handoff digest {}: {error}", plan.id);
+                None
+            }
+        };
+        let mut header=format!("plan {} | {:?} | control loop curator | orchestrator {} activity {:?} | open {} in_progress {} review {} blocked {} | lanes {} pressure {} | handoff_age_ms {:?} | round {}",plan.id,plan.mode,owner,self.resolved_tab_status(&tab),counts.pending,counts.in_progress,counts.in_review,counts.blocked,lanes,if lanes>CURATOR_HIGH_LANES {"high"}else if lanes>CURATOR_ELEVATED_LANES {"elevated"}else{"normal"},handoff_age,number);
+        header.push_str(&format!("\nask: {}", super::ask::command(owner)));
         let rubric = codeterm_prompts::prompts::CURATOR_RUBRIC;
-        let digest = digest::build(&format!("{header}\n\n{rubric}"), &rows);
+        let real_rounds = curator::synthesis::real_rounds_started(&plan);
+        let group_close = curator::synthesis::group_close(&plan).filter(|at| {
+            plan.control_loop
+                .last_synthesis_group_close_at
+                .is_none_or(|prior| *at > prior)
+        });
+        let synthesis = curator::synthesis::due(
+            real_rounds,
+            group_close,
+            plan.control_loop.last_synthesis_group_close_at,
+        );
+        header.push_str(if synthesis {
+            "\nsynthesis: yes"
+        } else {
+            "\nsynthesis: no"
+        });
+        let header = format!("{header}\n\n{rubric}");
+        let header = if synthesis {
+            curator::synthesis::context_header(&plan, &header)
+        } else {
+            header
+        };
+        let digest = digest::build(&header, &rows);
         let action = curator::due_action(
-            digest.activity,
+            digest.activity || group_close.is_some() || plan.control_loop.manual_run_requested,
             !codeterm_plan::service_plan::state::orchestrator_actionable_task_ids(&plan).is_empty(),
             plan.control_loop
                 .last_real_round_at
@@ -455,11 +581,10 @@ impl ServiceContext {
                 started_at: now,
                 ended_at: now,
                 outcome: if action == DueAction::Quiet {
-                    "quiet"
+                    codeterm_types::plan::CuratorOutcome::Quiet
                 } else {
-                    "nudged"
-                }
-                .into(),
+                    codeterm_types::plan::CuratorOutcome::Nudged
+                },
                 reason: "no_activity".into(),
                 summary: "No activity in the window".into(),
                 next_delay_secs: curator_delay(None),
@@ -476,6 +601,8 @@ impl ServiceContext {
         self.plan_store
             .with_plan(&plan.id, now, |p| {
                 p.control_loop.running = Some(CuratorRun {
+                    synthesis,
+                    synthesis_group_close_at: group_close,
                     number,
                     started_at: now,
                     digest_hash: hash,
@@ -483,6 +610,7 @@ impl ServiceContext {
                     flagged_blueprints: flagged,
                     ..Default::default()
                 });
+                p.control_loop.manual_run_requested = false;
                 p.control_loop.next_at = None;
                 Ok(())
             })
@@ -494,19 +622,39 @@ impl ServiceContext {
         &self,
         plan_id: &str,
         tab_id: &str,
+        run_id: &str,
         now: u64,
     ) -> Result<(), String> {
-        let number =
-            self.plan_store
-                .with_plan(plan_id, now, |p| {
-                    let run = p.control_loop.running.as_mut().ok_or_else(|| {
-                        crate::service::plan::PlanError::Io("round absent".into())
-                    })?;
-                    run.tab_id = Some(tab_id.into());
-                    Ok(run.number)
-                })
-                .map_err(|e| e.to_string())?;
+        self.extensions
+            .try_get::<super::events::CuratorTabs>()
+            .ok_or("Curator runtime is unavailable")?
+            .0
+            .write()
+            .insert(tab_id.into(), plan_id.into());
+        let prior_rounds = self
+            .plan_store
+            .get(plan_id)
+            .map(|plan| curator::synthesis::real_rounds_started(&plan))
+            .ok_or("plan absent")?;
+        let number = self
+            .plan_store
+            .with_plan(plan_id, now, |p| {
+                let run = p.control_loop.running.as_mut().ok_or_else(|| {
+                    crate::service::plan::PlanError::Validation("round absent".into())
+                })?;
+                run.tab_id = Some(tab_id.into());
+                run.run_id = Some(run_id.into());
+                let number = run.number;
+                let close = run.synthesis_group_close_at;
+                p.control_loop.real_rounds_started = prior_rounds.saturating_add(1);
+                if close.is_some() {
+                    p.control_loop.last_synthesis_group_close_at = close;
+                }
+                Ok(number)
+            })
+            .map_err(|e| e.to_string())?;
         let plan = self.plan_store.get(plan_id).ok_or("plan absent")?;
+        self.bind_curator_session(tab_id)?;
         if let Some(owner) = plan.owner.tab_id {
             let body=format!("Curator round {number} spawned (tab {tab_id}); it may ask you up to three questions in one message; answer with codeterm send --tab {tab_id} or skip; grants: codeterm plan curator grant {plan_id} {tab_id} --blueprint <id> | --plan-skill <slug>.");
             self.deliver_cron_report(

@@ -17,6 +17,8 @@ use std::time::{Duration, SystemTime};
 use crate::routes::{check_auth, AppState};
 
 pub use crate::web_plugin_routes::plugin_ui;
+mod session_transcript;
+pub use session_transcript::session_transcript;
 
 /// Published multiplexer JSON; lifecycle writers never delay this read.
 pub async fn mux_state(
@@ -1056,40 +1058,6 @@ pub async fn open_chat_backend_tab(
     .await
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "tab_id": handle.tab_id })))
-}
-
-#[derive(Deserialize)]
-pub struct SessionTranscriptQuery {
-    pub provider: String,
-    pub cwd: String,
-    pub session_id: String,
-}
-
-/// Read-only transcript of a finished run (hidden worker / cron). Renders the
-/// same normalized ChatMsg shape as the live chat-ui, parsed straight from the
-/// session jsonl — no tab, no tailer, no composer.
-pub async fn session_transcript(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Query(q): Query<SessionTranscriptQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let svc = state.svc.clone();
-    let (messages, total) = tokio::task::spawn_blocking(move || {
-        codeterm_service_core::service::tab_chat::session_chat_snapshot(
-            &svc,
-            &q.provider,
-            &q.cwd,
-            &q.session_id,
-            0,
-        )
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    Ok(Json(
-        serde_json::json!({ "messages": messages, "total": total }),
-    ))
 }
 
 pub async fn chat_raw_stop(

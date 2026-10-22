@@ -120,6 +120,13 @@ pub struct Step {
     pub on: BTreeMap<String, String>,
 }
 
+pub fn route_target<'a>(routes: &'a BTreeMap<String, String>, outcome: &str) -> &'a str {
+    routes
+        .get(outcome)
+        .map(String::as_str)
+        .unwrap_or(if outcome == "failed" { "stop" } else { "next" })
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepKind {
@@ -242,10 +249,107 @@ pub struct ConverterEdge {
     pub to: MediaKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ValidationPath {
+    Field(String),
+    Step { index: usize, field: StepField },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StepField {
+    Common(String),
+    Parameter(String),
+    Parameters(String),
+    Command,
+}
+impl ValidationPath {
+    pub fn document_field(&self) -> String {
+        match self {
+            Self::Field(field) if matches!(field.as_str(), "name" | "note" | "owner") => {
+                field.clone()
+            }
+            Self::Field(field) => format!("pipeline.{field}"),
+            Self::Step { index, field } => {
+                let suffix = match field {
+                    StepField::Common(field) => field.clone(),
+                    StepField::Parameter(field) => format!("with.{field}"),
+                    StepField::Parameters(_) => "with".into(),
+                    StepField::Command => "run".into(),
+                };
+                if suffix.is_empty() {
+                    format!("pipeline.steps[{index}]")
+                } else {
+                    format!("pipeline.steps[{index}].{suffix}")
+                }
+            }
+        }
+    }
+    pub fn wire_field(&self) -> String {
+        match self {
+            Self::Field(field) => field.clone(),
+            Self::Step { index, field } => {
+                let suffix = match field {
+                    StepField::Common(field)
+                    | StepField::Parameter(field)
+                    | StepField::Parameters(field) => field.as_str(),
+                    StepField::Command => "command",
+                };
+                if suffix.is_empty() {
+                    format!("steps[{index}]")
+                } else {
+                    format!("steps[{index}].{suffix}")
+                }
+            }
+        }
+    }
+}
+impl From<&str> for ValidationPath {
+    fn from(field: &str) -> Self {
+        Self::Field(field.into())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationError {
     pub field: String,
     pub reason: String,
+    pub path: ValidationPath,
+}
+impl ValidationError {
+    pub fn new(path: impl Into<ValidationPath>, reason: impl Into<String>) -> Self {
+        let path = path.into();
+        Self {
+            field: path.wire_field(),
+            reason: reason.into(),
+            path,
+        }
+    }
+}
+struct StepPath(usize);
+impl StepPath {
+    fn common(&self, field: &str) -> ValidationPath {
+        ValidationPath::Step {
+            index: self.0,
+            field: StepField::Common(field.into()),
+        }
+    }
+    fn parameter(&self, field: &str) -> ValidationPath {
+        ValidationPath::Step {
+            index: self.0,
+            field: StepField::Parameter(field.into()),
+        }
+    }
+    fn parameters(&self, field: &str) -> ValidationPath {
+        ValidationPath::Step {
+            index: self.0,
+            field: StepField::Parameters(field.into()),
+        }
+    }
+    fn command(&self) -> ValidationPath {
+        ValidationPath::Step {
+            index: self.0,
+            field: StepField::Command,
+        }
+    }
 }
 
 impl std::fmt::Display for ValidationError {
@@ -258,26 +362,42 @@ pub fn validate(
     spec: &BlueprintSpec,
     converters: &[ConverterEdge],
 ) -> Result<(), Vec<ValidationError>> {
+    let steps = spec.steps.iter().cloned().map(Some).collect::<Vec<_>>();
+    validate_parts(
+        &spec.name,
+        spec.note.as_deref(),
+        Some(&spec.trigger),
+        &steps,
+        Some(&spec.result),
+        Some(converters),
+    )
+}
+
+pub fn validate_parts(
+    name: &str,
+    note: Option<&str>,
+    trigger: Option<&Trigger>,
+    steps: &[Option<Step>],
+    result: Option<&BlueprintResult>,
+    converters: Option<&[ConverterEdge]>,
+) -> Result<(), Vec<ValidationError>> {
     let mut errors = Vec::new();
-    if let Err(reason) = crate::automation_name::validate_note(spec.note.as_deref()) {
-        errors.push(ValidationError {
-            field: "note".into(),
-            reason,
-        });
+    if let Err(reason) = crate::automation_name::validate_note(note) {
+        errors.push(ValidationError::new("note", reason));
     }
-    if let Err(reason) = crate::automation_name::validate_sentinel_name(&spec.name) {
+    if let Err(reason) = crate::automation_name::validate_sentinel_name(name) {
         error(&mut errors, "name", &reason);
     }
-    match &spec.trigger {
-        Trigger::Schedule { every } if !valid_duration(every) => {
+    match trigger {
+        Some(Trigger::Schedule { every }) if !valid_duration(every) => {
             error(&mut errors, "trigger.every", "must be a positive duration")
         }
-        Trigger::Event { kind, .. } if !valid_name(kind) => error(
+        Some(Trigger::Event { kind, .. }) if !valid_name(kind) => error(
             &mut errors,
             "trigger.kind",
             "must be a bounded capability kind",
         ),
-        Trigger::Input { kind, source } => {
+        Some(Trigger::Input { kind, source }) => {
             let input = crate::sentinel_input::InputSpec {
                 kind: *kind,
                 data: source.clone(),
@@ -290,7 +410,10 @@ pub fn validate(
         }
         _ => {}
     }
-    if let ResultTarget::Tab(id) = &spec.result.to {
+    if let Some(BlueprintResult {
+        to: ResultTarget::Tab(id),
+    }) = result
+    {
         if !valid_name(id) {
             error(
                 &mut errors,
@@ -299,40 +422,43 @@ pub fn validate(
             );
         }
     }
-    if spec.steps.is_empty() || spec.steps.len() > MAX_STEPS {
+    if steps.is_empty() || steps.len() > MAX_STEPS {
         error(
             &mut errors,
             "steps",
             &format!("must contain 1..={MAX_STEPS} steps"),
         );
-        if spec.steps.len() > MAX_STEPS {
+        if steps.len() > MAX_STEPS {
             return Err(errors);
         }
     }
-    let names: BTreeMap<_, _> = spec
-        .steps
+    let names: BTreeMap<_, _> = steps
         .iter()
         .enumerate()
-        .map(|(index, step)| (step.name.as_str(), index))
+        .filter_map(|(index, step)| step.as_ref().map(|step| (step.name.as_str(), index)))
         .collect();
     let mut seen = BTreeSet::new();
-    let mut previous = trigger_output(&spec.trigger);
-    for (index, step) in spec.steps.iter().enumerate() {
-        let field = format!("steps[{index}]");
+    let mut previous = trigger.map(trigger_output);
+    for (index, step) in steps.iter().enumerate() {
+        let Some(step) = step else {
+            previous = None;
+            continue;
+        };
+        let field = StepPath(index);
         if !valid_name(&step.name) {
             error(
                 &mut errors,
-                &format!("{field}.name"),
+                field.common("name"),
                 "must be nonempty and bounded",
             );
         }
         if !seen.insert(step.name.as_str()) {
-            error(&mut errors, &format!("{field}.name"), "must be unique");
+            error(&mut errors, field.common("name"), "must be unique");
         }
-        if step.input != previous {
+        if previous.is_some_and(|previous| step.input != previous) {
             error(
                 &mut errors,
-                &format!("{field}.input"),
+                field.common("input"),
                 &format!("expected {previous:?} from the previous result"),
             );
         }
@@ -341,24 +467,24 @@ pub fn validate(
                 if step.input != IoType::Text {
                     error(
                         &mut errors,
-                        &format!("{field}.input"),
+                        field.common("input"),
                         "HTTP requires text input",
                     );
                 }
                 if let Err(reason) = probe.validate() {
-                    error(&mut errors, &format!("{field}.http"), &reason);
+                    error(&mut errors, field.parameters("http"), &reason);
                 }
             }
             StepKind::Github { probe } => {
                 if step.input != IoType::Text {
                     error(
                         &mut errors,
-                        &format!("{field}.input"),
+                        field.common("input"),
                         "GitHub requires text input",
                     );
                 }
                 if let Err(reason) = probe.command() {
-                    error(&mut errors, &format!("{field}.github"), &reason);
+                    error(&mut errors, field.parameters("github"), &reason);
                 }
             }
             StepKind::Agent {
@@ -384,7 +510,7 @@ pub fn validate(
                     || *max_turns > 100
                     || step.input != IoType::Text
                 {
-                    error(&mut errors, &format!("{field}.agent"), "agent requires text, a provider and profile, and bounded task, deadline, token and turn budgets");
+                    error(&mut errors, field.parameters("agent"), "agent requires text, a provider and profile, and bounded task, deadline, token and turn budgets");
                 }
             }
             StepKind::Command { command }
@@ -392,25 +518,21 @@ pub fn validate(
                     || command.len() > MAX_COMMAND_BYTES
                     || command.contains('\0') =>
             {
-                error(
-                    &mut errors,
-                    &format!("{field}.command"),
-                    "must be nonempty and bounded",
-                )
+                error(&mut errors, field.command(), "must be nonempty and bounded")
             }
             StepKind::Ask { question, .. }
                 if question.trim().is_empty() || question.len() > 2048 =>
             {
                 error(
                     &mut errors,
-                    &format!("{field}.question"),
+                    field.parameter("question"),
                     "must be nonempty and bounded",
                 )
             }
             StepKind::Filter { pattern, .. } if pattern.is_empty() || pattern.len() > 4096 => {
                 error(
                     &mut errors,
-                    &format!("{field}.pattern"),
+                    field.parameter("pattern"),
                     "must be nonempty and bounded",
                 )
             }
@@ -418,14 +540,15 @@ pub fn validate(
                 if step.input != IoType::from(*from) {
                     error(
                         &mut errors,
-                        &format!("{field}.from"),
+                        field.parameter("from"),
                         "must match the step input type",
                     );
                 }
-                if !has_converter_path(*from, *to, converters) {
+                if converters.is_some_and(|converters| !has_converter_path(*from, *to, converters))
+                {
                     error(
                         &mut errors,
-                        &format!("{field}.convert"),
+                        field.parameters("convert"),
                         "no converter chain is available",
                     );
                 }
@@ -437,7 +560,7 @@ pub fn validate(
         {
             error(
                 &mut errors,
-                &format!("{field}.input"),
+                field.common("input"),
                 "ask and filter require text",
             );
         }
@@ -446,7 +569,7 @@ pub fn validate(
                 if step.on.len() > MAX_BRANCHES_PER_STEP {
                     error(
                         &mut errors,
-                        &format!("{field}.on"),
+                        field.common("on"),
                         &format!("exceeds {MAX_BRANCHES_PER_STEP} outcomes"),
                     );
                 }
@@ -454,7 +577,7 @@ pub fn validate(
                     if !outcomes.contains(outcome) {
                         error(
                             &mut errors,
-                            &format!("{field}.on.{outcome}"),
+                            field.common(&format!("on.{outcome}")),
                             "outcome is not declared by this step",
                         );
                     }
@@ -463,12 +586,12 @@ pub fn validate(
                             Some(target_index) if *target_index > index => {}
                             Some(_) => error(
                                 &mut errors,
-                                &format!("{field}.on.{outcome}"),
+                                field.common(&format!("on.{outcome}")),
                                 "branch targets must be forward-only",
                             ),
                             None => error(
                                 &mut errors,
-                                &format!("{field}.on.{outcome}"),
+                                field.common(&format!("on.{outcome}")),
                                 "branch target step does not exist",
                             ),
                         }
@@ -481,10 +604,10 @@ pub fn validate(
                 } else {
                     "bucket"
                 };
-                error(&mut errors, &format!("{field}.{field_name}"), &reason)
+                error(&mut errors, field.parameter(field_name), &reason)
             }
         }
-        previous = step.kind.output_type();
+        previous = Some(step.kind.output_type());
     }
     if errors.is_empty() {
         Ok(())
@@ -502,10 +625,7 @@ pub fn trigger_unavailable(trigger: &Trigger) -> bool {
 
 pub fn ensure_trigger_available(trigger: &Trigger) -> Result<(), ValidationError> {
     if trigger_unavailable(trigger) {
-        Err(ValidationError {
-            field: "trigger".into(),
-            reason: "trigger_unavailable".into(),
-        })
+        Err(ValidationError::new("trigger", "trigger_unavailable"))
     } else {
         Ok(())
     }
@@ -644,11 +764,8 @@ fn valid_duration(value: &str) -> bool {
             .is_ok_and(|duration| duration >= crate::blueprint_watch::MIN_INTERVAL_MS)
 }
 
-fn error(errors: &mut Vec<ValidationError>, field: &str, reason: &str) {
-    errors.push(ValidationError {
-        field: field.into(),
-        reason: reason.into(),
-    });
+fn error(errors: &mut Vec<ValidationError>, path: impl Into<ValidationPath>, reason: &str) {
+    errors.push(ValidationError::new(path, reason));
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -716,10 +833,7 @@ pub fn advance(state: &RunnerState, outcome: StepOutcome) -> Result<RunnerState,
     if !accepted.contains(key) {
         return Err("outcome is not declared by the current step".into());
     }
-    let branch = state.branches[index]
-        .get(key)
-        .map(String::as_str)
-        .unwrap_or_else(|| if key == "failed" { "stop" } else { "next" });
+    let branch = route_target(&state.branches[index], key);
     let mut next = state.clone();
     match branch {
         "stop" if key == "failed" => {

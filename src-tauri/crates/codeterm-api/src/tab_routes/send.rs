@@ -350,6 +350,7 @@ pub(crate) enum SendAction {
     Delay { ms: u64 },
 }
 
+#[cfg(test)]
 pub(crate) use codeterm_service_core::agent::keys::action_key_bytes as send_action_bytes;
 
 /// Keys aimed at a provider dialog are written as-is, so Enter is a plain carriage return.
@@ -673,10 +674,13 @@ pub async fn send_text(
                     ),
                 ),
                 SendAction::Key { key } => {
-                    let Some(bytes) = send_action_bytes(key) else {
+                    let Some(bytes) = state.svc.encode_pty_action_key(&tab_id, key) else {
                         return Err((StatusCode::BAD_REQUEST, "unknown action key").into());
                     };
-                    if bytes == b"\r" {
+                    if matches!(
+                        key.replace('_', "-").to_ascii_lowercase().as_str(),
+                        "enter" | "return"
+                    ) {
                         ordered.push(codeterm_service_core::service::ordered_actions::OrderedPtyAction::Submit);
                     } else {
                         ordered.push(
