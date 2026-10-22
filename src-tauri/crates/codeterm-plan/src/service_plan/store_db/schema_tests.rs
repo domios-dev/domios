@@ -242,6 +242,32 @@ fn an_oversized_whole_document_migrates_once_on_open() {
 }
 
 #[test]
+fn a_plan_with_duplicate_task_ids_stays_writable_as_a_whole_document() {
+    let (_directory, path, database) = database();
+    let mut plan = plan(
+        (0..20)
+            .map(|seq| task(&format!("big{seq}"), 1, 1, 250 * 1024))
+            .collect(),
+    );
+    database.persist_plan(&plan, None).unwrap();
+    plan.tasks[1].id = plan.tasks[0].id.clone();
+    assert!(serde_json::to_string(&plan).unwrap().len() > store_rows::MAX_STORED_ROW_BYTES);
+
+    let writes = database.persist_plan_rows(&plan, None).unwrap();
+
+    assert!(writes.header_identity_changed);
+    assert_eq!(row_counts(&path), [0, 0, 0]);
+    assert!(plan_row(&path, &plan.id).contains("\"tasks\""));
+    assert_eq!(database.load_plan(&plan.id).unwrap(), Some(plan.clone()));
+
+    plan.tasks[1].id = "big1".into();
+    database.persist_plan(&plan, None).unwrap();
+    assert_eq!(row_counts(&path), [20, 20, 20]);
+    assert!(!plan_row(&path, &plan.id).contains("\"tasks\""));
+    assert_eq!(database.load_plan(&plan.id).unwrap(), Some(plan));
+}
+
+#[test]
 fn an_unsplittable_whole_document_is_kept_intact_and_still_loads() {
     let (_directory, path, database) = database();
     drop(database);

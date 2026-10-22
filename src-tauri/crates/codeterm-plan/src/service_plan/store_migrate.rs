@@ -17,7 +17,12 @@ pub(super) fn split_whole_documents(connection: &mut Connection) -> rusqlite::Re
             continue;
         };
         let rows = match split_document(&document) {
-            Ok(Some(rows)) => rows,
+            Ok(Some(rows)) if rows.kept_whole.is_none() => rows,
+            Ok(Some(rows)) => {
+                let reason = rows.kept_whole.unwrap_or_default();
+                log::warn!("[plan.store] kept whole-document plan record {plan_id}: {reason}");
+                continue;
+            }
             Ok(None) => continue,
             Err(error) => {
                 log::error!("[plan.store] kept whole-document plan record {plan_id}: {error}");
