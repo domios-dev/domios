@@ -31,14 +31,15 @@ afterEach(async () => {
   bridge.openUrl.mockClear();
   analytics.localJson.mockClear();
   analytics.localJson.mockResolvedValue({ consent: "off" });
+  vi.unstubAllGlobals();
 });
 
-async function renderPlanCards() {
+async function renderPlanCards(viewRequested = false) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
   mounted = { root, host };
-  await act(async () => root.render(<StrictMode><PlanCards /></StrictMode>));
+  await act(async () => root.render(<StrictMode><PlanCards viewRequested={viewRequested} /></StrictMode>));
   return host;
 }
 
@@ -47,7 +48,7 @@ const featuresOf = (host: HTMLElement, plan: string) =>
 
 it("records a plan view once under StrictMode with consent and no account properties", async () => {
   analytics.localJson.mockResolvedValue({ consent: "on" });
-  await renderPlanCards();
+  await renderPlanCards(true);
   expect(analytics.localJson.mock.calls).toEqual([
     ["GET", "/api/analytics/status"],
     ["POST", "/api/analytics/event", { event_type: "plan_viewed", event_properties: {} }],
@@ -55,7 +56,7 @@ it("records a plan view once under StrictMode with consent and no account proper
 });
 
 it("does not send a plan view without consent", async () => {
-  await renderPlanCards();
+  await renderPlanCards(true);
   expect(analytics.localJson.mock.calls).toEqual([["GET", "/api/analytics/status"]]);
 });
 
@@ -163,4 +164,49 @@ it("an owned plan shows its status in place of the button", async () => {
   expect(pro.querySelector('[role="status"]')).not.toBeNull();
   expect(pro.querySelector("button")).toBeNull();
   expect(buttonIn(card(host, "Sponsor"), "Choose Sponsor")?.disabled).toBe(false);
+});
+
+it("mounting account plans without intent does not record a view", async () => {
+  analytics.localJson.mockResolvedValue({ consent: "on" });
+  await renderPlanCards();
+  expect(analytics.localJson).not.toHaveBeenCalled();
+});
+
+it("records a view on the visibility callback, once across repeated callbacks", async () => {
+  analytics.localJson.mockResolvedValue({ consent: "on" });
+  const callbacks: IntersectionObserverCallback[] = [];
+  const disconnect = vi.fn();
+  const observe = vi.fn();
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(callback: IntersectionObserverCallback) { callbacks.push(callback); }
+    observe = observe;
+    disconnect = disconnect;
+  });
+  await renderPlanCards();
+  expect(observe).toHaveBeenCalled();
+  expect(analytics.localJson).not.toHaveBeenCalled();
+  const observer = {} as IntersectionObserver;
+  await act(async () => callbacks[callbacks.length - 1]([{ isIntersecting: false } as IntersectionObserverEntry], observer));
+  expect(analytics.localJson).not.toHaveBeenCalled();
+  await act(async () => {
+    callbacks[callbacks.length - 1]([{ isIntersecting: true } as IntersectionObserverEntry], observer);
+    callbacks[callbacks.length - 1]([{ isIntersecting: true } as IntersectionObserverEntry], observer);
+  });
+  expect(analytics.localJson.mock.calls).toEqual([
+    ["GET", "/api/analytics/status"],
+    ["POST", "/api/analytics/event", { event_type: "plan_viewed", event_properties: {} }],
+  ]);
+  expect(disconnect).toHaveBeenCalled();
+});
+
+it("records an explicit subscription plans request after mounting", async () => {
+  analytics.localJson.mockResolvedValue({ consent: "on" });
+  await renderWith(<PlanCards />);
+  expect(analytics.localJson).not.toHaveBeenCalled();
+  await renderWith(<PlanCards viewRequested />);
+  await renderWith(<PlanCards viewRequested />);
+  expect(analytics.localJson.mock.calls).toEqual([
+    ["GET", "/api/analytics/status"],
+    ["POST", "/api/analytics/event", { event_type: "plan_viewed", event_properties: {} }],
+  ]);
 });

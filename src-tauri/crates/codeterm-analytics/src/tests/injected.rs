@@ -192,3 +192,164 @@ async fn enabling_after_startup_records_lifecycle_under_signed_in_uid() {
         .iter()
         .any(|e| matches!(e.event, Event::AppFirstRun { .. })));
 }
+
+#[test]
+fn first_run_stays_pending_across_restart_until_delivered() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let recording = Arc::new(Mutex::new(sinks::fake::Recording::default()));
+    let mut engine = recording_engine(path.clone(), recording.clone());
+    engine.consent(Consent::On).unwrap();
+    engine.enqueue(startup(), 0).unwrap();
+    assert!(!engine.state.first_run_recorded);
+    let id = engine.state.queue[0].insert_id;
+    drop(engine);
+    let mut engine = recording_engine(path.clone(), recording.clone());
+    engine.enqueue(startup(), 0).unwrap();
+    assert_eq!(
+        engine
+            .state
+            .queue
+            .iter()
+            .filter(|q| matches!(q.event, Event::AppFirstRun { .. }))
+            .count(),
+        1
+    );
+    assert_eq!(engine.state.queue[0].insert_id, id);
+    engine.deliver(0).unwrap();
+    assert!(engine.state.first_run_recorded);
+    engine.consent(Consent::Off).unwrap();
+    drop(engine);
+    let mut engine = recording_engine(path, recording);
+    assert!(engine.state.first_run_recorded);
+    engine.consent(Consent::On).unwrap();
+    engine.enqueue(startup(), 1).unwrap();
+    assert!(!engine
+        .state
+        .queue
+        .iter()
+        .any(|q| matches!(q.event, Event::AppFirstRun { .. })));
+}
+
+#[test]
+fn dropped_first_run_is_reemitted_on_next_start() {
+    for outcome in [
+        DeliveryResult::InvalidPayload,
+        DeliveryResult::Retry,
+        DeliveryResult::Unavailable,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let recording = Arc::new(Mutex::new(sinks::fake::Recording::default()));
+        let mut engine = recording_engine(path.clone(), recording.clone());
+        engine.consent(Consent::On).unwrap();
+        engine.enqueue(startup(), 0).unwrap();
+        if outcome == DeliveryResult::Retry {
+            for queued in &mut engine.state.queue {
+                queued.failures = RETRY_DELAYS_MS.len();
+            }
+        }
+        recording.lock().unwrap().results.push_back(outcome);
+        let result = engine.deliver(0);
+        assert_eq!(result.is_err(), outcome == DeliveryResult::Unavailable);
+        assert!(!engine.state.first_run_recorded);
+        if outcome == DeliveryResult::Unavailable {
+            engine.consent(Consent::Off).unwrap();
+            engine.consent(Consent::On).unwrap();
+        }
+        drop(engine);
+        let mut engine = recording_engine(path, recording);
+        engine.enqueue(startup(), 1).unwrap();
+        assert_eq!(
+            engine
+                .state
+                .queue
+                .iter()
+                .filter(|q| matches!(q.event, Event::AppFirstRun { .. }))
+                .count(),
+            1
+        );
+        engine.deliver(1).unwrap();
+        assert!(engine.state.first_run_recorded);
+    }
+}
+
+#[tokio::test]
+async fn consent_toggles_do_not_replay_startup_more_than_once() {
+    for initially_enabled in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let recording = Arc::new(Mutex::new(sinks::fake::Recording::default()));
+        let worker = Worker::start_with_sink(
+            dir.path().join("settings.json"),
+            config(),
+            Box::new(sinks::fake::Fake {
+                recording: recording.clone(),
+            }),
+        )
+        .unwrap();
+        if initially_enabled {
+            worker.set_consent(Consent::On).await.unwrap();
+        }
+        worker.record(startup()).await.unwrap();
+        worker.set_consent(Consent::On).await.unwrap();
+        worker.flush().await.unwrap();
+        worker.set_consent(Consent::Off).await.unwrap();
+        worker.set_consent(Consent::On).await.unwrap();
+        worker.flush().await.unwrap();
+        let recording = recording.lock().unwrap();
+        let events: Vec<_> = recording.batches.iter().flatten().collect();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e.event, Event::AppStarted { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e.event, Event::AppOpened {}))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e.event, Event::AppFirstRun { .. }))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn evicted_first_run_is_reemitted_on_next_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let recording = Arc::new(Mutex::new(sinks::fake::Recording::default()));
+    let mut engine = recording_engine(path.clone(), recording.clone());
+    engine.consent(Consent::On).unwrap();
+    engine.enqueue(startup(), 0).unwrap();
+    let mut filler = engine.state.queue.back().unwrap().clone();
+    filler.event = Event::PlanViewed {};
+    engine.state.queue.resize(QUEUE_CAP, filler);
+    engine.enqueue(Event::PlanViewed {}, 0).unwrap();
+    assert!(!engine
+        .state
+        .queue
+        .iter()
+        .any(|q| matches!(q.event, Event::AppFirstRun { .. })));
+    drop(engine);
+    let mut engine = recording_engine(path, recording);
+    engine.enqueue(startup(), 1).unwrap();
+    assert_eq!(
+        engine
+            .state
+            .queue
+            .iter()
+            .filter(|q| matches!(q.event, Event::AppFirstRun { .. }))
+            .count(),
+        1
+    );
+    assert!(!engine.state.first_run_recorded);
+}

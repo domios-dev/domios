@@ -185,7 +185,7 @@ fn run(
                         engine.identity(account_uid.clone())?;
                         if previous == Consent::Off {
                             engine.enqueue(Event::AnalyticsOptedIn {}, now_ms())?;
-                            if let Some(event) = startup.clone() {
+                            if let Some(event) = startup.take() {
                                 engine.enqueue(event, now_ms())?;
                             }
                         }
@@ -197,10 +197,14 @@ fn run(
             }
             Some(Command::Event(event, reply)) => {
                 suspended = false;
-                if matches!(event, Event::AppStarted { .. }) {
+                let is_startup = matches!(event, Event::AppStarted { .. });
+                if is_startup {
                     startup = Some(event.clone());
                 }
                 let result = engine.enqueue(event, now_ms());
+                if is_startup && matches!(result, Ok(true)) {
+                    startup.take();
+                }
                 activity.publish(engine.state.consent, engine.state.last_active_day);
                 let _ = reply.send(result);
             }
