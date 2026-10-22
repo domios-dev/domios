@@ -34,3 +34,25 @@ test("unknown and unclosed markers never leak raw tags", () => {
   assert.ok(unclosed);
   assert.equal(unclosed.text, "cut-frag");
 });
+
+test("orphan closing markers are recognized and stripped", () => {
+  const readable = readableSystemReminder("orphan-frag\n</codeterm-worker-charter>");
+  assert.ok(readable);
+  assert.equal(readable.text, "orphan-frag");
+  assert.equal(typeof readable.title, "string");
+});
+
+test("prose mentioning the prefix without a marker token is not a reminder", () => {
+  assert.equal(readableSystemReminder("literal <codeterm- text"), null);
+  assert.equal(readableSystemReminder("see <codeterm-x attr=unquoted> here"), null);
+});
+
+test("marker names that shadow Object prototype members get readable string titles", () => {
+  for (const name of ["constructor"]) {
+    const readable = readableSystemReminder(`<codeterm-${name}>\nproto-frag\n</codeterm-${name}>`);
+    assert.ok(readable);
+    assert.equal(typeof readable.title, "string");
+    assert.ok(!readable.title.includes("codeterm-"));
+    assert.equal(readable.text, "proto-frag");
+  }
+});

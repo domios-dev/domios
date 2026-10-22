@@ -62,9 +62,11 @@ async function run() {
   assert(snipCard.querySelector("code")?.textContent === "https://developer.apple.com/", "inline code renders");
   assert(fileCard?.querySelector('button[aria-label="Preview file run.log"]'), "a notice's file marker renders as a file chip");
 
-  for (const [id, body] of [
-    ["worker-reminder", '<codeterm-worker-charter task="task_q">\nworker-frag\n</codeterm-worker-charter>'],
-    ["orchestrator-reminder", '<codeterm-orchestrator-heartbeat plan="pl_q">\norchestrator-frag\n</codeterm-orchestrator-heartbeat>'],
+  for (const [id, body, fragment] of [
+    ["worker-reminder", '<codeterm-worker-charter task="task_q">\nworker-frag\n</codeterm-worker-charter>', "worker-frag"],
+    ["orchestrator-reminder", '<codeterm-orchestrator-heartbeat plan="pl_q">\norchestrator-frag\n</codeterm-orchestrator-heartbeat>', "orchestrator-frag"],
+    ["orphan-close-reminder", "orphan-frag\n</codeterm-worker-charter>", "orphan-frag"],
+    ["prototype-name-reminder", "<codeterm-constructor>proto-frag</codeterm-constructor>", "proto-frag"],
   ] as const) {
     const reminderHost = document.createElement("div");
     document.body.appendChild(reminderHost);
@@ -78,7 +80,7 @@ async function run() {
     assert(!toggle.textContent?.includes("codeterm-"), `${id}: no internal marker in the capsule`);
     if (toggle.getAttribute("aria-expanded") !== "true") await act(async () => toggle.click());
     const text = reminderHost.querySelector('[data-testid="chat-system-event"]')?.textContent ?? "";
-    assert(text.includes(id.startsWith("worker") ? "worker-frag" : "orchestrator-frag"), `${id}: readable body shows`);
+    assert(text.includes(fragment), `${id}: readable body shows`);
     assert(!text.includes("codeterm-"), `${id}: raw marker never shows`);
     await act(async () => toggle.click());
     assert(toggle.getAttribute("aria-expanded") === "false", `${id}: the notice closes`);
