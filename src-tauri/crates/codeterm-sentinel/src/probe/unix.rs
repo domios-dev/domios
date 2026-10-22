@@ -30,6 +30,13 @@ struct Stream {
     _uncertain_fd: Option<RawFd>,
 }
 
+pub(super) struct Executable<'a> {
+    pub program: &'a Path,
+    pub args: &'a [std::ffi::OsString],
+    pub memory_bytes: Option<u64>,
+    pub output_bytes: Option<u64>,
+}
+
 pub fn run(
     command: &str,
     cwd: &Path,
@@ -40,9 +47,12 @@ pub fn run(
     cancellation_required: bool,
     environment: &Environment,
     stdin: Option<std::fs::File>,
-    executable: Option<(&Path, &[std::ffi::OsString])>,
+    executable: Option<Executable<'_>>,
 ) -> Result<Output, ProbeFailure> {
     let mut process = UnixRun::new(deadlines, reservation, owner);
+    process.output_limit = executable
+        .as_ref()
+        .and_then(|executable| executable.output_bytes);
     if cancellation_required {
         match Events::new(cancellation) {
             Ok(events) => {
@@ -81,9 +91,23 @@ pub fn run(
         }));
         return process.finish_failure();
     }
-    let mut child_command = if let Some((program, args)) = executable {
-        let mut child = Command::new(program);
-        child.args(args);
+    let mut child_command = if let Some(executable) = executable {
+        let mut child = Command::new(executable.program);
+        child.args(executable.args);
+        if let Some(memory_bytes) = executable.memory_bytes {
+            unsafe {
+                child.pre_exec(move || {
+                    let limit = libc::rlimit {
+                        rlim_cur: memory_bytes as libc::rlim_t,
+                        rlim_max: memory_bytes as libc::rlim_t,
+                    };
+                    if libc::setrlimit(libc::RLIMIT_AS, &limit) != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
         child
     } else {
         let mut child = Command::new("/bin/sh");
@@ -157,6 +181,7 @@ struct UnixRun {
     group_registered: bool,
     group_retired: bool,
     group_unconfirmed: bool,
+    output_limit: Option<u64>,
     stdout: Stream,
     stderr: Stream,
     status: Option<ExitStatus>,
@@ -184,6 +209,7 @@ impl UnixRun {
             group_registered: false,
             group_retired: false,
             group_unconfirmed: false,
+            output_limit: None,
             stdout: Stream::default(),
             stderr: Stream::default(),
             status: None,
@@ -455,6 +481,16 @@ impl UnixRun {
                 self.stream_mut(stdout)
                     .data
                     .append(&buffer[..read as usize]);
+                if self.output_limit.is_some_and(|limit| {
+                    self.stdout
+                        .data
+                        .total_bytes
+                        .saturating_add(self.stderr.data.total_bytes)
+                        > limit
+                }) {
+                    self.set_failure("budget_exhausted");
+                    return Ok(true);
+                }
                 drained += read as usize;
                 changed = true;
                 continue;

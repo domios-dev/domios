@@ -6,6 +6,7 @@ pub struct RunCtx<'a> {
     pub lease: &'a Lease,
     pub run_id: &'a str,
     pub deadline: Instant,
+    pub outputs: std::collections::BTreeMap<String, ExecutionEnvelope>,
     next_marker: u16,
     call_depth: u8,
     pub(crate) input_kind: Option<MediaKind>,
@@ -33,6 +34,7 @@ impl<'a> RunCtx<'a> {
             lease,
             run_id,
             deadline: Instant::now() + Duration::from_millis(remaining),
+            outputs: Default::default(),
             next_marker: 0,
             call_depth: 0,
             input_kind: None,
@@ -57,6 +59,55 @@ impl<'a> RunCtx<'a> {
 
     pub fn exit_call(&mut self) {
         self.call_depth = self.call_depth.saturating_sub(1);
+    }
+
+    pub fn resolve_binding(&self, path: &str) -> Result<ExecutionEnvelope, JournalReason> {
+        let mut parts = path.split('.');
+        let name = parts.next().ok_or(JournalReason::ContractViolation)?;
+        if parts.next() != Some("out") {
+            return Err(JournalReason::ContractViolation);
+        }
+        let original = self
+            .outputs
+            .get(name)
+            .ok_or(JournalReason::ContractViolation)?;
+        let fields = parts.collect::<Vec<_>>();
+        if fields.is_empty() {
+            return Ok(original.clone());
+        }
+        let mut value = &original.value;
+        for field in fields {
+            value = if let Some(object) = value.as_object() {
+                object.get(field)
+            } else if let Some(array) = value.as_array() {
+                field
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|index| array.get(index))
+            } else {
+                None
+            }
+            .ok_or(JournalReason::ContractViolation)?;
+        }
+        Ok(ExecutionEnvelope {
+            media: "json".into(),
+            schema_id: None,
+            value: value.clone(),
+            text: String::new(),
+        })
+    }
+
+    fn retain_output(
+        &mut self,
+        name: &str,
+        output: &ExecutionEnvelope,
+    ) -> Result<(), JournalReason> {
+        output.encode()?;
+        if self.outputs.len() >= 64 && !self.outputs.contains_key(name) {
+            return Err(JournalReason::BudgetExhausted);
+        }
+        self.outputs.insert(name.into(), output.clone());
+        Ok(())
     }
 
     fn allocate_marker(&mut self) -> Result<JournalMarker, JournalReason> {
@@ -85,14 +136,21 @@ pub fn execute_step(
     input: ExecutionEnvelope,
 ) -> Result<StepExecution, JournalReason> {
     let marker = ctx.allocate_marker()?;
-    if !claim_step(
-        ctx.handle,
-        ctx.lease,
-        ctx.run_id,
-        marker,
-        &step.name,
-        now(ctx.handle),
-    ) {
+    if effect_after_claim(
+        || {
+            claim_step(
+                ctx.handle,
+                ctx.lease,
+                ctx.run_id,
+                marker,
+                &step.name,
+                now(ctx.handle),
+            )
+        },
+        || (),
+    )
+    .is_none()
+    {
         return Err(JournalReason::UncertainClaim);
     }
     let contract = step.execution.clone().unwrap_or_default();
@@ -103,6 +161,11 @@ pub fn execute_step(
         if ctx.remaining().is_zero() {
             return Err(JournalReason::Deadline);
         }
+        let input = if let Some(binding) = &contract.input_binding {
+            ctx.resolve_binding(binding)?
+        } else {
+            input.clone()
+        };
         contract.validate(&input, false)?;
         let result = dispatch::run_step(
             ctx.handle,
@@ -115,30 +178,49 @@ pub fn execute_step(
             ctx.input_failure.as_deref(),
             &ctx.input_display,
             ctx.cleanup.clone(),
+            ctx.remaining().min(Duration::from_millis(
+                contract
+                    .limits
+                    .as_ref()
+                    .and_then(|limits| limits.wall_ms)
+                    .unwrap_or(u64::MAX),
+            )),
         );
         if result.uncertain {
             return Err(JournalReason::UncertainEffect);
         }
-        let output = if matches!(step.kind, StepKind::Filter { .. } | StepKind::Ask { .. }) {
+        if ctx.lease.cancelled.load(Ordering::SeqCst) {
+            return Err(JournalReason::Other("skip:lease_cancelled".into()));
+        }
+        let mut output = if matches!(step.kind, StepKind::Filter { .. } | StepKind::Ask { .. }) {
             input.clone()
         } else {
             ExecutionEnvelope::decode(result.next_text.as_bytes())
                 .unwrap_or_else(|_| ExecutionEnvelope::from_text(&result.next_text))
         };
+        if output.schema_id.is_none() {
+            output.schema_id = contract
+                .output
+                .as_ref()
+                .and_then(|port| port.reference.clone());
+        }
         if result.state == JournalState::Done {
             contract.validate(&output, true)?;
         }
+        ctx.retain_output(&step.name, &output)?;
         Ok((result, output))
     })();
     match checked {
         Ok((result, output)) => {
             let body_ref = if matches!(step.kind, StepKind::Agent { .. }) {
-                crate::agent_stage::persist_result(
-                    ctx.run_id,
-                    marker.index() as usize,
-                    &result.next_text,
+                Some(
+                    crate::agent_stage::persist_result(
+                        ctx.run_id,
+                        marker.index() as usize,
+                        &result.next_text,
+                    )
+                    .map_err(|_| JournalReason::Other("agent_result_write_failed".into()))?,
                 )
-                .ok()
             } else {
                 None
             };
