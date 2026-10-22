@@ -199,6 +199,17 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
         (instance, handle)
     };
     let service = &instance.fixture.service;
+    let deliveries = instance.fixture.bind_recorded_agent_recipient(
+        &creator,
+        "call-sink-session",
+        "call-sink-binding",
+    );
+    let sink_pad = service.ensure_agent_pad(&creator).unwrap();
+    let sink_inbox = sink_pad.path().join("inbox");
+    assert!(
+        !sink_inbox.exists(),
+        "keep and pin must not deliver an effect"
+    );
     let owner = Owner {
         creator_tab_id: creator,
         team_id: Some(team),
@@ -266,7 +277,10 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
     let stop = ctx.call_state.stop.clone();
     drop(ctx);
     if simulate {
-        assert!(child_pids.is_empty(), "simulation must not launch a process");
+        assert!(
+            child_pids.is_empty(),
+            "simulation must not launch a process"
+        );
         assert!(
             handle.store.lock().jobs.is_empty(),
             "simulation must not schedule a job"
@@ -282,16 +296,39 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
         .wait(crate::storage::COMMIT_DEADLINE)
         .unwrap()
         .value;
-    let notices = service
-        .notif
-        .lock()
-        .list(false)
+    let delivered = deliveries.texts.lock().clone();
+    let bodies = if sink_inbox.exists() {
+        std::fs::read_dir(&sink_inbox)
+            .unwrap()
+            .map(|entry| {
+                let path = entry.unwrap().path();
+                let pointer = format!("Read the result in {}", path.display());
+                assert_eq!(
+                    delivered
+                        .iter()
+                        .filter(|text| text.contains(&pointer))
+                        .count(),
+                    1,
+                    "each durable result must be delivered exactly once"
+                );
+                std::fs::read_to_string(path).unwrap()
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    assert_eq!(delivered.len(), bodies.len(), "no pointer without a body");
+    let notices = bodies
         .iter()
-        .filter_map(|n| n.body.clone())
+        .map(|body| {
+            let (_, payload) = body.split_once("Probe output (untrusted data):\n").unwrap();
+            serde_json::from_str::<Value>(payload).unwrap().to_string()
+        })
         .collect();
     let view = project(&document, &journal).unwrap_or(Value::Null);
     drop(handle);
     drop(lease);
+    drop(deliveries);
     close(instance);
     Receipt {
         output,
