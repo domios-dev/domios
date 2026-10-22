@@ -10,6 +10,7 @@ export function orphanLanePaths(root, { exists = fs.existsSync, now = Date.now()
     const depInfo = path.join(root, unit.profile, 'deps', `${unit.name.replaceAll('-', '_')}-${unit.hash}.d`);
     let source = '';
     try { source = fs.readFileSync(depInfo, 'utf8').replaceAll('\\ ', ' ').replaceAll('\\:', ':').replaceAll('\\', '/'); } catch { /* Missing provenance is retained. */ }
+    // Relative dep-info carries no workspace identity, so it cannot authorize orphan collection.
     const lanes = source.split(/\r?\n/).filter(line => line.endsWith(':'))
       .flatMap(line => { const match = /^((?:[A-Za-z]:\/|\/).*?-worktrees\/[^/]+)\//.exec(line); return match ? [match[1]] : []; });
     if (lanes.length && lanes.every(lane => !exists(lane)) && unit.mtime < now - maxAgeDays * 86400000) removed.push(unit);

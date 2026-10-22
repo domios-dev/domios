@@ -96,7 +96,7 @@ test('every test-one scope sends its filter through the fail-closed runner', () 
   const start = source.indexOf('\n  test-one)\n');
   const block = source.slice(start, source.indexOf('\n  nextest)\n', start));
   const dispatch = block.lastIndexOf('case "$test_scope" in');
-  assert.match(block.slice(0, dispatch), /run_nextest_scope workspace "test\(~\$test_filter\)"/);
+  assert.match(block.slice(0, dispatch), /run_nextest_scope workspace "package\(=\$test_package\) & test\(~\$test_filter\)"/);
   const arms = block.slice(dispatch).split(/\n {6}(?=[a-z*][^\n]*\) )|\n {6}(?=[a-z*][^\n]*\)\n)/).slice(1);
   assert.ok(arms.length > 20, 'test-one scope arms were not found');
   for (const arm of arms) {
