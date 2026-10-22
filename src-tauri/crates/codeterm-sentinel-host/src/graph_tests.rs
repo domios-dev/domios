@@ -56,7 +56,7 @@ fn sentinel_graph_named_scenario_has_one_root_and_reachable_internal_stage() {
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","uses":"blueprint","with":{"target":{"lit":child.id}}}]}),
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 1);
@@ -149,13 +149,13 @@ fn sentinel_graph_shared_targets_keep_two_entries_and_one_execution_identity() {
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","uses":"blueprint","with":{"target":{"lit":child.id}}}]}),
     );
     let second = create(
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","uses":"blueprint","with":{"target":{"lit":child.id}}}]}),
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 2);
@@ -341,7 +341,7 @@ fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab(
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"trigger","type":"cron","parameters":{"target":cron.id}}]}),
+        json!({"done":[{"id":"trigger","uses":"cron","with":{"target":{"lit":cron.id}}}]}),
     );
     let connected = crate::service_adapter::graph::connected_crons(
         &crons,
@@ -526,7 +526,7 @@ fn sentinel_graph_cycles_terminate_and_disconnected_participants_stay_excluded()
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","uses":"blueprint","with":{"target":{"lit":child.id}}}]}),
     );
     let orphan = create(&mut store, &owner, true, json!({}));
     let mut jobs = store.list().to_vec();
@@ -612,7 +612,7 @@ fn sentinel_graph_sharing_an_independent_scenario_does_not_absorb_its_root() {
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"share","type":"blueprint","parameters":{"target":independent.id}}]}),
+        json!({"done":[{"id":"share","uses":"blueprint","with":{"target":{"lit":independent.id}}}]}),
     );
     let graph = snapshot(&store, &mux, &owner);
     assert_eq!(graph.scenarios.len(), 2);
@@ -635,7 +635,7 @@ fn sentinel_graph_connected_worker_status_projects_actual_tracker_without_defaul
         &mut store,
         &owner,
         false,
-        json!({"done":[{"id":"send","type":"send","parameters":{"target":worker}}]}),
+        json!({"done":[{"id":"send","uses":"send","with":{"target":{"lit":worker}}}]}),
     );
     let mut graph = snapshot(&store, &mux, &owner);
     let mut tracker = codeterm_service_core::agent::status::TabStatusTracker::new();

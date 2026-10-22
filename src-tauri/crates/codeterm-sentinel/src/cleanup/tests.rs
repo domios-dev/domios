@@ -7,7 +7,7 @@ fn job(id: &str, creator: &str, stopped: bool, until: Option<&str>) -> Sentinel 
         root.path().join("fixture.json"),
         codeterm_cron::clock::MockClock::starting_at(0),
     );
-    let mut job=store.prepare_document(json!({"schema_version":2,"kind":"watch","name":"cleanup fixture","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}}}]}),crate::store::Owner{creator_tab_id:creator.into(),team_id:Some("team".into()),workspace_id:"workspace".into(),cwd:"/tmp".into()},false).unwrap();
+    let mut job=store.prepare_document(json!({"schema_version":2,"kind":"watch","name":format!("cleanup {id}"),"steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"],"matches":{"ready":{"lit":"ready"}}}]}),crate::store::Owner{creator_tab_id:creator.into(),team_id:Some("team".into()),workspace_id:"workspace".into(),cwd:"/tmp".into()},false).unwrap();
     job.id = id.into();
     job.scenario_id = Some(id.into());
     job.machine.stopped = stopped;

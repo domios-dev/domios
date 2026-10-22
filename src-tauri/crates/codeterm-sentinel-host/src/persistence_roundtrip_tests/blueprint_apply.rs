@@ -66,7 +66,12 @@ fn blueprint_apply_is_idempotent_scoped_and_persisted_for_watch_and_pipeline() {
             .unwrap();
         assert_eq!(dry["action"], "update");
         assert!(!dry["before"].is_null());
-        assert_eq!(dry["after"], spec);
+        let expected =
+            codeterm_blueprint_types::blueprint_document::Document::from_definition(&spec).unwrap();
+        let actual =
+            codeterm_blueprint_types::blueprint_document::Document::from_definition(&dry["after"])
+                .unwrap();
+        assert_eq!(actual, expected);
         assert_eq!(
             service
                 .sentinel_show(&caller, id)

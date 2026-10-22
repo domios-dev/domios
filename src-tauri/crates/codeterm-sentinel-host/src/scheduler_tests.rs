@@ -387,7 +387,7 @@ fn sentinel_scheduler_graph_until_finishes_its_claimed_batch_and_stop_skips_tail
         serde_json::json!({"done":[{"id":"first","uses":"notify","with":{}},{"id":"end","uses":"stop","with":{}},{"id":"tail","uses":"notify","with":{}}]}),
         serde_json::json!(null)
     ));
-    params["paused"] = json!(false);
+    params["steps"][0]["paused"] = json!(false);
     let parent = store
         .lock()
         .create_document(serde_json::from_value(params).unwrap(), owner(), false)
