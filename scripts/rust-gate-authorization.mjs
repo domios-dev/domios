@@ -71,6 +71,7 @@ function readTasklessWorkerRecord(env, run) {
 }
 
 export function readGateProof(env, read = fs.readFileSync, list = fs.readdirSync, run = execFileSync, parseYaml = null) {
+  if (env.CODETERM_TASK_ID && env.CODETERM_ATTEMPT_ID) return readGateProofFromHost(env, run);
   if (env.CODETERM_ROLE === 'Worker' && !env.CODETERM_TASK_ID && !env.CODETERM_ATTEMPT_ID) {
     const taskless_worker = readTasklessWorkerRecord(env, run);
     if (taskless_worker) return { plan: { id: env.CODETERM_PLAN_ID ?? null }, tasks: [], taskless_worker };

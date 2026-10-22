@@ -1605,6 +1605,14 @@ parent-owned platform rows; source fixtures and compilation do not execute them.
 
 ### Diagnose an unchanged-SHA test rebuild
 
+Nextest logs `[test-loop]` phases for gateway, sccache, resource preparation,
+listing and Cargo metadata. Record two unchanged canonical runs on BLACKSTAR,
+including the complete command wall time; the second must report Cargo Fresh
+before reusing metadata. A missing binary, changed manifest or dirty artifact
+refreshes the selection. Cache receipts live under the selected Cargo target
+and never bypass Cargo freshness validation. No lane timing substitutes for
+the canonical before/after measurement.
+
 Run the next focused gateway job with `CODETERM_BUILD_FINGERPRINTS=1` (PowerShell:
 `$env:CODETERM_BUILD_FINGERPRINTS='1'` before `./build.ps1 test-one <scope> <selector> --wait-build`).
 The gateway retains the Cargo dirty reasons in `jobs/<job-id>.fingerprint.log`;
