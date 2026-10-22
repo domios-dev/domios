@@ -22,7 +22,7 @@ A bounce carries its reason and failing evidence. It returns work to a live Work
 
 Dispatch criteria remain locked in the Worker's checklist: the Worker updates their state by stable item identity while preserving their text. Open criteria warn on review submission; acceptance completes them and a bounce reopens them. The sidebar reflects the stored states.
 
-Workers share their checklist and continue work immediately. Their parent or Plan owner may approve it or amend the Worker's own items while preserving seeded criteria. The parent receives a compact review card; sidebar and Underway mark an unreviewed proposal, and amendments notify the Worker with the changes. Checklist review is advisory and never gates execution or reports.
+Workers share their checklist and continue work immediately. Their parent or Plan owner may approve it or amend the Worker's own items while preserving seeded criteria. The parent agent receives the proposal for agent-to-agent review without human review cards or action controls in its chat; sidebar and Underway mark an unreviewed proposal, and amendments notify the Worker with the changes. Checklist review is advisory and never gates execution or reports.
 
 A delivered task-bound report ends with one verdict reminder naming its plan, task, accept/bounce command and report time. The reminder is advisory and never blocks dispatch, integration or other work.
 

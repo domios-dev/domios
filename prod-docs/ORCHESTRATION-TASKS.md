@@ -126,8 +126,9 @@ checklist, including rows of paired peers that report one.
 `codeterm tab todo list --tab <child-id>`.
 
 Workers share the checklist with `codeterm todo submit` and continue work.
-The parent receives its criteria and plan items together, plus an Approve/Edit
-card in its tab. `Not reviewed yet` in the sidebar and Underway is informational.
+The parent agent receives its criteria and plan items together for agent-to-agent
+review; its chat shows no human review card or Approve/Edit controls.
+`Not reviewed yet` in the sidebar and Underway is informational.
 Only the Worker's parent or Plan owner may review through the CLI:
 
 ```bash
@@ -162,4 +163,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->
