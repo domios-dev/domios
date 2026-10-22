@@ -39,7 +39,7 @@ impl From<String> for SpawnRejection {
                     "code": "spawn_failed",
                     "message": message,
                     "class": SPAWN_REFUSAL_CLASS_UNCLASSIFIED,
-                    "retry_hint": "the spawn was refused and the daemon could not tell whether a retry can help — fix the spawn request (--role/--plan-task/--cwd) first, then check the target with `codeterm mesh peers`",
+                    "retry_hint": "the spawn was refused and the daemon could not tell whether a retry can help — fix the spawn request (--role/--plan-task/--cwd) first, then check the target with `domios mesh peers`",
                 },
             }),
         }

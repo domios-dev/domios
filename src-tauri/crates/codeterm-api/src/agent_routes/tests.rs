@@ -174,7 +174,7 @@ async fn unknown_authoritative_model_returns_structured_422_without_retry_hint()
     assert_eq!(error["requested_model"], "model-z");
     assert_eq!(
         error["refresh_command"],
-        "codeterm agent models rest-catalogue"
+        "domios agent models rest-catalogue"
     );
     assert!(error["valid_model_ids"]
         .as_array()

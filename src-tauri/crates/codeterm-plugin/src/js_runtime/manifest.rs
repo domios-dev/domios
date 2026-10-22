@@ -82,7 +82,7 @@ pub struct PluginManifest {
     #[serde(default)]
     pub readme: Option<String>,
     /// Bundle-relative markdown guide for agents, appended (bounded) to the
-    /// plugin's mem skill item and returned by `codeterm plugin get`.
+    /// plugin's mem skill item and returned by `domios plugin get`.
     #[serde(default)]
     pub agent_guide: Option<String>,
     /// One line every agent's launch prompt carries; honoured only for core plugins.
@@ -179,7 +179,7 @@ pub struct PluginManifest {
     pub config_help: Option<String>,
 
     /// Usage shapes of the `onAgentCommand` verbs, e.g. `send <chat-id> <text>`.
-    /// Published to agents through mem and `codeterm capabilities`.
+    /// Published to agents through mem and `domios capabilities`.
     #[serde(default)]
     pub agent_verbs: Vec<String>,
 

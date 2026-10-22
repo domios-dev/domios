@@ -314,7 +314,7 @@ mod tests {
                 "task_id": "task_y",
                 "task_name": "Concrete one",
                 "test_plan": "Run `cargo test test_plan_vague` and assert exactly one test_plan_vague finding \
-        on the seeded plan; then `codeterm plan doctor <plan> --kind quality` round-trips clean."
+        on the seeded plan; then `domios plan doctor <plan> --kind quality` round-trips clean."
             }
         });
         let out = render_qa_claim(&value);

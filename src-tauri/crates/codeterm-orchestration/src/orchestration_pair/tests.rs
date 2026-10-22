@@ -198,7 +198,7 @@ fn pair_retry_command_preserves_provider_models_and_workspace() {
     let cmd = pair_retry_command("ws-1", "claude", Some("opus"), "codex", Some("gpt-5"));
     assert_eq!(
         cmd,
-        "codeterm team pair --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
+        "domios team pair --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
     );
 }
 

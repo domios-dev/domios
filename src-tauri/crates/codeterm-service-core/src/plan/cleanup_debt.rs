@@ -84,7 +84,7 @@ pub fn detect_cleanup_debt(input: &CleanupDebtInput<'_>) -> Option<CleanupDebtTa
             issues.push(CleanupDebtIssue {
                 kind: CleanupDebtKind::LiveTab,
                 detail: format!("worker tab {tab_id} is still live"),
-                command: Some(format!("codeterm tab close {}", shell_quote(tab_id))),
+                command: Some(format!("domios tab close {}", shell_quote(tab_id))),
             });
         }
     }
@@ -164,7 +164,7 @@ fn deferred_detail(cleanup_hints: &[String]) -> String {
 
 fn mark_done_command(plan_id: &str, task_id: &str) -> String {
     format!(
-        "codeterm plan task update {} {} --cleanup-status done",
+        "domios plan task update {} {} --cleanup-status done",
         shell_quote(plan_id),
         shell_quote(task_id)
     )
@@ -172,7 +172,7 @@ fn mark_done_command(plan_id: &str, task_id: &str) -> String {
 
 fn mark_deferred_command(plan_id: &str, task_id: &str) -> String {
     format!(
-        "codeterm plan task update {} {} --cleanup-status deferred --cleanup-hint \"<why>\"",
+        "domios plan task update {} {} --cleanup-status deferred --cleanup-hint \"<why>\"",
         shell_quote(plan_id),
         shell_quote(task_id)
     )
@@ -182,7 +182,7 @@ fn mark_deferred_command(plan_id: &str, task_id: &str) -> String {
 /// that can see a live tab still holding the worktree before anything is deleted.
 fn remove_lane_command(project_path: &str, worktree_path: &str, branch: Option<&str>) -> String {
     let mut command = format!(
-        "codeterm plan lane-remove {}",
+        "domios plan lane-remove {}",
         shell_quote(&codeterm_paths::strip_verbatim_prefix(worktree_path))
     );
     if let Some(branch) = branch {
@@ -249,9 +249,9 @@ mod tests {
             .iter()
             .any(|issue| issue.kind == CleanupDebtKind::LiveTab));
         assert!(item.commands.iter().any(|command| command
-            .contains("codeterm plan task update 'pl_1' 'task_1' --cleanup-status done")));
+            .contains("domios plan task update 'pl_1' 'task_1' --cleanup-status done")));
         assert!(item.commands.iter().any(|command| command.as_str()
-            == "codeterm plan lane-remove '/tmp/wt' --branch 'lane/x' --project '/repo'"));
+            == "domios plan lane-remove '/tmp/wt' --branch 'lane/x' --project '/repo'"));
         assert!(!item
             .commands
             .iter()
@@ -282,7 +282,7 @@ mod tests {
         assert_eq!(item.commands.len(), 1);
         assert_eq!(
             item.commands[0],
-            "codeterm plan task update 'pl_1' 'task_1' --cleanup-status done"
+            "domios plan task update 'pl_1' 'task_1' --cleanup-status done"
         );
     }
 
@@ -307,12 +307,12 @@ mod tests {
         let command = item
             .commands
             .iter()
-            .find(|command| command.starts_with("codeterm plan lane-remove"))
+            .find(|command| command.starts_with("domios plan lane-remove"))
             .unwrap();
 
         assert_eq!(
             command,
-            "codeterm plan lane-remove 'D:\\repo-worktrees\\lane' --branch 'lane/x' --project 'C:\\repo'"
+            "domios plan lane-remove 'D:\\repo-worktrees\\lane' --branch 'lane/x' --project 'C:\\repo'"
         );
         assert!(!command.contains(r"\\?\"));
     }

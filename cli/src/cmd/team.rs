@@ -639,7 +639,7 @@ mod tests {
         // Opaque on purpose: the CLI must forward whatever the daemon says, so
         // a reworded refusal here would hide the violation id and the fix.
         let refusal = "some.violation.id: Tab tab_x is refused. Do this instead:\n  \
-                       codeterm team pair --orchestrator alpha --planner beta --workspace ws_7";
+                       domios team pair --orchestrator alpha --planner beta --workspace ws_7";
         let rendered = render_daemon_error(&SocketCallError::Transport(refusal.into()));
         assert!(rendered.ends_with(refusal), "{rendered}");
         assert_eq!(rendered.len(), refusal.len() + "Error: ".len());

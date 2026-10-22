@@ -2,23 +2,23 @@ use crate::plan::{Plan, TaskStatus};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const ORCHESTRATION_REMINDER: &str =
-    "hint: orchestrating? read `codeterm docs ORCHESTRATION`; before dispatch, run `codeterm plan doctor <plan> --kind quality`";
+    "hint: orchestrating? read `domios docs ORCHESTRATION`; before dispatch, run `domios plan doctor <plan> --kind quality`";
 const ORCHESTRATION_REMINDER_EVERY: u64 = 5;
 static ORCHESTRATION_REMINDER_COUNT: AtomicU64 = AtomicU64::new(0);
 
 pub fn task_sections_hint(plan_id: &str, task_id: &str) -> String {
     format!(
-        "hint: task is not linked to a plan section. If it belongs to a plan, connect it: codeterm plan task link {plan_id} {task_id} --sections <id-or-handle> (ids: codeterm plan get {plan_id} --sections)"
+        "hint: task is not linked to a plan section. If it belongs to a plan, connect it: domios plan task link {plan_id} {task_id} --sections <id-or-handle> (ids: domios plan get {plan_id} --sections)"
     )
 }
 
 pub fn plan_sections_hint(plan_id: &str) -> String {
-    format!("hint: plan has no sections. Add one: codeterm plan section add {plan_id} --title <title> --body <summary>")
+    format!("hint: plan has no sections. Add one: domios plan section add {plan_id} --title <title> --body <summary>")
 }
 
 pub fn task_model_hint(plan_id: &str, task_id: &str) -> String {
     format!(
-        "hint: task has no model/why. Capture routing intent: codeterm plan task update {plan_id} {task_id} --model <provider/model> --why <reason>"
+        "hint: task has no model/why. Capture routing intent: domios plan task update {plan_id} {task_id} --model <provider/model> --why <reason>"
     )
 }
 
@@ -43,7 +43,7 @@ pub fn task_quality_guard_hint(
         return None;
     }
     Some(format!(
-        "WARNING: task is missing {}. Add checkable work definition now: codeterm plan task add {plan_id} --name <name> --executor-role <role> --personality <name> --role-guidance <conditioning> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
+        "WARNING: task is missing {}. Add checkable work definition now: domios plan task add {plan_id} --name <name> --executor-role <role> --personality <name> --role-guidance <conditioning> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
         missing.join(", ")
     ))
 }
@@ -120,7 +120,7 @@ mod tests {
     fn task_create_hints_include_section_and_model_fixes() {
         let hints = task_create_hints("pl_1", "task_1", false, false, true, true, true, true);
         assert_eq!(hints.len(), 2);
-        assert!(hints[0].contains("codeterm plan task link pl_1 task_1 --sections <id-or-handle>"));
+        assert!(hints[0].contains("domios plan task link pl_1 task_1 --sections <id-or-handle>"));
         assert!(hints[1].contains("--model <provider/model> --why <reason>"));
     }
 

@@ -217,14 +217,14 @@ fn json_error_contract_all_subcommands() {
                     Err(problem) => violations
                         .lock()
                         .expect("violations")
-                        .push(format!("codeterm --json {}: {problem}", rest.join(" "))),
+                        .push(format!("domios --json {}: {problem}", rest.join(" "))),
                     Ok(value) => {
                         if output.status.code() == Some(2) {
                             *usage_failures.lock().expect("usage count") += 1;
                             let code = value["error"]["code"].as_str().unwrap_or_default();
                             if code != "invalid_argument" {
                                 violations.lock().expect("violations").push(format!(
-                                    "codeterm --json {}: exit 2 carried code {code:?}",
+                                    "domios --json {}: exit 2 carried code {code:?}",
                                     rest.join(" ")
                                 ));
                             }

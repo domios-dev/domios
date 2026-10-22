@@ -1,5 +1,5 @@
 //! What core plugins tell every agent: the `Built-in plugins:` launch-prompt
-//! section and the guides `codeterm docs <plugin-id>` falls back to.
+//! section and the guides `domios docs <plugin-id>` falls back to.
 
 use codeterm_plugin::agent_prompt_lines::{compose_built_in_plugins_section, PluginPromptLine};
 use serde_json::{json, Value};

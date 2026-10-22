@@ -63,7 +63,7 @@ mod tests {
                     "title": "Build",
                     "path": ".domios/plans/active/pl_1/tasks/task_1.md",
                     "exists": false,
-                    "read_command": "codeterm plan task show pl_1 task_1"
+                    "read_command": "domios plan task show pl_1 task_1"
                 }
             ]
         }));
@@ -72,10 +72,7 @@ mod tests {
             .find(|l| l.starts_with("Build\t"))
             .expect("task line");
         assert!(line.contains("not on disk"), "{line}");
-        assert!(
-            line.contains("codeterm plan task show pl_1 task_1"),
-            "{line}"
-        );
+        assert!(line.contains("domios plan task show pl_1 task_1"), "{line}");
     }
 
     #[test]
@@ -87,7 +84,7 @@ mod tests {
                     "title": "Build",
                     "path": ".domios/plans/active/pl_1/tasks/task_1.md",
                     "exists": true,
-                    "read_command": "codeterm plan task show pl_1 task_1"
+                    "read_command": "domios plan task show pl_1 task_1"
                 }
             ]
         }));

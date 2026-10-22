@@ -38,7 +38,7 @@ pub enum SupporterAction {
 #[derive(Subcommand)]
 pub enum SupporterTokenAction {
     /// Store the token piped on stdin, e.g.
-    /// `pbpaste | codeterm supporter token set --adapter typesafe-jev`.
+    /// `pbpaste | domios supporter token set --adapter typesafe-jev`.
     /// There is deliberately no argv flag for the value.
     Set {
         #[arg(long)]

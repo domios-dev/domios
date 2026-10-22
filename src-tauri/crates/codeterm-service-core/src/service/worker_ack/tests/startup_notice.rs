@@ -16,7 +16,7 @@ fn startup_notice_exposes_inspect_respond_and_hold_without_task_resend() {
     assert_eq!(event["recovery"]["attempt_id"], "launch-a");
     assert_eq!(
         event["hold"],
-        "codeterm agent startup-hold --tab child --attempt launch-a"
+        "domios agent startup-hold --tab child --attempt launch-a"
     );
     assert!(event["inspect"].as_array().unwrap().iter().any(|command| {
         command

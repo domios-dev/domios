@@ -231,7 +231,7 @@ pub(crate) fn spawn_launch_task(
         .unwrap_or(peer);
     let route = serde_json::json!({"mesh_peer": peer, "tab_id": tab});
     let context = format!(
-        "## Host return route\n\n{route}\n\nSend reports to this exact remote tab using `codeterm send` with `--mesh` and `--tab` from this record, `--require-agent` and `--from-pad`. This daemon-supplied route overrides peer names in the assignment; do not guess or rediscover it."
+        "## Host return route\n\n{route}\n\nSend reports to this exact remote tab using `domios send` with `--mesh` and `--tab` from this record, `--require-agent` and `--from-pad`. This daemon-supplied route overrides peer names in the assignment; do not guess or rediscover it."
     );
     Some(match prompt {
         Some(prompt) => format!("{prompt}\n\n{context}"),

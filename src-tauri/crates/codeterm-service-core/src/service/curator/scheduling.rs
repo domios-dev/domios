@@ -652,7 +652,7 @@ impl ServiceContext {
         let plan = self.plan_store.get(plan_id).ok_or("plan absent")?;
         self.bind_curator_session(tab_id)?;
         if let Some(owner) = plan.owner.tab_id {
-            let body=format!("Curator round {number} spawned (tab {tab_id}); it may ask you up to three questions in one message; answer with `codeterm send --tab {tab_id}` or skip; grants: `codeterm plan curator grant {plan_id} {tab_id} --blueprint <id> | --plan-skill <slug>`.");
+            let body=format!("Curator round {number} spawned (tab {tab_id}); it may ask you up to three questions in one message; answer with `domios send --tab {tab_id}` or skip; grants: `domios plan curator grant {plan_id} {tab_id} --blueprint <id> | --plan-skill <slug>`.");
             self.deliver_cron_report(&owner, super::curator_started_envelope(number), &body)?;
         }
         Ok(())

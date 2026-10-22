@@ -1,6 +1,6 @@
 ---
 name: prompt-evaluator
-description: Evaluate, A/B compare, or check for regression in any Domios prompt file (general_agent.md, worker_suffix.md, codeterm_rule.md, agent role definitions in codeterm mem, bridge rules, etc). Triggers when the user asks to "test the prompt", "run evals", "check for regression", "did my prompt change break anything", or "compare prompt before and after". Runs runner.py against the matching eval set under evals.
+description: Evaluate, A/B compare, or check for regression in any Domios prompt file (general_agent.md, worker_suffix.md, codeterm_rule.md, agent role definitions in domios mem, bridge rules, etc). Triggers when the user asks to "test the prompt", "run evals", "check for regression", "did my prompt change break anything", or "compare prompt before and after". Runs runner.py against the matching eval set under evals.
 ---
 
 # Prompt Evaluator
@@ -219,4 +219,4 @@ eval (`live` / `cached` / `k/N cached`). Treat them as part of the numbers:
 
 To debug a single eval without rerunning the whole set: `python runner.py --prompt-file ... --eval-set ... --only-id 8 --runs 1 --verbose`. The runner will print the full agent response and matcher decisions for that one eval.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

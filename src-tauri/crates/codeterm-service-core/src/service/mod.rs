@@ -371,7 +371,7 @@ pub struct ServiceContext {
     pub pty_ownership: pty_ownership::PtyOwnership,
     // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
-    // codeterm cron complete / mem worker report itself.
+    // domios cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
     /// Orchestrator-side view of remote (cross-mesh) workers, populated from
     /// inbound mesh reports. Drives the "remote Tab" ghost nodes in the UI.

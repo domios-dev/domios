@@ -416,7 +416,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                 }
             } else {
                 eprintln!("Tokens are only retrievable at create time or via --rotate (which generates a new one and invalidates the old).");
-                eprintln!("Use: codeterm service token {} --rotate", id);
+                eprintln!("Use: domios service token {} --rotate", id);
                 std::process::exit(1);
             }
         }

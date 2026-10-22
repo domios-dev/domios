@@ -424,7 +424,7 @@ fn notify_reconciliation_owner(
         _ => "provider integration consent is missing",
     };
     notice(format!("{provider_name} integration needs attention"), format!(
-            "{detail}. Open Settings > Integrations and approve the provider repair, or run `codeterm integration install --provider {provider_id} --json` after consent."
+            "{detail}. Open Settings > Integrations and approve the provider repair, or run `domios integration install --provider {provider_id} --json` after consent."
         ));
 }
 

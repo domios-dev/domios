@@ -552,7 +552,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                             format!(
                                 "`agent report --tab {explicit}` reports AS that tab, not TO it.\n\
                                  Reports route to your parent automatically — drop --tab to report up the hierarchy.\n\
-                                 To send a message to a specific tab, use `codeterm send --tab {explicit}`."
+                                 To send a message to a specific tab, use `domios send --tab {explicit}`."
                             ),
                         );
                     }
@@ -720,7 +720,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 };
                 format!(
                     "!!! REPORT NOT ACCEPTED — no task transition or delivery was recorded.\n\
-                     Fix the cause and re-run the exact same `codeterm agent report` command.\n\
+                     Fix the cause and re-run the exact same `domios agent report` command.\n\
                      cause: {rendered}"
                 )
             });

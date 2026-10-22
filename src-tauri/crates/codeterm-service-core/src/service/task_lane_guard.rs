@@ -97,7 +97,7 @@ fn task_bound_mutating_spawn_ref(params: &SpawnAgentParams) -> Option<&str> {
 fn dispatch_remedy(plan_id: &str, task_id: &str) -> String {
     format!(
         "Dispatch the task instead, so the isolated lane is provisioned and recorded before any \
-         tab exists: codeterm plan task dispatch {plan_id} {task_id}"
+         tab exists: domios plan task dispatch {plan_id} {task_id}"
     )
 }
 
@@ -112,7 +112,7 @@ fn canonical_dispatch_remedy(plan_id: &str, task_id: &str, selected_kind: Option
         .unwrap_or_default();
     format!(
         "Use parent-authorized canonical placement so its exclusive attempt is reserved before \
-         any tab exists: codeterm plan task dispatch {plan_id} {task_id} \
+         any tab exists: domios plan task dispatch {plan_id} {task_id} \
          --execution-intent mutating --canonical-writer{kind_flag}"
     )
 }
@@ -259,13 +259,13 @@ mod tests {
             assert_eq!(
                 canonical_dispatch_remedy("plan", "task", Some(kind)),
                 format!(
-                    "Use parent-authorized canonical placement so its exclusive attempt is reserved before any tab exists: codeterm plan task dispatch plan task --execution-intent mutating --canonical-writer --kind {kind}"
+                    "Use parent-authorized canonical placement so its exclusive attempt is reserved before any tab exists: domios plan task dispatch plan task --execution-intent mutating --canonical-writer --kind {kind}"
                 )
             );
         }
         assert_eq!(
             canonical_dispatch_remedy("plan", "task", Some("unavailable-overlay")),
-            "Use parent-authorized canonical placement so its exclusive attempt is reserved before any tab exists: codeterm plan task dispatch plan task --execution-intent mutating --canonical-writer"
+            "Use parent-authorized canonical placement so its exclusive attempt is reserved before any tab exists: domios plan task dispatch plan task --execution-intent mutating --canonical-writer"
         );
     }
 }

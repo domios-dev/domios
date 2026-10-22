@@ -155,7 +155,7 @@ fn task_bound_launch_uses_the_task_ack_path_only() {
     assert!(ack < body);
     assert!(body < criteria && criteria < supplemental);
     assert_eq!(prompt.matches(ack_instruction).count(), 1);
-    assert!(!prompt.contains("codeterm agent report"));
+    assert!(!prompt.contains("domios agent report"));
 }
 
 #[test]

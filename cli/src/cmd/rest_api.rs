@@ -43,11 +43,10 @@ pub fn render_status(value: &serde_json::Value) -> String {
     }
     if phase == "failed" {
         if value["diagnostic"] == "bind_ownership_failed" {
-            output.push_str(
-                "fix: release the conflicting port, then run codeterm rest-api restart\n",
-            );
+            output
+                .push_str("fix: release the conflicting port, then run domios rest-api restart\n");
         } else {
-            output.push_str("fix: codeterm rest-api restart\n");
+            output.push_str("fix: domios rest-api restart\n");
         }
     }
     output

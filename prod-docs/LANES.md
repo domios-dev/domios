@@ -21,8 +21,8 @@ specific:
 
 ```bash
 git worktree add -b lane/<plan>-<task>-<slug> ../<repo>-worktrees/<slug> <base>
-codeterm plan task update <plan> <task>   --worktree <abs-path> --branch lane/<plan>-<task>-<slug>   --base <base> --destination <integration-branch>
-codeterm plan task dispatch <plan> <task> --agent <provider> --execution-intent mutating
+domios plan task update <plan> <task>   --worktree <abs-path> --branch lane/<plan>-<task>-<slug>   --base <base> --destination <integration-branch>
+domios plan task dispatch <plan> <task> --agent <provider> --execution-intent mutating
 ```
 
 Record `--destination` in that same call; omitting it dispatches successfully but
@@ -60,12 +60,12 @@ participate in canonical writer occupancy, so the parent coordinates those write
 
 For a plan-bound mesh Worker, the peer owns its lane and the origin owns review
 and integration. After accepting the attempt, run
-`codeterm plan task merge-remote-lane <plan> <task> <attempt>` on the origin.
+`domios plan task merge-remote-lane <plan> <task> <attempt>` on the origin.
 The command requires the peer tip to equal the accepted report SHA and the clean
 origin checkout to remain on its dispatch-time branch. It uses `git merge
 --no-ff` and records only after ancestry passes; cherry-pick and squash are invalid.
 
-Competition has no CLI verb; use the `plan.task.compete` route printed by `codeterm plan task show` for competition-enabled tasks. Each
+Competition has no CLI verb; use the `plan.task.compete` route printed by `domios plan task show` for competition-enabled tasks. Each
 **mutating** competitor gets its own worktree, branch, and base before spawning,
 so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
@@ -118,7 +118,7 @@ about lifecycle and evidence, not Domios's own repository layout.
 
 For an acknowledged task-bound Worker in another Team's approved plan,
 the current source parent Orchestrator may use
-`codeterm agent link --parent-tab <destination> --tab <worker>` to transfer it
+`domios agent link --parent-tab <destination> --tab <worker>` to transfer it
 to that plan's live Orchestrator in the same local workspace. Preserve plan,
 task, attempt, lane, session and nonce. The destination cannot pull it.
 Mismatched plan owner, binding, session or isolated lane refuses without state
@@ -128,4 +128,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

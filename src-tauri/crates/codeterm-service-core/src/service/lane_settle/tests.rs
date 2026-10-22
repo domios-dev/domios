@@ -131,7 +131,7 @@ fn lane_settle_unmerged_lane_is_kept_and_recorded_with_reason() {
     let (status, hints) = recorded(&settlement);
     assert_eq!(status, CLEANUP_RETAINED);
     assert!(hints[0].contains("not merged into master"));
-    assert!(hints[1].starts_with("codeterm plan lane-remove"));
+    assert!(hints[1].starts_with("domios plan lane-remove"));
     let update = lane_update(&settlement).unwrap();
     assert_eq!(update.worktree_path, None, "the lane reference stays");
     assert_eq!(update.branch, None);
@@ -249,7 +249,7 @@ fn lane_settle_history_marks_every_finished_lane_terminal_without_git() {
     assert_eq!(ids, ["present", "vanished", "peer"]);
     let (status, hints) = recorded(&marked[0].1);
     assert_eq!(status, CLEANUP_OFFERED);
-    assert!(hints[0].starts_with("codeterm plan lane-remove '/lanes/present'"));
+    assert!(hints[0].starts_with("domios plan lane-remove '/lanes/present'"));
     assert_eq!(recorded(&marked[1].1).0, CLEANUP_DONE);
     let vanished = lane_update(&marked[1].1).unwrap();
     assert_eq!(vanished.worktree_path, Some(None));

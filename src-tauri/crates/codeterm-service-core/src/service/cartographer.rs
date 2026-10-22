@@ -136,7 +136,7 @@ pub(crate) fn pending_boundary(plan: &Plan, availability: MapAvailability) -> Op
 fn boundary_line(plan: &Plan, boundary: &Boundary) -> String {
     let plan_id = &plan.id;
     let record = format!(
-        "record it on that task with `codeterm plan record {plan_id} --task <task> --step {MAP_REQUESTED_KIND}:<boundary>`"
+        "record it on that task with `domios plan record {plan_id} --task <task> --step {MAP_REQUESTED_KIND}:<boundary>`"
     );
     match boundary {
         Boundary::WaveClose { .. } => format!(
@@ -144,7 +144,7 @@ fn boundary_line(plan: &Plan, boundary: &Boundary) -> String {
             boundary.label()
         ),
         Boundary::Release => format!(
-            "{CARTOGRAPHY_DIGEST_PREFIX} — {}: dispatch one Cartographer, {record}, and give the owner the single `codeterm essence-map release-summary` with its revert choice.",
+            "{CARTOGRAPHY_DIGEST_PREFIX} — {}: dispatch one Cartographer, {record}, and give the owner the single `domios essence-map release-summary` with its revert choice.",
             boundary.label()
         ),
     }

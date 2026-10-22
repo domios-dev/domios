@@ -54,23 +54,23 @@ mount — not "this level does not reach the bell", which is why the column is g
 notification is still recorded, so turning it back on reveals the complete log.
 Because it takes the panel with it, it is also the one switch that can leave a
 record with no surface at all: with the indicator hidden, no desktop toast
-admitted and no push channel carrying it, `codeterm notify send` says so under
+admitted and no push channel carrying it, `domios notify send` says so under
 the id it returns, naming which surface is shut and why. The record is still
 kept and the exit code is still `0` — that is information, not a failure.
 
-Everything under `notifications` is set from Settings, not from `codeterm
+Everything under `notifications` is set from Settings, not from `domios
 config set`. Where a notification may go is your standing answer, so an agent
 that could switch a desktop toast or a push channel on by itself would grant
-itself a capability you never saw. A `codeterm config set notifications.*` — and
+itself a capability you never saw. A `domios config set notifications.*` — and
 any config write arriving from inside a tab that carries a `notifications`
-section — is refused with `403`. An agent may OFFER instead: `codeterm notify
+section — is refused with `403`. An agent may OFFER instead: `domios notify
 send "…" --choice "Turn it on" --choice "Not now" --offer desktop --offer-accept
 "Turn it on"` sends a question, and the surface changes only when you tap the
 accepting label. An untapped or declined offer changes nothing. The refusal is
 not agent-specific — the daemon cannot tell you from an agent inside a tab, so
 the same command typed by hand in a Domios tab is refused too.
 
-A Needs you notification can point at one chat message: `codeterm notify send
+A Needs you notification can point at one chat message: `domios notify send
 "…" --level action_needed --target-tab <tab id> --chat-message <message id>`. On
 the Mission Control Board its row is a single jump that leaves the Board, opens
 that tab in Chat and reveals that exact message, never a similar one. Only a
@@ -80,7 +80,7 @@ is closed or has no chat view, or the message is not in the loaded chat, the row
 says it is unavailable instead. Both ids are navigation only and never change who asked.
 
 # Per-channel push AUDIENCE, keyed by the channel's bridge service id — the same
-# id `codeterm bridge send --service <id>` takes. Whether a level reaches a
+# id `domios bridge send --service <id>` takes. Whether a level reaches a
 # channel at all is that channel's column of the level grid above; this answers
 # only who receives what the grid routed here. A channel with no entry has no
 # audience, and an empty audience is nobody: it never falls back to that
@@ -98,7 +98,7 @@ the pad body), and a `--target-tab` that names no open tab on this machine.
 
 Pending prompt detection updates tab state but never creates a notification.
 Agents that need owner attention must explicitly run
-`codeterm notify send "<title>" --level action_needed`. Domios still raises process-exit
+`domios notify send "<title>" --level action_needed`. Domios still raises process-exit
 and recovery-stopped notices for tabs that need a restart; each notice belongs to
 one standing condition of one tab and resolves when that condition ends or the
 tab closes. Hidden automation routes prompts and exits to a live report owner,
@@ -114,11 +114,11 @@ does an offer to turn a surface on, which must be sent again.
 
 ## Related documents
 
-The rest of the configuration file: `codeterm docs CONFIG`. Bridge and integration
-settings: `codeterm docs INTEGRATIONS`.
+The rest of the configuration file: `domios docs CONFIG`. Bridge and integration
+settings: `domios docs INTEGRATIONS`.
 
 ## Provider access incidents
 
 Provider access refusals from a tab's own session are incidents even when optional structured-signal settings are disabled. The notification has severity `error` and level `action_needed`, names the tab, role, machine and provider, and asks for `/login` in that tab (or `claude setup-token` for Claude). It opens once per access-loss transition and resolves after a successful provider turn. Existing notification surface and channel settings decide where it is carried. They apply to plain tabs as well as role tabs. Detection uses typed session-record error codes or HTTP status, including OAuth org-disabled and refresh failures; terminal text and message prose cannot establish an incident. The tab remains in an auth-required attention state while access is lost.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

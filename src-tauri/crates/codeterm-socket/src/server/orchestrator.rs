@@ -1,6 +1,6 @@
 //! `orchestrator.*` JSON-RPC handlers. Currently `orchestrator.refresh` — the
 //! manual trigger for the daemon-side S1..S5 refresh cycle. The CLI twin is
-//! `codeterm orchestrator refresh`.
+//! `domios orchestrator refresh`.
 
 use serde_json::{json, Value};
 

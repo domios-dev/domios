@@ -334,7 +334,7 @@ fn every_spawned_recipient_receives_rich_rendering_guidance() {
 /// A Worker staffed on a mesh peer owns no plan task — `plan task dispatch` is
 /// local-only, so the peer receives `role: "Worker"` and nothing else binding.
 /// The doctrine has to arrive on that shape alone: it carries the rule that
-/// every turn ends in one `codeterm agent report`, which for a remote agent is
+/// every turn ends in one `domios agent report`, which for a remote agent is
 /// the difference between work landing and work sitting unread in a tab on
 /// another machine. Identity is asserted by constant and the composed context
 /// by an opaque test-supplied token, never by prompt wording.

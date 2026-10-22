@@ -1,12 +1,12 @@
 # Tab Agent Adopt
 
 REST contract for `POST /api/tabs/{id}/adopt-agent`, the verb behind
-`codeterm tab adopt-agent`.
+`domios tab adopt-agent`.
 
-`codeterm tab adopt-agent --provider <id>` adopts a live PTY as an agent send
+`domios tab adopt-agent --provider <id>` adopts a live PTY as an agent send
 target without restarting or killing it. `--provider` is required and must
 name a registered PTY agent; adopt never infers or silently invents
-`agent_type`. After a successful adopt, `codeterm send --from-pad` delivers a
+`agent_type`. After a successful adopt, `domios send --from-pad` delivers a
 routed agent message. `--to-shell` is not the adopt path.
 
 A login shell or a screen with no agent TUI is refused unless the owner
@@ -23,4 +23,4 @@ stable `tab_adopt_*` codes, including `tab_adopt_not_authorized`,
 `tab_adopt_agent_tui_required`, and `tab_adopt_unknown_provider`. The PTY id
 is unchanged.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

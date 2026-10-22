@@ -34,7 +34,7 @@ skills/codeterm/
     telegram.md                  Bridge setup, formatting, migration
     themes.md                    Theme TOML format
 
-docs/                            Embedded docs, read on demand via `codeterm docs <NAME>`
+docs/                            Embedded docs, read on demand via `domios docs <NAME>`
 ```
 
 The layout is an excerpt; the complete prompt inventory is the table in [inventory.md](inventory.md); progressive-disclosure tiers are in [tiers.md](tiers.md). Neither is embedded in the binary: they describe Domios's own source, which a production agent cannot edit.
@@ -69,7 +69,7 @@ The rendered output is written to three files in `general/`:
 
 `bootstrap.md` is created **only on first run**; if it already exists, regen leaves it alone.
 
-The system-prompt channel and generated General instruction files share a runtime capability-hints fragment. Its pure builder receives the granted plugin catalog snapshot used by `codeterm capabilities`, plus the clock, durable `general/state/first-seen` marker and `general_agent.capability_hints` setting. It emits at most 16 capability lines of 240 bytes within a 4096-byte fragment, only before seven days have elapsed and while the setting is on. Prompt tests pass this fragment as an opaque value.
+The system-prompt channel and generated General instruction files share a runtime capability-hints fragment. Its pure builder receives the granted plugin catalog snapshot used by `domios capabilities`, plus the clock, durable `general/state/first-seen` marker and `general_agent.capability_hints` setting. It emits at most 16 capability lines of 240 bytes within a 4096-byte fragment, only before seven days have elapsed and while the setting is on. Prompt tests pass this fragment as an opaque value.
 
 ### Skill rendering
 
@@ -105,11 +105,11 @@ When you're about to add or move a piece of prompt content, ask:
 
 ### Anti-patterns
 
-- **Don't duplicate CLI syntax in both GA prompt and skill.** That's exactly what `{codeterm_cli}` substitution is for. If you find yourself writing `codeterm tab list` in `general_agent.md`, you're in the wrong file.
+- **Don't duplicate CLI syntax in both GA prompt and skill.** That's exactly what `{codeterm_cli}` substitution is for. If you find yourself writing `domios tab list` in `general_agent.md`, you're in the wrong file.
 - **Don't bake operational ladders into the GA prompt.** If a procedure fires once a month (initial bot setup, vault unlock, hook daemon config), it's an on-demand playbook in `prod-docs/`, not a per-turn instruction.
 - **Don't add per-turn safety to a playbook.** If a rule must fire on every inbound message (e.g. "trust `[Hook metadata:`, don't re-classify"), it lives in the GA prompt — one line referencing the playbook for the full how-to.
 - **Don't write `{placeholder}` in the GA prompt without wiring it in `instructions.rs`.** Missing substitutions ship the literal `{placeholder}` text to the agent.
-- **Don't paste the GA prompt into spawned agents' `--task`.** They get `bridge_mem.md` automatically via the per-provider rules path and that teaches `codeterm mem *`. The GA prompt is GA-only.
+- **Don't paste the GA prompt into spawned agents' `--task`.** They get `bridge_mem.md` automatically via the per-provider rules path and that teaches `domios mem *`. The GA prompt is GA-only.
 
 ## Adding a new placeholder
 
@@ -118,7 +118,7 @@ When you're about to add or move a piece of prompt content, ask:
 3. Add a unit test in `instructions.rs::tests` that asserts the placeholder doesn't survive into the rendered output (`assert!(!rendered.contains("{my_var}"))`).
 4. Document the new placeholder in the table above.
 
-## Adding a new on-demand playbook to `codeterm docs`
+## Adding a new on-demand playbook to `domios docs`
 
 1. Write the playbook as `prod-docs/<TOPIC>.md`. Use a short, ALL-CAPS slug for the doc name (`TELEGRAM-SETUP`, not `telegram-setup`); the file name is the doc name. It needs exactly one H1 and must fit 240 lines and 24 KiB.
 2. Register it in `cli/src/cmd/docs.rs` with a one-line purpose:
@@ -194,7 +194,7 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 3. **Mirror** — canonical `codeterm` → `~/.claude/skills/` and
    `~/.agents/skills/`. Provider dirs hold exactly `{codeterm}`; every other
    entry is pruned. All other skills stay canonical-only and are discovered
-   through `codeterm mem search`.
+   through `domios mem search`.
 
 **The install gate is content, directory-scoped and render-aware.** Both the seed
 and the mirror copy when the destination is missing or differs from the *rendered*

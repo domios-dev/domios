@@ -403,7 +403,7 @@ pub(crate) fn holder_refusal(worktree_path: &str, holder: &LiveTabCwd) -> String
     format!(
         "✗ lane removal refused: tab '{title}' ({id}) is live with its shell in '{cwd}', \
 inside the lane worktree '{worktree_path}', so that directory is still in use. Nothing was removed.\n\
-close that tab first, then run the removal again:\n  codeterm tab close --tab {id}",
+close that tab first, then run the removal again:\n  domios tab close --tab {id}",
         title = holder.title,
         id = holder.id,
         cwd = holder.cwd,
@@ -693,7 +693,7 @@ pub fn lane_remove_command(
     canonical_cwd: &str,
 ) -> String {
     let mut command = format!(
-        "codeterm plan lane-remove {}",
+        "domios plan lane-remove {}",
         shell_quote(&strip_verbatim(worktree_path))
     );
     if let Some(branch) = branch {
@@ -862,7 +862,7 @@ pub fn clear_vanished_lane_on_cleanup_done(
         .map_err(CleanupStatusDoneError::Verification)?;
     if let Some(remnant) = remnant {
         let release = lane_release_command(worktree_path, branch, canonical_cwd)
-            .unwrap_or_else(|| "codeterm plan lane-remove <worktree>".into());
+            .unwrap_or_else(|| "domios plan lane-remove <worktree>".into());
         return Err(CleanupStatusDoneError::Refused(format!(
             "cleanup is not complete: {remnant}. Release the recorded lane with: {release}"
         )));

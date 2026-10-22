@@ -1,4 +1,4 @@
-//! `agent_commands` — the inverse seam: a spawned agent's `codeterm plugin <id>
+//! `agent_commands` — the inverse seam: a spawned agent's `domios plugin <id>
 //! <verb>` is routed to the owning plugin's `onAgentCommand`, gated by its
 //! `agent_commands` grant. JS-only (acceptance oracle is a `call_json` contract
 //! test + the routing test), resolved via [`AgentCommandRegistry`].

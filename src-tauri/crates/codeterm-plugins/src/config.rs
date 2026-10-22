@@ -8,7 +8,7 @@ use codeterm_util::persisted_state::{write_atomic, Loaded, StateFile};
 use codeterm_util::secret_file::SecretFile;
 use serde_json::Value;
 
-/// `codeterm plugin get <id>` — the agent's discover handle.
+/// `domios plugin get <id>` — the agent's discover handle.
 pub(super) fn get_command(id: &str) -> Result<Value, String> {
     let id = PluginId::parse(id.to_string())?;
     let dir = plugin_dir(&id);
@@ -75,7 +75,7 @@ const GRANTABLE_PERMS: &[&str] = &[
     "local_recording",
 ];
 
-/// `codeterm plugin config <id> [--set k=v]... [--secret FIELD] [--values-json '{…}'] [--grant P]... [--revoke P]...`.
+/// `domios plugin config <id> [--set k=v]... [--secret FIELD] [--values-json '{…}'] [--grant P]... [--revoke P]...`.
 pub(super) fn config_command(
     id: &str,
     sets: &[String],
@@ -143,7 +143,7 @@ pub(super) fn config_command(
     for (key, _) in &updates {
         if secret_keys.contains(key) {
             return Err(format!(
-                "setting '{key}' is secret; use `codeterm plugin config {id} --secret {key}` with the value piped to stdin"
+                "setting '{key}' is secret; use `domios plugin config {id} --secret {key}` with the value piped to stdin"
             ));
         }
     }

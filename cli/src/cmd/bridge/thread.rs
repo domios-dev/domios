@@ -1,4 +1,4 @@
-//! `codeterm bridge thread open`: open or reuse a tab's Telegram topic.
+//! `domios bridge thread open`: open or reuse a tab's Telegram topic.
 
 use serde_json::{json, Value};
 

@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn task_file_stdin_pipe_returns_pipe_prefix_and_writes_content() {
-        let task = "codeterm mem save --kind fact --area codeterm \"body with --flag tokens\"";
+        let task = "domios mem save --kind fact --area codeterm \"body with --flag tokens\"";
         let (prefix, path) = ShellSyntax::task_file_stdin_pipe(task);
         assert!(
             prefix.ends_with('|'),

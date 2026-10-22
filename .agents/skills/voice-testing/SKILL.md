@@ -75,8 +75,8 @@ HTTPServer(("127.0.0.1", 7891), H).serve_forever()
 
 ```bash
 python3 fake_whisper.py &
-codeterm config set integrations.voice_transcribe.enabled true
-codeterm bridge restart
+domios config set integrations.voice_transcribe.enabled true
+domios bridge restart
 ```
 
 Send any voice message to the bot — the line that lands in the
@@ -116,6 +116,6 @@ tail -f ~/.codeterm-dev/logs/codeterm.log | grep "bridge\] voice"
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
+Moved out of the embedded `domios docs` pages because they describe Domios's own source:
 
 - [references/dictation-design.md](references/dictation-design.md) — the historical native dictation proposal

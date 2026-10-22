@@ -91,11 +91,11 @@ fn generic_retry_hint(status: u16) -> String {
     match status {
         429 => "rate limited — back off and retry shortly".to_string(),
         502..=504 => {
-            "transient — retry once; if it repeats, check the peer daemon is up (`codeterm mesh peers`)"
+            "transient — retry once; if it repeats, check the peer daemon is up (`domios mesh peers`)"
                 .to_string()
         }
         500..=599 => "the peer failed the request and did not say whether a retry can help — check \
-             `codeterm mesh peers` and the peer's log before retrying"
+             `domios mesh peers` and the peer's log before retrying"
             .to_string(),
         400..=499 => "request rejected — verify the requested peer, tab, and operation".to_string(),
         _ => "retry the spawn".to_string(),

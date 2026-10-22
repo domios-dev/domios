@@ -129,13 +129,13 @@ no-tests check; every other runner fails it. The CI archive
 Delegate it:
 
 ```bash
-codeterm agent spawn codex --model gpt-5.6-luna --reasoning-effort xhigh \
+domios agent spawn codex --model gpt-5.6-luna --reasoning-effort xhigh \
   --title "gate" --cwd "D:\Developer\codeterm" --task-file <pad>/gate-brief.md
 ```
 
 The brief must say: run `./build.ps1 release-preflight` with **no**
 `CODETERM_INSTANCE` or `CODETERM_API_PORT` set, capture the whole log, and
-report back with `codeterm agent report`:
+report back with `domios agent report`:
 
 - the exit code,
 - every `release-rust: RED` line and the closing `release-rust:` summary,
@@ -168,7 +168,7 @@ reports the pipeline's success. Redirect to a file, then read the file.
 wait loop spins to timeout. Use `-Encoding utf8`, or read it with
 `Get-Content`.
 
-**Do not `codeterm send` build commands into a shell tab.** The prose guard
+**Do not `domios send` build commands into a shell tab.** The prose guard
 refuses them without `--to-shell`, and a tab that already has pending input
 corrupts the next command. Run them from the PowerShell tool.
 
@@ -222,7 +222,7 @@ tests do not replace the live run. Frontend-only and
 plugin-only releases are outside this gate.
 
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
 
 ## Rust warning inventory and cleanup
 

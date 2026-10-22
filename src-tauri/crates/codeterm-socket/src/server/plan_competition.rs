@@ -583,7 +583,7 @@ pub(super) fn compete(
                         &plan_id,
                         &task_id,
                         &attempt_id,
-                        format!("codeterm plan task compete {plan_id} {task_id}"),
+                        format!("domios plan task compete {plan_id} {task_id}"),
                     );
                     emit_plan_changed(&svc_for_ready, &plan_id);
                     super::plan_task_dispatch::publish_startup_report(

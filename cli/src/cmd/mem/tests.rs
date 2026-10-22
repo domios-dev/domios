@@ -27,14 +27,14 @@ fn mem_search_human_output_renders_doc_pointer() {
         "doc": "SECRETS",
         "section": "Auto-unlock contract",
         "anchor": "auto-unlock-contract",
-        "pointer": "codeterm docs SECRETS",
+        "pointer": "domios docs SECRETS",
         "relevance": 0.93,
         "via": "docs"
     }]});
 
     assert_eq!(
         super::render_search_hits(&value),
-        "SECRETS § Auto-unlock contract | codeterm docs SECRETS | rel 93%\n"
+        "SECRETS § Auto-unlock contract | domios docs SECRETS | rel 93%\n"
     );
 }
 
@@ -45,15 +45,15 @@ fn mem_search_human_output_renders_session_pointer_and_excerpt() {
         "session_id": "sess-42",
         "provider": "claude",
         "title": "Release command",
-        "excerpt": "Use codeterm sessions get sess-42 to inspect the prior run.",
-        "pointer": "codeterm sessions get sess-42",
+        "excerpt": "Use domios sessions get sess-42 to inspect the prior run.",
+        "pointer": "domios sessions get sess-42",
         "relevance": 0.93,
         "via": "sessions"
     }]});
 
     assert_eq!(
         super::render_search_hits(&value),
-        "session [claude] Release command | codeterm sessions get sess-42 | rel 93% | Use codeterm sessions get sess-42 to inspect the prior run.\n"
+        "session [claude] Release command | domios sessions get sess-42 | rel 93% | Use domios sessions get sess-42 to inspect the prior run.\n"
     );
 }
 
@@ -162,9 +162,9 @@ fn mem_search_json_limits_doc_hits_to_pointer_and_result() {
         "hits": [{
             "source": "doc",
             "doc": "CLI",
-            "section": "codeterm supporter",
+            "section": "domios supporter",
             "anchor": "supporter",
-            "pointer": "codeterm supporter --help",
+            "pointer": "domios supporter --help",
             "title": "Private documentation title",
             "body": "Private documentation body",
             "score": 0.4,
@@ -179,7 +179,7 @@ fn mem_search_json_limits_doc_hits_to_pointer_and_result() {
     assert_eq!(
         compact["hits"][0],
         json!({
-            "pointer": "codeterm supporter --help",
+            "pointer": "domios supporter --help",
             "source": "doc",
             "via": "docs",
             "score": 0.4,

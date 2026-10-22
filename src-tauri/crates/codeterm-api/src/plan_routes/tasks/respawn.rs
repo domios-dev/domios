@@ -10,7 +10,7 @@ pub(super) fn respawn_spawn_command(
     source_attempt_id: &str,
 ) -> String {
     format!(
-        "codeterm plan task respawn {plan_id} {task_id} {RESPAWN_ATTEMPT_FLAG} {source_attempt_id}"
+        "domios plan task respawn {plan_id} {task_id} {RESPAWN_ATTEMPT_FLAG} {source_attempt_id}"
     )
 }
 

@@ -5,7 +5,7 @@ CRITICAL RULES (failure = task failed):
 - Every command MUST be executed as a Bash tool call.
 - Writing a command as a ```bash``` code block does NOTHING. Only Bash tool results count.
 - Do not narrate. Do not explain. Execute, then report.
-- Your final step MUST be `codeterm mem worker report`. Skip it = failed run.
+- Your final step MUST be `domios mem worker report`. Skip it = failed run.
 - ALL texts you write into memory MUST be in English.
 
 SOURCE:
@@ -30,23 +30,23 @@ TASK — execute each step as Bash tool calls, in order:
 
 1. DEDUP SEARCH
    Search for similar items using hybrid search (FTS + vector embeddings):
-     codeterm mem search "{title}" --limit 5
+     domios mem search "{title}" --limit 5
    For each result with distance < {dedup_threshold}:
-   a. Read the full body: `codeterm mem get <id>`
+   a. Read the full body: `domios mem get <id>`
    b. Compare with SOURCE TEXT above
    c. If one is a subset of the other → merge into the more complete one:
-        codeterm mem merge --keeper <keeper_id> --lesser <lesser_id> --body "<merged content>"
+        domios mem merge --keeper <keeper_id> --lesser <lesser_id> --body "<merged content>"
       If the SOURCE item ({id}) is the lesser, merge it into the keeper and STOP (skip steps 2-4, go to step 5).
    d. If they cover the same topic from different angles → link them:
-        codeterm mem graph relate --from {id} --rel similar_to --to <other_id>
+        domios mem graph relate --from {id} --rel similar_to --to <other_id>
    e. If they state conflicting values for the same fact → keep both and mark the newer one current:
-        codeterm mem graph relate --from {id} --rel supersedes --to <other_id>
+        domios mem graph relate --from {id} --rel supersedes --to <other_id>
    f. If clearly different despite low distance → ignore, proceed.
 
 2. AREA CLASSIFICATION
    Pick from EXISTING AREAS above based on strong keyword match with TEXT.
    If NOTHING matches clearly, use empty string. Do NOT invent new areas.
-     codeterm mem update {id} --area "<area_or_empty>"
+     domios mem update {id} --area "<area_or_empty>"
 
 3. ENTITY EXTRACTION + GRAPH RELATIONS
    Find named entities in TEXT and create graph entries.
@@ -62,12 +62,12 @@ TASK — execute each step as Bash tool calls, in order:
 
    For each entity you'd create, FIRST run a unified search that can surface
    close matches from graph entities as well as mem_items when they are indexed:
-     codeterm mem search "<core_word>" --limit 10
+     domios mem search "<core_word>" --limit 10
        # Entity hits show up with kind="entity:Tech|Person|Project|...",
        # area="_graph". This catches many `tech_<thing>_*` siblings when you'd
        # be about to create another. Search is not an exact-id guarantee, so
        # always run the explicit graph get below too.
-     codeterm mem graph get <type>_<exact-slug>     # exact-id check (404 = free to create)
+     domios mem graph get <type>_<exact-slug>     # exact-id check (404 = free to create)
 
    If a close-match entity exists (different slug, same concept):
      - REUSE it. Use its existing id as the relation endpoint.
@@ -79,8 +79,8 @@ TASK — execute each step as Bash tool calls, in order:
        slug unless TEXT explicitly contrasts versions.
 
    If genuinely new (no near match):
-     codeterm mem graph create --id <type>_<slug> --entity-type <Type> --scope global
-     codeterm mem graph relate --from {id} --rel <predicate> --to <type>_<slug>
+     domios mem graph create --id <type>_<slug> --entity-type <Type> --scope global
+     domios mem graph relate --from {id} --rel <predicate> --to <type>_<slug>
 
    Predicate rules:
    - Prefer existing relation types from the list above
@@ -105,26 +105,26 @@ TASK — execute each step as Bash tool calls, in order:
 
 4. ENSURE CONNECTIVITY (mandatory)
    After step 3, check: does {id} have at least one outgoing relation?
-   Run: `codeterm mem graph related --id {id}`
+   Run: `domios mem graph related --id {id}`
    If the result is empty (no relations created in step 3):
    - If area was set in step 2 → find or create the matching project entity and link:
-       codeterm mem graph create --id project_<area> --entity-type Project --scope global
-       codeterm mem graph relate --from {id} --rel applies_to --to project_<area>
+       domios mem graph create --id project_<area> --entity-type Project --scope global
+       domios mem graph relate --from {id} --rel applies_to --to project_<area>
    - If area is empty or _system/_dreams/_patterns → link to scope_global:
-       codeterm mem graph create --id scope_global --entity-type Scope --scope global
-       codeterm mem graph relate --from {id} --rel belongs_to --to scope_global
+       domios mem graph create --id scope_global --entity-type Scope --scope global
+       domios mem graph relate --from {id} --rel belongs_to --to scope_global
    Every node MUST have at least one edge. Orphan nodes are useless in a graph.
 
 5. DECISIONS + PROBLEMS
    Only if TEXT contains explicit patterns:
 
    Decisions ("we decided", "let's use", "better to", "going with"):
-     codeterm mem save --kind fact --title "decision: <short>" --summary "<one sentence: what + why, 50-150 chars>" --tags auto-extracted,decision --area <area> --importance 2 --skip-extract "<what was decided and why, full body>"
-     Then link the new item: codeterm mem graph relate --from <new_id> --rel extracted_from --to {id}
+     domios mem save --kind fact --title "decision: <short>" --summary "<one sentence: what + why, 50-150 chars>" --tags auto-extracted,decision --area <area> --importance 2 --skip-extract "<what was decided and why, full body>"
+     Then link the new item: domios mem graph relate --from <new_id> --rel extracted_from --to {id}
 
    Problems ("bug in", "doesn't work", "the issue was", "broke because"):
-     codeterm mem save --kind learning --title "problem: <short>" --summary "<one sentence: symptom + cause/fix, 50-150 chars>" --tags auto-extracted,problem --area <area> --importance 2 --skip-extract "<problem and fix if mentioned, full body>"
-     Then link the new item: codeterm mem graph relate --from <new_id> --rel extracted_from --to {id}
+     domios mem save --kind learning --title "problem: <short>" --summary "<one sentence: symptom + cause/fix, 50-150 chars>" --tags auto-extracted,problem --area <area> --importance 2 --skip-extract "<problem and fix if mentioned, full body>"
+     Then link the new item: domios mem graph relate --from <new_id> --rel extracted_from --to {id}
 
    ALWAYS pass --summary. The summary is what shows in graph hover chips,
    search snippets, and the L1 wake-up brief. Without it the node looks blank
@@ -143,7 +143,7 @@ TASK — execute each step as Bash tool calls, in order:
    no weak node beats a thin node.
 
 6. REPORT (MANDATORY FINAL STEP)
-     codeterm mem worker report "<N entities, M relations, K decisions, U merges, area=<area>>"
+     domios mem worker report "<N entities, M relations, K decisions, U merges, area=<area>>"
 
 ──────────────────────────────────────────────────────────────────────
 HARD BANS:

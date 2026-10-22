@@ -95,7 +95,7 @@ fn render_plugins(value: &Value) -> String {
             verbs.join(" | ")
         };
         out.push_str(&format!(
-            "plugin {id} ({name})  [CLI: `codeterm plugin {id} <verb>`]  verbs: {verbs}\n"
+            "plugin {id} ({name})  [CLI: `domios plugin {id} <verb>`]  verbs: {verbs}\n"
         ));
     }
     out
@@ -118,10 +118,10 @@ pub fn render(value: &Value) -> String {
     for method in methods.iter().filter_map(Value::as_str) {
         match project(method) {
             Projection::Cli(path) => {
-                out.push_str(&format!("{method}  [CLI: `codeterm {path}`]\n"));
+                out.push_str(&format!("{method}  [CLI: `domios {path}`]\n"));
             }
             Projection::RpcOnly(Some(replacement)) => out.push_str(&format!(
-                "{method}  [RPC only; use `codeterm {replacement}`]\n"
+                "{method}  [RPC only; use `domios {replacement}`]\n"
             )),
             Projection::RpcOnly(None) => {
                 out.push_str(&format!("{method}  [RPC only/internal]\n"));
@@ -171,11 +171,11 @@ mod tests {
             "agent.children",
             "tab.resize"
         ], "protocol": "json-rpc-2.0"}));
-        assert!(out.contains("system.identify  [CLI: `codeterm identify`]"));
-        assert!(out.contains("notification.create  [CLI: `codeterm notify send`]"));
-        assert!(out.contains("services.list  [CLI: `codeterm service list`]"));
-        assert!(out.contains("mem.search  [CLI: `codeterm mem search`]"));
-        assert!(out.contains("agent.children  [RPC only; use `codeterm agent ledger`]"));
+        assert!(out.contains("system.identify  [CLI: `domios identify`]"));
+        assert!(out.contains("notification.create  [CLI: `domios notify send`]"));
+        assert!(out.contains("services.list  [CLI: `domios service list`]"));
+        assert!(out.contains("mem.search  [CLI: `domios mem search`]"));
+        assert!(out.contains("agent.children  [RPC only; use `domios agent ledger`]"));
         assert!(out.contains("tab.resize  [RPC only/internal]"));
     }
 
@@ -192,10 +192,10 @@ mod tests {
             .lines()
             .find(|line| line.contains("opaque-a"))
             .expect("plugin a listed");
-        assert!(line_a.contains("codeterm plugin opaque-a <verb>"));
+        assert!(line_a.contains("domios plugin opaque-a <verb>"));
         assert!(line_a.contains("zz-one") && line_a.contains("zz-two <x>"));
         assert_eq!(out.lines().filter(|l| l.contains("opaque-b")).count(), 1);
-        assert!(out.contains("system.identify  [CLI: `codeterm identify`]"));
+        assert!(out.contains("system.identify  [CLI: `domios identify`]"));
     }
 
     #[test]
