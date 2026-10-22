@@ -14,6 +14,7 @@ use codeterm_service_core::service::ServiceContext;
 pub mod close;
 mod close_busy;
 mod storage_teardown;
+mod validation;
 #[cfg(any(test, feature = "test-support"))]
 pub use close::close_team_with_state_change;
 #[cfg(test)]
@@ -22,6 +23,7 @@ pub use close::TeamCloseResult;
 use close::{
     commit_prepared_team_close, finish_team_lane_cleanup, prepare_team_close, team_close_lanes,
 };
+pub use validation::{validate_active_team_plan_bindings, validate_plan_team_binding};
 
 pub trait TeamExt {
     fn rename_team(
@@ -646,37 +648,6 @@ pub fn transfer_team_plan(
     svc.emit_state_changed(MuxEmitCause::Team);
     svc.emit_plan_changed(plan_id);
     Ok(plan)
-}
-
-pub fn validate_active_team_plan_bindings(svc: &ServiceContext) -> Result<(), TeamPlanError> {
-    let mux = svc.mux.read();
-    let mut claimed_teams = std::collections::BTreeMap::<String, String>::new();
-    for plan_id in svc.plan_store.live_active_plan_ids() {
-        let team_id = valid_live_plan_team(svc, &mux, &plan_id)?;
-        if let Some(existing_plan_id) = claimed_teams.insert(team_id.clone(), plan_id) {
-            return Err(TeamPlanError::Plan(PlanError::TeamAlreadyHasActivePlan {
-                team_id,
-                existing_plan_id,
-                existing_title: "conflicting active plan".into(),
-            }));
-        }
-    }
-    Ok(())
-}
-
-pub fn validate_plan_team_binding(
-    svc: &ServiceContext,
-    plan_id: &str,
-) -> Result<(), TeamPlanError> {
-    let Some(plan) = svc.plan_store.get(plan_id) else {
-        return Err(TeamPlanError::Plan(PlanError::NotFound));
-    };
-    if plan.status == codeterm_service_core::plan::PlanStatus::Archived || plan.is_orphaned_active()
-    {
-        return Ok(());
-    }
-    let mux = svc.mux.read();
-    valid_live_plan_team(svc, &mux, plan_id).map(|_| ())
 }
 
 pub fn rename_team_core(
