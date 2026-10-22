@@ -49,7 +49,7 @@ impl RequestStreams {
                 .unwrap_or("unknown")
                 .to_owned(),
         };
-        log::debug!(
+        log::trace!(
             "[rest-request] accepted method={} path={} peer={} client={} generation={}",
             request.method(),
             context.path,

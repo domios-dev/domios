@@ -3425,17 +3425,18 @@ EOF
       echo "ERROR: --seconds must be 1..3600 and --out FILE is required" >&2; exit 2;
     }
     source evals/_lib/lib.sh
+    dev_resolve
     storm_tabs="$(dev_get /api/tabs)"
     storm_tab="$(printf '%s' "$storm_tabs" | python3 -c 'import json,sys; tabs=json.load(sys.stdin); print(tabs[0]["id"] if tabs else "")')"
     [ -n "$storm_tab" ] || { echo "ERROR: DEV needs an existing tab" >&2; exit 1; }
-    storm_log="$(dev_data_dir)/logs/codeterm.log"
+    storm_log="$(dev_data_dir)/logs/domios.log"
     storm_bash="$BASH"
     if is_windows; then
       storm_bash="$(cygpath -m "$storm_bash")"
       storm_log="$(cygpath -m "$storm_log")"
       storm_out="$(cygpath -m "$storm_out")"
     fi
-    python3 - "$storm_seconds" "$storm_out" "$storm_tab" "$storm_log" "$storm_bash" <<'LOCK_STORM_PY'
+    dev_run python3 - "$storm_seconds" "$storm_out" "$storm_tab" "$storm_log" "$storm_bash" <<'LOCK_STORM_PY'
 import collections
 import concurrent.futures
 import datetime
@@ -3476,18 +3477,10 @@ def lock_histogram(lines, start, end):
 
 
 WORKER = r'''
-source evals/_lib/lib.sh
-err="$(mktemp)"
-trap 'rm -f "$err"' EXIT
 while IFS= read -r route; do
   route="${route%$'\r'}"
-  rc=0
-  CODETERM_HTTP_STATUS_LOG=1 dev_get "$route" > /dev/null 2> "$err" || rc=$?
-  status=transport_error
-  while IFS= read -r line; do
-    if [[ "$line" == "[dev-http] "* && "$line" =~ HTTP\ ([0-9]{3}) ]]; then status="${BASH_REMATCH[1]}"; fi
-  done < "$err"
-  printf '%s %s\n' "$rc" "$status"
+  curl -sS --max-time 30 -o /dev/null -w '%{time_total} %{http_code}\n' \
+    -H "Authorization: Bearer $CODETERM_API_TOKEN" "$CODETERM_API_URL$route" || true
 done
 '''
 
@@ -3498,14 +3491,13 @@ def measure(route, deadline):
                           stdout=subprocess.PIPE, text=True) as worker:
         next_tick = time.monotonic()
         while time.monotonic() < deadline:
-            before = time.monotonic()
             worker.stdin.write(route + "\n")
             worker.stdin.flush()
             response = worker.stdout.readline().split()
-            values.append((time.monotonic() - before) * 1000)
             if len(response) != 2:
                 raise RuntimeError(f"DEV helper exited for {route}")
-            statuses[response[1]] += 1
+            values.append(float(response[0]) * 1000)
+            statuses[response[1] if response[1] != "000" else "transport_error"] += 1
             next_tick += 0.250
             # Cadence generates load; it never establishes readiness or success.
             if next_tick < time.monotonic():
@@ -3529,7 +3521,7 @@ def main():
     with log.open(encoding="utf-8", errors="replace") as stream:
         holds = lock_histogram(stream, start, end)
     result = {"start_epoch": start, "end_epoch": end, "requested_seconds": seconds,
-              "cadence_ms": 250, "latency_scope": "dev_get including DEV identity checks",
+              "cadence_ms": 250, "latency_scope": "direct HTTP time_total; DEV identity checked once before sampling",
               "log_window_precision": "inclusive boundary seconds", "log_path": str(log),
               "routes": measurements, "lock_holds": holds}
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -3544,7 +3536,7 @@ def main():
         if not holds[group]:
             print("      0  (none)")
     print(f"Unmatched LOCK-HOLD lines: {holds['unmatched']}; JSON: {out}")
-    print("Latency includes dev_get checks. Log window includes both boundary seconds.")
+    print("Latency measures direct HTTP requests. Log window includes both boundary seconds.")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,11 @@
 use codeterm_storage::MAX_DESK_LEAF_BYTES;
+use parking_lot::Mutex;
 use serde_json::Value;
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
+use std::sync::LazyLock;
+
+static WARNED: LazyLock<Mutex<HashMap<String, u64>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 const DERIVED_PROMPT: &str = "/agent_identity/agent_runtime_config";
 const SAVED_LAUNCH: &str = "/agent_identity/restorable_launch";
@@ -8,82 +14,95 @@ fn encoded_len(value: &Value) -> usize {
     serde_json::to_vec(value).map_or(usize::MAX, |bytes| bytes.len())
 }
 
+pub(super) fn retain_tabs(snapshot: &super::SessionSnapshot) {
+    fn collect<'a>(node: &'a super::SplitNodeSnapshot, ids: &mut HashSet<&'a str>) {
+        match node {
+            super::SplitNodeSnapshot::Leaf { tab_id, .. } => {
+                ids.insert(tab_id);
+            }
+            super::SplitNodeSnapshot::Split { children, .. } => {
+                for child in children {
+                    collect(child, ids);
+                }
+            }
+        }
+    }
+    let mut ids = HashSet::new();
+    for workspace in &snapshot.workspaces {
+        for tab in &workspace.tabs {
+            collect(&tab.split_tree, &mut ids);
+        }
+    }
+    WARNED.lock().retain(|id, _| ids.contains(id.as_str()));
+}
+
+fn claim_warning(states: &mut HashMap<String, u64>, tab: &str, fingerprint: Option<u64>) -> bool {
+    match fingerprint {
+        Some(fingerprint) => {
+            if states.get(tab) == Some(&fingerprint) {
+                return false;
+            }
+            states.insert(tab.into(), fingerprint);
+            true
+        }
+        None => {
+            states.remove(tab);
+            false
+        }
+    }
+}
+
+fn remove_field(leaf: &mut Value, parent: &str, field: &str) -> Option<usize> {
+    let object = leaf.pointer_mut(parent)?.as_object_mut()?;
+    let removed = object.remove(field)?;
+    let bytes = match &removed {
+        Value::String(value) => {
+            2 + value
+                .bytes()
+                .map(|byte| match byte {
+                    b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 8 | 12 => 2,
+                    0..=31 => 6,
+                    _ => 1,
+                })
+                .sum::<usize>()
+        }
+        _ => encoded_len(&removed),
+    };
+    Some(bytes + field.len() + 3 + usize::from(!object.is_empty()))
+}
+
 // The composed runtime prompt is rebuilt from role and saved identity on restore,
 // so dropping it keeps one oversized tab from refusing the whole desk commit.
 pub(super) fn bound_leaf(tab_id: &str, mut leaf: Value) -> Value {
-    if encoded_len(&leaf) <= MAX_DESK_LEAF_BYTES {
+    let encoded = serde_json::to_vec(&leaf).unwrap_or_default();
+    let mut remaining = encoded.len();
+    if remaining <= MAX_DESK_LEAF_BYTES {
+        claim_warning(&mut WARNED.lock(), tab_id, None);
         return leaf;
     }
-    let dropped = leaf
-        .pointer_mut(DERIVED_PROMPT)
-        .and_then(Value::as_object_mut)
-        .and_then(|config| config.remove("systemPrompt"))
-        .is_some();
+    let mut fingerprint = DefaultHasher::new();
+    encoded.hash(&mut fingerprint);
+    let warn = claim_warning(&mut WARNED.lock(), tab_id, Some(fingerprint.finish()));
+    let prompt_bytes = remove_field(&mut leaf, DERIVED_PROMPT, "systemPrompt");
+    remaining -= prompt_bytes.unwrap_or_default();
+    let dropped = prompt_bytes.is_some();
     // Only a Worker's saved launch identity carries a persona; others are rebuilt from role.
-    let identity_dropped = encoded_len(&leaf) > MAX_DESK_LEAF_BYTES
+    let identity_bytes = if remaining > MAX_DESK_LEAF_BYTES
         && leaf.get("role").and_then(Value::as_str) != Some("Worker")
-        && leaf
-            .pointer_mut(SAVED_LAUNCH)
-            .and_then(Value::as_object_mut)
-            .and_then(|launch| launch.remove("identity_instructions"))
-            .is_some();
-    log::warn!(
-        "[desk] tab={tab_id} leaf exceeds {MAX_DESK_LEAF_BYTES} bytes; dropped prompt={dropped} identity={identity_dropped} remaining={}",
-        encoded_len(&leaf)
-    );
+    {
+        remove_field(&mut leaf, SAVED_LAUNCH, "identity_instructions")
+    } else {
+        None
+    };
+    remaining -= identity_bytes.unwrap_or_default();
+    let identity_dropped = identity_bytes.is_some();
+    if warn {
+        log::warn!(
+            "[desk] tab={tab_id} leaf exceeds {MAX_DESK_LEAF_BYTES} bytes; dropped prompt={dropped} identity={identity_dropped} remaining={remaining}"
+        );
+    }
     leaf
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn leaf(prompt_bytes: usize) -> Value {
-        json!({"title":"opaque","agent_identity":{"agent_runtime_config":{
-            "systemPrompt":"x".repeat(prompt_bytes),"model":"opaque-model"}}})
-    }
-
-    #[test]
-    fn leaf_within_bound_keeps_its_runtime_prompt() {
-        let value = leaf(1024);
-        assert_eq!(bound_leaf("tab", value.clone()), value);
-    }
-
-    #[test]
-    fn oversized_leaf_drops_only_the_derived_runtime_prompt() {
-        let bounded = bound_leaf("tab", leaf(MAX_DESK_LEAF_BYTES));
-        assert!(encoded_len(&bounded) <= MAX_DESK_LEAF_BYTES);
-        assert!(bounded
-            .pointer("/agent_identity/agent_runtime_config/systemPrompt")
-            .is_none());
-        assert_eq!(
-            bounded.pointer("/agent_identity/agent_runtime_config/model"),
-            Some(&json!("opaque-model"))
-        );
-        assert_eq!(bounded["title"], "opaque");
-    }
-
-    fn launch_leaf(role: &str) -> Value {
-        json!({"role":role,"agent_identity":{
-            "agent_runtime_config":{"systemPrompt":"x".repeat(MAX_DESK_LEAF_BYTES / 2)},
-            "restorable_launch":{"identity_instructions":"y".repeat(MAX_DESK_LEAF_BYTES)}}})
-    }
-
-    #[test]
-    fn oversized_manager_leaf_drops_its_role_derived_launch_identity() {
-        let bounded = bound_leaf("tab", launch_leaf("Manager"));
-        assert!(encoded_len(&bounded) <= MAX_DESK_LEAF_BYTES);
-        assert!(bounded
-            .pointer("/agent_identity/restorable_launch/identity_instructions")
-            .is_none());
-    }
-
-    #[test]
-    fn oversized_worker_leaf_keeps_its_persona_identity() {
-        let bounded = bound_leaf("tab", launch_leaf("Worker"));
-        assert!(bounded
-            .pointer("/agent_identity/restorable_launch/identity_instructions")
-            .is_some());
-    }
-}
+mod tests;
