@@ -114,6 +114,13 @@ Job conditions below are the tier files' own; the `phase` input that once select
   },
   {
     "job": "guards",
+    "run": "node scripts/check-installed-identity.mjs",
+    "if": "${{ !cancelled() }}",
+    "reason": "Installed application identity guard over native sources",
+    "job_if": null
+  },
+  {
+    "job": "guards",
     "run": "bash scripts/check-build-gateway-serialization.sh\nbash scripts/check-build-gateway-policy.sh\nbash scripts/check-build-gateway-mutex-cleanup.sh\nnode scripts/test-catalogue.mjs run --entry node-script-tests-serial",
     "if": "${{ !cancelled() }}",
     "reason": "POSIX-only build-gateway guards and serial gateway script tests a Windows release-preflight cannot run",
