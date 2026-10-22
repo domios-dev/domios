@@ -126,7 +126,7 @@ fn resumable_session(tab: &Tab) -> Result<&str, &'static str> {
 }
 
 #[derive(Clone, Copy)]
-enum RuntimeReadiness {
+pub(crate) enum RuntimeReadiness {
     Unsupported,
     Loading,
     Loaded,
@@ -243,7 +243,12 @@ pub(crate) fn owed_tab_ids(mux: &MuxState, start_epoch: &str) -> BTreeSet<String
 
 /// Advance one owed tab. The claim and its settlement commit under one mux
 /// write, so exactly one caller per tab and start ever receives `Claimed`.
-fn step(mux: &MuxState, tab_id: &str, start_epoch: &str, runtime: RuntimeReadiness) -> Step {
+pub(crate) fn step(
+    mux: &MuxState,
+    tab_id: &str,
+    start_epoch: &str,
+    runtime: RuntimeReadiness,
+) -> Step {
     let mut mux = mux.write();
     let Some(tab) = mux.get_tab_mut(tab_id) else {
         return Step::Settled;

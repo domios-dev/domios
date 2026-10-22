@@ -238,9 +238,7 @@ impl AccountMesh {
 
     pub(super) async fn persist(&self) {
         let _guard = self.persist_lock.lock().await;
-        let record = self.with(|inner| {
-            (!inner.store_unreadable).then(|| inner.record.clone())
-        });
+        let record = self.with(|inner| (!inner.store_unreadable).then(|| inner.record.clone()));
         let Some(record) = record else {
             return;
         };
@@ -336,8 +334,8 @@ impl AccountMesh {
                     } else {
                         Enrollment::Idle
                     };
-                    state.last_refusal = store_unreadable
-                        .then_some(AccountMeshRefusal::Unavailable);
+                    state.last_refusal =
+                        store_unreadable.then_some(AccountMeshRefusal::Unavailable);
                     state.limit_notice = None;
                     state.self_installation = None;
                     state.registry = None;

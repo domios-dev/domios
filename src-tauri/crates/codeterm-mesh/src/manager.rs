@@ -305,7 +305,8 @@ impl MeshManager {
         let revocations = self.revocation_list.clone();
         self.tombstone_peer(instance_id);
         if let Err(error) = persist(self) {
-            self.paired_peers.insert(instance_id.to_string(), removed.clone());
+            self.paired_peers
+                .insert(instance_id.to_string(), removed.clone());
             if let Some(link) = link {
                 self.links.links.insert(instance_id.to_string(), link);
             }
