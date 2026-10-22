@@ -7,6 +7,9 @@ license = "AGPL-3.0-only"
 [lints]
 workspace = true
 
+[features]
+sha2-software = ["sha2/force-soft"]
+
 [dependencies]
 codeterm-types = { path = "../codeterm-types" }
 
