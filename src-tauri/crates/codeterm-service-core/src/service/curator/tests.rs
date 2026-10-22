@@ -148,3 +148,60 @@ fn curator_launch_failure_clears_the_unbound_round() {
     assert_eq!(round.outcome, codeterm_types::plan::CuratorOutcome::Failed);
     assert_eq!(round.reason, CuratorFailure::LaunchFailed.as_str());
 }
+
+#[test]
+fn curator_notify_refuses_before_creating_an_owner_question() {
+    use crate::notification::push::NotifyLevel;
+    use crate::service::notification::{NotificationOrigin, PushIntent};
+    use crate::service::test_fixture::ServiceFixture;
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+    tab.role_profile = Some("curator".into());
+    tab.agent_type = Some("fixture-provider".into());
+    let fixture = ServiceFixture::new(mux);
+    assert!(fixture.service.set_ext(CuratorTabs::default()).is_ok());
+    let mut plan = Plan::new(
+        "Question routing".into(),
+        fixture.temp.path().display().to_string(),
+        crate::plan::OrchestratorRef::from_tab("opaque-owner"),
+    );
+    plan.team_id = Some("fixture-team".into());
+    plan.control_loop.running = Some(CuratorRun::default());
+    fixture.service.plan_store.save(&mut plan, 1).unwrap();
+    fixture
+        .service
+        .ext::<CuratorTabs>()
+        .0
+        .write()
+        .insert(tab_id.clone(), plan.id.clone());
+    let before = fixture.service.notif.lock().list(false).len();
+    let error = fixture
+        .service
+        .create_agent_notification_reported(
+            "opaque-question".into(),
+            None,
+            None,
+            None,
+            None,
+            NotificationOrigin::local_tab(tab_id),
+            PushIntent {
+                level: Some(NotifyLevel::ActionNeeded),
+                event_key: None,
+            },
+            None,
+        )
+        .unwrap_err();
+    assert!(error.contains(ask::command("opaque-owner").as_str()));
+    assert_eq!(fixture.service.notif.lock().list(false).len(), before);
+    let run = fixture
+        .service
+        .plan_store
+        .get(&plan.id)
+        .unwrap()
+        .control_loop
+        .running
+        .unwrap();
+    assert!(!run.asked);
+    assert!(!run.question_pending);
+}
