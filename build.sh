@@ -409,6 +409,12 @@ run_nextest_scope() {
   local filter_args=()
 
   case "$scope" in
+    workspace)
+      # One feature resolution for every crate, so shared dependencies compile once.
+      prepare_dev_frontend_dist "$(pwd -P)"
+      prepare_bundle_stubs
+      targets+=(--workspace --lib --features codeterm-sentinel/test-support)
+      ;;
     app|codeterm|service-core|codeterm-service-core)
       configure_app_test_cargo nextest
       manifest="$CT_APP_TEST_MANIFEST"
