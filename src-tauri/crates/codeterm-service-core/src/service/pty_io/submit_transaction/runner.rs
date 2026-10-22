@@ -1,5 +1,7 @@
 use super::{DeferredSubmitWait, SubmitTransport};
-use crate::agent::provider::{PasteCapability, VerifySubmitStrategy};
+#[cfg(test)]
+use crate::agent::provider::PasteCapability;
+use crate::agent::provider::VerifySubmitStrategy;
 use crate::service::inject_verify::{InjectionError, InjectionResult, VerifyOpts};
 use std::time::{Duration, Instant};
 
@@ -82,54 +84,21 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     opts: VerifyOpts,
     key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
 ) -> Result<InjectionResult, InjectionError> {
-    run_with_submit_key_and_parts(
-        transport,
-        text,
-        enter,
-        submit_key,
-        None,
-        typed_follow_up,
-        None,
-        strategy,
-        opts,
-        key_guard,
+    let marker = typed_follow_up
+        .filter(|marker| PasteCapability::is_valid_typed_follow_up(marker))
+        .filter(|_| enter && !text.is_empty());
+    let payload = format!("{text}{}", marker.unwrap_or_default());
+    run_with_submit_key_and_payload(
+        transport, &payload, enter, submit_key, &payload, strategy, opts, key_guard,
     )
 }
 
-pub(super) fn run_with_submit_key_and_frame<T: SubmitTransport>(
+pub(super) fn run_with_submit_key_and_payload<T: SubmitTransport>(
     transport: &T,
     text: &str,
     enter: bool,
     submit_key: &[u8],
-    typed_prefix: Option<&str>,
-    pasted_tail: Option<&str>,
-    typed_suffix: Option<&str>,
-    strategy: VerifySubmitStrategy,
-    opts: VerifyOpts,
-    key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
-) -> Result<InjectionResult, InjectionError> {
-    run_with_submit_key_and_parts(
-        transport,
-        text,
-        enter,
-        submit_key,
-        typed_prefix,
-        pasted_tail,
-        typed_suffix,
-        strategy,
-        opts,
-        key_guard,
-    )
-}
-
-fn run_with_submit_key_and_parts<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    enter: bool,
-    submit_key: &[u8],
-    typed_prefix: Option<&str>,
-    pasted_tail: Option<&str>,
-    typed_suffix: Option<&str>,
+    expected_user_turn: &str,
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
     mut key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
@@ -140,21 +109,6 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     transport.prepare_paste(text, enter);
     let turn_deadline = started + opts.submit_timeout;
     let two_phase = enter && opts.verify_submit;
-    let pasted_tail = pasted_tail
-        .filter(|tail| PasteCapability::is_valid_typed_follow_up(tail))
-        .filter(|_| enter && !text.is_empty());
-    let typed_suffix =
-        typed_suffix.filter(|_| enter && (!text.is_empty() || typed_prefix.is_some()));
-    let expected_user_turn = if enter && !text.is_empty() {
-        format!(
-            "{}{text}{}{}",
-            typed_prefix.unwrap_or_default(),
-            pasted_tail.unwrap_or_default(),
-            typed_suffix.unwrap_or_default()
-        )
-    } else {
-        text.to_string()
-    };
     let exact_turn_evidence = matches!(&strategy, VerifySubmitStrategy::TuiInputDrained { .. })
         && transport.has_exact_user_turn_evidence();
     let initial_key_delay = if enter && !text.is_empty() {
@@ -164,13 +118,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     };
 
     let baseline_evidence = transport.draft_evidence_count(text);
-    let bytes_written = transport.write_paste_with_frame(
-        text,
-        typed_prefix,
-        pasted_tail,
-        typed_suffix,
-        turn_deadline,
-    )?;
+    let bytes_written = transport.write_paste(text, turn_deadline)?;
     let mut submit_key_writes = 0;
     let mut paste_observed =
         text.is_empty() || transport.draft_evidence_count(text) > baseline_evidence;
@@ -195,7 +143,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
             break;
         }
         if (submit_key_writes > 0 && submit_observed)
-            || (exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn))
+            || (exact_turn_evidence && transport.exact_user_turn_present(expected_user_turn))
         {
             submit_observed = true;
             break;
@@ -204,7 +152,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
             let first_key_deadline = submit_started + initial_key_delay;
             if transport.wait_initial_key_deadline_for_turn(
                 first_key_deadline.min(turn_deadline),
-                &expected_user_turn,
+                expected_user_turn,
             ) {
                 submit_observed = true;
                 break;
@@ -219,10 +167,9 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                 .copied()
                 .unwrap_or(*retry_offsets.last().expect("non-empty"));
             let retry_deadline = first_submit_key_at.unwrap_or(submit_started) + offset;
-            if transport.wait_retry_deadline_for_turn(
-                retry_deadline.min(turn_deadline),
-                &expected_user_turn,
-            ) {
+            if transport
+                .wait_retry_deadline_for_turn(retry_deadline.min(turn_deadline), expected_user_turn)
+            {
                 submit_observed = true;
                 break;
             }
@@ -230,7 +177,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                 break;
             }
         }
-        if exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn) {
+        if exact_turn_evidence && transport.exact_user_turn_present(expected_user_turn) {
             submit_observed = true;
             break;
         }
@@ -311,7 +258,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                 screen_tail,
             });
         }
-        if exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn) {
+        if exact_turn_evidence && transport.exact_user_turn_present(expected_user_turn) {
             submit_observed = true;
             break;
         }
@@ -347,7 +294,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
         submit_observed |= submission_acknowledged_now(
             transport,
             text,
-            &expected_user_turn,
+            expected_user_turn,
             baseline_evidence,
             paste_observed,
             turn_was_started,
@@ -355,7 +302,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
             &strategy,
         );
         submit_observed |=
-            exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn);
+            exact_turn_evidence && transport.exact_user_turn_present(expected_user_turn);
         if submit_observed {
             break;
         }
@@ -369,14 +316,14 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     {
         let deferred_deadline = Instant::now() + opts.submit_timeout;
         loop {
-            if exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn) {
+            if exact_turn_evidence && transport.exact_user_turn_present(expected_user_turn) {
                 submit_observed = true;
                 break;
             }
             match transport.wait_for_deferred_submit_ready(deferred_deadline) {
                 DeferredSubmitWait::Ready => {}
                 DeferredSubmitWait::Woken => {
-                    if exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn)
+                    if exact_turn_evidence && transport.exact_user_turn_present(expected_user_turn)
                     {
                         submit_observed = true;
                         break;
@@ -385,12 +332,12 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                 }
                 DeferredSubmitWait::Deadline | DeferredSubmitWait::Inactive => break,
             }
-            if exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn) {
+            if exact_turn_evidence && transport.exact_user_turn_present(expected_user_turn) {
                 submit_observed = true;
                 break;
             }
             if transport.max_submit_keys() == 1 && submit_key_writes >= 1 {
-                if transport.wait_retry_deadline_for_turn(deferred_deadline, &expected_user_turn) {
+                if transport.wait_retry_deadline_for_turn(deferred_deadline, expected_user_turn) {
                     submit_observed = true;
                 }
                 break;
@@ -422,17 +369,17 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
             }
             submit_key_writes += 1;
             if exact_turn_evidence {
-                while !transport.exact_user_turn_present(&expected_user_turn) {
+                while !transport.exact_user_turn_present(expected_user_turn) {
                     if !transport.wait_for_submit_event(deferred_deadline) {
                         break;
                     }
                 }
-                submit_observed = transport.exact_user_turn_present(&expected_user_turn);
+                submit_observed = transport.exact_user_turn_present(expected_user_turn);
             } else {
                 submit_observed = submission_acknowledged_now(
                     transport,
                     text,
-                    &expected_user_turn,
+                    expected_user_turn,
                     baseline_evidence,
                     paste_observed,
                     turn_was_started,

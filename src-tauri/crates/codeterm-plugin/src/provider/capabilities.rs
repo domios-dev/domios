@@ -20,7 +20,7 @@ pub struct PasteCapability {
     #[serde(default)]
     pub paste_marker_when: PasteMarkerWhen,
     #[serde(default)]
-    pub requires_typed_instruction_for_routed_messages: bool,
+    pub marks_routed_messages: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -87,7 +87,7 @@ mod paste_capability_tests {
             untrusted_above_lines: 4,
             typed_follow_up: " ::marker::".into(),
             paste_marker_when: PasteMarkerWhen::Always,
-            requires_typed_instruction_for_routed_messages: true,
+            marks_routed_messages: true,
         };
 
         assert_eq!(capability.typed_follow_up_for("a\nb\nc"), None);

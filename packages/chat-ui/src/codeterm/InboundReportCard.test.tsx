@@ -30,6 +30,32 @@ if (descriptor.status !== "in_review") throw new Error("latest report status mus
 if (!descriptor.fields.some((field) => field.label === "changes" && field.value === "Added provider matrix")) throw new Error("compound report fields parse regression");
 if (descriptor.body !== "") throw new Error("a fully structured report must not invent a body");
 
+const markdownHost = document.createElement("div");
+document.body.append(markdownHost);
+const markdownRoot = createRoot(markdownHost);
+const openedPlans: unknown[][] = [];
+await act(async () => markdownRoot.render(
+  <InboundReportCard
+    message={{ id: "opaque-markdown", type: "user", inboundKind: "report",
+      content: "task: pl_a7c9/task_b8d1\nstatus: In Review\nsha: abc123456789\n\n## Result\n\nFollow pl_a7c9/task_b8d1.\n\n- **Opaque item pl_a7c9/task_b8d1**\n\n`pl_code/task_literal`\n\n```text\nopaque code pl_fenced/task_literal\n```\n\n[Evidence pl_link/task_literal](https://example.test/evidence)" }}
+    sender="opaque" expanded onToggle={() => {}} onOpenPlan={(...args) => openedPlans.push(args)}
+    resolvePlanRef={() => ({ title: "Linked task", planTitle: "Plan", state: "resolved", rawLabel: "pl_a7c9/task_b8d1", fullRef: "pl_a7c9/task_b8d1" })}
+  />,
+));
+const markdownBody = markdownHost.querySelector('[data-testid="chat-inbound-report-body"]');
+if (markdownBody?.querySelector("h2")?.textContent !== "Result") throw new Error("report heading must render with a plan reference present");
+if (!markdownBody.querySelector("li strong button[data-target-id=task_b8d1]")) throw new Error("report list and emphasis must retain clickable refs");
+if (markdownBody.querySelector("code button, a button")) throw new Error("code and existing links must stay literal");
+if (!Array.from(markdownBody.querySelectorAll("code")).some((code) => code.textContent?.includes("opaque code"))) throw new Error("report code must render");
+if (!markdownBody.querySelector('a[href="https://example.test/evidence"]')) throw new Error("report link must render");
+if (!markdownHost.textContent?.includes("In Review") || !markdownHost.textContent?.includes("abc1234")) throw new Error("report header chips must remain");
+const taskLink = markdownBody.querySelector('[data-testid="chat-task-link"]') as HTMLButtonElement | null;
+if (!taskLink || taskLink.disabled || !taskLink.textContent?.includes("Linked task")) throw new Error("report markdown must resolve a clickable task reference");
+await act(async () => taskLink.click());
+if (JSON.stringify(openedPlans) !== JSON.stringify([["pl_a7c9", "task_b8d1", "task"]])) throw new Error("report markdown task link must open its exact target");
+await act(async () => markdownRoot.unmount());
+markdownHost.remove();
+
 // Real Curie payload: structured status plus a free-form multiline message.
 const curie = parseInboundReport(CURIE_PARTIAL_REPORT);
 if (curie.status !== "Partial") throw new Error(`report status regression: got ${JSON.stringify(curie.status)}`);
@@ -55,7 +81,7 @@ if (!curieDetails) throw new Error("partial report Details disclosure missing");
 await act(async () => curieDetails.click());
 if (!curieHost.querySelector('[data-testid="chat-inbound-report-body"]')) throw new Error("expanded report card renders no body element");
 for (const marker of CURIE_PARTIAL_REPORT_BODY_MARKERS) {
-  if (!curieHost.textContent?.includes(marker)) throw new Error(`expanded report card dropped body line: ${JSON.stringify(marker)}`);
+  if (!curieHost.textContent?.includes(marker.trimStart())) throw new Error(`expanded report card dropped body line: ${JSON.stringify(marker)}`);
 }
 await act(async () => curieRoot.unmount());
 curieHost.remove();

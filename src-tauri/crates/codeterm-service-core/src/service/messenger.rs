@@ -1,7 +1,3 @@
-//! Gateway for cross-tab / report / mesh deliveries. Routed PTY input carries a
-//! typed XML tag around a bracketed body paste; chatBackend keeps structured
-//! host-side transcript metadata.
-
 mod turn_resume;
 
 use serde::{Deserialize, Serialize};

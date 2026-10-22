@@ -13,35 +13,25 @@ fn compose_routed_suffix(suffix: &str) -> String {
     format!("{suffix}{}", codeterm_wire::domios::DOMIOS_CLOSE_TAG)
 }
 
-struct RoutedInput {
-    body: String,
-    typed_prefix: Option<String>,
-    pasted_tail: Option<String>,
-    typed_suffix: Option<String>,
+pub(super) struct RoutedInput {
+    pub(super) body: String,
 }
 
-fn prepare_routed_input(
+pub(super) fn prepare_routed_input(
     frame: &codeterm_wire::domios::DomiosFrame,
-    typed_instruction: Option<&PasteCapability>,
+    marker_capability: Option<&PasteCapability>,
 ) -> RoutedInput {
     let body = sanitize_agent_prompt_input(&frame.body);
-    let suffix = compose_routed_suffix(&frame.suffix);
-    if let Some(capability) = typed_instruction {
-        RoutedInput {
-            pasted_tail: capability
-                .marker_applies_to(&body)
-                .then(codeterm_wire::domios::pasted_marker_tail),
-            body,
-            typed_prefix: Some(frame.opening_tag.clone()),
-            typed_suffix: Some(suffix),
-        }
-    } else {
-        RoutedInput {
-            body: format!("{}{body}{suffix}", frame.opening_tag),
-            typed_prefix: None,
-            pasted_tail: None,
-            typed_suffix: None,
-        }
+    let marker = marker_capability
+        .filter(|capability| capability.marker_applies_to(&body))
+        .map(|_| codeterm_wire::domios::pasted_marker_tail())
+        .unwrap_or_default();
+    RoutedInput {
+        body: format!(
+            "{}{body}{marker}{}",
+            frame.opening_tag,
+            compose_routed_suffix(&frame.suffix)
+        ),
     }
 }
 
@@ -508,15 +498,15 @@ impl ServiceContext {
                         provider.verify_submit_strategy()
                     })
                     .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-                let typed_instruction = self
+                let marker_capability = self
                     .agent_registry
                     .with_provider(&delivery.provider_id, |provider| {
-                        provider.paste_capability().filter(|capability| {
-                            capability.requires_typed_instruction_for_routed_messages
-                        })
+                        provider
+                            .paste_capability()
+                            .filter(|capability| capability.marks_routed_messages)
                     })
                     .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-                let input = prepare_routed_input(&frame, typed_instruction.as_ref());
+                let input = prepare_routed_input(&frame, marker_capability.as_ref());
                 let body = input.body;
                 let track_exact_session_turn = !body.is_empty()
                     && matches!(
@@ -524,13 +514,12 @@ impl ServiceContext {
                         crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
                     );
                 let claim = super::submit_transaction::claim_submit_cycle(&delivery.pty_id);
-                super::submit_transaction::submit_text_with_key_claimed_and_frame(
+                super::submit_transaction::submit_text_with_key_claimed(
                     self,
                     &delivery.pty_id,
                     &body,
-                    input.typed_prefix.as_deref(),
-                    input.pasted_tail.as_deref(),
-                    input.typed_suffix.as_deref(),
+                    false,
+                    None,
                     true,
                     b"\r",
                     strategy,

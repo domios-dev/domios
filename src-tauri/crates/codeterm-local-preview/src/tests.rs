@@ -364,3 +364,75 @@ fn referenced_evidence_uploads_bypass_only_the_data_root_denial() {
         "other data-dir files stay private"
     );
 }
+
+#[test]
+fn shared_context_policy_preserves_upload_and_own_pad_exceptions_and_private_roots() {
+    let temp = tempfile::tempdir().unwrap();
+    let canonical = temp.path().canonicalize().unwrap();
+    let text = canonical.to_string_lossy();
+    let root = PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text));
+    let data = root.join(".domios");
+    let pads = data.join("runtime/agent-pads");
+    let own = pads.join("owner");
+    let foreign = pads.join("foreign");
+    let uploads: Vec<_> = ["uploads", "chat", "images", "files"]
+        .map(|bucket| data.join(bucket))
+        .into();
+    for dir in uploads.iter().chain([&own, &foreign]) {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let allowed: Vec<_> = uploads
+        .iter()
+        .map(|dir| dir.join("screenshot.png"))
+        .chain([own.join("report.md")])
+        .collect();
+    let denied = [
+        foreign.join("report.md"),
+        own.join(".env"),
+        data.join("config.json"),
+    ];
+    for file in allowed.iter().chain(&denied) {
+        std::fs::write(file, b"fixture").unwrap();
+    }
+    let configured = uploads[0].join("private.png");
+    std::fs::write(&configured, b"private").unwrap();
+    let paths: Vec<_> = allowed.iter().chain(&denied).chain([&configured]).collect();
+    let policy = PreviewPolicy::for_context(
+        paths.iter().map(|file| path_key(file)).collect(),
+        PreviewRoots {
+            configured: vec![configured.clone()],
+            private: vec![data, pads],
+            uploads,
+            own_pad: Some(own),
+            ssh: None,
+        },
+    )
+    .unwrap();
+    for file in &allowed {
+        assert_eq!(
+            html_preview::read_artifact_file(file.to_str().unwrap(), &policy, 100).unwrap(),
+            b"fixture"
+        );
+        assert!(read_local_preview_file_guarded(
+            file.to_str().unwrap(),
+            "document",
+            |requested, canonical| policy.authorize(requested, canonical)
+        )
+        .is_ok());
+    }
+    for file in denied.iter().chain([&configured]) {
+        assert_eq!(
+            html_preview::read_artifact_file(file.to_str().unwrap(), &policy, 100).unwrap_err(),
+            "Preview path is private"
+        );
+        assert_eq!(
+            read_local_preview_file_guarded(
+                file.to_str().unwrap(),
+                "document",
+                |requested, canonical| policy.authorize(requested, canonical)
+            )
+            .unwrap_err(),
+            "Preview path is private"
+        );
+    }
+}

@@ -57,9 +57,9 @@ fn complete_routed_frame_is_one_bracketed_insertion_with_both_tags() {
         };
         let message = frame.to_message();
         for live_mode in [Some(true), Some(false)] {
-            let encoded = encode_paste_frame(
+            let encoded = encode_paste_payload(
                 &message,
-                None,
+                false,
                 None,
                 live_mode,
                 PasteEncodingCapability::MultilineTui,
@@ -78,70 +78,25 @@ fn complete_routed_frame_is_one_bracketed_insertion_with_both_tags() {
 }
 
 #[test]
-fn routed_tags_are_typed_around_a_bracketed_body_only() {
-    let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
-    let body = "line one\nline two";
-    let suffix = format!(" [reply hint]{}", codeterm_wire::domios::DOMIOS_CLOSE_TAG);
-    let encoded = encode_paste_frame(
-        body,
-        Some(open),
-        Some(&suffix),
-        Some(false),
-        PasteEncodingCapability::LiveModeOnly,
-    );
-    let encoded = String::from_utf8(encoded).unwrap();
-
+fn nonrouted_marker_is_a_second_paste_in_the_same_write_only_after_a_bracketed_body() {
+    let marker = "\n::tail::";
     assert_eq!(
-        encoded,
-        format!("{open}{BRACKETED_PASTE_START}line one\nline two{BRACKETED_PASTE_END}{suffix}")
+        encode_paste_payload(
+            "one\ntwo",
+            false,
+            Some(marker),
+            Some(true),
+            PasteEncodingCapability::MultilineTui
+        ),
+        b"\x1b[200~one\ntwo\x1b[201~\x1b[200~\n::tail::\x1b[201~"
     );
-}
-
-#[test]
-fn pasted_tail_is_a_second_bracketed_paste_in_the_same_write_only_after_a_bracketed_body() {
-    let tail = "\n::tail::";
-    let bracketed = encode_paste_frame_with_tail(
-        "line one\nline two",
-        None,
-        Some(tail),
-        None,
-        Some(true),
-        PasteEncodingCapability::MultilineTui,
-    );
-    assert_eq!(
-        String::from_utf8(bracketed).unwrap(),
-        format!(
-            "{BRACKETED_PASTE_START}line one\nline two{BRACKETED_PASTE_END}{BRACKETED_PASTE_START}{tail}{BRACKETED_PASTE_END}"
-        )
-    );
-
-    let open = "<domios from=\"tab\" tab=\"abc12345\">";
-    let routed = encode_paste_frame_with_tail(
-        "body",
-        Some(open),
-        Some(tail),
-        Some("</domios>"),
-        Some(false),
-        PasteEncodingCapability::LiveModeOnly,
-    );
-    assert_eq!(
-        String::from_utf8(routed).unwrap(),
-        format!(
-            "{open}{BRACKETED_PASTE_START}body{BRACKETED_PASTE_END}{BRACKETED_PASTE_START}{tail}{BRACKETED_PASTE_END}</domios>"
-        )
-    );
-
-    for (live_mode, capability) in [
+    for (mode, capability) in [
         (Some(false), PasteEncodingCapability::LiveModeOnly),
         (Some(true), PasteEncodingCapability::Unsupported),
         (Some(true), PasteEncodingCapability::TaggedBlock),
     ] {
-        let plain =
-            encode_paste_frame_with_tail("one\ntwo", None, Some(tail), None, live_mode, capability);
-        assert!(
-            !String::from_utf8(plain).unwrap().contains("::tail::"),
-            "no tail without a bracketed body"
-        );
+        let bytes = encode_paste_payload("one\ntwo", false, Some(marker), mode, capability);
+        assert!(!String::from_utf8(bytes).unwrap().contains("::tail::"));
     }
 }
 
@@ -223,60 +178,32 @@ fn multiline_tui_bootstrap_encodes_as_one_hidden_system_turn() {
 }
 
 #[test]
-fn prompt_line_launch_brief_uses_one_frame_even_when_live_paste_mode_is_disabled() {
-    let brief = "opaque guidance\nopaque executor\nopaque assignment";
-    let prefix = crate::service::launch_delivery::launch_input_frame_prefix(
-        crate::agent::provider::ComposerCursorPosition::PromptLine,
-    );
-    let encoded = encode_paste_frame(
-        brief,
-        prefix,
-        None,
-        Some(false),
-        PasteEncodingCapability::MultilineTui,
-    );
+fn prompt_line_launch_brief_forces_one_frame_when_live_mode_is_disabled() {
+    let brief = "opaque guidance";
     assert_eq!(
-        encoded,
-        format!("{BRACKETED_PASTE_START}{brief}{BRACKETED_PASTE_END}").as_bytes()
+        encode_paste_payload(
+            brief,
+            true,
+            None,
+            Some(false),
+            PasteEncodingCapability::MultilineTui
+        ),
+        b"\x1b[200~opaque guidance\x1b[201~"
     );
-    for composer in [
-        crate::agent::provider::ComposerCursorPosition::BottomRegion,
-        crate::agent::provider::ComposerCursorPosition::VisibleAnywhere,
-    ] {
-        assert!(crate::service::launch_delivery::launch_input_frame_prefix(composer).is_none());
-    }
 }
 
 #[test]
-fn declared_paste_refusal_overrides_live_mode_multiline_and_typed_frames() {
-    let declaration = serde_json::from_value(serde_json::json!({
-        "supportsBracketedPaste": false
-    }))
-    .unwrap();
+fn declared_paste_refusal_overrides_live_mode_multiline_and_launch_force() {
+    let declaration =
+        serde_json::from_value(serde_json::json!({"supportsBracketedPaste": false})).unwrap();
     for strategy in [tui(), VerifySubmitStrategy::None] {
         let capability = PasteEncodingCapability::for_provider(&strategy, Some(&declaration));
-        for live_mode in [None, Some(false), Some(true)] {
-            for (text, expected) in [
-                ("opaque", "opaque"),
-                ("a\r\nb\nc", "a\rb\rc"),
-                ("{opaque\none\ntwo\nopaque}", "{opaque\rone\rtwo\ropaque}"),
-            ] {
-                for (prefix, suffix) in [
-                    (None, None),
-                    (Some("<opaque>"), None),
-                    (None, Some("</opaque>")),
-                    (Some("<opaque>"), Some("</opaque>")),
-                ] {
-                    assert_eq!(
-                        encode_paste_frame(text, prefix, suffix, live_mode, capability),
-                        format!(
-                            "{}{expected}{}",
-                            prefix.unwrap_or_default(),
-                            suffix.unwrap_or_default()
-                        )
-                        .as_bytes()
-                    );
-                }
+        for mode in [None, Some(false), Some(true)] {
+            for force in [false, true] {
+                assert_eq!(
+                    encode_paste_payload("a\r\nb\nc", force, None, mode, capability),
+                    b"a\rb\rc"
+                );
             }
         }
     }
@@ -284,15 +211,13 @@ fn declared_paste_refusal_overrides_live_mode_multiline_and_typed_frames() {
 
 #[test]
 fn absent_or_supported_paste_declarations_preserve_tui_framing() {
-    let supported = serde_json::from_value(serde_json::json!({
-        "supportsBracketedPaste": true
-    }))
-    .unwrap();
+    let supported =
+        serde_json::from_value(serde_json::json!({"supportsBracketedPaste": true})).unwrap();
     for declaration in [None, Some(&supported)] {
         let capability = PasteEncodingCapability::for_provider(&tui(), declaration);
         assert_eq!(
-            encode_paste_frame("a\nb", Some("<opaque>"), None, Some(false), capability),
-            b"<opaque>\x1b[200~a\nb\x1b[201~"
+            encode_paste_payload("a\nb", false, None, Some(false), capability),
+            b"\x1b[200~a\nb\x1b[201~"
         );
     }
 }
@@ -353,7 +278,13 @@ fn refused_bracketed_multiline_uses_one_declared_submission_for_every_frame_shap
                 (Some("<route>\n"), Some("\n</route>")),
                 (Some(""), None),
             ] {
-                let frame = encode_paste_frame(body, prefix, suffix, live_mode, capability);
+                let payload = format!(
+                    "{}{}{}",
+                    prefix.unwrap_or_default(),
+                    body,
+                    suffix.unwrap_or_default()
+                );
+                let frame = encode_paste_payload(&payload, false, None, live_mode, capability);
                 assert!(!frame.contains(&0x1b));
                 let expected = format!(
                     "{}{}{}",
@@ -368,7 +299,7 @@ fn refused_bracketed_multiline_uses_one_declared_submission_for_every_frame_shap
             }
         }
         assert_eq!(
-            encode_paste_frame("opaque", None, None, live_mode, capability),
+            encode_paste_payload("opaque", false, None, live_mode, capability),
             b"opaque"
         );
     }
@@ -423,4 +354,50 @@ fn cli_pty_send_resolves_multiline_declaration_without_chat_preprocessors() {
         &VerifySubmitStrategy::None,
     );
     assert_eq!(sibling_capability, PasteEncodingCapability::LiveModeOnly);
+}
+
+#[test]
+fn long_routed_report_and_next_sender_each_have_one_complete_paste() {
+    let body: String = (0..1600).map(|n| format!("{n:04x}λ8f1c9a\n")).collect();
+    assert!(body.len() >= 20_000);
+    let capability = serde_json::from_value(serde_json::json!({
+        "supportsBracketedPaste": true,
+        "marksRoutedMessages": true
+    }))
+    .unwrap();
+    let frames = [
+        crate::service::messenger::Messenger::report("opaque-a", "a813b7e2").routed_frame(&body),
+        crate::service::messenger::Messenger::message("opaque-b", "b925d6f3")
+            .routed_frame("72d4f9a1\n90c3e8b5"),
+    ];
+    for frame in frames {
+        let input = crate::service::pty_io::send::prepare_routed_input(&frame, Some(&capability));
+        let encoded = encode_paste_payload(
+            &input.body,
+            false,
+            None,
+            Some(false),
+            PasteEncodingCapability::MultilineTui,
+        );
+        let expected = format!(
+            "{}{}{}{}{}",
+            frame.opening_tag,
+            frame.body,
+            codeterm_wire::domios::pasted_marker_tail(),
+            frame.suffix,
+            codeterm_wire::domios::DOMIOS_CLOSE_TAG,
+        );
+        assert_eq!(encoded, format!("\x1b[200~{expected}\x1b[201~").as_bytes());
+        let parsed = codeterm_wire::domios::parse_message(&input.body).unwrap();
+        assert_eq!(parsed.body, frame.body);
+        assert_eq!(
+            parsed.content,
+            format!(
+                "{}{}{}",
+                frame.body,
+                codeterm_wire::domios::pasted_marker_tail(),
+                frame.suffix
+            )
+        );
+    }
 }
