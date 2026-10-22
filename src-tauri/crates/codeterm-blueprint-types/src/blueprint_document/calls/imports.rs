@@ -197,6 +197,51 @@ impl Resolver<'_> {
                 continue;
             };
             let callee = if let Some(pin) = &call.pin {
+                let target = parsed
+                    .document
+                    .imports
+                    .get(&call.reference)
+                    .map(String::as_str)
+                    .unwrap_or(&call.reference);
+                let matches = if saved_reference(target) || target.starts_with("local:") {
+                    target == pin.id
+                } else if definitions.contains_key(&call.reference) {
+                    pin.id.starts_with("inline:")
+                        && pin.id.ends_with(&format!("#{}", call.reference))
+                        && self.callees.get(&pin.key()).is_some_and(|callee| {
+                            let mut expected =
+                                inline(&call.reference, &definitions[&call.reference]);
+                            let mut actual = *callee.document.clone();
+                            for document in [&mut expected, &mut actual] {
+                                for node in document.steps.iter_mut().chain(&mut document.other) {
+                                    if let Some(call) = &mut node.call {
+                                        call.pin = None;
+                                    }
+                                }
+                            }
+                            expected == actual
+                        })
+                } else if parsed.document.imports.contains_key(&call.reference) {
+                    let candidate = path.parent().unwrap_or(Path::new(".")).join(target);
+                    if self.local_files {
+                        std::fs::canonicalize(candidate)
+                            .is_ok_and(|p| pin.id == format!("file:{}", p.display()))
+                    } else {
+                        pin.id
+                            .strip_prefix("file:")
+                            .is_some_and(|p| Path::new(p).ends_with(target))
+                    }
+                } else {
+                    false
+                };
+                if !matches {
+                    return Err(vec![finding(
+                        &parsed,
+                        &field,
+                        "Call ref does not match its pinned identity",
+                    )]);
+                }
+
                 if saved_reference(&pin.id) {
                     self.mem(&pin.id, Some(pin), &parsed, &field)?
                 } else {
@@ -284,10 +329,22 @@ impl Resolver<'_> {
         let hash = document_projection::identity(&parsed.document)
             .map_err(|e| vec![finding(&parsed, "", e)])?;
         let frozen = FrozenCallee {
-            id,
-            hash,
+            id: id.clone(),
+            hash: hash.clone(),
             document: Box::new(parsed.document.clone()),
-            locations: parsed.locations.clone(),
+            locations: parsed
+                .locations
+                .iter()
+                .map(|(field, location)| {
+                    let mut location = location.clone();
+                    location.file = if id.starts_with("local:") || saved_reference(&id) {
+                        id.clone()
+                    } else {
+                        format!("callee:{}", &hash[..12])
+                    };
+                    (field.clone(), location)
+                })
+                .collect(),
             source_hash,
         };
         frozen

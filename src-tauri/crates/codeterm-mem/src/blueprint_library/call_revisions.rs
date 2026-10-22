@@ -48,7 +48,35 @@ impl MemoryResolver for ScopedResolver<'_> {
         }
         let id = self.id(id)?;
         let item = store::get(self.conn, id, self.blobs)?.ok_or("Missing callee")?;
+        if item.kind == "archived" {
+            return Err("Archived callee cannot be freshly pinned; existing immutable pins remain available".into());
+        }
         model::parse_document(&item.body)
+    }
+    fn head_for_drift(&self, id: &str) -> Result<(Document, Option<String>), String> {
+        if id.starts_with("catalog:") {
+            return self.head(id).map(|document| (document, None));
+        }
+        let raw_id = self.id(id)?;
+        let item = store::get(self.conn, raw_id, self.blobs)?.ok_or("Missing callee")?;
+        let document = model::parse_document(&item.body)?;
+        if item.kind != "archived" {
+            return Ok((document, None));
+        }
+        let reason: Option<String> = self.conn.query_row(
+            "SELECT reason FROM mem_item_history WHERE item_id=?1 AND new_kind='archived' ORDER BY changed_at DESC, id DESC LIMIT 1",
+            [raw_id], |row| row.get(0),
+        ).optional().map_err(|e| e.to_string())?.flatten();
+        let reason = reason.unwrap_or_else(|| "callee archived".into());
+        if let Some(keeper) = reason.strip_prefix("blueprint solution merged into ") {
+            let keeper_ref = format!("mem:{keeper}");
+            if let Ok(keeper_id) = self.id(&keeper_ref) {
+                if let Some(kept) = store::get(self.conn, keeper_id, self.blobs)? {
+                    return Ok((model::parse_document(&kept.body)?, Some(reason)));
+                }
+            }
+        }
+        Ok((document, Some(reason)))
     }
     fn revision(&self, pin: &CallPin) -> Result<Document, String> {
         let id = if pin.id.starts_with("catalog:") {

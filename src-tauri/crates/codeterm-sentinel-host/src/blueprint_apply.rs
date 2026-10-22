@@ -120,6 +120,16 @@ impl BlueprintApplyExt for ServiceContext {
             && document.trigger.is_none()
             && document.result.port.is_some()
         {
+            if dry_run {
+                let call_drift = self.mem.blueprint_call_drift(
+                    &format!("blueprints:{}", caller.workspace),
+                    caller.team.as_deref().ok_or("Call requires a Team")?,
+                    document.clone(),
+                )?;
+                return Ok(
+                    json!({"action":"check", "dry_run":true,"after":definition,"diagnostics":diagnostics,"call_drift":call_drift}),
+                );
+            }
             return Err(
                 "Callable Blueprints are saved with `blueprint keep --file`; reuse them via call"
                     .into(),

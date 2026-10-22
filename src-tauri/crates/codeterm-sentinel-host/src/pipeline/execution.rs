@@ -160,18 +160,22 @@ pub fn execute_step(
     input: ExecutionEnvelope,
 ) -> Result<StepExecution, JournalReason> {
     let marker = ctx.allocate_marker()?;
-    if effect_after_claim(
-        || crate::blueprint_calls::claim_step(ctx, marker, &step.name, now(ctx.handle)),
-        || (),
-    )
-    .is_none()
+    let simulate = ctx.call_state.simulate;
+    if !simulate
+        && effect_after_claim(
+            || crate::blueprint_calls::claim_step(ctx, marker, &step.name, now(ctx.handle)),
+            || (),
+        )
+        .is_none()
     {
         return Err(JournalReason::UncertainClaim);
     }
     let contract = step.execution.clone().unwrap_or_default();
     let checked = (|| {
         ctx.call_state.current_marker = Some(marker);
-        crate::blueprint_calls::metadata(ctx, marker, &step.name, &step.kind)?;
+        if !simulate {
+            crate::blueprint_calls::metadata(ctx, marker, &step.name, &step.kind)?;
+        }
         if ctx.lease.cancelled.load(Ordering::SeqCst) {
             return Err(JournalReason::Other("skip:lease_cancelled".into()));
         }
@@ -209,6 +213,9 @@ pub fn execute_step(
                 crate::blueprint_calls::execute(ctx, &step.name, call, grants, &input)?
             }
             StepKind::Effect { node } => crate::blueprint_calls::effect(ctx, node, &input)?,
+            _ if simulate && !matches!(step.kind, StepKind::Filter { .. }) => {
+                return Err(JournalReason::RuntimeUnavailable)
+            }
             _ => dispatch::run_step(
                 ctx.handle,
                 ctx.service,
@@ -273,6 +280,17 @@ pub fn execute_step(
     })();
     match checked {
         Ok((result, output)) => {
+            if simulate {
+                return Ok(StepExecution {
+                    output,
+                    outcome: result.outcome,
+                    stored_outcome: result.stored_outcome,
+                    state: result.state,
+                    summary: result.summary,
+                    reason: result.reason,
+                    uncertain: result.uncertain,
+                });
+            }
             let body_ref = if matches!(step.kind, StepKind::Agent { .. }) {
                 Some(
                     crate::agent_stage::persist_result(
@@ -338,6 +356,9 @@ pub fn execute_step(
             })
         }
         Err(reason) => {
+            if simulate {
+                return Err(reason);
+            }
             let uncertain = matches!(reason, JournalReason::UncertainEffect);
             finish(
                 ctx,

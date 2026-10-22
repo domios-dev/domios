@@ -103,6 +103,19 @@ impl FrozenClosure {
     pub fn document(&self) -> Document {
         let mut document = self.root.document.clone();
         document.dependencies = self.callees.clone();
+        for callee in document.dependencies.values_mut() {
+            let label = if callee.id.starts_with("local:") || saved_reference(&callee.id) {
+                callee.id.clone()
+            } else {
+                format!(
+                    "callee:{}",
+                    callee.hash.chars().take(12).collect::<String>()
+                )
+            };
+            for location in callee.locations.values_mut() {
+                location.file = label.clone();
+            }
+        }
         document
     }
     pub fn callee(&self, pin: &CallPin) -> Result<&FrozenCallee, String> {
@@ -165,12 +178,12 @@ impl FrozenClosure {
             if document_projection::identity(&pinned)? != callee.hash {
                 return Err("Missing or corrupted pinned revision".into());
             }
-            let head = resolver.head(&callee.id)?;
-            let mut head = head;
+            let (mut head, reason) = resolver.head_for_drift(&callee.id)?;
             head.dependencies.clear();
             let hash = document_projection::identity(&head)?;
-            if hash != callee.hash {
+            if hash != callee.hash || reason.is_some() {
                 result.push(Drift {
+                    reason: reason.unwrap_or_else(|| "callee content changed".into()),
                     pin: callee.pin(),
                     head_hash: hash,
                     diff: document_projection::diff(&callee.document, &head),
@@ -191,9 +204,13 @@ pub trait MemoryResolver {
     }
     fn head(&self, id: &str) -> Result<Document, String>;
     fn revision(&self, pin: &CallPin) -> Result<Document, String>;
+    fn head_for_drift(&self, id: &str) -> Result<(Document, Option<String>), String> {
+        self.head(id).map(|document| (document, None))
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Drift {
+    pub reason: String,
     pub pin: CallPin,
     pub head_hash: String,
     pub diff: document_projection::SemanticDiff,

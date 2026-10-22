@@ -7,3 +7,5 @@ ALTER TABLE blueprint_step_journal ADD COLUMN claim_parent_index INTEGER;
 
 #[cfg(test)]
 mod tests;
+
+pub(super) const RUN_IDENTITY_SCHEMA: &str = "ALTER TABLE blueprint_step_journal ADD COLUMN definition_version INTEGER CHECK (definition_version IS NULL OR definition_version >= 0);";

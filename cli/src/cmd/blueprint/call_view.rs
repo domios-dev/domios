@@ -65,10 +65,13 @@ pub(super) fn drift(value: &Value) -> String {
         .take(64)
         .map(|warning| {
             format!(
-                "WARNING: pinned callee {}@{} differs from head {}: {}\n",
+                "WARNING: pinned callee {}@{} differs from head {} ({}): {}\n",
                 warning["pin"]["id"].as_str().unwrap_or("?"),
                 warning["pin"]["hash"].as_str().unwrap_or("?"),
                 warning["head_hash"].as_str().unwrap_or("?"),
+                warning["reason"]
+                    .as_str()
+                    .unwrap_or("callee content changed"),
                 warning["diff"]
             )
         })

@@ -50,6 +50,7 @@ const MIGRATIONS: &[&str] = &[
     blueprint_v2::DOCUMENT_SCHEMA,
     blueprint_v2::CLEANUP,
     blueprint_calls::SCHEMA,
+    blueprint_calls::RUN_IDENTITY_SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

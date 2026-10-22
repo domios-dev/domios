@@ -21,6 +21,10 @@ pub struct BlueprintJournalEntry {
     pub body_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub call_stack: Vec<CallFrame>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_step_index: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition_version: Option<u64>,
 }
 
 impl BlueprintJournalEntry {
@@ -67,6 +71,7 @@ pub enum BlueprintJournalWrite {
         call_stack: Vec<CallFrame>,
     },
     Claim {
+        definition_version: Option<u64>,
         parent: Option<NestedClaimParent>,
         run_id: String,
         marker: JournalMarker,
@@ -129,9 +134,13 @@ impl BlueprintJournalWrite {
                 marker,
                 step_name,
                 generation,
+                definition_version,
                 ..
             } => {
                 integer("journal generation", *generation)?;
+                if let Some(version) = definition_version {
+                    integer("journal definition version", *version)?;
+                }
                 (
                     run_id.as_str(),
                     *marker,

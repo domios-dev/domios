@@ -234,7 +234,11 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
             .unwrap_err()
             .contains("budget_exhausted: call depth"));
     }
-    let mut job = crate::storage::commit(&handle.store, |store| store.stage_insert(job)).unwrap();
+    let mut job = if simulate {
+        job
+    } else {
+        crate::storage::commit(&handle.store, |store| store.stage_insert(job)).unwrap()
+    };
     job.document = Some(json!(document));
     let step = calls::lower::node(&document, &document.steps[0]).unwrap();
     let lease = Lease {
@@ -305,12 +309,28 @@ fn blueprint_v2_call_real_executor_delivers_eight_to_actual_local_notification_s
 }
 #[test]
 fn blueprint_v2_call_simulate_records_nested_effect_provenance_and_delivers_zero() {
-    let receipt = run(source(false), true);
+    let mut document = source(false);
+    let key = document.dependencies.keys().next().unwrap().clone();
+    let mut callee = document.dependencies.remove(&key).unwrap();
+    callee.document.steps[0].run = None;
+    callee.document.steps[0].uses = Some(blueprint_document::NodeKind::Filter);
+    callee.document.steps[0]
+        .params
+        .insert("pattern".into(), ValueForm::literal(".*"));
+    callee.hash = blueprint_document::projection::identity(&callee.document).unwrap();
+    let call = document.steps[0].call.as_mut().unwrap();
+    call.arguments
+        .insert("p".into(), ValueForm::literal(json!({"n":8})));
+    call.pin = Some(callee.pin());
+    document.dependencies.insert(callee.pin().key(), callee);
+    let receipt = run(document, true);
     assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
     assert!(receipt.notices.is_empty());
     assert_eq!(receipt.effects.len(), 1);
     assert_eq!(receipt.effects[0].effect["payload"], 8);
     assert_eq!(receipt.effects[0].call_stack[0].node, "invoke");
+    assert_eq!(receipt.effects[0].scope, "simulation");
+    assert!(receipt.journal.is_empty());
 }
 #[test]
 fn blueprint_v2_call_nested_failure_stops_before_later_effect_and_retains_stack() {

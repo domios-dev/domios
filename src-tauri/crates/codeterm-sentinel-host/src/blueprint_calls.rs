@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct CallContext {
     pub frames: Vec<CallFrame>,
     pub inputs: BTreeMap<String, Value>,
-    pub simulate: bool,
+    pub(crate) simulate: bool,
     pub effects: Vec<SimulatedEffect>,
     pub grants: BTreeSet<String>,
     pub current_marker: Option<JournalMarker>,
@@ -23,6 +23,7 @@ pub struct CallContext {
 }
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct SimulatedEffect {
+    pub scope: &'static str,
     pub node: String,
     pub call_stack: Vec<CallFrame>,
     pub effect: Value,
@@ -86,6 +87,7 @@ pub(crate) fn claim_step(ctx: &RunCtx<'_>, marker: JournalMarker, name: &str, at
         ctx.handle,
         &ctx.lease.job,
         BlueprintJournalWrite::Claim {
+            definition_version: Some(ctx.lease.job.definition_version),
             parent: ctx.call_state.parent(),
             run_id: ctx.run_id.into(),
             marker,
@@ -130,6 +132,9 @@ pub(crate) fn execute(
     _input: &ExecutionEnvelope,
 ) -> Result<crate::pipeline::StepResult, JournalReason> {
     let pin = call.pin.as_ref().ok_or(JournalReason::ContractViolation)?;
+    if calls::saved_reference(&call.reference) && call.reference != pin.id {
+        return Err(JournalReason::ContractViolation);
+    }
     let document: Document = serde_json::from_value(
         ctx.lease
             .job
@@ -325,7 +330,20 @@ fn preflight(
     allowed: &BTreeSet<String>,
     seen: &mut BTreeSet<String>,
 ) -> Result<(), JournalReason> {
+    if !document.other.is_empty() {
+        return Err(JournalReason::RuntimeUnavailable);
+    }
     for node in document.nodes() {
+        if ctx.call_state.simulate
+            && node.call.is_none()
+            && node.kind() != "filter"
+            && !node
+                .uses
+                .as_ref()
+                .is_some_and(codeterm_blueprint_types::blueprint_document::NodeKind::effect)
+        {
+            return Err(JournalReason::RuntimeUnavailable);
+        }
         if node
             .caps
             .iter()
@@ -382,6 +400,7 @@ pub(crate) fn effect(
             return Err(JournalReason::BudgetExhausted);
         }
         ctx.call_state.effects.push(SimulatedEffect {
+            scope: "simulation",
             node: node.id.clone(),
             call_stack: ctx.call_state.frames.clone(),
             effect: calls::projection::bounded(

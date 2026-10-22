@@ -108,6 +108,15 @@ fn graph(
                 continue;
             }
         };
+        if !callee.document.other.is_empty() {
+            fail(
+                &path,
+                "C11",
+                "callable_other",
+                "callee other handlers are not supported inside call; move them to the caller"
+                    .into(),
+            );
+        }
         if stack.contains(pin) {
             fail(
                 &path,

@@ -95,7 +95,7 @@ fn blueprint_v2_call_review_nested_callable_check_preserves_signature_and_stays_
     );
     crate::manage_fixture_ports(service, &handle);
     let caller = service.sentinel_caller(&creator, None).unwrap();
-    let mut document = chain(2);
+    let mut document = source(false);
     document.trigger = None;
     document.result.to = None;
     document.result.port = Some(serde_json::from_value(port()).unwrap());
@@ -114,6 +114,84 @@ fn blueprint_v2_call_review_nested_callable_check_preserves_signature_and_stays_
         .unwrap();
     assert_eq!(result["after"]["inputs"]["p"], port());
     assert!(handle.store.lock().jobs.is_empty());
+    assert!(service.notif.lock().list(false).is_empty());
+    drop(handle);
+    close(instance);
+}
+
+#[test]
+fn blueprint_v2_call_review_simulate_refuses_code_agent_and_http_before_launch() {
+    for body in [
+        json!({"id":"increment","code":{"lang":"python","src":"raise RuntimeError('must not execute')"}}),
+        json!({"id":"increment","uses":"agent","with":{"task":{"lit":"must not execute"}}}),
+        json!({"id":"increment","uses":"http","with":{"url":{"lit":"https://must-not-execute.invalid"}}}),
+    ] {
+        let mut document = source(false);
+        edit_callee(&mut document, |callee| {
+            callee.steps[0] = serde_json::from_value(body).unwrap();
+        });
+        let receipt = run(document, true);
+        assert_eq!(
+            receipt.output.unwrap_err(),
+            JournalReason::RuntimeUnavailable
+        );
+        assert!(receipt.notices.is_empty());
+        assert!(receipt.effects.is_empty());
+        assert!(receipt.journal.is_empty());
+    }
+}
+
+#[test]
+fn blueprint_v2_call_review_import_export_update_preserves_pins_and_version_history() {
+    use crate::{BlueprintApplyExt, BlueprintPortableExt};
+    use codeterm_blueprint_types::blueprint_recipe::Recipe;
+    let root = tempfile::tempdir().unwrap();
+    let (mut mux, creator) = MultiplexerState::new();
+    mux.resolve_or_mint_team_for_parent(&creator).unwrap();
+    let instance = ServiceInstance::open_with_mux(root.path(), mux);
+    let service = &instance.fixture.service;
+    let handle = crate::scheduler::fixture_handle_with_ui(
+        Store::with_storage(
+            &instance.storage,
+            codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+        ),
+        service.ui.clone(),
+    );
+    crate::manage_fixture_ports(service, &handle);
+    let caller = service.sentinel_caller(&creator, None).unwrap();
+    let document = source(false);
+    let pin = document.steps[0].call.as_ref().unwrap().pin.clone();
+    let imported = service
+        .blueprint_import(
+            &caller,
+            Recipe {
+                schema_version: 2,
+                definition: json!(document),
+            },
+            &[],
+            true,
+        )
+        .unwrap();
+    let id = imported["id"].as_str().unwrap();
+    let exported = service.blueprint_export(&caller, id).unwrap();
+    assert_eq!(exported.definition["steps"][0]["call"]["pin"], json!(pin));
+    let update = service
+        .blueprint_apply_document(
+            &caller,
+            exported.definition,
+            false,
+            None,
+            Some((id.into(), 1, None)),
+        )
+        .unwrap();
+    assert_eq!(update["definition_version"], 2);
+    let stored = handle.store.lock().get(id).unwrap().clone();
+    assert_eq!(stored.definition_version, 2);
+    assert_eq!(
+        stored.document.unwrap()["steps"][0]["call"]["pin"],
+        json!(pin)
+    );
+    assert_eq!(handle.store.lock().jobs.len(), 1);
     assert!(service.notif.lock().list(false).is_empty());
     drop(handle);
     close(instance);
