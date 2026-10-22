@@ -153,6 +153,7 @@ pub(crate) fn fixture_with_docs(
     clock: Arc<dyn Clock>,
     docs: bool,
 ) -> Fixture {
+    crate::embeddings::ensure_extension_registered();
     let dir = tempfile::tempdir().unwrap();
     let embedder = ActiveEmbedder::new(provider);
     let (sender, events) = mpsc::channel();
@@ -210,4 +211,9 @@ pub(crate) fn wait_for(
             return event;
         }
     }
+}
+
+pub(crate) fn connection() -> rusqlite::Connection {
+    crate::embeddings::ensure_extension_registered();
+    rusqlite::Connection::open_in_memory().unwrap()
 }

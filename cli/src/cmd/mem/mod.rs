@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod area_tests;
 mod calibration;
-mod embedder;
+pub(crate) mod embedder;
 mod graph;
 pub(crate) mod item;
 #[cfg(test)]

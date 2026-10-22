@@ -347,6 +347,7 @@ dependencies = [
  "codeterm-plugins",
  "codeterm-process-identity",
  "codeterm-types",
+ "codeterm-util",
  "codeterm-wire",
  "deunicode",
  "dirs 5.0.1",
@@ -365,6 +366,7 @@ dependencies = [
  "toml",
  "urlencoding",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
