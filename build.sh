@@ -402,7 +402,19 @@ run_workspace_lib_tests() {
   done
 }
 
+rust_test_package() {
+  case "$1" in
+    app|service-core) printf '%s\n' codeterm-service-core ;;
+    root|shell|codeterm) printf '%s\n' codeterm ;;
+    domios-server|codeterm-*) printf '%s\n' "$1" ;;
+    api|socket|commands|sentinel-host|billing|account|analytics|plan|pty|util|browser|types|wire|sentinel|decision|provider-signals|storage|mem|mem-store|paths|mesh|plugin|plugins|agent-detect|notification-core|repowatch|usage|blueprint-types|local-recording|cli)
+      printf 'codeterm-%s\n' "$1" ;;
+    *) echo "Unknown test scope: $1" >&2; return 2 ;;
+  esac
+}
+
 run_nextest_scope() {
+  local CARGO_TARGET_DIR="${CARGO_TARGET_DIR-}"
   [ "$#" -le 2 ] || {
     echo "usage: ./build.sh nextest <scope> [filterset]" >&2
     return 2
@@ -414,11 +426,16 @@ run_nextest_scope() {
   local targets=(--no-default-features)
   local filter_args=()
 
+  case "$scope:$filterset" in
+    workspace:*|app:*|codeterm:*|service-core:*|codeterm-service-core:*|shell:*|*rdeps\(*)
+      prepare_dev_frontend_dist "$(pwd -P)"
+      prepare_bundle_stubs
+      ;;
+  esac
+
   case "$scope" in
     workspace)
       # One feature resolution for every crate, so shared dependencies compile once.
-      prepare_dev_frontend_dist "$(pwd -P)"
-      prepare_bundle_stubs
       local lane_args cli_args=() arg
       lane_args="$(node scripts/rust-test-lanes.mjs workspace)" || return $?
       targets=()
@@ -484,8 +501,6 @@ run_nextest_scope() {
   esac
 
   if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ] || [ "$scope" = "service-core" ] || [ "$scope" = "codeterm-service-core" ] || [ "$scope" = "shell" ]; then
-    prepare_dev_frontend_dist "$(pwd -P)"
-    prepare_bundle_stubs
     prepare_exceptional_worktree_target
   fi
 
@@ -3113,7 +3128,7 @@ EOF
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       cli|codeterm-cli)
-        SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope cli "test(~$test_filter)"
+        SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope cli "package(=codeterm-cli) & test(~$test_filter)"
         exit $?
         ;;
       frontend-bundle|codeterm-frontend-bundle|input-macos|input-windows|pty-fork) ;;
@@ -3121,7 +3136,8 @@ EOF
         if [ "$test_filter" != build_identity_required ]; then
           # Same workspace feature resolution as every other test run, so the warm build is reused.
           [ -z "${RUST_TEST_THREADS:-}" ] || export NEXTEST_TEST_THREADS="${NEXTEST_TEST_THREADS:-$RUST_TEST_THREADS}"
-          SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope workspace "test(~$test_filter)"
+          test_package="$(rust_test_package "$test_scope")" || exit $?
+          SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope workspace "package(=$test_package) & test(~$test_filter)"
           exit $?
         fi
         ;;
