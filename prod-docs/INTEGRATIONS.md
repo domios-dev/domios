@@ -20,7 +20,7 @@ telegram_allowed_users = []     # Telegram user IDs as strings, empty = allow al
 
 **Setup:**
 1. Create a bot via @BotFather on Telegram, get the token
-2. Save token to `~/.codeterm/secrets/telegram.token` (Windows: `%APPDATA%/codeterm/secrets/telegram.token`)
+2. Save token to `~/.domios/secrets/telegram.token`
 3. Enable: `domios config set integrations.telegram_enabled true`
 4. Optionally restrict users: `domios config set integrations.telegram_allowed_users '["123456789"]'`
 5. Restart Domios (hot-reload not yet supported)
@@ -166,7 +166,7 @@ server_url = "https://vault.bitwarden.com"   # Public vault, or self-hosted Vaul
 ```
 
 Backends:
-- `local` (default) — a plaintext JSON file at `<data_dir>/.secrets` (`~/.codeterm/.secrets`; dev `~/.codeterm-dev/.secrets`), mode `0600` on Unix. Values are **not encrypted** and do **not** use the OS keychain; treat the file like an `.env`. A metadata-only index (names, ids, folders, timestamps) lives at `<data_dir>/secrets/local-index.json`. Offline, no external service.
+- `local` (default) — a plaintext JSON file at `<data_dir>/.secrets` (`~/.domios/.secrets`; dev `~/.domios-dev/.secrets`), mode `0600` on Unix. Values are **not encrypted** and do **not** use the OS keychain; treat the file like an `.env`. A metadata-only index (names, ids, folders, timestamps) lives at `<data_dir>/secrets/local-index.json`. Offline, no external service.
 - `bitwarden` — shells out to the official `bw` CLI. Install with `brew install bitwarden-cli` (macOS), `npm i -g @bitwarden/cli` (Linux/cross-platform), or `scoop install bitwarden-cli` (Windows). When `bw` is missing the Settings → Secrets page shows the install hint, an "Install Bitwarden CLI" button, and the CLI returns exit code 6 (backend unavailable). Supports `vault.bitwarden.com` and self-hosted Vaultwarden via `server_url`.
 - `mock` — in-memory only. Anything you save is lost on daemon restart. Use for dev / screenshots / tests.
 
@@ -178,4 +178,4 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

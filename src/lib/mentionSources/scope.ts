@@ -5,11 +5,11 @@ import type { MultiplexerState } from "../types";
 export function mentionScopeForTab(state: Pick<MultiplexerState, "tabs" | "workspaces">, tabId: string): MentionScope {
   const tab = state.tabs[tabId];
   const workspace = state.workspaces.find((item) => item.id === tab?.workspace_id || item.tabs.includes(tabId));
-  return { tabId, workspaceId: workspace?.id ?? null, projectPath: workspace?.cwd ?? null, teamId: tab?.team_id ?? null };
+  return { tabId, workspaceId: workspace?.id ?? null, projectPath: workspace?.cwd ?? null, cwd: tab?.cwd ?? workspace?.cwd ?? null, teamId: tab?.team_id ?? null };
 }
 
 export function projectIdentity(path: string | null | undefined): string | null {
-  const normalized = path?.replace(/\\/g, "/").replace(/\/+$/, "") || null;
+  const normalized = path?.replace(/\\/g, "/").replace(/^\/\/\?\/UNC\//i, "//").replace(/^\/\/\?\//, "").replace(/\/+$/, "") || null;
   return normalized && (/^[a-z]:\//i.test(normalized) || normalized.startsWith("//")) ? normalized.toLowerCase() : normalized;
 }
 

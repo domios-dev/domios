@@ -88,6 +88,7 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     assert_eq!(offers[0]["id"], "memory:skill_vector");
     assert_eq!(offers[0]["why"], "intent 0.81");
     assert_eq!(offers[0]["intents"], json!(["Detect stalled deployments"]));
+    assert_eq!(memory::offers(json!([]), "unmatched opaque zebra"), json!([]));
 }
 
 #[test]
@@ -511,4 +512,24 @@ fn blueprint_save_receipt_surfaces_every_evicted_id() {
         assert!(text.contains(id), "missing {id} in {text}");
     }
     assert!(text.contains("Archived"));
+}
+
+#[test]
+fn blueprint_like_preserves_hybrid_recall_without_shared_words() {
+    let query = "Transmit structured output downstream";
+    let stored = json!([
+        {"id":"skill_pipeline", "when_to_use":"Chain shell commands", "yaml":"opaque recipe"},
+        {"id":"skill_second", "when_to_use":"Parse JSON", "yaml":"another recipe"}
+    ]);
+    assert!(stored[0]["when_to_use"]
+        .as_str()
+        .unwrap()
+        .split_whitespace()
+        .all(|word| !query.to_lowercase().contains(&word.to_lowercase())));
+    let offers = memory::offers(stored.clone(), query);
+    assert_eq!(offers.as_array().unwrap().len(), 2);
+    for (index, id) in ["skill_pipeline", "skill_second"].iter().enumerate() {
+        assert_eq!(offers[index]["id"], format!("memory:{id}"));
+        assert_eq!(offers[index]["yaml"], stored[index]["yaml"]);
+    }
 }

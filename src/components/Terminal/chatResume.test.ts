@@ -16,13 +16,20 @@ test("caught-up resume carries no transcript and never requests attachment", asy
   assert.equal(reads, 1);
 });
 
+test("a rejected replay range requires attachment even when the server is caught up", async () => {
+  const outcome = await resumeChatCursor("a", async () => ({
+    kind: "resumed", deltas: [delta("b")], caught_up: true,
+  }), () => false, () => true);
+  assert.equal(outcome, "attach");
+});
+
 test("bounded pages advance only through response cursors and merge once", async () => {
   const reads: string[] = [];
   const adopted: string[] = [];
   const outcome = await resumeChatCursor("a", async cursor => {
     reads.push(cursor);
     return { kind: "resumed", deltas: [delta(cursor === "a" ? "b" : "c")], caught_up: cursor === "b" };
-  }, row => adopted.push(row.cursor), () => true);
+  }, row => { adopted.push(row.cursor); }, () => true);
   assert.equal(outcome, "caught_up");
   assert.deepEqual(reads, ["a", "b"]);
   assert.deepEqual(adopted, ["b", "c"]);

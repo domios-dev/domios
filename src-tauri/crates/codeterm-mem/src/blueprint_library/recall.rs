@@ -116,6 +116,17 @@ pub(super) fn rank(
     now: i64,
 ) -> Vec<BlueprintHit> {
     let mut signals: BTreeMap<List, Vec<Option<Signal>>> = BTreeMap::new();
+    let keywords = crate::search::extract_keywords(query);
+    let mut relevant = candidates
+        .iter()
+        .map(|candidate| {
+            let text = lexical_text(candidate, config.enrichment);
+            let words = tokens(&text).into_iter().collect::<HashSet<_>>();
+            !keywords.is_empty()
+                && keywords.iter().filter(|word| words.contains(*word)).count() as f64
+                    / keywords.len() as f64 >= 0.55
+        })
+        .collect::<Vec<_>>();
     if let Some(query_vector) = query_vector {
         let best = |candidate: &Candidate, slots: &[Slot]| {
             slots
@@ -209,6 +220,9 @@ pub(super) fn rank(
         let top = order.first().map_or(0.0, |(_, score)| *score);
         for (rank, (index, score)) in order.iter().enumerate() {
             if weight > 0.0 {
+                if *list != List::Lexical && *score >= 0.55 {
+                    relevant[*index] = true;
+                }
                 listed[*index] = true;
                 fused[*index] += weight
                     * match config.fusion {
@@ -238,7 +252,7 @@ pub(super) fn rank(
         .into_iter()
         .zip(fused)
         .zip(why)
-        .zip(listed)
+        .zip(listed.into_iter().zip(relevant).map(|(listed, relevant)| listed && relevant))
         .filter(|(_, listed)| *listed)
         .map(|(((candidate, score), mut why), _)| {
             let pending = candidate

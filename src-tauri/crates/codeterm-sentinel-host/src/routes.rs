@@ -229,7 +229,7 @@ pub(super) fn deliver_body(
     deliver_body_with(
         agent,
         output,
-        |body| svc.send_text(target, body),
+        |body| svc.send_text(target, &svc.programmatic_input(target, body)),
         |body| {
             svc.gateway_deliver(
                 target,

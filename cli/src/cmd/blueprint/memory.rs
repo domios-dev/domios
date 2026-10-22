@@ -29,20 +29,13 @@ pub(super) fn offers(stored: Value, intent: &str) -> Value {
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|offer| {
-            let entry = Entry {
-                id: format!("memory:{}", offer["id"].as_str()?),
-                document: model::parse_document(offer["yaml"].as_str()?).ok()?,
-                intents: serde_json::from_value(offer["intents"].clone()).ok()?,
-                uses: offer["uses"].as_u64().unwrap_or(0),
-                successes: offer["successes"].as_u64().unwrap_or(0),
-                failures: 0,
-                kept: true,
-                last_used: offer["last_used"].as_i64().unwrap_or(0),
-            };
-            Some((entry, offer["why"].as_str().map(str::to_owned)))
-        })
-        .collect::<Vec<_>>();
+        .cloned()
+        .map(|mut offer| {
+            if let Some(id) = offer["id"].as_str() {
+                offer["id"] = Value::String(format!("memory:{id}"));
+            }
+            offer
+        });
     let builtins = super::recipe_files::FILES
         .iter()
         .filter_map(|(name, source)| {
@@ -64,11 +57,10 @@ pub(super) fn offers(stored: Value, intent: &str) -> Value {
         .collect::<Vec<_>>();
     let matched = model::recall(&builtins, intent, OFFERS, chrono::Utc::now().timestamp())
         .into_iter()
-        .map(|entry| (entry, None));
+        .map(|entry| json!({"id":entry.id,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"yaml":entry.document.yaml().unwrap_or_default(),"uses":entry.uses,"successes":entry.successes,"why":null}));
     json!(stored
         .into_iter()
         .chain(matched)
         .take(OFFERS)
-        .map(|(entry, why)| json!({"id":entry.id,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"yaml":entry.document.yaml().unwrap_or_default(),"uses":entry.uses,"successes":entry.successes,"why":why}))
         .collect::<Vec<_>>())
 }

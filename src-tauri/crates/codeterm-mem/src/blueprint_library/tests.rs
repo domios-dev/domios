@@ -630,3 +630,5 @@ fn curator_saves_blueprint_among_unrelated_facts_and_other_scopes() {
     );
     assert_eq!(mem.list_blueprint_solutions("project").unwrap().len(), 2);
 }
+
+mod recall_regressions;

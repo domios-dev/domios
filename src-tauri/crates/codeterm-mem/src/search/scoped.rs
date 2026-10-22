@@ -1,7 +1,7 @@
 use super::*;
 
 #[cfg(feature = "embeddings")]
-pub(super) fn scoped_vectors(
+pub(crate) fn scoped_vectors(
     conn: &Connection,
     vector: &[f32],
     limit: usize,

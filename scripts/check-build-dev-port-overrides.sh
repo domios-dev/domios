@@ -6,7 +6,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 assert_output() {
-  local expected="$1" actual="$2"
+  local expected="$1" actual
+  # The toolchain bootstrap banner is environment output, not dry-run output.
+  actual="$(grep -v '^MSVC env loaded' <<< "$2")"
   if [ "$actual" != "$expected" ]; then
     echo "unexpected build.sh dry-run output" >&2
     printf 'expected: %s\nactual:   %s\n' "$expected" "$actual" >&2

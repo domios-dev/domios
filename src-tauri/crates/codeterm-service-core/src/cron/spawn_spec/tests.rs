@@ -173,3 +173,44 @@ fn runtime_cron_carries_launch_identity_and_keeps_one_initial_task() {
     assert!(prompt.contains(crate::service::orchestrator::ROLE_AUTHORITY));
     assert_eq!(config["effort"], "opaque-effort");
 }
+
+#[test]
+fn curator_round_is_visible_manager_without_activation_for_both_transports() {
+    let registry = registry_with_spawnable("gamma-shell");
+    for provider in ["pty-agent", "gamma-shell"] {
+        let mut input = inputs(provider);
+        input.role = Some("curator".into());
+        let spec = build_cron_spawn_spec(&registry, input);
+        assert_eq!(spec.visibility, TabVisibility::Visible);
+        assert_eq!(spec.title.as_deref(), Some("Curator"));
+        assert_eq!(spec.team_id.as_deref(), Some("team-1"));
+        assert_eq!(spec.parent_tab_id.as_deref(), Some("tab-creator"));
+        match &spec.command {
+            TabCommand::Agent(agent) => {
+                assert_eq!(agent.role.as_deref(), Some("Manager"));
+                assert_eq!(agent.role_profile.as_deref(), Some("curator"));
+                assert!(!agent.activate.unwrap_or(false));
+            }
+            TabCommand::ChatBackend {
+                role, role_profile, ..
+            } => {
+                assert_eq!(role.as_deref(), Some("Manager"));
+                assert_eq!(role_profile.as_deref(), Some("curator"));
+            }
+            _ => panic!("agent runtime required"),
+        }
+    }
+}
+
+#[test]
+fn curator_tab_creation_keeps_the_existing_active_tab_and_workspace() {
+    let (mut mux, active) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.get_active_workspace().unwrap().id.clone();
+    let curator = mux.create_tab(&workspace).unwrap();
+    assert_ne!(curator, active);
+    assert_eq!(mux.get_active_workspace().unwrap().id, workspace);
+    assert_eq!(
+        mux.get_active_workspace().unwrap().active_tab_id.as_deref(),
+        Some(active.as_str())
+    );
+}

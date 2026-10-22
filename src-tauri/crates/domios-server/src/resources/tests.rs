@@ -22,6 +22,20 @@ fn process_split_contract_worker_lease_survives_packaged_resource_replacement() 
     std::fs::write(&source, b"replacement").unwrap();
     assert_eq!(std::fs::read(&lease.path).unwrap(), b"original-worker");
     let destination = lease.path.clone();
+    let alias = destination
+        .parent()
+        .unwrap()
+        .join(format!("domios{}", std::env::consts::EXE_SUFFIX));
+    assert_eq!(std::fs::read(&alias).unwrap(), b"original-worker");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_ne!(
+            std::fs::metadata(&alias).unwrap().permissions().mode() & 0o100,
+            0
+        );
+    }
     drop(lease);
     assert!(!destination.exists());
+    assert!(!alias.exists());
 }

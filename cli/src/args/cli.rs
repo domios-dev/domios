@@ -214,6 +214,10 @@ pub enum Commands {
         #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
         stdin: bool,
 
+        /// Deliver a host system notice with this context and no reply address.
+        #[arg(long, value_name = "CONTEXT", conflicts_with_all = ["actions", "delay", "at", "every", "until", "count", "to_shell"])]
+        system_context: Option<String>,
+
         /// Terminal actions to run after optional text, comma-separated.
         /// Keys: literal characters, enter, esc, tab, backspace, delete, up,
         /// down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus
@@ -329,7 +333,7 @@ pub enum Commands {
         action: super::rest_api::RestApiAction,
     },
 
-    /// Manage daemon services (long-running processes monitored by codeterm)
+    /// Manage daemon services (long-running processes monitored by Domios)
     Service {
         #[command(subcommand)]
         action: ServiceAction,

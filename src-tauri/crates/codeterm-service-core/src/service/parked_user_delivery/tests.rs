@@ -143,7 +143,13 @@ fn refuse_and_park_current_send(
         std::time::Duration::ZERO,
     );
     let status = run_chat_send(&svc.chat_send_ledger, accepted, payload, |text| {
-        let error = svc.send_chat_text_claimed(&tab_id, text, None).unwrap_err();
+        let error = svc
+            .send_human_input(
+                &tab_id,
+                crate::service::messenger::HumanInput::composer(text),
+                None,
+            )
+            .unwrap_err();
         assert!(
             matches!(&error, DeliveryError::TabBusyRefused { .. }),
             "error={error:?}"
@@ -209,7 +215,12 @@ fn start_current_chat_send(
     });
     let accepted = fixture
         .service
-        .start_chat_send(tab_id, payload.into(), None, Some(client_token.into()))
+        .start_human_chat_send(
+            tab_id,
+            crate::service::messenger::HumanInput::composer(payload),
+            None,
+            Some(client_token.into()),
+        )
         .unwrap();
     let published = receive_send_status(&rx, &accepted.send_id);
     fixture.ui.unlisten(listener);

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AnalyticsGroupBy } from "@codeterm/plugin-sdk";
 import { BoardPanel, BoardPanelSection } from "../../../../src/components/Canvas/missionControl/BoardPanel";
-import { DeferredLoader } from "../../../../src/components/shared/DeferredLoader";
+import { DeferredLoader } from "../../../../packages/chat-ui/src/DeferredLoader";
 import { closeView } from "./bridge";
 import { AllowanceCard } from "./components/AllowanceCard";
 import { Banner } from "./components/Banner";

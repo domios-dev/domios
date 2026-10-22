@@ -66,3 +66,24 @@ fn deleting_a_plan_removes_its_global_assets() {
         .join(&plan.id)
         .exists());
 }
+
+#[test]
+fn invalid_report_attachment_does_not_publish_a_plan_reference() {
+    let (dir, store, plan, task_id) = store_with_task();
+    let source = dir.path().join("empty.mov");
+    std::fs::write(&source, []).unwrap();
+    assert!(store
+        .attach_to_task(&plan.id, &task_id, &source, 3)
+        .is_err());
+    assert!(store
+        .attach_to_task(&plan.id, &task_id, &dir.path().join("missing"), 4)
+        .is_err());
+    let loaded = store.get(&plan.id).unwrap();
+    assert!(loaded
+        .tasks
+        .iter()
+        .find(|task| task.id == task_id)
+        .unwrap()
+        .attachments
+        .is_empty());
+}

@@ -149,9 +149,9 @@ fn restored_and_slept_user_sends_hold_then_flush_once_in_order() {
         }
         let first = fixture
             .service
-            .start_chat_send(
+            .start_human_chat_send(
                 &tab_id,
-                "first opaque turn".into(),
+                crate::service::messenger::HumanInput::composer("first opaque turn"),
                 None,
                 Some("first-token".into()),
             )
@@ -162,7 +162,11 @@ fn restored_and_slept_user_sends_hold_then_flush_once_in_order() {
             .unwrap();
         let second = fixture
             .service
-            .prepare_and_admit_user_send(reservation, "second opaque turn".into(), false)
+            .prepare_and_admit_user_send(
+                reservation,
+                crate::service::messenger::HumanInput::composer("second opaque turn"),
+                false,
+            )
             .unwrap();
         let queued = fixture
             .service
@@ -420,7 +424,9 @@ fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_
                 super::super::super::transport::send(
                     &fixture.service,
                     &tab_id,
-                    PAYLOAD,
+                    &crate::service::messenger::AgentInput::Human(
+                        crate::service::messenger::HumanInput::composer(PAYLOAD),
+                    ),
                     Some(&pending.send_id),
                 )
             })
@@ -442,7 +448,9 @@ fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_
         super::super::super::transport::send(
             &fixture.service,
             &tab_id,
-            PAYLOAD,
+            &crate::service::messenger::AgentInput::Human(
+                crate::service::messenger::HumanInput::composer(PAYLOAD)
+            ),
             Some(&pending.send_id)
         ),
         Err(crate::service::delivery_error::DeliveryError::SubmitUnconfirmed { .. })
@@ -451,10 +459,50 @@ fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_
 
 #[test]
 fn routed_runtime_envelope_reports_written_then_delivered_without_a_second_rpc() {
+    assert_routed_runtime_envelope(false, false);
+}
+
+#[test]
+fn curator_runtime_envelopes_accept_the_orchestrator_and_host() {
+    assert_routed_runtime_envelope(true, false);
+    assert_routed_runtime_envelope(true, true);
+}
+
+fn assert_routed_runtime_envelope(curator: bool, host: bool) {
     use crate::service::messenger::{Delivery, MessageEnvelope};
     const PAYLOAD: &str = "opaque routed payload";
     let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
-    let mut envelope = MessageEnvelope::tab("Source", "source").from_agent(Some(true));
+    let source = if curator {
+        let mut mux = fixture.service.mux.write();
+        mux.get_tab_mut(&tab_id).unwrap().role_profile = Some("curator".into());
+        let workspace = mux.get_active_workspace().unwrap().id.clone();
+        mux.create_tab(&workspace).unwrap()
+    } else {
+        "source".into()
+    };
+    if curator {
+        let service = &fixture.service;
+        service
+            .set_ext(crate::service::curator::CuratorTabs::default())
+            .ok()
+            .unwrap();
+        let mut plan = crate::plan::Plan::new(
+            "Fixture".into(),
+            fixture.temp.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_tab(&source),
+        );
+        service.plan_store.save(&mut plan, 1).unwrap();
+        service
+            .ext::<crate::service::curator::CuratorTabs>()
+            .0
+            .write()
+            .insert(tab_id.clone(), plan.id.clone());
+    }
+    let mut envelope = if host {
+        MessageEnvelope::from_codeterm()
+    } else {
+        MessageEnvelope::tab("Source", source).from_agent(Some(true))
+    };
     envelope.id = Some(uuid::Uuid::new_v4().to_string());
     let expected_text = crate::service::messenger::Messenger::from(envelope.clone())
         .routed_frame(PAYLOAD)
@@ -606,7 +654,10 @@ fn consecutive_distinct_runtime_envelopes_keep_independent_write_once_receipts()
             let request: Value = serde_json::from_str(&line).unwrap();
             assert_eq!(request["method"], "fixture/submit");
             assert_eq!(request["params"]["threadId"], "own-thread");
-            assert_eq!(request["params"]["input"]["text"], expected);
+            assert_eq!(
+                request["params"]["input"]["text"],
+                format!("<domios from=\"system\">{expected}</domios>")
+            );
             ids.push(request["params"]["sendId"].as_str().unwrap().to_owned());
             let response = json!({"id":request["id"],"result":{"turnId":"accepted-turn"}});
             peer.get_mut()
@@ -624,7 +675,10 @@ fn consecutive_distinct_runtime_envelopes_keep_independent_write_once_receipts()
         let delivery = super::super::super::transport::send_envelope(
             &fixture.service,
             &tab_id,
-            text,
+            &crate::service::messenger::Messenger::from(
+                crate::service::messenger::MessageEnvelope::from_codeterm(),
+            )
+            .framed_delivery(text),
             token,
             None,
         )
@@ -650,7 +704,10 @@ fn consecutive_distinct_runtime_envelopes_keep_independent_write_once_receipts()
             super::super::super::transport::send_envelope(
                 &fixture.service,
                 &tab_id,
-                text,
+                &crate::service::messenger::Messenger::from(
+                    crate::service::messenger::MessageEnvelope::from_codeterm()
+                )
+                .framed_delivery(text),
                 token,
                 None
             )

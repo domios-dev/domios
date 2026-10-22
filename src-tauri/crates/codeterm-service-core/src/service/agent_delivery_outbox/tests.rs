@@ -4,7 +4,7 @@ use super::{
 };
 
 use crate::multiplexer::state::MultiplexerState;
-use crate::service::messenger::{AgentDeliveryPayload, Delivery, QueuedAgentPayload};
+use crate::service::messenger::{AgentDeliveryPayload, Delivery};
 use crate::service::test_fixture::ServiceFixture;
 use codeterm_types::pty::BootStage;
 use parking_lot::Mutex;
@@ -42,9 +42,10 @@ fn fixture(session: Option<&str>, prelaunch: bool) -> (ServiceFixture, String) {
 fn payload() -> AgentDeliveryPayload {
     AgentDeliveryPayload {
         trace_id: None,
-        transport: QueuedAgentPayload::Text {
-            text: "opaque held payload".into(),
-        },
+        transport: crate::service::messenger::Messenger::from(
+            crate::service::messenger::MessageEnvelope::from_codeterm(),
+        )
+        .framed_delivery("opaque held payload"),
         observer: None,
         idempotency_key: None,
         expected_pty_id: None,
@@ -78,10 +79,8 @@ fn assert_fixture_auth_drains_once(fixture: ServiceFixture, tab: String) {
     let _boundary = super::test_boundary::Boundary::install(
         &tab,
         Arc::new(move |payload| {
-            let QueuedAgentPayload::Text { text } = &payload.transport else {
-                panic!("expected text")
-            };
-            captured.lock().push(text.clone());
+            let text = payload.transport.body();
+            captured.lock().push(text.to_string());
             Ok(())
         }),
         Arc::new(move || {

@@ -29,6 +29,8 @@ for (const [attrs, origin] of [
   [{ from: "system", context: "cron:nightly:completed" }, { kind: "automation", source: "cron", name: "nightly", detail: "completed" }],
   [{ from: "plugin_config", plugin: "p", name: "Plugin" }, { kind: "plugin_config", pluginId: "p", name: "Plugin" }],
   [{ from: "system_prompt" }, { kind: "system_prompt" }],
+  [{ from: "cli" }, { kind: "system", context: "CLI" }],
+  [{ from: "system", context: "build" }, { kind: "system", context: "build" }],
 ] as Array<[Record<string, string>, unknown]>) {
   eq(framePrefix(attrs, "opaque body"), { origin, body: "opaque body" }, `structured origin ${attrs.from}`);
 }
