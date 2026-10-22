@@ -374,9 +374,10 @@ model and effort commands during an active turn. The host bypasses busy staging
 and idle admission for those commands, without replay or automatic fallback.
 Declare each follow-up picker and `prompt` screen regex with its response key;
 the screen authorizes keys, never success. Fresh own-session output confirms.
-A refused or unconfirmed operation emits `during_turn_switch_incident` with its
-stage and screen, surfaces a failure notification on the tab, and retains the
-previous selection. This pure declaration adds no host API or sandbox access;
+A proven refusal or unrecognized confirmation emits `during_turn_switch_incident`
+with its stage and screen. Already written commands whose own-session stdout is
+buffered stay visibly pending until that output lands; they never replay or fail
+merely because confirmation is delayed. This pure declaration adds no host API or sandbox access;
 cover native/JS parity and recorded busy, picker and confirmation frames.
 
 Other busy model changes require authenticated own-turn completion; Idle alone

@@ -218,6 +218,7 @@ fn claimed_switch_stays_pending_until_confirmed_and_survives_refusal() {
     tab.pending_model_selection = Some(PendingModelSelection {
         model: request.model.clone(),
         effort: request.effort.clone(),
+        confirmation_pending: false,
     });
     let mut queue = PendingSwitches::default();
     let (tx, _) = channel();
