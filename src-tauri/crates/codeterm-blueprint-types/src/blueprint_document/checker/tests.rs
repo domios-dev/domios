@@ -420,3 +420,33 @@ fn blueprint_v2_check_implicit_stdin_flow_checks_every_incoming_port() {
         "R3",
     );
 }
+
+#[test]
+fn blueprint_v2_check_shared_ref_expansion_budget() {
+    for levels in [4, 15] {
+        let mut doc = document(json!([{"id":"a","run":{"lit":"echo a"}}]));
+        for i in 0..levels {
+            let properties = (0..10)
+                .map(|j| (format!("p{j}"), json!({"$ref":format!("t{}", i + 1)})))
+                .collect::<serde_json::Map<_, _>>();
+            doc.types.insert(
+                format!("t{i}"),
+                serde_json::from_value(json!({"type":"object","properties":properties})).unwrap(),
+            );
+        }
+        doc.types.insert(
+            format!("t{levels}"),
+            serde_json::from_value(json!({"type":"string"})).unwrap(),
+        );
+        let start = std::time::Instant::now();
+        let diagnostics = inspect(&doc);
+        let refusal = diagnostics.iter().find(|d| d.message.contains("expanded-node budget"));
+        assert!(refusal.is_some(), "expected expansion refusal: {diagnostics:#?}");
+        let refusal = refusal.unwrap();
+        assert_eq!(refusal.severity, "error");
+        assert_eq!(refusal.file, "fixture.yaml");
+        assert!(refusal.field.starts_with("types."));
+        assert!(refusal.line > 1);
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+    }
+}
