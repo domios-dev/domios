@@ -45,8 +45,19 @@ fn runtime_adapter() -> codeterm_plugin::js_runtime::JsProvider {
 }
 
 fn register_runtime(svc: &ServiceContext) {
-    svc.agent_registry
-        .register_provider(Box::new(runtime_adapter()));
+    let adapter = runtime_adapter();
+    let provider = adapter.id().to_string();
+    svc.agent_registry.register_provider(Box::new(adapter));
+    let launched: Vec<_> = svc
+        .mux
+        .read()
+        .all_tabs()
+        .filter(|tab| tab.agent_type.as_deref() == Some(provider.as_str()))
+        .filter_map(|tab| Some((tab.id.clone(), tab.session_binding_nonce.clone()?)))
+        .collect();
+    for (tab, nonce) in launched {
+        crate::service::agent_runtime::authority::record_spawn_for_test(svc, &tab, &provider, &nonce);
+    }
 }
 fn message() -> InboundMessage {
     InboundMessage {

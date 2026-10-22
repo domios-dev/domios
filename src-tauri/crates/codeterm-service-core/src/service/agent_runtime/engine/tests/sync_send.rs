@@ -58,6 +58,8 @@ module.exports = {
             manifest,
             Arc::new(PluginVm::from_source(PROVIDER, source.into()).unwrap()),
         )));
+    super::super::super::authority::record_spawn(&fixture.service, &tab_id, PROVIDER, &nonce)
+        .unwrap();
     let adapter = fixture
         .service
         .agent_registry
