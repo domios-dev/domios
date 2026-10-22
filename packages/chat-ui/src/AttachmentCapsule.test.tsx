@@ -65,6 +65,16 @@ const textNode = (element: Element, fragment: string) => [...element.childNodes]
 const capsules = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-inline-attachment"]')];
 
 describe("inline attachment capsules in the user bubble", () => {
+  it.each(["file", "image", "video"] as const)("names a %s attachment visibly and accessibly", async (kind) => {
+    const name = kind === "file" ? "report.pdf" : kind === "image" ? "holiday.png" : "recording.mp4";
+    const path = `/tmp/${name}`;
+    const host = await render(formatAttachmentMarker(path, kind, `${name} · 2.3 MB`));
+    const [button] = capsules(host);
+    expect(button.textContent).toBe(`${name} · 2.3 MB`);
+    expect(button.getAttribute("aria-label")).toContain(name);
+    expect(button.title).toBe(path);
+  });
+
   it("renders each capsule where it was typed, with the surrounding text in order", async () => {
     const host = await render(
       `compare ${formatAttachmentMarker(NOTES, "text", "text1")} with ${formatAttachmentMarker(NOTES, "text", "text1 · 312 lines")} please`,
