@@ -43,6 +43,7 @@ fn fresh_fixture() -> Sentinel {
     );
     let mut job = native_fixture(document);
     job.id = "sentinel_fresh".into();
+    job.scenario_id = Some(job.id.clone());
     job
 }
 
@@ -56,6 +57,7 @@ fn graph_fixture() -> Sentinel {
     );
     let mut job = native_fixture(document);
     job.id = "sentinel_graph".into();
+    job.scenario_id = Some(job.id.clone());
     job.expires_at = Some(9_000_000);
     job.next_run = 21_000;
     job.machine.last_hash = Some("abc123".into());
