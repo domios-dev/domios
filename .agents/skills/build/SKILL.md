@@ -1301,7 +1301,7 @@ non-Rust checks. A failed dependency lookup selected no executable tests.
 
 ### Lane and batch scopes
 
-After each batch of edits, Workers run `./build.sh fmt` once before their checks; the Orchestrator runs it once after each integrated edit batch before checks. It applies rustfmt to changed Rust files using their package editions and applies Biome's safe fixes/import organization to changed TS/JS/JSON files. This replaces hand-run rustfmt commands and does not enable Biome formatting. Use `--base REF` to select the comparison ref (default `origin/develop`).
+After each batch of edits, Workers run `./build.sh fmt` once before their checks; the Orchestrator runs it once after each integrated edit batch before checks. It applies rustfmt to changed Rust files using their package editions and applies Biome's safe fixes/import organization to changed TS/JS/JSON files. This replaces hand-run rustfmt commands and does not enable Biome formatting. Use `--base REF` to select the comparison ref (default: dispatched lane base, canonical checkout HEAD, then upstream/local develop). Missing lane dependencies report `pnpm install --frozen-lockfile`; Biome runs in bounded argument batches.
 
 Workers run `./build.sh fmt` once per batch, then one verification pass: a single `./build.sh lane-check <package>... [--tests]` call for all touched crates, changed TS/JS tests and `tsc` when TS changes, plus guards. List canonical selectors under GATES REQUESTED; on failure, fix all reported errors and recheck only what failed.
 
@@ -1360,7 +1360,7 @@ DEV and check-queue library Clippy retain default product features, including em
 
 Before committing, run `./build.sh lane-check <package>... [--tests]` once for all touched packages on every platform. It checks them in one Cargo invocation, stages frontend/sidecar resources without building them, and takes no gateway slot or sccache action. `codeterm-cli` selects `cli/Cargo.toml` and `--bin codeterm` and cannot mix with app workspace packages; library packages select the app manifest and `--lib`.
 
-`lane-check` exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` inside its own subshell, falling back to `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. Repository Cargo configuration and canonical gateway operations never select this shared directory. Cargo serializes lane checks with its build-directory lock; final targets remain per worktree. `source build.sh env` loads the toolchain without changing this cache policy. Builds and tests retain the gateway; check-queue remains the committed integration/clippy gate.
+`lane-check` exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` inside its own subshell, falling back to `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. Repository Cargo configuration and canonical gateway operations never select this shared directory. An OS-backed nonblocking lock serializes the entire lane Cargo invocation across final targets; a competing lane exits 75 without compiling. Python is required for this lock. Final targets remain per worktree. `source build.sh env` loads the toolchain without changing this cache policy. Builds and tests retain the gateway; check-queue remains the committed integration/clippy gate.
 
 Lane-check and retention resolve the shared directory with `scripts/lane-build-dir.mjs`: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). GC adds that directory explicitly, independently of canonical/gateway Cargo metadata, and trims it once under Cargo locks. Its `CACHEDIR.TAG`, fixed basename and direct-child boundary are required; links and busy locks refuse trimming. Existing two-level hash directories retain their guarded collector. Verify with `node --test scripts/cargo-build-gc.test.mjs scripts/tests/lane-check.test.mjs`.
 
@@ -1594,3 +1594,15 @@ pinned to the intended server artifact; human status does not authorize native p
 Focused pure coverage is `./build.sh test-one domios-server process_split_contract_headless`.
 Actual production/debug start, refusal and frontend-authentication proofs are
 parent-owned platform rows; source fixtures and compilation do not execute them.
+
+### Diagnose an unchanged-SHA test rebuild
+
+Run the next focused gateway job with `CODETERM_BUILD_FINGERPRINTS=1` (PowerShell:
+`$env:CODETERM_BUILD_FINGERPRINTS='1'` before `./build.ps1 test-one <scope> <selector> --wait-build`).
+The gateway retains the Cargo dirty reasons in `jobs/<job-id>.fingerprint.log`;
+capped test jobs also write `jobs/<job-id>.artifacts/compiler-inputs.json` after
+selecting the actual test target. Compare workspace/build/target directories,
+wrapper paths and compiler flags between jobs, then read the trace's dirty
+dependency or changed-input reason. The snapshot uses an explicit environment
+allowlist and never dumps credentials. Historical job sccache logs can include
+concurrent lane requests; matching metadata hashes alone do not explain a rebuild.
