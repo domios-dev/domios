@@ -18,6 +18,10 @@ fn main() {
 }
 
 fn execute() -> io::Result<()> {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("pty-child")) {
+        let exit = domios_server::pty_child::run(std::env::args_os().skip(2))?;
+        std::process::exit(exit);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if matches!(args.as_slice(), [arg] if arg == "--help" || arg == "help")
         || matches!(args.as_slice(), [command, arg] if command == "start" && arg == "--help")

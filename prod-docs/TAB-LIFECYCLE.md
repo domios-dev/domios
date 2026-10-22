@@ -15,7 +15,7 @@ codeterm tab timeout --tab <ID> --timeout 20m   # resets from now; `none` disabl
 
 A reset keeps the shell and its command. At expiry an idle shell closes quietly; running or unknown activity is terminated and the owner gets one `timed out` status giving shell lifetime and command elapsed separately. `tab restart` renews the previous lifetime from the restart; `--timeout` overrides it (or `none` disables it), for the owning agent only. Later commands share that lifetime. Daemon restarts preserve the absolute deadline; `tab inspect` shows `utility_deadline` (`started_ms`, `deadline_ms`, epoch ms) and the close journal records `utility_timeout`. An unrestorable shell is reported lost. REST: `POST /api/tabs` and `POST /api/tabs/{id}/restart` take optional `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
 
-`tab restart --cmd` runs the text verbatim, waits up to 10 s and returns the command's own exit status (timeout 124; unknown never succeeds). Only that command's start then finish mark completes it.
+`tab restart --cmd` delivers the command to the fresh shell and returns once the write is acknowledged (`command_delivered: true`). It does not wait for the command to finish; servers and watchers may continue running. Delivery failures return an error. Use `tab exec` when the command's final exit status is needed.
 
 Shell commands (`tab new/restart --cmd`, `tab exec`) reject C0 controls other than tab/CR/LF; in JSON use forward slashes or doubled backslashes.
 
@@ -43,7 +43,8 @@ An agent tab that was mid-turn when Domios stopped continues its work after the 
 
 - **The working mark is persisted continuously.** Each live turn edge of a PTY agent tab (working, or idle/question) updates its `turn_resume` mark in Storage: the tab's own `session_id` and the `start_epoch` that observed it. A turn that ended before the stop clears the mark. Once a graceful shutdown is armed the mark is frozen, so teardown never erases the turn it interrupted.
 - **One continue per tab per start.** At start, a mark recorded by an earlier start and not yet settled is owed. The tab receives one system message from Domios through the post-ready send path, only when it is `agent_ready` with a nonce-verified binding on the same session the mark recorded. The claim (`settled: {start_epoch, outcome: "sent"}`) is saved before the payload is written, so a later crash never produces a second continue for the same turn. Work the agent resumes after that continue records a fresh mark for the following start.
-- **Skips are recorded, never retried.** A tab that resumes on another session, comes back as a shell, has no PTY agent session, or is not agent-ready within the 300-second failure deadline is settled with `outcome: {"skipped": "<reason>"}` (`session_not_resumed`, `no_agent_session`, `no_pty_agent_session`, `spawn_failed`, `session_unverified`, `agent_not_ready`, `claim_not_persisted`, `session_changed_before_send`, `send_refused`, `disabled`). Idle tabs carry no mark and receive nothing. Owner messages are never replayed.
+- **Skips are recorded, never retried.** A tab that resumes on another session, comes back as a shell, has no PTY agent session, or is not agent-ready within the 300-second failure deadline is settled with `outcome: {"skipped": "<reason>"}` (`session_not_resumed`, `no_agent_session`, `no_pty_agent_session`, `spawn_failed`, `session_unverified`, `agent_not_ready`, `claim_not_persisted`, `session_changed_before_send`, `send_refused`, `submit_unconfirmed`, `disabled`). Idle tabs carry no mark and receive nothing. Owner messages are never replayed.
+- **Unconfirmed continuation is an incident.** A refused or unconfirmed submission records its typed code, tab, session and `bytes_written` flag in a system notice and `turn-resume-incident` event. Uncertainty settles as `submit_unconfirmed`; it never authorizes replay of the payload.
 - **A requested continuation shares the same owner.** `update install --from-file` (and `build.sh install-local`) passes `--continue-tab`/`--continue-prompt` to `/api/session/save`; the tab's mark then carries that prompt, survives the caller's turn ending, and is delivered once in place of the default text. The installer helper itself never writes to a tab.
 - `[agent] continue_after_restart = false` (`codeterm docs CONFIG`) disables delivery; owed marks settle as `disabled`.
 
@@ -235,4 +236,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 57 -->
+<!-- revision: 58 -->
