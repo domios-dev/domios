@@ -324,6 +324,16 @@ impl ServiceContext {
         thread: &str,
         nonce: &str,
     ) -> Result<bool, PlanBindingFailure> {
+        self.try_carry_authorized_runtime_restart_binding(tab_id, thread, nonce)
+            .inspect_err(|_| self.clear_runtime_restart_binding(tab_id))
+    }
+
+    fn try_carry_authorized_runtime_restart_binding(
+        &self,
+        tab_id: &str,
+        thread: &str,
+        nonce: &str,
+    ) -> Result<bool, PlanBindingFailure> {
         let mut bindings = BINDINGS.lock();
         let Some(authority) = bindings.get(&key(self, tab_id)).cloned() else {
             return Ok(false);
