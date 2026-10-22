@@ -1,0 +1,8 @@
+{
+  "decision_sha": "c013885e6692f8c3bf4fea2a1f740ab46b5852a6",
+  "sha256": "3d9da7cd5d10ff345b5628a18f61151c03138893aab3dd4ab51bb6f5d2a4ec6b",
+  "manifest_expected_sha256": "3d9da7cd5d10ff345b5628a18f61151c03138893aab3dd4ab51bb6f5d2a4ec6b",
+  "manifest_sha256": "cbe5a71ed4d7b1c5a4f8fc1a1749a63c56b46a5b3f7802e7a653a299215f1bc3",
+  "verified": true,
+  "first_payload_access_after_decision": true
+}

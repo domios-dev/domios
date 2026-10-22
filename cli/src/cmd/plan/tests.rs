@@ -141,7 +141,7 @@ fn renders_unknown_plan_fix() {
     .unwrap();
     assert!(msg.contains("✗ no plan 'missing'"));
     assert!(msg.contains("domios plan list --active"));
-    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm"));
+    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 domios"));
 }
 
 #[test]
@@ -209,7 +209,7 @@ fn renders_unknown_task_fix() {
     .unwrap();
     assert!(msg.contains("✗ no task 'missing_task'"));
     assert!(msg.contains("domios plan list --active"));
-    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm"));
+    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 domios"));
 }
 
 #[test]

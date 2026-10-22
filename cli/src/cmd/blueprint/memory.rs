@@ -1,13 +1,10 @@
-use serde_json::Value;
+use codeterm_blueprint_types::{
+    blueprint_document::Document,
+    blueprint_memory::{self as model, Entry},
+};
+use serde_json::{json, Value};
 
-pub(super) fn offers(mut stored: Value) -> Value {
-    for offer in stored.as_array_mut().into_iter().flatten() {
-        if let Some(id) = offer["id"].as_str() {
-            offer["id"] = Value::String(format!("memory:{id}"));
-        }
-    }
-    stored
-}
+const OFFERS: usize = 5;
 
 pub(super) fn save_receipt(saved: &Value) -> String {
     let mut text = format!(
@@ -25,4 +22,41 @@ pub(super) fn save_receipt(saved: &Value) -> String {
         ));
     }
     text
+}
+
+pub(super) fn offers(stored: Value, intent: &str) -> Value {
+    let stored = stored
+        .as_array()
+        .into_iter()
+        .flatten()
+        .cloned()
+        .map(|mut offer| {
+            if let Some(id) = offer["id"].as_str() {
+                offer["id"] = Value::String(format!("memory:{id}"));
+            }
+            offer
+        });
+    let builtins = super::recipe_files::FILES
+        .iter()
+        .filter_map(|(name, source)| {
+            let document = serde_yaml::from_str::<Document>(source).ok()?;
+            Some(Entry {
+                id: (*name).into(),
+                intents: vec![document
+                    .note
+                    .clone()
+                    .unwrap_or_else(|| document.name.clone())],
+                document,
+                uses: 0,
+                successes: 0,
+                failures: 0,
+                kept: false,
+                last_used: 0,
+            })
+        })
+        .collect::<Vec<_>>();
+    let matched = model::recall(&builtins, intent, OFFERS, chrono::Utc::now().timestamp())
+        .into_iter()
+        .map(|entry| json!({"id":entry.id,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"yaml":entry.document.yaml().unwrap_or_default(),"uses":entry.uses,"successes":entry.successes,"why":null}));
+    json!(stored.chain(matched).take(OFFERS).collect::<Vec<_>>())
 }

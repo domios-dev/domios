@@ -1,6 +1,5 @@
 //! Mem CRUD operations: save, get, update, delete.
 
-#[cfg(feature = "embeddings")]
 use super::reindex::compose_item_embed_text;
 use super::store::MemItem;
 use super::{store, MemManager, NewMemItem};
@@ -55,7 +54,6 @@ impl MemManager {
         let id = store::insert_seeded(&conn, &item, &self.blobs_dir, fingerprint)?;
         drop(conn);
 
-        #[cfg(feature = "embeddings")]
         {
             let body_text = if let Some(ref src) = item.source {
                 if let Some(path) = src.strip_prefix("file:") {
@@ -151,7 +149,6 @@ impl MemManager {
             self.embed_queue.cancel(&id);
         }
 
-        #[cfg(feature = "embeddings")]
         {
             let body_text = if let Some(ref src) = item.source {
                 if let Some(path) = src.strip_prefix("file:") {
@@ -184,7 +181,6 @@ impl MemManager {
 
     fn enqueue_embedding(&self, id: &str, item: &NewMemItem) {
         self.embed_queue.cancel(id);
-        #[cfg(feature = "embeddings")]
         if super::body_is_embeddable(&item.body) {
             let embed_text = compose_item_embed_text(
                 &format!("{:?}", item.kind).to_lowercase(),
@@ -197,8 +193,6 @@ impl MemManager {
             );
             self.embed_queue.enqueue(id.to_string(), embed_text);
         }
-        #[cfg(not(feature = "embeddings"))]
-        let _ = (id, item);
     }
 
     pub fn get(&self, id: &str) -> Result<Option<MemItem>, String> {
@@ -362,7 +356,6 @@ impl MemManager {
     /// directly, such as a merge or restore committed in one transaction.
     pub fn refresh_embedding(&self, id: &str) {
         self.embed_queue.cancel(id);
-        #[cfg(feature = "embeddings")]
         {
             let conn = self.conn.lock();
             if let Ok(Some(item)) = store::get(&conn, id, &self.blobs_dir) {

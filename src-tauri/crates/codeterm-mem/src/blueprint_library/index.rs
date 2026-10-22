@@ -1,5 +1,5 @@
 use crate::blueprint_wl::Signature;
-use crate::embeddings::EMBEDDING_DIMENSION;
+use crate::embedder::EmbedderIdentity;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 pub(crate) fn initialize(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS blueprint_index (item_id TEXT PRIMARY KEY REFERENCES mem_items(id) ON DELETE CASCADE, document_hash TEXT NOT NULL, canon TEXT NOT NULL, gists TEXT NOT NULL, signature_json TEXT NOT NULL, enrichment_json TEXT);
-         CREATE TABLE IF NOT EXISTS blueprint_vectors (item_id TEXT NOT NULL REFERENCES mem_items(id) ON DELETE CASCADE, slot TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, embedding BLOB NOT NULL, PRIMARY KEY (item_id, slot, ordinal));",
+         CREATE TABLE IF NOT EXISTS blueprint_vectors (item_id TEXT NOT NULL REFERENCES mem_items(id) ON DELETE CASCADE, slot TEXT NOT NULL, ordinal INTEGER NOT NULL, text TEXT NOT NULL, embedding BLOB NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, dimension INTEGER NOT NULL, PRIMARY KEY (item_id, slot, ordinal));",
     )
     .map_err(|error| error.to_string())
 }
@@ -154,19 +154,31 @@ pub(crate) fn indexed_items(conn: &Connection) -> Result<Vec<String>, String> {
         .map_err(|error| error.to_string())
 }
 
-pub(crate) fn read_vectors(conn: &Connection, item_id: &str) -> Result<Vectors, String> {
+pub(crate) fn read_vectors(
+    conn: &Connection,
+    item_id: &str,
+    identity: &EmbedderIdentity,
+) -> Result<Vectors, String> {
     let mut statement = conn
-        .prepare("SELECT slot,ordinal,text,embedding FROM blueprint_vectors WHERE item_id=?1")
+        .prepare("SELECT slot,ordinal,text,embedding FROM blueprint_vectors WHERE item_id=?1 AND provider=?2 AND model=?3 AND dimension=?4")
         .map_err(|error| error.to_string())?;
     let rows = statement
-        .query_map([item_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Vec<u8>>(3)?,
-            ))
-        })
+        .query_map(
+            params![
+                item_id,
+                identity.provider,
+                identity.model,
+                identity.dimension as i64
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                ))
+            },
+        )
         .map_err(|error| error.to_string())?;
     let mut vectors = Vectors::default();
     for row in rows {
@@ -174,7 +186,7 @@ pub(crate) fn read_vectors(conn: &Connection, item_id: &str) -> Result<Vectors, 
         let (Some(slot), Ok(ordinal)) = (Slot::parse(&slot), usize::try_from(ordinal)) else {
             continue;
         };
-        if let Some(vector) = decode(&blob) {
+        if let Some(vector) = decode(&blob, identity.dimension) {
             vectors.by_slot.insert((slot, ordinal), (text, vector));
         }
     }
@@ -184,9 +196,14 @@ pub(crate) fn read_vectors(conn: &Connection, item_id: &str) -> Result<Vectors, 
 pub(crate) fn replace_vectors(
     conn: &Connection,
     item_id: &str,
+    embedder: &crate::embedder::ActiveEmbedder,
+    identity: &EmbedderIdentity,
     keep: &[VectorKey],
     written: &[(VectorKey, String, Vec<f32>)],
 ) -> Result<(), String> {
+    if embedder.identity() != *identity {
+        return Err("mixed-model Blueprint vectors refused".into());
+    }
     let tx = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
@@ -200,7 +217,11 @@ pub(crate) fn replace_vectors(
     if !live {
         return Ok(());
     }
-    let existing = read_vectors(&tx, item_id)?;
+    tx.execute(
+        "DELETE FROM blueprint_vectors WHERE item_id=?1 AND (provider!=?2 OR model!=?3 OR dimension!=?4)",
+        params![item_id, identity.provider, identity.model, identity.dimension as i64],
+    ).map_err(|error| error.to_string())?;
+    let existing = read_vectors(&tx, item_id, identity)?;
     for key in existing.by_slot.keys() {
         if !keep.contains(key) {
             tx.execute(
@@ -211,17 +232,19 @@ pub(crate) fn replace_vectors(
         }
     }
     for ((slot, ordinal), text, vector) in written {
+        crate::embedder::provider::validate_vector(vector, identity.dimension)
+            .map_err(|error| error.to_string())?;
         tx.execute(
-            "INSERT INTO blueprint_vectors(item_id,slot,ordinal,text,embedding) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(item_id,slot,ordinal) DO UPDATE SET text=excluded.text, embedding=excluded.embedding",
-            params![item_id, slot.name(), *ordinal as i64, text, encode(vector)],
+            "INSERT INTO blueprint_vectors(item_id,slot,ordinal,text,embedding,provider,model,dimension) VALUES (?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(item_id,slot,ordinal) DO UPDATE SET text=excluded.text, embedding=excluded.embedding, provider=excluded.provider, model=excluded.model, dimension=excluded.dimension",
+            params![item_id, slot.name(), *ordinal as i64, text, encode(vector), identity.provider, identity.model, identity.dimension as i64],
         )
         .map_err(|error| error.to_string())?;
     }
     tx.commit().map_err(|error| error.to_string())
 }
 
-pub(crate) fn valid_dimension(vector: &[f32]) -> bool {
-    vector.len() == EMBEDDING_DIMENSION && vector.iter().all(|value| value.is_finite())
+pub(crate) fn valid_dimension(vector: &[f32], dimension: usize) -> bool {
+    dimension > 0 && vector.len() == dimension && vector.iter().all(|value| value.is_finite())
 }
 
 fn encode(vector: &[f32]) -> Vec<u8> {
@@ -231,15 +254,24 @@ fn encode(vector: &[f32]) -> Vec<u8> {
         .collect()
 }
 
-fn decode(blob: &[u8]) -> Option<Vec<f32>> {
+fn decode(blob: &[u8], dimension: usize) -> Option<Vec<f32>> {
+    if blob.len() != dimension.checked_mul(4)? {
+        return None;
+    }
     let vector = blob
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .copied()
+        .map(f32::from_le_bytes)
         .collect::<Vec<_>>();
-    valid_dimension(&vector).then_some(vector)
+    valid_dimension(&vector, dimension).then_some(vector)
 }
 
 pub fn cosine(a: &[f32], b: &[f32]) -> f64 {
+    if a.len() != b.len() {
+        return 0.0;
+    }
     let dot: f64 = a
         .iter()
         .zip(b)

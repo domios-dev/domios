@@ -1,4 +1,5 @@
-use super::services::{BlueprintEmbedder, BlueprintEnricher, EnrichmentJob};
+use super::services::{BlueprintEnricher, EnrichmentJob};
+use crate::embedder::{provider, Content, EmbedError, EmbeddingProvider, Modality};
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -18,7 +19,7 @@ impl WordEmbedder {
         if !self.available.load(Ordering::SeqCst) {
             return Err("fake embedder offline".into());
         }
-        let mut vector = vec![0.0f32; crate::embeddings::EMBEDDING_DIMENSION];
+        let mut vector = vec![0.0f32; self.dimension()];
         for word in text
             .to_lowercase()
             .split(|c: char| !c.is_alphanumeric())
@@ -35,13 +36,32 @@ impl WordEmbedder {
     }
 }
 
-impl BlueprintEmbedder for WordEmbedder {
-    fn passage(&self, text: &str) -> Result<Vec<f32>, String> {
-        self.vector(text)
+impl EmbeddingProvider for WordEmbedder {
+    fn id(&self) -> &str {
+        "fixture"
+    }
+    fn model(&self) -> &str {
+        "word"
+    }
+    fn dimension(&self) -> usize {
+        384
+    }
+    fn max_tokens(&self) -> usize {
+        512
+    }
+    fn modalities(&self) -> &[Modality] {
+        &[Modality::Text]
+    }
+    fn remote(&self) -> bool {
+        false
+    }
+    fn embed_passage(&self, content: &Content) -> Result<Vec<f32>, EmbedError> {
+        let text = provider::supported_text(self.modalities(), content)?;
+        self.vector(text).map_err(EmbedError::Unavailable)
     }
 
-    fn query(&self, text: &str) -> Result<Vec<f32>, String> {
-        self.vector(text)
+    fn embed_query(&self, content: &Content) -> Result<Vec<f32>, EmbedError> {
+        self.embed_passage(content)
     }
 }
 

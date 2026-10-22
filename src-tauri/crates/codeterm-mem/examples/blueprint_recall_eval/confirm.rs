@@ -118,7 +118,7 @@ fn evaluate_set(
         frozen_sha256: guard::sha256_file(&grid::frozen_path())?,
         queries_sha256: guard::sha256_file(queries_path)?,
         manifest_sha256: manifest.map(|(_, hash)| hash),
-        embedder: codeterm_mem::embeddings::EMBEDDER_MODEL_ID.into(),
+        embedder: library.mem.embedder().identity().to_string(),
         config_id: frozen.config_id,
         enrichment_applied: library.enriched,
         refused: library.refused.clone(),
@@ -173,7 +173,7 @@ pub fn query(text: &str, k: usize, json: bool) -> Result<(), String> {
     if json {
         println!(
             "{}",
-            serde_json::json!({"query": text, "config": frozen.config_id, "embedder": codeterm_mem::embeddings::EMBEDDER_MODEL_ID, "hits": hits})
+            serde_json::json!({"query": text, "config": frozen.config_id, "embedder": library.mem.embedder().identity().to_string(), "hits": hits})
         );
     } else {
         for (rank, hit) in hits.iter().enumerate() {

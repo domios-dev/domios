@@ -1,0 +1,159 @@
+{
+  "decision": "keep L12 (owner)",
+  "selection": "final explicit owner decision supersedes preregistered and intervening amended rules",
+  "b4_read_at_decision": false,
+  "deferred_by_owner": [
+    "mem-bench",
+    "production snapshot recall",
+    "fresh query writers"
+  ],
+  "candidates": [
+    {
+      "label": "l12",
+      "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+      "disk_bytes": 479724528,
+      "oracle_min_cosine": 0.9999998211860657,
+      "oracle_cases": 70,
+      "warm_embeds_per_second": 117.3603446652277,
+      "b3": {
+        "n": 38,
+        "recall_at_1": 0.8421052631578947,
+        "recall_at_3": 0.7719298245614035,
+        "recall_at_5": 0.9210526315789473,
+        "posthoc": true,
+        "source_sha": "59795e0ac9be47cad27707e621bcb800f5a39b4b",
+        "query_sha256": "c220935ea1105cbee7d4838a5ab3e45ebac087f22d9d368b0667c063057205ec",
+        "frozen_config_sha256": "4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432"
+      },
+      "ru": {
+        "n": 20,
+        "recall_at_1": 0.6,
+        "recall_at_3": 0.5833333333333333,
+        "recall_at_5": 0.7333333333333333,
+        "posthoc": true,
+        "source_sha": "59795e0ac9be47cad27707e621bcb800f5a39b4b",
+        "query_sha256": "ad8937ce0f72b361a48279593d29c242a5c055830a158aa3a41b68c73fa50214",
+        "frozen_config_sha256": "4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432"
+      },
+      "mem_bench": null,
+      "snapshot_recall": null
+    },
+    {
+      "label": "multilingual-e5-small",
+      "model": "intfloat/multilingual-e5-small",
+      "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+      "disk_bytes": 487725595,
+      "oracle_min_cosine": 0.9999998807907104,
+      "oracle_cases": 70,
+      "warm_embeds_per_second": 109.98661237199015,
+      "b3": {
+        "n": 38,
+        "recall_at_1": 0.8947368421052632,
+        "recall_at_3": 0.8070175438596491,
+        "recall_at_5": 0.868421052631579,
+        "posthoc": true,
+        "source_sha": "59795e0ac9be47cad27707e621bcb800f5a39b4b",
+        "query_sha256": "c220935ea1105cbee7d4838a5ab3e45ebac087f22d9d368b0667c063057205ec",
+        "frozen_config_sha256": "4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432"
+      },
+      "ru": {
+        "n": 20,
+        "recall_at_1": 0.65,
+        "recall_at_3": 0.6333333333333333,
+        "recall_at_5": 0.7833333333333333,
+        "posthoc": true,
+        "source_sha": "59795e0ac9be47cad27707e621bcb800f5a39b4b",
+        "query_sha256": "ad8937ce0f72b361a48279593d29c242a5c055830a158aa3a41b68c73fa50214",
+        "frozen_config_sha256": "4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432"
+      },
+      "mem_bench": null,
+      "snapshot_recall": null
+    },
+    {
+      "label": "bge-small-en-v1.5",
+      "model": "BAAI/bge-small-en-v1.5",
+      "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "disk_bytes": 134178934,
+      "oracle_min_cosine": 0.9999998807907104,
+      "oracle_cases": 70,
+      "warm_embeds_per_second": 106.01881271873566,
+      "b3": {
+        "n": 38,
+        "recall_at_1": 0.868421052631579,
+        "recall_at_3": 0.8333333333333334,
+        "recall_at_5": 0.9473684210526315,
+        "posthoc": true,
+        "source_sha": "59795e0ac9be47cad27707e621bcb800f5a39b4b",
+        "query_sha256": "c220935ea1105cbee7d4838a5ab3e45ebac087f22d9d368b0667c063057205ec",
+        "frozen_config_sha256": "4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432"
+      },
+      "ru": {
+        "n": 20,
+        "recall_at_1": 0.2,
+        "recall_at_3": 0.18333333333333332,
+        "recall_at_5": 0.3333333333333333,
+        "posthoc": true,
+        "source_sha": "59795e0ac9be47cad27707e621bcb800f5a39b4b",
+        "query_sha256": "ad8937ce0f72b361a48279593d29c242a5c055830a158aa3a41b68c73fa50214",
+        "frozen_config_sha256": "4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432"
+      },
+      "mem_bench": null,
+      "snapshot_recall": null
+    },
+    {
+      "label": "e5-small-v2",
+      "model": "intfloat/e5-small-v2",
+      "revision": "ffb93f3bd4047442299a41ebb6fa998a38507c52",
+      "disk_bytes": 134178754,
+      "oracle_min_cosine": 0.9999998807907104,
+      "oracle_cases": 70,
+      "warm_embeds_per_second": 105.62805038056146,
+      "b3": {
+        "n": 38,
+        "recall_at_1": 0.9736842105263158,
+        "recall_at_3": 0.8157894736842105,
+        "recall_at_5": 0.9298245614035089,
+        "posthoc": true,
+        "source_sha": "59795e0ac9be47cad27707e621bcb800f5a39b4b",
+        "query_sha256": "c220935ea1105cbee7d4838a5ab3e45ebac087f22d9d368b0667c063057205ec",
+        "frozen_config_sha256": "4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432"
+      },
+      "ru": {
+        "n": 20,
+        "recall_at_1": 0.3,
+        "recall_at_3": 0.26666666666666666,
+        "recall_at_5": 0.45,
+        "posthoc": true,
+        "source_sha": "59795e0ac9be47cad27707e621bcb800f5a39b4b",
+        "query_sha256": "ad8937ce0f72b361a48279593d29c242a5c055830a158aa3a41b68c73fa50214",
+        "frozen_config_sha256": "4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432"
+      },
+      "mem_bench": null,
+      "snapshot_recall": null
+    }
+  ],
+  "b4": {
+    "head": "270bdbb18b3b3b23e6934b4694d0db997682d534",
+    "ran_at": "2026-10-22T15:24:17.102883+00:00",
+    "embedder": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "config_id": "C10",
+    "gate_b": "PASS (pooled recall@5 0.8167 vs 0.80)",
+    "prereg_sha": "88f2e63b042dbe91b3b7cbba99bd849b636ab766",
+    "frozen_sha": "e5f666bb37da53c9e5639d9d72901ad68bc1cdaf",
+    "frozen_sha256": "4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432",
+    "queries_sha256": "3d9da7cd5d10ff345b5628a18f61151c03138893aab3dd4ab51bb6f5d2a4ec6b",
+    "manifest_sha256": "cbe5a71ed4d7b1c5a4f8fc1a1749a63c56b46a5b3f7802e7a653a299215f1bc3",
+    "queries": 40,
+    "recall": {
+      "@1": 0.85,
+      "@3": 0.7,
+      "@5": 0.8166666666666667
+    },
+    "confirmation_invocations": 1,
+    "decision_sha": "c013885e6692f8c3bf4fea2a1f740ab46b5852a6",
+    "command_exit": 0,
+    "gateway_job": "20261022T152352-58369-17577",
+    "rerank": "disabled; gate has no rerank, optional paid arm not measured"
+  }
+}

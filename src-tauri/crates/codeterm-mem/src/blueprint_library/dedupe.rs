@@ -69,7 +69,7 @@ impl MemManager {
         let row = |id: &str| -> Result<_, String> {
             Ok((
                 index::read_row(&conn, id)?.ok_or_else(|| format!("{id} is not indexed"))?,
-                index::read_vectors(&conn, id)?,
+                index::read_vectors(&conn, id, &self.embedder.identity())?,
             ))
         };
         let ((row_a, vectors_a), (row_b, vectors_b)) = (row(a)?, row(b)?);

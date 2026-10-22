@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm"
-version = "1.15.1"
+version = "1.15.2"
 dependencies = [
  "async-trait",
  "codeterm-build-info",
@@ -1613,6 +1613,7 @@ dependencies = [
  "codeterm-decision",
  "codeterm-mem-store",
  "codeterm-paths",
+ "codeterm-secrets",
  "codeterm-types",
  "codeterm-util",
  "hf-hub",
@@ -1637,6 +1638,7 @@ dependencies = [
  "ulid",
  "uuid",
  "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
