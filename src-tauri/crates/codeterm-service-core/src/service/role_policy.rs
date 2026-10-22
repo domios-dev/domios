@@ -71,6 +71,7 @@ pub trait RolePolicy: Send + Sync {
     fn raw_task(&self) -> bool;
     fn retarget_only(&self) -> bool;
     fn conservative_save(&self) -> bool;
+    fn authorize_notification(&self, service: &ServiceContext, tab: &str) -> Result<(), String>;
     fn run_completion(&self) -> RunCompletion;
     fn session_claimed(&self, service: &ServiceContext, tab: &str) -> Result<(), String>;
     fn tab_closed(&self, service: &ServiceContext, tab: &str) -> Result<(), String>;

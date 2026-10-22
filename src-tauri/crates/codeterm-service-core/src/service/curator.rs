@@ -11,6 +11,7 @@ use codeterm_types::plan::control_loop::{
 };
 use serde_json::json;
 
+mod ask;
 mod authority;
 mod save;
 mod skill;

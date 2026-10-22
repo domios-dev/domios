@@ -22,6 +22,7 @@ impl ServiceContext {
         let observed = ports.store.save_candidates();
         self.plan_store
             .with_plan(plan_id, now, |plan| {
+                retain_live_blueprints(&mut plan.control_loop, &ids);
                 for task in plan
                     .tasks
                     .iter()
@@ -123,3 +124,16 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?
     }
 }
+
+fn retain_live_blueprints(state: &mut codeterm_types::plan::ControlLoop, live: &BTreeSet<String>) {
+    state
+        .save_candidates
+        .retain(|id, _| id.starts_with("plan-skill:") || live.contains(id));
+    state
+        .save_candidate_shapes
+        .retain(|id, _| id.starts_with("plan-skill:") || live.contains(id));
+}
+
+#[cfg(test)]
+#[path = "save_tests.rs"]
+mod tests;

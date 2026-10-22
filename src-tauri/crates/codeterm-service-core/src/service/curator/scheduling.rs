@@ -534,6 +534,7 @@ impl ServiceContext {
             }
         };
         let mut header=format!("plan {} | {:?} | control loop curator | orchestrator {} activity {:?} | open {} in_progress {} review {} blocked {} | lanes {} pressure {} | handoff_age_ms {:?} | round {}",plan.id,plan.mode,owner,self.resolved_tab_status(&tab),counts.pending,counts.in_progress,counts.in_review,counts.blocked,lanes,if lanes>CURATOR_HIGH_LANES {"high"}else if lanes>CURATOR_ELEVATED_LANES {"elevated"}else{"normal"},handoff_age,number);
+        header.push_str(&format!("\nask: {}", super::ask::command(owner)));
         let rubric = codeterm_prompts::prompts::CURATOR_RUBRIC;
         let real_rounds = curator::synthesis::real_rounds_started(&plan);
         let group_close = curator::synthesis::group_close(&plan).filter(|at| {
