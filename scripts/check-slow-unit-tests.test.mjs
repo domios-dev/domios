@@ -74,7 +74,7 @@ describe('build nextest ratchet', () => {
   const run = (report, code, scope = 'app', base = 'HEAD') => {
     writeFileSync(join(root, 'nextest.log'), report);
     writeFileSync(join(root, 'cargo-args.log'), '');
-    return spawnSync('bash', ['gate.sh'], {cwd: root, encoding: 'utf8', env: {
+    return spawnSync(process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash', ['gate.sh'], {cwd: root, encoding: 'utf8', env: {
       ...process.env, FIXTURE_SCOPE: scope, FIXTURE_CARGO_LOG: join(root, 'cargo-args.log'), FIXTURE_REPORT: join(root, 'nextest.log'), FIXTURE_RUN_EXIT: String(code), SLOW_UNIT_TESTS_BASE: base,
     }});
   };

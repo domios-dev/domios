@@ -34,6 +34,12 @@ dev_notify_capture_parent
 CMD="${1:-dev}"
 source scripts/lane-rust-guard.sh
 require_canonical_rust_tests "$CMD" "${@:2}" || exit $?
+if [ "$CMD" = test-related ]; then
+  local related_shell="$BASH"
+  if command -v cygpath >/dev/null 2>&1; then related_shell="$(cygpath -w "$BASH")"; fi
+  CT_TEST_RELATED_SHELL="$related_shell" node scripts/test-related.mjs "${@:2}"
+  return $?
+fi
 CT_DEV_WAIT=0
 DEV_NOTIFY_TAB="${DEV_NOTIFY_TAB:-${BUILD_NOTIFY_TAB:-}}"
 DEV_NOTIFY_TARGET_KIND="${DEV_NOTIFY_TARGET_KIND:-none}"
@@ -484,6 +490,9 @@ run_nextest_scope() {
     filter_args=()
     confirmation_args=(--archive-file "$archive")
   else
+  if [ -f "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/nextest-metadata-cache.mjs" ]; then
+    node "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/nextest-metadata-cache.mjs" "$timing_dir" "$manifest" "${targets[@]}" || return $?
+  else
   if cargo nextest list --manifest-path "$manifest" "${targets[@]}" \
     --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
     :
@@ -498,6 +507,7 @@ run_nextest_scope() {
     run_exit=$?
     rm -rf "$timing_dir"
     return "$run_exit"
+  fi
   fi
   reuse_args=(--binaries-metadata "$timing_dir/binaries.json" --cargo-metadata "$timing_dir/cargo.json")
   confirmation_args=("$timing_dir/binaries.json" "$timing_dir/cargo.json")
@@ -1646,8 +1656,7 @@ if [ "${CODETERM_TEST_PRINT_BUILD_CACHE_POLICY:-}" = "1" ]; then
 fi
 
 prepare_bundle_stubs() {
-  node scripts/prepare-cli-stub.js
-  node scripts/prepare-bundle-resource-stubs.mjs prepare --target "${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
+  node scripts/prepare-test-bundle.mjs "${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
 }
 
 prepare_dev_frontend_dist() {
@@ -2477,8 +2486,12 @@ prepare_release_bundle_inputs() {
 }
 
 enter_cargo_gateway() {
+  local phase_start=$SECONDS
   enter_build_gateway "$@"
+  printf '[test-loop] gateway %ss\n' "$((SECONDS - phase_start))"
+  phase_start=$SECONDS
   ct_configure_sccache
+  printf '[test-loop] sccache %ss\n' "$((SECONDS - phase_start))"
 }
 
 package_platform() {
@@ -2644,6 +2657,7 @@ Domios build commands
                               Run one focused Rust test
   process-probe --case server-only|arbitration|pair-journey --instance split-oracle  Build and prove isolated process ownership
   nextest <scope> [filterset]  Compile then run Rust tests through nextest
+  test-related <file>...     Print and run Rust module/crate and TS related selections
   nextest-archive [sha] [--measure selector...] Build/reuse one archive and optionally time selectors
   release-rust [runner-id...]  Run every release-tier Rust runner of tests/catalogue.json (or the named ones)
   test                        Run the application Rust unit suite
@@ -3158,8 +3172,6 @@ EOF
     esac
     ;;
   nextest)
-    prepare_dev_frontend_dist "$(pwd -P)"
-    prepare_bundle_stubs
     run_nextest_scope "${@:2}"
     ;;
   nextest-archive)
