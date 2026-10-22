@@ -512,14 +512,15 @@ impl ServiceContext {
     ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
         use sha2::Digest;
         let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
-        let previous_digest = self
+        let previous = self
             .mux
             .read()
             .get_tab(tab_id)
             .and_then(|tab| tab.pending_delivery.as_ref())
-            .map(|record| record.content_digest.clone());
+            .cloned();
+        let record = crate::multiplexer::types::PendingDeliveryRecord::new(digest.clone(), channel);
         self.pending_delivery_payloads
-            .replace(previous_digest.as_deref(), &digest, payload)?;
+            .replace(previous.as_ref(), &record, payload)?;
         let mut mux = self.mux.write();
         let tab = mux.get_tab_mut(tab_id).ok_or_else(|| {
             pending_delivery_payloads::PayloadStoreError::Io {
@@ -527,7 +528,6 @@ impl ServiceContext {
                 message: format!("tab {tab_id} vanished while creating pending delivery"),
             }
         })?;
-        let record = crate::multiplexer::types::PendingDeliveryRecord::new(digest.clone(), channel);
         tab.pending_delivery = Some(match send_id {
             Some(send_id) => record.with_send_id(send_id.to_string()),
             None => record,
