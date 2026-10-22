@@ -345,3 +345,98 @@ fn blueprint_v2_call_missing_catalog_hash_never_rebinds_to_embedded_head() {
         .unwrap_err();
     assert!(failure.contains("Missing pinned hash"), "{failure}");
 }
+
+#[test]
+fn blueprint_v2_call_review_archive_warns_and_keeps_pins_but_refuses_new_pins() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let id = save(&mem, callable(8));
+    let frozen = mem
+        .pin_blueprint_calls("blueprints:workspace", "team", caller(&id))
+        .unwrap();
+    archive(&mem.conn.lock(), &id, "blueprint solution area cap").unwrap();
+    let warnings = mem
+        .blueprint_call_drift("blueprints:workspace", "team", frozen.clone())
+        .unwrap();
+    assert_eq!(warnings.len(), 1);
+    assert!(serde_json::to_value(&warnings[0]).unwrap()["reason"]
+        .as_str()
+        .unwrap()
+        .contains("cap"));
+    assert!(mem
+        .pin_blueprint_calls("blueprints:workspace", "team", caller(&id))
+        .is_err());
+    assert_eq!(
+        pin(&mem
+            .pin_blueprint_calls("blueprints:workspace", "team", frozen.clone())
+            .unwrap()),
+        pin(&frozen)
+    );
+}
+#[test]
+fn blueprint_v2_call_review_dream_merge_without_edit_warns_with_keeper_and_diff() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let id = save(&mem, callable(8));
+    let frozen = mem
+        .pin_blueprint_calls("blueprints:workspace", "team", caller(&id))
+        .unwrap();
+    let mut prepared = mem
+        .qualify_blueprint(
+            "blueprints:workspace",
+            callable(99),
+            &["Return fixed data".into()],
+            Evidence {
+                kept: true,
+                successes: 100,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    prepared.team = Some("team".into());
+    let keeper = mem
+        .persist_blueprint("blueprints:workspace", prepared, false, AREA_CAP)
+        .unwrap()
+        .id;
+    assert_eq!(mem.dream_blueprints().unwrap(), 1);
+    assert_eq!(mem.get(&id).unwrap().unwrap().kind, "archived");
+    let warnings = mem
+        .blueprint_call_drift("blueprints:workspace", "team", frozen.clone())
+        .unwrap();
+    assert_eq!(warnings.len(), 1);
+    assert!(serde_json::to_value(&warnings[0]).unwrap()["reason"]
+        .as_str()
+        .unwrap()
+        .contains(&keeper));
+    assert!(warnings[0].diff.changed["value"].contains(&"code".into()));
+    assert!(mem
+        .blueprint_call_revision("blueprints:workspace", "team", &pin(&frozen))
+        .is_ok());
+}
+#[test]
+fn blueprint_v2_call_review_eviction_warns_without_a_body_edit() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let id = save(&mem, callable(8));
+    let frozen = mem
+        .pin_blueprint_calls("blueprints:workspace", "team", caller(&id))
+        .unwrap();
+    let mut prepared = mem
+        .qualify_blueprint(
+            "blueprints:workspace",
+            callable(99),
+            &["Return fixed data".into()],
+            evidence(),
+        )
+        .unwrap();
+    prepared.team = Some("team".into());
+    let saved = mem
+        .persist_blueprint("blueprints:workspace", prepared, false, 1)
+        .unwrap();
+    assert_eq!(saved.evicted_ids, vec![id]);
+    let warnings = mem
+        .blueprint_call_drift("blueprints:workspace", "team", frozen)
+        .unwrap();
+    assert_eq!(warnings.len(), 1);
+    assert!(serde_json::to_value(&warnings[0]).unwrap()["reason"]
+        .as_str()
+        .unwrap()
+        .contains("cap"));
+}

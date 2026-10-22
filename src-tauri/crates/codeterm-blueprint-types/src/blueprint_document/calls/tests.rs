@@ -620,3 +620,67 @@ fn blueprint_v2_call_diff_keeps_all_revisions_of_one_stable_identity() {
         2
     );
 }
+
+#[test]
+fn blueprint_v2_call_review_other_is_refused_by_positioned_call_rule() {
+    let tree = Tree::new();
+    let mut closure = good(&tree);
+    let (_, mut callee) = closure.callees.pop_first().unwrap();
+    callee
+        .document
+        .other
+        .push(serde_json::from_value(json!({"id":"failure-only","uses":"notify"})).unwrap());
+    callee.hash = ir_projection::identity(&callee.document).unwrap();
+    closure.root.document.steps[0].call.as_mut().unwrap().pin = Some(callee.pin());
+    closure.callees.insert(callee.pin().key(), callee);
+    let context = check_context(&closure, &Default::default());
+    assert!(context
+        .call_diagnostics
+        .iter()
+        .any(|d| d.rule.starts_with('C')
+            && d.message.contains("other")
+            && d.field == "steps[0].call"
+            && d.line > 0));
+}
+struct ReviewMemory(Document);
+impl MemoryResolver for ReviewMemory {
+    fn head(&self, _: &str) -> Result<Document, String> {
+        Ok(self.0.clone())
+    }
+    fn revision(&self, _: &CallPin) -> Result<Document, String> {
+        Ok(self.0.clone())
+    }
+}
+#[test]
+fn blueprint_v2_call_review_saved_ref_cannot_disagree_with_pin_identity() {
+    let tree = Tree::new();
+    let closure = good(&tree);
+    let mut callee = closure.callees.values().next().unwrap().clone();
+    callee.id = "mem:pinned".into();
+    let mut document = closure.root.document;
+    document.imports.clear();
+    document.steps[0].call.as_mut().unwrap().reference = "mem:displayed".into();
+    document.steps[0].call.as_mut().unwrap().pin = Some(callee.pin());
+    document.dependencies = BTreeMap::from([(callee.pin().key(), callee.clone())]);
+    assert!(resolve_saved(document, &ReviewMemory(callee.document.as_ref().clone())).is_err());
+}
+#[test]
+fn blueprint_v2_call_review_unknown_alias_cannot_keep_an_unrelated_pin() {
+    let tree = Tree::new();
+    let mut closure = good(&tree);
+    closure.root.document.steps[0]
+        .call
+        .as_mut()
+        .unwrap()
+        .reference = "unknown-alias".into();
+    let document = closure.document();
+    let leaf = closure
+        .callees
+        .values()
+        .next()
+        .unwrap()
+        .document
+        .as_ref()
+        .clone();
+    assert!(resolve_saved(document, &ReviewMemory(leaf)).is_err());
+}

@@ -590,3 +590,6 @@ fn blueprint_v2_call_keep_file_sends_bytes_and_preserves_unbound_signature() {
     assert!(params.get("source_file").is_none());
     assert!(params.get("id").is_none());
 }
+
+#[path = "review_tests.rs"]
+mod review_tests;
