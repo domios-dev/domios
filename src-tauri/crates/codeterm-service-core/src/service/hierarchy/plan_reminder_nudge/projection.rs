@@ -47,15 +47,16 @@ pub(crate) fn project_for_tab(
     if !reminders_enabled || interval_secs == 0 || tab_id.is_empty() {
         return Vec::new();
     }
-    let cadence_ms = interval_secs.saturating_mul(1000);
-    let next_due_ms = deadline_secs
-        .unwrap_or(now_secs)
-        .saturating_add(interval_secs)
-        .saturating_mul(1000);
     timed_plan_reminder_targets(plans)
         .into_iter()
         .filter(|target| target.tab_id == tab_id)
         .filter_map(|target| {
+            let interval = super::effective_interval(plans, &target.target, interval_secs);
+            let cadence_ms = interval.saturating_mul(1000);
+            let next_due_ms = deadline_secs
+                .unwrap_or(now_secs)
+                .saturating_add(interval)
+                .saturating_mul(1000);
             project_target(
                 plans,
                 &target.target,

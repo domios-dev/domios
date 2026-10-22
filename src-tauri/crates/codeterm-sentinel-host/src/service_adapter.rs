@@ -190,7 +190,11 @@ impl SentinelExt for ServiceContext {
         id: &str,
         text: String,
     ) -> Result<serde_json::Value, String> {
-        self.authorize_curator_operation(&caller.tab, Some(id), "input")?;
+        self.authorize_role_blueprint(
+            &caller.tab,
+            Some(id),
+            codeterm_service_core::service::role_policy::BlueprintAction::Input,
+        )?;
         let job = self.sentinel_show(caller, id)?;
         let input = job.input().ok_or("blueprint is not a text input stage")?;
         if input.kind != codeterm_blueprint_types::sentinel_input::MediaKind::Text
@@ -221,7 +225,11 @@ impl SentinelExt for ServiceContext {
         expect_version: u64,
         history: &serde_json::Value,
     ) -> Result<Sentinel, String> {
-        self.authorize_curator_operation(&caller.tab, Some(id), "update")?;
+        self.authorize_role_blueprint(
+            &caller.tab,
+            Some(id),
+            codeterm_service_core::service::role_policy::BlueprintAction::Update,
+        )?;
         let definition = history_definition(history, id, expect_version)?;
         let snapshot: DefinitionSnapshot = serde_json::from_value(definition)
             .map_err(|error| format!("invalid history definition: {error}"))?;
@@ -267,7 +275,13 @@ impl SentinelExt for ServiceContext {
         let snapshot: DefinitionSnapshot = serde_json::from_value(definition)
             .map_err(|error| format!("invalid history definition: {error}"))?;
         if let Some(pipeline) = snapshot.pipeline.clone() {
-            return self.blueprint_pipeline_validate_update(caller, id, expect_version, pipeline);
+            return serde_json::to_value(self.blueprint_pipeline_validate_update(
+                caller,
+                id,
+                expect_version,
+                pipeline,
+            )?)
+            .map_err(|error| error.to_string());
         }
         let prepared =
             self.prepare_history_update(caller, id, expect_version, snapshot, history)?;
@@ -349,6 +363,7 @@ impl SentinelExt for ServiceContext {
         }
         crate::handlers::validate(&prepared.job.buckets, &prepared.job.routes)?;
         crate::source::validate(&prepared.job)?;
+        crate::watch_input::validate(self, &prepared.job)?;
         crate::escalation::validate(&prepared.job)?;
         let resolution_source = prepared.job.clone();
         for handler in prepared
@@ -394,7 +409,11 @@ impl SentinelExt for ServiceContext {
         create: Create,
         imported_stopped: Option<bool>,
     ) -> Result<Sentinel, String> {
-        self.authorize_curator_operation(&caller.tab, None, "create")?;
+        self.authorize_role_blueprint(
+            &caller.tab,
+            None,
+            codeterm_service_core::service::role_policy::BlueprintAction::Create,
+        )?;
         let mut job = self.prepare_sentinel_create(caller, create)?;
         job.machine.stopped = imported_stopped.unwrap_or(false);
         let handle = self
@@ -449,6 +468,7 @@ impl SentinelExt for ServiceContext {
             },
             connected,
         )?;
+        crate::watch_input::validate(self, &job)?;
         if let Some(binding) = job.observe().cloned() {
             job.set_observe(Some(source::resolve_binding(self, &job, &binding)?));
         }
@@ -497,7 +517,11 @@ impl SentinelExt for ServiceContext {
         expect_version: u64,
         update: Update,
     ) -> Result<Sentinel, String> {
-        self.authorize_curator_operation(&caller.tab, Some(id), "update")?;
+        self.authorize_role_blueprint(
+            &caller.tab,
+            Some(id),
+            codeterm_service_core::service::role_policy::BlueprintAction::Update,
+        )?;
         let (current, update) = self.prepare_sentinel_update(caller, id, expect_version, update)?;
         let handle = self
             .host_extension::<Handle>()
@@ -586,6 +610,7 @@ impl SentinelExt for ServiceContext {
             && update.matches.is_empty()
             && classify::connected_model(self).is_some();
         let mut update = update.prepare(&current, &caller.tab, connected)?;
+        crate::watch_input::validate(self, &update.job)?;
         let resolution_source = update.job.clone();
         for handler in update
             .job
@@ -660,7 +685,11 @@ impl SentinelExt for ServiceContext {
         id: &str,
         transition_id: &str,
     ) -> Result<Sentinel, String> {
-        self.authorize_curator_operation(&caller.tab, Some(id), "resolve")?;
+        self.authorize_role_blueprint(
+            &caller.tab,
+            Some(id),
+            codeterm_service_core::service::role_policy::BlueprintAction::Resolve,
+        )?;
         let handle = self
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
@@ -756,7 +785,11 @@ impl SentinelExt for ServiceContext {
     }
 
     fn sentinel_stop(&self, caller: &SentinelCaller, id: &str) -> Result<Sentinel, String> {
-        let curator = self.authorize_curator_operation(&caller.tab, Some(id), "stop")?;
+        let curator = self.authorize_role_blueprint(
+            &caller.tab,
+            Some(id),
+            codeterm_service_core::service::role_policy::BlueprintAction::Stop,
+        )?;
         let handle = self
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
@@ -834,7 +867,7 @@ pub fn history_definition(
         .ok_or_else(|| "history current definition is missing".into())
 }
 
-fn validate_send_scope(
+pub(crate) fn validate_send_scope(
     mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
     job: &Sentinel,
 ) -> Result<(), String> {

@@ -152,6 +152,7 @@ pub(super) fn dispatch(
                 "plan.create",
                 "plan.control_loop.show",
                 "plan.control_loop.set",
+                "plan.control_loop.run",
                 "plan.curator.grant",
                 "plan.curator.finish",
                 "plan.adopt",

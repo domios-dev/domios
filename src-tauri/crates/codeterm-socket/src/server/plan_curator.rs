@@ -14,7 +14,7 @@ pub(super) fn dispatch(
         session_id: body["session_id"].as_str().map(str::to_string),
         binding_nonce: body["session_binding_nonce"].as_str().map(str::to_string),
     };
-    let now = super::plan_time::epoch_ms();
+    let now = svc.curator_now().map_err(error)?;
     if method == "plan.curator.finish" {
         let note = get_string_param(params, "note")?;
         let seconds = body["next_secs"]
@@ -27,6 +27,10 @@ pub(super) fn dispatch(
     }
     let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
     match method {
+        "plan.control_loop.run" => svc
+            .control_loop_run(&id, &caller, now)
+            .map(|value| serde_json::json!(value))
+            .map_err(error),
         "plan.control_loop.show" => svc
             .control_loop_show(&id)
             .map(|v| serde_json::json!(v))

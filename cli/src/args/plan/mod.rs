@@ -444,6 +444,10 @@ pub enum PlanAction {
 
 #[derive(Subcommand)]
 pub enum PlanControlLoopAction {
+    /// Request one Curator round now, subject to the plan and human-wait gates.
+    Run {
+        plan_id: String,
+    },
     Show {
         plan_id: String,
     },

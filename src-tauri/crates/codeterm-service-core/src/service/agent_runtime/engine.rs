@@ -82,6 +82,10 @@ pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bo
 #[path = "engine/backfill.rs"]
 pub(super) mod backfill;
 
+#[path = "engine/launch.rs"]
+mod launch;
+use launch::{require_launch_authority, validate_loaded_settings};
+
 #[cfg(test)]
 #[path = "engine/test_support.rs"]
 pub(crate) mod test_support;
@@ -180,6 +184,7 @@ async fn ensure_with_fork(
         ));
     }
     super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
+    require_launch_authority(svc, tab)?;
     let prompt_service = svc.clone();
     let prompt_tab = tab.to_string();
     tokio::task::spawn_blocking(move || {
@@ -563,7 +568,17 @@ async fn ensure_locked(
                 thread_id,
                 settings,
             },
-        ) => (thread_id, settings),
+        ) => {
+            validate_loaded_settings(&context.settings, &settings, |requested, reported| {
+                crate::service::session_model::session_model_matches(
+                    &svc.agent_registry,
+                    provider,
+                    requested,
+                    reported,
+                )
+            })?;
+            (thread_id, settings)
+        }
         _ => {
             return Err(RuntimeFailure::HookFailed(
                 "Thread load result is invalid".into(),

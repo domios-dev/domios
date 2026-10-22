@@ -282,14 +282,13 @@ impl ServiceContext {
         let target = self.todo_tab(target_tab_id)?;
         self.require_parent_orchestrator(&target, actor_tab_id)?;
         draft.validate()?;
-        if self
+        if let Some(item) = self
             .todo_store()?
             .get(target.id.clone())
             .await?
             .and_then(|list| list.items.into_iter().find(|item| item.id == item_id))
-            .is_some_and(|item| item.locked && item.title != draft.title)
         {
-            return Err("seeded criteria stay locked".into());
+            item.validate_amendment_title(&draft.title)?;
         }
         let item = self.resolve_draft(item_id, draft).await?;
         let checklist = self

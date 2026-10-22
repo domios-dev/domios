@@ -29,14 +29,14 @@ pub struct TailRows {
 /// File access the cache needs; production reads the JSONL through the
 /// provider, tests inject an in-memory transcript.
 pub trait TailPort {
-    fn length(&self) -> Option<u64>;
+    fn length(&self) -> Result<u64, String>;
     /// Fingerprint of the bytes just before `end`; a mismatch means the file
     /// was rewritten rather than appended.
-    fn probe(&self, end: u64) -> Option<u64>;
+    fn probe(&self, end: u64) -> Result<u64, String>;
     /// Fresh bounded window and the transcript bytes it parsed.
-    fn window(&self) -> (TailRows, u64);
+    fn window(&self) -> Result<(TailRows, u64), String>;
     /// Complete records in `from..until` and the transcript bytes parsed.
-    fn append(&self, from: u64, until: u64) -> (TailRows, u64);
+    fn append(&self, from: u64, until: u64) -> Result<(TailRows, u64), String>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,11 +71,11 @@ pub fn plan(cached_total: u64, cached_end: u64, total: u64, probe_matches: bool)
 
 /// Append `appended` to `cached` and keep what a fresh window would: records
 /// starting inside the trailing window, whole, within the row limit.
-pub fn merge(cached: &TailRows, appended: TailRows) -> TailRows {
+pub fn merge(cached: TailRows, appended: TailRows) -> TailRows {
     let end_offset = appended.end_offset.max(cached.end_offset);
-    let mut messages = cached.messages.clone();
+    let mut messages = cached.messages;
     messages.extend(appended.messages);
-    let mut record_starts = cached.record_starts.clone();
+    let mut record_starts = cached.record_starts;
     record_starts.extend(appended.record_starts);
     let cutoff = end_offset.saturating_sub(SNAPSHOT_WINDOW_BYTES);
     let mut groups: Vec<(u64, usize)> = Vec::new();
@@ -118,12 +118,14 @@ pub struct TailRead {
     pub bytes_read: u64,
 }
 
+#[derive(Clone)]
 struct Entry {
     key: TailKey,
     total: u64,
     probe: u64,
     rows: Arc<TailRows>,
     bytes: usize,
+    charges: Vec<usize>,
 }
 
 pub struct TailCache {
@@ -147,38 +149,72 @@ impl TailCache {
         }
     }
 
-    pub fn read(&self, key: &TailKey, port: &dyn TailPort) -> Option<TailRead> {
+    pub fn read(&self, key: &TailKey, port: &dyn TailPort) -> Result<TailRead, String> {
         let total = port.length()?;
-        let cached = self.lookup(key);
+        let cached = self.take(key);
         let mut probed = 0;
         let decided = match &cached {
             None => TailPlan::Rebuild,
-            Some((cached_total, cached_probe, rows)) => {
-                probed += PROBE_BYTES.min(rows.end_offset);
-                let matches = port.probe(rows.end_offset) == Some(*cached_probe);
-                plan(*cached_total, rows.end_offset, total, matches)
+            Some(entry) => {
+                let rows = &entry.rows;
+                let matches = if total < entry.total || rows.end_offset > total {
+                    false
+                } else {
+                    probed += PROBE_BYTES.min(rows.end_offset);
+                    port.probe(rows.end_offset)? == entry.probe
+                };
+                plan(entry.total, rows.end_offset, total, matches)
             }
         };
-        let (rows, parsed) = match (decided, cached) {
-            (TailPlan::Reuse, Some((_, _, rows))) => {
-                return Some(TailRead {
+        let (rows, parsed, charges, bytes) = match (decided, cached) {
+            (TailPlan::Reuse, Some(entry)) => {
+                let rows = entry.rows.clone();
+                self.insert(entry);
+                return Ok(TailRead {
                     rows,
                     plan: decided,
                     total,
                     bytes_read: probed,
                 });
             }
-            (TailPlan::Append { from }, Some((_, _, rows))) => {
-                let (appended, parsed) = port.append(from, total);
-                (merge(&rows, appended), parsed)
+            (TailPlan::Append { from }, Some(entry)) => {
+                let Entry {
+                    rows,
+                    mut charges,
+                    bytes,
+                    ..
+                } = entry;
+                let (appended, parsed) = port.append(from, total)?;
+                let added = message_charges(&appended.messages);
+                let added_bytes = added.iter().sum::<usize>();
+                charges.extend(added);
+                let merged = merge(Arc::unwrap_or_clone(rows), appended);
+                let dropped = charges.len() - merged.messages.len();
+                let removed = charges.drain(..dropped).sum::<usize>();
+                (merged, parsed, charges, bytes + added_bytes - removed)
             }
-            _ => port.window(),
+            _ => {
+                let (rows, parsed) = port.window()?;
+                let charges = message_charges(&rows.messages);
+                let bytes = charges.iter().sum::<usize>()
+                    + key.provider_id.len()
+                    + key.path.as_os_str().len()
+                    + std::mem::size_of::<Entry>();
+                (rows, parsed, charges, bytes)
+            }
         };
         let probe = port.probe(rows.end_offset)?;
         probed += PROBE_BYTES.min(rows.end_offset);
         let rows = Arc::new(rows);
-        self.insert(key.clone(), total, probe, rows.clone());
-        Some(TailRead {
+        self.insert(Entry {
+            key: key.clone(),
+            total,
+            probe,
+            rows: rows.clone(),
+            charges,
+            bytes,
+        });
+        Ok(TailRead {
             rows,
             plan: decided,
             total,
@@ -186,29 +222,19 @@ impl TailCache {
         })
     }
 
-    fn lookup(&self, key: &TailKey) -> Option<(u64, u64, Arc<TailRows>)> {
+    fn take(&self, key: &TailKey) -> Option<Entry> {
         let mut entries = self.entries.lock();
         let index = entries.iter().position(|entry| entry.key == *key)?;
-        let entry = entries.remove(index)?;
-        let found = (entry.total, entry.probe, entry.rows.clone());
-        entries.push_back(entry);
-        Some(found)
+        entries.remove(index)
     }
 
-    fn insert(&self, key: TailKey, total: u64, probe: u64, rows: Arc<TailRows>) {
-        let bytes = charged_bytes(&key, &rows);
+    fn insert(&self, entry: Entry) {
         let mut entries = self.entries.lock();
-        entries.retain(|entry| entry.key != key);
-        if bytes > self.max_bytes || self.max_entries == 0 {
+        entries.retain(|cached| cached.key != entry.key);
+        if entry.bytes > self.max_bytes || self.max_entries == 0 {
             return;
         }
-        entries.push_back(Entry {
-            key,
-            total,
-            probe,
-            rows,
-            bytes,
-        });
+        entries.push_back(entry);
         while entries.len() > self.max_entries
             || entries.iter().map(|entry| entry.bytes).sum::<usize>() > self.max_bytes
         {
@@ -232,7 +258,7 @@ impl TailCache {
         provider_id: &str,
         path: &Path,
         scope: &str,
-    ) -> (Vec<ChatMsg>, u64) {
+    ) -> Result<(Vec<ChatMsg>, u64), String> {
         let key = TailKey {
             provider_id: provider_id.to_owned(),
             path: path.to_owned(),
@@ -242,24 +268,24 @@ impl TailCache {
             provider_id,
             path,
         };
-        let Some(read) = self.read(&key, &port) else {
-            self.evict(&key);
-            return (Vec::new(), 0);
-        };
+        let read = self.read(&key, &port).inspect_err(|_| self.evict(&key))?;
         log_read(scope, provider_id, &read);
-        (read.rows.messages.clone(), read.rows.start_offset)
+        Ok((read.rows.messages.clone(), read.rows.start_offset))
     }
 }
 
-fn charged_bytes(key: &TailKey, rows: &TailRows) -> usize {
-    let encoded = serde_json::to_vec(&rows.messages).map_or(0, |encoded| encoded.len());
-    encoded
-        .saturating_mul(2)
-        .saturating_add(
-            rows.messages.len() * (std::mem::size_of::<ChatMsg>() + std::mem::size_of::<u64>()),
-        )
-        .saturating_add(key.provider_id.len() + key.path.as_os_str().len())
-        .saturating_add(std::mem::size_of::<Entry>())
+fn message_charges(messages: &[ChatMsg]) -> Vec<usize> {
+    messages
+        .iter()
+        .map(|message| {
+            serde_json::to_vec(message)
+                .map_or(0, |encoded| encoded.len())
+                .saturating_mul(2)
+                + std::mem::size_of::<ChatMsg>()
+                + std::mem::size_of::<u64>()
+                + std::mem::size_of::<usize>()
+        })
+        .collect()
 }
 
 fn log_read(scope: &str, provider_id: &str, read: &TailRead) {
@@ -275,7 +301,7 @@ fn log_read(scope: &str, provider_id: &str, read: &TailRead) {
         );
         return;
     }
-    log::warn!(
+    log::debug!(
         "[chat_start.bounded] scope={} provider={} plan={} total_bytes={} window_start={} window_end={} bytes_read={} messages={}",
         scope,
         provider_id,
@@ -295,31 +321,30 @@ pub struct JsonlTailPort<'a> {
 }
 
 impl TailPort for JsonlTailPort<'_> {
-    fn length(&self) -> Option<u64> {
+    fn length(&self) -> Result<u64, String> {
         std::fs::metadata(self.path)
-            .ok()
             .map(|metadata| metadata.len())
+            .map_err(|error| error.to_string())
     }
 
-    fn probe(&self, end: u64) -> Option<u64> {
+    fn probe(&self, end: u64) -> Result<u64, String> {
         use std::hash::{Hash, Hasher};
         let start = end.saturating_sub(PROBE_BYTES);
-        let mut file = std::fs::File::open(self.path).ok()?;
-        file.seek(SeekFrom::Start(start)).ok()?;
-        let mut bytes = Vec::with_capacity((end - start) as usize);
-        file.take(end - start).read_to_end(&mut bytes).ok()?;
-        if bytes.len() as u64 != end - start {
-            return None;
-        }
+        let mut file = std::fs::File::open(self.path).map_err(|error| error.to_string())?;
+        file.seek(SeekFrom::Start(start))
+            .map_err(|error| error.to_string())?;
+        let mut bytes = vec![0; (end - start) as usize];
+        file.read_exact(&mut bytes)
+            .map_err(|error| error.to_string())?;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         bytes.hash(&mut hasher);
-        Some(hasher.finish())
+        Ok(hasher.finish())
     }
 
-    fn window(&self) -> (TailRows, u64) {
-        let snapshot = session_window::snapshot(self.registry, self.provider_id, self.path);
+    fn window(&self) -> Result<(TailRows, u64), String> {
+        let snapshot = session_window::try_snapshot(self.registry, self.provider_id, self.path)?;
         let bytes_read = snapshot.bytes_read;
-        (
+        Ok((
             TailRows {
                 record_starts: snapshot.row_record_starts,
                 messages: snapshot.messages,
@@ -327,12 +352,17 @@ impl TailPort for JsonlTailPort<'_> {
                 end_offset: snapshot.end_offset,
             },
             bytes_read,
-        )
+        ))
     }
 
-    fn append(&self, from: u64, until: u64) -> (TailRows, u64) {
-        let (rich, end_offset) =
-            session_window::parse_window(self.registry, self.provider_id, self.path, from, until);
+    fn append(&self, from: u64, until: u64) -> Result<(TailRows, u64), String> {
+        let (rich, end_offset) = session_window::try_parse_window(
+            self.registry,
+            self.provider_id,
+            self.path,
+            from,
+            until,
+        )?;
         let mut rows = TailRows {
             start_offset: from,
             end_offset,
@@ -345,7 +375,7 @@ impl TailPort for JsonlTailPort<'_> {
                 .extend(std::iter::repeat_n(start, messages.len()));
             rows.messages.extend(messages);
         }
-        (rows, end_offset.saturating_sub(from))
+        Ok((rows, end_offset.saturating_sub(from)))
     }
 }
 

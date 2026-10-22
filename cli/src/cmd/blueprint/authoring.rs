@@ -49,7 +49,13 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
             let raw = source(name).unwrap_or_else(|error| crate::cmd::print::fail(2, error));
             let checked = blueprint_document::check(name, &raw, set);
             if json_mode {
-                crate::cmd::print::print_json(&serde_json::to_value(&checked).unwrap_or_default());
+                let value = serde_json::to_value(&checked).unwrap_or_else(|error| {
+                    crate::cmd::print::fail(
+                        2,
+                        format!("Could not serialize Blueprint diagnostics: {error}"),
+                    )
+                });
+                crate::cmd::print::print_json(&value);
             } else {
                 for d in &checked.diagnostics {
                     println!(
@@ -86,21 +92,37 @@ pub(super) fn scaffold(kind: &str) -> Result<String, String> {
     ))
 }
 
-pub(super) fn fail_apply_error(name: &str, error: &str, json_mode: bool) -> ! {
-    let Some((_, tail)) = error.split_once("blueprint_creation_only:") else {
-        crate::cmd::print::fail(1, error)
+pub(super) fn fail_apply_error(
+    name: &str,
+    failure: &crate::client::SocketCallError,
+    json_mode: bool,
+) -> ! {
+    use codeterm_blueprint_types::blueprint_contract::ApplyError;
+    let typed = match failure {
+        crate::client::SocketCallError::Rpc(error) => error
+            .data
+            .as_ref()
+            .and_then(|data| serde_json::from_value::<ApplyError>(data.clone()).ok()),
+        _ => None,
     };
-    let (field, message) = tail.split_once(':').unwrap_or(("watch", tail));
+    let Some(ApplyError::CreationOnly { field, message }) = typed else {
+        crate::cmd::print::fail(1, failure.to_string())
+    };
     let raw = if name == "-" {
         String::new()
     } else {
-        source(name).unwrap_or_default()
+        source(name).unwrap_or_else(|error| {
+            crate::cmd::print::fail(
+                2,
+                format!("{failure}; cannot read source for positioned diagnostic: {error}"),
+            )
+        })
     };
     let diagnostic = blueprint_document::diagnostic(
         name,
         &raw,
-        field,
-        message,
+        &field,
+        &message,
         "Delete the existing Blueprint, then apply this document again",
     );
     if json_mode {

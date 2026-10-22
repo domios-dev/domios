@@ -1,0 +1,17 @@
+ ▐▛███▛█   Claude Code v2.1.307
+▝▜██████▀  Haiku 5.5 with low effort · Claude Max
+ ▝▝   ▝▝   ~\.domios-dev\provisioned-workspaces\switchafter-641a1e5feaa3
+❯ <domios from="system" context="assigned-task">Execute the CodeTerm task provided in the appended system prompt.       
+  Follow its reporting instructions exactly.</domios>                                                                   
+✽ Cultivating… (34s · thinking more with low effort)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Switch model?
+  Your next response will be slower and use more tokens
+  This conversation is cached for the current model. Switching to Sonnet 5.5 means the full history gets re-read on
+  your next message.
+  ❯ 1. Yes, switch to Sonnet 5.5
+    2. No, go back             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯   
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt

@@ -116,3 +116,19 @@ fn reasons_are_bounded_and_required_for_blocked_and_skipped() {
     assert!(validate_tab_todo_reason(&"x".repeat(MAX_TAB_TODO_REASON_BYTES + 1)).is_err());
     assert!(tab_todo_bound_refusal().contains("propose a task split"));
 }
+
+#[test]
+fn amendment_title_validation_is_shared_by_direct_and_proposal_reviews() {
+    let mut criterion = item("criterion", 0, TabTodoState::Open);
+    assert!(criterion.validate_amendment_title(&criterion.title).is_ok());
+    assert_eq!(
+        criterion.validate_amendment_title("Changed").unwrap_err(),
+        "seeded criteria stay locked"
+    );
+    criterion.locked = false;
+    assert!(criterion.validate_amendment_title("Changed").is_ok());
+    assert!(criterion.validate_amendment_title("").is_err());
+    assert!(criterion.validate_amendment_title("bad\nlabel").is_err());
+    assert_eq!(TabTodoProposalState::Amended.label(), "amended");
+    assert_eq!(TabTodoState::InProgress.label(), "in progress");
+}
