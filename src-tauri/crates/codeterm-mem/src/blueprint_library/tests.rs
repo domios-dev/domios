@@ -688,3 +688,74 @@ fn blueprint_usage_breaks_equal_retrieval_scores() {
         .unwrap();
     assert_eq!(hits[0].id, popular);
 }
+
+#[cfg(feature = "embeddings")]
+#[test]
+fn blueprint_recall_refuses_unrelated_vectors_even_when_the_only_solution_is_kept() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let id = mem
+        .save_blueprint(
+            "project",
+            document("done"),
+            "Detect stalled deployments",
+            evidence(),
+        )
+        .unwrap()
+        .unwrap();
+    let mut saved = vec![0.0f32; 384];
+    saved[0] = 1.0;
+    let mut unrelated = vec![0.0f32; 384];
+    unrelated[1] = 1.0;
+    let conn = mem.conn.lock();
+    crate::embeddings::init_extension(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO mem_vectors(mem_id, embedding) VALUES (?1,?2)",
+        params![
+            format!("{id}_chunk_1"),
+            crate::embeddings::inner::encode_vector(&saved)
+        ],
+    )
+    .unwrap();
+    drop(conn);
+    for query in [
+        "tell me when every worker in the team has finished",
+        "rotate the log files each night and compress them",
+    ] {
+        assert!(mem
+            .recall_blueprints_with_embedding("project", query, 3, Some(&unrelated))
+            .unwrap()
+            .is_empty());
+    }
+    assert_eq!(
+        mem.recall_blueprints_with_embedding(
+            "project",
+            "Identify frozen releases",
+            3,
+            Some(&saved)
+        )
+        .unwrap()[0]
+            .id,
+        id
+    );
+}
+
+#[test]
+fn blueprint_recall_rejects_incidental_keyword_overlap() {
+    let mem = MemManager::open_in_memory().unwrap();
+    mem.save_blueprint(
+        "project",
+        document("done"),
+        "Detect stalled deployments",
+        evidence(),
+    )
+    .unwrap();
+    assert!(mem
+        .recall_blueprints_with_embedding(
+            "project",
+            "rotate deployments log files each night and compress them",
+            3,
+            None
+        )
+        .unwrap()
+        .is_empty());
+}
