@@ -2589,7 +2589,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
+  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -3550,6 +3550,10 @@ LOCK_STORM_PY
     cargo build --release --manifest-path cli/Cargo.toml
     CODETERM_DEV=1 node scripts/bundle-cli.js
     echo "Bootstrap complete: bundled CLI is present."
+    ;;
+  cli-docs)
+    cargo build --manifest-path cli/Cargo.toml
+    "$(cli_profile_binary debug)" cli-manifest --write
     ;;
   cli)
     cargo build --release --manifest-path cli/Cargo.toml
