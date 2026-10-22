@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { formatAttachmentMarker, attachmentKindForUpload } from "@codeterm/chat-core";
-import type { AttachmentUpload } from "./attachmentUploadModel";
+import { canRetryUpload, classifyUploadFailure, type AttachmentUpload } from "./attachmentUploadModel";
 import { addChatSend, setDroppedUploads, failChatSendRequest, updateChatSendContent } from "./chatSendStore";
 import { sendTrackedChatMessage } from "./chatSendStatus";
 import { validatedStore } from "./composerUploadModel";
@@ -13,9 +13,9 @@ const captures = new Map<string, AttachmentUpload[]>();
 const key = (tabId: string, id: string) => JSON.stringify([tabId, id]);
 export function recordDroppedUploads(tabId: string, id: string, uploads: AttachmentUpload[]) {
   if (!uploads.length) return;
-  captures.set(key(tabId, id), uploads);
+  captures.set(key(tabId, id), uploads.filter(canRetryUpload));
   while (captures.size > 64) captures.delete(captures.keys().next().value!);
-  setDroppedUploads(tabId, id, uploads.map(upload => upload.name));
+  setDroppedUploads(tabId, id, uploads.map(upload => upload.failure ? `${upload.name}: ${upload.failure.message}` : upload.name));
 }
 
 export function DroppedUploadNotice({ tabId, id, names }: { tabId: string; id: string; names?: string[] }) {
@@ -32,7 +32,10 @@ export function DroppedUploadNotice({ tabId, id, names }: { tabId: string; id: s
     for (const upload of uploads) {
       let path: string;
       try { path = await validatedStore(storeBlob, upload.blob, upload.name); }
-      catch { remaining.push(upload); continue; }
+      catch (error) {
+        const failed: AttachmentUpload = { ...upload, state: "failed", failure: classifyUploadFailure(error) };
+        remaining.push(failed); continue;
+      }
       const sendId = uid();
       const content = formatAttachmentMarker(path, attachmentKindForUpload({ name: upload.name, mime: upload.blob.type }));
       addChatSend(tabId, { id: sendId, content, sentAtMs: Date.now() });
@@ -42,14 +45,14 @@ export function DroppedUploadNotice({ tabId, id, names }: { tabId: string; id: s
         await sendTrackedChatMessage(tabId, sendId, prepared.composed).catch(() => {});
       } catch { failChatSendRequest(tabId, sendId); }
     }
-    if (remaining.length) captures.set(key(tabId, id), remaining);
+    if (remaining.some(canRetryUpload)) captures.set(key(tabId, id), remaining.filter(canRetryUpload));
     else captures.delete(key(tabId, id));
-    setDroppedUploads(tabId, id, remaining.map(upload => upload.name));
+    setDroppedUploads(tabId, id, remaining.map(upload => upload.failure ? `${upload.name}: ${upload.failure.message}` : upload.name));
     running.current = false;
     setBusy(false);
   }
-  return <span role="note" className="text-xs text-[var(--ct-muted-fg)]">
-    {names.join(", ")} was not attached.
-    {captures.has(key(tabId, id)) && <button type="button" disabled={busy} onClick={() => void retry()} aria-label="Retry omitted attachments">Retry</button>}
+  return <span role="note" className="inline-flex min-w-0 flex-wrap items-center gap-1 text-xs text-[var(--ct-muted-fg)]">
+    <span>{names.join(", ")} was not attached.</span>
+    {captures.get(key(tabId, id))?.length ? <button type="button" disabled={busy} onClick={() => void retry()} aria-label="Retry omitted attachments" className="shrink-0 whitespace-nowrap">Retry</button> : null}
   </span>;
 }
