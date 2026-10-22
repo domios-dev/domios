@@ -14,6 +14,27 @@ fn entry(id: Option<&str>, content: &str, state: TabTodoState) -> TabTodoWriteEn
 #[test]
 fn proposal_sharing_does_not_gate_live_work_and_only_notifies_once() {
     let team = team();
+    let team_id = "checklist-team";
+    team.fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&team.worker)
+        .unwrap()
+        .team_id = Some(team_id.into());
+    let plan = team
+        .fixture
+        .service
+        .plan_store
+        .create_plan_for_team(
+            "Audit".into(),
+            team.fixture.temp.path().to_string_lossy().into_owned(),
+            crate::plan::OrchestratorRef::from_tab(&team.orchestrator),
+            team_id.into(),
+            vec![],
+            1,
+        )
+        .unwrap();
     let seeded = team.seed(&["Ship"]);
     let working = team
         .set(&seeded, 0, TabTodoState::InProgress, None)
@@ -61,6 +82,17 @@ fn proposal_sharing_does_not_gate_live_work_and_only_notifies_once() {
         TabTodoProposalState::Approved
     );
     assert_eq!(reviewed.items[0].state, TabTodoState::Done);
+    let stored = team.fixture.service.plan_store.get(&plan.id).unwrap();
+    let events = codeterm_plan::service_plan::state::mission_control::build_plan_event_log(&stored);
+    let kinds: Vec<_> = events
+        .entries
+        .iter()
+        .filter(|event| event.kind.starts_with("tab_todo_"))
+        .map(|event| event.kind.as_str())
+        .collect();
+    assert_eq!(kinds.len(), 2);
+    assert!(kinds.contains(&"tab_todo_shared"));
+    assert!(kinds.contains(&"tab_todo_approved"));
 }
 
 #[test]

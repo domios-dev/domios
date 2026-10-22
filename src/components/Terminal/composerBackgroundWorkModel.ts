@@ -161,3 +161,12 @@ export function composerBackgroundWorkItems(
 export function composerBackgroundWorkBubble(items: readonly ComposerBackgroundWorkItem[]): ComposerBackgroundWorkBubble | null {
   return items.length ? { count: items.length, items: [...items] } : null;
 }
+
+export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], running: Readonly<Record<string, string>>, rootThreadId?: string): ComposerBackgroundWorkItem[] {
+  if (!rootThreadId) return items;
+  const known = new Set(items.flatMap(item => [item.threadId, item.processId].filter(Boolean)));
+  return [...items, ...Object.entries(running).filter(([id]) => !known.has(id)).map(([id, label]): ComposerBackgroundWorkItem => ({
+    id: `provider:${rootThreadId}:${id}`, kind: "agent", name: shortName(undefined, label || id),
+    threadId: id, startedAtMs: 0, elapsed: "", status: "running", prompt: label || undefined,
+  }))];
+}

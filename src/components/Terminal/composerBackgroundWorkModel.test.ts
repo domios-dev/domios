@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, LONG_RUNNING_WORK_MS } from "./composerBackgroundWorkModel";
+import { backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, LONG_RUNNING_WORK_MS, withProviderBackgroundWork } from "./composerBackgroundWorkModel";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 const now = Date.parse("2026-10-17T12:00:00.000Z");
+test("PTY background roster remains visible without runtime agent_activity rows and drains on completion", () => {
+  const items = withProviderBackgroundWork([], { child: "Inspect source" }, "own-session");
+  assert.equal(composerBackgroundWorkBubble(items)?.count, 1);
+  assert.equal(items[0].status, "running");
+  assert.equal(items[0].elapsed, "");
+  assert.equal(items[0].transcriptThreadId, undefined);
+  assert.equal(withProviderBackgroundWork(items, { child: "Inspect source" }, "own-session").length, 1);
+  assert.deepEqual(withProviderBackgroundWork([], {}, "own-session"), []);
+  assert.deepEqual(withProviderBackgroundWork([], { child: "Foreign" }), []);
+});
 const agent = (id: string, ageMs: number, toolInput: Record<string, unknown>, patch: Partial<NormalizedChatMessage> = {}): NormalizedChatMessage => ({
   id,
   type: "tool_call",

@@ -3,6 +3,7 @@ export interface MentionScope {
   tabId: string;
   workspaceId: string | null;
   projectPath: string | null;
+  cwd?: string | null;
   teamId: string | null;
 }
 export interface MentionContext { scope: MentionScope; signal: AbortSignal }

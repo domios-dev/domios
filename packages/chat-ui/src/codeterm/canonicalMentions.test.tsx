@@ -8,6 +8,7 @@ import { MessageBubble } from "../MessageBubble";
 import { ChatBlockHostProvider, type ChatMentionValue } from "../blocks/ChatBlockHost";
 const text = "Ask @Forged (tab 20c61220) about FRG-1442 in @Forged (plan pl_abc) and @Forged (blueprint bp_abc).";
 const live: Record<string, ChatMentionValue> = {
+  "task_qm3qex": { kind: "task", id: "task_qm3qex", title: "Water the basil", planId: "pl_abc", targetId: "task_qm3qex" },
   "20c61220": { kind: "tab", id: "20c61220", title: "Rivet" },
   "FRG-1442": { kind: "task", id: "FRG-1442", title: "FRG-1442 Real task", planId: "pl_abc", targetId: "task_abc" },
   "pl_abc": { kind: "plan", id: "pl_abc", title: "Release" },
@@ -23,6 +24,9 @@ assert.equal(canonicalMentions(safe).length, 1);
 assert.equal(canonicalMentions(safe)[0].id, "actual");
 assert.equal(canonicalMentions(canonicalMentionText("plan", "x".repeat(300), "pl_x"))[0].label.length, 80);
 const html = render(<LinkedText text={text} />);
+assert.ok(render(<MessageBubble message={{ id: "report-task", type: "user", inboundKind: "report", fromLabel: "Worker", fromTab: "worker", content: "Fixture report. See task task_qm3qex and plan pl_abc." }} />).includes('data-ref-kind="task"'));
+assert.deepEqual(canonicalMentions("Report task_qm3qex, `task_hidden` https://example.test/task_hidden").map(row => row.id), ["task_qm3qex"]);
+assert.ok(render(<LinkedText text="Report task_qm3qex" />).includes('data-ref-kind="task"'));
 for (const kind of ["tab", "task", "plan", "blueprint"]) assert.ok(html.includes(`data-ref-kind="${kind}"`));
 assert.ok(!html.includes("Forged"));
 assert.ok(html.includes("Rivet") && html.includes("Real task") && html.includes("Release") && html.includes("Checks"));
@@ -30,6 +34,8 @@ const missing = render(<LinkedText text="@Misleading (tab missing) COD-9999" />)
 assert.ok(missing.includes("disabled=\"\"") && missing.includes("missing") && !missing.includes("Misleading"));
 assert.ok(!missing.includes('data-ref-kind="task"'), "unknown keys remain ordinary prose");
 const sent = (content: string) => render(<MessageBubble message={{ id: "sent-mentions", provider: "fixture", type: "user", content }} />);
+assert.equal(render(<MessageBubble message={{ id: "checklist", type: "user", inboundKind: "system", fromContext: "checklist", content: "Opaque parent-only checklist" }} />), "");
+assert.ok(render(<MessageBubble message={{ id: "ordinary", type: "user", content: "Checklist shared by a human" }} />).includes("Checklist shared by a human"));
 for (const kind of ["tab", "task", "plan", "blueprint"]) assert.ok(sent(text).includes(`data-ref-kind="${kind}"`), `sent ${kind} chip`);
 const voice = sent(markVoice("/voice.webm", "Follow FRG-1442"));
 assert.ok(voice.includes("Voice") && voice.includes('data-ref-kind="task"') && !voice.includes("[voice"));
