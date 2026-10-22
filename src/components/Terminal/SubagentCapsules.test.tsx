@@ -2,24 +2,23 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { AgentInspectionProvider } from "@codeterm/chat-ui";
-import { ComposerBackgroundWorkPanel, SubagentCapsules } from "./ComposerBackgroundWorkPanel";
+import { ComposerBackgroundWorkPanel } from "./ComposerBackgroundWorkPanel";
 import type { ComposerBackgroundWorkItem } from "./composerBackgroundWorkModel";
 
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
-it("opens a child from a named capsule and exposes every overflow child", async()=>{
+it("lists every internal child with its harness label and transcript access", async()=>{
   const host=document.createElement("div");
   const root=createRoot(host);
   const inspect=vi.fn();
   const items:ComposerBackgroundWorkItem[]=Array.from({length:5},(_,index)=>({id:String(index),kind:"agent",name:`Worker ${index}`,threadId:`child-${index}`,transcriptThreadId:`child-${index}`,startedAtMs:0,elapsed:"20s",status:"running",model:"fixture"}));
   try {
-    await act(async()=>root.render(<AgentInspectionProvider onInspect={inspect}><SubagentCapsules items={items} /></AgentInspectionProvider>));
-    const first=host.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Worker 0"]')!;
+    await act(async()=>root.render(<AgentInspectionProvider onInspect={inspect}><ComposerBackgroundWorkPanel items={items} onStop={async()=>{}} internalAgentLabel="Internal agent of Fixture Harness" /></AgentInspectionProvider>));
+    const first=host.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Worker 0, Internal agent of Fixture Harness"]')!;
     expect(first).not.toBeNull();
     await act(async()=>first.click());
     expect(inspect).toHaveBeenCalledExactlyOnceWith("child-0");
-    expect(host.querySelector('button[aria-label="Open transcript for Worker 4"]')).toBeNull();
-    await act(async()=>host.querySelector<HTMLButtonElement>('button[aria-label="Show 2 more subagents"]')!.click());
-    await act(async()=>host.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Worker 4"]')!.click());
+    expect(host.querySelectorAll('button[aria-label^="Open transcript for "]')).toHaveLength(5);
+    await act(async()=>host.querySelector<HTMLButtonElement>('button[aria-label="Open transcript for Worker 4, Internal agent of Fixture Harness"]')!.click());
     expect(inspect).toHaveBeenLastCalledWith("child-4");
   } finally { await act(async()=>root.unmount()); }
 });
@@ -31,7 +30,7 @@ it("keeps stop single-flight, displays refusal, and retains details behind expan
   let rejectStop!:(reason:Error)=>void;
   const stop=vi.fn(()=>new Promise<void>((_,reject)=>{rejectStop=reject;}));
   try {
-    await act(async()=>root.render(<ComposerBackgroundWorkPanel items={[item]} onStop={stop} />));
+    await act(async()=>root.render(<ComposerBackgroundWorkPanel items={[item]} onStop={stop} internalAgentLabel="Internal agent of Fixture Harness" />));
     expect(host.querySelector('[role="region"]')).toBeNull();
     const stopButton=host.querySelector<HTMLButtonElement>('button[aria-label="Stop fixture.ps1"]')!;
     await act(async()=>{stopButton.click();stopButton.click();});
@@ -46,4 +45,31 @@ it("keeps stop single-flight, displays refusal, and retains details behind expan
     expect(host.querySelector('[role="region"] code')?.textContent).toBe(item.command);
     expect(host.querySelector('[role="region"] pre')?.textContent).toBe(item.outputTail);
   } finally { await act(async()=>root.unmount()); }
+});
+
+it("discloses the full task only on request while keeping transcript inspection available", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const inspect = vi.fn();
+  const item: ComposerBackgroundWorkItem = { id: "child", kind: "agent", name: "Task fixture", threadId: "child", transcriptThreadId: "child", startedAtMs: 0, elapsed: "", prompt: "Opaque first paragraph\n\nOpaque second paragraph", model: "fixture" };
+  try {
+    await act(async () => root.render(<AgentInspectionProvider onInspect={inspect}><ComposerBackgroundWorkPanel items={[item]} onStop={async () => {}} internalAgentLabel="Internal agent of Fixture Harness" /></AgentInspectionProvider>));
+    const disclosure = host.querySelector<HTMLButtonElement>('button[aria-label="Task details for Task fixture"]');
+    expect(disclosure).not.toBeNull();
+    expect(disclosure!.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector('[role="region"]')).toBeNull();
+    const transcript = host.querySelector<HTMLButtonElement>('button[aria-label^="Open transcript for "]')!;
+    expect(transcript.title).not.toContain(item.prompt);
+    await act(async () => { disclosure!.click(); });
+    const region = host.querySelector('[role="region"]');
+    expect(disclosure!.getAttribute("aria-expanded")).toBe("true");
+    expect(region?.id).toBe(disclosure!.getAttribute("aria-controls"));
+    expect(region?.textContent).toBe(item.prompt);
+    await act(async () => { transcript.click(); });
+    expect(inspect).toHaveBeenCalledExactlyOnceWith("child");
+    await act(async () => { disclosure!.click(); });
+    expect(host.querySelector('[role="region"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
