@@ -8,7 +8,7 @@
         "key": "COD-1293",
         "id": "task_rguoww",
         "handle": "backend-1-15-0-3",
-        "name": "1.15.0 rename phase 1 (Keeper): runtime identity (data, config, logs, sockets, keychain, mesh) and the 1.14.9 relocation",
+        "name": "1.15.0 rename phase 1 (Keeper): runtime identity (data, config, logs, sockets, keychain, mesh)",
         "paths": [
           "src-tauri/crates/cod\u0074term-paths",
           "src-tauri/crates/cod\u0074term-config",

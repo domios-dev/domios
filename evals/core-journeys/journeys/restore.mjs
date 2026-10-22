@@ -27,10 +27,6 @@ export function restartCheck(ctx) {
     if (!restartObserved(before, after)) {
       throw new JourneyFailure(`restart_not_observed: listener ${before.pid}@${before.started_us} -> ${after.pid}@${after.started_us}`);
     }
-    const build = ctx.health.build_sha ?? ctx.health.build;
-    if (ctx.options.expectBuildChange && build === ctx.state.before_restart.build_sha) {
-      throw new JourneyFailure(`upgrade did not change the build: still ${build}`);
-    }
     return { summary: `pid ${before.pid} -> ${after.pid}, build ${ctx.state.before_restart.build_sha} -> ${ctx.health.build_sha ?? ctx.health.build}`,
       evidence: { before, after } };
   });

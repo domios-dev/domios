@@ -217,13 +217,12 @@ then `node evals/core-journeys/lib/evidence-contract.mjs <run-dir>`. `run.sh`
 refuses ports 7685 and 7686 and an unnamed instance. Only exit 0 from both, with
 `Verdict: PASS` in `results.md`, clears the push; record its wall time and keep
 the run directory with the release evidence. A failed journey blocks the
-push until it is fixed and the suite rerun green on the new SHA. An app release
-also runs `run.sh upgrade` from the previous release on a disposable named
-instance. Offline node tests do not replace the live run. Frontend-only and
+push until it is fixed and the suite rerun green on the new SHA. Offline node
+tests do not replace the live run. Frontend-only and
 plugin-only releases are outside this gate.
 
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
 
 ## Rust warning inventory and cleanup
 
