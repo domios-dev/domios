@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { NetworkTab } from "./NetworkTab";
+import { configureDaemonTransport } from "../../lib/daemonBootstrap";
+import { clearRelayTarget, setRelayTarget } from "../../lib/webApi";
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -13,7 +15,7 @@ function assert(value: unknown, message: string): asserts value {
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const window = new Window({ url: "http://localhost/" });
-  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLButtonElement", "Element", "Node", "Event"]) {
+  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLButtonElement", "Element", "Node", "Event", "localStorage"]) {
     Object.defineProperty(globalThis, key, { value: window[key as keyof Window], configurable: true });
   }
 }
@@ -85,7 +87,37 @@ async function testRestartFailureRemainsActionable() {
   });
 }
 
+async function testWebAccessUsesAuthenticatedCredential() {
+  configureDaemonTransport({ origin: window.location.origin, token: "transport-credential" });
+  await withInvoke(async (command) => {
+    if (command === "get_rest_api_status") return { generation: 1, phase: "listening" };
+    return statusMocks(command);
+  }, async () => {
+    const { host, root } = await render();
+    const show = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Show");
+    assert(show, "credential reveal must be available");
+    await act(async () => show.click());
+    assert(host.textContent?.includes("transport-credential"), "web access uses authenticated transport when config contains no credential");
+    await act(async () => root.unmount());
+  });
+  setRelayTarget("other-machine", "Other machine");
+  try {
+    await withInvoke(async (command) => {
+      if (command === "get_rest_api_status") return { generation: 1, phase: "listening" };
+      return statusMocks(command);
+    }, async () => {
+      const { host, root } = await render();
+      const show = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Show");
+      assert(show, "reveal action stays available");
+      await act(async () => show.click());
+      assert(!host.textContent?.includes("transport-credential"), "a peer panel cannot present the gateway credential as its own");
+      await act(async () => root.unmount());
+    });
+  } finally { clearRelayTarget(); }
+}
+
 async function main() {
+  await testWebAccessUsesAuthenticatedCredential();
   await testSuccessfulRestart();
   await testRestartFailureRemainsActionable();
   console.log("PASS NetworkTab REST listener recovery");

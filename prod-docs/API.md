@@ -15,7 +15,7 @@ Human `domios workspace list` shows authoritative topology in stable creation or
 Base URL: `http://<host>:7685/api`. This reference covers agent- and operator-facing routes; web-mirror and debug internals are not listed.
 
 ### Authentication
-Domios generates and persists a Bearer token on first load. Control endpoints require it even on loopback. The small public health/pairing allowlist is documented by the router and does not grant local control.
+Domios generates a Bearer token on first load and persists it in the owner-only `<data_dir>/.secrets` entry `domios.instance:api_token`. It is read once at daemon startup, never serialized into `config.toml`, and passed to tabs as `CODETERM_API_TOKEN`. The local-only `domios system api-token` command prints only that credential; `--mesh` is refused. Control endpoints require it even on loopback. The small public health/pairing allowlist is documented by the router and does not grant local control.
 
 Default configuration:
 ```toml
@@ -31,7 +31,6 @@ Non-loopback binds require an explicit host and non-empty token; remote requests
 ```toml
 [api]
 host = "192.0.2.10"
-token = "replace-with-a-long-local-secret"
 cors = true
 cors_allow_origins = ["https://console.example"]
 ```
@@ -178,4 +177,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 214 -->
+<!-- revision: 215 -->

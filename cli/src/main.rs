@@ -122,6 +122,7 @@ pub use args::usage::UsageAction;
 mod plugin_bundle;
 
 fn main() {
+    codeterm_util::private_file::set_process_creation_mask();
     codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
     plugin_bundle::install();
     stdout::run(main_impl);
@@ -183,6 +184,15 @@ fn main_impl() {
         return;
     }
 
+    if matches!(
+        &cli.command,
+        Commands::System {
+            action: SystemAction::ApiToken
+        }
+    ) {
+        cmd::system::handle_api_token(cli.mesh.is_some());
+        return;
+    }
     if let Some(mesh_target) = cli.mesh.clone() {
         if matches!(&cli.command, Commands::ModelProvider { .. }) {
             cmd::print::fail(1, "model provider secrets and configuration are local-only");

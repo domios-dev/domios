@@ -1,9 +1,10 @@
+import { devConnection } from "../_lib/connection.mjs";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-const API = "http://127.0.0.1:7686";
+const { api: API, token: devToken } = devConnection();
 const DEADLINE_MS = 120_000;
 const ALL_PROVIDERS = ["claude", "codex", "opencode", "cursor"];
 const PROVIDERS = process.env.MATRIX_PROVIDERS?.split(",").filter(Boolean) ?? ALL_PROVIDERS;
@@ -20,15 +21,9 @@ const STARTER = readFileSync(
   "utf8",
 ).trim();
 
-function token() {
-  const config = readFileSync(resolve(homedir(), ".codeterm-dev/config.toml"), "utf8");
-  const match = config.match(/^token\s*=\s*"([^"]+)"/m);
-  if (!match) throw new Error("dev API token is missing");
-  return match[1];
-}
 
 const headers = {
-  Authorization: `Bearer ${token()}`,
+  Authorization: `Bearer ${devToken}`,
   "Content-Type": "application/json",
 };
 

@@ -19,15 +19,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from loaded import ITEMS  # noqa: E402
 
 
-def read_token() -> str:
-    cfg = Path.home() / ".codeterm-dev" / "config.toml"
-    if not cfg.exists():
-        sys.exit(f"no dev config at {cfg}")
-    for line in cfg.read_text().splitlines():
-        line = line.strip()
-        if line.startswith("token"):
-            return line.split("=", 1)[1].strip().strip('"').strip("'")
-    sys.exit("no token in config.toml")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_lib"))
+from dev_connection import dev_token as read_token  # noqa: E402
 
 
 def post(api: str, token: str, path: str, body: dict, timeout: float = 30.0) -> dict:

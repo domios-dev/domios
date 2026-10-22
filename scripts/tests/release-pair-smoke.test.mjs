@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { earlyExitMessage, executionPlan, parseApiToken, recordSmokeReceipt, refusalCapture, reportServerLogTail, resolveExecution, scratchResidueMessage, targetCommand, validateReady } from '../release-pair-smoke.mjs';
+import { earlyExitMessage, executionPlan, validateApiToken, recordSmokeReceipt, refusalCapture, reportServerLogTail, resolveExecution, scratchResidueMessage, targetCommand, validateReady } from '../release-pair-smoke.mjs';
 
 test('a busy scratch directory after a clean exit names the leftover writer', () => {
   const error = Object.assign(new Error('ENOTEMPTY: directory not empty'), { code: 'ENOTEMPTY', path: '/tmp/smoke/isolated-data/channels/x/plugins' });
@@ -101,8 +101,7 @@ test('isolated smoke accepts only exact server READY identity', () => {
   assert.throws(() => validateReady('{"type":"READY","build":"abc","port":49152,"token":"secret"}', 'abc', 49152));
 });
 
-test('isolated smoke reads the API token only from the api TOML section', () => {
-  assert.equal(parseApiToken('[other]\ntoken = "wrong"\n[api]\ntoken = "secret-token"\n'), 'secret-token');
-  assert.throws(() => parseApiToken('[other]\ntoken = "wrong"\n'));
-  assert.throws(() => parseApiToken('[api]\ntoken = "one"\ntoken = "two"\n'));
+test('isolated smoke accepts only a nonempty single-line credential from the local resolver', () => {
+  assert.equal(validateApiToken('secret-token'), 'secret-token');
+  for (const invalid of ['', ' ', 'one\ntwo', 'one\rtwo', null]) assert.throws(() => validateApiToken(invalid));
 });
