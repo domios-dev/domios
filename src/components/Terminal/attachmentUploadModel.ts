@@ -1,3 +1,4 @@
+import { TransportError } from "../../lib/transportClient";
 import { MAX_TEMP_FILE_DECODED_BYTES } from "../../../generated/config/attachmentLimits";
 
 export interface UploadFailure {
@@ -7,10 +8,21 @@ export interface UploadFailure {
 }
 
 export function classifyUploadFailure(error: unknown): UploadFailure {
-  const message = error instanceof Error ? error.message : String(error);
+  const raw = error instanceof Error ? error.message : String(error);
+  let message = raw;
+  if (error instanceof TransportError) {
+    try {
+      const body: unknown = JSON.parse(error.body);
+      const envelope = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
+      const detail = typeof envelope.error === "object" && envelope.error !== null ? envelope.error as Record<string, unknown> : {};
+      message = typeof detail.message === "string" ? detail.message
+        : typeof envelope.error === "string" ? envelope.error
+        : typeof envelope.message === "string" ? envelope.message : "The attachment could not be uploaded.";
+    } catch { message = "The attachment could not be uploaded."; }
+  }
   const status = typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
   const interrupted = error instanceof TypeError || (error instanceof Error && ["AbortError", "NotReadableError"].includes(error.name));
-  const multipart = status === 400 && /multipart\/form-data/i.test(message);
+  const multipart = status === 400 && /multipart\/form-data/i.test(raw);
   return { message, status: typeof status === "number" ? status : undefined, retryable: interrupted || multipart || status === 408 || status === 429 || (typeof status === "number" && status >= 500) };
 }
 
@@ -90,6 +102,7 @@ export function createAttachmentUploads(dependencies: {
         upload,
         result: (upload.state === "failed" ? Promise.resolve(null) : tasks.get(upload.id) ?? Promise.resolve(null))
           .then(path => {
+            Object.assign(upload, uploads.find(item => item.id === upload.id));
             uploads = uploads.filter(item => item.id !== upload.id);
             tasks.delete(upload.id);
             detached.delete(upload.id);
