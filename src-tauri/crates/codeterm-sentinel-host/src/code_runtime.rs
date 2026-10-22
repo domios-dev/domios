@@ -34,6 +34,12 @@ pub fn run(
     cancellation: &Cancellation,
 ) -> Result<Output, RuntimeFailure> {
     platform_supported(std::env::consts::OS)?;
+    if code.src.as_ref().is_some_and(|source| source.len() > 16384) {
+        return Err(RuntimeFailure::new("budget_exhausted"));
+    }
+    if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(RuntimeFailure::new("skip:lease_cancelled"));
+    }
     if !code.caps.is_empty()
         || code.file.is_some()
         || code.src.is_none()
@@ -51,6 +57,37 @@ pub fn run(
         Err(RuntimeFailure::new("unsupported_platform"))
     }
 }
+
+pub fn run_from_directory(
+    code: &Code,
+    directory: &std::path::Path,
+    input: &[u8],
+    timeout: Duration,
+    owner: &Arc<ProbeResourceOwner>,
+    cancellation: &Cancellation,
+) -> Result<Output, RuntimeFailure> {
+    platform_supported(std::env::consts::OS)?;
+    #[cfg(target_os = "macos")]
+    let code = {
+        let mut code = code.clone();
+        if let Some(file) = code.file.take() {
+            if code.src.is_some() {
+                return Err(RuntimeFailure::new("contract_violation"));
+            }
+            code.src = Some(source::read(directory, &file)?);
+        }
+        code
+    };
+    #[cfg(not(target_os = "macos"))]
+    let code = {
+        let _ = directory;
+        code.clone()
+    };
+    run(&code, input, timeout, owner, cancellation)
+}
+
+#[cfg(target_os = "macos")]
+mod source;
 
 #[cfg(target_os = "macos")]
 mod macos;

@@ -103,3 +103,104 @@ socket.on('error',(e)=>{{ if(!['EPERM','EACCES'].includes(e.code)) throw e; x.va
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     assert_eq!(owner.snapshot().unconfirmed, 0);
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn blueprint_v2_runtime_native_deadline_output_and_memory_budgets() {
+    let owner = Arc::new(ProbeResourceOwner::new());
+    for (src, limits, timeout, reason) in [
+        (
+            "while True: pass",
+            Limits::default(),
+            Duration::from_millis(300),
+            "deadline",
+        ),
+        (
+            "import sys;sys.stdout.write('x'*65536)",
+            Limits {
+                output_bytes: Some(256),
+                ..Default::default()
+            },
+            Duration::from_secs(3),
+            "budget_exhausted",
+        ),
+        (
+            "pass",
+            Limits {
+                mem_mb: Some(1),
+                ..Default::default()
+            },
+            Duration::from_secs(3),
+            "budget_exhausted",
+        ),
+    ] {
+        let code = Code {
+            lang: Language::Python,
+            src: Some(src.into()),
+            file: None,
+            caps: vec![],
+            limits,
+        };
+        let result = run(&code, b"{}", timeout, &owner, &Cancellation::default());
+        let observed = match result {
+            Err(failure) => {
+                assert!(!failure.uncertain);
+                failure.reason
+            }
+            Ok(output) if !output.success && code.limits.mem_mb.is_some() => "budget_exhausted",
+            Ok(output) => panic!("budget was not enforced: {}", output.text),
+        };
+        assert_eq!(observed, reason);
+        assert_eq!(owner.snapshot().unconfirmed, 0);
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn blueprint_v2_runtime_native_cancellation_uses_child_events() {
+    let cancellation = Cancellation::default();
+    let waits = cancellation.observe_waits();
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let code = Code {
+        lang: Language::Python,
+        src: Some("while True: pass".into()),
+        file: None,
+        caps: vec![],
+        limits: Limits::default(),
+    };
+    std::thread::scope(|scope| {
+        let child =
+            scope.spawn(|| run(&code, b"{}", Duration::from_secs(3), &owner, &cancellation));
+        waits.recv_timeout(Duration::from_secs(2)).unwrap();
+        cancellation.cancel();
+        let failure = child.join().unwrap().unwrap_err();
+        assert_eq!(failure.reason, "skip:lease_cancelled");
+        assert!(!failure.uncertain);
+    });
+    assert_eq!(owner.snapshot().unconfirmed, 0);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn blueprint_v2_runtime_code_file_refuses_symlink_escape() {
+    use std::os::unix::fs::symlink;
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(
+        outside.path().join("secret.py"),
+        "raise Exception('outside')",
+    )
+    .unwrap();
+    symlink(outside.path(), root.path().join("escape")).unwrap();
+    assert_eq!(
+        super::source::read(root.path(), "escape/secret.py")
+            .unwrap_err()
+            .reason,
+        "sandbox_denied"
+    );
+    std::fs::write(root.path().join("fixed.py"), "print('fixed')").unwrap();
+    assert_eq!(
+        super::source::read(root.path(), "fixed.py").unwrap(),
+        "print('fixed')"
+    );
+}

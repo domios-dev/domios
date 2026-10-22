@@ -7,6 +7,7 @@ pub(super) fn run(
     lease: &Lease,
     step: &Step,
     input: &ExecutionEnvelope,
+    limit: Duration,
 ) -> StepResult {
     let previous = input.payload_text();
     if let StepKind::Http { probe } = &step.kind {
@@ -21,7 +22,7 @@ pub(super) fn run(
         if remaining == 0 {
             return failed_input_step("HTTP deadline expired");
         }
-        let timeout = Duration::from_millis(remaining.min(probe.timeout_ms));
+        let timeout = Duration::from_millis(remaining.min(probe.timeout_ms)).min(limit);
         let client = match reqwest::blocking::Client::builder()
             .timeout(timeout)
             .redirect(reqwest::redirect::Policy::none())
@@ -49,7 +50,8 @@ pub(super) fn run(
         .job
         .expires_at
         .map(|at| Duration::from_millis(at.saturating_sub(now(handle))))
-        .unwrap_or(runtime);
+        .unwrap_or(runtime)
+        .min(limit);
     let environment = crate::probe_env::command();
     let result = if matches!(step.kind, StepKind::Command { .. }) {
         probe::run_enveloped(
@@ -73,6 +75,23 @@ pub(super) fn run(
     };
     match result {
         Ok(output) => {
+            let output_limit = step
+                .execution
+                .as_ref()
+                .and_then(|contract| contract.limits.as_ref())
+                .and_then(|limits| limits.output_bytes)
+                .unwrap_or(32768)
+                .min(32768);
+            if output.stdout.truncated
+                || output.stderr.truncated
+                || output
+                    .stdout
+                    .total_bytes
+                    .saturating_add(output.stderr.total_bytes)
+                    > output_limit
+            {
+                return failed_input_step("budget_exhausted");
+            }
             if output.success {
                 if let StepKind::Github { probe } = &step.kind {
                     if probe.resource != GithubResource::PrChecks {
