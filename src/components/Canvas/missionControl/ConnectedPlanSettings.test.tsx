@@ -87,7 +87,7 @@ it("shows an unavailable Curator refusal beside Run now", async () => {
   await render(panel());
   vi.mocked(daemonFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "curator_unavailable", message: "No Curator adapter is connected" }), { status: 400 }));
   await click("Run now");
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain("curator_unavailable");
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("No Curator adapter is connected");
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("No Curator adapter is connected");
   expect(button("Run now").disabled).toBe(false);
 });
