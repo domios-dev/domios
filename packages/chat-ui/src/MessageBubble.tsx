@@ -688,6 +688,7 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
   const time = messageRowTime(props.message, props.item, props.origin);
   const content = <MessageBubbleContent {...props} />;
   if (!isRenderableMessage(props.message)) return null;
+  if (props.origin?.kind === "system" && props.origin.context === "checklist") return null;
   return (
     <MessageTimeFrame timestamp={props.showTimestamp === false || !time ? undefined : String(time.timestamp)} side="left">
       {content}

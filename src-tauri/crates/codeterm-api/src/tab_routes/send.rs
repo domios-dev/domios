@@ -485,7 +485,7 @@ pub async fn send_text(
     let source_peer = body.source_peer.clone();
     let payload_bytes = route_payload_bytes(body.text.as_deref(), body.batch.as_deref());
     let has_service_token = svc_token_match.is_some();
-    let (origin, transport, target_has_agent) = tokio::task::spawn_blocking(move || {
+    let (_origin, transport, target_has_agent) = tokio::task::spawn_blocking(move || {
         let state = owner;
         let tab_id = target;
         surface_send_refusal(&state, &tab_id)?;

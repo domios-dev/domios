@@ -89,7 +89,7 @@ secret-backend plugin.
 3. **The backend owns the credential.** Only the backend persists a master password, in its own
    host-provided bucket (`codeterm.plugin.<id>`, the same location `host.secretSet` writes).
    Domios writes no separate credential file. Startup removes the retired
-   `~/.codeterm/secrets/bitwarden-master.env`; when it warns that the erase could not be proven,
+   `~/.domios/secrets/bitwarden-master.env`; when it warns that the erase could not be proven,
    rotate that master password.
 4. **Persisting requires explicit consent, carried on the wire.** `POST /api/secrets/unlock` takes
    `persist_for_auto_unlock` (default `false`), forwarded to the backend as the JS
@@ -135,7 +135,7 @@ The full REST contract is in `domios docs API-STATE` (Secrets).
 
 ## Storage and security
 
-The `local` backend stores values in a plaintext JSON file at `<data_dir>/.secrets` (`~/.codeterm/.secrets`), Unix mode `0600`, namespaced by service. Values are **not encrypted** and the OS keychain is never used. Treat the file like an `.env`. Names and ids (no values) are indexed at `<data_dir>/secrets/local-index.json`.
+The `local` backend stores values in a plaintext JSON file at `<data_dir>/.secrets` (`~/.domios/.secrets`), Unix mode `0600`, namespaced by service. Values are **not encrypted** and the OS keychain is never used. Treat the file like an `.env`. Names and ids (no values) are indexed at `<data_dir>/secrets/local-index.json`.
 
 Item ids look like `local-0000002a`. They are never reused, so they stay unique across daemon restarts. Names are case-insensitive, and `get`/`delete` accept a name or an item id. `save --overwrite` keeps the existing notes when `--notes` is not given.
 
@@ -145,4 +145,4 @@ Bitwarden owns vault encryption. Domios passes the master password and session t
 
 A process running as the same OS user can read that file. The mock backend has no security guarantees.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

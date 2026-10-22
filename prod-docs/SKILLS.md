@@ -87,8 +87,8 @@ Domios routes messages between Telegram and the General Agent:
 Setup via CLI:
 ```bash
 # Save token to secrets dir
-mkdir -p ~/.codeterm/secrets
-echo -n "BOT_TOKEN" > ~/.codeterm/secrets/telegram.token
+mkdir -p ~/.domios/secrets
+echo -n "BOT_TOKEN" > ~/.domios/secrets/telegram.token
 
 # Enable
 domios config set integrations.telegram_enabled true

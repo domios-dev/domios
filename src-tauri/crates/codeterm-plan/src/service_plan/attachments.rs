@@ -101,7 +101,8 @@ fn copy_attachment(
     std::fs::create_dir_all(&dir).map_err(|e| PlanError::Io(e.to_string()))?;
     let filename = format!("{id}-{safe}");
     let dest = dir.join(&filename);
-    std::fs::copy(source, &dest).map_err(|e| PlanError::Io(e.to_string()))?;
+    let size = codeterm_util::attachments::copy_complete_file(source, &dest, MAX_ATTACHMENT_BYTES)
+        .map_err(PlanError::Io)?;
     let rel = dest
         .strip_prefix(plan_root)
         .map_err(|e| PlanError::Io(e.to_string()))?
@@ -112,7 +113,7 @@ fn copy_attachment(
         name: safe,
         path: rel,
         media_type: media_type_for(source),
-        size_bytes: meta.len(),
+        size_bytes: size,
         created_at: now_ms,
     })
 }

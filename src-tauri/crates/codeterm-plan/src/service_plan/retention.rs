@@ -1,4 +1,4 @@
-use super::{Plan, PlanStore, Spec};
+use super::{Plan, PlanStore};
 
 pub const PLAN_RETENTION_MS: u64 = 365 * DAY_MS;
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
@@ -31,7 +31,7 @@ impl PlanStore {
             .values()
             .filter_map(|plan| {
                 let plan = plan.lock();
-                (plan.updated_at < cutoff).then(|| plan.id.clone())
+                is_stale(plan.updated_at, cutoff).then(|| plan.id.clone())
             })
             .collect();
         let mut pruned = Vec::new();
@@ -68,29 +68,19 @@ impl PlanStore {
         cutoff: u64,
     ) -> std::io::Result<Option<Plan>> {
         let _writer_turn = self.mutation_writer.enter();
-        let Some(plan) = self.get(id).filter(|plan| plan.updated_at < cutoff) else {
+        let Some(plan) = self
+            .get(id)
+            .filter(|plan| is_stale(plan.updated_at, cutoff))
+        else {
             return Ok(None);
         };
-        let owned_specs = self.owned_specs(id);
-        self.delete_in_writer(
-            id,
-            Some(plan.clone()),
-            super::search_index::enqueue_plan_removal,
-        )?;
-        for spec in owned_specs {
-            super::search_index::enqueue_spec_removal(spec);
-        }
+        self.delete_in_writer(id, Some(plan.clone()))?;
         Ok(Some(plan))
     }
+}
 
-    fn owned_specs(&self, plan_id: &str) -> Vec<Spec> {
-        self.specs
-            .read()
-            .values()
-            .map(|spec| spec.lock().clone())
-            .filter(|spec| spec.plan_id.as_deref() == Some(plan_id))
-            .collect()
-    }
+fn is_stale(updated_at: u64, cutoff: u64) -> bool {
+    updated_at < cutoff
 }
 
 #[cfg(test)]

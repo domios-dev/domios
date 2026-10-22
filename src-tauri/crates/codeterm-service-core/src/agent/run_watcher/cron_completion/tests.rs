@@ -79,12 +79,13 @@ fn cron_completion_cannot_close_for_tools_empty_answers_or_previous_turns() {
     ignore = "FSEvents drops appends right after stream start; exact-file watcher in task_1vtxz9"
 )]
 fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
-    use super::super::{AtomicBool, AtomicU32, ResultEventScanner, RunState};
     use crate::cron::store::{CronCreateParams, CronRunInfo, CronRunStatus, CronStore};
+    use crate::plan::{CuratorRun, Plan};
     use crate::plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    use crate::service::{curator::CuratorTabs, AuthenticatedPlanCaller};
     use parking_lot::Mutex;
     use std::sync::{mpsc, Arc};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&tab_id).unwrap();
@@ -95,6 +96,7 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
         tab.agent_type = Some("pending-fixture".into());
         tab.agent_session_id = Some("own-session".into());
         tab.session_binding_nonce = Some("own-nonce".into());
+        tab.reported_session_binding_nonce = Some("own-nonce".into());
     }
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let path = fixture
@@ -172,45 +174,68 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
         )
         .unwrap();
     cron.lock().register_tab(&tab_id, &job.id, "pending-run");
-    let state = Arc::new(RunState {
-        pty_id: "pending-pty".into(),
-        tab_id: tab_id.clone(),
-        kind: AgentRunKind::Cron {
-            job_id: job.id.clone(),
-            run_id: "pending-run".into(),
-        },
-        scanner: Mutex::new(ResultEventScanner::new()),
-        started_at: Instant::now(),
-        last_byte_at: Mutex::new(Instant::now()),
-        completed: AtomicBool::new(false),
-        armed: AtomicBool::new(true),
-        saw_working: AtomicBool::new(true),
-        saw_post_session_progress: AtomicBool::new(true),
-        restart_count: AtomicU32::new(0),
-        last_restart_at: Mutex::new(Instant::now()),
-        resume_system_prompt: None,
-        cron_completion: Mutex::new(None),
+    let mut plan = Plan::new(
+        "Manual round".into(),
+        fixture.temp.path().display().to_string(),
+        Default::default(),
+    );
+    plan.control_loop.running = Some(CuratorRun {
+        number: 1,
+        started_at: 1,
+        run_id: Some("pending-run".into()),
+        tab_id: Some(tab_id.clone()),
+        ..Default::default()
     });
-    let diagnostic_state = Arc::downgrade(&state);
+    fixture.service.plan_store.save(&mut plan, 1).unwrap();
+    assert!(fixture.service.set_ext(CuratorTabs::default()).is_ok());
     fixture
         .service
-        .run_watcher
-        .runs
-        .lock()
-        .insert("pending-pty".into(), state);
-    assert!(fixture
+        .ext::<CuratorTabs>()
+        .0
+        .write()
+        .insert(tab_id.clone(), plan.id.clone());
+    assert!(!fixture
         .service
-        .cron_complete(
-            &cron,
-            &wake,
-            "pending-run",
-            Some("opaque summary"),
-            Some(&tab_id),
-            Some("own-nonce"),
-            false
-        )
-        .unwrap()
-        .is_none());
+        .agent_run_pty_map
+        .lock()
+        .contains_key(&tab_id));
+    assert!(fixture.service.run_watcher.runs.lock().is_empty());
+    let round = fixture.service.curator_finish(&AuthenticatedPlanCaller {
+        tab_id: Some(tab_id.clone()), session_id: Some("own-session".into()), binding_nonce: Some("own-nonce".into()),
+    }, "NEXT: 2h | quiet window\nMOVE: Dispatch remaining work [pl_fixture]\nRETRO:\n- No task moved [pl_fixture]\nNEXT-CHECK:\n- Task dispatch [pl_fixture]\nASKED: none", 7200, 2).unwrap();
+    assert_eq!(round.summary, "Dispatch remaining work [pl_fixture]");
+    let persisted = fixture.service.plan_store.get(&plan.id).unwrap();
+    assert!(persisted.control_loop.running.is_none());
+    assert_eq!(persisted.control_loop.last_round.as_ref(), Some(&round));
+    assert_eq!(
+        persisted
+            .strides
+            .iter()
+            .filter(|stride| stride.kind == "curator_round")
+            .count(),
+        1
+    );
+    assert_eq!(
+        persisted
+            .heartbeat
+            .learnings
+            .iter()
+            .map(|learning| learning.text.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "- No task moved [pl_fixture]",
+            "- Task dispatch [pl_fixture]"
+        ]
+    );
+    let diagnostic_state = Arc::downgrade(
+        fixture
+            .service
+            .run_watcher
+            .runs
+            .lock()
+            .get("pending-pty")
+            .unwrap(),
+    );
     assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
     assert_eq!(
         cron.lock().get_history(&job.id)[0].status,
@@ -293,4 +318,24 @@ fn cron_completion_tool_reply_keeps_run_open_until_final_record_is_appended() {
         cron.lock().get_history(&job.id)[0].status,
         CronRunStatus::Success
     );
+}
+
+#[test]
+fn cron_completion_cannot_attach_to_a_foreign_run() {
+    let (mut mux, tab) = crate::multiplexer::state::MultiplexerState::new();
+    mux.link_pty(&tab, "visible-pty".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let mut store =
+        crate::cron::store::CronStore::new_with_path(fixture.temp.path().join("cron.json"));
+    store.register_tab(&tab, "own-job", "own-run");
+    let cron: crate::CronState = std::sync::Arc::new(parking_lot::Mutex::new(store));
+    assert!(fixture.service.set_ext(cron).is_ok());
+    let error = fixture
+        .service
+        .run_watcher
+        .cron_completion_state(&fixture.service, &tab, "foreign-run")
+        .err()
+        .unwrap();
+    assert_eq!(error, "cron run ownership changed");
+    assert!(fixture.service.run_watcher.runs.lock().is_empty());
 }

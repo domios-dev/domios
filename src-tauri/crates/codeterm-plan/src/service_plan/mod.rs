@@ -5,6 +5,7 @@ pub mod attachments;
 pub mod batch;
 pub mod body_files;
 pub mod canvas_elements;
+pub mod chat_snapshot;
 pub mod cleanup_debt;
 pub mod competition;
 pub mod complete_wrapup;
@@ -263,6 +264,7 @@ impl PlanStore {
                 .insert(id.clone(), Arc::new(Mutex::new(spec)));
             store.spec_index.write().insert(id, entry);
         }
+        store.seed_search_indexes();
         Ok(store)
     }
 

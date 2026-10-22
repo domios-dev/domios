@@ -155,7 +155,7 @@ Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report
 | DELETE | `/api/themes/{id}` | — | Delete a custom theme |
 | POST | `/api/themes/apply` | `{name}` | Apply a theme by name |
 
-Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/.codeterm/themes/` (macOS/Linux).
+Custom themes are `.toml` files in `~/.domios/themes/` on every platform.
 
 #### Mesh Networking
 | Method | Path | Body / Query | Description |
@@ -210,4 +210,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `domios docs API-MEMORY`.
 
-<!-- revision: 62 -->
+<!-- revision: 63 -->

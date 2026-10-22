@@ -59,23 +59,7 @@ pub fn build_ingest_request(
     source: &std::path::Path,
     kind: AttachmentKind,
 ) -> Result<IngestRequest, String> {
-    let meta = std::fs::metadata(source)
-        .map_err(|e| format!("attachment is not readable on this host: {e}"))?;
-    if !meta.is_file() {
-        return Err("attachment is not a regular file".into());
-    }
-    let too_large = |size: u64| IngestRefusal::TooLarge(size).message();
-    if meta.len() > MESH_ATTACHMENT_MAX_BYTES {
-        return Err(too_large(meta.len()));
-    }
-    let bytes = std::fs::read(source)
-        .map_err(|e| format!("attachment is not readable on this host: {e}"))?;
-    if bytes.is_empty() {
-        return Err("attachment is empty".into());
-    }
-    if bytes.len() as u64 > MESH_ATTACHMENT_MAX_BYTES {
-        return Err(too_large(bytes.len() as u64));
-    }
+    let bytes = crate::attachments::read_complete_file(source, MESH_ATTACHMENT_MAX_BYTES)?;
     let name = source
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
