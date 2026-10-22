@@ -445,12 +445,10 @@ pub enum PlanAction {
 #[derive(Subcommand)]
 pub enum PlanControlLoopAction {
     /// Request one Curator round now, subject to the plan and human-wait gates.
-    Run {
-        plan_id: String,
-    },
-    Show {
-        plan_id: String,
-    },
+    Run { plan_id: String },
+    /// Show the plan's control-loop mode and heartbeat interval.
+    Show { plan_id: String },
+    /// Switch the plan between Curator rounds and the plain heartbeat.
     Set {
         plan_id: String,
         #[arg(value_parser = ["curator", "heartbeat"])]
@@ -462,6 +460,7 @@ pub enum PlanControlLoopAction {
 
 #[derive(Subcommand)]
 pub enum PlanCuratorAction {
+    /// Grant the Curator tab the blueprints, plan skills and saves it may use.
     Grant {
         plan_id: String,
         curator_tab: String,
