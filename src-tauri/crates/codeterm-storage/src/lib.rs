@@ -44,12 +44,12 @@ pub use repositories::sentinel::{
     AmendmentRecord, BatchFence, BlueprintJournalEntry, BlueprintJournalWrite, BucketDefinition,
     CaptureRecord, CommandParameters, CommandResultRecord, CommandStatus, DefinitionProvenance,
     DefinitionUpdate, EscalateTarget, Fence, HandlerAction, HandlerDefinition, HandlerResultRecord,
-    HandlerStatus, MutationOutcome, NewTransition, ObserveKind, ObserveSource, RunRecord,
-    RuntimeOutcome, SafeKind, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelEviction,
-    SentinelId, SentinelIdentity, SentinelImport, SentinelRecord, SentinelRepository,
-    SentinelScope, SourceKind, StageDefinition, StageRuntime, StageSource, StoredDefinition,
-    StoredSentinel, TargetIdentity, TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE,
-    MAX_SENTINEL_RECORDS, OTHER_BUCKET,
+    HandlerStatus, MutationOutcome, NestedClaimParent, NewTransition, ObserveKind, ObserveSource,
+    RunRecord, RuntimeOutcome, SafeKind, ScheduleUpdate, SentinelCommit, SentinelCreate,
+    SentinelEviction, SentinelId, SentinelIdentity, SentinelImport, SentinelRecord,
+    SentinelRepository, SentinelScope, SourceKind, StageDefinition, StageRuntime, StageSource,
+    StoredDefinition, StoredSentinel, TargetIdentity, TransitionRecord, MAX_SENTINEL_BATCH,
+    MAX_SENTINEL_LINEAGE, MAX_SENTINEL_RECORDS, OTHER_BUCKET,
 };
 pub use repositories::tab_todo::{
     TabTodoAmendmentRecord, TabTodoChecklistRecord, TabTodoCountersRecord, TabTodoItemEventRecord,

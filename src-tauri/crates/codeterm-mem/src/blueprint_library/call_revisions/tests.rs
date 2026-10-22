@@ -169,6 +169,14 @@ fn blueprint_v2_call_transitive_snapshot_drift_cannot_evade_parent_pin() {
     let leaf = save(&mem, callable(8));
     let mut middle = caller(&leaf);
     middle.name = "middle".into();
+    middle.inputs.insert(
+        "n".into(),
+        serde_json::from_value(json!({"type":"integer"})).unwrap(),
+    );
+    middle.steps[0].call.as_mut().unwrap().arguments.insert(
+        "n".into(),
+        codeterm_blueprint_types::blueprint_document::ValueForm::input("n"),
+    );
     middle.trigger = None;
     middle.result.to = None;
     middle.result.port = Some(serde_json::from_value(json!({"type":"integer"})).unwrap());

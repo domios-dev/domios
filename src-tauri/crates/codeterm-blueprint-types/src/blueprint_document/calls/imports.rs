@@ -240,8 +240,8 @@ impl Resolver<'_> {
         parsed: Parsed,
         source_hash: Option<String>,
     ) -> Result<FrozenCallee, Vec<Diagnostic>> {
-        let hash =
-            projection::identity(&parsed.document).map_err(|e| vec![finding(&parsed, "", e)])?;
+        let hash = document_projection::identity(&parsed.document)
+            .map_err(|e| vec![finding(&parsed, "", e)])?;
         let frozen = FrozenCallee {
             id,
             hash,
@@ -338,7 +338,8 @@ impl Resolver<'_> {
             self.insert(dependency, parsed, field)?;
         }
         if let Some(pin) = pin {
-            if projection::identity(&document).map_err(|e| vec![finding(parsed, field, e)])?
+            if document_projection::identity(&document)
+                .map_err(|e| vec![finding(parsed, field, e)])?
                 != pin.hash
             {
                 return Err(vec![finding(

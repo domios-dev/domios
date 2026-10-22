@@ -1,5 +1,5 @@
 mod journal;
-pub use journal::{BlueprintJournalEntry, BlueprintJournalWrite};
+pub use journal::{BlueprintJournalEntry, BlueprintJournalWrite, NestedClaimParent};
 mod source;
 mod transition;
 pub use source::{ObserveKind, ObserveSource, SourceKind, StageSource};
