@@ -25,7 +25,7 @@ function SubagentRow({ item, internalAgentLabel }: { item: ComposerBackgroundWor
     <div className="ct-background-command__details">
       <div>{meta}</div>
       {item.prompt && <>
-        <button type="button" aria-label={`Task details for ${item.name}`} aria-expanded={expanded} aria-controls={promptId} onClick={() => setExpanded(!expanded)}>
+        <button type="button" className="ct-ctx-bubble ct-liquid-interactive min-h-11 gap-1.5 px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]" aria-label={`Task details for ${item.name}`} aria-expanded={expanded} aria-controls={promptId} onClick={() => setExpanded(!expanded)}>
           Task details <ChevronDown size={11} aria-hidden="true" />
         </button>
         {expanded && <div id={promptId} role="region" aria-label={`Task details for ${item.name}`} className="ct-background-command__prompt">{item.prompt}</div>}

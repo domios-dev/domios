@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
@@ -14,6 +14,10 @@ import { watchMentionState } from "../../lib/mentionSources/live";
 export function useComposerMentionSources(tabId: string) {
   const mux = useMuxStateStore();
   const { plans } = useSidebarPlansOptional();
+  const planListeners = useRef(new Set<() => void>());
+  useEffect(() => { for (const changed of planListeners.current) changed(); }, [plans]);
+  const plansRef = useRef(plans);
+  plansRef.current = plans;
   const cache = useRef(new Map<string, Promise<AutomationGraph>>());
   const lifetime = useRef(new AbortController());
   const scope = useCallback(() => mentionScopeForTab(mux.getState(), tabId), [mux, tabId]);
@@ -30,12 +34,16 @@ export function useComposerMentionSources(tabId: string) {
       return reading;
     };
     return createMentionRegistry([
-      tabMentionSource(mux.getState), taskMentionSource(() => plans), planMentionSource(() => plans),
+      tabMentionSource(mux.getState), taskMentionSource(() => plansRef.current), planMentionSource(() => plansRef.current),
       blueprintMentionSource(readGraph, () => mux.getState().tabs),
     ], {
-      subscribe: (changed) => watchMentionState(mux, changed),
+      subscribe: (changed) => {
+        planListeners.current.add(changed);
+        const offMux = watchMentionState(mux, changed);
+        return () => { planListeners.current.delete(changed); offMux(); };
+      },
       close: () => { lifetime.current.abort(); lifetime.current = new AbortController(); cache.current.clear(); },
     });
-  }, [mux, plans]);
+  }, [mux]);
   return { registry, scope };
 }

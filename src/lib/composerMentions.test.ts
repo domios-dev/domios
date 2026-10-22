@@ -53,6 +53,14 @@ test("same workspace precedes others for non-Team callers and mesh is labelled",
   assert.equal(result[result.length - 1]?.group, "Tabs · Mesh");
   assert.equal(result[0].group, "Tabs · Other Teams");
 });
+test("workspace and Other Teams groups remain contiguous across agents and shells", async () => {
+  const mixed = { alpha: tab("alpha", null, "ws1", "Alpha"), beta: tab("beta", "team2", "ws1", "Beta"), gamma: tab("gamma", null, "ws1", "Gamma", false) };
+  const result = await createMentionRegistry([tabMentionSource(() => ({ tabs: mixed, workspaces }))]).search("", ctx);
+  assert.deepEqual(result.map(row => row.label), ["Alpha", "Gamma", "Beta"]);
+  const headings = result.filter((row, index) => row.group !== result[index - 1]?.group).map(row => row.group);
+  assert.deepEqual(headings, ["Tabs · Workspace", "Tabs · Other Teams"]);
+  assert.equal(new Set(headings).size, headings.length);
+});
 test("Team task scope never leaks another Team or project, including exact keys", async () => {
   const registry = createMentionRegistry([taskMentionSource(() => plans)]);
   assert.deepEqual((await registry.search("", ctx)).map((r) => r.label), ["COD-3", "COD-5", "COD-6", "COD-2", "COD-1", "COD-4"]);

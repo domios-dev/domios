@@ -63,7 +63,7 @@ function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
           </Fragment>
         ))}
         {!open && event.linkedTasks.length > EVENT_LINKED_TASKS_PREVIEW && ` +${event.linkedTasks.length - EVENT_LINKED_TASKS_PREVIEW}`}
-        {event.linkedTasks.length > 0 && EVENT_PART_SEPARATOR}
+        {event.linkedTasks.length > 0 && <span className="mc-board-log-sep">{EVENT_PART_SEPARATOR}</span>}
         {event.taskName && (
           <>
             <span data-testid="mc-board-event-task" className="mc-board-log-task">

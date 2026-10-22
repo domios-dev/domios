@@ -2,7 +2,7 @@ import { DS_TASK_KEY_RE } from "./dsTasksBlock";
 export type CanonicalMentionKind = "tab" | "plan" | "blueprint" | "task";
 export interface CanonicalMention { start: number; end: number; text: string; label: string; kind: CanonicalMentionKind; id: string }
 export function canonicalMentionText(kind: Exclude<CanonicalMentionKind, "task">, title: string, id: string): string {
-  const label = title.replace(/[@()]/g, "").trim().replace(/\s+/g, "_").slice(0, 80) || kind;
+  const label = title.replace(/[@()`]/g, "").trim().replace(/\s+/g, "_").slice(0, 80) || kind;
   return `@${label} (${kind} ${id})`;
 }
 export function canonicalMentions(text: string): CanonicalMention[] {
