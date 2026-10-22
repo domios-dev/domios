@@ -26,7 +26,6 @@ pub const DEFAULT_CONTINUE: &str =
 const READY_DEADLINE: Duration = Duration::from_secs(300);
 
 pub const DISABLED: &str = "disabled";
-pub(crate) const NO_PTY_AGENT_SESSION: &str = "no_pty_agent_session";
 pub(crate) const NO_AGENT_SESSION: &str = "no_agent_session";
 pub(crate) const SPAWN_FAILED: &str = "spawn_failed";
 pub(crate) const SESSION_NOT_RESUMED: &str = "session_not_resumed";
@@ -45,7 +44,7 @@ pub(crate) struct Claim {
     pub session_id: String,
     pub prompt: Option<String>,
     pub sender: Option<TurnResumeSender>,
-    pub pty_id: String,
+    pub pty_id: Option<String>,
     pub binding_nonce: String,
 }
 
@@ -116,27 +115,43 @@ fn deliver_claim(
     persist_then_send(persist, binding_matches, || send(body, claim))
 }
 
-fn ready_binding_on_own_session(tab: &Tab, session_id: &str) -> Option<(String, String)> {
-    if !matches!(tab.backing, TabBacking::Pty)
-        || tab.boot_stage != Some(BootStage::AgentReady)
+fn resumable_session(tab: &Tab) -> Result<&str, &'static str> {
+    if tab.agent_type.is_none() || matches!(tab.backing, TabBacking::Surface(_)) {
+        return Err(NO_AGENT_SESSION);
+    }
+    tab.agent_session_id
+        .as_deref()
+        .filter(|session| !session.is_empty())
+        .ok_or(NO_AGENT_SESSION)
+}
+
+fn ready_binding_on_own_session(tab: &Tab, session_id: &str) -> Option<(Option<String>, String)> {
+    if tab.boot_stage != Some(BootStage::AgentReady)
         || !tab.launch_session_authenticated()
-        || tab.agent_session_id.as_deref() != Some(session_id)
+        || resumable_session(tab) != Ok(session_id)
     {
         return None;
     }
-    Some((tab.pty_id.clone()?, tab.session_binding_nonce.clone()?))
+    let pty_id = match &tab.backing {
+        TabBacking::Pty => Some(tab.pty_id.clone()?),
+        TabBacking::ChatBackend {
+            session_id: bound, ..
+        } if bound == session_id => None,
+        _ => return None,
+    };
+    Some((pty_id, tab.session_binding_nonce.clone()?))
 }
 
-/// The tab's own session while its PTY agent is mid-turn.
+/// The tab's own session while its agent is mid-turn.
 pub(crate) fn working_session(tab: &Tab) -> Option<&str> {
     let working = tab
         .agent_state
         .as_ref()
         .is_some_and(|state| state.state == TimelineState::Working);
-    if !working || !matches!(tab.backing, TabBacking::Pty) {
+    if !working {
         return None;
     }
-    tab.agent_session_id.as_deref()
+    resumable_session(tab).ok()
 }
 
 pub(crate) fn record_turn_edge(tab: &mut Tab, start_epoch: &str) -> bool {
@@ -201,11 +216,11 @@ pub(crate) fn step(mux: &MuxState, tab_id: &str, start_epoch: &str) -> Step {
     else {
         return Step::Settled;
     };
-    if !matches!(tab.backing, TabBacking::Pty) {
-        return skip(tab, start_epoch, NO_PTY_AGENT_SESSION);
+    if let Err(reason) = resumable_session(tab) {
+        return skip(tab, start_epoch, reason);
     }
     if tab.boot_stage != Some(BootStage::AgentReady)
-        || tab.pty_id.is_none()
+        || (matches!(tab.backing, TabBacking::Pty) && tab.pty_id.is_none())
         || !tab.launch_session_authenticated()
     {
         return Step::Waiting;
@@ -388,7 +403,11 @@ pub fn arm(svc: &ServiceContext) {
             }
             for tab_id in expired {
                 let pty_id = service.mux.read().get_tab(&tab_id).and_then(|tab| tab.pty_id.clone());
-                let provider_live = pty_id.is_some_and(|pty| service.resumed_provider_is_live(&tab_id, &pty));
+                let provider_live = pty_id.is_some_and(|pty| service.resumed_provider_is_live(&tab_id, &pty))
+                    || super::agent_runtime::engine::for_tab(&tab_id).is_some_and(|session| {
+                        super::agent_runtime::engine::validate_binding(&service, &session).is_ok()
+                            && session.process.lock().as_ref().is_some_and(|process| process.ended.borrow().is_none())
+                    });
                 match settle_deadline(&service.mux, &tab_id, wave, provider_live) {
                     DeadlineOutcome::Retained => {
                         log::warn!("[turn-resume] tab={tab_id} outcome=skipped reason=live_binding_pending owed_continue=retained");
@@ -444,7 +463,7 @@ fn stage_after_update_prompt(
     let mut mux = mux.write();
     let tab_id = mux.resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)?;
     let tab = mux.get_tab_mut(&tab_id)?;
-    if !matches!(tab.backing, TabBacking::Pty) || tab.agent_type.is_none() {
+    if matches!(tab.backing, TabBacking::Surface(_)) || tab.agent_type.is_none() {
         return None;
     }
     let session_id = tab
@@ -502,10 +521,7 @@ impl ServiceContext {
             .get_tab_mut(&resolved)
             .ok_or_else(|| format!("Tab {tab_id} not found"))?;
         request_targets_caller(caller_tab_id, &resolved)?;
-        if !matches!(tab.backing, TabBacking::Pty) || tab.agent_type.is_none() {
-            return Err(NO_PTY_AGENT_SESSION.into());
-        }
-        let session_id = tab.agent_session_id.clone().ok_or(NO_AGENT_SESSION)?;
+        let session_id = resumable_session(tab)?.to_string();
         let sender = TurnResumeSender {
             tab_id: caller_tab_id.to_string(),
             label: tab.title.clone(),
@@ -652,7 +668,7 @@ impl ServiceContext {
                 super::messenger::Messenger::deliver_turn_resume(
                     self,
                     tab_id,
-                    &claim.pty_id,
+                    claim.pty_id.as_deref(),
                     &claim.session_id,
                     &claim.binding_nonce,
                     claim.sender.as_ref(),

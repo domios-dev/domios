@@ -4,7 +4,7 @@ impl Messenger {
     pub(crate) fn deliver_turn_resume(
         svc: &crate::service::ServiceContext,
         to_tab: &str,
-        expected_pty_id: &str,
+        expected_pty_id: Option<&str>,
         expected_session_id: &str,
         expected_binding_nonce: &str,
         _sender: Option<&crate::multiplexer::types::TurnResumeSender>,
@@ -31,13 +31,25 @@ impl Messenger {
         );
         let result = (|| {
             let frame = routed_frame.ok_or("turn continuation requires a frame")?;
-            svc.send_to_authenticated_agent_session_pinned_routed(
-                to_tab,
-                expected_pty_id,
-                expected_session_id,
-                expected_binding_nonce,
-                frame,
-            )?;
+            if let Some(pty_id) = expected_pty_id {
+                svc.send_to_authenticated_agent_session_pinned_routed(
+                    to_tab,
+                    pty_id,
+                    expected_session_id,
+                    expected_binding_nonce,
+                    frame,
+                )?;
+            } else {
+                super::super::agent_runtime::transport::send_pinned(
+                    svc,
+                    to_tab,
+                    &AgentInput::Framed(frame),
+                    &pending.send_id,
+                    expected_session_id,
+                    expected_binding_nonce,
+                )
+                .map_err(|error| error.ledger_message())?;
+            }
             Ok(())
         })();
         if let Some(status) = svc
@@ -50,6 +62,12 @@ impl Messenger {
             );
         }
         result?;
-        Ok(Delivery::Pty { text })
+        Ok(if expected_pty_id.is_some() {
+            Delivery::Pty { text }
+        } else {
+            Delivery::ChatBackend {
+                message_id: pending.send_id,
+            }
+        })
     }
 }
