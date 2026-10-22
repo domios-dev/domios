@@ -75,7 +75,7 @@ impl ServiceContext {
                 .collect::<Vec<_>>()
                 .join("\n");
             let text = format!("Checklist shared by {} (work continues):\n{}\nReview: codeterm todo approve --tab {} or codeterm todo amend --tab {} --from-pad checklist.json", target.id, items, target.id, target.id);
-            self.deliver_checklist_notice(parent, &text);
+            self.deliver_checklist_notice(parent, &text).await;
         }
         self.ui.emit("tab-todo-proposed", serde_json::json!({ "tab_id": target.id, "parent_tab_id": target.parent_tab_id, "checklist": checklist }));
         Ok(checklist)
@@ -204,7 +204,8 @@ impl ServiceContext {
                 proposal.note.as_deref().unwrap_or(""),
                 changes
             ),
-        );
+        )
+        .await;
         self.ui.emit(
             "tab-todo-reviewed",
             serde_json::json!({ "tab_id": target.id, "proposal": proposal }),
@@ -212,11 +213,23 @@ impl ServiceContext {
         Ok(checklist)
     }
 
-    fn deliver_checklist_notice(&self, target: &str, text: &str) {
-        if let Err(error) =
-            crate::service::hierarchy::deliver_tab_todo_recitation(self, target, text)
-        {
+    async fn deliver_checklist_notice(&self, target: &str, text: &str) {
+        if let Err(error) = self.deliver_checklist_text(target, text).await {
             log::warn!("[tab-todo] checklist notice unavailable for {target}: {error}");
         }
+    }
+
+    pub(super) async fn deliver_checklist_text(
+        &self,
+        target: &str,
+        text: &str,
+    ) -> Result<bool, String> {
+        let svc = self.clone();
+        let target = target.to_owned();
+        let text = text.to_owned();
+        crate::service::blocking_run(move || {
+            crate::service::hierarchy::deliver_tab_todo_recitation(&svc, &target, &text)
+        })
+        .await
     }
 }
