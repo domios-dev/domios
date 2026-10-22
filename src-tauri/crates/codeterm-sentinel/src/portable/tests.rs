@@ -152,3 +152,24 @@ fn exported_source_recipes_keep_kind_when_inputs_and_routes_are_edited() {
     );
     assert_eq!(typed.steps[0].routes["up"], "@stop");
 }
+
+#[test]
+fn blueprint_v2_check_export_redacts_decision_and_pattern_literals() {
+    let mut doc = native(true);
+    doc.steps[1].params.insert("question".into(), ValueForm::literal("private-question-marker"));
+    doc.steps[1].matches.insert("done".into(), ValueForm::literal("private-match-marker"));
+    let recipe = export(&job(&doc, "team")).unwrap();
+    let raw = serde_json::to_string(&recipe).unwrap();
+    for literal in ["private-question-marker", "private-match-marker"] {
+        assert!(!raw.contains(literal), "leaked {literal}");
+    }
+    assert_eq!(recipe.bind(&bindings(&recipe, &serde_json::to_value(&doc).unwrap())).unwrap(), serde_json::to_value(&doc).unwrap());
+    doc.steps[0].uses = Some(codeterm_blueprint_types::blueprint_document::NodeKind::Terminal);
+    doc.steps[0].params = std::collections::BTreeMap::from([
+        ("kind".into(), ValueForm::literal("tab")),
+        ("id".into(), ValueForm::literal("opaque-tab")),
+        ("pattern".into(), ValueForm::literal("private-terminal-marker")),
+    ]);
+    let recipe = export(&job(&doc, "team")).unwrap();
+    assert!(!serde_json::to_string(&recipe).unwrap().contains("private-terminal-marker"));
+}
