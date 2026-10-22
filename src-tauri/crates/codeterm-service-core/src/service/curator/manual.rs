@@ -8,6 +8,9 @@ impl ServiceContext {
         now: u64,
     ) -> Result<ControlLoop, String> {
         self.authorize_plan_orchestrator(plan_id, caller)?;
+        self.extensions
+            .try_get::<super::CuratorTabs>()
+            .ok_or("Curator runtime is unavailable")?;
         let plan = self.plan_store.get(plan_id).ok_or("plan absent")?;
         let owner = plan.owner.tab_id.as_deref().ok_or("Orchestrator absent")?;
         let tab = self

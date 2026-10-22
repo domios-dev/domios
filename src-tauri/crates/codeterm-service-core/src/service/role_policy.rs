@@ -86,6 +86,12 @@ pub trait RolePolicy: Send + Sync {
         job: &CronJob,
         now: u64,
     ) -> Result<Option<CronLaunch>, String>;
+    fn launch_failed(
+        &self,
+        service: &ServiceContext,
+        job: &CronJob,
+        now: u64,
+    ) -> Result<(), String>;
     fn spawned(
         &self,
         service: &ServiceContext,
