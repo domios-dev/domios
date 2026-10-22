@@ -5,12 +5,16 @@
     },
     "linux": {
       "deb": {
+        "conflicts": ["code-term"],
+        "replaces": ["code-term"],
         "files": {
           "/usr/bin/domios": "../target/domios-package/cli/domios",
           "/usr/bin/codeterm": "../target/domios-package/cli/codeterm"
         }
       },
       "rpm": {
+        "conflicts": ["code-term"],
+        "obsoletes": ["code-term"],
         "files": {
           "/usr/bin/domios": "../target/domios-package/cli/domios",
           "/usr/bin/codeterm": "../target/domios-package/cli/codeterm"

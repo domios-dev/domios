@@ -156,10 +156,10 @@ fn parse_ps_snapshot_reads_ppid_and_command() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn linux_inhibit_parser_detects_codeterm_sleep_and_idle_blocks() {
+fn linux_inhibit_parser_detects_domios_sleep_and_idle_blocks() {
     let output = "\
 WHO      UID USER PID COMM            WHAT       WHY                         MODE
-CodeTerm 1000 me   42 systemd-inhibit sleep:idle CodeTerm keepawake session block
+Domios   1000 me   42 systemd-inhibit sleep:idle Domios keepawake session block
 ";
 
     assert!(platform::parse_systemd_inhibit_list(output, "sleep"));
