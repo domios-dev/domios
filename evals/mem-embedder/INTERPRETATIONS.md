@@ -8,3 +8,5 @@ These clarify execution without changing the preregistered selection rule.
 - If the default changes, pin `legacy_identity()` to the L12 descriptor so an unstamped historical store is identified correctly; add a focused regression proving re-embedding instead of reuse. This limited change is approved by the Chair.
 
 The eval Rust sources have their own non-published Cargo manifest so the repository formatter can resolve their edition. Measurement builds register them as examples only on the never-delivered scratch branch, retaining the existing app workspace dependency versions and per-worktree build target.
+
+Final owner narrowing before the pick supersedes the earlier execution plan: keep L12; drop mem-bench, snapshot recall and subject sessions; delete worker snapshot copies; commit the decision and then confirm L12 once on b4. The discarded harness sources and extra migration fixture were removed. See DECISION.md for the decision and deferred legacy-identity follow-up.
