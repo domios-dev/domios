@@ -25,7 +25,7 @@ import { prepareBrowserUpload } from "./browserImageUpload";
 const path = "/home/owner/.domios-dev/uploads/id-photo.png";
 const pixels = "data:image/png;base64,iVBORw0KGgo=";
 
-it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError"])("web picker sends immediately and omits failed images without a popup: %s", async (failure) => {
+it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400", "pending HTTP 400"])("web picker sends immediately and omits failed images without a popup: %s", async (failure) => {
   vi.stubGlobal("Blob", BrowserBlob);
   vi.stubGlobal("File", BrowserFile);
   vi.stubGlobal("FormData", BrowserFormData);
@@ -47,10 +47,11 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError"])("web pic
     expect(file).toBeInstanceOf(Blob);
     expect(file.type).toBe(failure === "HEIC" ? "image/jpeg" : "image/png");
     expect(file.name).toBe(failure === "HEIC" ? "photo.jpg" : "photo.png");
-    expect(file.size).toBe(5);
+    expect(file.size).toBe(failure.includes("400") ? 0 : 5);
     if (failure === "NotReadableError" && ++reads === 1) throw new DOMException("unreadable", "NotReadableError");
     if (++requests === 1 && failure === "HTTP 503") return new Response("busy", { status: 503 });
-    if (failure === "pending") await new Promise<void>(resolve => { completeUpload = resolve; });
+    if (failure.startsWith("pending")) await new Promise<void>(resolve => { completeUpload = resolve; });
+    if (failure.includes("400")) return Response.json({ error: { code: "empty_attachment", message: "Attachment is empty" } }, { status: 400 });
     return Response.json({ path, size: 5 });
   });
   vi.stubGlobal("fetch", fetch);
@@ -98,11 +99,11 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError"])("web pic
       editor.setSelectionRange(15, 15);
     });
     const input = host.querySelector<HTMLInputElement>('[data-testid="composer-attach-input"]')!;
-    const file = new File(["image"], failure === "HEIC" ? "photo.heic" : "photo.png", { type: failure === "HEIC" ? "image/heic" : "image/png" });
+    const file = new File([failure.includes("400") ? "" : "image"], failure === "HEIC" ? "photo.heic" : "photo.png", { type: failure === "HEIC" ? "image/heic" : "image/png" });
     Object.defineProperty(input, "files", { value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
     expect(fetch.mock.calls.length, host.textContent ?? "").toBe(1);
-    if (failure === "pending") {
+    if (failure.startsWith("pending")) {
       expect(host.querySelector('[role="status"][aria-label="Uploading photo.png"]')).not.toBeNull();
       expect(host.querySelector('[aria-label="Remove attachment photo.png"]')).not.toBeNull();
       expect(editor.disabled).toBe(false);
@@ -114,6 +115,10 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError"])("web pic
       expect(host.querySelector('[role="group"][aria-label="Message composer"]')?.contains(notice)).toBe(true);
       expect(editor.value).not.toContain(file.name);
     }
+    if (failure === "HTTP 400") {
+      expect(host.querySelector('[role="status"][aria-label^="Failed attachment"]')?.getAttribute("title")).toBe("Attachment is empty");
+      expect(host.querySelector('[aria-label="Retry attachment photo.png"]')).toBeNull();
+    }
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor, `${editor.value} after upload`);
       editor.dispatchEvent(new Event("input", { bubbles: true }));
@@ -121,7 +126,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError"])("web pic
     expect(capsuleSpans(editor.value)).toHaveLength(1);
     await act(async () => editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
     expect(editor.value).toBe("");
-    if (failure === "pending") {
+    if (failure.startsWith("pending")) {
       expect(sent).toHaveLength(0);
       expect(host.querySelector('[role="status"]')).not.toBeNull();
       await act(async () => {
@@ -132,6 +137,13 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError"])("web pic
       expect(editor.value).toBe("next message");
     }
     expect(sent).toHaveLength(1);
+    if (failure.includes("400")) {
+      expect(host.querySelector('[aria-label="Retry omitted attachments"]')).toBeNull();
+      expect(host.querySelector('[role="note"]')?.textContent).toContain("Attachment is empty");
+      expect(host.textContent).not.toContain("/api/attachments/upload");
+      expect(parseAttachmentMarkers(sent[0]).attachments).toEqual([]);
+      return;
+    }
     const row = host.querySelector('[data-testid="user-bubble-row"]')!;
     expect(row.querySelector('[aria-label="User message"]')?.parentElement).toBe(row);
     expect(row.querySelector('[role="status"]')?.parentElement).toBe(row);
