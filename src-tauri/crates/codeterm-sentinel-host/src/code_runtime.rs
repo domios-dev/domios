@@ -87,7 +87,6 @@ pub fn run_with_output(
     cancellation: &Cancellation,
     output: Option<&codeterm_blueprint_types::blueprint_document::Port>,
 ) -> Result<Output, RuntimeFailure> {
-    platform_supported(std::env::consts::OS)?;
     if code.limits.mem_mb.is_some() {
         return Err(RuntimeFailure::new("contract_violation"));
     }
@@ -107,6 +106,7 @@ pub fn run_with_output(
     if !codeterm_blueprint_types::blueprint_document::code_contract::has_main(code) {
         return Err(RuntimeFailure::new("contract_violation"));
     }
+    platform_supported(std::env::consts::OS)?;
     #[cfg(target_os = "macos")]
     {
         macos::run(code, input, timeout, owner, cancellation, output)

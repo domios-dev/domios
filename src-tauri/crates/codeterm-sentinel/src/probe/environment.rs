@@ -48,12 +48,12 @@ impl Environment {
                 }
             }
         }
-        let mut paths: Vec<PathBuf> = if cfg!(windows) {
-            Vec::new()
-        } else {
-            vec!["/usr/bin".into(), "/bin".into()]
-        };
-        paths.extend(path_defaults.iter().map(PathBuf::from));
+        let inherited_path = inherited
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+            .map(|(_, value)| value.as_os_str());
+        let path = probe_path(inherited_path, path_defaults).unwrap_or_default();
+        let mut paths: Vec<PathBuf> = std::env::split_paths(&path).collect();
         let mut variables = vec![("LANG".into(), "C.UTF-8".into())];
         #[cfg(windows)]
         if let Some((_, root)) = inherited
@@ -62,18 +62,14 @@ impl Environment {
         {
             let root_path = PathBuf::from(root);
             if root_path.is_absolute() {
-                paths.push(root_path.join("System32"));
+                let system = root_path.join("System32");
+                if !paths.iter().any(|path| same_directory(path, &system)) {
+                    paths.push(system);
+                }
                 variables.push(("SystemRoot".into(), root.clone()));
             }
         }
-        paths.retain(|path| {
-            path.is_absolute()
-                && !cli_dirs.iter().any(|cli| same_directory(path, cli))
-                && !["codeterm", "domios", "codeterm.exe", "domios.exe"]
-                    .iter()
-                    .any(|name| path.join(name).is_file())
-        });
-        paths.dedup();
+        paths.retain(|path| !cli_dirs.iter().any(|cli| same_directory(path, cli)));
         variables.push((
             "PATH".into(),
             std::env::join_paths(paths).unwrap_or_default(),

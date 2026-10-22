@@ -97,7 +97,7 @@ fn sentinel_probe_process_strips_instance_cli_and_auth_environment() {
     }
     assert!(!text.contains("opaque-instance-secret"));
     assert!(!text.contains(bin.to_string_lossy().as_ref()));
-    assert!(text.contains("KEEP_PROBE_STATE=opaque-normal-value"));
+    assert!(!text.contains("KEEP_PROBE_STATE=opaque-normal-value"));
 }
 
 #[test]

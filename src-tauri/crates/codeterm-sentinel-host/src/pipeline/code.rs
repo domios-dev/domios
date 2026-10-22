@@ -39,39 +39,11 @@ pub(super) fn run(
             .as_ref()
             .and_then(|contract| contract.output.as_ref()),
     ) {
-        Ok(output) if !output.success => {
-            let mut result = failed_input_step("code_failed");
-            result.summary = failure_summary(&body_sha256, &output.stderr_text());
-            result
-        }
-        Ok(output) => {
-            let bound = code.limits.output_bytes.unwrap_or(32768).min(32768);
-            if output.stdout.truncated
-                || output.stderr.truncated
-                || output
-                    .stdout
-                    .total_bytes
-                    .saturating_add(output.stderr.total_bytes)
-                    > bound
-            {
-                return failed_input_step("budget_exhausted");
-            }
-            let envelope = match ExecutionEnvelope::decode(output.stdout_text().as_bytes()) {
-                Ok(envelope) => envelope,
-                Err(_) => return failed_input_step("contract_violation"),
-            };
-            StepResult {
-                outcome: StepOutcome::Done,
-                stored_outcome: JournalOutcome::Done,
-                state: JournalState::Done,
-                summary: format!("confined code completed; body_sha256={body_sha256}"),
-                reason: None,
-                next_text: String::from_utf8(envelope.encode().unwrap_or_default())
-                    .unwrap_or_default(),
-                decision: None,
-                uncertain: false,
-            }
-        }
+        Ok(output) => completed(
+            output,
+            code.limits.output_bytes.unwrap_or(32768).min(32768),
+            &body_sha256,
+        ),
         Err(failure) => {
             #[cfg(any(test, feature = "test-support"))]
             lease.cancelled.record_diagnostic(format!(
@@ -86,6 +58,38 @@ pub(super) fn run(
             result.uncertain = failure.uncertain;
             result
         }
+    }
+}
+
+fn completed(output: probe::Output, bound: u64, body_sha256: &str) -> StepResult {
+    if !output.success {
+        let mut result = failed_input_step("code_failed");
+        result.summary = failure_summary(body_sha256, &output.stderr_text());
+        return result;
+    }
+    if output.stdout.truncated
+        || output.stderr.truncated
+        || output
+            .stdout
+            .total_bytes
+            .saturating_add(output.stderr.total_bytes)
+            > bound
+    {
+        return failed_input_step("budget_exhausted");
+    }
+    let envelope = match ExecutionEnvelope::decode(output.stdout_text().as_bytes()) {
+        Ok(envelope) => envelope,
+        Err(_) => return failed_input_step("contract_violation"),
+    };
+    StepResult {
+        outcome: StepOutcome::Done,
+        stored_outcome: JournalOutcome::Done,
+        state: JournalState::Done,
+        summary: format!("confined code completed; body_sha256={body_sha256}"),
+        reason: None,
+        next_text: String::from_utf8(envelope.encode().unwrap_or_default()).unwrap_or_default(),
+        decision: None,
+        uncertain: false,
     }
 }
 
