@@ -565,8 +565,8 @@ List CLI commands and clearly marked RPC-only/internal methods
 
 Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
 
-- `--markdown` — Emit the generated/cli/cli.md auto-block markdown instead of JSON
-- `--write` — Regenerate committed artifacts (generated/cli/cli-manifest.json + generated/cli/cli.md)
+- `--markdown` — Emit the Markdown command reference instead of JSON
+- `--write` — Write the CLI manifest, Markdown reference and command-path exports
 
 #### `codeterm config`
 
@@ -3610,7 +3610,7 @@ List compact tab summaries across every workspace. Use `--workspace` for one wor
 Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab use `codeterm agent spawn`
 
 - `--chat-backend` — Open a non-PTY chat-backend tab driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`tab get-text` then route to the plugin, not a shell
-- `--cmd` — Spawn a shell that runs this command on start (e.g. `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab
+- `--cmd` — Spawn a shell that runs this command on start (e.g. `"npm run dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab
 - `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new tab
 - `--description` — Activity summary shown below the tab title
