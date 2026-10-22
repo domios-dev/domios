@@ -5,7 +5,7 @@ use serde_json::Value;
 pub(super) const MAX_PLAN_TEXT_BYTES: usize = 256 * 1024;
 const MAX_PLAN_LABEL_CHARS: usize = 256;
 const MAX_PLAN_TEXT_FIELDS: usize = 1024;
-const MAX_STORED_PLAN_TEXT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_STORED_SPEC_TEXT_BYTES: usize = 16 * 1024 * 1024;
 
 struct TextBudget {
     bytes: usize,
@@ -75,7 +75,7 @@ pub(super) fn validate_plan(plan: &crate::plan::Plan) -> Result<(), PlanError> {
     }
     let value = serde_json::to_value(plan)
         .map_err(|error| PlanError::InvalidPlanText(error.to_string()))?;
-    validate_stored_plan_value(&value, &mut StoredPlanTextBudget::default())
+    validate_stored_plan_value(&value, &mut StoredPlanTextBudget::unbounded())
 }
 
 pub(super) fn validate_spec(spec: &crate::plan::Spec) -> Result<(), PlanError> {
@@ -85,7 +85,10 @@ pub(super) fn validate_spec(spec: &crate::plan::Spec) -> Result<(), PlanError> {
     }
     let value = serde_json::to_value(spec)
         .map_err(|error| PlanError::InvalidPlanText(error.to_string()))?;
-    validate_stored_plan_value(&value, &mut StoredPlanTextBudget::default())
+    validate_stored_plan_value(
+        &value,
+        &mut StoredPlanTextBudget::total(MAX_STORED_SPEC_TEXT_BYTES),
+    )
 }
 
 pub(super) fn validate_plan_label(field: &str, value: &str) -> Result<(), PlanError> {
@@ -301,10 +304,26 @@ fn section_text(
     Ok(())
 }
 
-/// A long-lived plan legitimately accumulates many fields; only its bytes bound memory.
-#[derive(Default)]
+/// A long-lived plan legitimately accumulates many fields; its stored rows, not its total, bound memory.
 struct StoredPlanTextBudget {
     bytes: usize,
+    max_total: Option<usize>,
+}
+
+impl StoredPlanTextBudget {
+    fn unbounded() -> Self {
+        Self {
+            bytes: 0,
+            max_total: None,
+        }
+    }
+
+    fn total(max_total: usize) -> Self {
+        Self {
+            bytes: 0,
+            max_total: Some(max_total),
+        }
+    }
 }
 
 fn validate_stored_plan_value(
@@ -319,9 +338,9 @@ fn validate_stored_plan_value(
                     "plan text exceeds {MAX_PLAN_TEXT_BYTES} UTF-8 bytes"
                 )));
             }
-            if budget.bytes > MAX_STORED_PLAN_TEXT_BYTES {
+            if let Some(max_total) = budget.max_total.filter(|max| budget.bytes > *max) {
                 return Err(PlanError::InvalidPlanText(format!(
-                    "plan text exceeds {MAX_STORED_PLAN_TEXT_BYTES} total UTF-8 bytes"
+                    "text exceeds {max_total} total UTF-8 bytes"
                 )));
             }
             Ok(())

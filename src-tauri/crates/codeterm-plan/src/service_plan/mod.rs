@@ -46,6 +46,7 @@ pub mod reflection;
 mod relink;
 pub mod reminders;
 pub mod resolve;
+pub mod retention;
 pub mod retrospective;
 pub mod review_gate;
 pub mod search_index;
@@ -59,8 +60,11 @@ pub mod spec_store;
 pub mod state;
 mod store_db;
 mod store_index;
+mod store_migrate;
 mod store_persist;
 mod store_queries;
+mod store_rows;
+mod store_sync;
 pub mod store_v2;
 mod store_watch;
 pub mod stride_context;
@@ -165,6 +169,7 @@ pub struct PlanStore {
     dispatch_reservations:
         Mutex<HashMap<(String, String), task_dispatch::DispatchReservationOwner>>,
     database: Arc<store_db::PlanDatabase>,
+    retention_day: Mutex<Option<u64>>,
     #[cfg(test)]
     persistence_hook: RwLock<Option<Arc<dyn Fn(&Plan) + Send + Sync>>>,
 }
@@ -236,6 +241,7 @@ impl PlanStore {
             mutation_writer: MutationWriter::default(),
             dispatch_reservations: Mutex::new(HashMap::new()),
             database,
+            retention_day: Mutex::new(None),
             #[cfg(test)]
             persistence_hook: RwLock::new(None),
         };
