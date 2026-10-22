@@ -116,7 +116,7 @@ impl ServiceContext {
         if effort.is_some() && observed().as_deref() == Some(requested) {
             return Ok(());
         }
-        let signal = command_signal(&mut self.screen_state.lock(), &target.pty_id);
+        let signal = command_signal(&self.screen_state, &target.pty_id);
         crate::service::boot_wait::observe_boot_changes(&signal);
         let not_ready = std::cell::Cell::new(false);
         let started = Instant::now();
@@ -168,10 +168,14 @@ impl ServiceContext {
                         {
                             return Err("the session changed before command injection".into());
                         }
-                        let screen = self.screen_state.lock();
+                        let screen = self
+                            .screen_state
+                            .existing(&target.pty_id)
+                            .ok_or_else(|| "the command screen is unavailable".to_owned())?;
+                        let screen = screen.lock();
                         let input = crate::service::pty_io::submit_transaction::live_command_input(
                             &command,
-                            screen.bracketed_paste_mode(&target.pty_id),
+                            screen.bracketed_paste_mode(),
                         );
                         let pty = self.pty.lock();
                         let session = pty
@@ -261,7 +265,6 @@ impl ServiceContext {
             )
         })();
         self.screen_state
-            .lock()
             .unsubscribe_screen_changes(&target.pty_id, &signal);
         if let Err(error) = &result {
             log::warn!("[agent-model/timing] tab={} source=session_identity phase=refused elapsed_ms={} error={error}", target.tab_id, started.elapsed().as_millis());
@@ -334,10 +337,10 @@ mod tests {
 
     #[test]
     fn picker_model_then_effort_and_next_apply_have_independent_waits() {
-        let mut screens = crate::pty::screen_state::ScreenState::new();
+        let screens = crate::pty::screen_state::ScreenState::new();
         let shared = screens.arm_screen_change_signal("owned-pty");
         for _ in 0..3 {
-            let signal = command_signal(&mut screens, "owned-pty");
+            let signal = command_signal(&screens, "owned-pty");
             let generation = signal.generation();
             signal.mark_changed();
             assert!(signal.wait_after(generation, Duration::ZERO));

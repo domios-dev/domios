@@ -122,7 +122,6 @@ fn classified_prompt_fixture(
     fixture
         .service
         .screen_state
-        .lock()
         .process(&pty_id, screen.as_bytes());
     let service = std::sync::Arc::new(fixture.service.clone());
     (fixture, service, tab_id, pty_id)
@@ -515,7 +514,6 @@ fn live_codex_trust_frame_becomes_pending_prompt_through_state_reactor() {
     fixture
         .service
         .screen_state
-        .lock()
         .process(pty_id, screen.as_bytes());
     let service = std::sync::Arc::new(fixture.service.clone());
 
@@ -697,7 +695,6 @@ fn live_codex_command_approval_frame_becomes_pending_prompt_through_reactor_and_
     fixture
         .service
         .screen_state
-        .lock()
         .process(pty_id, screen.as_bytes());
     let service = std::sync::Arc::new(fixture.service.clone());
 
@@ -800,7 +797,6 @@ fn live_command_approval_frame_reaches_existing_auto_approve_output_path() {
     fixture
         .service
         .screen_state
-        .lock()
         .process(pty_id, screen.as_bytes());
     let service = std::sync::Arc::new(fixture.service.clone());
 
@@ -894,7 +890,6 @@ fn auto_approve_output_handles_permission_prompt_after_reactor_classification() 
     fixture
         .service
         .screen_state
-        .lock()
         .process(pty_id, b"Allow this command?\n1. Yes, allow once\n2. No\n");
     let service = std::sync::Arc::new(fixture.service.clone());
 

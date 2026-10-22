@@ -49,10 +49,9 @@ impl ServiceContext {
         let accepted = match generation {
             Some(generation) => self
                 .screen_state
-                .lock()
                 .process_if_generation(pty_id, generation, data),
             None => {
-                self.screen_state.lock().process(pty_id, data);
+                self.screen_state.process(pty_id, data);
                 true
             }
         };
@@ -66,9 +65,9 @@ impl ServiceContext {
         generation: Option<u64>,
         data: &[u8],
     ) -> (TabStatus, TabStatus) {
-        if generation.is_some_and(|generation| {
-            self.screen_state.lock().pty_generation(pty_id) != Some(generation)
-        }) {
+        if generation
+            .is_some_and(|generation| self.screen_state.pty_generation(pty_id) != Some(generation))
+        {
             let status = self.agent_tracker.lock().get_status(pty_id);
             return (status, status);
         }

@@ -27,18 +27,38 @@ class StormTests(unittest.TestCase):
         self.assertEqual(result['per_lock'], {'pty': 1, 'mux': 1, 'launch_registry': 1})
         self.assertEqual(result['per_site']['pty at service/spawn_shell.rs:243'], 1)
         self.assertEqual(result['unmatched'], 1)
-    def test_worker_http_and_transport_status(self):
+    def test_worker_times_direct_http_without_identity_checks(self):
         import subprocess
-        worker = scope['WORKER'].replace('source evals/_lib/lib.sh', '''dev_get() {
-case "$1" in
-  /ok) echo '[dev-http] GET /ok -> HTTP 200' >&2 ;;
-  /bad) echo '[dev-http] GET /bad -> HTTP 503' >&2; echo 'ERROR [dev-http]: GET /bad -> HTTP 503' >&2; return 22 ;;
-  *) return 7 ;;
+        worker = '''CODETERM_API_URL=http://127.0.0.1:17686
+CODETERM_API_TOKEN=opaque-fixture
+dev_get() { exit 99; }
+curl() {
+[[ "$*" == *"--max-time 30"* && "$*" == *"Authorization: Bearer opaque-fixture"* ]] || exit 98
+case "\u0024{!#}" in
+  http://127.0.0.1:17686/ok) printf '0.0022 200\\n' ;;
+  http://127.0.0.1:17686/bad) printf '0.0030 503\\n' ;;
+  http://127.0.0.1:17686/down) printf '0.0010 000\\n'; return 7 ;;
+  *) exit 97 ;;
 esac
-}''')
+}
+''' + scope['WORKER']
         result = subprocess.run([${JSON.stringify(bash)}, '-c', worker], input='/ok\\n/bad\\n/down\\n', capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines(), ['0 200', '22 503', '7 transport_error'])
+        self.assertEqual(result.stdout.splitlines(), ['0.0022 200', '0.0030 503', '0.0010 000'])
+    def test_measure_uses_http_duration_and_preserves_status(self):
+        from unittest.mock import MagicMock, patch
+        scope['sys'].argv = ['fixture', '1', 'out', 'tab', 'log', 'bash']
+        for status, expected in [('200', '200'), ('503', '503'), ('000', 'transport_error')]:
+            worker = MagicMock()
+            worker.__enter__.return_value = worker
+            worker.stdout.readline.return_value = '0.0022 ' + status
+            with patch.object(scope['subprocess'], 'Popen', return_value=worker), \\
+                 patch.object(scope['time'], 'monotonic', side_effect=[0, 0, 2, 2, 2, 2]), \\
+                 patch.object(scope['threading'], 'Event'):
+                result = scope['measure']('/opaque', 1)
+            self.assertEqual(result['samples'], 1)
+            self.assertAlmostEqual(result['p50_ms'], 2.2)
+            self.assertEqual(result['status_counts'], {expected: 1})
     def test_persisted_result(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -56,4 +76,12 @@ unittest.main()
   const result = spawnSync(python, ['-c', checks], { encoding: 'utf8' });
   assert.ifError(result.error);
   assert.equal(result.status, 0, `signal=${result.signal}\n${result.stdout}${result.stderr}`);
+});
+
+test('lock storm reads the daemon log and validates DEV before direct sampling', () => {
+  const setup = build.split('  qa-lock-storm)')[1].split("<<'LOCK_STORM_PY'")[0];
+  assert.match(setup, /storm_log="\$\(dev_data_dir\)\/logs\/domios\.log"/);
+  assert.match(setup, /dev_resolve\n\s+storm_tabs="\$\(dev_get \/api\/tabs\)"/);
+  assert.match(setup, /dev_run python3/);
+  assert.doesNotMatch(source, /source evals\/|dev_get/);
 });

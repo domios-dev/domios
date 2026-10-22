@@ -224,7 +224,6 @@ impl ServiceContext {
             Ok(rows) => {
                 let screen_hash = self
                     .screen_state
-                    .lock()
                     .get_content_hash(pty_id, rows.get())
                     .unwrap_or([0u8; 32]);
                 let mut t = self.agent_tracker.lock();
@@ -255,7 +254,6 @@ impl ServiceContext {
         if agent_type.is_some() && screen_changed {
             let screen = self
                 .screen_state
-                .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
             let has_agent_markers = self
@@ -275,7 +273,6 @@ impl ServiceContext {
 
         let changed_screen = screen_changed.then(|| {
             self.screen_state
-                .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default()
         });
@@ -336,7 +333,6 @@ impl ServiceContext {
                 // auto_approve tabs (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
                 let trust_candidate_screen = trust_candidate.then(|| {
                     self.screen_state
-                        .lock()
                         .get_screen_text(pty_id)
                         .unwrap_or_default()
                 });
@@ -347,15 +343,25 @@ impl ServiceContext {
                     || trust_prompt_candidate
                     || update_candidate;
                 let (native_prompt_input, mut clean_text) = {
-                    let screen_state = self.screen_state.lock();
+                    let screen_state = self.screen_state.existing(pty_id);
+                    let screen_state = screen_state.as_ref().map(|screen| screen.lock());
                     let clean_text = if check_screen {
                         trust_candidate_screen
                             .or_else(|| changed_screen.clone())
-                            .or_else(|| screen_state.get_screen_text(pty_id))
+                            .or_else(|| {
+                                screen_state
+                                    .as_ref()
+                                    .and_then(|screen| screen.get_screen_text())
+                            })
                     } else {
                         None
                     };
-                    (screen_state.native_prompt_input(pty_id), clean_text)
+                    (
+                        screen_state
+                            .as_ref()
+                            .and_then(|screen| screen.native_prompt_input()),
+                        clean_text,
+                    )
                 };
                 let structured = if check_screen {
                     self.structured_pending_prompt(
@@ -443,7 +449,7 @@ impl ServiceContext {
                 });
                 let prompt_signal = parsed.is_some();
                 if prompt_signal && clean_text.is_none() {
-                    clean_text = self.screen_state.lock().get_screen_text(pty_id);
+                    clean_text = self.screen_state.get_screen_text(pty_id);
                 }
                 let decision = if command_owned
                     || manual_update_candidate
@@ -608,27 +614,28 @@ impl ServiceContext {
         // screen_state (3): trimmed lines + tail from the existing parser.
         const LIVE_TAIL_ROWS: usize = 60;
         let Some((lines, tail, cursor_hidden, composer_ready, cursor_row)) = ({
-            let screen_state = self.screen_state.lock();
-            let Some((lines, tail)) = screen_state.lines_and_tail(pty_id, LIVE_TAIL_ROWS) else {
+            let Some(screen_state) = self.screen_state.existing(pty_id) else {
+                return;
+            };
+            let screen_state = screen_state.lock();
+            let Some((lines, tail)) = screen_state.lines_and_tail(LIVE_TAIL_ROWS) else {
                 return;
             };
             let cursor_hidden = screen_state
-                .native_prompt_input(pty_id)
+                .native_prompt_input()
                 .map(|input| input.cursor_hidden)
                 .unwrap_or(false);
-            let cursor_state = screen_state.cursor_input_state(pty_id);
+            let cursor_state = screen_state.cursor_input_state();
             let composer_ready = if composer_position
                 == crate::agent::provider::ComposerCursorPosition::PromptLine
             {
-                screen_state
-                    .composer_input_state(pty_id)
-                    .is_some_and(|input| {
-                        crate::agent::offline_state_classifier::prompt_line_cursor_ready(
-                            input.cursor_visible,
-                            input.cursor_row,
-                            input.last_nonblank_row,
-                        )
-                    })
+                screen_state.composer_input_state().is_some_and(|input| {
+                    crate::agent::offline_state_classifier::prompt_line_cursor_ready(
+                        input.cursor_visible,
+                        input.cursor_row,
+                        input.last_nonblank_row,
+                    )
+                })
             } else {
                 cursor_state
                     .map(|(_alt, vis, row, rows)| {

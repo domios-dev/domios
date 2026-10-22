@@ -311,7 +311,6 @@ fn startup_deadline_on_a_trust_prompt_records_the_classified_reason() {
     fixture
         .service
         .screen_state
-        .lock()
         .process("launch-a", b"trust-prompt");
     let authority =
         StartupAuthority::new(&parent_tab_id, &tab_id, "launch-a").for_binding(None, "nonce-a");
@@ -354,7 +353,6 @@ fn startup_prompt_classification_requires_missing_session_binding() {
     fixture
         .service
         .screen_state
-        .lock()
         .process("launch-a", b"permission-prompt");
 
     assert_eq!(

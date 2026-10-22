@@ -173,7 +173,7 @@ export function KeepAwakeTray() {
         aria-pressed={status.active}
         className={
           status.active
-            ? "ct-liquid-interactive flex items-center justify-center w-7 h-7 rounded-md text-[var(--ct-accent)] hover:bg-[var(--ct-hover)]"
+            ? "ct-liquid-interactive flex items-center justify-center w-7 h-7 min-h-[44px] sm:min-h-0 rounded-md text-[var(--ct-accent)] hover:bg-[var(--ct-hover)]"
             : UI_TRAY_BTN
         }
       >

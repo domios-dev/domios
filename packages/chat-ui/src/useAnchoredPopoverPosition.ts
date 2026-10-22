@@ -59,9 +59,12 @@ export function useAnchoredPopoverPosition(
     update();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
     if (anchorRef?.current) observer?.observe(anchorRef.current);
+    // A child capped by the popover's own max-height never resizes as content arrives, so content changes re-measure too.
+    const content = typeof MutationObserver === "undefined" ? null : new MutationObserver(update);
     if (floatingRef.current) {
       observer?.observe(floatingRef.current);
       for (const child of Array.from(floatingRef.current.children)) observer?.observe(child);
+      content?.observe(floatingRef.current, { childList: true, subtree: true, characterData: true });
     }
     const visual = window.visualViewport;
     window.addEventListener("resize", update);
@@ -70,6 +73,7 @@ export function useAnchoredPopoverPosition(
     visual?.addEventListener("scroll", update);
     return () => {
       observer?.disconnect();
+      content?.disconnect();
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
       visual?.removeEventListener("resize", update);

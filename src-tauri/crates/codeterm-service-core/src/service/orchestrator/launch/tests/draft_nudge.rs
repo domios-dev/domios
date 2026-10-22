@@ -77,7 +77,6 @@ fn draft_nudge_presses_enter_once_and_waits_for_the_binding() {
     fixture
         .service
         .screen_state
-        .lock()
         .process(&pty_id, format!("› {draft}").as_bytes());
     let attempt = LaunchAttempt {
         tab_id: tab_id.clone(),

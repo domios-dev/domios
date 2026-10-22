@@ -99,7 +99,13 @@ test("the shift anchor is the first row reaching into the viewport", () => {
 });
 
 test("anchor shift measures how far content above moved the anchor", () => {
-  assert.equal(chatAnchorShift({ id: "a", top: 500 }, 620), 120);
-  assert.equal(chatAnchorShift(null, 620), 0);
+  assert.equal(chatAnchorShift({ id: "a", top: 500 }, { id: "a", top: 620 }), 120);
+  assert.equal(chatAnchorShift(null, { id: "a", top: 620 }), 0);
   assert.equal(chatAnchorShift({ id: "a", top: 500 }, null), 0);
+});
+
+test("a day separator leaving the anchor row for a prepended page is absorbed as a shift of its body", () => {
+  const before = { id: "a", top: 500, contentTop: 528 };
+  const afterPrepend = { id: "a", top: 900, contentTop: 900 };
+  assert.equal(chatAnchorShift(before, afterPrepend), 372);
 });

@@ -120,7 +120,7 @@ export function Titlebar({
         {buildLabel && <DevBuildDot label={buildLabel} version={__APP_VERSION__} />}
       </div>
 
-      <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2 sm:gap-1 sm:pr-1.5">
         <div className="relative flex items-center">
           {onDismissToast && <NotificationToastContainer toasts={toasts} onDismiss={onDismissToast} onMarkRead={onMarkNotificationRead} onNavigate={onNavigateToast} />}
           {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (

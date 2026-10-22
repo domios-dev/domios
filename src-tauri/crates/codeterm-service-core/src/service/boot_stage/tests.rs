@@ -569,11 +569,8 @@ fn stale_generation_cannot_latch_a_deadline_on_the_same_pty() {
 /// paints another cell after the deadline still recovers.
 #[test]
 fn late_readiness_without_screen_update_reconciles_current_attempt() {
-    let screen_state = codeterm_util::lock_hold::TimedMutex::new(
-        "screen_state",
-        codeterm_pty::pty::screen_state::ScreenState::new(),
-    );
-    let signal = screen_state.lock().arm_screen_change_signal("pty-a");
+    let screen_state = codeterm_pty::pty::screen_state::ScreenState::new();
+    let signal = screen_state.arm_screen_change_signal("pty-a");
     let quiet = signal.generation();
 
     let mut tab = launching_tab("pty-a", "nonce-a");
@@ -729,11 +726,8 @@ fn a_deadline_never_latches_a_launch_the_tab_moved_on_from() {
 /// nothing weaker.
 #[test]
 fn late_binding_retires_submit_unconfirmed_for_current_attempt() {
-    let screen_state = codeterm_util::lock_hold::TimedMutex::new(
-        "screen_state",
-        codeterm_pty::pty::screen_state::ScreenState::new(),
-    );
-    let signal = screen_state.lock().arm_screen_change_signal("pty-a");
+    let screen_state = codeterm_pty::pty::screen_state::ScreenState::new();
+    let signal = screen_state.arm_screen_change_signal("pty-a");
     let quiet = signal.generation();
 
     let mut tab = launching_tab("pty-a", "nonce-a");
