@@ -63,12 +63,16 @@ impl CommandReadiness {
         })))
     }
 
+    pub(super) fn has_dialog(&self, screen: &str) -> bool {
+        self.dialogs.iter().any(|dialog| dialog.is_match(screen))
+    }
+
     pub(super) fn matches(&self, screen: &str, input: &ComposerInputState) -> bool {
         let cursor = input
             .cursor_visible
             .then_some(input.cursor_row)
             .or(input.inverse_caret_row);
-        !self.dialogs.iter().any(|dialog| dialog.is_match(screen))
+        !self.has_dialog(screen)
             && self
                 .confirmation_selection
                 .as_deref()

@@ -806,7 +806,11 @@ impl ServiceContext {
                         let has_prompt = self
                             .agent_registry
                             .with_provider(&target.provider, |provider| {
-                                provider.parse_prompt(&screen).is_some()
+                                (provider.parse_prompt(&screen).is_some()
+                                    || target
+                                        .readiness
+                                        .as_ref()
+                                        .is_some_and(|ready| ready.has_dialog(&screen)))
                                     && !(structural_confirmation
                                         && provider
                                             .parse_switch_confirmation_prompt(
@@ -824,7 +828,7 @@ impl ServiceContext {
                         ));
                         if stage.get() == during_turn::ScreenStage::UnknownPrompt {
                             prompt_error =
-                                Some("an undeclared prompt interrupted the command".into());
+                                Some("an unrecognized confirmation is waiting; the model switch stopped without answering it".into());
                             break false;
                         }
                     }
