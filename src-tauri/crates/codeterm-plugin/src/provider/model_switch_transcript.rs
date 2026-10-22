@@ -19,15 +19,21 @@ impl ModelSwitchTranscript {
         &self,
         record: &'a serde_json::Value,
     ) -> Option<&'a serde_json::Value> {
-        (record["type"].as_str() == Some(self.record_type.as_str()))
-            .then(|| self.content_at_path(record))
-            .flatten()
+        self.content_at_path(record)
     }
 
     fn content_at_path<'a>(&self, record: &'a serde_json::Value) -> Option<&'a serde_json::Value> {
-        self.content_path
-            .iter()
-            .try_fold(record, |value, key| value.get(key))
+        let kind = record["type"].as_str()?;
+        let path = if kind == self.record_type {
+            &self.content_path
+        } else {
+            &self
+                .additional_record_sources
+                .iter()
+                .find(|source| source.record_type == kind)?
+                .content_path
+        };
+        path.iter().try_fold(record, |value, key| value.get(key))
     }
 
     pub fn stdout<'a>(&self, content: &'a str) -> Option<&'a str> {

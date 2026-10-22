@@ -1,0 +1,23 @@
+[
+  {
+    "parentUuid": "79fb0571-e046-496c-a78b-2f62b9985f22",
+    "isSidechain": false,
+    "type": "system",
+    "subtype": "local_command",
+    "content": "<local-command-stdout>Set effort level to high (saved as your default for new sessions): Comprehensive implementation with extensive testing and documentation</local-command-stdout>",
+    "level": "info",
+    "timestamp": "2026-10-22T00:41:47.574Z",
+    "uuid": "bdd8e851-241b-4422-9a3c-0e12183fbb28",
+    "isMeta": false,
+    "commandRun": {
+      "command": "effort",
+      "args": "high"
+    },
+    "userType": "external",
+    "entrypoint": "cli",
+    "cwd": "C:\\Users\\User\\.domios-dev\\provisioned-workspaces\\switchafter-641a1e5feaa3",
+    "sessionId": "18875f0e-d6f7-48e8-8555-b9b27efc0434",
+    "version": "2.1.307",
+    "gitBranch": "HEAD"
+  }
+]
