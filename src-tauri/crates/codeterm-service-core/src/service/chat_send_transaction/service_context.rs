@@ -1,14 +1,20 @@
 use super::*;
 
 impl crate::service::ServiceContext {
-    pub fn start_chat_send(
+    pub fn start_human_chat_send(
         &self,
         tab_id: &str,
-        text: String,
+        input: crate::service::messenger::HumanInput,
         submit_claim: Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
         client_token: Option<String>,
     ) -> Result<ChatSendStatus, String> {
-        self.start_chat_send_with_capture(tab_id, text, submit_claim, client_token, None)
+        self.start_chat_send_with_capture(
+            tab_id,
+            input.into_string(),
+            submit_claim,
+            client_token,
+            None,
+        )
     }
 
     pub(crate) fn start_captured_chat_send(
@@ -99,19 +105,28 @@ impl crate::service::ServiceContext {
         std::thread::spawn(move || {
             let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
                 if let Some(capture) = &capture {
-                    return svc.chatbackend_capture_send(capture, text);
+                    return svc.chatbackend_capture_send(
+                        capture,
+                        &crate::service::messenger::AgentInput::Human(
+                            crate::service::messenger::HumanInput::composer(text),
+                        ),
+                    );
                 }
                 // User-origin always-deliver: a transient pre-write unlink or an
                 // unconfirmed submit degrades to pending-until-link, never a refusal.
-                svc.send_chat_text_claimed(&tab_id, text, submit_claim)
-                    .or_else(|err| {
-                        log::info!(
-                            "[chat-send] user send to Tab {tab_id} degraded to pending ({})",
-                            err.code()
-                        );
-                        svc.park_refused_user_send(&tab_id, &send_id, text, &err);
-                        err.into_surfaced(crate::service::delivery_error::SendOrigin::User)
-                    })
+                svc.send_human_input(
+                    &tab_id,
+                    crate::service::messenger::HumanInput::composer(text),
+                    submit_claim,
+                )
+                .or_else(|err| {
+                    log::info!(
+                        "[chat-send] user send to Tab {tab_id} degraded to pending ({})",
+                        err.code()
+                    );
+                    svc.park_refused_user_send(&tab_id, &send_id, text, &err);
+                    err.into_surfaced(crate::service::delivery_error::SendOrigin::User)
+                })
             });
             if let Some(capture) = &capture {
                 capture
@@ -188,10 +203,15 @@ impl crate::service::ServiceContext {
     pub fn prepare_and_admit_user_send(
         &self,
         reservation: UserReservation,
-        original: String,
+        input: crate::service::messenger::HumanInput,
         run_stages: bool,
     ) -> Result<super::super::agent_pad::ChatSendResult, String> {
-        self.prepare_and_admit_user_send_with_capture(reservation, original, run_stages, None)
+        self.prepare_and_admit_user_send_with_capture(
+            reservation,
+            input.into_string(),
+            run_stages,
+            None,
+        )
     }
 
     pub(crate) fn prepare_and_admit_recording_user_send(

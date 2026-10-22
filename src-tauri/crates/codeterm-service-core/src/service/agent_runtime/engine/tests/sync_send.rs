@@ -149,9 +149,9 @@ fn restored_and_slept_user_sends_hold_then_flush_once_in_order() {
         }
         let first = fixture
             .service
-            .start_chat_send(
+            .start_human_chat_send(
                 &tab_id,
-                "first opaque turn".into(),
+                crate::service::messenger::HumanInput::composer("first opaque turn"),
                 None,
                 Some("first-token".into()),
             )
@@ -162,7 +162,11 @@ fn restored_and_slept_user_sends_hold_then_flush_once_in_order() {
             .unwrap();
         let second = fixture
             .service
-            .prepare_and_admit_user_send(reservation, "second opaque turn".into(), false)
+            .prepare_and_admit_user_send(
+                reservation,
+                crate::service::messenger::HumanInput::composer("second opaque turn"),
+                false,
+            )
             .unwrap();
         let queued = fixture
             .service
@@ -420,7 +424,9 @@ fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_
                 super::super::super::transport::send(
                     &fixture.service,
                     &tab_id,
-                    PAYLOAD,
+                    &crate::service::messenger::AgentInput::Human(
+                        crate::service::messenger::HumanInput::composer(PAYLOAD),
+                    ),
                     Some(&pending.send_id),
                 )
             })
@@ -442,7 +448,9 @@ fn assert_sync_send(bookkeeping_failure: bool, restart_failure: bool, authority_
         super::super::super::transport::send(
             &fixture.service,
             &tab_id,
-            PAYLOAD,
+            &crate::service::messenger::AgentInput::Human(
+                crate::service::messenger::HumanInput::composer(PAYLOAD)
+            ),
             Some(&pending.send_id)
         ),
         Err(crate::service::delivery_error::DeliveryError::SubmitUnconfirmed { .. })
@@ -664,7 +672,10 @@ fn consecutive_distinct_runtime_envelopes_keep_independent_write_once_receipts()
         let delivery = super::super::super::transport::send_envelope(
             &fixture.service,
             &tab_id,
-            text,
+            &crate::service::messenger::Messenger::from(
+                crate::service::messenger::MessageEnvelope::from_codeterm(),
+            )
+            .framed_delivery(text),
             token,
             None,
         )
@@ -690,7 +701,10 @@ fn consecutive_distinct_runtime_envelopes_keep_independent_write_once_receipts()
             super::super::super::transport::send_envelope(
                 &fixture.service,
                 &tab_id,
-                text,
+                &crate::service::messenger::Messenger::from(
+                    crate::service::messenger::MessageEnvelope::from_codeterm()
+                )
+                .framed_delivery(text),
                 token,
                 None
             )

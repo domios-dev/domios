@@ -664,7 +664,7 @@ fn composer_draft_evidence(svc: &ServiceContext, pty_id: &str, text: &str) -> us
 pub(crate) fn submit_text(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     enter: bool,
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
@@ -675,7 +675,7 @@ pub(crate) fn submit_text(
 pub(crate) fn submit_text_with_key(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     enter: bool,
     submit_key: &[u8],
     strategy: VerifySubmitStrategy,
@@ -700,7 +700,7 @@ pub(crate) fn submit_text_with_key(
 pub(crate) fn submit_text_with_key_and_follow_up(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     typed_follow_up: Option<&str>,
     enter: bool,
     submit_key: &[u8],
@@ -736,7 +736,7 @@ pub(crate) fn recovery_attempted(result: &InjectionResult) -> bool {
 pub(crate) fn submit_text_with_key_claimed_and_follow_up(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     typed_follow_up: Option<&str>,
     enter: bool,
     submit_key: &[u8],
@@ -767,7 +767,7 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
 pub(crate) fn submit_text_with_key_claimed(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     force_bracketed_paste: bool,
     paste_marker: Option<&str>,
     enter: bool,
@@ -800,7 +800,7 @@ pub(crate) fn submit_text_with_key_claimed(
 pub(crate) fn submit_text_with_key_claimed_and_follow_up_revalidated(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     typed_follow_up: Option<&str>,
     enter: bool,
     submit_key: &[u8],
@@ -835,7 +835,7 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up_revalidated(
 pub(crate) fn submit_text_with_key_claimed_revalidated(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     force_bracketed_paste: bool,
     paste_marker: Option<&str>,
     enter: bool,
@@ -849,6 +849,20 @@ pub(crate) fn submit_text_with_key_claimed_revalidated(
     allow_superseded_payload: bool,
     payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Result<InjectionResult, InjectionError> {
+    if matches!(text, crate::service::messenger::AgentInput::Shell(_)) {
+        let mux = svc.mux.read();
+        if mux
+            .tab_id_for_pty(pty_id)
+            .and_then(|id| mux.get_tab(&id))
+            .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting)
+        {
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.into(),
+            });
+        }
+    }
+    let rendered = text.text();
+    let text = rendered.as_ref();
     if claim.pty_id() != pty_id || claim.command_wait().is_some() {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),

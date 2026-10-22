@@ -22,8 +22,8 @@ fn brief_restore_decision(
 
 fn restore_frame_and_payload(
     original: &str,
-) -> Option<(codeterm_wire::domios::DomiosFrame, String)> {
-    use codeterm_wire::domios::{DomiosFrame, DOMIOS_CLOSE_TAG, DOMIOS_LEGACY_TYPED_INSTRUCTION};
+) -> Option<(crate::service::messenger::FramedDelivery, String)> {
+    use codeterm_wire::domios::{DOMIOS_CLOSE_TAG, DOMIOS_LEGACY_TYPED_INSTRUCTION};
     let body = original.strip_suffix(DOMIOS_CLOSE_TAG)?;
     let body = body
         .strip_suffix(&format!(" <tip>{DOMIOS_LEGACY_TYPED_INSTRUCTION}</tip>"))
@@ -31,11 +31,7 @@ fn restore_frame_and_payload(
     let body = codeterm_wire::domios::strip_plain_typed_tail(body).to_string();
     let payload = format!("{body}{DOMIOS_CLOSE_TAG}");
     Some((
-        DomiosFrame {
-            opening_tag: String::new(),
-            body,
-            suffix: String::new(),
-        },
+        crate::service::messenger::Messenger::restore_framed_delivery(original).ok()?,
         payload,
     ))
 }
@@ -512,7 +508,7 @@ mod tests {
         assert!(consume_pending_turn(&mut state, "first").is_empty());
     }
     #[test]
-    fn restored_routed_frame_preserves_brief_and_strips_both_typed_tails() {
+    fn restored_routed_frame_preserves_brief_and_typed_tails() {
         let original = "<domios from=\"fixture\">opaque\nwhole brief</domios>";
         let (frame, payload) = restore_frame_and_payload(original).unwrap();
         assert_eq!(frame.to_message(), original);
@@ -522,7 +518,7 @@ mod tests {
             codeterm_wire::domios::with_pasted_marker(original).unwrap(),
         ] {
             let (tail_frame, tail_payload) = restore_frame_and_payload(&tail).unwrap();
-            assert_eq!(tail_frame, frame);
+            assert_eq!(tail_frame.to_message(), tail);
             assert_eq!(tail_payload, payload);
         }
         assert_eq!(restore_payload_candidates(original, false), [original]);

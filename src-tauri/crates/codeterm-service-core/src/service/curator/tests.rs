@@ -235,7 +235,6 @@ fn curator_started_delivery_carries_round_metadata_independently_of_body() {
 
 #[test]
 fn curator_round_notices_reach_agent_payload_once_with_system_frames() {
-    use crate::service::messenger::QueuedAgentPayload;
     use crate::service::test_fixture::ServiceFixture;
     use parking_lot::Mutex;
     use std::sync::Arc;
@@ -264,20 +263,7 @@ fn curator_round_notices_reach_agent_payload_once_with_system_frames() {
             .unwrap();
         let writes = writes.lock();
         assert_eq!(writes.len(), 1);
-        let QueuedAgentPayload::RoutedFrame {
-            opening_tag,
-            body: delivered_body,
-            suffix,
-        } = &writes[0]
-        else {
-            panic!("system notice must retain its routed frame");
-        };
-        let text = codeterm_wire::domios::DomiosFrame {
-            opening_tag: opening_tag.clone(),
-            body: delivered_body.clone(),
-            suffix: suffix.clone(),
-        }
-        .to_message();
+        let text = writes[0].to_message();
         let parsed = codeterm_wire::domios::parse_message(&text).unwrap();
         assert_eq!(parsed.attr("from"), Some("system"));
         assert_eq!(parsed.attr("context"), Some(context));

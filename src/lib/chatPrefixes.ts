@@ -70,6 +70,9 @@ export function framePrefix(attrs: Record<string, string>, body: string): Prefix
   if (from === "plugin" && attrs.plugin) {
     return { origin: { kind: "plugin", pluginId: attrs.plugin }, body };
   }
+  if (from === "cli") {
+    return { origin: { kind: "system", context: "CLI" }, body };
+  }
   if (from === "system") {
     return { origin: { kind: "system", ...(attrs.context ? { context: attrs.context } : {}) }, body };
   }

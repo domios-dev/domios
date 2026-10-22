@@ -175,12 +175,20 @@ fn post_ready_queued_user_sends_have_a_blank_line_and_reconcile_together() {
         .unwrap();
     let first = fixture
         .service
-        .prepare_and_admit_user_send(first_reservation, FIRST_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            first_reservation,
+            crate::service::messenger::HumanInput::composer(FIRST_PAYLOAD),
+            false,
+        )
         .unwrap()
         .status;
     let second = fixture
         .service
-        .prepare_and_admit_user_send(second_reservation, SECOND_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            second_reservation,
+            crate::service::messenger::HumanInput::composer(SECOND_PAYLOAD),
+            false,
+        )
         .unwrap()
         .status;
 
@@ -262,7 +270,11 @@ fn ready_user_send_writes_without_a_follow_up_output_event_while_agent_delivery_
         .unwrap();
     let accepted = fixture
         .service
-        .prepare_and_admit_user_send(reservation, FIRST_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            reservation,
+            crate::service::messenger::HumanInput::composer(FIRST_PAYLOAD),
+            false,
+        )
         .unwrap();
     let (send_id, payload) = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
     assert_eq!(send_id, accepted.status.send_id);
@@ -336,7 +348,11 @@ fn zero_write_refusal_retains_an_explicit_dispatch_wake_until_one_write() {
         .unwrap();
     let accepted = fixture
         .service
-        .prepare_and_admit_user_send(reservation, FIRST_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            reservation,
+            crate::service::messenger::HumanInput::composer(FIRST_PAYLOAD),
+            false,
+        )
         .unwrap();
     assert_eq!(
         attempts_rx.recv_timeout(TEST_DEADLINE).unwrap(),
@@ -408,11 +424,21 @@ fn ready_busy_owner_writes_each_send_without_waiting_for_prior_turn_evidence() {
 
     let first = fixture
         .service
-        .start_chat_send(&tab, "opaque-equal".into(), None, Some("client-a".into()))
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("opaque-equal"),
+            None,
+            Some("client-a".into()),
+        )
         .unwrap();
     let second = fixture
         .service
-        .start_chat_send(&tab, "opaque-equal".into(), None, Some("client-b".into()))
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("opaque-equal"),
+            None,
+            Some("client-b".into()),
+        )
         .unwrap();
     await_owner_idle(&fixture, &tab);
     assert_eq!(

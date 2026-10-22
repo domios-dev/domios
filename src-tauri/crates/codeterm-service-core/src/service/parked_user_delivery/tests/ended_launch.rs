@@ -19,7 +19,11 @@ fn fresh_prelaunch_send_waits_for_pty_and_rebinds_to_written_launch_once() {
         .expect("pre-PTY Chat admission is reserved against the fresh launch");
     let accepted = fixture
         .service
-        .prepare_and_admit_user_send(reservation, FIRST_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            reservation,
+            crate::service::messenger::HumanInput::composer(FIRST_PAYLOAD),
+            false,
+        )
         .unwrap()
         .status;
     await_owner_idle(&fixture, &tab);
@@ -144,7 +148,11 @@ fn queued_prelaunch_send_expires_after_a_later_launch_changes_its_session() {
         .unwrap();
     let accepted = fixture
         .service
-        .prepare_and_admit_user_send(reservation, FIRST_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            reservation,
+            crate::service::messenger::HumanInput::composer(FIRST_PAYLOAD),
+            false,
+        )
         .unwrap()
         .status;
     await_owner_idle(&fixture, &tab);
@@ -224,7 +232,11 @@ fn previous_launch_never_written_head_is_settled_before_restored_send_flushes() 
         .unwrap();
     let restored = fixture
         .service
-        .prepare_and_admit_user_send(reservation, SECOND_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            reservation,
+            crate::service::messenger::HumanInput::composer(SECOND_PAYLOAD),
+            false,
+        )
         .unwrap()
         .status;
     await_owner_idle(&fixture, &tab);

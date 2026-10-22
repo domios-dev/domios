@@ -41,7 +41,7 @@ pub fn route_or_pty<E>(
 pub fn try_send_to_pty(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
 ) -> Option<Result<(), DeliveryError>> {
     let tab = svc.mux.read().tab_id_for_pty(pty_id)?;
     try_send(svc, &tab, text, Origin::Agent, None)
@@ -73,10 +73,13 @@ pub(crate) fn try_send_owned(
             }));
         }
     };
+    let input = crate::service::messenger::AgentInput::Human(
+        crate::service::messenger::HumanInput::composer(text),
+    );
     try_send_with_capture(
         svc,
         &record.authority.tab_id,
-        &text,
+        &input,
         Origin::User,
         Some(&record.send_id),
         capture_send.then_some(&record.authority),
@@ -86,7 +89,7 @@ pub(crate) fn try_send_owned(
 pub fn try_send(
     svc: &ServiceContext,
     tab: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     origin: Origin,
     send_id: Option<&str>,
 ) -> Option<Result<(), DeliveryError>> {
@@ -96,11 +99,13 @@ pub fn try_send(
 fn try_send_with_capture(
     svc: &ServiceContext,
     tab: &str,
-    text: &str,
+    input: &crate::service::messenger::AgentInput,
     origin: Origin,
     send_id: Option<&str>,
     capture_authority: Option<&UserSendAuthority>,
 ) -> Option<Result<(), DeliveryError>> {
+    let rendered = input.text();
+    let text = rendered.as_ref();
     if send_id.is_some_and(|id| svc.chat_send_ledger.has_rpc_handoff(id)) {
         return Some(Err(DeliveryError::SubmitUnconfirmed {
             tab: tab.into(),
@@ -324,13 +329,7 @@ fn finish_handoff(
     }
 }
 
-pub fn start_params(
-    thread: &str,
-    id: &str,
-    text: &str,
-    cwd: Option<&str>,
-    overrides: Value,
-) -> Value {
+fn start_params(thread: &str, id: &str, text: &str, cwd: Option<&str>, overrides: Value) -> Value {
     let mut params = json!({"threadId":thread, "clientUserMessageId":id,
         "input":[{"type":"text","text":text}], "approvalsReviewer":"user"});
     if let Some(overrides) = overrides.as_object() {
@@ -347,7 +346,7 @@ pub fn start_params(
     params
 }
 
-pub async fn submit<F, Fut>(
+async fn submit<F, Fut>(
     origin: Origin,
     active: Option<&str>,
     params: Value,
@@ -666,3 +665,28 @@ fn emit(svc: &ServiceContext, status: &ChatSendStatus) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) fn test_start_params(
+    thread: &str,
+    id: &str,
+    text: &str,
+    cwd: Option<&str>,
+    overrides: Value,
+) -> Value {
+    start_params(thread, id, text, cwd, overrides)
+}
+
+#[cfg(test)]
+pub(crate) async fn test_submit<F, Fut>(
+    origin: Origin,
+    active: Option<&str>,
+    params: Value,
+    request: F,
+) -> Result<Value, ClientError>
+where
+    F: FnMut(&'static str, Value) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, ClientError>>,
+{
+    submit(origin, active, params, request).await
+}
