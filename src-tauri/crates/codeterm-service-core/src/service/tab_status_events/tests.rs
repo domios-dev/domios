@@ -98,7 +98,12 @@ fn status_payloads(
                 SystemEvent::MuxStateChanged => {}
                 SystemEvent::Generic { event_type, data } if event_type == "mux-state-changed" => {
                     let generation = data["generation"].as_u64().expect("numeric mux generation");
-                    assert_eq!(data, serde_json::json!({"generation": generation}));
+                    if data.get("status_deltas").is_some() {
+                        assert!(data["base_generation"].as_u64().unwrap() < generation);
+                        assert!(data["status_deltas"].is_object());
+                    } else {
+                        assert_eq!(data, serde_json::json!({"generation": generation}));
+                    }
                     if let Some(expected) = expected_generation {
                         assert_eq!(generation, expected.published_mux_state_versioned().0);
                     }

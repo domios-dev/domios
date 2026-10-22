@@ -19,8 +19,10 @@ import {
 } from "./tree";
 import type { RemoteTransportAvailability, RemoteTransportChannel } from "../../lib/remoteTabTransportState";
 import { shareSnapshotState } from "./structuralShare";
+import { applyStatusDelta, type MuxStatusDelta } from "./statusDelta";
 
 export type Action =
+  | { type: "APPLY_STATUS_DELTA"; delta: MuxStatusDelta }
   | { type: "UPDATE_SHELL_STATE"; tabId: string; ptyId: string; state: ShellCommandState }
   | { type: "SET_STATE"; state: MultiplexerState; pageOwnedSelection?: boolean; initialSelection?: PageSelection }
   | { type: "ADD_WORKSPACE"; workspace: Workspace; tab: Tab }
@@ -128,6 +130,8 @@ function addPendingCloses(current: string[], tabIds: string[]): string[] {
 
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
+    case "APPLY_STATUS_DELTA":
+      return applyStatusDelta(state, action.delta);
     case "UPDATE_REMOTE_CHANNEL": {
       const tab = state.tabs[action.tabId];
       if (!tab?.remote_peer_id || tab.remote_channels?.[action.channel] === action.availability) return state;
