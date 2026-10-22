@@ -331,6 +331,7 @@ pub(crate) fn start_servers(
         .lock()
         .set_fence_notifier(move || fence_wake.notify_all());
     if scheduler_ready {
+        service_state.start_curator_events();
         cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
     }
     let sentinel_clock: cron::clock::SharedClock = test_clock

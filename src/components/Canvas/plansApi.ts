@@ -247,6 +247,14 @@ export async function setPlanControlLoop(api: ApiConfig, planId: string, update:
   return res.json();
 }
 
+export async function runPlanControlLoop(api: ApiConfig, planId: string): Promise<PlanControlLoop> {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/control-loop/run`, {
+    method: "POST", headers: confirmedHeaders(api, planId), body: "{}",
+  });
+  if (!res.ok) throw new Error(`Curator round request failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
 export async function unarchivePlan(api: ApiConfig, planId: string): Promise<void> {
   const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/unarchive`, {
     method: "POST",

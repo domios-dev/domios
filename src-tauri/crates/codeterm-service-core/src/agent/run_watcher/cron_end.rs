@@ -30,7 +30,7 @@ where
     D: FnOnce(&str, MessageEnvelope, &str) -> Result<(), String> + Send + 'static,
 {
     let cron = svc.try_ext::<crate::CronState>()?.clone();
-    let status = if run.success {
+    let mut status = if run.success {
         CronRunStatus::Success
     } else {
         CronRunStatus::Failed
@@ -44,12 +44,34 @@ where
     let tab_id = run.tab_id.to_string();
     let job_id = run.job_id.to_string();
     let run_id = run.run_id.to_string();
-    let summary = run.summary;
+    let mut summary = run.summary;
     let raw_session = run.session_id.map(str::to_string);
     let cwd = run.cwd.map(str::to_string);
     Some(codeterm_util::named_thread::spawn(
         "cron-run-end",
         move || {
+            let job = { cron.lock().get(&job_id).cloned() };
+            if let Some((job, policy)) = job.as_ref().and_then(|job| {
+                crate::service::role_policy::resolve(job.role.as_deref())
+                    .map(|policy| (job, policy))
+            }) {
+                let now = cron.lock().now_ms();
+                match policy.settle_cron(&svc, job, &tab_id, &run_id, now) {
+                    Ok(settlement) => {
+                        status = if settlement.success {
+                            CronRunStatus::Success
+                        } else {
+                            CronRunStatus::Failed
+                        };
+                        summary = settlement.summary;
+                    }
+                    Err(error) => {
+                        log::debug!("[cron] settle role run {run_id}: {error}");
+                        status = CronRunStatus::Failed;
+                        summary = format!("Run settlement failed: {error}");
+                    }
+                }
+            }
             let log_file = cron.lock().log_file(&job_id, &run_id);
             if let Err(error) =
                 log_file.and_then(|path| CronStore::create_log(&path, &log_text).map(|_| ()))
