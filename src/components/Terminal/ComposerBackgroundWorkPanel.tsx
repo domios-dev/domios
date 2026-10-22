@@ -1,27 +1,44 @@
 import { useId, useRef, useState } from "react";
-import { ChevronDown, Square, SquareTerminal } from "lucide-react";
+import { Bot, ChevronDown, Square, SquareTerminal } from "lucide-react";
 import { useAgentInspection } from "@codeterm/chat-ui";
 import type { ComposerBackgroundWorkItem } from "./composerBackgroundWorkModel";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { compactSubagents, subagentTone } from "./childTranscriptViewModel";
+import { subagentTone } from "./childTranscriptViewModel";
 
-export function SubagentCapsules({ items }: { items: readonly ComposerBackgroundWorkItem[] }) {
+function subagentMeta(item: ComposerBackgroundWorkItem): string {
+  const state = !item.status || item.status === "unknown" ? "State not reported" : item.status;
+  return [item.model, item.effort, state, item.elapsed && `${item.elapsed} elapsed`].filter(Boolean).join(" · ");
+}
+
+function SubagentRow({ item, internalAgentLabel }: { item: ComposerBackgroundWorkItem; internalAgentLabel: string }) {
   const inspect = useAgentInspection();
   const [expanded, setExpanded] = useState(false);
-  const { visible, hidden } = compactSubagents(items, expanded);
-  if (!items.length) return null;
-  return <div role="group" aria-label="Subagents" className="ct-subagent-row">
-    {visible.map(item => <span key={item.id} className="ct-ctx-bubble" data-tone={subagentTone(item.status)}>
-      <button type="button" className="ct-ctx-bubble__open" aria-label={`Open transcript for ${item.name}`} disabled={!inspect || !item.transcriptThreadId} title={[item.prompt, item.model, item.effort, item.status, item.elapsed && `${item.elapsed} elapsed`].filter(Boolean).join(" · ")} onClick={() => { if (item.transcriptThreadId) inspect?.(item.transcriptThreadId); }}>
-        <span className="ct-ctx-bubble__dot" aria-hidden="true" />
+  const promptId = useId();
+  const meta = subagentMeta(item);
+  return <li className="ct-background-command">
+    <span className="ct-ctx-bubble" data-tone={subagentTone(item.status)}>
+      <button type="button" className="ct-ctx-bubble__open" aria-label={`Open transcript for ${item.name}, ${internalAgentLabel}`} disabled={!inspect || !item.transcriptThreadId} title={`${internalAgentLabel} · ${meta}`} onClick={() => { if (item.transcriptThreadId) inspect?.(item.transcriptThreadId); }}>
+        <Bot size={13} aria-hidden="true" />
         <span className="ct-ctx-bubble__title">{item.name}</span>
-        <span className="ct-ctx-bubble__meta">{item.status}</span>
-        {item.model && <span className="ct-ctx-bubble__meta">{item.model}</span>}
       </button>
-    </span>)}
-    {hidden > 0 && <button type="button" className="ct-ctx-kind" aria-label={`Show ${hidden} more subagents`} onClick={() => setExpanded(true)}>+{hidden}</button>}
-    {expanded && items.length > 3 && <button type="button" className="ct-ctx-kind" aria-label="Show fewer subagents" onClick={() => setExpanded(false)}>Show fewer</button>}
-  </div>;
+    </span>
+    <div className="ct-background-command__details">
+      <div>{meta}</div>
+      {item.prompt && <>
+        <button type="button" aria-label={`Task details for ${item.name}`} aria-expanded={expanded} aria-controls={promptId} onClick={() => setExpanded(!expanded)}>
+          Task details <ChevronDown size={11} aria-hidden="true" />
+        </button>
+        {expanded && <div id={promptId} role="region" aria-label={`Task details for ${item.name}`} className="ct-background-command__prompt">{item.prompt}</div>}
+      </>}
+    </div>
+  </li>;
+}
+
+function SubagentDetails({ items, internalAgentLabel }: { items: readonly ComposerBackgroundWorkItem[]; internalAgentLabel: string }) {
+  if (!items.length) return null;
+  return <ul aria-label="Subagents" className="ct-background-commands">
+    {items.map(item => <SubagentRow key={item.id} item={item} internalAgentLabel={internalAgentLabel} />)}
+  </ul>;
 }
 
 function WorkDetails({ item, onStop }: {
@@ -66,12 +83,13 @@ function WorkDetails({ item, onStop }: {
   </li>;
 }
 
-export function ComposerBackgroundWorkPanel({ items, onStop }: {
+export function ComposerBackgroundWorkPanel({ items, onStop, internalAgentLabel }: {
   items: readonly ComposerBackgroundWorkItem[];
+  internalAgentLabel: string;
   onStop: (item: ComposerBackgroundWorkItem) => Promise<void>;
 }) {
   return <div>
-    <SubagentCapsules items={items.filter(item => item.kind === "agent")} />
+    <SubagentDetails items={items.filter(item => item.kind === "agent")} internalAgentLabel={internalAgentLabel} />
     <ul className="ct-background-commands">
       {items.filter(item => item.kind === "terminal").map(item => <WorkDetails key={item.id} item={item} onStop={onStop} />)}
     </ul>
