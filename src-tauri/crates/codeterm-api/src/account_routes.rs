@@ -142,7 +142,14 @@ pub async fn plan(
 pub struct Upgrade {
     pub plan: String,
     #[serde(default)]
-    pub theme: Option<codeterm_billing::CheckoutTheme>,
+    pub theme: Option<String>,
+}
+impl Upgrade {
+    pub fn checkout_theme(&self) -> Option<codeterm_billing::CheckoutTheme> {
+        self.theme
+            .as_deref()
+            .and_then(codeterm_billing::CheckoutTheme::parse)
+    }
 }
 pub async fn upgrade(
     State(state): State<AppState>,
@@ -152,7 +159,7 @@ pub async fn upgrade(
     admit(caller.as_ref())?;
     state
         .svc
-        .billing_open(Some(&input.plan), input.theme)
+        .billing_open(Some(&input.plan), input.checkout_theme())
         .await
         .map_err(unavailable)?;
     Ok(Json(serde_json::json!({"opened": true})))
