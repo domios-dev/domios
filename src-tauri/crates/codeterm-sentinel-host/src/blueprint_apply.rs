@@ -13,6 +13,8 @@ use codeterm_blueprint_types::{
 use codeterm_service_core::service::ServiceContext;
 use serde_json::{json, Value};
 
+mod admission;
+
 pub trait BlueprintApplyExt {
     fn blueprint_apply_document(
         &self,
@@ -73,18 +75,38 @@ impl BlueprintApplyExt for ServiceContext {
             caller.team.as_deref().ok_or("Call requires a Team")?,
             document,
         )?;
-        if document.nodes().any(|node| node.call.is_some()) {
-            return Err(ApplyError::Validation {
-                checks: vec![FieldCheck::new(
-                    "steps",
-                    Err("Call checker admission is unavailable".into()),
-                )],
-            });
-        }
         let definition = serde_json::to_value(&document).map_err(|error| error.to_string())?;
-        let checks = codeterm_blueprint_types::blueprint_document::definition_errors(&definition)
-            .into_iter()
-            .map(|(field, message)| FieldCheck::new(field, Err(message)))
+        use codeterm_blueprint_types::blueprint_document::checker::DuplicateOracle;
+        let context = codeterm_blueprint_types::blueprint_document::checker::CheckContext {
+            duplicates: admission::ScopedDuplicates {
+                service: self,
+                workspace: &caller.workspace,
+            }
+            .compare(&document),
+            ..Default::default()
+        };
+        let ir = codeterm_blueprint_types::blueprint_document::projection::PositionedIr {
+            canonical: codeterm_blueprint_types::blueprint_document::projection::canonical(
+                &document,
+            ),
+            locations: std::collections::BTreeMap::new(),
+        };
+        let diagnostics =
+            codeterm_blueprint_types::blueprint_document::checker::check_ir(&ir, &context);
+        let checks = diagnostics
+            .iter()
+            .filter(|d| d.severity == "error")
+            .map(|d| {
+                FieldCheck::new(
+                    d.field.clone(),
+                    Err(
+                        codeterm_blueprint_types::blueprint_document::checker::render(
+                            std::slice::from_ref(d),
+                            true,
+                        ),
+                    ),
+                )
+            })
             .collect::<Vec<_>>();
         if !checks.is_empty() {
             return Err(ApplyError::Validation { checks });
@@ -175,7 +197,7 @@ impl BlueprintApplyExt for ServiceContext {
         let tab = mux.get_tab(&caller.tab).ok_or("Blueprint caller is gone")?;
         candidate.agent_authored =
             stopped.is_some() || (tab.agent_type.is_some() && tab.session_binding_nonce.is_some());
-        let result = storage::commit(&handle.store, move |store| {
+        let mut result = storage::commit(&handle.store, move |store| {
             let staged = stage_apply(
                 store,
                 caller,
@@ -195,6 +217,8 @@ impl BlueprintApplyExt for ServiceContext {
                 Err(error) => Staged::ready(Ok(Err(error))),
             }
         })??;
+        result["diagnostics"] =
+            serde_json::to_value(diagnostics).map_err(|error| error.to_string())?;
         handle.notify();
         if !dry_run && result["action"] == "create" {
             self.record_product_feature(codeterm_analytics::Feature::BlueprintCreated);
