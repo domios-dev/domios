@@ -23,9 +23,8 @@ fn curator_user_entry_points_refuse_before_pty_or_ledger_work() {
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
     let (mut mux, id) = MultiplexerState::new();
-    let tab = mux.get_tab_mut(&id).unwrap();
-    tab.role_profile = Some("curator".into());
-    tab.pty_id = Some("round-pty".into());
+    mux.get_tab_mut(&id).unwrap().role_profile = Some("curator".into());
+    mux.link_pty(&id, "round-pty".into());
     let fixture = ServiceFixture::new(mux);
     let service = &fixture.service;
     let error = "curator_read_only: Curator round, read-only";
