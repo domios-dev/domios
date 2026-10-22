@@ -1,0 +1,8 @@
+schema_version: 2
+kind: pipeline
+name: checker-workflow
+owner: tab
+trigger: {type: schedule, every: {lit: 1s}}
+steps:
+- id: emit
+  run: {lit: 'echo ready'}
