@@ -147,6 +147,10 @@ fn command_dialogs_absent(
                 .get_screen_text(&target.pty_id)
                 .is_some_and(|screen| !picker.present(&screen))
         })
+        && target
+            .readiness
+            .as_ref()
+            .is_none_or(|_| svc.command_input_restored(target))
 }
 
 fn render_command(template: &str, model: &str, effort: Option<&str>) -> Result<String, String> {
@@ -489,8 +493,8 @@ impl ServiceContext {
             readiness::CommandReadiness::from_declaration(&commands, &target, provider)?;
         let sequence =
             sequence::CommandSequence::new(self, &target, deadline, &commands.transcript);
+        target.readiness = readiness.clone();
         if after_turn {
-            target.readiness = readiness.clone();
             sequence.wait_for_idle(self, &target, true)?;
         }
         for (index, (command, command_effort)) in
@@ -499,7 +503,6 @@ impl ServiceContext {
                 .enumerate()
         {
             if index > 0 && !commands.during_turn {
-                target.readiness = readiness.clone();
                 sequence.wait_for_idle(self, &target, false)?;
             }
             self.run_declared_model_command(&target, command_effort, command, &commands, deadline)
@@ -897,7 +900,7 @@ impl ServiceContext {
                 if let Some(picker) = picker.as_ref() {
                     self.cancel_command_picker(target, picker)?;
                 }
-                Ok(())
+                self.verify_command_input_restored(target)
             },
             || {
                 let mux = self.mux.read();

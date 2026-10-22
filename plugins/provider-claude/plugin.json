@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.16",
+  "version": "1.14.17",
   "minCodeterm": "1.15.1",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -209,7 +209,7 @@
         "command": "/model",
         "confirmation": "(?i)^Set model to `?(?:{model}|{display_name})(?: [^`\\r\\n]+)?`? for this session only(?:$|[^a-z0-9_-])",
         "picker": {
-          "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*Enter to set as default · s to use this session only · Esc to cancel\\s*\\z",
+          "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*Enter to set as default · s to use this session only · Esc to cancel[^\\S\\r\\n]*\\r?$",
           "selectedRegex": "(?m)^\\s*❯\\s*(?P<position>\\d+)\\.\\s+[^\\r\\n]+\\r?$",
           "targetRegex": "(?im)^\\s*(?:❯\\s*)?(?P<position>\\d+)\\.\\s+(?P<label>{display_name}|{model})(?:\\s*[✓✔])?(?:\\s+[^\\r\\n]+)?\\r?$",
           "position": "number",
