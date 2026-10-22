@@ -1,0 +1,20 @@
+  - Conclusion: 1795 is odd.
+  300.
+  - 300 + 600 = 900
+  - 3 × 300 = 900
+  - 2 × 600 = 1200
+  - 900 + 900 = 1800
+  - Conclusion: 1800 is even.
+❯ /effort high 
+  ⎿  Set effort level to high (saved as your default for new sessions): Comprehensive implementation with extensive
+     testing and documentation
+✻ Cooked for 1m 22s · done 3:42
+❯ /model                                                                                                                
+  ⎿  Set model to Sonnet 5.5 for this session only
+❯ /effort low                                                                                                           
+  ⎿  Set effort level to low (saved as your default for new sessions): Quick, straightforward implementation with
+     minimal overhead
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

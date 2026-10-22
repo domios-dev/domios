@@ -68,6 +68,7 @@ function unpack(input: unknown): { raw: string; code: string; status: unknown } 
 export function isPendingRuntimeDeadline(input: unknown): boolean {
   const { raw, code } = unpack(input);
   const kind = code.toLowerCase();
+  if (kind === "during_turn_switch_incident" || /mid-turn model switch incident/i.test(raw)) return false;
   if (kind) return ["runtime_deadline", "deadline", "deadline_exceeded"].includes(kind);
   if (/^(?:SpawnFailed|ProcessExited|PipeEof|PipeFailure|InvalidFrame|HookFailed|Refused|PrewriteRefused|Superseded)\b/i.test(raw.trim())) return false;
   return /\bdeadline\b|runtime did not respond in time/i.test(raw);
@@ -80,6 +81,11 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   const spawn = /spawn|createprocess|executable|shell/i.test(raw);
   // OS codes are interpreted only in spawn errors; e.g. ENOENT elsewhere may mean an attachment.
   const inferred = !code;
+  if (kind === "during_turn_switch_incident" || /mid-turn model switch incident/i.test(raw)) {
+    const waiting = /unrecognized confirmation is waiting/i.test(raw);
+    return result(waiting ? "An unrecognized confirmation is waiting" : "Model switch did not apply",
+      waiting ? "The provider is waiting on a confirmation Domios could not recognize. Review the tab's terminal." : "The provider did not confirm the model switch. Review the incident details.", []);
+  }
   const known = Object.prototype.hasOwnProperty.call(knownNotices, kind) ? knownNotices[kind] : undefined;
   if (known) return result(known[0], known[1], ["retry"]);
   if (kind === "frontend_crash") return result("The interface could not render", "The daemon and terminals may still be running. Reload the interface, or leave this location to open safely on this machine.", []);

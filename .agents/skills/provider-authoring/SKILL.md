@@ -710,3 +710,10 @@ four typed outcomes. Confirmation creates a UUID once; retries preserve it.
 An optional `creditId` selects an actual reported available credit; omission lets
 the provider choose. Adapters must preserve it through consume and retries.
 Never invoke a live redemption during testing: credits are irreversible.
+
+Live command transcript declarations may add `additionalRecordSources` entries
+with `recordType` and `contentPath` when one harness emits different record shapes
+while busy and idle. All sources share the exact stdout wrapper and own-session
+append boundary. They parse only supplied JSON and add no host filesystem,
+network or subprocess access. Native/JS parity must cover every declared shape;
+additional system records never become foreign user turns.
