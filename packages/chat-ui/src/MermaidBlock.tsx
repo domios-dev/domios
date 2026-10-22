@@ -1,7 +1,5 @@
 export const MERMAID_RENDER_LENGTH_LIMIT = 120_000;
 const MERMAID_CLEANUP_PASSES = 2;
-export const MERMAID_FULLSCREEN_MIN_SCALE = 0.35;
-export const MERMAID_FULLSCREEN_MAX_SCALE = 5;
 const MERMAID_CDN_URL = "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js";
 const MERMAID_RENDER_CACHE_LIMIT = 64;
 const MERMAID_BLOCK_GUARDS = [

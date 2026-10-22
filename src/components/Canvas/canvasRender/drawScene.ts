@@ -2,7 +2,7 @@
 import { resolveEdgeEnds } from "../edges";
 import type { LaidOutEdge, LaidOutNode, Point } from "../layout";
 import { projectWorldBox } from "../scene";
-import type { ViewportTransform } from "../useCanvasViewport";
+import type { ViewportTransform } from "@codeterm/canvas-camera";
 import { buildCardContent, pickLevel } from "./cardContent";
 import type { HitRegion, RegionAction } from "./drawCard";
 import { drawLodMarker, hitTestLodMarker } from "./drawLodMarker";

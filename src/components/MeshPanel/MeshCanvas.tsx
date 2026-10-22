@@ -6,7 +6,7 @@ import { PeerTerminal } from "./PeerTerminal";
 import { meshEdgeModel } from "./meshEdgeModel";
 import type { PeerStatus } from "./useMeshData";
 import { CanvasToolbar } from "../Canvas/CanvasToolbar";
-import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
+import { useCanvasViewport, formatLayerTransform } from "@codeterm/canvas-camera";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH } from "./webGraphLayout";

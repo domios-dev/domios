@@ -3,7 +3,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { useCanvasViewport, CANVAS_ZOOM_INTENSITY, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, formatLayerTransform } from "./useCanvasViewport";
+import { useCanvasViewport, CANVAS_ZOOM_INTENSITY, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, formatLayerTransform } from "@codeterm/canvas-camera";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];

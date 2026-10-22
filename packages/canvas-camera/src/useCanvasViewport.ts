@@ -22,6 +22,7 @@ export interface UseCanvasViewportOptions {
    *  <canvas> blit in lockstep with the layer paint, without a React commit. */
   onPaint?: (t: ViewportTransform) => void;
   touch?: boolean;
+  constrainToFit?: boolean;
 }
 
 export interface CanvasViewportHandlers {
@@ -58,6 +59,7 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     wheelBehavior = "pan",
     onPaint,
     touch = false,
+    constrainToFit = true,
   } = opts;
   const onPaintRef = useRef(onPaint);
   onPaintRef.current = onPaint;
@@ -73,9 +75,9 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
 
   const zoomFloor = useCallback(() => {
     const fit = fitContentScaleRef.current;
-    if (fit == null || fit <= 0) return minScale;
+    if (!constrainToFit || fit == null || fit <= 0) return minScale;
     return fitZoomFloor(fit, minScale, FIT_MARGIN);
-  }, [minScale]);
+  }, [minScale, constrainToFit]);
 
   // must yield to direct manipulation instantly, never fight the pointer.
   const cancelAnim = useCallback(() => {
