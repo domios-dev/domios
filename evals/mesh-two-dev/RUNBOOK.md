@@ -64,14 +64,12 @@ folder documents the scripts; this file is the operator procedure.
 1. On both DEVs: `dc mesh status` and `dc mesh peers`. A DEV that already lists
    paired peers from older experiments must be cleaned first (see Pitfalls),
    because the acceptance requires "paired only with each other".
-2. Find the other DEV. If both DEVs use the SAME API port, UDP discovery works:
-   `dc mesh broadcast` on one, `dc mesh discover` on the other. If the ports
-   differ (the usual case: Mac 7697, Windows 7686), UDP discovery cannot see
-   the peer, so connect by explicit address from the initiating DEV:
-   `dc mesh connect <instance id> --addr <tailnet ip>:<port>`. Either way, pick
-   the exact development identity by instance id, never by advertised name.
-3. Approve on the receiving DEV: `dc mesh approve <instance id>`.
-4. Verify on both: each lists exactly one paired peer, the other DEV, online,
+2. Sign both DEVs into the same account, then find the other DEV's
+   installation id in `dc mesh peers` (or the Mesh tab) and pair from one
+   side: `dc mesh link <installation id>`. Pick the exact development identity
+   by installation id, never by display name. There is no discovery, address
+   connect or approve step: the account authorizes the pair.
+3. Verify on both: each lists exactly one paired peer, the other DEV, online,
    with the expected API port, and no pending incoming request. Record both
    outputs. `node evals/mesh-two-dev/identity.mjs` encodes this check.
 
@@ -158,10 +156,5 @@ through its owner (on Windows, the Windows operator).
 - **Agent pads are ephemeral.** A tester's pad is deleted when its tab closes.
   Keep harness code in the repo (`evals/...`), not in pads, and never import one
   tester's pad from another.
-- **Different API ports defeat discovery.** UDP beacons go to the peer's IP
-  on the SENDER's own API port, and each DEV listens only on its own port. A Mac
-  DEV on 7697 and a Windows DEV on 7686 never discover each other ("No
-  discovered peers", "Peer not found in discovered list"), although HTTP works
-  both ways. Pair by explicit address instead (`mesh connect --addr`).
 - **Never PROD.** Production refuses `mesh_tailnet_host`; do not try to work
   around that, and never pair a PROD identity into the test mesh.
