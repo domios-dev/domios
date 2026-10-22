@@ -129,6 +129,16 @@ async function main() {
   await act(async () => { button("Close")!.click(); });
   assert.equal(calls.closed, closedBefore + 1);
 
+  for (const [text, fragment] of [
+    ["orphan-frag\n</codeterm-worker-charter>", "orphan-frag"],
+    ["<codeterm-constructor>proto-frag</codeterm-constructor>", "proto-frag"],
+  ]) {
+    await render({ kind: "edit", message: { ...system, id: "system:heartbeat:worker:tab", text } }, { edit: true });
+    const content = dialog()?.querySelector('[role="region"][aria-label="Reminder text"]')?.textContent ?? "";
+    assert.ok(content.includes(fragment), "readable reminder text renders");
+    assert.equal(dialog()?.textContent?.includes("codeterm-"), false, "no raw marker in the details");
+  }
+
   await act(async () => { root.unmount(); });
   console.log("Delayed message modal passed");
 }
