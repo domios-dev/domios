@@ -75,6 +75,14 @@ async fn check_and_apply_plugin(
         .updater_builder()
         .endpoints(vec![endpoint.clone()])
         .map_err(|e| format!("failed to set updater endpoint: {}", e))?;
+    #[cfg(windows)]
+    {
+        let app_handle = app.clone();
+        builder = builder.on_before_exit(move || {
+            app_handle.cleanup_before_exit();
+            codeterm_paths::relaunch_env::scrub_before_installer_exit();
+        });
+    }
     if let Some(target) = platform_key {
         builder = builder.target(target);
     }
@@ -181,8 +189,7 @@ async fn check_and_apply_plugin(
             log::error!(
                 "[updater] install failed after the server stopped; relaunching the installed pair: {cause}"
             );
-            codeterm_util::restart_stdio::detach_for_restart();
-            app.restart();
+            super::restart::restart(app)?;
         }
         return Err(cause);
     }
@@ -222,8 +229,8 @@ fn restart_after_plugin_install(_: &AppHandle) -> Result<ApplyResult, String> {
 
 #[cfg(not(windows))]
 fn restart_after_plugin_install(app: &AppHandle) -> Result<ApplyResult, String> {
-    codeterm_util::restart_stdio::detach_for_restart();
-    app.restart()
+    super::restart::restart(app)?;
+    Ok(ApplyResult::Restarting)
 }
 
 async fn check_and_apply_deb(
@@ -340,8 +347,7 @@ pub(crate) async fn install_staged_deb_and_restart(
     }
 
     log::info!("[updater] Debian package installed; restarting application");
-    codeterm_util::restart_stdio::detach_for_restart();
-    app.restart()
+    super::restart::restart(app)
 }
 
 pub fn debian_preflight_status() -> DebianPreflight {
