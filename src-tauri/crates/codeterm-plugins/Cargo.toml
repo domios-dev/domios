@@ -20,6 +20,9 @@ tar = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
 log = "0.4"
 
+[target.'cfg(windows)'.dependencies]
+notify = "8"
+
 [dev-dependencies]
 tempfile = "3"
 

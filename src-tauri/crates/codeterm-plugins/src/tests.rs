@@ -6,6 +6,7 @@ mod id_validation;
 mod system_channel;
 
 mod store_index_tests {
+    mod runtime_bundle;
     use super::*;
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};

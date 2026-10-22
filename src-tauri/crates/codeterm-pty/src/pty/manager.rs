@@ -401,7 +401,14 @@ pub fn shell_job_policy(
     agent: bool,
     purpose: crate::multiplexer::types::ShellPurpose,
 ) -> WindowsJobPolicy {
-    if team_member && !agent && purpose == crate::multiplexer::types::ShellPurpose::Dev {
+    use crate::multiplexer::types::ShellPurpose;
+    if team_member
+        && !agent
+        && matches!(
+            purpose,
+            ShellPurpose::Dev | ShellPurpose::Build | ShellPurpose::Qa
+        )
+    {
         WindowsJobPolicy::AllowExplicitServerBreakaway
     } else {
         WindowsJobPolicy::Contained
@@ -584,6 +591,11 @@ fn build_session_for_launch(
     // Env vars stripped from every interactive tab PTY. CLAUDECODE / CLAUDE_CODE_*:
     apply_pty_env(&mut cmd, &env_vars);
     apply_launch_overrides(&mut cmd, launch_cwd.as_deref(), env_unset);
+
+    #[cfg(windows)]
+    if let Some(launcher) = WINDOWS_PTY_CHILD_LAUNCHER.get() {
+        wrap_windows_pty_child(&mut cmd, launcher.as_os_str().to_owned());
+    }
 
     let env_us = env_started.elapsed().as_micros();
     let spawn_started = std::time::Instant::now();
@@ -921,3 +933,20 @@ fn kill_failure_blocks_teardown(_error: &std::io::Error) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(windows)]
+fn wrap_windows_pty_child(cmd: &mut CommandBuilder, launcher: std::ffi::OsString) {
+    let args = cmd.get_argv_mut();
+    args.splice(0..0, [launcher, "pty-child".into()]);
+}
+
+#[cfg(windows)]
+static WINDOWS_PTY_CHILD_LAUNCHER: std::sync::OnceLock<std::path::PathBuf> =
+    std::sync::OnceLock::new();
+
+#[cfg(windows)]
+pub fn configure_windows_pty_child_launcher(launcher: std::path::PathBuf) -> Result<(), String> {
+    WINDOWS_PTY_CHILD_LAUNCHER
+        .set(launcher)
+        .map_err(|_| "Windows PTY child launcher already configured".into())
+}

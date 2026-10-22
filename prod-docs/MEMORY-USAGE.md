@@ -98,7 +98,7 @@ Save identity is the exact kind and title. Saving an unchanged body after whites
 | `learning` | Bug fixes, gotchas, things you figured out | "JWT kid header required by Auth0 even though RFC says optional" |
 | `preference` | User preferences and style choices | "Always use vim keybindings, prefer Dracula theme" |
 | `note` | Meeting notes, conversations, context | "Talked to Tima about audio engine architecture" |
-| `skill` | How-to instructions, reusable procedures | "How to deploy to fly.io: run ./build.sh build then..." |
+| `skill` | How-to instructions, reusable procedures | "How to deploy a web service: build the image, then publish it..." |
 | `rule` | Hard never/always constraints | "Never commit .env files" |
 | `peer` | Machine or service info | "Mac Mini runs Docker with HA, Mosquitto, a gateway" |
 | `document` | Files tracked on disk | Saved with `--source-path`, re-synced by the Librarian |
@@ -158,4 +158,4 @@ The Memory tab reads this directly.
 
 Memory preserves the body you save; later edits retain history.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

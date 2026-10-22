@@ -59,7 +59,7 @@ malformed. Exit 3: evidence complete but a check failed. It requires:
 - ids in `results.json` `state`: run id, workspace id, every tab id, a session id for each J1 tab
   that answered, and the pre-restart listener, build and tab ids.
 - `results.md`: byte-equal to the rendering of `results.json`.
-- `restart.json` (`upgrade.json` for the first upgrade cycle): `pass`, phase `verified`, listener
+- `restart.json`: `pass`, phase `verified`, listener
   pid and start time that prove a restart, same instance and port as `results.json`. An operator
   restart (`setup`/`verify` run by hand) leaves no `restart.json` and fails this check on purpose.
 - `screenshots/setup.png` and `screenshots/verify.png`, taken with `scripts/dev-screenshot.mjs`
@@ -75,7 +75,6 @@ malformed. Exit 3: evidence complete but a check failed. It requires:
 | J2 | `POST /api/orchestration/new` with exactly the dialog's body and no caller claim creates a Team whose Orchestrator and Planner reach ready. Then, in the DEV window, with a Manager tab and then a chat_backend Worker tab selected (`tab focus`, proven by its visible pane), the Start-a-session dialog in Team mode (PTY provider, then runtime provider) closes without an alert and a new two-member Team reaches ready. |
 | J3 | A shell-tab Orchestrator fixture (bound session, `set-orchestrator`) creates a Plan and a read-only task and dispatches it to a runtime provider. The Worker's backing is `chat_backend`; the attempt is acknowledged; the task reaches `in_review` with a report; `review bounce` is delivered and answered with a newer report. After the restart: bounce again, newer report, `review accept` reaches `done`. |
 | J4 | The listener PID and kernel start time changed. Every agent tab recorded before the restart reaches ready with the same session, backing and `task_binding.attempt_id`; the restored Worker's attempt id is the task's current attempt; J1 tabs and the J2 Manager answer a new exact marker on their restored session. |
-| J5 | `upgrade`: the N-1 checkout's own CLI and environment contract run `setup` on a disposable instance and record tab sessions, plan ids, and memory row count. The instance restarts onto build N using N's discovered identity contract. Named checks prove the old directory was removed and all recorded data remains; a second N start proves relocation does not repeat. Then the full `all` cycle runs on N. |
 
 A deterministic shell-tab Orchestrator owns J3's review verdicts because a live
 Orchestrator would race the bench on the Worker's reports.
@@ -93,27 +92,6 @@ QA evidence and are not claimed here.
 | Restored task-bound Workers without `attempt_id` (`e299a8dc2`) | J4 `restored_worker_attempt_binding`: "restored Worker has no attempt_id". |
 | `LivePtyRequired` for chat_backend Workers (`restore_binding.rs` requires a PTY) | J4 `restored_worker_attempt_binding` or J3 `restored_bounce_then_report`: the restored runtime Worker cannot re-report. |
 | Start-session Team dialog refused with an agent tab selected (task_5s4ue7) | J2 `ui_manager_context` / `ui_worker_context`: the dialog's alert text is the failure reason. |
-
-## Upgrade (J5)
-
-Use a disposable named instance and its own port; every mode refuses 7685, 7686
-and an unnamed instance. The N-1 checkout is a worktree at v1.14.9 (for
-example `git worktree add /tmp/cj-prev v1.14.9`).
-
-```bash
-CODETERM_INSTANCE=cj-upgrade CODETERM_API_PORT=7711 \
-  bash evals/core-journeys/run.sh upgrade --from-checkout /tmp/cj-prev --all-tabs
-```
-
-It builds and starts N-1 in that checkout, then follows the cycle above with
-the stop in the N-1 checkout and `./build.sh dev --wait --wait-build` here. The
-N-1 phase reads its CLI binary and environment names from that checkout; the N
-phase reads them from the build under test. J5 records named failures for each
-relocation invariant before the rename lands: `upgrade_n_data_directory_changed`,
-`upgrade_legacy_directory_removed`, `upgrade_tabs_sessions_preserved`,
-`upgrade_plan_ids_preserved`, `upgrade_mem_row_count_preserved`, and
-`upgrade_second_start_did_not_relocate`. Snapshot replay of a real desk and synthetic worst cases is
-`evals/upgrade-restore` (task_4o2fnb); run both for an app release.
 
 ## Offline tests
 
@@ -133,4 +111,4 @@ argument parsing. They are not live proof.
 | `deadline: Start a session dialog opened` | First-run onboarding is active, so the picker ignores the open event | Finish first run on that instance, then rerun. |
 | `restart_not_observed` | `build.sh dev-prebuilt` refused stale provenance or the same listener survived | Run `./build.sh dev --wait` once to record provenance, then rerun `all`. |
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

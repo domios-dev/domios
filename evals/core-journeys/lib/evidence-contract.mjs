@@ -126,11 +126,7 @@ export function validateRun(dir, { phases = PHASES, journeys = REQUIRED_JOURNEYS
 }
 
 export function validateTree(dir) {
-  if (existsSync(join(dir, "results.json")) || !existsSync(join(dir, "n-1-to-n"))) return [{ dir, ...validateRun(dir) }];
-  return [
-    { dir: join(dir, "n-1-to-n"), ...validateRun(join(dir, "n-1-to-n"), { restartFile: "upgrade.json" }) },
-    { dir: join(dir, "n"), ...validateRun(join(dir, "n")) },
-  ];
+  return [{ dir, ...validateRun(dir) }];
 }
 
 export function renderReport(reports) {

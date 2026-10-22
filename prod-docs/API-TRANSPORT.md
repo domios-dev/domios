@@ -75,10 +75,10 @@ Newline-delimited JSON:
 Every request envelope carries the control-plane `protocol_version` integer (one value shared by the CLI and the daemon). Dispatch compares it before routing: an older integer, or none (treated as the oldest, never crashed on), gets one typed error instead of method-level parse noise:
 
 ```json
-{"code": -32002, "message": "client protocol v0, server requires >=1 — run ./build.sh cli", "data": {"type": "version_skew", "client_protocol": 0, "server_protocol": 1, "recovery": "./build.sh cli"}}
+{"code": -32002, "message": "client protocol v0, server requires >=1 — run codeterm update install --auto", "data": {"type": "version_skew", "client_protocol": 0, "server_protocol": 1, "recovery": "codeterm update install --auto"}}
 ```
 
-On dev, recovery is `./build.sh cli`; on release, `codeterm update install --auto`. The CLI prints the daemon-composed message verbatim. Same-version requests add zero round-trips. `POST /api/mesh/rpc` accepts the field and forwards its typed error unchanged. Newer clients pass this gate against older daemons; a missing method still fails as `-32601`, enriched by the CLI with both app versions.
+Recovery on release is `codeterm update install --auto`. The CLI prints the daemon-composed message verbatim. Same-version requests add zero round-trips. `POST /api/mesh/rpc` accepts the field and forwards its typed error unchanged. Newer clients pass this gate against older daemons; a missing method still fails as `-32601`, enriched by the CLI with both app versions.
 
 Missing `protocol_version` is refused, including relayed reports. Update peer CLIs with their daemon using the error's `recovery` command.
 
@@ -217,4 +217,4 @@ For `team.rename`, an omitted `caller_tab_id` is the trusted direct-user path on
 
 Plan writes require the live bound session of the Plan owner or Planner. They, and a Planner-authored `plan.create` from a live launch presenting its own nonce, wait on the binding event through the startup deadline without blocking the HTTP runtime. On expiry HTTP returns `503` with `{ "type": "session_binding_pending", "retryable": true }`; the socket error carries the same type and retryability in `data`. A settled launch without a registered session remains the distinct `plan_binding_session_unregistered` error on both transports. Pending status never authorizes the mutation.
 
-<!-- revision: 56 -->
+<!-- revision: 57 -->

@@ -407,13 +407,7 @@ pub async fn create_shell_tab(
         .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
         .map_err(|error| {
-            let status = if error.starts_with("utility_tab_limit:") {
-                StatusCode::CONFLICT
-            } else if error.starts_with("Unknown Lucide icon") {
-                StatusCode::BAD_REQUEST
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
+            let status = create_shell_error_status(&error);
             (status, error)
         })?;
 
@@ -580,8 +574,23 @@ pub async fn release_remote_ownership(
     Ok(Json(response))
 }
 
+fn create_shell_error_status(error: &str) -> StatusCode {
+    if error.starts_with("utility_tab_limit:") {
+        StatusCode::CONFLICT
+    } else if error.starts_with("Unknown Lucide icon") || error.starts_with("timeout requires ") {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
 #[derive(Deserialize)]
 pub struct RestartShellTabBody {
+    #[serde(
+        default,
+        deserialize_with = "codeterm_wire::shell_command::deserialize_optional"
+    )]
+    cmd: Option<String>,
     cwd: Option<String>,
     timeout: Option<String>,
 }
@@ -619,7 +628,7 @@ pub async fn restart_shell_tab(
                 .ok_or("timeout requires an owning agent")?;
             svc.set_utility_timeout(&tab_id, owner, &timeout)?;
         }
-        svc.restart_shell_tab(&tab_id, body.cwd)
+        svc.restart_shell_tab(&tab_id, body.cwd, body.cmd.as_deref())
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?

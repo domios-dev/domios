@@ -48,9 +48,6 @@ Authenticated snapshot exchange: `GET /api/session/backups/{name}/export`
 accepts `latest` or a backup timestamp and returns a sanitized desk, Plan store,
 filler histories, size evidence and hidden-tab metadata. CLI:
 `codeterm sessions backups export latest --sanitize --out /tmp/desk.json`.
-`POST /api/session/backups/import` replaces a disposable named `upgrade-restore-*`
-DEV desk without PTYs; PROD refuses it. CLI: `codeterm sessions backups import --file /tmp/desk.json`.
-Import returns `{imported_tabs, restart_required, boot_id}`; `/api/health` boot_id proves a subsequent restart.
 
 #### Web Mirror
 
@@ -176,7 +173,7 @@ the change instead — `codeterm notify send --offer <surface> --offer-accept <l
 — and it applies only when that label is tapped.
 
 #### Updates
-| Method | Path | Body / `uery | Description |
+| Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/update/check` | `?force=true` | Check the active channel; cached for one hour unless forced. |
 | POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...&continue_tab=...` | Install as described below; without `auto`, requires a prior check and returns a package-manager command, browser URL, or `up_to_date`. |
@@ -185,7 +182,7 @@ the change instead — `codeterm notify send --offer <surface> --offer-accept <l
 | GET | `/api/update/status` | — | Updater progress plus durable `native_update` operation ID, sequence and outcome when readable. Unreadable handoffs are logged and omitted. |
 
 Native auto-install uses stable, requires an attached application-host updater, returns `{"status":"updating"}` immediately and reports progress through status:
-1. Discover the release with a no-cache GitHub request and pin its immutable manifest. `manifest_url` overrides it; HTTPS is required unless `dev-updater-allowlocal` enables local HTTP/file test sources.
+1. Discover the release with a no-cache GitHub request and pin its immutable manifest. `manifest_url` overrides it; HTTPS is required.
 2. Download the platform artifact and verify its Ed25519 signature before installation. A wrong-key signature aborts before replacing binaries.
 3. The native client durably records the verified target, stops the exact attached server, installs and relaunches the pair.
 4. The replacement records `verified` only after enrollment with the expected instance, target version and matching client/server build. Interrupted operations never replay automatically.
@@ -211,4 +208,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->
