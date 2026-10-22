@@ -50,9 +50,6 @@ Authenticated snapshot exchange: `GET /api/session/backups/{name}/export`
 accepts `latest` or a backup timestamp and returns a sanitized desk, Plan store,
 filler histories, size evidence and hidden-tab metadata. CLI:
 `codeterm sessions backups export latest --sanitize --out /tmp/desk.json`.
-`POST /api/session/backups/import` replaces a disposable named `upgrade-restore-*`
-DEV desk without PTYs; PROD refuses it. CLI: `codeterm sessions backups import --file /tmp/desk.json`.
-Import returns `{imported_tabs, restart_required, boot_id}`; `/api/health` boot_id proves a subsequent restart.
 
 #### Web Mirror
 
@@ -211,7 +208,7 @@ the change instead — `codeterm notify send --offer <surface> --offer-accept <l
 **Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — a wrong-key signature aborts the install before any binary is touched.
 
 **Auto install flow (`method=auto`).** Auto-install returns `updating` immediately, then:
-1. Discovers the stable release with a no-cache GitHub request, then pins the install to that tag's immutable manifest. A `manifest_url` query override still takes precedence; non-HTTPS overrides require `dev-updater-allowlocal`.
+1. Discovers the stable release with a no-cache GitHub request, then pins the install to that tag's immutable manifest. An HTTPS `manifest_url` query override still takes precedence.
 2. Downloads the selected platform artifact and verifies its signature before installing it.
 3. Shuts down gracefully and restarts the app.
 4. After restart, tabs with valid recorded provider sessions resume; stale or missing sessions launch fresh.
@@ -237,4 +234,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

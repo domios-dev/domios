@@ -760,3 +760,8 @@ that can create the independent server. Report Windows, Linux and macOS native
 rows separately. An unrun probe, successful source check or fake fixture is never
 a native process PASS. Probe receipts contain no API credential; the credential
 travels only over private inherited pipes or authenticated local IPC.
+
+## Repository harness references
+
+[Embedded-doc references](embedded-doc-references.md) records archived Playwright
+helpers and native profile coverage moved out of product help.

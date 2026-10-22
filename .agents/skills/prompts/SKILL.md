@@ -211,3 +211,8 @@ still bump it when you change the file.
 Every agent's own pad rule (write payloads to the pad, pass `--from-pad`) reaches
 spawned agents through their launch prompt and reaches skill readers through
 `{agent_pad_rule}`.
+
+## Repository-only guidance
+
+[Repository guidance](repository-guidance.md) retains debug protocol recovery
+and the lane ancestry script moved out of embedded help.

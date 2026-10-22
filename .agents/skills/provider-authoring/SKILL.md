@@ -718,3 +718,8 @@ while busy and idle. All sources share the exact stdout wrapper and own-session
 append boundary. They parse only supplied JSON and add no host filesystem,
 network or subprocess access. Native/JS parity must cover every declared shape;
 additional system records never become foreign user turns.
+
+## Claude repository verification
+
+- [Canonical oracles](claude-canonical-oracles.md) owns repository build and live QA procedures.
+- [Verification evidence](claude-verification-evidence.md) retains the local hook refresh and outstanding producer evidence moved out of the bundled guide.

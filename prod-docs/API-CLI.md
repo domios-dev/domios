@@ -102,12 +102,11 @@ Set automatically in every PTY spawned by Domios:
 | `CODETERM` | `1` | Running inside Domios |
 | `CODETERM_VERSION` | `0.4.0` | App version |
 | `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Explicit socket path; it wins over socket derivation. Named dev sockets also select their matching data directory. |
-| `CODETERM_INSTANCE` | `coreqa` | Named dev instance. Pair it with that instance's API port; a conflicting default port or socket is refused. |
 | `CODETERM_TAB_ID` | `a3f1b2c7` | Current tab ID (8-char hex) |
 | `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
 | `CODETERM_ROLE` | `Manager` | Structural agent role: `Manager` or `Worker` (empty if no role). The finer kind (`orchestrator`, `planner`, `watcher`, …) lives in `role_profile`, not here; display surfaces render that kind's label. Set at PTY spawn. |
 | `CODETERM_PARENT_TAB_ID` | `b4e2c8d1` | Parent Tab ID in hierarchy (empty for a Team anchor or no role). Set at PTY spawn. |
-| `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by Domios so CLI and hooks use the correct port (default dev: 7686, prod: 7685). A custom dev port needs `CODETERM_INSTANCE` or an explicit matching `CODETERM_SOCKET_PATH`. |
+| `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by Domios so CLI and hooks use the correct port. A custom port needs `CODETERM_INSTANCE` or an explicit matching `CODETERM_SOCKET_PATH`. |
 | `CODETERM_API_URL` | `http://127.0.0.1:7685` | Optional API origin for local CLI fallback; fallback accepts only the exact IPv4 loopback host. |
 | `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/tabs/*/hook/*`) can authenticate without per-call wiring. |
 | `TERM` | `xterm-256color` | Terminal type |
@@ -157,14 +156,6 @@ Command-palette shortcuts and agent-control workflows: `codeterm docs AGENT-CONT
 
 Domios hides to the system tray on window close instead of quitting. To fully quit, use the tray menu. This ensures cron jobs and background agents continue running when the window is closed.
 
-## Dev/Prod Isolation
-
-Dev builds use identifier `com.codeterm.dev` and are fully isolated from production:
-- **API port:** 7686 (prod: 7685)
-- **Data directory:** `~/.codeterm-dev/` (prod: `~/.codeterm/`)
-- **Socket prefix:** `codeterm-dev` (prod: `codeterm`)
-- **Single-instance:** Disabled in dev builds, so dev and prod can run side by side.
-
 ## Role presets
 
 A launch's role text comes from its role preset; task personality, `role_guidance` and `executor_role` enter as its task overlay.
@@ -199,4 +190,4 @@ provider's own machine. Completion verifies the account and resumes the tab's
 same thread without restarting or replaying input. Only one sign-in per provider
 can be pending; Cancel releases it before a retry.
 
-<!-- revision: 54 -->
+<!-- revision: 55 -->

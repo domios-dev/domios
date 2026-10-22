@@ -74,8 +74,8 @@ Full references live in `codeterm docs <NAME>`; the `references/` files only poi
 - Cron — `codeterm docs API-INTEGRATIONS` (CLI, oneshot, lifecycle) and `codeterm docs RUNTIME-CONFIG` (job schema)
 - Telegram — `codeterm docs TELEGRAM-SETUP` (setup, media, formatting, per-tab topic threads) and `codeterm docs MESH-BRIDGE` (poller migration)
 - Themes — `codeterm docs RUNTIME-CONFIG` (custom theme TOML format)
-- `essences/capabilities.md` (in the Domios repo) — stable agent model catalog contract: provider-owned catalogs, user overrides, availability, and grouping
-- `prod-docs/ESSENCE-MAP.md` (read with `codeterm docs ESSENCE-MAP`) — source-backed map generation, validation, and decision records
+- Models — `codeterm agent models <provider>` for the provider-owned catalogue and available choices
+- Essence maps — `codeterm docs ESSENCE-MAP` for source-backed map generation, validation, and decision records
 
 Local models use the bundled OpenCode provider: `codeterm model-provider add|remove|list|test` manages owned connections. The optional OpenCode decision adapter is selected through `codeterm supporter`; TypeSafe Jev remains the default.
 
@@ -83,4 +83,4 @@ Local models use the bundled OpenCode provider: `codeterm model-provider add|rem
 
 The always-on protocol lives in your provider rules and fires regardless of which skill is loaded. Save only durable facts. Instructions for the current session or task (model or worker choice for now, temporary priorities, 'this time', 'for this release') stay in the conversation or plan, never in memory. If durability is uncertain, do not save; ask only when the user says remember. Even an explicit remember of a session-scoped instruction requires the user to say it is permanent. Explicit "remember" requests for durable facts still mean save now.
 
-<!-- revision: 81 -->
+<!-- revision: 82 -->

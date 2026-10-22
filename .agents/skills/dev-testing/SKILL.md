@@ -402,3 +402,11 @@ structured runtime that publishes `chat-send-status.system_send` before its
 transcript row. A send acknowledgement alone is not proof. Close only the
 throwaway tabs and Browser this check created. Pure regression command:
 `pnpm exec tsx src/components/Terminal/chatEnrichment.routedSends.test.ts`.
+
+## Account adapter setup
+
+[Account adapters](account-adapters.md) covers build-time vendor configuration,
+local billing simulation and development analytics sinks.
+
+[Instance isolation](instance-isolation.md) records development identifiers,
+ports and data paths moved out of embedded product help.

@@ -154,7 +154,7 @@ pub enum TabAction {
         #[arg(long, conflicts_with = "team")]
         no_team: bool,
         /// Spawn a shell that runs this command on start (e.g.
-        /// `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be
+        /// `"npm run dev"`). Delivery waits for the PTY to be
         /// ready, so the command runs reliably even on a freshly-created tab.
         #[arg(long, allow_hyphen_values = true)]
         cmd: Option<String>,
