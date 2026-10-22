@@ -18,7 +18,7 @@ A skill is a **folder**, not a single file. `SKILL.md` is the index that mem ing
 
 CLI:
 
-- `domios mem skill new <slug> [--area X]` — scaffold a folder under the right `<skills-dir>` (`skills/` inside the active instance data dir: `~/.codeterm/` for prod, `~/.codeterm-dev/` for dev, `~/.codeterm-dev-<name>/` for a named instance), seed `SKILL.md` with frontmatter + sections, and register in mem.
+- `domios mem skill new <slug> [--area X]` — scaffold a folder under the right `<skills-dir>` (`skills/` inside the active instance data dir: `~/.domios/` for prod, `~/.domios-dev/` for dev, `~/.domios-dev-<name>/` for a named instance), seed `SKILL.md` with frontmatter + sections, and register in mem.
 - `domios mem skill add <folder>` — register an existing folder (cloned repo, copied from another machine).
 - `domios mem skill list` — list every registered skill folder.
 - Removing a skill: `domios mem delete <id>`. The delete records a tombstone for the folder's `SKILL.md`, so the Librarian never re-registers it; the folder stays on disk. `domios mem skill add <folder>` clears the tombstone.
@@ -41,7 +41,7 @@ Extraction and REM run as hidden workers; inspect their status/logs and report e
 
 - **Extraction workers** — auto-spawned on `mem save` for rich items (note, fact, learning, daily, conversation); they extract entities and build the graph.
 - **Dreaming REM worker** — spawned after the SQL phases.
-- On completion, `domios mem worker report` records that execution ended (and, with `--diary`/`--finalization`, whether the artifact actually landed); the full log is saved to `~/.codeterm/mem/workers/<id>.log`.
+- On completion, `domios mem worker report` records that execution ended (and, with `--diary`/`--finalization`, whether the artifact actually landed); the full log is saved to `~/.domios/mem/workers/<id>.log`.
 - **Limits:** at most 200 workers are kept; the oldest finished workers and their logs are evicted.
 - The Memory tab lists workers with live or saved logs.
 - Extraction allows three attempts per unchanged source and launch configuration. Failed attempts back off for one minute, then two minutes, before becoming eligible on a later save or startup scan. After three failures the item is parked with its reason in Activity; `mem extract-pending` explicitly resets that budget. A changed source, provider/model, provider availability, or app build starts a new budget. A reported extraction with no graph additions is still completed.
@@ -53,10 +53,10 @@ Dreaming runs nightly between 06:00 and 06:30 local time, can promote useful lea
 
 ### LLM recluster (opt-in)
 
-Hand-invoked only via `domios mem dream run --phase recluster`. Never part of the cron-driven nightly pipeline. The phase collects top-N hubs by active degree, their incident relation distributions, neighbor titles/summaries, and the existing `topic_*`/`role_*` anchor list, then asks the configured `dreaming_model` (default `sonnet`) to propose 0–5 cluster operations. The validated proposals are written as a markdown plan to `~/.codeterm/mem/dream-plans/<utc-ts>-recluster.md`. The user reviews the file and runs `domios mem dream apply <file>` to execute the `introduce_topic` mutations.
+Hand-invoked only via `domios mem dream run --phase recluster`. Never part of the cron-driven nightly pipeline. The phase collects top-N hubs by active degree, their incident relation distributions, neighbor titles/summaries, and the existing `topic_*`/`role_*` anchor list, then asks the configured `dreaming_model` (default `sonnet`) to propose 0–5 cluster operations. The validated proposals are written as a markdown plan to `~/.domios/mem/dream-plans/<utc-ts>-recluster.md`. The user reviews the file and runs `domios mem dream apply <file>` to execute the `introduce_topic` mutations.
 
 Requires `ANTHROPIC_API_KEY`. The phase is read-only against the DB; all mutations happen in the user-gated apply step.
 
 `GET /api/mem/dream/report` returns the prepared targets and summary for the run.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

@@ -85,6 +85,7 @@ function hasRenderableText(value: string | undefined): boolean {
 }
 
 export function isRenderableMessage(message: ChatMessage): boolean {
+  if (message.inboundKind === "system" && message.fromContext === "checklist") return false;
   if (message.type === "tool_call") {
     return (
       hasRenderableText(message.content) ||

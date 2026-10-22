@@ -188,7 +188,9 @@ fn runtime_resume_keeps_thread_rotates_nonce_and_never_replays_uncertain_input()
     agent_runtime::transport::send(
         &fixture.service,
         &fixture.tab,
-        "opaque input",
+        &crate::service::messenger::AgentInput::Human(
+            crate::service::messenger::HumanInput::composer("opaque input"),
+        ),
         Some(&pending.send_id),
     )
     .unwrap();

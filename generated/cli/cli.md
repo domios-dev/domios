@@ -424,10 +424,10 @@ Deliver a text body to a running text input stage
 
 #### `domios blueprint keep`
 
-Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents
+Keep a generalised solution (Team Orchestrator only)
 
 - `<id>`
-- `--when` — One "when would someone want this" request; repeat 1-5 times, 3-5 phrased differently
+- `--when`
 
 #### `domios blueprint list`
 
@@ -1305,7 +1305,7 @@ Undo an area merge, or restore from audit history. An archived item gets its pri
 
 Run a single mem maintenance pass in this subprocess. Opens the DB directly (multi-process WAL) and performs one phase of work, then exits. Used by the daemon's supervisor so a panic / OOM in dreaming or librarian cannot take the API down
 
-- `--db-path` — Override the path to knowledge.db. Defaults to the same data dir the CLI uses elsewhere (`~/.codeterm/mem/knowledge.db` for prod, `~/.codeterm-dev/mem/knowledge.db` for dev)
+- `--db-path` — Override the path to knowledge.db. Defaults to the same data dir the CLI uses elsewhere (`~/.domios/mem/knowledge.db` for prod, `~/.domios-dev/mem/knowledge.db` for dev)
 - `<kind>` — Which phase to run: dreaming-light | dreaming-deep | dreaming-normalize | librarian-once
 
 #### `domios mem save`
@@ -1431,14 +1431,14 @@ Unlock the active backend with a master password (read from stdin if --password 
 
 #### `domios mem skill`
 
-Skill management — folder-on-disk skills with mem index. Skills live as ~/.codeterm/skills/<name>/SKILL.md (+ optional support files). `add` registers the folder; Librarian re-vectorizes if SKILL.md changes
+Skill management — folder-on-disk skills with mem index. Skills live as ~/.domios/skills/<name>/SKILL.md (+ optional support files). `add` registers the folder; Librarian re-vectorizes if SKILL.md changes
 
 #### `domios mem skill add`
 
-Register an existing skill folder. Reads <folder>/SKILL.md and saves a mem item with source_path linked to it. Re-runs are idempotent. Area can come from --area flag, YAML frontmatter (`area: foo`), or the parent folder name (~/.codeterm/skills/<area>/<skill>/SKILL.md)
+Register an existing skill folder. Reads <folder>/SKILL.md and saves a mem item with source_path linked to it. Re-runs are idempotent. Area can come from --area flag, YAML frontmatter (`area: foo`), or the parent folder name (~/.domios/skills/<area>/<skill>/SKILL.md)
 
 - `--area` — Override the auto-detected area
-- `<folder>` — Folder containing SKILL.md (e.g. ~/.codeterm/skills/mem-testing)
+- `<folder>` — Folder containing SKILL.md (e.g. ~/.domios/skills/mem-testing)
 - `--importance` — Importance 1-5, default 4
 
 #### `domios mem skill list`
@@ -3179,6 +3179,7 @@ Send text to a tab (default: current tab)
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--require-agent` — Refuse unless the target tab has an agent attached. Guards task dispatch so prose never lands in a raw shell (issue #8)
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: domios send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
+- `--system-context` — Deliver a host system notice with this context and no reply address
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback). Comma-separated ids address several tabs in one call — the same payload is delivered per tab, every target is reported, and the call exits non-zero if any of them failed. Multi-target does not accept mesh ids: run it on the owning peer, one peer per call
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 - `--to-shell` — Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force
@@ -3186,7 +3187,7 @@ Send text to a tab (default: current tab)
 
 #### `domios service`
 
-Manage daemon services (long-running processes monitored by codeterm)
+Manage daemon services (long-running processes monitored by Domios)
 
 #### `domios service add`
 
@@ -3621,7 +3622,7 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--purpose` — Utility shell purpose shown in the sidebar
 - `--shell` — Shell profile id (discover with --list-shells)
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
-- `--timeout` — Shell lifetime: positive duration (30s, 10m, 2h), or none
+- `--timeout` — Agent-owned shell lifetime: positive duration (30s, 10m, 2h), or none. Requires a live creating agent (CODETERM_TAB_ID); omit for human shells
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
 

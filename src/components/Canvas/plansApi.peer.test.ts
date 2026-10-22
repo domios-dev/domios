@@ -85,11 +85,27 @@ async function main() {
   assert.deepEqual(failedPaths, ["/api/mesh/relay-to"], "a peer refusal never falls back to local plans");
 
   clearRelayTarget();
+  for (const body of [{ error: "Opaque refusal" }, { error: { message: "Opaque refusal", code: "denied" } }]) {
+    globalThis.fetch = async () => Response.json(body, { status: 400 });
+    await assert.rejects(plansApi.runPlanControlLoop(API, "pl_peer"), { message: "Opaque refusal" });
+  }
+  globalThis.fetch = async () => new Response("proxy failure", { status: 502 });
+  await assert.rejects(plansApi.runPlanControlLoop(API, "pl_peer"), { message: "The Curator round could not start." });
   globalThis.fetch = async (input) => {
     assert.equal(String(input), "http://gateway:7685/api/plans?full=1");
     return Response.json({ plans: [FIXTURE_PLAN] });
   };
   assert.deepEqual(await plansApi.fetchPlans(API), [FIXTURE_PLAN]);
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    assert.equal(url.pathname, "/api/plans");
+    assert.equal(url.searchParams.get("chat"), "1");
+    assert.equal(url.searchParams.has("full"), false);
+    assert.equal(url.searchParams.get("query"), "COD-12");
+    assert.equal(url.searchParams.get("team"), "team-a");
+    return Response.json({ plans: [] });
+  };
+  await plansApi.fetchPlans(API, undefined, { chat: true, query: "COD-12", project: "/repo", team: "team-a" });
   console.log("plansApi peer routing passed");
 }
 

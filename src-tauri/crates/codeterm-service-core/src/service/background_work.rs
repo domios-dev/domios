@@ -154,7 +154,24 @@ fn observe_background_records(
             }
         }
         for observation in &record.background_work {
-            roster.observe(observation, "");
+            let label = record
+                .blocks
+                .iter()
+                .find_map(|block| {
+                    let input = &block.data["input"];
+                    if block.data["tool_kind"] != "agent"
+                        || input["agent_id"].as_str() != Some(&observation.id)
+                    {
+                        return None;
+                    }
+                    ["agent_description", "agent_type"]
+                        .into_iter()
+                        .find_map(|field| {
+                            input[field].as_str().filter(|text| !text.trim().is_empty())
+                        })
+                })
+                .unwrap_or("");
+            roster.observe(observation, label);
         }
     }
     roster

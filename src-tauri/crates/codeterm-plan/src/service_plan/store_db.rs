@@ -212,6 +212,7 @@ impl PlanDatabase {
         transaction.commit().map_err(db_error)
     }
 
+    #[cfg(test)]
     pub(super) fn persist_plan(
         &self,
         plan: &Plan,

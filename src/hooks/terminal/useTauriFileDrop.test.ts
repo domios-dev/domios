@@ -49,13 +49,15 @@ async function main() {
     }]);
   });
 
-  await test("falls back to raw paths if backend materialization is unavailable", async () => {
+  await test("refuses raw paths if backend materialization fails", async () => {
     nativeBridge.materializeDroppedFiles = async () => {
       throw new Error("unavailable");
     };
 
     const raw = ["/Users/me/file.txt"];
-    assertEq("raw paths preserved", await materializeDroppedPaths(raw), raw);
+    let message = "";
+    try { await materializeDroppedPaths(raw); } catch (error) { message = String(error); }
+    assertEq("backend refusal reaches caller", message, "Error: unavailable");
   });
 
   if (failed > 0) {

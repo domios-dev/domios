@@ -153,11 +153,21 @@ fn in_place_model_request_with_ready_snapshot_flushes_chat_sends_once_in_order()
     );
     let first = fixture
         .service
-        .start_chat_send(&tab, "first".into(), None, None)
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("first"),
+            None,
+            None,
+        )
         .unwrap();
     let second = fixture
         .service
-        .start_chat_send(&tab, "second".into(), None, None)
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("second"),
+            None,
+            None,
+        )
         .unwrap();
     await_owner_idle(&fixture, &tab);
     assert_eq!(
@@ -254,7 +264,11 @@ fn readiness_latches_for_the_current_pty_generation() {
     let (listener, settled) = settled_listener(&fixture, &tab, &send_id);
     let accepted = fixture
         .service
-        .prepare_and_admit_user_send(reservation, SECOND_PAYLOAD.into(), false)
+        .prepare_and_admit_user_send(
+            reservation,
+            crate::service::messenger::HumanInput::composer(SECOND_PAYLOAD),
+            false,
+        )
         .unwrap()
         .status;
     let write_id = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();

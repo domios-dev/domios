@@ -6,10 +6,10 @@ The user creates the bot with @BotFather, which issues its token. When the user 
 
 1. **Stash the token** (mode 600, gitignored path):
    ```bash
-   printf '%s\n' '<token>' > ~/.codeterm/secrets/telegram.token && chmod 600 ~/.codeterm/secrets/telegram.token
+   printf '%s\n' '<token>' > ~/.domios/secrets/telegram.token && chmod 600 ~/.domios/secrets/telegram.token
    ```
 
-2. **Allow the user**. In `~/.codeterm/config.toml` under `[integrations]`:
+2. **Allow the user**. In `~/.domios/config.toml` under `[integrations]`:
    ```toml
    telegram_enabled = true
    telegram_allowed_users = ["<user_id_as_quoted_string>"]
@@ -30,7 +30,7 @@ The user creates the bot with @BotFather, which issues its token. When the user 
 
 5. **Have the user send a test message.** Tail the log to confirm receipt:
    ```bash
-   tail -f ~/.codeterm/logs/codeterm.log
+   tail -f ~/.domios/logs/domios.log
    ```
    Look for `[bridge] inbound from <name>`. If you see `[telegram] rejected user <id>`, the allow-list doesn't include them — go back to step 2.
 
@@ -106,7 +106,7 @@ Domios has no screenshot CLI. If the user asks for a screen capture, ask them to
 
 With topics enabled for the bot in BotFather, each tab talks to the owner in its own topic of the owner's private chat:
 
-- The first notification or `bridge send` from a tab creates one topic named exactly after the tab title. Only while another live tab shares that title does it get a short `#xxxx` suffix from the tab id. Later sends reuse the binding, stored in `~/.codeterm/bridge/telegram-threads.json` (ids and topic names only).
+- The first notification or `bridge send` from a tab creates one topic named exactly after the tab title. Only while another live tab shares that title does it get a short `#xxxx` suffix from the tab id. Later sends reuse the binding, stored in `~/.domios/bridge/telegram-threads.json` (ids and topic names only).
 - Every tab post starts with the sender header `title · role · workspace · machine`, where role is `orchestrator`, `worker`, `planner` or `general`. Tab posts go only to their topic, with no duplicate in General; `--choice` buttons ride the topic post.
 - The main chat (no thread, or the general topic) stays the General Agent conversation, and the General Agent's own sends stay there with its header.
 - A message in a bound topic reaches that tab with `thread=<id>` in its Telegram `<domios>` tag. A reply to a tab's message reaches that tab even without topics. Everything else reaches the General Agent; `origin=closed_thread|closed_tab|unbound_thread` says when it came from a retired or unknown thread.
@@ -130,4 +130,4 @@ domios bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--claim-
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

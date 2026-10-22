@@ -107,7 +107,7 @@ Replaces any existing session; returns `KeepAwakeStatus`.
 
 **Tauri event `keepawake-changed`** carries `KeepAwakeStatus` on start, stop, expiry and macOS `caffeinate` spawn failure.
 
-**Persistence:** state is written to `~/.codeterm/keepawake.json` (dev: `~/.codeterm-dev/keepawake.json`) and restored on startup: indefinite sessions resume as-is, timed ones with the remaining duration, expired ones are discarded.
+**Persistence:** state is written to `~/.domios/keepawake.json` (dev: `~/.domios-dev/keepawake.json`) and restored on startup: indefinite sessions resume as-is, timed ones with the remaining duration, expired ones are discarded.
 
 **Platform support:**
 - **macOS** — spawns `caffeinate -i -s` (plus `-d` when `display=true`).
@@ -184,4 +184,4 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 
 `spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.
 
-<!-- revision: 69 -->
+<!-- revision: 70 -->

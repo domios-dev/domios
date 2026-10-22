@@ -1,5 +1,29 @@
 use super::*;
 #[test]
+fn background_roster_uses_provider_agent_description() {
+    use crate::agent::chat_types::{MessageBlock, RichMessage};
+    use codeterm_types::agent::background_work::BackgroundRoster;
+    let record = RichMessage {
+        provider_session_id: Some("own".into()),
+        blocks: vec![MessageBlock {
+            kind: "tool_use".into(),
+            data: serde_json::json!({
+                "tool_kind": "agent", "input": { "agent_id": "opaque-id", "agent_description": "Inspect source" }
+            }),
+        }],
+        background_work: vec![BackgroundWorkObservation {
+            id: "opaque-id".into(),
+            state: BackgroundWorkState::Running,
+        }],
+        ..Default::default()
+    };
+    let roster = observe_background_records(&BackgroundRoster::default(), false, "own", &[record]);
+    assert_eq!(
+        roster.running.get("opaque-id").map(String::as_str),
+        Some("Inspect source")
+    );
+}
+#[test]
 fn restart_guard_refuses_named_work_and_allows_explicit_force() {
     let items = vec!["shell-fixture".into(), "agent-fixture".into()];
     assert!(

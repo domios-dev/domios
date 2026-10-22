@@ -67,6 +67,7 @@ class FakeChatServer {
           text: "",
           start_offset: this.snapshotStart,
           offset: this.offset,
+          cursor: JSON.stringify({ kind: "bytes", incarnation: this.tabId, offset: this.offset }),
           pending: false,
           messages: [...this.snapshot],
           source_session_id: this.sessionId,
@@ -83,6 +84,7 @@ class FakeChatServer {
         this.subscribers.delete(subscriptionId);
         return {};
       }
+      if (command === "chat_resume") return { kind: "resumed", deltas: [], caught_up: true };
       return {};
     });
   }
@@ -103,6 +105,7 @@ class FakeChatServer {
           messages,
           start_offset: start,
           offset: this.offset,
+          cursor: JSON.stringify({ kind: "bytes", incarnation: this.tabId, offset: this.offset }),
           source_session_id: sourceSessionId,
           session_binding_nonce: "nonce-1",
         },

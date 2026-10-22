@@ -5747,7 +5747,7 @@
               "value_name": "DB_PATH",
               "possible_values": [],
               "default": null,
-              "help": "Override the path to knowledge.db. Defaults to the same data dir the CLI uses elsewhere (`~/.codeterm/mem/knowledge.db` for prod, `~/.codeterm-dev/mem/knowledge.db` for dev)",
+              "help": "Override the path to knowledge.db. Defaults to the same data dir the CLI uses elsewhere (`~/.domios/mem/knowledge.db` for prod, `~/.domios-dev/mem/knowledge.db` for dev)",
               "aliases": []
             },
             {
@@ -6394,13 +6394,13 @@
         },
         {
           "name": "skill",
-          "about": "Skill management — folder-on-disk skills with mem index. Skills live as ~/.codeterm/skills/<name>/SKILL.md (+ optional support files). `add` registers the folder; Librarian re-vectorizes if SKILL.md changes",
+          "about": "Skill management — folder-on-disk skills with mem index. Skills live as ~/.domios/skills/<name>/SKILL.md (+ optional support files). `add` registers the folder; Librarian re-vectorizes if SKILL.md changes",
           "aliases": [],
           "args": [],
           "subcommands": [
             {
               "name": "add",
-              "about": "Register an existing skill folder. Reads <folder>/SKILL.md and saves a mem item with source_path linked to it. Re-runs are idempotent. Area can come from --area flag, YAML frontmatter (`area: foo`), or the parent folder name (~/.codeterm/skills/<area>/<skill>/SKILL.md)",
+              "about": "Register an existing skill folder. Reads <folder>/SKILL.md and saves a mem item with source_path linked to it. Re-runs are idempotent. Area can come from --area flag, YAML frontmatter (`area: foo`), or the parent folder name (~/.domios/skills/<area>/<skill>/SKILL.md)",
               "aliases": [],
               "args": [
                 {
@@ -6420,7 +6420,7 @@
                   "value_name": "FOLDER",
                   "possible_values": [],
                   "default": null,
-                  "help": "Folder containing SKILL.md (e.g. ~/.codeterm/skills/mem-testing)",
+                  "help": "Folder containing SKILL.md (e.g. ~/.domios/skills/mem-testing)",
                   "aliases": []
                 },
                 {
@@ -14774,6 +14774,16 @@
           ]
         },
         {
+          "name": "system-context",
+          "positional": false,
+          "required": false,
+          "value_name": "CONTEXT",
+          "possible_values": [],
+          "default": null,
+          "help": "Deliver a host system notice with this context and no reply address",
+          "aliases": []
+        },
+        {
           "name": "tab",
           "positional": false,
           "required": false,
@@ -14820,7 +14830,7 @@
     },
     {
       "name": "service",
-      "about": "Manage daemon services (long-running processes monitored by codeterm)",
+      "about": "Manage daemon services (long-running processes monitored by Domios)",
       "aliases": [],
       "args": [],
       "subcommands": [
@@ -16719,7 +16729,7 @@
               "value_name": "TIMEOUT",
               "possible_values": [],
               "default": null,
-              "help": "Shell lifetime: positive duration (30s, 10m, 2h), or none",
+              "help": "Agent-owned shell lifetime: positive duration (30s, 10m, 2h), or none. Requires a live creating agent (CODETERM_TAB_ID); omit for human shells",
               "aliases": []
             },
             {

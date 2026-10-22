@@ -7,6 +7,7 @@ import type { ControlLoopUpdate, PlanControlLoop } from "../planControlLoop";
 export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, revision: number, initial?: PlanControlLoop) {
   const [reading, setReading] = useState<{ planId: string; value: PlanControlLoop } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const request = useRef(0);
   const pending = useRef(Promise.resolve());
@@ -18,6 +19,7 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
     const current = ++request.current;
     const controller = new AbortController();
     setLoadError(null);
+    setActionError(null);
     if (api) void fetchPlanControlLoop(api, planId, controller.signal).then((value) => {
       if (current === request.current) setReading({ planId, value });
     }).catch((reason: unknown) => {
@@ -30,10 +32,11 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
     if (initial) setReading({ planId, value: initial });
   }, [planId, initial]);
 
-  const mutate = (perform: () => Promise<PlanControlLoop>) => {
+  const mutate = (perform: () => Promise<PlanControlLoop>, showError = false) => {
     if (!api) return Promise.resolve();
     queued.current++;
     setBusy(true);
+    if (showError) setActionError(null);
     const run = async () => {
       try {
         if (active.current !== identity) return;
@@ -44,6 +47,7 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
           setLoadError(null);
         }
       } catch (reason) {
+        if (showError && active.current === identity) setActionError(reason instanceof Error ? reason.message : String(reason));
         publishNotice({ kind: "toast", severity: "Error", id: "plan-settings:" + planId,
           title: "Plan settings update failed", detail: reason instanceof Error ? reason.message : String(reason) });
       } finally {
@@ -55,6 +59,6 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
     return pending.current;
   };
   const update = (value: ControlLoopUpdate) => api ? mutate(() => setPlanControlLoop(api, planId, value)) : Promise.resolve();
-  const runNow = () => api ? mutate(() => runPlanControlLoop(api, planId)) : Promise.resolve();
-  return { value: reading?.planId === planId ? reading.value : initial, busy, loadError, update, runNow };
+  const runNow = () => api ? mutate(() => runPlanControlLoop(api, planId), true) : Promise.resolve();
+  return { value: reading?.planId === planId ? reading.value : initial, busy, loadError, actionError, update, runNow };
 }

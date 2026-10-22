@@ -1,6 +1,6 @@
 use super::*;
 use crate::multiplexer::{state::MultiplexerState, types::Tab};
-use crate::service::messenger::{AgentDeliveryPayload, QueuedAgentPayload};
+use crate::service::messenger::AgentDeliveryPayload;
 use codeterm_types::pty::BootStage;
 
 fn launching_tab() -> Tab {
@@ -18,9 +18,10 @@ fn pinned(tab: &Tab) -> AgentDeliveryPayload {
     let (pty, session, nonce) = delivery_binding(tab).unwrap();
     AgentDeliveryPayload {
         trace_id: None,
-        transport: QueuedAgentPayload::Text {
-            text: "opaque-payload".into(),
-        },
+        transport: crate::service::messenger::Messenger::from(
+            crate::service::messenger::MessageEnvelope::from_codeterm(),
+        )
+        .framed_delivery("opaque-payload"),
         observer: None,
         idempotency_key: None,
         expected_pty_id: pty,

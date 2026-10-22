@@ -55,6 +55,10 @@ fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::
 
 #[derive(Deserialize, Default)]
 pub struct ListPlansQuery {
+    #[serde(default, deserialize_with = "de_truthy")]
+    pub(crate) chat: Option<bool>,
+    pub(crate) query: Option<String>,
+    pub(crate) team: Option<String>,
     #[serde(default)]
     pub(crate) project: Option<String>,
     #[serde(default)]
@@ -151,6 +155,30 @@ pub async fn list(
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
         check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+        if q.chat == Some(true) {
+            if q.query.is_some()
+                && q.project
+                    .as_deref()
+                    .is_none_or(|project| project.trim().is_empty())
+            {
+                return Err(text_err(
+                    StatusCode::BAD_REQUEST,
+                    "Mention search requires a project",
+                ));
+            }
+            if q.query.as_ref().is_some_and(|query| query.len() > 256) {
+                return Err(text_err(
+                    StatusCode::BAD_REQUEST,
+                    "Mention query is too long",
+                ));
+            }
+            let plans = state.svc.plan_store.chat_snapshot(
+                q.project.as_deref(),
+                q.team.as_deref(),
+                q.query.as_deref(),
+            );
+            return Ok(Json(serde_json::json!({ "plans": plans })));
+        }
         codeterm_orchestration::validate_active_team_plan_bindings(&state.svc)
             .map_err(team_plan_err)?;
         let want = if let Some(project) = &q.project {
