@@ -68,6 +68,7 @@ impl KeyPresence {
 
 #[derive(Clone)]
 pub struct KeySources {
+    // The owner chose a file over the slow secret store for faster activation.
     secrets_dir: PathBuf,
     vault: Option<Arc<dyn KeyVault>>,
 }
@@ -75,10 +76,6 @@ pub struct KeySources {
 impl KeySources {
     pub fn new(secrets_dir: PathBuf, vault: Option<Arc<dyn KeyVault>>) -> Self {
         Self { secrets_dir, vault }
-    }
-
-    pub fn for_data_dir(data_dir: &Path, vault: Option<Arc<dyn KeyVault>>) -> Self {
-        Self::new(data_dir.join("secrets"), vault)
     }
 
     pub fn key_file(&self, provider: &str) -> PathBuf {
@@ -232,9 +229,12 @@ impl GateRefusal {
     pub fn hints(&self) -> Vec<String> {
         let mut hints = Vec::new();
         if self.missing_key {
+            let quoted =
+                |path: &Path| format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"));
+            let directory = quoted(self.key_file.parent().unwrap_or(Path::new(".")));
+            let file = quoted(&self.key_file);
             hints.push(format!(
-                "the owner stores the key via stdin: umask 077; cat > {}   (paste the key, then Ctrl-D)",
-                self.key_file.display()
+                "the owner stores the key via stdin (Unix): umask 077; mkdir -p {directory} && cat > {file} && chmod 600 {file}   (paste the key, then Ctrl-D)"
             ));
             hints.push(format!(
                 "or in the secret store: domios mem secret save --name {}   (key on stdin)",

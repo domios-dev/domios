@@ -65,8 +65,8 @@ impl KeyVault for SecretStoreVault {
 
 fn build_context(svc: &ServiceState) -> BuildContext {
     BuildContext {
-        keys: KeySources::for_data_dir(
-            &crate::paths::data_dir(),
+        keys: KeySources::new(
+            crate::service::general_agent::secrets_dir(),
             Some(Arc::new(SecretStoreVault(svc.secrets.clone()))),
         ),
         endpoint: None,
