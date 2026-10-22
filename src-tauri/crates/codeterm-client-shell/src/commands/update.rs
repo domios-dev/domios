@@ -56,14 +56,25 @@ pub async fn install_app_update(
     if let Some(channel) = channel {
         update_state.lock().channel = channel;
     }
-    let server_stop = app
-        .try_state::<ServerStopState>()
-        .map(|state| state.0.clone())
-        .ok_or("the server attachment is unavailable")?;
     let (channel, install_method) = {
         let us = update_state.lock();
         (us.channel, us.install_method.clone())
     };
+    if install_method == codeterm_update::InstallMethod::Deb {
+        let info = codeterm_update::checker::check_for_update(&install_method).await?;
+        if let Some((_, message)) = codeterm_update::checker::debian_install_guidance(&info)? {
+            log::warn!("[updater] install_app_update status=package_managed: {message}");
+            update_state.lock().set_error(message.clone());
+            return Err(message);
+        }
+        return Ok(
+            serde_json::json!({"status": "no_update", "message": "No update is available."}),
+        );
+    }
+    let server_stop = app
+        .try_state::<ServerStopState>()
+        .map(|state| state.0.clone())
+        .ok_or("the server attachment is unavailable")?;
     let handle: UpdateStateHandle = update_state.inner().clone();
     let outcome = codeterm_update::single_flight::request_apply(
         codeterm_update::single_flight::global(),
