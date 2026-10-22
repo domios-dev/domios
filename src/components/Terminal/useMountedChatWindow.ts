@@ -15,7 +15,8 @@ function mountedRowTops(el: HTMLElement): { rows: ChatShiftAnchor[]; heights: nu
   const heights: number[] = [];
   for (const row of Array.from(el.querySelectorAll<HTMLElement>("[data-chat-window-row]"))) {
     const box = row.getBoundingClientRect();
-    rows.push({ id: row.dataset.chatWindowRow!, top: box.top - origin });
+    const body = row.querySelector<HTMLElement>("[data-message-id]");
+    rows.push({ id: row.dataset.chatWindowRow!, top: box.top - origin, contentTop: body ? body.getBoundingClientRect().top - origin : undefined });
     heights.push(box.height);
   }
   return { rows, heights };
@@ -113,18 +114,18 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
     translateRows(rowsRef.current, chatSpacerTranslation(base, driftRef.current));
     if (followTailRef.current) {
       if (DEV_BUILD && chatTraceActive(keyRef.current)) chatTraceEdge(keyRef.current, "absorb", [chatAnchorShift(anchor,
-        anchor ? mountedRowTops(el).rows.find(row => row.id === anchor.id)?.top ?? null : null), 0, driftRef.current]);
+        anchor ? mountedRowTops(el).rows.find(row => row.id === anchor.id) : null), 0, driftRef.current]);
       driftRef.current = 0;
     }
     else {
       const absorb = anchor != null
         && shouldAbsorbChatShift({ pinned: false, userScrolling: userScrollingRef?.current ?? false });
-      const top = absorb ? mountedRowTops(el).rows.find((row) => row.id === anchor.id)?.top ?? null : null;
+      const measured = absorb ? mountedRowTops(el).rows.find((row) => row.id === anchor.id) : null;
       if (DEV_BUILD && chatTraceActive(keyRef.current)) {
-        const measuredTop = !absorb && anchor ? mountedRowTops(el).rows.find(row => row.id === anchor.id)?.top ?? null : top;
-        chatTraceEdge(keyRef.current, "absorb", [chatAnchorShift(anchor, measuredTop), Number(absorb), driftRef.current]);
+        const traced = !absorb && anchor ? mountedRowTops(el).rows.find(row => row.id === anchor.id) : measured;
+        chatTraceEdge(keyRef.current, "absorb", [chatAnchorShift(anchor, traced), Number(absorb), driftRef.current]);
       }
-      const next = chatSpacerAfterLayout({ base, drift: driftRef.current, shift: chatAnchorShift(anchor, top), absorb,
+      const next = chatSpacerAfterLayout({ base, drift: driftRef.current, shift: chatAnchorShift(anchor, measured), absorb,
         viewportHeight: el.clientHeight, scrollTop: el.scrollTop });
       driftRef.current = next.drift;
     }
