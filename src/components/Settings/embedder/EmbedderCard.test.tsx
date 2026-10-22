@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../../../lib/types";
 import { EmbedderCard } from "./EmbedderCard";
-import { listingFixture } from "./embedderFixtures";
+import { listingFixture, statusFixture } from "./embedderFixtures";
 
 vi.mock("../../../lib/webApi", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../lib/webApi")>()),
@@ -20,6 +20,50 @@ function respond(body: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("EmbedderCard", () => {
+  it("keeps setup hints in a collapsed accessible disclosure", async () => {
+    const listing = listingFixture(true);
+    vi.stubGlobal("fetch", vi.fn(() => respond(listing)));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<EmbedderCard config={{ api: {} } as unknown as AppConfig} />));
+      const disclosure = host.querySelector("details")!;
+      const summary = disclosure.querySelector("summary")!;
+      expect(summary.textContent?.trim().length).toBeGreaterThan(0);
+      expect(disclosure.open).toBe(false);
+      const hints = [...host.querySelectorAll("code")];
+      expect(hints.length).toBeGreaterThan(0);
+      expect(hints.every((hint) => disclosure.contains(hint))).toBe(true);
+      await act(async () => summary.click());
+      expect(disclosure.open).toBe(true);
+      await act(async () => summary.click());
+      expect(disclosure.open).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("exposes the running re-embed progress value and maximum", async () => {
+    const listing = listingFixture(false);
+    listing.status = statusFixture({ reembed: { state: "running", target: null, total: 37, done: 11, failed: 0 } });
+    vi.stubGlobal("fetch", vi.fn(() => respond(listing)));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<EmbedderCard config={{ api: {} } as unknown as AppConfig} />));
+      const progress = host.querySelector<HTMLProgressElement>("progress[aria-label]")!;
+      expect(progress.getAttribute("aria-label")?.trim().length).toBeGreaterThan(0);
+      expect(progress.value).toBe(11);
+      expect(progress.max).toBe(37);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("renders malformed refusals from preview and confirmation without throwing", async () => {
     const failures: { message: string; respond: () => Promise<Response>; returned?: unknown }[] = [
       { message: "fixture transport failure", respond: () => Promise.reject(new TypeError("fixture transport failure")) },
