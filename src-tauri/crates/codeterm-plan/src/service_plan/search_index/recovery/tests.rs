@@ -231,3 +231,52 @@ fn vector_cleanup_failure_never_blocks_plan_deletion_and_a_later_purge_removes_u
     purge_plan_indexes(&plan, &[]).unwrap();
     assert_eq!(count(&conn, "mem_vectors", "mem_id", &plan_id), 0);
 }
+
+#[test]
+fn deleting_a_two_task_plan_returns_while_its_index_worker_is_blocked() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan, _) = create_task(&store, root.path(), "Queued deletion");
+    store
+        .add_task(
+            &plan,
+            NewTask {
+                name: "Second task".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    flush_index_queue_for_test(root.path());
+    let project = project_scope(root.path());
+    let queue = index_queue();
+    let conn = open_index(root.path()).unwrap();
+    conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+    assert!(queue
+        .state
+        .lock()
+        .in_flight_projects
+        .insert(project.clone()));
+    let (send, receive) = std::sync::mpsc::channel();
+    let result = std::thread::scope(|threads| {
+        threads.spawn(|| {
+            send.send(store.delete(&plan)).unwrap();
+        });
+        let result = receive.recv_timeout(std::time::Duration::from_secs(1));
+        conn.execute_batch("ROLLBACK").unwrap();
+        queue.state.lock().in_flight_projects.remove(&project);
+        queue.ready.notify_all();
+        result
+    });
+    result
+        .expect("delete must not wait for the index worker")
+        .unwrap();
+    assert!(store.get(&plan).is_none());
+    flush_index_queue_for_test(root.path());
+    assert_eq!(
+        count(&open_index(root.path()).unwrap(), "mem_items", "id", &plan),
+        0
+    );
+    let reopened = PlanStore::open(store.database_path_for_test()).unwrap();
+    assert!(reopened.get(&plan).is_none());
+}
