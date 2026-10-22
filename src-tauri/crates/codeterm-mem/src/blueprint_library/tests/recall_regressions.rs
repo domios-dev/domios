@@ -5,8 +5,8 @@ use std::sync::Arc;
 struct DeploymentEmbedder;
 
 impl DeploymentEmbedder {
-    fn vector(text: &str) -> Vec<f32> {
-        let mut vector = vec![0.0; crate::embeddings::EMBEDDING_DIMENSION];
+    fn vector(&self, text: &str) -> Vec<f32> {
+        let mut vector = vec![0.0; self.dimension()];
         if matches!(
             text.to_lowercase().as_str(),
             "detect stalled deployments" | "watch ci failure" | "identify frozen releases"
@@ -25,7 +25,7 @@ impl EmbeddingProvider for DeploymentEmbedder {
         "deployments"
     }
     fn dimension(&self) -> usize {
-        crate::embeddings::EMBEDDING_DIMENSION
+        384
     }
     fn max_tokens(&self) -> usize {
         512
@@ -38,12 +38,12 @@ impl EmbeddingProvider for DeploymentEmbedder {
     }
     fn embed_passage(&self, content: &Content) -> Result<Vec<f32>, EmbedError> {
         let text = provider::supported_text(self.modalities(), content)?;
-        Ok(Self::vector(text))
+        Ok(self.vector(text))
     }
 
     fn embed_query(&self, content: &Content) -> Result<Vec<f32>, EmbedError> {
         let text = provider::supported_text(self.modalities(), content)?;
-        let mut vector = Self::vector(text);
+        let mut vector = self.vector(text);
         if vector[0] == 0.0 {
             vector[1] = 1.0;
         }

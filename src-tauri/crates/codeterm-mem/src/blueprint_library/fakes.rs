@@ -19,7 +19,7 @@ impl WordEmbedder {
         if !self.available.load(Ordering::SeqCst) {
             return Err("fake embedder offline".into());
         }
-        let mut vector = vec![0.0f32; crate::embeddings::EMBEDDING_DIMENSION];
+        let mut vector = vec![0.0f32; self.dimension()];
         for word in text
             .to_lowercase()
             .split(|c: char| !c.is_alphanumeric())
@@ -44,7 +44,7 @@ impl EmbeddingProvider for WordEmbedder {
         "word"
     }
     fn dimension(&self) -> usize {
-        crate::embeddings::EMBEDDING_DIMENSION
+        384
     }
     fn max_tokens(&self) -> usize {
         512
