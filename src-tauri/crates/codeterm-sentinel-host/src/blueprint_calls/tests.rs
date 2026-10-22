@@ -199,11 +199,32 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
         (instance, handle)
     };
     let service = &instance.fixture.service;
+    if matches!(saved_case, Some(SavedCase::Drift)) {
+        assert!(
+            service
+                .mux
+                .read()
+                .get_tab(&creator)
+                .unwrap()
+                .restored_from_snapshot
+        );
+        codeterm_service_core::service::mark_tab_agent_launch_started(&service.mux, &creator);
+    }
     let deliveries = instance.fixture.bind_recorded_agent_recipient(
         &creator,
         "call-sink-session",
         "call-sink-binding",
     );
+    {
+        let mux = service.mux.read();
+        let recipient = mux.get_tab(&creator).unwrap();
+        assert!(!recipient.restored_from_snapshot);
+        assert!(recipient.launch_session_authenticated());
+        assert_eq!(
+            recipient.pty_id.as_deref(),
+            Some(format!("recorded-{creator}").as_str())
+        );
+    }
     let sink_pad = service.ensure_agent_pad(&creator).unwrap();
     let sink_inbox = sink_pad.path().join("inbox");
     assert!(
