@@ -698,11 +698,10 @@ fn codex_routed_frame_keeps_both_tags_inside_the_paste() {
         "../../../../../../../plugins/provider-codex/plugin.json"
     ))
     .unwrap();
-    let requires_instruction = manifest["spawn"]["pasteCapability"]
-        ["requiresTypedInstructionForRoutedMessages"]
+    let marks_routed_messages = manifest["spawn"]["paste"]["marksRoutedMessages"]
         .as_bool()
         .unwrap_or(false);
-    assert!(!requires_instruction);
+    assert!(!marks_routed_messages);
 
     let frame = codeterm_wire::domios::DomiosFrame {
         opening_tag: codeterm_wire::domios::build_opening_tag(&[
@@ -715,9 +714,7 @@ fn codex_routed_frame_keeps_both_tags_inside_the_paste() {
     };
     let input = super::prepare_routed_input(&frame, None);
     assert_eq!(input.body, frame.to_message());
-    assert_eq!(input.typed_prefix, None);
-    assert_eq!(input.pasted_tail, None);
-    assert_eq!(input.typed_suffix, None);
+
     let parsed = codeterm_wire::domios::parse_message(&input.body).unwrap();
     assert_eq!(parsed.attr("tab"), Some("abc12345"));
     assert_eq!(parsed.content, format!("{}{}", frame.body, frame.suffix));
@@ -742,9 +739,6 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
 
     let input = super::prepare_routed_input(&frame, None);
     assert_eq!(input.body, expected);
-    assert_eq!(input.typed_prefix, None);
-    assert_eq!(input.pasted_tail, None);
-    assert_eq!(input.typed_suffix, None);
 
     let typed =
         super::prepare_routed_input(&frame, Some(&typed_capability(PasteMarkerWhen::Always)));
@@ -758,9 +752,6 @@ fn restored_structured_turn_routes_one_complete_pasted_frame() {
             super::compose_routed_suffix(&frame.suffix)
         )
     );
-    assert_eq!(typed.typed_prefix, None);
-    assert_eq!(typed.typed_suffix, None);
-    assert_eq!(typed.pasted_tail, None);
 }
 
 #[test]
@@ -772,17 +763,12 @@ fn routed_agent_and_report_hints_stay_out_of_the_body_in_both_transport_forms() 
         let frame = messenger.routed_frame("opaque body");
         let input =
             super::prepare_routed_input(&frame, Some(&typed_capability(PasteMarkerWhen::Always)));
-        assert_eq!(input.typed_prefix, None);
-        assert_eq!(input.typed_suffix, None);
-        assert_eq!(input.pasted_tail, None);
+
         let parsed = codeterm_wire::domios::parse_message(&input.body).unwrap();
         assert_eq!(parsed.body, frame.body);
         assert!(parsed.content.contains(&frame.suffix));
         let pasted = super::prepare_routed_input(&frame, None);
         assert_eq!(pasted.body, frame.to_message());
-        assert_eq!(pasted.typed_prefix, None);
-        assert_eq!(pasted.pasted_tail, None);
-        assert_eq!(pasted.typed_suffix, None);
     }
 }
 
@@ -795,7 +781,7 @@ fn typed_capability(when: PasteMarkerWhen) -> PasteCapability {
         untrusted_above_lines: 0,
         typed_follow_up: codeterm_wire::domios::pasted_marker_tail(),
         paste_marker_when: when,
-        requires_typed_instruction_for_routed_messages: true,
+        marks_routed_messages: true,
     }
 }
 
@@ -808,8 +794,7 @@ fn multiline_marker_capability_pastes_the_marker_only_for_a_line_break() {
         suffix: String::new(),
     };
     let single = super::prepare_routed_input(&frame("opaque single line"), Some(&capability));
-    assert_eq!(single.pasted_tail, None);
-    assert_eq!(single.typed_prefix, None);
+
     assert_eq!(single.body, frame("opaque single line").to_message());
     let multi = super::prepare_routed_input(
         &frame(
@@ -818,7 +803,7 @@ opaque second",
         ),
         Some(&capability),
     );
-    assert_eq!(multi.pasted_tail, None);
+
     assert!(multi.body.ends_with(&format!(
         "{}{}",
         codeterm_wire::domios::pasted_marker_tail(),

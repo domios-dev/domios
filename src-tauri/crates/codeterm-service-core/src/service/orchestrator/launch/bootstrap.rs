@@ -38,26 +38,25 @@ pub(super) fn consume(
         .agent_registry
         .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
         .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-    let launch_frame_prefix = svc
+    let force_bracketed_paste = svc
         .agent_registry
         .with_provider(&agent_cmd, |provider| {
-            crate::service::launch_delivery::launch_input_frame_prefix(
+            crate::service::launch_delivery::launch_requires_bracketed_paste(
                 provider.composer_cursor_position(),
             )
         })
-        .flatten();
+        .unwrap_or(false);
     let consumption = delivery_gate.consume_injection_with_readiness(
         &svc.mux,
         tab_id,
         svc,
         launch_input_readiness,
         || {
-            crate::service::pty_io::submit_transaction::submit_text_with_key_claimed_and_frame(
+            crate::service::pty_io::submit_transaction::submit_text_with_key_claimed(
                 svc,
                 pty_id,
                 &spec.payload,
-                launch_frame_prefix,
-                None,
+                force_bracketed_paste,
                 None,
                 true,
                 b"\r",

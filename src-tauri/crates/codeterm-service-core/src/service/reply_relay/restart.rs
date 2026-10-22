@@ -318,9 +318,9 @@ impl ServiceContext {
                     provider.restores_conversation_history_on_resume()
                         && old_session == binding.session,
                     provider.turn_evidence_normalization(),
-                    provider.paste_capability().is_some_and(|capability| {
-                        capability.requires_typed_instruction_for_routed_messages
-                    }),
+                    provider
+                        .paste_capability()
+                        .is_some_and(|capability| capability.marks_routed_messages),
                 )
             })
             .ok_or("restored Worker provider unavailable")?;

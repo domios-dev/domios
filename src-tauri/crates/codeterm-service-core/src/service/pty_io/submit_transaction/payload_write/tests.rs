@@ -274,12 +274,12 @@ fn payload_only_message_construction_is_not_part_of_the_write_door() {
 fn long_report_and_following_sender_keep_frames_atomic_on_the_same_queue() {
     use crate::agent::provider::PasteCapability;
     use crate::service::pty_io::submit_transaction::paste_encoding::{
-        encode_paste_frame, PasteEncodingCapability,
+        encode_paste_payload, PasteEncodingCapability,
     };
     let opaque: String = (0..1800).map(|n| format!("{n:04x}b3f9λ72\n")).collect();
     let capability: PasteCapability = serde_json::from_value(serde_json::json!({
         "supportsBracketedPaste": true,
-        "requiresTypedInstructionForRoutedMessages": true
+        "marksRoutedMessages": true
     }))
     .unwrap();
     let frames = [
@@ -292,10 +292,10 @@ fn long_report_and_following_sender_keep_frames_atomic_on_the_same_queue() {
         .map(|frame| {
             let input =
                 crate::service::pty_io::send::prepare_routed_input(frame, Some(&capability));
-            encode_paste_frame(
+            encode_paste_payload(
                 &input.body,
-                input.typed_prefix.as_deref(),
-                input.typed_suffix.as_deref(),
+                false,
+                None,
                 Some(true),
                 PasteEncodingCapability::MultilineTui,
             )
