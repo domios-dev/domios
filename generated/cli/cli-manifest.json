@@ -13298,6 +13298,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "reasoning-effort",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "REASONING_EFFORT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "speed",
                   "positional": false,
                   "required": false,

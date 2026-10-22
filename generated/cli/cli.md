@@ -2901,6 +2901,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--parent`
 - `<plan_id>`
 - `--provider`
+- `--reasoning-effort`
 - `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--title`
