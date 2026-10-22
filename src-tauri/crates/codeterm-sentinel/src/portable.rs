@@ -6,7 +6,7 @@ use codeterm_blueprint_types::{
 use serde_json::Value;
 pub fn export(job: &Sentinel) -> Result<Recipe, String> {
     let document = Document::from_definition(&definition(job))?;
-    let document = codeterm_blueprint_types::blueprint_memory::abstract_document(document);
+    let document = codeterm_blueprint_types::blueprint_memory::portable_document(document);
     if !codeterm_blueprint_types::blueprint_memory::safe_template(&document, "") {
         return Err("Blueprint export contains unsafe literal data".into());
     }

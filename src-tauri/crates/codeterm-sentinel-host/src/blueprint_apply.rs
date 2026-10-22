@@ -71,11 +71,17 @@ impl BlueprintApplyExt for ServiceContext {
         let document: codeterm_blueprint_types::blueprint_document::Document =
             serde_json::from_value(definition).map_err(|error| error.to_string())?;
         let definition = serde_json::to_value(&document).map_err(|error| error.to_string())?;
+        let handle = self
+            .host_extension::<Handle>()
+            .ok_or("blueprints not initialized")?;
+        let _apply = handle.apply_lock.lock();
         use codeterm_blueprint_types::blueprint_document::checker::DuplicateOracle;
         let context = codeterm_blueprint_types::blueprint_document::checker::CheckContext {
             duplicates: admission::ScopedDuplicates {
                 service: self,
                 workspace: &caller.workspace,
+                team: &caller.team,
+                updating: update.as_ref().map(|(id, _, _)| id.as_str()),
             }
             .compare(&document),
             ..Default::default()
@@ -106,10 +112,6 @@ impl BlueprintApplyExt for ServiceContext {
         if !checks.is_empty() {
             return Err(ApplyError::Validation { checks });
         }
-        let handle = self
-            .host_extension::<Handle>()
-            .ok_or("blueprints not initialized")?;
-        let _apply = handle.apply_lock.lock();
         let curator = self
             .role_policy_for_tab(&caller.tab)
             .is_some_and(|policy| policy.retarget_only());
