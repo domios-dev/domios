@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync, mkdirSync, copyFileSync, cpSync, chmodSync, lstatSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stagedDevPaths } from './dev-native-layout.mjs';
+import { macDevSigning, signMacDevServer, sealMacDevBundle } from './dev-macos-bundle.mjs';
 import { createRequire } from 'node:module';
 const { bundledCliName } = createRequire(import.meta.url)('./bundle-cli.js');
 
@@ -131,12 +133,11 @@ export function resolveDevResourceRoot(resourceRoot, expectedRoot, {
   return expectedRoot;
 }
 
-export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build, serverOnly = false, checkOnly = false }) {
+export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build, serverOnly = false, checkOnly = false, platform = process.platform, env = process.env, signingRun }) {
   if (!/^[a-f0-9]{40}$/.test(build)) throw new Error('Expected exact DEV source build identity');
   const builtClient = regular(client);
-  const expectedRoot = process.platform === 'win32' ? path.dirname(builtClient) : path.join(path.dirname(builtClient), '.domios-dev-runtime/lib/codeterm');
-  const root = resolveDevResourceRoot(resourceRoot, expectedRoot);
-  const clientFile = process.platform === 'win32' ? path.join(root, 'domios-dev-app.exe') : path.resolve(root, '../../bin/domios-dev-app');
+  const { mac, resources, client: clientFile, serverRelative } = stagedDevPaths(builtClient, { platform, instance: env.CODETERM_DEV_INSTANCE });
+  const root = resolveDevResourceRoot(resourceRoot, resources);
   const server = artifactReceipt({ cargoLog, treeLog, build, resources: root });
   if (path.dirname(server.executable) !== path.dirname(builtClient)) throw new Error('DEV server and client must share the exact Cargo artifact directory');
   if (path.basename(builtClient) !== `codeterm${process.platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected DEV client artifact filename');
@@ -163,18 +164,20 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
   copyResource(cli, path.join(root, 'cli', path.basename(cli)));
   copyResource(cli, path.join(root, 'cli', bundledCliName()));
   if (process.platform === 'win32') copyResource(path.join(repo, 'src-tauri/conpty'), path.join(root, 'conpty'));
-  const serverRelative = `domios-server/${path.basename(server.executable)}`;
-  const stagedServer = path.join(repo, 'target/domios-package', serverRelative);
+  const stagedServer = path.join(repo, 'target/domios-package/domios-server', path.basename(server.executable));
   copyResource(regular(server.executable), stagedServer);
+  const signing = mac ? macDevSigning(env) : null;
+  if (mac) signMacDevServer(stagedServer, signing, signingRun);
   const { createManifest } = await import('./package-server-component-manifest.mjs');
   const manifestFile = await createManifest({ cwd: repo, serverFile: stagedServer, clientFile,
-    serverBuild: build, serverExecutable: serverRelative, apiVersion: constant('API_VERSION'), bootstrapProtocol: constant('BOOTSTRAP_PROTOCOL') });
+    clientIdentity: signing?.clientIdentity, serverBuild: build, serverExecutable: serverRelative, apiVersion: constant('API_VERSION'), bootstrapProtocol: constant('BOOTSTRAP_PROTOCOL') });
   for (const name of [...(serverOnly ? [] : ['dist']), 'skills', 'LICENSE', 'NOTICE']) copyResource(path.join(repo, name), path.join(root, name));
   publishDevExecutable(stagedServer, path.join(root, serverRelative));
   const sourceManifest = path.join(repo, 'target/domios-package/server-component.json');
   const temporary = path.join(root, 'server-component.json.partial');
   copyResource(sourceManifest, temporary);
   renameSync(temporary, path.join(root, 'server-component.json'));
+  if (mac) sealMacDevBundle({ root, repo, signing, run: signingRun });
   return { manifest: JSON.parse(readFileSync(manifestFile, 'utf8')), worker_cli_sha256: workerDigest, resource_root: root };
 }
 

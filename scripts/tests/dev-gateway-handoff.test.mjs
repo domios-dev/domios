@@ -23,6 +23,7 @@ CODETERM_BUILD_HASH=opaque-short
 built_cli_artifact=opaque-dev-cli
 built_cli_hash=opaque-hash CT_VITE_PORT=1520
 owned=1
+named_dev_isolated() { return 1; }
 gateway_cwd="$PWD"
 configure_dev_cargo() { CT_DEV_CARGO_PROFILE=dev; CT_DEV_CARGO_FEATURES=opaque; }
 dev_conf_path() { printf /dev/null; }
