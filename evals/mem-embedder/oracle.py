@@ -29,6 +29,8 @@ TEXTS = [
     "release quality gates and failure notifications " * 300,
 ]
 
+GOLDEN_TEXTS = json.loads((Path(__file__).resolve().parents[2] / "scripts/fixtures/embedding-parity.json").read_text())
+TEXTS += GOLDEN_TEXTS
 
 def read_response(process):
     line = process.stdout.readline()
@@ -40,13 +42,14 @@ def read_response(process):
     return row
 
 
-def measure(binary, cache, descriptor):
+def measure(binary, cache, descriptor, reference_dir):
     label, model_id, revision, pooling, query_prefix, passage_prefix = descriptor
     path = cache / ("models--" + model_id.replace("/", "--")) / "snapshots" / revision
     tokenizer = AutoTokenizer.from_pretrained(path, local_files_only=True)
     model = AutoModel.from_pretrained(path, local_files_only=True).eval()
     process = subprocess.Popen([str(binary), model_id], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     rows = []
+    golden = []
     try:
         assert read_response(process)["ready"]
         for query in [False, True]:
@@ -62,6 +65,8 @@ def measure(binary, cache, descriptor):
                         mask = tokens["attention_mask"].unsqueeze(-1)
                         expected = (hidden * mask).sum(1) / mask.sum(1)
                     expected = torch.nn.functional.normalize(expected, p=2, dim=1)[0]
+                if not query and index >= len(TEXTS) - len(GOLDEN_TEXTS):
+                    golden.append({"text": original, "vector": expected.tolist()})
                 process.stdin.write(json.dumps({"text": original, "query": query}) + "\n")
                 process.stdin.flush()
                 response = read_response(process)
@@ -82,6 +87,8 @@ def measure(binary, cache, descriptor):
         process.wait(timeout=15)
         if process.returncode:
             raise RuntimeError(f"oracle exit {process.returncode}")
+    reference_dir.mkdir(parents=True, exist_ok=True)
+    (reference_dir / f"{label}.json").write_text(json.dumps({"model": model_id, "revision": revision, "dimension": 384, "cases": golden}) + "\n")
     files = ["config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "model.safetensors"]
     artifacts = {name: {"bytes": (path / name).stat().st_size,
                         "sha256": hashlib.file_digest((path / name).open("rb"), "sha256").hexdigest()} for name in files}
@@ -101,7 +108,7 @@ def main():
     torch.set_num_threads(4)
     results = []
     for descriptor in MODELS:
-        result = measure(args.binary.resolve(), args.cache, descriptor)
+        result = measure(args.binary.resolve(), args.cache, descriptor, args.out.parent / "oracle-refs")
         results.append(result)
         args.out.write_text(json.dumps({"command": os.sys.argv, "torch": torch.__version__, "results": results}, indent=2) + "\n")
         print(result["label"], "min_cosine", result["min_cosine"], "embeds/sec", result["warm_embeds_per_second"], flush=True)
