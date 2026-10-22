@@ -86,7 +86,7 @@ function MentionLinkedText(props: Props) {
   return <span style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{nodes}</span>;
 }
 
-function MentionChip({ mention }: { mention: CanonicalMention }) {
+export function MentionChip({ mention }: { mention: CanonicalMention }) {
   const host = useChatBlockHost();
   const key = JSON.stringify([host.mentionTabId ?? "", mention.kind, mention.id]);
   const value = useLiveBinding(host.mentions?.binding, key, null);

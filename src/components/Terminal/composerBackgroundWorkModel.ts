@@ -98,7 +98,7 @@ function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: str
     const key = callId ? `call:${callId}` : `thread:${threadId}`;
     const previous = latest.get(key);
     const earliest = Math.min(previous?.item.startedAtMs ?? startedAtMs, startedAtMs);
-    const prompt = string(source.agent_description);
+    const prompt = string(source.agent_description) ?? previous?.item.prompt;
     const path = string(source.agent_path);
     const current = authority?.rootThreadId === rootThreadId && source.agent_binding_nonce === authority?.bindingNonce && source.agent_runtime_epoch === authority?.epoch;
     latest.set(key, {
@@ -106,7 +106,7 @@ function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: str
       item: {
         id: `agent:${threadId}`,
         kind: "agent",
-        name: shortName(path, prompt ?? threadId),
+        name: shortName(undefined, prompt ?? string(source.agent_type) ?? path ?? threadId),
         threadId,
         transcriptThreadId,
         startedAtMs: earliest,

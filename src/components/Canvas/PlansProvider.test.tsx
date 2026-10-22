@@ -75,6 +75,7 @@ function setupDom() {
         lastFullProject = new URL(url).searchParams.get("project");
         return new Response(JSON.stringify({ plans: fullFixturePlans }), { status: 200 });
       }
+      if (url.includes("chat=1")) return Response.json({ plans: fullFixturePlans });
       if (url.endsWith("/api/plans")) {
         indexCalls++;
         const entry = {
@@ -156,7 +157,7 @@ test("provider fetches one index and one full snapshot regardless of consumer co
   const buttons = host.querySelectorAll('[data-testid="plan-button"]');
   assert(buttons.length === 5, "five buttons rendered");
   assert(indexCalls === 1, `one index fetch for N consumers (got ${indexCalls})`);
-  assert(fullCalls === 1, `one shared full fetch (got ${fullCalls})`);
+  assert(fullCalls === 0, "chat controls never download full plans");
   await act(async () => root.unmount());
 });
 
@@ -193,7 +194,7 @@ test("full bodies fetched once only when a canvas consumer mounts", async () => 
   await act(async () => root.unmount());
 });
 
-test("sidebar owns full plans without mounting canvas", async () => {
+test("sidebar reads compact plans without mounting canvas", async () => {
   indexCalls = 0;
   fullCalls = 0;
   const { host, root } = await renderTree(
@@ -201,7 +202,7 @@ test("sidebar owns full plans without mounting canvas", async () => {
       <SidebarProbe />
     </PlansProvider>,
   );
-  assert(fullCalls === 1, `sidebar triggers one full fetch (got ${fullCalls})`);
+  assert(fullCalls === 0, "sidebar never requests full plan bodies");
   assert(
     host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
     "sidebar receives the full plan body",
@@ -235,7 +236,7 @@ test("desktop plan queries wait for config and bypass REST", async () => {
     await flushAsyncWork();
   });
   const callsAfterEnable: number = fullCalls;
-  assert(callsAfterEnable === 1, "loaded config enables one full HTTP read");
+  assert(callsAfterEnable === 0, "loaded config enables compact HTTP reads only");
   assert(restCalls > 0, "desktop plan reads use authenticated HTTP");
   assert(
     host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
@@ -271,7 +272,7 @@ test("canvas release cannot drop plans while sidebar remains mounted", async () 
 
   const callsAfterCanvasRelease: number = fullCalls;
   assert(
-    callsAfterCanvasRelease === 2,
+    callsAfterCanvasRelease === 1,
     `sidebar refetches after canvas release (got ${fullCalls})`,
   );
   assert(
