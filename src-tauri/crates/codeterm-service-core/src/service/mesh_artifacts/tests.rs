@@ -16,7 +16,7 @@ fn directives_keep_source_paths_and_skip_literal_examples() {
 #[test]
 fn transferred_paths_replace_only_directives_and_preserve_prose_and_line_endings() {
     let source = "Lead /origin/a.png\r\n@ds-image /origin/a.png\r\n@ct-image /origin/a.png\nTail";
-    let paths = HashMap::from([("/origin/a.png".into(), "C:\\target\\image.png".into())]);
+    let paths = HashMap::from([("/origin/a.png".into(), Ok("C:\\target\\image.png".into()))]);
     let rebound = rewrite(source, &directives(source), &paths).unwrap();
     assert_eq!(rebound, "Lead /origin/a.png\r\n@ds-image \"C:\\target\\image.png\"\r\n@ct-image \"C:\\target\\image.png\"\nTail");
     assert_eq!(
@@ -34,7 +34,7 @@ fn missing_or_malformed_transfer_paths_never_produce_a_deliverable_body() {
     let plan = directives(source);
     assert!(rewrite(source, &plan, &HashMap::new()).is_err());
     for target in ["", "/target/\"quoted.md", "/target/line\nbreak.md"] {
-        let paths = HashMap::from([("/origin/note.md".into(), target.into())]);
+        let paths = HashMap::from([("/origin/note.md".into(), Ok(target.into()))]);
         assert!(rewrite(source, &plan, &paths).is_err());
     }
 }
@@ -99,17 +99,14 @@ async fn transfer_rebinds_text_and_batch_to_one_target_copy() {
 }
 
 #[tokio::test]
-async fn failed_or_over_bound_transfer_preserves_the_unsent_body() {
+async fn failed_transfer_is_visible_and_over_bound_transfer_preserves_unsent_body() {
     let mut body = serde_json::json!({"text": "@ds-image /origin/a.png"});
-    let original = body.clone();
-    assert!(
-        transfer_with("POST", "/api/tabs/target/send", &mut body, |_, _| {
-            std::future::ready(Err("transfer refused".into()))
-        })
-        .await
-        .is_err()
-    );
-    assert_eq!(body, original);
+    transfer_with("POST", "/api/tabs/target/send", &mut body, |_, _| {
+        std::future::ready(Err("transfer refused".into()))
+    })
+    .await
+    .unwrap();
+    assert_eq!(body["text"], "[Artifact refused: transfer refused]");
     let mut body = serde_json::json!({"text": "@ds-image /origin/a.png\n".repeat(33)});
     let original = body.clone();
     let calls = std::cell::Cell::new(0);
@@ -123,4 +120,55 @@ async fn failed_or_over_bound_transfer_preserves_the_unsent_body() {
     );
     assert_eq!(body, original);
     assert_eq!(calls.get(), 0);
+}
+
+#[tokio::test]
+async fn private_artifacts_are_refused_and_mixed_gallery_transfers_only_allowed_files() {
+    use base64::Engine as _;
+    let temp = tempfile::tempdir().unwrap();
+    let canonical = temp.path().canonicalize().unwrap();
+    let text = canonical.to_string_lossy();
+    let root = std::path::PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text));
+    let allowed = root.join("image.png");
+    let private = root.join(".env");
+    std::fs::write(&allowed, b"public image").unwrap();
+    std::fs::write(&private, b"private fixture").unwrap();
+    for paths in [
+        vec![&private],
+        vec![&allowed],
+        vec![&allowed, &private, &allowed],
+    ] {
+        let text = paths
+            .iter()
+            .map(|path| format!("@ds-image {}", path.display()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut body = serde_json::json!({"text": text});
+        let mut sent = Vec::new();
+        transfer_with("POST", "/api/tabs/target/send", &mut body, |source, _| {
+            let result = artifact_request(&source, &[]).map(|request| {
+                sent.push(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(request.data)
+                        .unwrap(),
+                );
+                "/target/image.png".into()
+            });
+            std::future::ready(result)
+        })
+        .await
+        .unwrap();
+        let output = body["text"].as_str().unwrap();
+        assert_eq!(sent.len(), usize::from(paths.contains(&&allowed)));
+        assert!(sent.iter().all(|bytes| bytes == b"public image"));
+        assert_eq!(
+            output.contains("[Artifact refused: Preview path is private]"),
+            paths.contains(&&private)
+        );
+        assert!(!output.contains(private.to_str().unwrap()));
+        assert_eq!(
+            directives(output).len(),
+            paths.iter().filter(|path| **path == &allowed).count()
+        );
+    }
 }

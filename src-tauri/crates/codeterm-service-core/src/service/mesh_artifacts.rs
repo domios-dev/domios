@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::mesh::{transport::PeerClient, types::RelayCommand};
 use crate::service::mesh_attachment::{
-    build_ingest_request, parse_ingest_response, AttachmentKind,
+    parse_ingest_response, AttachmentKind, IngestRequest, MESH_ATTACHMENT_MAX_BYTES,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -84,7 +84,7 @@ fn ingest_path(method: &str, path: &str) -> Option<String> {
 fn rewrite(
     text: &str,
     plan: &[Directive],
-    paths: &HashMap<String, String>,
+    paths: &HashMap<String, Result<String, String>>,
 ) -> Result<String, String> {
     let mut output = String::new();
     let mut offset = 0;
@@ -92,10 +92,18 @@ fn rewrite(
         let path = paths
             .get(&directive.path)
             .ok_or("Artifact transfer did not return a target path")?;
+        output.push_str(&text[offset..directive.start]);
+        let path = match path {
+            Ok(path) => path,
+            Err(reason) => {
+                output.push_str(&format!("[Artifact refused: {reason}]"));
+                offset = directive.end;
+                continue;
+            }
+        };
         if path.is_empty() || path.contains(['"', '\r', '\n']) {
             return Err("Artifact transfer returned an invalid target path".into());
         }
-        output.push_str(&text[offset..directive.start]);
         output.push_str(&format!("{} \"{}\"", directive.tag, path));
         offset = directive.end;
     }
@@ -112,9 +120,13 @@ pub async fn transfer(
     transfer_with(method, path, body, |source, ingest_path| async move {
         let source_path = source.clone();
         let request = tokio::task::spawn_blocking(move || {
-            let source_path =
-                crate::service::local_preview::html_preview::checked_path(&source_path)?;
-            build_ingest_request(&source_path, AttachmentKind::File)
+            let configured = crate::config::load_config().api.preview_secret_paths;
+            let denied: Vec<_> = configured
+                .iter()
+                .map(std::path::PathBuf::from)
+                .chain([crate::paths::data_dir()])
+                .collect();
+            artifact_request(&source_path, &denied)
         })
         .await
         .map_err(|error| error.to_string())??;
@@ -131,6 +143,28 @@ pub async fn transfer(
         Ok(parse_ingest_response(&source, response)?.path)
     })
     .await
+}
+
+fn artifact_request(source: &str, denied: &[std::path::PathBuf]) -> Result<IngestRequest, String> {
+    use base64::Engine as _;
+    let bytes = codeterm_local_preview::html_preview::read_artifact_file(
+        source,
+        denied,
+        MESH_ATTACHMENT_MAX_BYTES,
+    )?;
+    if bytes.is_empty() {
+        return Err("attachment is empty".into());
+    }
+    Ok(IngestRequest {
+        kind: AttachmentKind::File,
+        name: std::path::Path::new(source)
+            .file_name()
+            .ok_or("Artifact has no filename")?
+            .to_string_lossy()
+            .into_owned(),
+        size: bytes.len() as u64,
+        data: base64::engine::general_purpose::STANDARD.encode(bytes),
+    })
 }
 
 async fn transfer_with<F, Fut>(
@@ -167,7 +201,7 @@ where
             if transferred.contains_key(&directive.path) {
                 continue;
             }
-            let target = transfer_file(directive.path.clone(), ingest_path.clone()).await?;
+            let target = transfer_file(directive.path.clone(), ingest_path.clone()).await;
             transferred.insert(directive.path.clone(), target);
         }
     }
