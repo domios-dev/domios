@@ -3,7 +3,7 @@ use codeterm_blueprint_types::blueprint_document::{checker, projection};
 
 #[test]
 fn blueprint_v2_intent_catalog_is_native_typed_and_has_no_reference_runtime() {
-    assert_eq!(ENTRIES.len(), 9);
+    assert_eq!(ENTRIES.len(), 6);
     for entry in ENTRIES {
         let document = document(entry.id).unwrap();
         assert!(document.trigger.is_none(), "{}", entry.id);
@@ -24,7 +24,7 @@ fn blueprint_v2_intent_catalog_is_native_typed_and_has_no_reference_runtime() {
 
 #[test]
 fn blueprint_v2_intent_catalog_gaps_are_explicit_and_cannot_open_a_body() {
-    assert_eq!(UNAVAILABLE.len(), 7);
+    assert_eq!(UNAVAILABLE.len(), 10);
     for (id, reason) in UNAVAILABLE {
         assert!(document(id).unwrap_err().contains(reason));
     }
