@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { describeError, isPendingRuntimeDeadline, type ErrorAction } from "./describeError";
+import { reorderFailureToast } from "../store/multiplexer/reorderFailure";
+
+test("reorder failures retain their reason through transport and notification serialization", () => {
+  const reason = "opaque-reorder-reason-27";
+  const body = JSON.stringify({ ok: false, error: { code: "reorder_failed", message: reason } });
+  for (const error of [{ body, status: 400 }, new Error(`HTTP 400: ${body}`), new Error(reason), reason]) {
+    const notice = reorderFailureToast("workspace", error);
+    assert.equal(notice.workspaceId, "workspace");
+    const description = describeError(notice.detail);
+    assert.equal(description.cause, reason);
+    assert.deepEqual(description.actions, ["retry"]);
+    assert.equal(description.pending, undefined);
+  }
+});
 
 const fixtures: { input: unknown; title: string; actions: ErrorAction[] }[] = [
   { input: { code: "constructor", raw: "opaque" }, title: "Something went wrong while opening this file", actions: ["retry"] },

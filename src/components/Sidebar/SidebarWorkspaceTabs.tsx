@@ -14,7 +14,7 @@ import type { Plan } from "../Canvas/types";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { SortableContext, SortableRow, verticalListSortingStrategy, TAB_PREFIX, TEAM_PREFIX } from "./sortable";
-import { buildSidebarDragModel, unitsInOrder, withSiblingOrder, workspaceTabOrder } from "./sidebarDragModel";
+import { buildSidebarDragModel, localWorkspaceTabIds, unitsInOrder, withSiblingOrder, workspaceTabOrder } from "./sidebarDragModel";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename } from "./SidebarPlanPeerPair";
 import { CursorTooltip } from "../shared/CursorTooltip";
@@ -256,7 +256,7 @@ export function SidebarWorkspaceTabs({
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
-  const workspaceTabIds = allSortedTabs.map((tab) => tab.id);
+  const workspaceTabIds = localWorkspaceTabIds(allSortedTabs);
   const unitItems = dragModel.units.map((unit) => `${unit.kind === "team" ? TEAM_PREFIX : TAB_PREFIX}${unit.key}`);
   const reorderUnits = useLatestCallback((orderedKeys: string[]) => ({
     workspaceId: ws.id,

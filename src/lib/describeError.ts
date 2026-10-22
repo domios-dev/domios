@@ -51,7 +51,7 @@ function serialize(input: unknown): string {
   try { return JSON.stringify(input) ?? String(input); } catch { return String(input); }
 }
 
-function unpack(input: unknown): { raw: string; code: string; status: unknown } {
+function unpack(input: unknown): { raw: string; code: string; status: unknown; message: string } {
   const object = record(input);
   const raw = input == null ? "" : typeof input === "string" ? input : typeof object?.body === "string" ? object.body
     : input instanceof Error ? input.message : typeof object?.raw === "string" ? object.raw
@@ -62,7 +62,8 @@ function unpack(input: unknown): { raw: string; code: string; status: unknown } 
     try { parsed = record(JSON.parse(raw.slice(start))) ?? object; } catch { /* Transport messages may not be JSON. */ }
   }
   const detail = record(parsed?.error) ?? parsed;
-  return { raw, code: String(object?.code ?? object?.kind ?? detail?.code ?? detail?.kind ?? ""), status: detail?.status ?? object?.status };
+  return { raw, code: String(object?.code ?? object?.kind ?? detail?.code ?? detail?.kind ?? ""), status: detail?.status ?? object?.status,
+    message: typeof detail?.message === "string" ? detail.message : raw };
 }
 
 export function isPendingRuntimeDeadline(input: unknown): boolean {
@@ -75,9 +76,10 @@ export function isPendingRuntimeDeadline(input: unknown): boolean {
 }
 
 export function describeError(input: unknown, context: ErrorContext = {}): ErrorDescription {
-  const { raw, code, status } = unpack(input);
+  const { raw, code, status, message } = unpack(input);
   const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw, ...(pending ? { pending: true } : {}) });
   const kind = code.toLowerCase();
+  if (kind === "reorder_failed") return result("Could not save the new order", message || "Refresh the workspace and try again.", ["retry"]);
   const spawn = /spawn|createprocess|executable|shell/i.test(raw);
   // OS codes are interpreted only in spawn errors; e.g. ENOENT elsewhere may mean an attachment.
   const inferred = !code;
