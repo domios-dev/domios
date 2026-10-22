@@ -423,6 +423,10 @@ impl WindowsRun {
         self.primary_thread = OwnedHandle::new(information.hThread).ok_or_else(last_error)?;
         self.thread_registered = self.register(ResourceKind::Child);
         self.child_id = information.dwProcessId;
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(events) = &self.events {
+            events.spawned(self.child_id);
+        }
         if !self.process_registered || !self.thread_registered {
             return Err("probe process ownership registration failed".into());
         }
