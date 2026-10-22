@@ -2,8 +2,11 @@
 // Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-dev-resource-preflight.sh, dev-prep.mjs; skill build
 import fs from "node:fs";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
+import { cachedPreparation } from "./preparation-cache.mjs";
 
 const requestedRoot = path.resolve(process.argv[2] ?? process.cwd());
+const started = performance.now();
 
 function fail(message) {
   console.error(`[dev-resource-preflight] ${message}`);
@@ -70,10 +73,12 @@ if (!isInside(validatedDestination, root)) {
   fail(`frontendDist missing path resolves outside this checkout: ${validatedDestination}`);
 }
 
-fs.mkdirSync(frontendDist, { recursive: true });
+const reused = cachedPreparation(root, "frontend-dist", [configPath, frontendDist, new URL(import.meta.url),
+  new URL("./preparation-cache.mjs", import.meta.url)], () => fs.mkdirSync(frontendDist, { recursive: true }));
 const realFrontendDist = fs.realpathSync(frontendDist);
 if (!isInside(realFrontendDist, root)) {
   fail(`frontendDist resolves outside this checkout: ${realFrontendDist}`);
 }
 
 console.log(`[dev-resource-preflight] worktree-local frontendDist ready: ${realFrontendDist}`);
+console.log(`[test-loop] frontend-dist ${reused ? "unchanged" : "prepared"} ${(performance.now() - started).toFixed(1)}ms`);

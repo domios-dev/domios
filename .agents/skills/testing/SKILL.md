@@ -70,6 +70,12 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 ## Affected-test map
 
+`./build.sh test-related <file>...` prints the full selection before execution.
+Rust paths select their owning crate and module through nextest; crate roots
+select the crate. TS paths run Vitest related and the existing TS unit runner's
+import-based selection. Each Rust command still requires its own exact attempt
+grant. Use the printed commands when handing verification to canonical.
+
 Use `node scripts/affected-tests.mjs` to print exact commands for the current
 diff. Set the base with `--base <ref>` or `AFFECTED_TESTS_BASE`; it defaults to
 `origin/master`. Use `--rust-mode module-filters` for Rust changes.
