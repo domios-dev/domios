@@ -4,8 +4,8 @@ use super::*;
 fn gallery_paths_rewrite_individually_on_one_line() {
     let source = "Lead\r\n@ds-image \"/origin/a one.png\" /origin/b.png\r\nTail";
     let paths = HashMap::from([
-        ("/origin/a one.png".into(), "/target/a one.png".into()),
-        ("/origin/b.png".into(), "/target/b.png".into()),
+        ("/origin/a one.png".into(), Ok("/target/a one.png".into())),
+        ("/origin/b.png".into(), Ok("/target/b.png".into())),
     ]);
     let rewritten = rewrite(source, &directives(source), &paths).unwrap();
     assert_eq!(
@@ -39,7 +39,7 @@ async fn gallery_transfer_counts_each_image_and_preserves_unsent_body_on_failure
     let original = body.clone();
     let result = transfer_with("POST", "/api/tabs/target/send", &mut body, |source, _| {
         std::future::ready(if source.ends_with("b.png") {
-            Err("refused".into())
+            Err(ArtifactError::Transfer("refused".into()))
         } else {
             Ok("/target/a.png".into())
         })
