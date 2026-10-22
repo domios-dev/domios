@@ -467,3 +467,40 @@ pub fn project(
         json!({"expanded_calls":graph.calls,"call_graph":graph.root,"nested_run":{"id":latest,"nodes":nodes}}),
     )
 }
+
+pub fn pin_bundle(
+    service: &codeterm_service_core::service::ServiceContext,
+    caller: &crate::service_adapter::SentinelCaller,
+    document: Document,
+    local_callees: &[calls::LocalCallee],
+) -> Result<Document, String> {
+    service.mem.pin_blueprint_bundle(
+        &format!("blueprints:{}", caller.workspace),
+        caller.team.as_deref().ok_or("Call requires a Team")?,
+        document,
+        local_callees,
+    )
+}
+pub fn show_callable(
+    service: &codeterm_service_core::service::ServiceContext,
+    caller: &crate::service_adapter::SentinelCaller,
+    id: &str,
+) -> Result<Value, String> {
+    let document = service.mem.blueprint_callable(
+        &format!("blueprints:{}", caller.workspace),
+        caller
+            .team
+            .as_deref()
+            .ok_or("Saved callable requires a Team")?,
+        id,
+    )?;
+    let mut body = document.clone();
+    body.dependencies.clear();
+    let hash = codeterm_blueprint_types::blueprint_document::projection::identity(&body)?;
+    let mut value = project(&document, &[])?;
+    value["id"] = json!(id);
+    value["hash"] = json!(hash);
+    value["name"] = json!(document.name);
+    value["saved_solution"] = json!(true);
+    Ok(value)
+}

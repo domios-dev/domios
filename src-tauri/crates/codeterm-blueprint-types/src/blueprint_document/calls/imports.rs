@@ -5,13 +5,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-fn digest(bytes: &[u8]) -> String {
+pub(super) fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
 }
-fn read(path: &Path) -> Result<String, String> {
+pub(super) fn read(path: &Path) -> Result<String, String> {
     let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let metadata = file.metadata().map_err(|e| e.to_string())?;
     if !metadata.is_file() || metadata.len() > MAX_CLOSURE_BYTES as u64 {
@@ -52,6 +52,7 @@ pub fn resolve(
         stack: Vec::new(),
         total_bytes: source.len(),
         local_files: true,
+        templates: BTreeMap::new(),
     };
     let root_id = std::fs::canonicalize(&root_path)
         .unwrap_or(root_path.clone())
@@ -79,6 +80,7 @@ pub fn resolve_saved(
         stack: Vec::new(),
         total_bytes: 0,
         local_files: false,
+        templates: BTreeMap::new(),
     };
     let root = resolver.graph(
         Parsed {
@@ -98,6 +100,31 @@ pub fn resolve_saved(
         .map_err(|e| vec![finding(&closure.root, "dependencies", e)])?;
     Ok(closure)
 }
+pub(super) fn resolve_templates(
+    parsed: Parsed,
+    templates: BTreeMap<String, LocalCallee>,
+    memory: &dyn MemoryResolver,
+) -> Result<FrozenClosure, Vec<Diagnostic>> {
+    let mut resolver = Resolver {
+        memory,
+        callees: parsed.document.dependencies.clone(),
+        imported: BTreeSet::new(),
+        stack: Vec::new(),
+        total_bytes: 0,
+        local_files: false,
+        templates,
+    };
+    let root = resolver.graph(parsed, Path::new("bundle"), None)?;
+    let closure = FrozenClosure {
+        root,
+        callees: resolver.callees,
+    };
+    closure
+        .verify()
+        .and_then(|_| closure.drift(memory).map(|_| ()))
+        .map_err(|e| vec![finding(&closure.root, "dependencies", e)])?;
+    Ok(closure)
+}
 struct Resolver<'a> {
     memory: &'a dyn MemoryResolver,
     callees: BTreeMap<String, FrozenCallee>,
@@ -105,6 +132,7 @@ struct Resolver<'a> {
     stack: Vec<String>,
     total_bytes: usize,
     local_files: bool,
+    templates: BTreeMap<String, LocalCallee>,
 }
 impl Resolver<'_> {
     fn graph(
@@ -128,6 +156,7 @@ impl Resolver<'_> {
                 )]);
             }
             if !self.local_files
+                && !self.templates.contains_key(&target)
                 && !parsed.document.nodes().any(|n| {
                     n.call
                         .as_ref()
@@ -262,6 +291,38 @@ impl Resolver<'_> {
         parsed: &Parsed,
         field: &str,
     ) -> Result<FrozenCallee, Vec<Diagnostic>> {
+        if target.starts_with("local:") {
+            let entry = self.templates.get(target).cloned().ok_or_else(|| {
+                vec![finding(
+                    parsed,
+                    field,
+                    "Missing local callee document bytes",
+                )]
+            })?;
+            if self.stack.iter().any(|id| id == target) || !self.imported.insert(target.into()) {
+                return Err(vec![finding(
+                    parsed,
+                    field,
+                    "Cyclic or duplicate/diamond local dependency",
+                )]);
+            }
+            if self.stack.len() >= MAX_CALL_DEPTH {
+                return Err(vec![finding(
+                    parsed,
+                    field,
+                    "budget_exhausted: import closure depth",
+                )]);
+            }
+            self.stack.push(target.into());
+            let source = entry
+                .document
+                .yaml()
+                .map_err(|e| vec![finding(parsed, field, e)])?;
+            let child = crate::blueprint_document::parse(&entry.source_label, &source)?;
+            let child = self.graph(child, Path::new(target), None)?;
+            self.stack.pop();
+            return self.snapshot(target.into(), child, None);
+        }
         if !self.local_files {
             return Err(vec![finding(
                 parsed,

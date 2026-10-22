@@ -194,6 +194,34 @@ impl MemManager {
         tx.commit().map_err(|e| e.to_string())?;
         Ok(document)
     }
+    pub fn pin_blueprint_bundle(
+        &self,
+        area: &str,
+        team: &str,
+        document: Document,
+        local_callees: &[calls::LocalCallee],
+    ) -> Result<Document, String> {
+        self.guard_commit()?;
+        let conn = self.conn.lock();
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let resolver = ScopedResolver {
+            conn: &tx,
+            blobs: &self.blobs_dir,
+            area,
+            team,
+        };
+        let closure =
+            calls::resolve_bundle(document, local_callees, &resolver).map_err(|errors| {
+                errors
+                    .into_iter()
+                    .map(|e| format!("{}:{}:{}: {}", e.file, e.line, e.column, e.message))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })?;
+        let document = closure.document();
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(document)
+    }
     pub fn blueprint_call_drift(
         &self,
         area: &str,

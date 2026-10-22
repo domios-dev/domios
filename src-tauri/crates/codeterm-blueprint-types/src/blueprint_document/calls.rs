@@ -197,3 +197,9 @@ pub struct CallFrame {
     pub id: String,
     pub hash: String,
 }
+
+mod bundle;
+pub use bundle::{collect_local, resolve_bundle, LocalBundle, LocalCallee};
+
+mod admission;
+pub use admission::check_context;

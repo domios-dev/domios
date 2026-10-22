@@ -77,14 +77,19 @@ impl BlueprintApplyExt for ServiceContext {
         )?;
         let definition = serde_json::to_value(&document).map_err(|error| error.to_string())?;
         use codeterm_blueprint_types::blueprint_document::checker::DuplicateOracle;
-        let context = codeterm_blueprint_types::blueprint_document::checker::CheckContext {
-            duplicates: admission::ScopedDuplicates {
-                service: self,
-                workspace: &caller.workspace,
-            }
-            .compare(&document),
-            ..Default::default()
-        };
+        let closure =
+            codeterm_blueprint_types::blueprint_document::calls::FrozenClosure::from_document(
+                document.clone(),
+            )?;
+        let mut context = codeterm_blueprint_types::blueprint_document::calls::check_context(
+            &closure,
+            &Default::default(),
+        );
+        context.duplicates = admission::ScopedDuplicates {
+            service: self,
+            workspace: &caller.workspace,
+        }
+        .compare(&document);
         let ir = codeterm_blueprint_types::blueprint_document::projection::PositionedIr {
             canonical: codeterm_blueprint_types::blueprint_document::projection::canonical(
                 &document,
@@ -110,6 +115,15 @@ impl BlueprintApplyExt for ServiceContext {
             .collect::<Vec<_>>();
         if !checks.is_empty() {
             return Err(ApplyError::Validation { checks });
+        }
+        if document.kind == codeterm_blueprint_types::blueprint_document::Kind::Pipeline
+            && document.trigger.is_none()
+            && document.result.port.is_some()
+        {
+            return Err(
+                "Callable Blueprints are saved with `blueprint keep --file`; reuse them via call"
+                    .into(),
+            );
         }
         let handle = self
             .host_extension::<Handle>()
@@ -217,6 +231,12 @@ impl BlueprintApplyExt for ServiceContext {
                 Err(error) => Staged::ready(Ok(Err(error))),
             }
         })??;
+        result["call_drift"] = serde_json::to_value(self.mem.blueprint_call_drift(
+            &format!("blueprints:{}", caller.workspace),
+            caller.team.as_deref().ok_or("Call requires a Team")?,
+            document,
+        )?)
+        .map_err(|error| error.to_string())?;
         result["diagnostics"] =
             serde_json::to_value(diagnostics).map_err(|error| error.to_string())?;
         handle.notify();

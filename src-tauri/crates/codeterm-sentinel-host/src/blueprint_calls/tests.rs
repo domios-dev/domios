@@ -23,6 +23,7 @@ fn blueprint_v2_call_context_retains_exact_parent_identity() {
 
 use crate::pipeline::StepExecution;
 use crate::store::{Lease, Owner, Store};
+use crate::SentinelExt;
 use codeterm_blueprint_types::blueprint_document::{self, Port};
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::persistence_test_support::{close, ServiceInstance};
@@ -36,9 +37,10 @@ fn source(fail: bool) -> Document {
         "exit 9".into()
     } else {
         if cfg!(windows) {
-            "python -c \"import json,sys; p=json.load(sys.stdin); print(json.dumps({'n':p['value']['n']+1}))\"".into()
+            "$p=[Console]::In.ReadToEnd() | ConvertFrom-Json; @{n=($p.value.n+1)} | ConvertTo-Json -Compress".into()
         } else {
-            "python3 -c 'import json,sys; p=json.load(sys.stdin); print(json.dumps({\"n\":p[\"value\"][\"n\"]+1}))'".into()
+            r#"IFS= read -r input; n=${input#*\"n\":}; n=${n%%\}*}; printf '{"n":%s}\n' "$((n+1))""#
+                .into()
         }
     };
     let value = json!({"schema_version":2,"kind":"pipeline","name":"real-call","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"invoke","call":{"ref":"increment","with":{"p":{"lit":{"n":7}}}},"out":port()}],"blueprints":{"increment":{"inputs":{"p":port()},"steps":[{"id":"increment","run":{"lit":command},"in":port(),"out":port()},{"id":"fixed-sink","uses":"notify","with":{"payload":{"bind":"increment.out.n"}}}],"result":{"type":port(),"from":"increment.out"}}},"result":{"to":"notify"}});
@@ -55,7 +57,17 @@ struct Receipt {
     stop: Option<CallStop>,
     view: Value,
 }
+#[derive(Clone, Copy)]
+enum SavedCase {
+    Keep,
+    Drift,
+    MissingHash,
+    MissingCallee,
+}
 fn run(document: Document, simulate: bool) -> Receipt {
+    run_saved(document, simulate, None)
+}
+fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCase>) -> Receipt {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, creator) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&creator).unwrap();
@@ -64,6 +76,10 @@ fn run(document: Document, simulate: bool) -> Receipt {
         .unwrap()
         .team_id;
     mux.get_tab_mut(&creator).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
+    if saved_case.is_some() {
+        mux.get_tab_mut(&creator).unwrap().role =
+            Some(codeterm_types::agent::AgentRole::Orchestrator);
+    }
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let service = &instance.fixture.service;
     let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1000);
@@ -72,6 +88,100 @@ fn run(document: Document, simulate: bool) -> Receipt {
         service.ui.clone(),
     );
     crate::manage_fixture_ports(service, &handle);
+    if let Some(case) = saved_case {
+        use crate::BlueprintMemoryExt;
+        let caller = service.sentinel_caller(&creator, None).unwrap();
+        let original = document
+            .dependencies
+            .values()
+            .next()
+            .unwrap()
+            .document
+            .as_ref()
+            .clone();
+        let kept = service
+            .blueprint_keep_callable(
+                &caller,
+                original.clone(),
+                &[],
+                &["Increment typed counter".into()],
+            )
+            .unwrap();
+        let id = kept["id"].as_str().unwrap();
+        let raw = id.strip_prefix("mem:").unwrap();
+        assert_eq!(handle.store.lock().jobs.len(), 0, "keep schedules no job");
+        assert!(service.notif.lock().list(false).is_empty());
+        let recall = service
+            .blueprint_recall(&caller, "Increment typed counter")
+            .unwrap();
+        assert!(
+            recall
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["id"] == raw),
+            "{recall}"
+        );
+        document.blueprints.clear();
+        document.imports.clear();
+        document.dependencies.clear();
+        document.steps[0].call.as_mut().unwrap().reference = id.into();
+        document.steps[0].call.as_mut().unwrap().pin = None;
+        document = pin_bundle(service, &caller, document, &[]).unwrap();
+        let pinned = document.steps[0]
+            .call
+            .as_ref()
+            .unwrap()
+            .pin
+            .as_ref()
+            .unwrap()
+            .clone();
+        assert_eq!(pinned.hash, kept["hash"]);
+        assert_eq!(
+            show_callable(service, &caller, id).unwrap()["hash"],
+            kept["hash"]
+        );
+        match case {
+            SavedCase::Keep => {}
+            SavedCase::Drift => {
+                let mut head = original.clone();
+                head.note = Some("Changed head after pin".into());
+                head.steps[0].run = Some(ValueForm::literal("echo 99"));
+                service
+                    .mem
+                    .update(
+                        raw,
+                        codeterm_mem::store::MemUpdate {
+                            body: Some(head.yaml().unwrap()),
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                let drift = service
+                    .mem
+                    .blueprint_call_drift(
+                        &format!("blueprints:{workspace}"),
+                        &team,
+                        document.clone(),
+                    )
+                    .unwrap();
+                assert_eq!(drift.len(), 1);
+                assert!(drift[0].diff.changed["increment"].contains(&"run".into()));
+                service.mem.dream_blueprints().unwrap();
+            }
+            SavedCase::MissingHash => {
+                let mut snapshot = document.dependencies.remove(&pinned.key()).unwrap();
+                snapshot.document.note = Some("Unretained snapshot".into());
+                snapshot.hash =
+                    blueprint_document::projection::identity(&snapshot.document).unwrap();
+                document.steps[0].call.as_mut().unwrap().pin = Some(snapshot.pin());
+                document.dependencies.insert(snapshot.pin().key(), snapshot);
+            }
+            SavedCase::MissingCallee => {
+                service.mem.delete(raw).unwrap();
+            }
+        }
+    }
     let owner = Owner {
         creator_tab_id: creator,
         team_id: Some(team),
@@ -100,8 +210,16 @@ fn run(document: Document, simulate: bool) -> Receipt {
         .lock()
         .prepare_pipeline(spec, owner, false)
         .unwrap();
+    let static_check = FrozenClosure::from_document(document.clone());
+    if static_check.is_ok() {
+        job.document = Some(json!(document));
+    } else {
+        assert!(static_check
+            .unwrap_err()
+            .contains("budget_exhausted: call depth"));
+    }
+    let mut job = crate::storage::commit(&handle.store, |store| store.stage_insert(job)).unwrap();
     job.document = Some(json!(document));
-    let job = crate::storage::commit(&handle.store, |store| store.stage_insert(job)).unwrap();
     let step = calls::lower::node(&document, &document.steps[0]).unwrap();
     let lease = Lease {
         job: job.clone(),
@@ -232,6 +350,10 @@ fn chain(depth: usize) -> Document {
 }
 #[test]
 fn blueprint_v2_call_simulate_depth_eight_succeeds_depth_nine_budget_exhausted() {
+    assert!(FrozenClosure::from_document(chain(8)).is_ok());
+    assert!(FrozenClosure::from_document(chain(9))
+        .unwrap_err()
+        .contains("budget_exhausted"));
     let eight = run(chain(8), true);
     assert_eq!(eight.output.unwrap().value, json!({"n":7}));
     assert!(eight.notices.is_empty());
@@ -280,4 +402,33 @@ fn blueprint_v2_call_out_of_scope_effect_target_refuses_before_nested_claim() {
         .journal
         .iter()
         .any(|row| row.step_name == "increment"));
+}
+
+#[test]
+fn blueprint_v2_call_keep_recall_pin_and_real_execute_delivers_exact_saved_eight() {
+    let receipt = run_saved(source(false), false, Some(SavedCase::Keep));
+    assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
+    assert_eq!(receipt.notices, vec!["8"]);
+    assert!(receipt.journal.iter().any(|row| row
+        .call_stack
+        .iter()
+        .any(|frame| frame.id.starts_with("mem:") && frame.hash.len() == 64)));
+}
+#[test]
+fn blueprint_v2_call_head_edit_and_dream_warn_while_real_execution_uses_pinned_body() {
+    let receipt = run_saved(source(false), false, Some(SavedCase::Drift));
+    assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
+    assert_eq!(receipt.notices, vec!["8"]);
+}
+#[test]
+fn blueprint_v2_call_missing_mem_hash_or_callee_refuses_before_any_nested_effect() {
+    for case in [SavedCase::MissingHash, SavedCase::MissingCallee] {
+        let receipt = run_saved(source(false), false, Some(case));
+        assert!(receipt.output.is_err());
+        assert!(receipt.notices.is_empty());
+        assert!(!receipt
+            .journal
+            .iter()
+            .any(|row| row.step_name == "increment" || row.step_name == "fixed-sink"));
+    }
 }
