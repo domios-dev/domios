@@ -53,7 +53,7 @@ modes; installed 2.1.292 uses `manual`, not the older `default` spelling.
 
 Save a byte copy/hash of `~/.claude/settings.json` and its parsed statusLine.
 This refresh is the owner-approved, one-time trusted-content change described in
-[SIDE-CHANNELS.md](SIDE-CHANNELS.md): the installed owned PermissionRequest
+[Verification evidence](claude-verification-evidence.md): the installed owned PermissionRequest
 command discarded stdout. Attach that note before merge. Run once:
 
 ```bash
