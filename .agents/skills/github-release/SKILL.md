@@ -150,12 +150,15 @@ that refuses a request, and any digest or signature mismatch, still fail.
 
 For one platform, direct-dispatch `release-linux.yml`, `release-windows.yml` or
 `release-macos-build.yml` with explicit `source_ref`, tag, selected architecture, `dry_run=true`
-and `mirror=false`, using that workflow's declared inputs. `tests.yml` accepts `phase=fast`.
+and `mirror=false`, using that workflow's declared inputs. A `tests.yml` dispatch runs the fast tier only.
 Direct platform dispatch cannot mutate release assets. Its guard distinguishes the direct workflow
 name from a manually dispatched release.yml caller: reusable workflows inherit the caller's event.
 Do not disable publication for a legitimate release caller merely because its event is workflow_dispatch.
 
-The full graph separates fast guards/checks from full Rust and platform-specific tests. Required
+The full graph separates fast guards/checks (`tests-fast.yml`) from full Rust and platform-specific
+tests (`tests-rust.yml`); release.yml calls each tier directly. Tiers open on claim, not on completion:
+the Rust tier starts once every fast check holds a runner, and the six builds start once every Rust
+test job does (`release-tier-gate.mjs`, 45-minute visible fallback). Required
 Rust receipts include nonzero executed counts for the full suite and each OS subset. A failed,
 cancelled or skipped required gate cannot publish. Diagnose cancellation from run/job evidence
 and workflow conditions; never call cancelled jobs passes or assume who cancelled them.
@@ -378,4 +381,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

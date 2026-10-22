@@ -1,4 +1,4 @@
-// Caller: CI tests.yml release-contracts via tests/catalogue.json node-script-tests
+// Caller: CI tests-fast.yml guards via tests/catalogue.json node-script-tests
 import assert from "node:assert/strict";
 import test from "node:test";
 import { planPause } from "./runner-toggle.mjs";
