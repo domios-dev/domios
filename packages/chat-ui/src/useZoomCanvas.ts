@@ -40,6 +40,7 @@ export function useZoomCanvas({ bounds, focus, wheelBehavior, onNavigate, onSele
       setSize(previous => previous.width === rect.width && previous.height === rect.height ? previous : { width: rect.width, height: rect.height });
     };
     measure();
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();

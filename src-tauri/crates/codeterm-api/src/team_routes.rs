@@ -68,9 +68,9 @@ fn map_close_team_error(error: String) -> (StatusCode, String) {
         StatusCode::GATEWAY_TIMEOUT
     } else if inventory.as_ref().is_some_and(|data| {
         data["type"] == "close_inventory_busy" || data["type"] == "close_scope_busy"
-    }) {
-        StatusCode::CONFLICT
-    } else if error.starts_with(codeterm_service_core::service::TEAM_CLOSE_BUSY_REFUSAL_PREFIX) {
+    }) || error
+        .starts_with(codeterm_service_core::service::TEAM_CLOSE_BUSY_REFUSAL_PREFIX)
+    {
         StatusCode::CONFLICT
     } else if error.starts_with(codeterm_service_core::service::TEAM_CLOSE_REFUSAL_PREFIX) {
         StatusCode::FORBIDDEN

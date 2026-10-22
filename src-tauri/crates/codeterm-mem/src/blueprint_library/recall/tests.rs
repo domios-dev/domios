@@ -75,12 +75,12 @@ fn each_intent_gets_its_own_vector_and_recall_takes_the_best_one() {
         BACKUP,
         &["copy the production database somewhere safe"],
     );
-    let vectors = index::read_vectors(&mem.conn.lock(), &logs).unwrap();
+    let vectors = index::read_vectors(&mem.conn.lock(), &logs, &mem.embedder.identity()).unwrap();
     let intents = vectors.slot(Slot::Intent).collect::<Vec<_>>();
     assert_eq!(intents.len(), 3);
     assert!(intents
         .iter()
-        .all(|(_, vector)| vector.len() == crate::embeddings::EMBEDDING_DIMENSION));
+        .all(|(_, vector)| vector.len() == mem.embedder.identity().dimension));
     assert_eq!(vectors.slot(Slot::Canon).count(), 1);
     let only_vectors = RecallConfig {
         weights: Weights {

@@ -167,7 +167,7 @@ function installFetch() {
     value: (input: RequestInfo | URL) => tracked((async () => {
       if (!restAvailable) throw new TypeError("REST unavailable");
       const url = String(input);
-      if (url.includes("/api/plans?full=1")) return response({ plans: backendPlans });
+      if (url.includes("/api/plans?full=1") || url.includes("/api/plans?chat=1")) return response({ plans: backendPlans });
       if (url.endsWith("/api/plans")) {
         return response({ plans: backendPlans.map(indexEntry) });
       }

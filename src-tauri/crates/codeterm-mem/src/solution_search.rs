@@ -2,7 +2,7 @@ use crate::{search, MemManager, SearchHit, SearchQuery};
 use codeterm_blueprint_types::blueprint_memory::curator::Relation;
 use std::collections::BTreeSet;
 
-const RELEVANCE_FLOOR: f64 = 0.55;
+pub(crate) const RELEVANCE_FLOOR: f64 = 0.55;
 const SAME_INTENT: f64 = 0.85;
 
 impl MemManager {
@@ -12,14 +12,14 @@ impl MemManager {
         source: Option<&str>,
     ) -> Result<Vec<SearchHit>, String> {
         let embedding = query_embedding(&query.query);
-        self.recall_solutions_with_embedding(query, source, embedding.as_deref())
+        self.recall_solutions_with_embedding(query, source, embedding.as_ref())
     }
 
     pub(crate) fn recall_solutions_with_embedding(
         &self,
         query: &SearchQuery,
         source: Option<&str>,
-        embedding: Option<&[f32]>,
+        embedding: Option<&crate::embedder::StampedVector>,
     ) -> Result<Vec<SearchHit>, String> {
         let cfg = search::SearchConfig {
             source_filter: Some(source.map(str::to_owned)),
@@ -28,7 +28,6 @@ impl MemManager {
         let conn = self.conn.lock();
         let hits =
             search::hybrid_rrf_with_embedding(&conn, query, &self.blobs_dir, &cfg, embedding)?;
-        #[cfg(feature = "embeddings")]
         let relevant_vectors = embedding
             .and_then(|vector| search::scoped_vectors(&conn, vector, 250, query, &cfg).ok())
             .unwrap_or_default()
@@ -36,8 +35,6 @@ impl MemManager {
             .filter(|(_, distance)| distance.is_finite() && 1.0 - distance >= RELEVANCE_FLOOR)
             .map(|(id, _)| id)
             .collect::<BTreeSet<_>>();
-        #[cfg(not(feature = "embeddings"))]
-        let relevant_vectors = BTreeSet::<String>::new();
         Ok(hits
             .into_iter()
             .filter(|hit| {
@@ -127,7 +124,10 @@ pub(crate) fn intent_similarity(left: &str, right: &str) -> f64 {
         return lexical;
     }
     #[cfg(feature = "embeddings")]
-    if let (Some(left), Some(right)) = (query_embedding(left), query_embedding(right)) {
+    if let (Some(left), Some(right)) = (
+        query_embedding(left).map(|stamped| stamped.vector),
+        query_embedding(right).map(|stamped| stamped.vector),
+    ) {
         let dot: f64 = left
             .iter()
             .zip(&right)
@@ -148,7 +148,7 @@ pub(crate) fn intent_similarity(left: &str, right: &str) -> f64 {
     lexical
 }
 
-pub(crate) fn query_embedding(query: &str) -> Option<Vec<f32>> {
+pub(crate) fn query_embedding(query: &str) -> Option<crate::embedder::StampedVector> {
     #[cfg(not(test))]
     {
         search::query_embedding(query)

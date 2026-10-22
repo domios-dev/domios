@@ -975,6 +975,26 @@ Run dreaming consolidation via the daemon. Phases: light, deep, normalize, all (
 
 - `--phase` — Which phase to run: light | deep | normalize | all
 
+#### `domios mem embedder`
+
+The one embedder behind all of mem: list providers, show status, switch
+
+#### `domios mem embedder list`
+
+List embedder providers, their models, and whether a remote one can be activated
+
+#### `domios mem embedder status`
+
+Show the active provider, model, dimension, re-embed progress and vector-pending count
+
+#### `domios mem embedder use`
+
+Switch the embedder and re-embed every item in the background. A remote provider needs its stored key and memory.embedder.remote_opt_in
+
+- `--dimension` — Vector dimension, for models that accept one; defaults to the model's own
+- `--model` — Model id; defaults to the provider's default model
+- `<provider>` — Provider id from `mem embedder list`
+
 #### `domios mem extract-pending`
 
 Re-run extraction workers for items that haven't been extracted yet. Useful after LLM API failures, quota resets, or bulk imports with skip_extract. Workers fire sequentially with a short delay

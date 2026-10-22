@@ -102,10 +102,14 @@ impl BridgeTabPort for ServiceBridgeTabPort {
             return Ok(());
         }
 
-        self.0.deliver_framed_input(
-            tab_id,
-            crate::service::messenger::Messenger::restore_framed_delivery(prefixed)?,
-        )
+        let frame = crate::service::messenger::Messenger::restore_framed_delivery(prefixed)?;
+        if self.0.tab_chat_backing(tab_id).is_some() {
+            return self.0.chatbackend_tab_send(
+                tab_id,
+                &crate::service::messenger::AgentInput::Framed(frame),
+            );
+        }
+        self.0.deliver_framed_input(tab_id, frame)
     }
 
     fn queue_inbound(&self, tab_id: &str, prefixed: String) {

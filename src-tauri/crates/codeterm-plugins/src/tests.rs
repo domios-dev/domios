@@ -261,7 +261,7 @@ mod store_index_tests {
                 .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
-                .contains("reload CodeTerm to activate"));
+                .contains("reload Domios to activate"));
         });
     }
 
@@ -663,6 +663,16 @@ mod store_index_tests {
                 plugin_dir(&PluginId::validated("format-plugin")).join("plugin.json");
             let installed_bytes = std::fs::read(&installed_manifest).unwrap();
             let remote_bytes = std::fs::read(source_plugin.join("plugin.json")).unwrap();
+            assert_eq!(installed_bytes, remote_bytes);
+            std::fs::write(
+                &installed_manifest,
+                serde_json::to_vec_pretty(
+                    &serde_json::from_slice::<serde_json::Value>(&installed_bytes).unwrap(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            let installed_bytes = std::fs::read(&installed_manifest).unwrap();
             assert_ne!(installed_bytes, remote_bytes);
             assert_eq!(
                 serde_json::from_slice::<serde_json::Value>(&installed_bytes).unwrap(),

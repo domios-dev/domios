@@ -123,7 +123,9 @@ fn close_case(cancelled: bool, unmerged: bool, dirty: bool) {
             .iter()
             .any(|hint| hint.contains("domios plan lane-remove")));
     }
-    let branch = Command::new("git")
+    let mut command = Command::new("git");
+    crate::process_util::no_window_std(&mut command);
+    let branch = command
         .current_dir(&canonical)
         .args(["show-ref", "--verify", "--quiet", "refs/heads/lane/worker"])
         .status()

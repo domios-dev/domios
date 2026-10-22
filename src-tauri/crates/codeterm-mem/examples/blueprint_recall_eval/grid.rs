@@ -140,7 +140,7 @@ pub fn run_grid() -> Result<(), String> {
         ran_at: chrono::Utc::now().to_rfc3339(),
         head: guard::head()?,
         prereg_sha,
-        embedder: codeterm_mem::embeddings::EMBEDDER_MODEL_ID.into(),
+        embedder: library.mem.embedder().identity().to_string(),
         enrichment_applied: library.enriched,
         refused: library.refused.clone(),
         rows,

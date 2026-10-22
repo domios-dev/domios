@@ -78,6 +78,22 @@ pub(super) fn memory_routes(router: Router<AppState>) -> Router<AppState> {
         .route("/api/mem/stats", get(mem_routes::mem_stats))
         .route("/api/mem/reembed", post(mem_routes::mem_reembed))
         .route(
+            "/api/mem/embedder",
+            get(mem_routes::embedder::mem_embedder_status),
+        )
+        .route(
+            "/api/mem/embedder/providers",
+            get(mem_routes::embedder::mem_embedder_providers),
+        )
+        .route(
+            "/api/mem/embedder/preview",
+            get(mem_routes::embedder::mem_embedder_preview),
+        )
+        .route(
+            "/api/mem/embedder/use",
+            post(mem_routes::embedder::mem_embedder_use),
+        )
+        .route(
             "/api/mem/graph/entities",
             post(mem_routes::mem_graph_create),
         )

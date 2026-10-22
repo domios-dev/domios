@@ -116,6 +116,7 @@ fn ten_semantic_mutations_each_change_canon() {
 }
 #[test]
 fn canon_carries_no_topology_wording() {
+    let step_number = regex::Regex::new(r"step \d").unwrap();
     for source in [BASE, WATCH] {
         let text = canon(source);
         for banned in [
@@ -136,7 +137,7 @@ fn canon_carries_no_topology_wording() {
         ] {
             assert!(!text.contains(banned), "{banned:?} in {text}");
         }
-        assert!(!Regex::new(r"step \d").unwrap().is_match(&text));
+        assert!(!step_number.is_match(&text), "step numbering in {text}");
     }
 }
 #[test]

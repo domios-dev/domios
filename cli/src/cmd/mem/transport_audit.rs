@@ -47,7 +47,8 @@ pub(crate) fn classify(action: &MemAction) -> MemTransport {
         | MemAction::Tail { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
-        | MemAction::Calibration { .. } => SocketDedicated,
+        | MemAction::Calibration { .. }
+        | MemAction::Embedder { .. } => SocketDedicated,
 
         MemAction::Graph { action } => classify_graph(action),
 
