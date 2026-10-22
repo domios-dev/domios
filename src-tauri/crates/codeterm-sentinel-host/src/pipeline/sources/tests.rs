@@ -40,24 +40,19 @@ fn health_observation_routes_down_and_retains_status_output() {
 #[test]
 fn blueprint_pipeline_run_receives_previous_source_json_on_stdin() {
     use crate::store::{Owner, Store};
-    use codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec;
     use codeterm_service_core::cron::clock::MockClock;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     let directory = tempfile::tempdir().unwrap();
     let (mux, creator) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&creator).unwrap();
-    let spec: BlueprintSpec = serde_json::from_value(serde_json::json!({
-        "name":"stdin-pipeline", "trigger":{"type":"schedule","every":"20s"},
-        "steps":[{"name":"read", "input":"text", "kind":{"kind":"command","command":"echo ignored"}}]
-    })).unwrap();
-    let step = spec.steps[0].clone();
+    let document = serde_json::json!({"schema_version":2,"kind":"pipeline","name":"stdin-pipeline","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"read","run":{"lit":"echo ignored"}}]});
     let store = Store::new(
         directory.path().join("blueprints.json"),
         MockClock::starting_at(1000),
     );
     let job = store
-        .prepare_pipeline(
-            spec,
+        .prepare_document(
+            document,
             Owner {
                 creator_tab_id: creator,
                 team_id: None,
@@ -67,6 +62,7 @@ fn blueprint_pipeline_run_receives_previous_source_json_on_stdin() {
             true,
         )
         .unwrap();
+    let step = job.pipeline().unwrap().steps[0].clone();
     let lease = Lease {
         job,
         cancelled: Default::default(),

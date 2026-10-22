@@ -4,9 +4,67 @@ use super::*;
 use codeterm_blueprint_types::blueprint_memory::{parse_document, Evidence};
 use std::sync::atomic::Ordering;
 
-const WATCH: &str = "schema_version: 1\nname: ci-red\nnote: Tell me when CI turns red.\nwatch:\n  probe: gh pr checks 42 --watch\n  question: is-ci-red\n  buckets: [red]\n  matches: {red: fail}\n  every: 1m\n  until: red\n  timeout: 1h\n  routes: {red: notify}\n";
-const WATCH_REFORMATTED: &str = "# same graph, new layout\nschema_version: 1\nname: 'ci-red'\nnote: \"Tell me when CI turns red.\"\nwatch:\n  routes:\n    red: notify\n  timeout: 1h\n  until: red\n  every: 1m\n  matches:\n    red: fail\n  buckets:\n    - red\n  question: is-ci-red\n  probe: 'gh pr checks 42 --watch'\n";
-const WATCH_CHANGED: &str = "schema_version: 1\nname: ci-red\nnote: Tell me when CI turns red.\nwatch:\n  probe: gh run list --branch main\n  question: is-ci-red\n  buckets: [red]\n  matches: {red: fail}\n  every: 1m\n  until: red\n  timeout: 1h\n  routes: {red: notify}\n";
+const WATCH: &str = r#"schema_version: 2
+kind: watch
+name: ci-red
+note: Tell me when CI turns red.
+steps:
+- id: source
+  uses: probe
+  with:
+    command:
+      lit: gh pr checks 42 --watch
+  every:
+    lit: 1m
+  timeout:
+    lit: 1h
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: is-ci-red
+  buckets:
+  - red
+  matches:
+    red:
+      lit: fail
+  until: red
+  routes:
+    red: alert
+- id: alert
+  uses: notify
+"#;
+const WATCH_REFORMATTED: &str = r#"{"kind": "watch", "name": "ci-red", "note": "Tell me when CI turns red.", "schema_version": 2, "steps": [{"every": {"lit": "1m"}, "id": "source", "timeout": {"lit": "1h"}, "uses": "probe", "with": {"command": {"lit": "gh pr checks 42 --watch"}}}, {"buckets": ["red"], "id": "decide", "matches": {"red": {"lit": "fail"}}, "routes": {"red": "alert"}, "until": "red", "uses": "ask", "with": {"question": {"lit": "is-ci-red"}}}, {"id": "alert", "uses": "notify"}]}"#;
+const WATCH_CHANGED: &str = r#"schema_version: 2
+kind: watch
+name: ci-red
+note: Tell me when CI turns red.
+steps:
+- id: source
+  uses: probe
+  with:
+    command:
+      lit: gh run list --branch main
+  every:
+    lit: 1m
+  timeout:
+    lit: 1h
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: is-ci-red
+  buckets:
+  - red
+  matches:
+    red:
+      lit: fail
+  until: red
+  routes:
+    red: alert
+- id: alert
+  uses: notify
+"#;
 const REPORT: &str = "WHAT: Polls pull request checks and pings the owner as soon as a check breaks, using zebracorn status words. || INTENT: alert me when my pr checks break || INTENT: ping me on a red build || INTENT: tell me once a pull request check fails";
 
 fn evidence() -> Evidence {
@@ -42,7 +100,11 @@ fn enrichment_follows_the_document_hash_and_records_provenance() {
     let first = enricher.jobs.lock().clone();
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].item_id, id);
-    assert!(first[0].task.contains("{{command}}"), "{}", first[0].task);
+    assert!(
+        first[0].task.contains("input: command"),
+        "{}",
+        first[0].task
+    );
     assert!(
         first[0].task.contains("runs gh pr checks {n} watch"),
         "{}",

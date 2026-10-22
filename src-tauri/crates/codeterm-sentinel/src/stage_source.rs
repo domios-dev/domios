@@ -37,11 +37,7 @@ impl StageSource {
         pipeline: Option<BlueprintSpec>,
     ) -> Result<Self, String> {
         match (probe, observe, input, terminal, pipeline) {
-            (probe, None, None, None, Some(spec))
-                if probe.is_empty() || probe == "blueprint-pipeline" =>
-            {
-                Ok(Self::Pipeline(spec))
-            }
+            (probe, None, None, None, Some(spec)) if probe.is_empty() => Ok(Self::Pipeline(spec)),
             (probe, None, None, None, None) if !probe.is_empty() => Ok(Self::Probe(probe)),
             (probe, Some(binding), None, None, None) if probe.is_empty() => {
                 Ok(Self::Observe(binding))
@@ -127,21 +123,17 @@ impl<'de> Deserialize<'de> for StageSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codeterm_blueprint_types::blueprint_pipeline::{BlueprintOwner, BlueprintResult, Trigger};
     use codeterm_blueprint_types::sentinel_input::{DataRef, MediaKind};
 
     #[test]
-    fn stage_source_codec_round_trips_each_variant_and_reads_legacy_pipeline() {
-        let spec = BlueprintSpec {
-            note: None,
-            name: "pipeline".into(),
-            owner: BlueprintOwner::Tab,
-            trigger: Trigger::Schedule {
-                every: "20s".into(),
-            },
-            steps: vec![],
-            result: BlueprintResult::default(),
-        };
+    fn stage_source_codec_round_trips_each_variant() {
+        let document = serde_json::json!({"schema_version":2,"kind":"pipeline","name":"pipeline","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"}}]});
+        let runtime =
+            codeterm_blueprint_types::blueprint_document::Document::from_definition(&document)
+                .unwrap()
+                .lower()
+                .unwrap();
+        let spec: BlueprintSpec = serde_json::from_value(runtime["spec"].clone()).unwrap();
         for source in [
             StageSource::Probe("status".into()),
             StageSource::Observe(TabBinding::Tab("tab".into())),
@@ -166,11 +158,6 @@ mod tests {
                 source
             );
         }
-        let legacy = serde_json::json!({"probe":"blueprint-pipeline","pipeline":spec});
-        assert_eq!(
-            serde_json::from_value::<StageSource>(legacy).unwrap(),
-            StageSource::Pipeline(spec)
-        );
         assert!(serde_json::from_value::<StageSource>(
             serde_json::json!({"probe":"status","observe":{"kind":"tab","id":"tab"}})
         )

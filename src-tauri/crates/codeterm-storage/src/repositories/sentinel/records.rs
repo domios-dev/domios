@@ -125,6 +125,7 @@ pub struct BucketDefinition {
 /// Authored configuration of one stage; runtime state never lives here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageDefinition {
+    pub document: Option<serde_json::Value>,
     pub note: Option<String>,
     pub model_classification: bool,
     pub session: bool,
@@ -582,6 +583,18 @@ impl StageDefinition {
     }
 
     pub(super) fn validate(&self) -> Result<(), StorageError> {
+        let value = self.document.as_ref().ok_or_else(|| {
+            StorageError::invalid(
+                "blueprint document",
+                "only native v2 documents can be persisted",
+            )
+        })?;
+        let document =
+            codeterm_blueprint_types::blueprint_document::Document::from_definition(value)
+                .map_err(|error| StorageError::invalid("blueprint document", error))?;
+        document
+            .lower()
+            .map_err(|errors| StorageError::invalid("blueprint document", format!("{errors:?}")))?;
         if let Some(terminal) = self.terminal() {
             terminal
                 .validate()

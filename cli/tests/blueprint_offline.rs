@@ -6,7 +6,7 @@ fn blueprint_check_new_and_schema_are_offline_and_check_json_has_positions() {
     let binary = codeterm_bin::codeterm_bin();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("bad.yaml");
-    std::fs::write(&path,"schema_version: 1\nname: Watch\nwatch:\n  probe: echo ready\n  question: State?\n  buckets: [ready]\n  every: tomorrow\n").unwrap();
+    std::fs::write(&path,"schema_version: 2\nkind: pipeline\nname: Watch\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps:\n- id: probe\n  run: {bind: other.out}\n").unwrap();
     for args in [
         vec!["blueprint", "schema", "--json"],
         vec!["blueprint", "new", "command", "--json"],
@@ -31,7 +31,7 @@ fn blueprint_check_new_and_schema_are_offline_and_check_json_has_positions() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|d| d["field"] == "watch.every" && d["line"] == 7 && d["column"] == 3));
+                .any(|d| d["field"] == "steps[0].run" && d["line"] == 7 && d["column"] == 3));
         } else {
             assert!(output.status.success(), "{value}");
         }

@@ -1,7 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: watch
 name: '{{name}}'
 note: Use one verdict probe for all work; keep `waiting` silent and route only `alldone`.
+intent: Use one verdict probe for all work; keep `waiting` silent and route only `alldone`.
 inputs:
   name:
     type: string
@@ -12,16 +14,32 @@ inputs:
   one_verdict_probe:
     type: string
     description: One verdict probe
-watch:
-  probe: '{{one_verdict_probe}}'
-  question: classify-all-work
+steps:
+- id: source
+  uses: probe
+  with:
+    command:
+      input: one_verdict_probe
+  every:
+    lit: 20s
+  timeout:
+    lit: 1h
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: classify-all-work
   buckets:
   - waiting
   - alldone
-  matches:
-    alldone: '{{all_terminal_pattern}}'
-  until: alldone
-  timeout: 1h
   routes:
-    waiting: none
-    alldone: notify
+    waiting: '@stop'
+    alldone: alldone_1
+  matches:
+    alldone:
+      input: all_terminal_pattern
+  until: alldone
+- id: alldone_1
+  uses: notify
+  routes:
+    done: '@stop'

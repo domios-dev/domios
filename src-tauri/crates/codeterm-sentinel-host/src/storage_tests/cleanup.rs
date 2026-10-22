@@ -8,12 +8,12 @@ fn storage_completion_watch_routes_before_retirement_and_stays_deleted_after_rel
     let store = typed(&storage, &clock);
     let mut create_params = params(
         false,
-        json!({"done":[{"id":"deliver","type":"notify","parameters":{}}]}),
+        json!({"done":[{"id":"deliver","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}]}),
     );
-    create_params.until = Some("done".into());
+    create_params["steps"][1]["until"] = json!("done");
     let watch = store
         .lock()
-        .prepare(create_params, owner(Some("team")), false)
+        .prepare_document(create_params, owner(Some("team")), false)
         .unwrap();
     let watch = commit(&store, |current| current.stage_insert(watch)).unwrap();
     let lease = due(&store).remove(0);

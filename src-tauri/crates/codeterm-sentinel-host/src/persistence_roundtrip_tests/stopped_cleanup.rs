@@ -1,5 +1,5 @@
 use super::{close, ServiceInstance};
-use crate::SentinelExt;
+use crate::{BlueprintApplyExt, SentinelExt};
 use codeterm_cron::clock::MockClock;
 use serde_json::json;
 
@@ -8,6 +8,10 @@ fn stopped_blueprint_cleanup_survives_restart_and_update_cancels_it() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&tab).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    let team = codeterm_types::team::Team::new(&workspace, 1);
+    mux.upsert_team(team.clone());
+    mux.get_tab_mut(&tab).unwrap().team_id = Some(team.id);
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let clock = MockClock::starting_at(1_000);
     let handle = crate::scheduler::fixture_handle_with_ui(
@@ -20,19 +24,20 @@ fn stopped_blueprint_cleanup_survives_restart_and_update_cancels_it() {
         .service
         .sentinel_caller(&tab, None)
         .unwrap();
-    let definition = json!({
-        "name":"cleanup watcher", "note":"Watches releases and reports failures",
-        "probe":"status", "question":"Finished?", "buckets":["done"],
-        "every":"1m", "matches":{"done":"done"}
-    });
+    let definition = json!({"schema_version":2,"kind":"watch","name":"cleanup watcher","note":"Watches releases and reports failures","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"1m"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Finished?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"routes":{"done":"notice"}},{"id":"notice","uses":"notify"}]});
     let mut ids = Vec::new();
     for index in 0..2 {
         let mut definition = definition.clone();
         definition["name"] = json!(format!("cleanup watcher {index}"));
+        let result = instance
+            .fixture
+            .service
+            .blueprint_apply(&caller, definition.clone(), false)
+            .unwrap();
         let created = instance
             .fixture
             .service
-            .sentinel_create(&caller, serde_json::from_value(definition.clone()).unwrap())
+            .sentinel_show(&caller, result["id"].as_str().unwrap())
             .unwrap();
         let stopped = instance
             .fixture
@@ -68,12 +73,22 @@ fn stopped_blueprint_cleanup_survives_restart_and_update_cancels_it() {
     );
     let mut update = definition;
     update["name"] = json!("cleanup watcher 1");
-    update.as_object_mut().unwrap().remove("probe");
     update["note"] = json!("Retargeted release watcher");
+    restarted
+        .fixture
+        .service
+        .blueprint_apply_document(
+            &caller,
+            update.clone(),
+            false,
+            None,
+            Some((ids[1].clone(), 1, None)),
+        )
+        .unwrap();
     let updated = restarted
         .fixture
         .service
-        .sentinel_update(&caller, &ids[1], 1, serde_json::from_value(update).unwrap())
+        .sentinel_show(&caller, &ids[1])
         .unwrap();
     assert!(!updated.machine.stopped);
     assert_eq!(updated.cleanup.deletes_at, None);
@@ -92,14 +107,12 @@ fn stopped_blueprint_cleanup_survives_restart_and_update_cancels_it() {
     assert!(restarted
         .fixture
         .service
-        .sentinel_update(
+        .blueprint_apply_document(
             &caller,
-            &ids[1],
-            1,
-            serde_json::from_value(
-                json!({"name":"stale","question":"?","buckets":["done"],"every":"1m"})
-            )
-            .unwrap()
+            update,
+            false,
+            None,
+            Some((ids[1].clone(), 1, None))
         )
         .is_err());
     clock.set_ms(1_800_999);
@@ -122,10 +135,7 @@ fn stopped_blueprint_cleanup_survives_restart_and_update_cancels_it() {
     assert!(listed["deletes_at"].is_null());
     let recipe =
         crate::portable::export(&handle.store.lock().get(&ids[1]).unwrap().clone()).unwrap();
-    assert_eq!(
-        recipe.definition["create"]["note"],
-        "Retargeted release watcher"
-    );
+    assert_eq!(recipe.definition["note"], "Retargeted release watcher");
     let persisted = restarted.restart(root.path());
     let store = crate::store::Store::with_storage(&persisted.storage, clock);
     assert!(store.get(&ids[0]).is_none());
@@ -138,10 +148,13 @@ fn stopped_blueprint_cleanup_survives_restart_and_update_cancels_it() {
 
 #[test]
 fn stopped_pipeline_update_retargets_input_and_keeps_its_note() {
-    use crate::BlueprintExt;
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&tab).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    let team = codeterm_types::team::Team::new(&workspace, 1);
+    mux.upsert_team(team.clone());
+    mux.get_tab_mut(&tab).unwrap().team_id = Some(team.id);
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let clock = MockClock::starting_at(1_000);
     let handle = crate::scheduler::fixture_handle_with_ui(
@@ -154,38 +167,51 @@ fn stopped_pipeline_update_retargets_input_and_keeps_its_note() {
         .service
         .sentinel_caller(&tab, None)
         .unwrap();
-    let spec: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec = serde_json::from_value(json!({
-        "name":"release pipeline", "note":"Watches the current release", "trigger":{"type":"input","kind":"text","source":{"text":"first-run"}},
-        "steps":[{"name":"inspect","input":"text","kind":{"kind":"filter","pattern":"run"}}]
-    })).unwrap();
+    let spec = json!({"schema_version":2,"kind":"pipeline","name":"release pipeline","note":"Watches the current release","trigger":{"type":"input","kind":{"lit":"text"},"source":{"lit":{"text":"first-run"}}},"steps":[{"id":"inspect","uses":"filter","with":{"pattern":{"lit":"run"}}}],"result":{"to":"notify"}});
     let created = instance
         .fixture
         .service
-        .blueprint_pipeline_create_stopped(&caller, spec.clone(), true)
+        .blueprint_apply_with_state(&caller, spec.clone(), false, Some(true))
         .unwrap();
     let id = created["id"].as_str().unwrap();
-    assert_eq!(created["blueprint"]["stopped_at"], 1_000);
+    assert_eq!(
+        instance
+            .fixture
+            .service
+            .sentinel_show(&caller, id)
+            .unwrap()
+            .cleanup
+            .stopped_at,
+        Some(1_000)
+    );
     let mut next = spec;
-    next.note = Some("Watches the next release".into());
-    next.trigger = codeterm_blueprint_types::blueprint_pipeline::Trigger::Input {
-        kind: codeterm_blueprint_types::sentinel_input::MediaKind::Text,
-        source: codeterm_blueprint_types::sentinel_input::DataRef::Text("next-run".into()),
-    };
+    next["note"] = json!("Watches the next release");
+    next["trigger"]["source"] = json!({"lit":{"text":"next-run"}});
     clock.set_ms(2_000);
-    let updated = instance
+    instance
         .fixture
         .service
-        .blueprint_pipeline_update(&caller, id, 1, next.clone(), None)
+        .blueprint_apply_document(
+            &caller,
+            next.clone(),
+            false,
+            None,
+            Some((id.into(), 1, None)),
+        )
         .unwrap();
+    let updated = instance.fixture.service.sentinel_show(&caller, id).unwrap();
     assert!(!updated.machine.stopped);
     assert_eq!(updated.cleanup.deletes_at, None);
     assert_eq!(updated.next_run, 2_000);
-    assert_eq!(updated.pipeline(), Some(&next));
+    assert_eq!(
+        serde_json::to_value(updated.pipeline()).unwrap(),
+        codeterm_blueprint_types::blueprint_document::Document::from_definition(&next)
+            .unwrap()
+            .lower()
+            .unwrap()["spec"]
+    );
     assert_eq!(updated.note.as_deref(), Some("Watches the next release"));
     let recipe = crate::portable::export(&updated).unwrap();
-    assert_eq!(
-        recipe.definition["spec"]["note"],
-        "Watches the next release"
-    );
+    assert_eq!(recipe.definition["note"], "Watches the next release");
     close(instance);
 }

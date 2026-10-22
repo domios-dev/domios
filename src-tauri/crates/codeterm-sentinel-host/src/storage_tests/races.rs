@@ -21,8 +21,8 @@ fn accepted(store: &Arc<Mutex<Store>>, handlers: Value) -> (Lease, Sentinel, Str
 
 fn two_handlers() -> Value {
     json!({"done":[
-        {"id":"first","type":"notify","parameters":{}},
-        {"id":"tail","type":"notify","parameters":{}}
+        {"id":"first","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))},
+        {"id":"tail","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}
     ]})
 }
 

@@ -81,7 +81,7 @@ fn watch_apply_refuses_missing_runtime_then_converts_and_records_observation() {
     ));
     crate::manage_fixture_ports(service, &handle);
     let caller = service.sentinel_caller(&tab, None).unwrap();
-    let definition = json!({"create":{"name":"Audio watch","note":"Observe transcript","input":{"kind":"audio","data":{"file":audio},"convert_to":"text","convert_timeout_ms":120000},"question":"Ready?","buckets":["ready"],"matches":{"ready":"^ready$"},"routes":{"ready":"none"}}});
+    let definition = json!({"schema_version":2,"kind":"watch","name":"Audio watch","note":"Observe transcript","steps":[{"id":"source","uses":"input","with":{"kind":{"lit":"audio"},"file":{"lit":audio},"convert_to":{"lit":"text"},"convert_timeout_ms":{"lit":120000}},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ready"],"matches":{"ready":{"lit":"^ready$"}},"routes":{"ready":"@stop"}}]});
     for dry_run in [true, false] {
         let error = service
             .blueprint_apply(&caller, definition.clone(), dry_run)

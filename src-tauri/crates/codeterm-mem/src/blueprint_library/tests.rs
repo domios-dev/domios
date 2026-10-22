@@ -1,8 +1,9 @@
 use super::*;
 use serde_json::json;
+use std::collections::BTreeMap;
 
 fn document(bucket: &str) -> Document {
-    Document::from_definition(&json!({"create":{"name":"ci-watch","note":"Watch CI failure","probe":"echo ready","question":"Ready?","buckets":[bucket],"every":"20s","matches":{(bucket):"ready"},"routes":{(bucket):"notify"},"until":bucket,"timeout":"1h"}})).unwrap()
+    Document::from_definition(&json!({"schema_version":2,"kind":"watch","name":"ci-watch","note":"Watch CI failure","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"every":{"lit":"20s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":[bucket],"matches":{(bucket):{"lit":"ready"}},"until":bucket,"routes":{(bucket):"alert"}},{"id":"alert","uses":"notify"}]})).unwrap()
 }
 fn when(text: &str) -> Vec<String> {
     vec![text.into()]
@@ -185,7 +186,10 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
         .unwrap()
         .id;
     let mut changed = document("done");
-    changed.watch.as_mut().unwrap()["probe"] = json!("echo different-instance");
+    changed.steps[0].params.insert(
+        "command".into(),
+        codeterm_blueprint_types::blueprint_document::ValueForm::literal("echo different-instance"),
+    );
     let again = mem
         .save_blueprint("project-a", changed, &when("Watch CI failure"), evidence())
         .unwrap()
@@ -227,7 +231,7 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
         .unwrap()
         .bind(&["command=echo rebound".into()])
         .unwrap();
-    assert_eq!(bound["create"]["probe"], "echo rebound");
+    assert_eq!(bound["steps"][0]["with"]["command"]["lit"], "echo rebound");
     assert!(mem
         .save_blueprint(
             "project-a",
@@ -363,7 +367,7 @@ fn owner_list_does_not_count_recall_and_archive_is_project_scoped() {
 #[test]
 fn enqueue_refuses_qualification_before_starting_the_worker() {
     let mem = MemManager::open_in_memory().unwrap();
-    let definition = json!({"create":{"name":"ci-watch","probe":"echo ready","question":"Ready?","buckets":["done"],"every":"20s","routes":{"done":"notify"},"until":"done","timeout":"1h"}});
+    let definition = serde_json::to_value(document("done")).unwrap();
     assert!(mem
         .enqueue_blueprint(
             "project".into(),
@@ -406,15 +410,14 @@ fn memory_access_counters_do_not_change_blueprint_statistics() {
 fn kept_solution_round_trips_through_recall_and_memory_recipe() {
     let mem = std::sync::Arc::new(MemManager::open_in_memory().unwrap());
     for routed in [false, true] {
-        let mut step = json!({"name":"Echo ready","input":"text","kind":{"kind":"command","command":"Write-Output ready"}});
+        let mut original = echo_document();
+        original.note = Some("Print readiness and stop".into());
         if routed {
-            step["on"] = json!({"done":"stop","failed":"stop"});
+            original.steps[0].routes = BTreeMap::from([
+                ("done".into(), "@stop".into()),
+                ("failed".into(), "@stop".into()),
+            ]);
         }
-        let original = Document::from_definition(&json!({"spec":{
-            "name":"echo-test", "note":"Print readiness and stop", "owner":"team",
-            "trigger":{"type":"schedule","every":"1m"}, "steps":[step], "result":{"to":"notify"}
-        }}))
-        .unwrap();
         let expected = original.bind(&[]).unwrap();
         let area = if routed { "routed" } else { "unrouted" };
         let id = mem
@@ -438,29 +441,19 @@ fn kept_solution_round_trips_through_recall_and_memory_recipe() {
             codeterm_blueprint_types::blueprint_document::definition_errors(&applied).is_empty()
         );
         if !routed {
-            assert!(restored.pipeline.as_ref().unwrap()["steps"][0]
-                .get("on")
-                .is_none());
+            assert!(restored.steps[0].routes.is_empty());
         }
     }
 }
 
 fn echo_document() -> Document {
-    Document::from_definition(&json!({"spec":{
-        "name":"echo-test", "note":"Print readiness", "owner":"team",
-        "trigger":{"type":"schedule","every":"1m"},
-        "steps":[{"name":"Echo","input":"text","kind":{"kind":"command","command":"Write-Output ready"}}],
-        "result":{"to":"notify"}
-    }})).unwrap()
+    Document::from_definition(&json!({"schema_version":2,"kind":"pipeline","name":"echo-test","note":"Print readiness","owner":"team","trigger":{"type":"schedule","every":{"lit":"1m"}},"steps":[{"id":"echo","run":{"lit":"Write-Output ready"}}],"result":{"to":"notify"}})).unwrap()
 }
 
 fn corrupt_saved_echo(mem: &MemManager, id: &str) {
     let mut broken = model::abstract_document(echo_document());
-    broken.pipeline.as_mut().unwrap()["steps"][0]["on"] = serde_json::Value::Null;
-    broken.inputs.insert(
-        "pipeline_steps_0_run".into(),
-        broken.inputs["command"].clone(),
-    );
+    broken.steps[0].run =
+        Some(codeterm_blueprint_types::blueprint_document::ValueForm::input("undeclared"));
     assert_eq!(
         model::structure(&broken),
         model::structure(&echo_document())
@@ -470,7 +463,7 @@ fn corrupt_saved_echo(mem: &MemManager, id: &str) {
         &conn,
         id,
         &store::MemUpdate {
-            body: Some(broken.yaml().unwrap()),
+            body: Some(serde_yaml::to_string(&broken).unwrap()),
             ..Default::default()
         },
         &mem.blobs_dir,
@@ -631,44 +624,70 @@ fn curator_saves_blueprint_among_unrelated_facts_and_other_scopes() {
     assert_eq!(mem.list_blueprint_solutions("project").unwrap().len(), 2);
 }
 
-#[cfg(feature = "embeddings")]
+struct QueryVector(Option<Vec<f32>>);
+impl services::BlueprintEmbedder for QueryVector {
+    fn passage(&self, _: &str) -> Result<Vec<f32>, String> {
+        Err("query-only fixture".into())
+    }
+    fn query(&self, _: &str) -> Result<Vec<f32>, String> {
+        self.0.clone().ok_or("fixture offline".into())
+    }
+}
+fn recall_vector(
+    mem: &MemManager,
+    area: &str,
+    query: &str,
+    limit: usize,
+    vector: Option<&[f32]>,
+) -> Vec<Entry> {
+    mem.set_blueprint_embedder(std::sync::Arc::new(QueryVector(vector.map(|v| v.to_vec()))));
+    mem.recall_blueprint_hits(area, query, None, limit, &RecallConfig::default())
+        .unwrap()
+        .into_iter()
+        .map(|h| h.entry)
+        .collect()
+}
 #[test]
 fn blueprint_recall_uses_vectors_without_shared_words_and_scopes_before_limit() {
     let mem = MemManager::open_in_memory().unwrap();
-    let intent = "Detect stalled deployments";
     let query = "Identify frozen releases";
-    assert!(!intent.split_whitespace().any(|word| query.contains(word)));
-    let id = mem
-        .save_blueprint("project", document("done"), intent, evidence())
-        .unwrap()
-        .unwrap();
-    let foreign = mem
-        .save_blueprint("elsewhere", document("failed"), intent, evidence())
-        .unwrap()
-        .unwrap();
-    let mut vector = vec![0.0f32; 384];
+    let mut vector = vec![0.0; crate::embeddings::EMBEDDING_DIMENSION];
     vector[0] = 1.0;
-    let conn = mem.conn.lock();
-    crate::embeddings::init_extension(&conn).unwrap();
-    let encoded = crate::embeddings::inner::encode_vector(&vector);
-    for saved in [&id, &foreign] {
-        conn.execute(
-            "INSERT INTO mem_vectors(mem_id, embedding) VALUES (?1,?2)",
-            params![format!("{saved}_chunk_1"), &encoded],
+    let mut saved = Vec::new();
+    for (area, bucket) in [("project", "done"), ("elsewhere", "failed")] {
+        let id = mem
+            .save_blueprint(
+                area,
+                document(bucket),
+                &when("Detect stalled deployments"),
+                evidence(),
+            )
+            .unwrap()
+            .id;
+        index::replace_vectors(
+            &mem.conn.lock(),
+            &id,
+            &[],
+            &[(
+                (index::Slot::Intent, 0),
+                "Detect stalled deployments".into(),
+                vector.clone(),
+            )],
         )
         .unwrap();
+        saved.push(id);
     }
-    for index in 0..300 {
-        let fact = store::insert(
-            &conn,
+    for i in 0..300 {
+        store::insert(
+            &mem.conn.lock(),
             &NewMemItem {
                 kind: MemKind::Fact,
                 scope: MemScope::Global,
-                title: format!("Unrelated record {index}"),
+                title: format!("Unrelated {i}"),
                 summary: None,
                 area: Some("project".into()),
                 tags: vec![],
-                body: "unrelated populated memory".into(),
+                body: "unrelated memory".into(),
                 source: None,
                 importance: 1.0,
                 source_path: None,
@@ -677,69 +696,54 @@ fn blueprint_recall_uses_vectors_without_shared_words_and_scopes_before_limit() 
             &mem.blobs_dir,
         )
         .unwrap();
-        conn.execute(
-            "INSERT INTO mem_vectors(mem_id, embedding) VALUES (?1,?2)",
-            params![fact, &encoded],
-        )
-        .unwrap();
     }
-    drop(conn);
-    assert!(mem
-        .search(&crate::SearchQuery {
-            query: query.into(),
-            ..Default::default()
-        })
-        .unwrap()
-        .is_empty());
-    let hits = mem
-        .recall_blueprints_with_embedding("project", query, 1, Some(&vector))
-        .unwrap();
+    let hits = recall_vector(&mem, "project", query, 1, Some(&vector));
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].id, id);
-    let all = mem
-        .recall_blueprints_with_embedding("", query, 5, Some(&vector))
-        .unwrap();
-    assert_eq!(all.len(), 2);
+    assert_eq!(hits[0].id, saved[0]);
+    assert_eq!(recall_vector(&mem, "", query, 5, Some(&vector)).len(), 2);
 }
-
-#[cfg(feature = "embeddings")]
 #[test]
 fn blueprint_usage_breaks_equal_retrieval_scores() {
     let mem = MemManager::open_in_memory().unwrap();
-    let first = mem
-        .save_blueprint("project", document("done"), "Watch CI failure", evidence())
-        .unwrap()
-        .unwrap();
-    let popular = mem
-        .save_blueprint(
-            "project",
-            document("failed"),
-            "Watch CI failure",
-            evidence(),
-        )
-        .unwrap()
-        .unwrap();
-    mem.reuse_blueprints(std::slice::from_ref(&popular))
-        .unwrap();
-    let mut vector = vec![0.0f32; 384];
+    let mut vector = vec![0.0; crate::embeddings::EMBEDDING_DIMENSION];
     vector[0] = 1.0;
-    let conn = mem.conn.lock();
-    crate::embeddings::init_extension(&conn).unwrap();
-    for id in [first, popular.clone()] {
-        conn.execute(
-            "INSERT INTO mem_vectors(mem_id, embedding) VALUES (?1,?2)",
-            params![id, crate::embeddings::inner::encode_vector(&vector)],
+    let mut ids = Vec::new();
+    for bucket in ["done", "failed"] {
+        let id = mem
+            .save_blueprint(
+                "project",
+                document(bucket),
+                &when("Watch CI failure"),
+                evidence(),
+            )
+            .unwrap()
+            .id;
+        index::replace_vectors(
+            &mem.conn.lock(),
+            &id,
+            &[],
+            &[(
+                (index::Slot::Intent, 0),
+                "Watch CI failure".into(),
+                vector.clone(),
+            )],
         )
         .unwrap();
+        ids.push(id);
     }
-    drop(conn);
-    let hits = mem
-        .recall_blueprints_with_embedding("project", "Identify frozen releases", 1, Some(&vector))
-        .unwrap();
-    assert_eq!(hits[0].id, popular);
+    mem.reuse_blueprints(&[ids[1].clone()]).unwrap();
+    assert_eq!(
+        recall_vector(
+            &mem,
+            "project",
+            "Identify frozen releases",
+            1,
+            Some(&vector)
+        )[0]
+        .id,
+        ids[1]
+    );
 }
-
-#[cfg(feature = "embeddings")]
 #[test]
 fn blueprint_recall_refuses_unrelated_vectors_even_when_the_only_solution_is_kept() {
     let mem = MemManager::open_in_memory().unwrap();
@@ -747,65 +751,49 @@ fn blueprint_recall_refuses_unrelated_vectors_even_when_the_only_solution_is_kep
         .save_blueprint(
             "project",
             document("done"),
-            "Detect stalled deployments",
+            &when("Detect stalled deployments"),
             evidence(),
         )
         .unwrap()
-        .unwrap();
-    let mut saved = vec![0.0f32; 384];
+        .id;
+    let mut saved = vec![0.0; crate::embeddings::EMBEDDING_DIMENSION];
     saved[0] = 1.0;
-    let mut unrelated = vec![0.0f32; 384];
+    let mut unrelated = saved.clone();
+    unrelated[0] = 0.0;
     unrelated[1] = 1.0;
-    let conn = mem.conn.lock();
-    crate::embeddings::init_extension(&conn).unwrap();
-    conn.execute(
-        "INSERT INTO mem_vectors(mem_id, embedding) VALUES (?1,?2)",
-        params![
-            format!("{id}_chunk_1"),
-            crate::embeddings::inner::encode_vector(&saved)
-        ],
+    index::replace_vectors(
+        &mem.conn.lock(),
+        &id,
+        &[],
+        &[(
+            (index::Slot::Intent, 0),
+            "Detect stalled deployments".into(),
+            saved.clone(),
+        )],
     )
     .unwrap();
-    drop(conn);
-    for query in [
-        "tell me when every worker in the team has finished",
-        "rotate the log files each night and compress them",
-    ] {
-        assert!(mem
-            .recall_blueprints_with_embedding("project", query, 3, Some(&unrelated))
-            .unwrap()
-            .is_empty());
-    }
+    assert!(recall_vector(&mem, "project", "rotate logs nightly", 3, Some(&unrelated)).is_empty());
     assert_eq!(
-        mem.recall_blueprints_with_embedding(
-            "project",
-            "Identify frozen releases",
-            3,
-            Some(&saved)
-        )
-        .unwrap()[0]
-            .id,
+        recall_vector(&mem, "project", "Identify frozen releases", 3, Some(&saved))[0].id,
         id
     );
 }
-
 #[test]
 fn blueprint_recall_rejects_incidental_keyword_overlap() {
     let mem = MemManager::open_in_memory().unwrap();
     mem.save_blueprint(
         "project",
         document("done"),
-        "Detect stalled deployments",
+        &when("Detect stalled deployments"),
         evidence(),
     )
     .unwrap();
-    assert!(mem
-        .recall_blueprints_with_embedding(
-            "project",
-            "rotate deployments log files each night and compress them",
-            3,
-            None
-        )
-        .unwrap()
-        .is_empty());
+    assert!(recall_vector(
+        &mem,
+        "project",
+        "rotate deployments log files each night and compress them",
+        3,
+        None
+    )
+    .is_empty());
 }

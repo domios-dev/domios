@@ -11,12 +11,20 @@ fn owner() -> Owner {
 }
 
 fn definition(kind: &str, parameters: Value) -> Value {
-    json!({
-        "name":"command-result-watch",
-        "probe":"status", "question":"state?", "buckets":["done"],
-        "every":"10s", "matches":{"done":"done"}, "timeout":"1h",
-        "handlers":{"done":[{"id":"action", "type":kind, "parameters":parameters}]}
-    })
+    let with = parameters
+        .as_object()
+        .map(|fields| {
+            fields
+                .iter()
+                .map(|(key, value)| (key.clone(), json!({"lit":value})))
+                .collect::<serde_json::Map<_, _>>()
+        })
+        .unwrap_or_default();
+    json!({"schema_version":2,"kind":"watch","name":"command-result-watch","steps":[
+      {"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},
+      {"id":"decide","uses":"ask","with":{"question":{"lit":"state?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"routes":{"done":"action"}},
+      {"id":"action","uses":kind,"with":with}
+    ]})
 }
 
 fn create(
@@ -24,9 +32,7 @@ fn create(
     kind: &str,
     parameters: Value,
 ) -> Result<super::store::Sentinel, String> {
-    serde_json::from_value(definition(kind, parameters))
-        .map_err(|error| error.to_string())
-        .and_then(|params| store.create(params, owner(), false))
+    store.create_document(definition(kind, parameters), owner(), false)
 }
 
 #[test]
@@ -99,23 +105,20 @@ fn parameters() -> command::Parameters {
     }
 }
 
-fn command_handlers() -> Value {
-    json!({"done":[
-        {"id":"command", "type":"command", "parameters":parameters()},
-        {"id":"notice", "type":"notify", "parameters":{}}
-    ]})
-}
-
 fn command_store(path: std::path::PathBuf) -> Arc<Mutex<Store>> {
     let mut store = Store::new(
         path,
         codeterm_service_core::cron::clock::MockClock::starting_at(1000),
     );
-    let mut definition = definition("notify", json!({}));
-    definition["handlers"] = command_handlers();
-    store
-        .create(serde_json::from_value(definition).unwrap(), owner(), false)
-        .unwrap();
+    let mut definition = definition("command", serde_json::to_value(parameters()).unwrap());
+    definition["steps"][1]["routes"] = json!({"done":"command"});
+    definition["steps"][2]["id"] = json!("command");
+    definition["steps"][2]["routes"] = json!({"done":"notice"});
+    definition["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"notice","uses":"notify"}));
+    store.create_document(definition, owner(), false).unwrap();
     Arc::new(Mutex::new(store))
 }
 
@@ -505,7 +508,7 @@ fn sentinel_command_graph_metadata_is_safe_and_preserves_actual_execution_id() {
     definition["name"] = json!("Named command scenario");
     let mut job = store
         .lock()
-        .prepare(serde_json::from_value(definition).unwrap(), owner, false)
+        .prepare_document(definition, owner, false)
         .unwrap();
     job.agent_authored = true;
     let job = store.lock().insert(job).unwrap();
@@ -597,13 +600,9 @@ fn sentinel_command_scope_expiry_team_cleanup_and_stop_wake_exact_source() {
         let mut other_owner = owner();
         other_owner.team_id = Some("other-team".into());
         let mut other_definition = definition("notify", json!({}));
-        other_definition["timeout"] = json!("2h");
+        other_definition["steps"][0]["timeout"] = json!({"lit":"2h"});
         let other = store
-            .create(
-                serde_json::from_value(other_definition).unwrap(),
-                other_owner,
-                false,
-            )
+            .create_document(other_definition, other_owner, false)
             .unwrap();
         let leases = store.due().unwrap();
         let lease = leases

@@ -245,26 +245,11 @@ mod tests {
             directory.path().join("events.json"),
             clock,
         )));
-        let spec = codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec {
-            note: None,
-            name: "event-lease-test".into(),
-            owner: codeterm_blueprint_types::blueprint_pipeline::BlueprintOwner::Tab,
-            trigger: codeterm_blueprint_types::blueprint_pipeline::Trigger::Event {
-                kind: "fixture.message".into(),
-                params: serde_json::json!({}),
-            },
-            steps: vec![codeterm_blueprint_types::blueprint_pipeline::Step {
-                name: "match".into(),
-                input: codeterm_blueprint_types::blueprint_pipeline::IoType::Text,
-                kind: codeterm_blueprint_types::blueprint_pipeline::StepKind::Filter {
-                    pattern: "fixture".into(),
-                    bucket: None,
-                },
-                on: Default::default(),
-            }],
-            result: Default::default(),
-        };
-        let job = store.lock().prepare_pipeline(spec, owner(), false).unwrap();
+        let document = json!({"schema_version":2,"kind":"pipeline","name":"event-lease-test","owner":"tab","trigger":{"type":"event","kind":{"lit":"fixture.message"}},"steps":[{"id":"match","uses":"filter","with":{"pattern":{"lit":"fixture"}}}]});
+        let job = store
+            .lock()
+            .prepare_document(document, owner(), false)
+            .unwrap();
         super::super::storage::commit(&store, |current| current.stage_insert(job)).unwrap();
         assert!(store.lock().event_wait_only());
         let event = codeterm_plugin::graph_events::EventEnvelope {

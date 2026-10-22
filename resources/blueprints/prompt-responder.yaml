@@ -1,7 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
-name: Prompt {{tab_id}}
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: watch
+name: Prompt Responder
 note: Request a safe response to a supported permission prompt on one observed agent tab.
+intent: Request a safe response to a supported permission prompt on one observed agent tab.
 inputs:
   permission_pattern:
     type: string
@@ -9,17 +11,35 @@ inputs:
   tab_id:
     type: string
     description: Tab id
-watch:
-  observe: tab:{{tab_id}}
-  question: classify-current-prompt
+steps:
+- id: source
+  uses: observe
+  with:
+    kind:
+      lit: tab
+    id:
+      input: tab_id
+  every:
+    lit: 20s
+  timeout:
+    lit: 1h
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: classify-current-prompt
   buckets:
   - permission
+  routes:
+    permission: permission_1
   matches:
-    permission: '{{permission_pattern}}'
-  until: permission
-  timeout: 1h
-  handlers:
     permission:
-    - type: respond_prompt
-      parameters:
-        target: permission
+      input: permission_pattern
+  until: permission
+- id: permission_1
+  uses: respond_prompt
+  with:
+    target:
+      lit: permission
+  routes:
+    done: '@stop'

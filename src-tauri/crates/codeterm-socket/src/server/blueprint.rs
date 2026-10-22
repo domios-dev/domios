@@ -142,51 +142,6 @@ pub(super) fn dispatch(
             svc.blueprint_input(&caller, &id, text).map_err(error)
         }
         "blueprint.pipeline.nodes" => Ok(svc.blueprint_pipeline_nodes()),
-        "blueprint.pipeline.validate" => {
-            let spec = pipeline_spec_param(params)?;
-            serde_json::to_value(
-                svc.blueprint_pipeline_validate(&caller, spec)
-                    .map_err(error)?,
-            )
-            .map_err(|e| error(e.to_string()))
-        }
-        "blueprint.pipeline.validate.update" => {
-            let id = get_string_param(params, "id")?;
-            let expect_version = params
-                .as_ref()
-                .and_then(|value| value.get("expect_version"))
-                .and_then(Value::as_u64)
-                .ok_or_else(|| error("expect_version must be an unsigned integer"))?;
-            let spec = pipeline_spec_param(params)?;
-            serde_json::to_value(
-                svc.blueprint_pipeline_validate_update(&caller, &id, expect_version, spec)
-                    .map_err(error)?,
-            )
-            .map_err(|e| error(e.to_string()))
-        }
-        "blueprint.pipeline.create" => {
-            let spec = pipeline_spec_param(params)?;
-            svc.blueprint_pipeline_create(&caller, spec).map_err(error)
-        }
-        "blueprint.pipeline.update" => {
-            let id = get_string_param(params, "id")?;
-            let expect_version = params
-                .as_ref()
-                .and_then(|value| value.get("expect_version"))
-                .and_then(Value::as_u64)
-                .ok_or_else(|| error("expect_version must be an unsigned integer"))?;
-            let spec = pipeline_spec_param(params)?;
-            let cause = params
-                .as_ref()
-                .and_then(|value| value.get("cause"))
-                .and_then(Value::as_str)
-                .map(str::to_owned);
-            serde_json::to_value(
-                svc.blueprint_pipeline_update(&caller, &id, expect_version, spec, cause)
-                    .map_err(error)?,
-            )
-            .map_err(|e| error(e.to_string()))
-        }
         "blueprint.log" => {
             let id = get_string_param(params, "id")?;
             let limit = params
@@ -197,34 +152,6 @@ pub(super) fn dispatch(
                 .clamp(1, 200) as u16;
             serde_json::to_value(svc.blueprint_log(&caller, &id, limit).map_err(error)?)
                 .map_err(|e| error(e.to_string()))
-        }
-        "blueprint.create" => {
-            let create = params
-                .as_ref()
-                .and_then(|p| p.get("create"))
-                .ok_or_else(|| error("create params required"))?;
-            let create = serde_json::from_value(stored_definition(create.clone())?)
-                .map_err(|e| error(format!("invalid blueprint params: {e}")))?;
-            serde_json::to_value(svc.sentinel_create(&caller, create).map_err(error)?)
-                .map_err(|e| error(e.to_string()))
-        }
-        "blueprint.validate.create" => {
-            let create = params
-                .as_ref()
-                .and_then(|p| p.get("create"))
-                .ok_or_else(|| error("create params required"))?;
-            let create = serde_json::from_value(stored_definition(create.clone())?)
-                .map_err(|e| error(format!("invalid blueprint params: {e}")))?;
-            let mut preview = serde_json::to_value(
-                svc.sentinel_validate_create(&caller, create)
-                    .map_err(error)?,
-            )
-            .map_err(|e| error(e.to_string()))?;
-            if let Some(fields) = preview.as_object_mut() {
-                fields.remove("id");
-                fields.remove("scenario_id");
-            }
-            Ok(preview)
         }
         "blueprint.list" => serde_json::to_value(svc.sentinel_list(&caller).map_err(error)?)
             .map_err(|e| error(e.to_string())),
@@ -267,57 +194,27 @@ pub(super) fn dispatch(
             Ok(json!({ "deleted": deleted }))
         }
         "blueprint.update" => {
-            let id = get_string_param(params, "id")?;
-            let expect_version = params
+            let args = params
                 .as_ref()
-                .and_then(|value| value.get("expect_version"))
+                .ok_or_else(|| error("parameters required"))?;
+            let id = get_string_param(params, "id")?;
+            let version = args
+                .get("expect_version")
                 .and_then(Value::as_u64)
                 .ok_or_else(|| error("expect_version must be an unsigned integer"))?;
-            let update = params
-                .as_ref()
-                .and_then(|value| value.get("update"))
-                .ok_or_else(|| error("update params required"))?;
-            let update = stored_definition(update.clone())?;
-            if update.get("versions").is_some() {
-                serde_json::to_value(
-                    svc.sentinel_update_from_history(&caller, &id, expect_version, &update)
-                        .map_err(error)?,
-                )
-                .map_err(|e| error(e.to_string()))
-            } else {
-                let update = serde_json::from_value(update)
-                    .map_err(|e| error(format!("invalid blueprint update: {e}")))?;
-                serde_json::to_value(
-                    svc.sentinel_update(&caller, &id, expect_version, update)
-                        .map_err(error)?,
-                )
-                .map_err(|e| error(e.to_string()))
-            }
-        }
-        "blueprint.validate.update" => {
-            let id = get_string_param(params, "id")?;
-            let expect_version = params
-                .as_ref()
-                .and_then(|value| value.get("expect_version"))
-                .and_then(Value::as_u64)
-                .ok_or_else(|| error("expect_version must be an unsigned integer"))?;
-            let update = params
-                .as_ref()
-                .and_then(|value| value.get("update"))
-                .ok_or_else(|| error("update params required"))?;
-            let update = stored_definition(update.clone())?;
-            if update.get("versions").is_some() {
-                svc.sentinel_validate_history_update(&caller, &id, expect_version, &update)
-                    .map_err(error)
-            } else {
-                let update = serde_json::from_value(update)
-                    .map_err(|e| error(format!("invalid blueprint update: {e}")))?;
-                serde_json::to_value(
-                    svc.sentinel_validate_update(&caller, &id, expect_version, update)
-                        .map_err(error)?,
-                )
-                .map_err(|e| error(e.to_string()))
-            }
+            let definition = args
+                .get("definition")
+                .cloned()
+                .ok_or_else(|| error("native v2 definition required"))?;
+            let cause = args.get("cause").and_then(Value::as_str).map(str::to_owned);
+            svc.blueprint_apply_document(
+                &caller,
+                definition,
+                args["dry_run"].as_bool().unwrap_or(false),
+                None,
+                Some((id, version, cause)),
+            )
+            .map_err(apply_error)
         }
         "blueprint.history" => {
             let id = get_string_param(params, "id")?;
@@ -344,18 +241,6 @@ pub(super) fn dispatch(
     } else {
         Ok(exposed_definition(result))
     }
-}
-
-fn pipeline_spec_param(
-    params: &Option<Value>,
-) -> Result<codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec, JsonRpcError> {
-    let value = params
-        .as_ref()
-        .and_then(|params| params.get("spec"))
-        .cloned()
-        .ok_or_else(|| error("spec params required"))?;
-    serde_json::from_value(value)
-        .map_err(|parse_error| error(format!("invalid pipeline spec: {parse_error}")))
 }
 
 fn add_pipeline_show(
@@ -439,6 +324,7 @@ fn step_kind_name(kind: &codeterm_blueprint_types::blueprint_pipeline::StepKind)
     kind.name()
 }
 
+#[cfg(test)]
 fn stored_definition(value: Value) -> Result<Value, JsonRpcError> {
     codeterm_sentinel::public_definition::stored_definition(value).map_err(error)
 }

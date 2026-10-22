@@ -16,6 +16,8 @@ const MAX_UPDATE_BYTES: usize = 65_536;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DefinitionSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<serde_json::Value>,
     #[serde(default)]
     pub terminal: Option<codeterm_blueprint_types::blueprint_terminal::Config>,
     #[serde(default)]
@@ -186,6 +188,7 @@ pub fn validate(job: &Sentinel) -> Result<(), String> {
 impl DefinitionSnapshot {
     pub fn from_job(job: &Sentinel) -> Self {
         Self {
+            document: job.document.clone(),
             terminal: job.terminal().cloned(),
             session: job.session,
             name: job.name.clone(),
@@ -437,6 +440,7 @@ impl Store {
             next.machine.stopped = stopped;
             next.cleanup.sync(stopped, authored_at);
         }
+        next.document = update.job.document;
         next.session = update.job.session;
         next.name = update.job.name;
         next.note = update.job.note;

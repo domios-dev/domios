@@ -24,6 +24,8 @@ pub use codeterm_blueprint_types::blueprint_watch::Create;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Sentinel {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creation_options: Option<codeterm_blueprint_types::blueprint_watch::CreationOptions>,
     #[serde(flatten)]
     pub source: super::stage_source::StageSource,

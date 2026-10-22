@@ -364,7 +364,7 @@ fn scheduler_wait_ms(store: &Store) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{Create, Owner};
+    use crate::store::Owner;
     use serde_json::json;
 
     #[test]
@@ -399,19 +399,15 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1_000);
         let mut store = Store::new(temp.path().join("sentinels.json"), clock.clone());
-        let params: Create = serde_json::from_value(json!({
-            "name": "scheduler-readiness-watch",
-            "probe": "status",
-            "question": "ready?",
-            "buckets": ["done"],
-            "every": "10s",
-            "timeout": "1h",
-            "matches": {"done": "done"},
-            "handlers": {"done": [{"id": "notice", "type": "notify", "parameters": {}}]}
-        }))
-        .unwrap();
+        let params = json!(codeterm_sentinel::test_support::watch(
+            serde_json::json!("scheduler-readiness-watch"),
+            serde_json::json!({"uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}}),
+            serde_json::json!({"with":{"question":{"lit":"ready?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}}}),
+            serde_json::json!({"done":[{"id":"notice","uses":"notify","with":{}}]}),
+            serde_json::json!(null)
+        ));
         let job = store
-            .create(
+            .create_document(
                 params,
                 Owner {
                     creator_tab_id: "creator".into(),

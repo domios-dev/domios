@@ -1280,9 +1280,11 @@ name = "codeterm-blueprint-types"
 version = "0.0.0"
 dependencies = [
  "regex",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "shell-words",
  "url",
  "uuid",
@@ -1626,6 +1628,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2",
  "sqlite-vec",
  "tempfile",
