@@ -6,12 +6,15 @@ import { buildCatalog, updateCount } from "./pluginCatalog";
 import type { PluginSnapshot } from "./types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+const state = vi.hoisted(() => ({ panel: null as null | { snapshot: { errors: Record<string, string> }; diagnostics: { channel: string; message: string }[]; pluginHasUpdate: (id: string) => boolean } }));
+vi.mock("../../hooks/useUpdatePanel", () => ({ useOptionalUpdatePanel: () => state.panel }));
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
 afterEach(async () => {
   await act(async () => root?.unmount());
   host?.remove();
+  state.panel = null;
   root = null;
   host = null;
 });
@@ -50,4 +53,17 @@ it("renders badge and Updates count from the installed decision across refreshes
   await render();
   expect(host.querySelector('[role="status"][aria-label="Update available"]')).toBeNull();
   expect(updatesButton().textContent).toBe("Updates");
+});
+
+it("shows one channel diagnostic and failed row indicators without update offers", async () => {
+  state.panel = { snapshot: { errors: { store: "opaque channel diagnostic" } }, diagnostics: [{ channel: "store", message: "opaque channel diagnostic" }], pluginHasUpdate: () => false };
+  host = document.createElement("div"); document.body.append(host); root = createRoot(host);
+  const entries = buildCatalog({ plugins: ["first", "second"].map(id => ({ id, version: "1.0.0", source: { kind: "channel" as const, channel: "store", path: id }, update: { available: true, remote_version: "2.0.0", reason: "newer_version" } })), channels: [], diff: [] });
+  await act(async () => root!.render(<PluginList entries={entries} selectedId={null} onSelect={vi.fn()} query="" onQuery={vi.fn()} filter="all" onFilter={vi.fn()} updateCount={0} onRemoveChannel={vi.fn()} activities={new Map()} activityDisplayMap={new Map()} channels={[]} selectedChannel={null} channelPluginCounts={new Map()} onSelectChannel={vi.fn()} />));
+  expect(host.querySelectorAll('section[aria-label="store updates unavailable"]')).toHaveLength(1);
+  expect(host.querySelectorAll("pre")).toHaveLength(1);
+  expect(host.querySelector("details")?.open).toBe(false);
+  expect(host.querySelector('[aria-label="Update available"]')).toBeNull();
+  expect(host.querySelector('[data-plugin-id="first"]')?.textContent).toContain("1.0.0 → 2.0.0");
+  for (const id of ["first", "second"]) expect(host.querySelector(`[aria-label="${id} update check failed"]`)).not.toBeNull();
 });

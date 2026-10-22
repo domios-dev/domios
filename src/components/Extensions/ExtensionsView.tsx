@@ -1,3 +1,4 @@
+import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { BackPill } from "../shared/BackPill";
 /**
@@ -39,6 +40,7 @@ export function ExtensionsView({
   pluginActivities: Map<string, PluginActivity>;
   pluginActivityDisplayMap: PluginActivityDisplayMap;
 }) {
+  const updatePanel = useOptionalUpdatePanel();
   const snapshotState = usePluginSnapshotStore();
   const snapshot = snapshotState.snapshot;
   const hasCachedSnapshot = useRef(snapshotState.lastSuccessfulSnapshot !== null);
@@ -82,7 +84,7 @@ export function ExtensionsView({
     return () => window.removeEventListener(SELECT_EXTENSION_EVENT, onSelect);
   }, []);
 
-  const catalog = useMemo(() => buildCatalog(snapshot), [snapshot]);
+  const catalog = useMemo(() => buildCatalog(snapshot).map(entry => updatePanel ? { ...entry, updateAvailable: updatePanel.pluginHasUpdate(entry.id) } : entry), [snapshot, updatePanel]);
   const visibleEntries = useMemo(() => filterCatalog(catalog, query, filter), [catalog, query, filter]);
   const updates = useMemo(() => updateCount(catalog), [catalog]);
   const selected = selectedId ? catalog.find((e) => e.id === selectedId) ?? null : null;

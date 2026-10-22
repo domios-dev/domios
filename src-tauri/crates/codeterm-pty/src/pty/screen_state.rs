@@ -165,6 +165,7 @@ impl ShellReadySignal {
 /// Lines that scroll beyond the visible grid are not available through this state.
 pub struct ScreenState {
     parsers: HashMap<String, vt100::Parser>,
+    input_modes: HashMap<String, super::input_mode::InputMode>,
     prompt_signals: HashMap<String, Arc<PromptSignal>>,
     shell_ready_signals: HashMap<String, Arc<ShellReadySignal>>,
     shell_ready_generations: HashMap<String, Option<u64>>,
@@ -179,6 +180,7 @@ impl ScreenState {
     pub fn new() -> Self {
         Self {
             parsers: HashMap::new(),
+            input_modes: HashMap::new(),
             prompt_signals: HashMap::new(),
             shell_ready_signals: HashMap::new(),
             shell_ready_generations: HashMap::new(),
@@ -201,6 +203,10 @@ impl ScreenState {
     }
 
     pub fn process(&mut self, pty_id: &str, data: &[u8]) {
+        self.input_modes
+            .entry(pty_id.to_string())
+            .or_default()
+            .process(data);
         if data.windows(7).any(|window| window == b"\x1b]133;A")
             || data.windows(7).any(|window| window == b"\x1b]633;A")
         {
@@ -281,6 +287,12 @@ impl ScreenState {
                 })
                 .collect(),
         )
+    }
+
+    pub fn win32_input_mode(&self, pty_id: &str) -> bool {
+        self.input_modes
+            .get(pty_id)
+            .is_some_and(|mode| mode.win32())
     }
 
     pub fn bracketed_paste_mode(&self, pty_id: &str) -> Option<bool> {
@@ -614,6 +626,7 @@ impl ScreenState {
     pub fn remove(&mut self, pty_id: &str) {
         self.pty_generations.remove(pty_id);
         self.parsers.remove(pty_id);
+        self.input_modes.remove(pty_id);
         self.shell_ready_generations.remove(pty_id);
         if let Some(sig) = self.prompt_signals.remove(pty_id) {
             sig.mark_ready();

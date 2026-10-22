@@ -58,6 +58,7 @@ pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) 
     });
 }
 
+#[derive(Clone)]
 struct FireSpec {
     job_id: String,
     agent: String,
@@ -228,9 +229,31 @@ impl std::ops::Not for FireStart {
 }
 
 fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> FireStart {
-    fire_job_with_spawn(cron_state, service, spec, |spec| service.spawn_tab(spec))
+    let Some(policy) = crate::service::role_policy::resolve(spec.role.as_deref()) else {
+        return fire_job_with_spawn(cron_state, service, spec, |spec| service.spawn_tab(spec));
+    };
+    let Some(job) = cron_state.lock().get(&spec.job_id).cloned() else {
+        return FireStart::Refused;
+    };
+    let now = cron_state.lock().now_ms();
+    match policy.prepare_cron(service, &job, now) {
+        Ok(Some(launch)) => {
+            let mut resolved = spec.clone();
+            resolved.agent = launch.provider;
+            resolved.model = Some(launch.model);
+            resolved.reasoning_effort = launch.effort;
+            resolved.task = launch.task;
+            fire_job_with_spawn(cron_state, service, &resolved, |spec| {
+                service.spawn_tab(spec)
+            })
+        }
+        Ok(None) => FireStart::Recorded,
+        Err(error) => {
+            log::debug!("[cron] prepare {}: {error}", job.id);
+            FireStart::Refused
+        }
+    }
 }
-
 fn fire_job_with_spawn(
     cron_state: &CronState,
     service: &ServiceState,
@@ -263,18 +286,25 @@ fn fire_job_with_spawn(
         .skill
         .as_deref()
         .map(crate::cron::skill_block::cron_skill_block);
-    let task_text = crate::cron::task_text::build_cron_task_text(
-        task,
-        skill_block.as_deref(),
-        report_target_tab_id,
-        &run_id,
-    );
+    let task_text = if crate::service::role_policy::resolve(spec.role.as_deref())
+        .is_some_and(|policy| policy.raw_task())
+    {
+        task.to_string()
+    } else {
+        crate::cron::task_text::build_cron_task_text(
+            task,
+            skill_block.as_deref(),
+            report_target_tab_id,
+            &run_id,
+        )
+    };
+    let policy = crate::service::role_policy::resolve(role);
     let resume_system_prompt = crate::service::provider_launch_task(
         &service.agent_registry,
         agent,
         Some(&task_text),
-        role,
-        None,
+        policy.map(|policy| policy.spawn_role()).or(role),
+        policy.map(|policy| policy.profile().as_str()),
     );
 
     // (shared default). Resolved against `agent`'s own catalog so a cron job
@@ -376,10 +406,38 @@ fn fire_job_with_spawn(
                 );
             }
 
+            if let Some(policy) = crate::service::role_policy::resolve(spec.role.as_deref()) {
+                let job = { cron_state.lock().get(job_id).cloned() };
+                let now = cron_state.lock().now_ms();
+                if let Some(job) = job {
+                    if let Err(error) = policy.spawned(service, &job, &handle.tab_id, &run_id, now)
+                    {
+                        log::debug!("[cron] launch hook {}: {error}", job.id);
+                        service.log_system_notice(
+                            format!("Cron launch failed: {}", job.id),
+                            Some(error),
+                            Some("error"),
+                        );
+                        record_role_launch_failure(service, cron_state, &job, &run_id, now);
+                        if let Err(error) = service.close_tab_with_reason(
+                            &handle.tab_id,
+                            crate::multiplexer::types::TabCloseReason::AgentRunEnded,
+                        ) {
+                            log::error!("[cron] close unbound launch {}: {error}", handle.tab_id);
+                        }
+                        return FireStart::Recorded;
+                    }
+                }
+            }
             crate::service::cron::emit_cron_fired(service, job_id, &run_id, &handle.tab_id);
         }
         Err(e) => {
             log::error!("Cron agent spawn failed: job={}, error={}", job_id, e);
+            let job = { cron_state.lock().get(job_id).cloned() };
+            if let Some(job) = job {
+                let now = cron_state.lock().now_ms();
+                record_role_launch_failure(service, cron_state, &job, &run_id, now);
+            }
 
             let fresh_transition =
                 finish_run(cron_state, job_id, &run_id, CronRunStatus::Failed, None)
@@ -394,6 +452,32 @@ fn fire_job_with_spawn(
     FireStart::Recorded
 }
 
+fn record_role_launch_failure(
+    service: &ServiceState,
+    cron: &CronState,
+    job: &CronJob,
+    run_id: &str,
+    now: u64,
+) {
+    let Some(policy) = crate::service::role_policy::resolve(job.role.as_deref()) else {
+        return;
+    };
+    if let Err(error) = policy.launch_failed(service, job, now) {
+        log::error!("[cron] roll back launch {}: {error}", job.id);
+    }
+    match super::store::finish_run_with_summary(
+        cron,
+        &job.id,
+        run_id,
+        CronRunStatus::Failed,
+        "failed",
+    ) {
+        Ok(true) => crate::cron::notify::notify_on_consecutive_failure(service, cron, &job.id),
+        Ok(false) => {}
+        Err(error) => log::error!("[cron] record launch failure {}: {error}", job.id),
+    }
+    service.emit_cron_changed();
+}
 /// Records the run start before any dispatch. Only a recorded start dispatches: a
 /// refused or unconfirmed record is never promoted to a launched run.
 pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &str) -> FireStart {

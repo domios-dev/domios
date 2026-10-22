@@ -261,6 +261,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
         {activeTab === "activity" && (
           <MemoryActivityTab
             api={api}
+            config={config}
             nodes={nodes}
             onNavigateToItem={handleNavigateToItem}
           />

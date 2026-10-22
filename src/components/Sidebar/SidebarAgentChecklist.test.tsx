@@ -112,6 +112,21 @@ test("a checklist disclosure reads the store only when opened and shows titles w
   store.restore();
 });
 
+test("seeded criteria display completed after review updates the checklist", async () => {
+  const record = checklistRecord("worker", 1, 1, [["Acceptance criterion", "open"]]);
+  const store = checklistStore({ ...record, items: record.items.map((item) => ({ ...item, locked: true })) });
+  const { host, root } = await renderSidebar({ tabs: checklistTeam() });
+  const toggle = toggleFor(host, "Mica");
+  assert(toggle, "worker checklist disclosure exists");
+  await open(toggle);
+  store.set({ ...record, revision: 2, status: "complete", items: record.items.map((item) => ({ ...item, locked: true, revision: 2, state: "done", reason: "accepted by review" })) });
+  await store.emit({ tab_id: "worker", generation: 1, revision: 2 });
+  const region = regionFor(host, "Mica");
+  assert(region && JSON.stringify(checklistRows(region)) === JSON.stringify(["Acceptance criterionDone"]), "the persisted completion replaces Open in the sidebar");
+  await act(async () => root.unmount());
+  store.restore();
+});
+
 test("an Orchestrator row shows the checklist it wrote for itself", async () => {
   const store = checklistStore(checklistRecord("orchestrator", 1, 2, [["Merge wave one", "in_progress"], ["Release", "open"]]));
   const tabs = checklistTeam();
@@ -206,6 +221,19 @@ test("a checklist rereads on its own change event and never shows a stale genera
   assert(store.readCount() === 3, "a collapsed disclosure ignores later events");
   await act(async () => root.unmount());
   store.restore();
+});
+
+test("shared checklist review marker clears on the approval event without changing live items", async () => {
+  const initial = { ...checklistRecord("worker", 1, 1, [["Working step", "in_progress"]]), proposal: { state: "proposed" } };
+  const store = checklistStore(initial);
+  const { host, root } = await renderSidebar({ tabs: checklistTeam() });
+  await open(toggleFor(host, "Mica")!);
+  assert(regionFor(host, "Mica")?.querySelector('[role="status"]'), "unreviewed marker is visible");
+  store.set({ ...initial, revision: 2, proposal: { state: "approved" } });
+  await store.emit({ tab_id: "worker", generation: 1, revision: 2 });
+  assert(!regionFor(host, "Mica")?.querySelector('[role="status"]'), "approval removes the marker");
+  assert(regionFor(host, "Mica")?.textContent?.includes("Working step"), "live work remains visible");
+  await act(async () => root.unmount()); store.restore();
 });
 
 void run();

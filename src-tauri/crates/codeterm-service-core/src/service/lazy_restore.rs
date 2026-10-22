@@ -11,6 +11,9 @@ static WAKING: LazyLock<parking_lot::Mutex<HashSet<String>>> = LazyLock::new(Def
 mod policy;
 mod user_send;
 
+#[cfg(test)]
+pub(crate) mod test_boundary;
+
 struct WakeRequest(String);
 
 impl Drop for WakeRequest {
@@ -77,6 +80,10 @@ impl ServiceContext {
 
     fn wake_tab(&self, tab_id: &str, allow_failed: bool) -> Result<(), String> {
         wake_with(self, tab_id, allow_failed, |id, retry_started_agent| {
+            #[cfg(test)]
+            if let Some(result) = test_boundary::materialize(id) {
+                return result;
+            }
             if retry_started_agent {
                 return self
                     .agent_restart(id, false, super::agent_restart::DEFAULT_GRACE_SECS)
@@ -176,229 +183,4 @@ fn wake_with(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::service::test_fixture::ServiceFixture;
-
-    #[test]
-    fn explicit_chat_wake_bypasses_pending_boot_restore() {
-        let (mut mux, id) = MultiplexerState::new();
-        let tab = mux.get_tab_mut(&id).unwrap();
-        tab.protected = false;
-        tab.frozen = false;
-        tab.restored_from_snapshot = true;
-        tab.backing = TabBacking::ChatBackend {
-            plugin_id: "fixture".into(),
-            session_id: "own-session".into(),
-        };
-        assert!(!wake_eligible(tab, false));
-        assert!(wake_eligible(tab, true));
-        tab.protected = true;
-        assert!(!wake_eligible(tab, true));
-        tab.protected = false;
-        tab.restored_from_snapshot = false;
-        assert!(!wake_eligible(tab, true));
-    }
-
-    #[test]
-    fn startup_keeps_general_awake_and_freezes_unknown_project_activity() {
-        let (mut mux, general) = MultiplexerState::new();
-        mux.register_alias(super::super::general_agent::GENERAL_ALIAS, &general);
-        let general_ws = mux.list_workspaces()[0].id.clone();
-        let sibling = mux.create_tab(&general_ws).unwrap();
-        for id in [&general, &sibling] {
-            mux.get_tab_mut(id).unwrap().restored_from_snapshot = true;
-        }
-        let fixture = ServiceFixture::new(mux);
-        initialize(&fixture.service, 48);
-        for id in [&general, &sibling] {
-            assert!(!fixture.service.mux.read().get_tab(id).unwrap().frozen);
-        }
-    }
-
-    #[test]
-    fn startup_freezes_recent_idle_agents_but_preserves_busy_and_protected_tabs() {
-        let (mut mux, idle) = MultiplexerState::new();
-        mux.register_alias(super::super::general_agent::GENERAL_ALIAS, &idle);
-        let workspace = mux.list_workspaces()[0].id.clone();
-        let busy = mux.create_tab(&workspace).unwrap();
-        let protected = mux.create_tab(&workspace).unwrap();
-        for id in [&idle, &busy, &protected] {
-            let tab = mux.get_tab_mut(id).unwrap();
-            tab.restored_from_snapshot = true;
-            tab.agent_type = Some("fixture".into());
-            tab.last_active_at_ms = Some(u64::MAX);
-        }
-        mux.get_tab_mut(&protected).unwrap().protected = true;
-        mux.get_tab_mut(&busy).unwrap().agent_runtime_state =
-            Some(serde_json::json!({"active_turn_started_at_ms": 42}));
-        let fixture = ServiceFixture::new(mux);
-        initialize(&fixture.service, 48);
-        let mux = fixture.service.mux.read();
-        assert!(mux.get_tab(&idle).unwrap().frozen);
-        assert!(!mux.get_tab(&busy).unwrap().frozen);
-        assert!(!mux.get_tab(&protected).unwrap().frozen);
-    }
-
-    #[test]
-    fn materializer_failure_is_visible_and_explicit_wake_retries_once() {
-        let (mut mux, id) = MultiplexerState::new();
-        mux.get_tab_mut(&id).unwrap().frozen = true;
-        mux.get_tab_mut(&id).unwrap().agent_type = Some("fixture".into());
-        let fixture = ServiceFixture::new(mux);
-        let reason = "fixture materializer error";
-        assert_eq!(
-            wake_with(&fixture.service, &id, false, |_, _| Err(reason.into())),
-            Err(reason.into())
-        );
-        {
-            let mux = fixture.service.mux.read();
-            let tab = mux.get_tab(&id).unwrap();
-            assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
-            assert_eq!(tab.boot_failure_reason.as_deref(), Some(reason));
-        }
-        wake_with(&fixture.service, &id, false, |_, _| {
-            panic!("address retried failed wake")
-        })
-        .unwrap();
-        let calls = std::cell::Cell::new(0);
-        wake_with(
-            &fixture.service,
-            &id,
-            true,
-            |resolved, retry_started_agent| {
-                assert!(retry_started_agent);
-                calls.set(calls.get() + 1);
-                let tab = fixture
-                    .service
-                    .mux
-                    .read()
-                    .get_tab(resolved)
-                    .cloned()
-                    .unwrap();
-                assert_eq!(tab.boot_stage, Some(BootStage::PtyStarting));
-                assert!(tab.boot_failure_reason.is_none());
-                wake_with(&fixture.service, resolved, true, |_, _| {
-                    panic!("wake duplicated while materializing")
-                })?;
-                fixture
-                    .service
-                    .mux
-                    .write()
-                    .get_tab_mut(resolved)
-                    .unwrap()
-                    .pty_id = Some("materialized".into());
-                Ok(())
-            },
-        )
-        .unwrap();
-        wake_with(&fixture.service, &id, true, |_, _| {
-            panic!("completed wake duplicated")
-        })
-        .unwrap();
-        assert_eq!(calls.get(), 1);
-    }
-
-    #[test]
-    fn repeated_wakes_materialize_once() {
-        let (mut mux, id) = MultiplexerState::new();
-        mux.get_tab_mut(&id).unwrap().frozen = true;
-        let fixture = ServiceFixture::new(mux);
-        let calls = std::cell::Cell::new(0);
-        for _ in 0..2 {
-            wake_with(&fixture.service, &id, false, |_, _| {
-                calls.set(calls.get() + 1);
-                Ok(())
-            })
-            .unwrap();
-        }
-        assert_eq!(calls.get(), 1);
-    }
-
-    #[test]
-    fn waking_keeps_runtime_sleep_marker_and_exact_session() {
-        let (mut mux, id) = MultiplexerState::new();
-        let tab = mux.get_tab_mut(&id).unwrap();
-        tab.frozen = true;
-        tab.slept_at_ms = Some(42);
-        tab.agent_session_id = Some("own-session".into());
-        let fixture = ServiceFixture::new(mux);
-        wake_with(&fixture.service, &id, false, |resolved, _| {
-            let mux = fixture.service.mux.read();
-            let tab = mux.get_tab(resolved).unwrap();
-            assert!(!tab.frozen);
-            assert_eq!(tab.slept_at_ms, Some(42));
-            assert_eq!(tab.agent_session_id.as_deref(), Some("own-session"));
-            Ok(())
-        })
-        .unwrap();
-    }
-
-    #[test]
-    fn missing_backend_wake_eligibility_excludes_owned_stopped_and_protected_tabs() {
-        let (mut mux, id) = MultiplexerState::new();
-        let tab = mux.get_tab_mut(&id).unwrap();
-        tab.protected = false;
-        tab.frozen = false;
-        tab.pty_id = None;
-        assert!(!wake_eligible(tab, false));
-        assert!(wake_eligible(tab, true));
-        tab.protected = true;
-        assert!(!wake_eligible(tab, true));
-        tab.protected = false;
-        tab.pty_id = Some("owned".into());
-        assert!(!wake_eligible(tab, true));
-        tab.pty_id = None;
-        tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
-            stopped: true,
-            ..Default::default()
-        });
-        assert!(!wake_eligible(tab, true));
-    }
-
-    #[test]
-    fn awake_missing_backend_materializes_without_restart_and_publishes_failure() {
-        let (mut mux, id) = MultiplexerState::new();
-        let tab = mux.get_tab_mut(&id).unwrap();
-        tab.protected = false;
-        tab.frozen = false;
-        tab.pty_id = None;
-        tab.agent_session_id = Some("exact-session".into());
-        let fixture = ServiceFixture::new(mux);
-        let reason = r#"{"code":"workspace_cwd_missing","path":"/deleted"}"#;
-        assert_eq!(
-            wake_with(&fixture.service, &id, true, |resolved, restart| {
-                assert_eq!(resolved, id);
-                assert!(!restart);
-                wake_with(&fixture.service, resolved, true, |_, _| {
-                    panic!("duplicate wake")
-                })?;
-                Err(reason.into())
-            }),
-            Err(reason.into())
-        );
-        let mux = fixture.service.mux.read();
-        let tab = mux.get_tab(&id).unwrap();
-        assert_eq!(tab.agent_session_id.as_deref(), Some("exact-session"));
-        assert_eq!(tab.boot_stage, Some(BootStage::SpawnFailed));
-        assert_eq!(tab.boot_failure_reason.as_deref(), Some(reason));
-    }
-
-    #[test]
-    fn frozen_address_materializes_before_delivery() {
-        let (mut mux, id) = MultiplexerState::new();
-        mux.get_tab_mut(&id).unwrap().frozen = true;
-        let fixture = ServiceFixture::new(mux);
-        let mut events = Vec::new();
-        wake_with(&fixture.service, &id, false, |resolved, _| {
-            assert_eq!(resolved, id);
-            assert!(!fixture.service.mux.read().get_tab(resolved).unwrap().frozen);
-            events.push("materialize");
-            Ok(())
-        })
-        .unwrap();
-        events.push("deliver");
-        assert_eq!(events, ["materialize", "deliver"]);
-    }
-}
+mod tests;

@@ -1,7 +1,6 @@
 import { useRef, type RefObject } from "react";
-import { createPortal } from "react-dom";
 import { Film, FolderOpen, X } from "lucide-react";
-import { FullscreenOverlay, useFullscreenHostBounds, useFullscreenKeyboard } from "./FullscreenOverlay";
+import { FullscreenOverlay } from "./FullscreenOverlay";
 import { localArtifactOpeningAvailable } from "./localArtifactLoader";
 import { revealLocalFile } from "./ImageFullscreen";
 import { useLocalVideo } from "./localVideo";
@@ -16,11 +15,9 @@ export function VideoFullscreen({ label, path, anchorRef, onClose }: {
   onClose: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
-  useFullscreenKeyboard(true, panelRef, onClose);
-  const { bounds } = useFullscreenHostBounds(true, anchorRef);
   const video = useLocalVideo(path, true);
-  return createPortal(
-    <FullscreenOverlay panelRef={panelRef} label={`Video ${label}`} onClose={onClose} style={bounds}>
+  return (
+    <FullscreenOverlay panelRef={panelRef} closeButton={false} label={`Video ${label}`} onClose={onClose} returnFocusRef={anchorRef}>
       <header className="flex min-w-0 items-center gap-2 px-1.5 pb-2 text-xs" style={{ color: "var(--ct-muted-fg)" }}>
         <Film size={14} aria-hidden className="shrink-0" />
         <span className="shrink-0 font-medium" style={{ color: "var(--ct-fg)" }}>{label}</span>
@@ -40,7 +37,6 @@ export function VideoFullscreen({ label, path, anchorRef, onClose }: {
           ? <video src={video.src} controls autoPlay playsInline aria-label={label} className="max-h-full max-w-full rounded-md shadow-2xl" onClick={(event) => event.stopPropagation()} />
           : <span role={video.failed ? "alert" : "status"} style={{ color: "var(--ct-muted-fg)" }}>{video.failed ? "Video unavailable (over 48 MB or unreadable); reveal the file to play it" : "Loading video…"}</span>}
       </div>
-    </FullscreenOverlay>,
-    document.body,
+    </FullscreenOverlay>
   );
 }

@@ -123,7 +123,7 @@ export function SortableRow({
         listeners?.onTouchStart?.(event);
       }}
       onKeyDown={(event) => {
-        if (isEditableTarget(event.target)) return;
+        if (event.target !== event.currentTarget) return;
         listeners?.onKeyDown?.(event);
       }}
     >

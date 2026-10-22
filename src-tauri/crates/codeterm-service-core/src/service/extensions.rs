@@ -88,6 +88,7 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::agent_restart::ProviderSwitchOperations>();
         self.insert_late::<crate::CronState>();
         self.insert_late::<crate::CronWake>();
+        self.insert_late::<crate::service::curator::CuratorTabs>();
         self.insert_late::<crate::ports::sentinel::SentinelPorts>();
         self.insert_late::<crate::ports::rest::LocalApiRouter>();
         self.insert_late::<crate::startup::RestApiControlState>();
@@ -97,6 +98,7 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::cron::OwnerPromptRequests>();
         self.insert_late::<crate::service::session_persist::SessionPersistenceWorker>();
         self.insert_late::<crate::agent::live_state::RestoreReportWorker>();
+        self.insert_late::<crate::service::lane_git_queue::LaneGitQueue>();
     }
 
     pub fn finish(self) -> Extensions {

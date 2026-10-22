@@ -6,9 +6,27 @@ pub enum Body {
     Json(Value),
     Form(Vec<(String, String)>),
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestDiagnostic {
+    BackendRedeem,
+    FirebaseCustomTokenExchange,
+}
+impl RequestDiagnostic {
+    const fn operation(self) -> &'static str {
+        match self {
+            Self::BackendRedeem => "backend_redeem",
+            Self::FirebaseCustomTokenExchange => "firebase_custom_token_exchange",
+        }
+    }
+}
 #[async_trait]
 pub trait Transport: Send + Sync {
-    async fn post(&self, url: &str, body: Body) -> Result<Value>;
+    async fn post(
+        &self,
+        url: &str,
+        body: Body,
+        diagnostic: Option<RequestDiagnostic>,
+    ) -> Result<Value>;
 }
 pub struct HttpTransport {
     client: reqwest::Client,
@@ -25,12 +43,24 @@ impl HttpTransport {
 }
 #[async_trait]
 impl Transport for HttpTransport {
-    async fn post(&self, url: &str, body: Body) -> Result<Value> {
-        let target = url::Url::parse(url).map_err(|_| Error::Configuration)?;
+    async fn post(
+        &self,
+        url: &str,
+        body: Body,
+        diagnostic: Option<RequestDiagnostic>,
+    ) -> Result<Value> {
+        let target = match url::Url::parse(url) {
+            Ok(target) => target,
+            Err(_) => {
+                log_request_diagnostic(diagnostic, None, "none", false, false);
+                return Err(Error::Configuration);
+            }
+        };
         if target.scheme() != "https"
             || !target.username().is_empty()
             || target.password().is_some()
         {
+            log_request_diagnostic(diagnostic, None, "none", false, false);
             return Err(Error::Configuration);
         }
         let request = self.client.post(target);
@@ -38,12 +68,116 @@ impl Transport for HttpTransport {
             Body::Json(value) => request.json(&value),
             Body::Form(value) => request.form(&value),
         };
-        let response = request.send().await.map_err(|_| Error::Transport)?;
-        if !response.status().is_success() {
+        let request = match request.build() {
+            Ok(request) => request,
+            Err(_) => {
+                log_request_diagnostic(diagnostic, None, "none", false, false);
+                return Err(Error::Transport);
+            }
+        };
+        let app_check_header_present = request.headers().contains_key("x-firebase-appcheck");
+        let auth_header_present = request
+            .headers()
+            .contains_key(reqwest::header::AUTHORIZATION);
+        let response = match self.client.execute(request).await {
+            Ok(response) => response,
+            Err(_) => {
+                log_request_diagnostic(
+                    diagnostic,
+                    None,
+                    "none",
+                    app_check_header_present,
+                    auth_header_present,
+                );
+                return Err(Error::Transport);
+            }
+        };
+        let status = response.status();
+        let status_code = status.as_u16();
+        let successful = status.is_success();
+        let bytes = match response.bytes().await {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                log_request_diagnostic(
+                    diagnostic,
+                    Some(status_code),
+                    if successful { "none" } else { "unrecognized" },
+                    app_check_header_present,
+                    auth_header_present,
+                );
+                return Err(Error::Provider);
+            }
+        };
+        let body = serde_json::from_slice::<Value>(&bytes).ok();
+        let error_code = if successful {
+            "none"
+        } else {
+            safe_backend_error_code(body.as_ref())
+        };
+        log_request_diagnostic(
+            diagnostic,
+            Some(status_code),
+            error_code,
+            app_check_header_present,
+            auth_header_present,
+        );
+        if !successful {
             return Err(Error::Provider);
         }
-        response.json().await.map_err(|_| Error::Provider)
+        body.ok_or(Error::Provider)
     }
+}
+
+fn log_request_diagnostic(
+    diagnostic: Option<RequestDiagnostic>,
+    status: Option<u16>,
+    backend_error_code: &str,
+    app_check_header_present: bool,
+    auth_header_present: bool,
+) {
+    let Some(diagnostic) = diagnostic else {
+        return;
+    };
+    let status = status.map_or_else(|| "none".to_owned(), |status| status.to_string());
+    log::info!(
+        target: "codeterm_account::sign_in",
+        "sign_in http stage={} operation={} http_status={} backend_error_code={} app_check_header_present={} auth_header_present={}",
+        SignInStage::Redemption.name(),
+        diagnostic.operation(),
+        status,
+        backend_error_code,
+        app_check_header_present,
+        auth_header_present,
+    );
+}
+
+fn safe_backend_error_code(body: Option<&Value>) -> &str {
+    let error = body.and_then(|body| body.get("error"));
+    let candidate = error
+        .and_then(Value::as_str)
+        .or_else(|| {
+            error
+                .and_then(|error| error.get("message"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            error
+                .and_then(|error| error.get("status"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            error
+                .and_then(|error| error.get("code"))
+                .and_then(Value::as_str)
+        });
+    candidate
+        .filter(|code| {
+            (1..=64).contains(&code.len())
+                && code
+                    .bytes()
+                    .all(|byte| byte.is_ascii_uppercase() || byte == b'_')
+        })
+        .unwrap_or("unrecognized")
 }
 pub struct Firebase {
     config: Config,
@@ -68,6 +202,7 @@ impl Firebase {
             .post(
                 &self.endpoint("https://identitytoolkit.googleapis.com/v1/accounts:lookup")?,
                 Body::Json(json!({"idToken": id_token.expose()})),
+                None,
             )
             .await?;
         let user = profile
@@ -108,7 +243,14 @@ impl IdentityProvider for Firebase {
         ))
     }
     async fn redeem(&self, request: Redemption) -> Result<Tokens> {
-        let response = self.transport.post(&self.config.redeem_url, Body::Json(json!({ "code": request.code.expose(), "code_verifier": request.verifier.expose(), "state": request.state, "redirect_uri": request.redirect }))).await?;
+        let response = self
+            .transport
+            .post(
+                &self.config.redeem_url,
+                Body::Json(json!({ "code": request.code.expose(), "code_verifier": request.verifier.expose(), "state": request.state, "redirect_uri": request.redirect })),
+                Some(RequestDiagnostic::BackendRedeem),
+            )
+            .await?;
         let custom = Secret::new(required(&response, "custom_token")?);
         let response = self
             .transport
@@ -117,6 +259,7 @@ impl IdentityProvider for Firebase {
                     "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken",
                 )?,
                 Body::Json(json!({"token": custom.expose(), "returnSecureToken": true})),
+                Some(RequestDiagnostic::FirebaseCustomTokenExchange),
             )
             .await?;
         self.session(
@@ -134,6 +277,7 @@ impl IdentityProvider for Firebase {
                     ("grant_type".into(), "refresh_token".into()),
                     ("refresh_token".into(), token.expose().into()),
                 ]),
+                None,
             )
             .await?;
         self.session(

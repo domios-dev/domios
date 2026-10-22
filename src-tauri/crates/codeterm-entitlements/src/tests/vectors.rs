@@ -1,5 +1,5 @@
 use crate::jcs;
-use crate::payload::{Authority, Enforcement, GrantPayload, Mode};
+use crate::payload::{Authority, Enforcement, GrantPayload, Mode, PayloadDefect};
 use crate::policy::{Policy, PolicySpec, TrustedKey};
 use crate::verdict::{compiled_free, TimeState};
 use crate::verify::{
@@ -11,11 +11,25 @@ use base64::Engine;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-const PACKET: &[u8] = include_bytes!("../../vectors/vectors.json");
-const PACKET_SHA256: &str = "ec24330f780fcc22701892c792b025dc10f4d9f3ca22e48e530a4aace2d874de";
+const PACKET: &[u8] = include_bytes!("../../vectors/grant-vectors.json");
+// The producer repository pins the same digest; a one-sided edit fails both suites.
+const PACKET_SHA256: &str = "ff69e6f66ab1e25b9abfe83bd40ca1fcb3c1b621e92b0a39ec27500ce1160226";
 
 fn packet() -> Value {
-    serde_json::from_slice(PACKET).expect("vectors.json")
+    serde_json::from_slice(PACKET).expect("grant-vectors.json")
+}
+
+fn state_name(state: TimeState) -> &'static str {
+    match state {
+        TimeState::NotYetValid => "not-yet-valid",
+        TimeState::Fresh => "fresh",
+        TimeState::Stale => "stale",
+        TimeState::Expired => "expired",
+    }
+}
+
+fn exact_payload(id: &str) -> Value {
+    serde_json::from_str(vector(id)["exact_payload"]["utf8"].as_str().unwrap()).unwrap()
 }
 
 fn vector(id: &str) -> Value {
@@ -60,12 +74,7 @@ fn policy_for(context: &Value) -> Policy {
 
 /// A cached grant at `revision` in the paid vector's context, standing in for an earlier verification.
 fn cached_at(revision: u64) -> VerifiedGrant {
-    let mut value: Value = serde_json::from_str(
-        vector("valid-paid")["exact_payload"]["utf8"]
-            .as_str()
-            .unwrap(),
-    )
-    .unwrap();
+    let mut value = exact_payload("valid-paid");
     value["revision"] = revision.into();
     let bytes = jcs::encode(&value).unwrap().into_bytes();
     let payload: GrantPayload = serde_json::from_value(value).unwrap();
@@ -137,9 +146,7 @@ fn assert_matches_expected(id: &str, outcome: &Result<Accepted, Rejected>) {
     if let Some(state) = facets.time_state {
         let name = match state {
             TimeState::Fresh | TimeState::Stale => "lease",
-            TimeState::Grace => "grace",
-            TimeState::PastGrace => "past-grace",
-            TimeState::NotYetValid => "not-yet-valid",
+            other => state_name(other),
         };
         assert_eq!(expected["time_state"], name, "{id} time_state");
     }
@@ -209,13 +216,47 @@ fn accepted_vectors_carry_their_verdicts() {
     );
     assert!(admin.verdict.perks.priority_support);
     let expired = run_vector("expired-lease").unwrap();
-    assert_eq!(expired.verdict.state, TimeState::Grace);
-    assert_eq!(expired.verdict.effective().authority, Authority::Billing);
-    let past = run_vector("past-grace").unwrap();
-    assert_eq!(past.verdict.state, TimeState::PastGrace);
-    assert_eq!(past.verdict.effective(), compiled_free());
-    for accepted in [&paid, &admin, &expired, &past] {
+    assert_eq!(expired.verdict.state, TimeState::Expired);
+    assert_eq!(expired.verdict.effective(), compiled_free());
+    let ended = run_vector("period-ended").unwrap();
+    assert_eq!(ended.verdict.state, TimeState::Expired);
+    assert_eq!(ended.verdict.effective(), compiled_free());
+    assert!(ended.grant.payload().period_end < Some(ended.grant.payload().expires_at));
+    for accepted in [&paid, &admin, &expired, &ended] {
         assert_eq!(accepted.verdict.transition_reason, None);
+    }
+}
+
+#[test]
+fn producer_windows_match_consumer_time_states() {
+    for window in packet()["windows"].as_array().unwrap() {
+        let id = window["vector"].as_str().unwrap();
+        let grant = run_vector(id).unwrap().grant;
+        for checkpoint in window["checkpoints"].as_array().unwrap() {
+            let now = checkpoint["now"].as_u64().unwrap();
+            assert_eq!(
+                state_name(grant.verdict(now).state),
+                checkpoint["state"],
+                "{id} now={now}"
+            );
+        }
+    }
+}
+
+#[test]
+fn producer_refusals_fail_consumer_invariants() {
+    for refusal in packet()["refusals"].as_array().unwrap() {
+        let id = refusal["id"].as_str().unwrap();
+        let mut value = exact_payload(refusal["base"].as_str().unwrap());
+        super::support::patch(&mut value, refusal["set"].clone());
+        let payload: GrantPayload = serde_json::from_value(value).unwrap();
+        let want = match refusal["defect"].as_str().unwrap() {
+            "time" => PayloadDefect::Time,
+            "expiry" => PayloadDefect::Expiry,
+            "grace" => PayloadDefect::Grace,
+            other => panic!("{id}: defect {other}"),
+        };
+        assert_eq!(payload.check_invariants(), Err(want), "{id}");
     }
 }
 

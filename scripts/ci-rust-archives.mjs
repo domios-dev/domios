@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { classifyTarget } from './ci-classifier-cache.mjs';
 import { classifyInventory } from './ci-rust-classification.mjs';
 import { PATHS, discoverRunner, makeContext, selectRunners } from './test-catalogue.mjs';
 
@@ -65,7 +66,7 @@ export function verifyArchiveBuilds(builds, receipts) {
     builds.map((b) => '| ' + archivePlatform(b.os, b.arch) + ' | ' + b.runner + ' | ' + b.seconds.toFixed(1) + ' s |').join('\n');
 }
 
-const SHARED_JOB = 'tests.yml:rust-tests';
+const SHARED_JOB = 'tests-rust.yml:rust-tests';
 const NEXTEST_SCOPE = /^\.\/build\.sh nextest ([\w-]+)$/;
 const SAFE_NAME = /^[A-Za-z0-9_:.\/-]+$/;
 const HOST_PLATFORM = { win32: 'windows', darwin: 'macos', linux: 'linux' }[process.platform] ?? process.platform;
@@ -159,7 +160,7 @@ function build() {
         const pkg = metadata.packages.find((p) => p.id === suite['package-id']);
         const target = pkg?.targets.find((t) => t.name === suite['binary-name'] && (suite.kind === 'lib' ? t.kind.some((k) => ['lib', 'rlib', 'cdylib', 'staticlib'].includes(k)) : t.kind.includes(suite.kind)));
         if (!target) throw new Error('No source root for ' + suite['binary-id']);
-        sources[suite['binary-id']] = commandJson('cargo', ['run', '--quiet', '--locked', '--manifest-path', 'scripts/ci-test-classifier/Cargo.toml', '--', target.src_path, ...(generated[pkg.id] ? [generated[pkg.id]] : [])]);
+        sources[suite['binary-id']] = classifyTarget(target.src_path, generated[pkg.id]);
       }
       fs.writeFileSync(path.resolve('ci-rust-archives', lane + '.suite.json'), JSON.stringify({ os, arch, sha, rows: classifyInventory(inventory, sources) }));
     }

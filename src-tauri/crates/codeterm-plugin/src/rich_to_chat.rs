@@ -150,15 +150,22 @@ fn apply_capabilities(
         .clone()
         .filter(|u| !u.is_empty())
         .unwrap_or_else(|| fallback_base.to_string());
-    if messages.is_empty() && (rich.timeline_marker.is_some() || rich.session_intent.is_some()) {
-        let (kind, content) = match rich.timeline_marker.as_ref() {
+    // History gaps are host-authored paging markers; a provider record never carries one.
+    let marker = rich
+        .timeline_marker
+        .clone()
+        .filter(|marker| !matches!(marker, ChatTimelineMarker::HistoryGap { .. }));
+    if messages.is_empty() && (marker.is_some() || rich.session_intent.is_some()) {
+        let (kind, content) = match marker.as_ref() {
             Some(ChatTimelineMarker::ExternalEdit { path }) => {
                 ("system", format!("changed outside: {path}"))
             }
             Some(ChatTimelineMarker::ContextCompaction) => {
                 ("system", "context compacted".to_string())
             }
-            Some(ChatTimelineMarker::Queued) | None => ("custom", String::new()),
+            Some(ChatTimelineMarker::Queued | ChatTimelineMarker::HistoryGap { .. }) | None => {
+                ("custom", String::new())
+            }
         };
         messages.push(ChatMsg {
             id: format!("{base}-0"),
@@ -169,9 +176,9 @@ fn apply_capabilities(
         });
     }
     for message in &mut messages {
-        message.timeline_marker = rich.timeline_marker.clone();
+        message.timeline_marker = marker.clone();
         message.session_intent = rich.session_intent.clone();
-        match rich.timeline_marker.as_ref() {
+        match marker.as_ref() {
             Some(ChatTimelineMarker::ExternalEdit { path }) => {
                 message.kind = "system".into();
                 message.content = format!("changed outside: {path}");
@@ -180,7 +187,7 @@ fn apply_capabilities(
                 message.kind = "system".into();
                 message.content = "context compacted".into();
             }
-            Some(ChatTimelineMarker::Queued) | None => {}
+            Some(ChatTimelineMarker::Queued | ChatTimelineMarker::HistoryGap { .. }) | None => {}
         }
     }
     messages

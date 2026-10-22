@@ -39,9 +39,18 @@ export interface DelayedMessage {
   ticks?: DeliveryTickView[];
 }
 
-export async function listDelayedMessages(tabId: string): Promise<DelayedMessage[]> {
-  // A remote peer may answer null; never let it reach callers as a non-array.
-  return (await invoke<DelayedMessage[] | null>("delayed_send_list", { tabId })) ?? [];
+// A remote peer or an older server may answer null or another shape; callers always get an array.
+async function listOf(command: string, tabId: string): Promise<DelayedMessage[]> {
+  const answer = await invoke<unknown>(command, { tabId });
+  return Array.isArray(answer) ? (answer as DelayedMessage[]) : [];
+}
+
+export function listDelayedMessages(tabId: string): Promise<DelayedMessage[]> {
+  return listOf("delayed_send_list", tabId);
+}
+
+export function listSystemHeartbeats(tabId: string): Promise<DelayedMessage[]> {
+  return listOf("system_heartbeat_list", tabId);
 }
 
 export function createDelayedMessage(

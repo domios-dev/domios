@@ -148,6 +148,9 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let now = super::plan_time::epoch_ms();
+    if method.starts_with("plan.control_loop.") || method.starts_with("plan.curator.") {
+        return super::plan_curator::dispatch(method, params, svc);
+    }
     if method.starts_with("plan.handoff.") {
         return super::plan_handoff::dispatch(method, params, svc);
     }

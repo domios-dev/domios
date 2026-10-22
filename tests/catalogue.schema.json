@@ -216,7 +216,7 @@
           ]
         },
         "ci": {
-          "description": "Current CI placement as workflow:job. scripts/ci-rust-archives.mjs archives the release Rust runners placed on tests.yml:rust-shards; the rest is informative.",
+          "description": "Current CI placement as workflow:job. scripts/ci-rust-archives.mjs archives the release Rust runners placed on tests-rust.yml:rust-shards; the rest is informative.",
           "type": "array",
           "uniqueItems": true,
           "items": {

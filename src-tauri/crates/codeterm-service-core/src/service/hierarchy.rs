@@ -6,6 +6,7 @@ pub(crate) mod heartbeat_gate;
 pub mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
+mod planner_replay;
 mod remote_report;
 #[cfg(test)]
 mod report_attribution;
@@ -21,6 +22,7 @@ mod worker_handoff;
 pub use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
+pub(crate) use planner_replay::PlannerReplayCoalescer;
 pub(crate) use report_delivery::HierarchyReportDelivery;
 pub use report_plan_ctx::{
     classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
@@ -59,12 +61,17 @@ pub(crate) fn deliver_tab_todo_recitation(
 
 impl ServiceContext {
     pub(crate) fn schedule_planner_replay(&self, tab_id: &str) {
+        if !self.ext::<PlannerReplayCoalescer>().request(tab_id) {
+            return;
+        }
         let svc = self.clone();
         let tab_id = tab_id.to_string();
-        std::thread::spawn(move || {
-            svc.replay_planner_requests_if_routable(&tab_id);
-            svc.replay_pending_reports_if_routable(&tab_id);
-            svc.replay_pending_worker_losses_if_routable(&tab_id);
+        self.rt.spawn_blocking(move || {
+            svc.ext::<PlannerReplayCoalescer>().drain(&tab_id, || {
+                svc.replay_planner_requests_if_routable(&tab_id);
+                svc.replay_pending_reports_if_routable(&tab_id);
+                svc.replay_pending_worker_losses_if_routable(&tab_id);
+            });
         });
     }
 
@@ -93,18 +100,8 @@ impl ServiceContext {
 
     pub fn replay_planner_requests_if_routable(&self, tab_id: &str) {
         let now_ms = epoch_ms();
-        for plan in self.plan_store.list_full() {
-            let Some(crate::plan::PlannerRef::Tab {
-                tab_id: bound,
-                session_id: Some(session_id),
-                ..
-            }) = &plan.planner
-            else {
-                continue;
-            };
-            if bound != tab_id {
-                continue;
-            }
+        for plan in self.plan_store.planner_replay_candidates(tab_id) {
+            let session_id = &plan.session_id;
             let resolution =
                 crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |id| {
                     self.tab_probe(id)
@@ -123,15 +120,8 @@ impl ServiceContext {
             else {
                 continue;
             };
-            if plan
-                .planner_requests
-                .iter()
-                .all(|request| matches!(request.state, crate::plan::PlannerRequestState::Completed))
-            {
-                continue;
-            }
             let Ok(requests) = self.plan_store.claim_planner_requests(
-                &plan.id,
+                &plan.plan_id,
                 tab_id,
                 session_id,
                 &binding_nonce,
@@ -149,7 +139,7 @@ impl ServiceContext {
                         self.observed_planner_identity(tab_id);
                     for request in &requests {
                         let _ = self.plan_store.release_planner_request(
-                            &plan.id,
+                            &plan.plan_id,
                             &request.request_id,
                             session_id,
                             &binding_nonce,
@@ -159,7 +149,7 @@ impl ServiceContext {
                             (&observed_session_id, &observed_binding_nonce)
                         {
                             let _ = self.plan_store.release_planner_request(
-                                &plan.id,
+                                &plan.plan_id,
                                 &request.request_id,
                                 session_id,
                                 observed_nonce,
@@ -171,14 +161,14 @@ impl ServiceContext {
                     continue;
                 }
             };
-            let Some(rebound_plan) = self.plan_store.get(&plan.id) else {
+            let Some(rebound_plan) = self.plan_store.get(&plan.plan_id) else {
                 continue;
             };
             let rehydrate = planner_rehydrate_payload(&rebound_plan);
-            let rehydrate_id = format!("planner-rehydrate-{}-{}", plan.id, binding.session_id);
+            let rehydrate_id = format!("planner-rehydrate-{}-{}", plan.plan_id, binding.session_id);
             if self
                 .deliver_to_routable_planner(
-                    &plan.id,
+                    &plan.plan_id,
                     tab_id,
                     &binding.session_id,
                     &binding.binding_nonce,
@@ -192,7 +182,7 @@ impl ServiceContext {
                     self.observed_planner_identity(tab_id);
                 for request in &requests {
                     let _ = self.plan_store.release_planner_request(
-                        &plan.id,
+                        &plan.plan_id,
                         &request.request_id,
                         &binding.session_id,
                         &binding.binding_nonce,
@@ -202,7 +192,7 @@ impl ServiceContext {
                         (&observed_session_id, &observed_binding_nonce)
                     {
                         let _ = self.plan_store.release_planner_request(
-                            &plan.id,
+                            &plan.plan_id,
                             &request.request_id,
                             session_id,
                             binding_nonce,
@@ -217,7 +207,7 @@ impl ServiceContext {
                 if self
                     .plan_store
                     .start_planner_request_delivery(
-                        &plan.id,
+                        &plan.plan_id,
                         &request.request_id,
                         &binding.session_id,
                         &binding.binding_nonce,
@@ -228,10 +218,10 @@ impl ServiceContext {
                 {
                     continue;
                 }
-                let body = planner_request_payload(&plan.id, &request);
+                let body = planner_request_payload(&plan.plan_id, &request);
                 let message_id = format!("planner-request-{}", request.request_id);
                 match self.deliver_to_routable_planner(
-                    &plan.id,
+                    &plan.plan_id,
                     tab_id,
                     &binding.session_id,
                     &binding.binding_nonce,
@@ -241,7 +231,7 @@ impl ServiceContext {
                 ) {
                     Ok(_) => {
                         let _ = self.plan_store.accept_planner_request(
-                            &plan.id,
+                            &plan.plan_id,
                             &request.request_id,
                             &binding.session_id,
                             &binding.binding_nonce,
@@ -252,7 +242,7 @@ impl ServiceContext {
                         let (observed_session_id, observed_binding_nonce) =
                             self.observed_planner_identity(tab_id);
                         let _ = self.plan_store.mark_planner_delivery_uncertain(
-                            &plan.id,
+                            &plan.plan_id,
                             &request.request_id,
                             &error,
                             observed_session_id.as_deref(),
@@ -483,6 +473,16 @@ impl ServiceContext {
         }
 
         let mut notices: Vec<String> = Vec::new();
+        if task_status == Some("in_review") {
+            match crate::async_runtime::block_on(self.tab_todo_report_warning(tab_id)) {
+                Ok(Some(warning)) => notices.push(warning),
+                Ok(None) => {}
+                Err(error) => {
+                    notices.push(format!("WARNING: checklist review unavailable: {error}"))
+                }
+            }
+        }
+
         let mut binding_refused = false;
         let report_plan_hint = if matches!(
             plan_only_authority,

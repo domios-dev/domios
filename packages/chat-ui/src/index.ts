@@ -3,6 +3,7 @@ export { MessageBubble } from "./MessageBubble";
 export { CodeBlock } from "./CodeBlock";
 export {
   ChatSessionIntentLine,
+  HistoryGapProvider,
   isSessionIntentOnlyMessage,
   normalizedTimelineMarker,
   sessionIntentFromMessages,
@@ -10,7 +11,7 @@ export {
 } from "./timelineMarkers";
 export { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
 export { RichMarkdown, parseVoiceMessage } from "./MarkdownBody";
-export { GuideNavigationProvider } from "./GuideDirective";
+export { GuideNavigationProvider, useGuideNavigation } from "./GuideDirective";
 export { HtmlPreviewBlock, buildHtmlPreviewDocument } from "./HtmlPreviewBlock";
 export { configureHtmlFileLoader } from "./htmlFileLoader";
 export type { HtmlFileLoader } from "./htmlFileLoader";
@@ -90,3 +91,6 @@ export { ChatHighlightBudgetProvider, ChatHighlightRow } from "./ChatHighlightBu
 export { ChatDaySeparator } from "./ChatDaySeparator";
 export { chatLocalDay, chatDaySeparators, messageTimeLabels, showChatTimeGutter, chatHorizontalInsets } from "./chatTimeModel";
 export { messageRowTime } from "./messageRowTime";
+export { ImageFullscreen, type FullscreenImage } from "./ImageFullscreen";
+
+export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";

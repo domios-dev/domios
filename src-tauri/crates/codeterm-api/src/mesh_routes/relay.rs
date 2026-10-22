@@ -7,6 +7,7 @@ use axum::{
     response::Response,
     Json,
 };
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 fn sync_input_for_access<'a>(
@@ -29,6 +30,26 @@ fn sync_output_for_access(
         payload.peers.retain(|peer| peer.instance_id == our_id);
     }
     payload
+}
+
+/// Our own identity is always known: peers echo it back on every exchange.
+fn known_peer_ids(mesh: &codeterm_service_core::mesh::MeshManager) -> HashSet<String> {
+    let paired = mesh.paired_peers.keys();
+    let discovered = mesh.discovered_peers.keys();
+    paired
+        .chain(discovered)
+        .chain(std::iter::once(&mesh.ident.identity.instance_id))
+        .cloned()
+        .collect()
+}
+
+fn newly_learned_peers<'a>(
+    known_before: &'a HashSet<String>,
+    peers: &'a [codeterm_service_core::mesh::types::GossipPeerInfo],
+) -> impl Iterator<Item = &'a codeterm_service_core::mesh::types::GossipPeerInfo> + 'a {
+    peers
+        .iter()
+        .filter(|peer| !known_before.contains(&peer.instance_id))
 }
 
 pub async fn mesh_sync(
@@ -64,12 +85,9 @@ pub async fn mesh_sync(
     } else if let Some(voucher) = sender_id.as_deref() {
         // Log only newly-learned peers — announcing every peer on every gossip
         // exchange once put 550k redundant lines in a single machine's log.
-        let known_before = mesh.known_public_keys();
+        let known_before = known_peer_ids(&mesh);
         mesh.apply_gossip_snapshot(voucher, payload.generation, &payload.peers, now);
-        for peer_info in &payload.peers {
-            if known_before.contains_key(&peer_info.instance_id) {
-                continue;
-            }
+        for peer_info in newly_learned_peers(&known_before, &payload.peers) {
             log::info!(
                 "[mesh/gossip] Learned about peer {} ({})",
                 peer_info.instance_name,

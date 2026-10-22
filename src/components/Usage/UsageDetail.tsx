@@ -1,3 +1,4 @@
+import {UsageAllowanceRows, UsageScopedLimits} from "./UsageAllowanceRows";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, ArrowRight } from "lucide-react";
 import { classify, type UsageSnapshot } from "../../types/usage";
@@ -144,17 +145,19 @@ export function UsageDetail({ snapshot, accountCreditsLabel, onRefresh, onOpenHi
       {metrics.map((metric) => (
         <UsageGauge
           key={metric.key}
-          label={metric.label}
+          label={`${metric.label}${snapshot.usage_details?.limits.find(limit => limit.kind === (metric.key === "session" ? "session" : "weekly_all"))?.is_active ? " · active" : ""}`}
           variant={metric.key}
           pct={metric.pct}
           resetsAt={metric.resetsAt}
-          state={metric.key === "session" ? sessionState : weeklyState}
+          state={snapshot.usage_details?.limits.find(limit => limit.kind === (metric.key === "session" ? "session" : "weekly_all"))?.critical ? "danger" : metric.key === "session" ? sessionState : weeklyState}
           markers={metric.key === "session" ? sessionMarkers : weeklyMarkers}
           now={now}
           showIntroHint={showIntroHints}
         />
       ))}
 
+      <UsageScopedLimits details={snapshot.usage_details} now={now} />
+      <UsageAllowanceRows details={snapshot.usage_details} now={now} />
       <UsageAccountCreditsRow label={accountCreditsLabel} />
       <MiniWeekBars buckets={buckets} />
 
@@ -237,6 +240,8 @@ export function UsageSpendDetail({ snapshot, accountCreditsLabel, onRefresh, res
         </span>
       </div>
 
+      <UsageScopedLimits details={snapshot.usage_details} now={now} />
+      <UsageAllowanceRows details={snapshot.usage_details} now={now} />
       <UsageAccountCreditsRow label={accountCreditsLabel} />
       {resetSection}
       <div className="ct-usage-foot">

@@ -1,7 +1,9 @@
 import { recordedPatchDiff, type RecordedFileDiff } from "@codeterm/plugin-sdk";
 import { list, object, text } from "./runtimeProtocol";
+import { codexFileDiffs } from "./fileDiffs";
 
 export function runtimeFileDiffs(changes: unknown): (RecordedFileDiff & {movePath?:string})[] {
+  if (changes && typeof changes === "object" && !Array.isArray(changes)) return codexFileDiffs(changes);
   return list(changes).map(object).flatMap(change => {
     const path = text(change.path); const kind = object(change.kind); const diff = text(change.diff);
     if (!path || diff === undefined) return [];

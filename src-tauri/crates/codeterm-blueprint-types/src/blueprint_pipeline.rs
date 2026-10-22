@@ -13,6 +13,8 @@ pub const MAX_RESULT_SUMMARY_CHARS: usize = 200;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlueprintSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
     pub name: String,
     #[serde(default)]
     pub owner: BlueprintOwner,
@@ -118,9 +120,22 @@ pub struct Step {
     pub on: BTreeMap<String, String>,
 }
 
+pub fn route_target<'a>(routes: &'a BTreeMap<String, String>, outcome: &str) -> &'a str {
+    routes
+        .get(outcome)
+        .map(String::as_str)
+        .unwrap_or(if outcome == "failed" { "stop" } else { "next" })
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepKind {
+    Http {
+        probe: crate::blueprint_http::HttpProbe,
+    },
+    Github {
+        probe: crate::blueprint_github::GithubProbe,
+    },
     Command {
         command: String,
     },
@@ -156,6 +171,8 @@ impl StepKind {
             Self::Filter { .. } => 2,
             Self::Convert { .. } => 3,
             Self::Agent { .. } => 4,
+            Self::Github { .. } => 5,
+            Self::Http { .. } => 6,
         }]
         .name
     }
@@ -163,17 +180,32 @@ impl StepKind {
     pub fn output_type(&self) -> IoType {
         match self {
             Self::Convert { to, .. } => IoType::from(*to),
-            Self::Command { .. } | Self::Ask { .. } | Self::Filter { .. } | Self::Agent { .. } => {
-                IoType::Text
-            }
+            Self::Http { .. }
+            | Self::Github { .. }
+            | Self::Command { .. }
+            | Self::Ask { .. }
+            | Self::Filter { .. }
+            | Self::Agent { .. } => IoType::Text,
         }
     }
 
     pub fn outcomes(&self) -> Result<BTreeSet<String>, String> {
         match self {
-            Self::Command { .. } | Self::Convert { .. } | Self::Agent { .. } => {
-                Ok(["done".into(), "failed".into()].into())
+            Self::Http { .. } => Ok(["up".into(), "down".into(), "failed".into()].into()),
+            Self::Github { probe }
+                if probe.resource == crate::blueprint_github::GithubResource::Runners =>
+            {
+                Ok(["online".into(), "offline".into(), "failed".into()].into())
             }
+            Self::Github { probe }
+                if probe.resource != crate::blueprint_github::GithubResource::PrChecks =>
+            {
+                Ok(["done".into(), "failed".into(), "failing".into()].into())
+            }
+            Self::Github { .. }
+            | Self::Command { .. }
+            | Self::Convert { .. }
+            | Self::Agent { .. } => Ok(["done".into(), "failed".into()].into()),
             Self::Ask { buckets, .. } => {
                 validate_buckets("buckets", buckets)?;
                 Ok(buckets.iter().cloned().chain(["other".into()]).collect())
@@ -217,10 +249,107 @@ pub struct ConverterEdge {
     pub to: MediaKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ValidationPath {
+    Field(String),
+    Step { index: usize, field: StepField },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StepField {
+    Common(String),
+    Parameter(String),
+    Parameters(String),
+    Command,
+}
+impl ValidationPath {
+    pub fn document_field(&self) -> String {
+        match self {
+            Self::Field(field) if matches!(field.as_str(), "name" | "note" | "owner") => {
+                field.clone()
+            }
+            Self::Field(field) => format!("pipeline.{field}"),
+            Self::Step { index, field } => {
+                let suffix = match field {
+                    StepField::Common(field) => field.clone(),
+                    StepField::Parameter(field) => format!("with.{field}"),
+                    StepField::Parameters(_) => "with".into(),
+                    StepField::Command => "run".into(),
+                };
+                if suffix.is_empty() {
+                    format!("pipeline.steps[{index}]")
+                } else {
+                    format!("pipeline.steps[{index}].{suffix}")
+                }
+            }
+        }
+    }
+    pub fn wire_field(&self) -> String {
+        match self {
+            Self::Field(field) => field.clone(),
+            Self::Step { index, field } => {
+                let suffix = match field {
+                    StepField::Common(field)
+                    | StepField::Parameter(field)
+                    | StepField::Parameters(field) => field.as_str(),
+                    StepField::Command => "command",
+                };
+                if suffix.is_empty() {
+                    format!("steps[{index}]")
+                } else {
+                    format!("steps[{index}].{suffix}")
+                }
+            }
+        }
+    }
+}
+impl From<&str> for ValidationPath {
+    fn from(field: &str) -> Self {
+        Self::Field(field.into())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationError {
     pub field: String,
     pub reason: String,
+    pub path: ValidationPath,
+}
+impl ValidationError {
+    pub fn new(path: impl Into<ValidationPath>, reason: impl Into<String>) -> Self {
+        let path = path.into();
+        Self {
+            field: path.wire_field(),
+            reason: reason.into(),
+            path,
+        }
+    }
+}
+struct StepPath(usize);
+impl StepPath {
+    fn common(&self, field: &str) -> ValidationPath {
+        ValidationPath::Step {
+            index: self.0,
+            field: StepField::Common(field.into()),
+        }
+    }
+    fn parameter(&self, field: &str) -> ValidationPath {
+        ValidationPath::Step {
+            index: self.0,
+            field: StepField::Parameter(field.into()),
+        }
+    }
+    fn parameters(&self, field: &str) -> ValidationPath {
+        ValidationPath::Step {
+            index: self.0,
+            field: StepField::Parameters(field.into()),
+        }
+    }
+    fn command(&self) -> ValidationPath {
+        ValidationPath::Step {
+            index: self.0,
+            field: StepField::Command,
+        }
+    }
 }
 
 impl std::fmt::Display for ValidationError {
@@ -233,24 +362,42 @@ pub fn validate(
     spec: &BlueprintSpec,
     converters: &[ConverterEdge],
 ) -> Result<(), Vec<ValidationError>> {
+    let steps = spec.steps.iter().cloned().map(Some).collect::<Vec<_>>();
+    validate_parts(
+        &spec.name,
+        spec.note.as_deref(),
+        Some(&spec.trigger),
+        &steps,
+        Some(&spec.result),
+        Some(converters),
+    )
+}
+
+pub fn validate_parts(
+    name: &str,
+    note: Option<&str>,
+    trigger: Option<&Trigger>,
+    steps: &[Option<Step>],
+    result: Option<&BlueprintResult>,
+    converters: Option<&[ConverterEdge]>,
+) -> Result<(), Vec<ValidationError>> {
     let mut errors = Vec::new();
-    if spec.name.trim().is_empty() || spec.name.len() > 128 || has_control(&spec.name) {
-        error(
-            &mut errors,
-            "name",
-            "must be nonempty, bounded and printable",
-        );
+    if let Err(reason) = crate::automation_name::validate_note(note) {
+        errors.push(ValidationError::new("note", reason));
     }
-    match &spec.trigger {
-        Trigger::Schedule { every } if !valid_duration(every) => {
+    if let Err(reason) = crate::automation_name::validate_sentinel_name(name) {
+        error(&mut errors, "name", &reason);
+    }
+    match trigger {
+        Some(Trigger::Schedule { every }) if !valid_duration(every) => {
             error(&mut errors, "trigger.every", "must be a positive duration")
         }
-        Trigger::Event { kind, .. } if !valid_name(kind) => error(
+        Some(Trigger::Event { kind, .. }) if !valid_name(kind) => error(
             &mut errors,
             "trigger.kind",
             "must be a bounded capability kind",
         ),
-        Trigger::Input { kind, source } => {
+        Some(Trigger::Input { kind, source }) => {
             let input = crate::sentinel_input::InputSpec {
                 kind: *kind,
                 data: source.clone(),
@@ -263,7 +410,10 @@ pub fn validate(
         }
         _ => {}
     }
-    if let ResultTarget::Tab(id) = &spec.result.to {
+    if let Some(BlueprintResult {
+        to: ResultTarget::Tab(id),
+    }) = result
+    {
         if !valid_name(id) {
             error(
                 &mut errors,
@@ -272,44 +422,71 @@ pub fn validate(
             );
         }
     }
-    if spec.steps.is_empty() || spec.steps.len() > MAX_STEPS {
+    if steps.is_empty() || steps.len() > MAX_STEPS {
         error(
             &mut errors,
             "steps",
             &format!("must contain 1..={MAX_STEPS} steps"),
         );
-        if spec.steps.len() > MAX_STEPS {
+        if steps.len() > MAX_STEPS {
             return Err(errors);
         }
     }
-    let names: BTreeMap<_, _> = spec
-        .steps
+    let names: BTreeMap<_, _> = steps
         .iter()
         .enumerate()
-        .map(|(index, step)| (step.name.as_str(), index))
+        .filter_map(|(index, step)| step.as_ref().map(|step| (step.name.as_str(), index)))
         .collect();
     let mut seen = BTreeSet::new();
-    let mut previous = trigger_output(&spec.trigger);
-    for (index, step) in spec.steps.iter().enumerate() {
-        let field = format!("steps[{index}]");
+    let mut previous = trigger.map(trigger_output);
+    for (index, step) in steps.iter().enumerate() {
+        let Some(step) = step else {
+            previous = None;
+            continue;
+        };
+        let field = StepPath(index);
         if !valid_name(&step.name) {
             error(
                 &mut errors,
-                &format!("{field}.name"),
+                field.common("name"),
                 "must be nonempty and bounded",
             );
         }
         if !seen.insert(step.name.as_str()) {
-            error(&mut errors, &format!("{field}.name"), "must be unique");
+            error(&mut errors, field.common("name"), "must be unique");
         }
-        if step.input != previous {
+        if previous.is_some_and(|previous| step.input != previous) {
             error(
                 &mut errors,
-                &format!("{field}.input"),
+                field.common("input"),
                 &format!("expected {previous:?} from the previous result"),
             );
         }
         match &step.kind {
+            StepKind::Http { probe } => {
+                if step.input != IoType::Text {
+                    error(
+                        &mut errors,
+                        field.common("input"),
+                        "HTTP requires text input",
+                    );
+                }
+                if let Err(reason) = probe.validate() {
+                    error(&mut errors, field.parameters("http"), &reason);
+                }
+            }
+            StepKind::Github { probe } => {
+                if step.input != IoType::Text {
+                    error(
+                        &mut errors,
+                        field.common("input"),
+                        "GitHub requires text input",
+                    );
+                }
+                if let Err(reason) = probe.command() {
+                    error(&mut errors, field.parameters("github"), &reason);
+                }
+            }
             StepKind::Agent {
                 provider,
                 profile,
@@ -333,31 +510,29 @@ pub fn validate(
                     || *max_turns > 100
                     || step.input != IoType::Text
                 {
-                    error(&mut errors, &format!("{field}.agent"), "agent requires text, a provider and profile, and bounded task, deadline, token and turn budgets");
+                    error(&mut errors, field.parameters("agent"), "agent requires text, a provider and profile, and bounded task, deadline, token and turn budgets");
                 }
             }
             StepKind::Command { command }
-                if command.trim().is_empty() || command.len() > MAX_COMMAND_BYTES =>
+                if command.trim().is_empty()
+                    || command.len() > MAX_COMMAND_BYTES
+                    || command.contains('\0') =>
             {
-                error(
-                    &mut errors,
-                    &format!("{field}.command"),
-                    "must be nonempty and bounded",
-                )
+                error(&mut errors, field.command(), "must be nonempty and bounded")
             }
             StepKind::Ask { question, .. }
                 if question.trim().is_empty() || question.len() > 2048 =>
             {
                 error(
                     &mut errors,
-                    &format!("{field}.question"),
+                    field.parameter("question"),
                     "must be nonempty and bounded",
                 )
             }
             StepKind::Filter { pattern, .. } if pattern.is_empty() || pattern.len() > 4096 => {
                 error(
                     &mut errors,
-                    &format!("{field}.pattern"),
+                    field.parameter("pattern"),
                     "must be nonempty and bounded",
                 )
             }
@@ -365,14 +540,15 @@ pub fn validate(
                 if step.input != IoType::from(*from) {
                     error(
                         &mut errors,
-                        &format!("{field}.from"),
+                        field.parameter("from"),
                         "must match the step input type",
                     );
                 }
-                if !has_converter_path(*from, *to, converters) {
+                if converters.is_some_and(|converters| !has_converter_path(*from, *to, converters))
+                {
                     error(
                         &mut errors,
-                        &format!("{field}.convert"),
+                        field.parameters("convert"),
                         "no converter chain is available",
                     );
                 }
@@ -384,7 +560,7 @@ pub fn validate(
         {
             error(
                 &mut errors,
-                &format!("{field}.input"),
+                field.common("input"),
                 "ask and filter require text",
             );
         }
@@ -393,7 +569,7 @@ pub fn validate(
                 if step.on.len() > MAX_BRANCHES_PER_STEP {
                     error(
                         &mut errors,
-                        &format!("{field}.on"),
+                        field.common("on"),
                         &format!("exceeds {MAX_BRANCHES_PER_STEP} outcomes"),
                     );
                 }
@@ -401,7 +577,7 @@ pub fn validate(
                     if !outcomes.contains(outcome) {
                         error(
                             &mut errors,
-                            &format!("{field}.on.{outcome}"),
+                            field.common(&format!("on.{outcome}")),
                             "outcome is not declared by this step",
                         );
                     }
@@ -410,12 +586,12 @@ pub fn validate(
                             Some(target_index) if *target_index > index => {}
                             Some(_) => error(
                                 &mut errors,
-                                &format!("{field}.on.{outcome}"),
+                                field.common(&format!("on.{outcome}")),
                                 "branch targets must be forward-only",
                             ),
                             None => error(
                                 &mut errors,
-                                &format!("{field}.on.{outcome}"),
+                                field.common(&format!("on.{outcome}")),
                                 "branch target step does not exist",
                             ),
                         }
@@ -428,10 +604,10 @@ pub fn validate(
                 } else {
                     "bucket"
                 };
-                error(&mut errors, &format!("{field}.{field_name}"), &reason)
+                error(&mut errors, field.parameter(field_name), &reason)
             }
         }
-        previous = step.kind.output_type();
+        previous = Some(step.kind.output_type());
     }
     if errors.is_empty() {
         Ok(())
@@ -449,10 +625,7 @@ pub fn trigger_unavailable(trigger: &Trigger) -> bool {
 
 pub fn ensure_trigger_available(trigger: &Trigger) -> Result<(), ValidationError> {
     if trigger_unavailable(trigger) {
-        Err(ValidationError {
-            field: "trigger".into(),
-            reason: "trigger_unavailable".into(),
-        })
+        Err(ValidationError::new("trigger", "trigger_unavailable"))
     } else {
         Ok(())
     }
@@ -586,52 +759,13 @@ fn has_control(value: &str) -> bool {
 }
 
 fn valid_duration(value: &str) -> bool {
-    if value.is_empty() || value.len() > 32 {
-        return false;
-    }
-    let mut number = 0u64;
-    let mut has_digits = false;
-    let mut total = 0u64;
-    for byte in value.bytes() {
-        if byte.is_ascii_digit() {
-            has_digits = true;
-            let Some(next) = number
-                .checked_mul(10)
-                .and_then(|value| value.checked_add((byte - b'0') as u64))
-            else {
-                return false;
-            };
-            number = next;
-            continue;
-        }
-        let factor = match byte {
-            b's' => 1,
-            b'm' => 60,
-            b'h' => 3_600,
-            b'd' => 86_400,
-            _ => return false,
-        };
-        if !has_digits {
-            return false;
-        }
-        let Some(next) = number
-            .checked_mul(factor)
-            .and_then(|value| total.checked_add(value))
-        else {
-            return false;
-        };
-        total = next;
-        number = 0;
-        has_digits = false;
-    }
-    !has_digits && total >= 10
+    value.ends_with(['s', 'm', 'h', 'd'])
+        && crate::blueprint_watch::duration_ms(value)
+            .is_ok_and(|duration| duration >= crate::blueprint_watch::MIN_INTERVAL_MS)
 }
 
-fn error(errors: &mut Vec<ValidationError>, field: &str, reason: &str) {
-    errors.push(ValidationError {
-        field: field.into(),
-        reason: reason.into(),
-    });
+fn error(errors: &mut Vec<ValidationError>, path: impl Into<ValidationPath>, reason: &str) {
+    errors.push(ValidationError::new(path, reason));
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -699,10 +833,7 @@ pub fn advance(state: &RunnerState, outcome: StepOutcome) -> Result<RunnerState,
     if !accepted.contains(key) {
         return Err("outcome is not declared by the current step".into());
     }
-    let branch = state.branches[index]
-        .get(key)
-        .map(String::as_str)
-        .unwrap_or_else(|| if key == "failed" { "stop" } else { "next" });
+    let branch = route_target(&state.branches[index], key);
     let mut next = state.clone();
     match branch {
         "stop" if key == "failed" => {
@@ -808,322 +939,4 @@ impl StepJournalEntry {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blueprint_agent_step_is_bounded_and_routes_done_or_failed() {
-        let agent = StepKind::Agent {
-            provider: "fixture".into(),
-            profile: "reader".into(),
-            task: "opaque".into(),
-            deadline_ms: 1000,
-            max_tokens: 1000,
-            max_turns: 2,
-        };
-        assert_eq!(agent.name(), "agent");
-        assert_eq!(agent.output_type(), IoType::Text);
-        assert_eq!(
-            agent.outcomes().unwrap(),
-            BTreeSet::from(["done".into(), "failed".into()])
-        );
-        assert!(serde_json::from_value::<StepKind>(serde_json::json!({"kind":"agent","provider":"fixture","profile":"reader","task":"opaque","deadline_ms":1000,"max_tokens":1000,"max_turns":2,"unknown":true})).is_err());
-        let mut step = command("bounded", IoType::Text);
-        step.kind = agent;
-        assert!(validate(&spec(vec![step.clone()]), &[]).is_ok());
-        if let StepKind::Agent { max_turns, .. } = &mut step.kind {
-            *max_turns = 0;
-        }
-        assert!(validate(&spec(vec![step]), &[])
-            .unwrap_err()
-            .iter()
-            .any(|e| e.field == "steps[0].agent"));
-    }
-    use crate::sentinel_input::DataRef;
-
-    fn command(name: &str, input: IoType) -> Step {
-        Step {
-            name: name.into(),
-            input,
-            kind: StepKind::Command {
-                command: "printf ready".into(),
-            },
-            on: BTreeMap::new(),
-        }
-    }
-
-    fn spec(steps: Vec<Step>) -> BlueprintSpec {
-        BlueprintSpec {
-            name: "Echo chain".into(),
-            owner: BlueprintOwner::Tab,
-            trigger: Trigger::Schedule {
-                every: "20s".into(),
-            },
-            steps,
-            result: BlueprintResult {
-                to: ResultTarget::Owner,
-            },
-        }
-    }
-
-    #[test]
-    fn blueprint_pipeline_spec_validation_checks_name_trigger_and_step_bounds() {
-        let mut value = spec(vec![command("run", IoType::Text)]);
-        assert_eq!(validate(&value, &[]), Ok(()));
-        value.name.clear();
-        value.trigger = Trigger::Schedule { every: "0s".into() };
-        let errors = validate(&value, &[]).unwrap_err();
-        assert!(errors.iter().any(|error| error.field == "name"));
-        assert!(errors.iter().any(|error| error.field == "trigger.every"));
-    }
-
-    #[test]
-    fn blueprint_pipeline_spec_round_trips_one_authored_chain() {
-        let source = serde_json::json!({
-            "name": "Echo chain",
-            "owner": "tab",
-            "trigger": {"type": "schedule", "every": "20s"},
-            "steps": [{
-                "name": "echo",
-                "input": "text",
-                "kind": {"kind": "command", "command": "printf ready"}
-            }],
-            "result": {"to": "owner"}
-        });
-        let parsed: BlueprintSpec = serde_json::from_value(source.clone()).unwrap();
-        assert_eq!(validate(&parsed, &[]), Ok(()));
-        assert_eq!(serde_json::to_value(parsed).unwrap(), source);
-    }
-
-    #[test]
-    fn blueprint_pipeline_forward_only_branches_reject_missing_and_backward_targets() {
-        let mut first = command("first", IoType::Text);
-        first.on.insert("done".into(), "first".into());
-        assert!(validate(
-            &spec(vec![first.clone(), command("second", IoType::Text)]),
-            &[]
-        )
-        .unwrap_err()
-        .iter()
-        .any(|error| error.reason.contains("forward-only")));
-        first.on.insert("done".into(), "missing".into());
-        assert!(
-            validate(&spec(vec![first, command("second", IoType::Text)]), &[])
-                .unwrap_err()
-                .iter()
-                .any(|error| error.reason.contains("does not exist"))
-        );
-        let mut first = command("first", IoType::Text);
-        first.on.insert("done".into(), "third".into());
-        assert_eq!(
-            validate(
-                &spec(vec![
-                    first,
-                    command("second", IoType::Text),
-                    command("third", IoType::Text)
-                ]),
-                &[]
-            ),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn blueprint_pipeline_step_io_types_match_previous_output() {
-        let mut second = command("second", IoType::File);
-        second.kind = StepKind::Filter {
-            pattern: "ready".into(),
-            bucket: None,
-        };
-        let errors =
-            validate(&spec(vec![command("first", IoType::Text), second]), &[]).unwrap_err();
-        assert!(errors.iter().any(|error| error.field == "steps[1].input"));
-    }
-
-    #[test]
-    fn blueprint_pipeline_converter_chain_is_capability_ordered_and_bounded() {
-        let converters = [
-            ConverterEdge {
-                from: MediaKind::Audio,
-                to: MediaKind::Video,
-            },
-            ConverterEdge {
-                from: MediaKind::Video,
-                to: MediaKind::Text,
-            },
-        ];
-        assert_eq!(
-            converter_path(MediaKind::Audio, MediaKind::Text, &converters),
-            Some(vec![0, 1])
-        );
-        for kind in MediaKind::ALL {
-            assert_eq!(converter_path(kind, kind, &converters), Some(vec![]));
-            assert_eq!(converter_path(kind, kind, &[]), Some(vec![]));
-        }
-        let spec = BlueprintSpec {
-            name: "Voice".into(),
-            owner: BlueprintOwner::Tab,
-            trigger: Trigger::Input {
-                kind: MediaKind::Audio,
-                source: DataRef::Url("https://example.com/voice.wav".into()),
-            },
-            steps: vec![
-                Step {
-                    name: "convert".into(),
-                    input: IoType::Audio,
-                    kind: StepKind::Convert {
-                        from: MediaKind::Audio,
-                        to: MediaKind::Text,
-                    },
-                    on: BTreeMap::new(),
-                },
-                command("inspect", IoType::Text),
-            ],
-            result: BlueprintResult {
-                to: ResultTarget::Owner,
-            },
-        };
-        assert_eq!(validate(&spec, &converters), Ok(()));
-    }
-
-    #[test]
-    fn blueprint_pipeline_runner_advance_table() {
-        for (outcome, expected, status) in [
-            (StepOutcome::Done, Some(1), RunStatus::Running),
-            (StepOutcome::Failed, None, RunStatus::Failed),
-        ] {
-            let state = RunnerState::start(&spec(vec![
-                command("one", IoType::Text),
-                command("two", IoType::Text),
-            ]))
-            .unwrap();
-            let advanced = advance(&state, outcome).unwrap();
-            assert_eq!(advanced.current_step, expected);
-            assert_eq!(advanced.status, status);
-        }
-        let mut ask = Step {
-            name: "choose".into(),
-            input: IoType::Text,
-            kind: StepKind::Ask {
-                question: "State?".into(),
-                buckets: vec!["ready".into()],
-            },
-            on: BTreeMap::new(),
-        };
-        ask.on.insert("ready".into(), "stop".into());
-        let state = RunnerState::start(&spec(vec![ask])).unwrap();
-        let advanced = advance(&state, StepOutcome::Bucket("ready".into())).unwrap();
-        assert_eq!(advanced.status, RunStatus::Done);
-
-        let mut first = command("one", IoType::Text);
-        first.on.insert("done".into(), "three".into());
-        let state = RunnerState::start(&spec(vec![
-            first,
-            command("two", IoType::Text),
-            command("three", IoType::Text),
-        ]))
-        .unwrap();
-        assert_eq!(
-            advance(&state, StepOutcome::Done).unwrap().current_step,
-            Some(2)
-        );
-    }
-
-    #[test]
-    fn blueprint_pipeline_rejects_undeclared_buckets_and_branch_outcomes() {
-        let mut ask = Step {
-            name: "choose".into(),
-            input: IoType::Text,
-            kind: StepKind::Ask {
-                question: "State?".into(),
-                buckets: vec!["ready".into()],
-            },
-            on: BTreeMap::new(),
-        };
-        ask.on.insert("failed".into(), "stop".into());
-        let errors = validate(&spec(vec![ask]), &[]).unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|error| error.field == "steps[0].on.failed"));
-        let invalid = Step {
-            name: "choose".into(),
-            input: IoType::Text,
-            kind: StepKind::Ask {
-                question: "State?".into(),
-                buckets: vec!["other".into()],
-            },
-            on: BTreeMap::new(),
-        };
-        assert!(validate(&spec(vec![invalid]), &[])
-            .unwrap_err()
-            .iter()
-            .any(|error| error.field == "steps[0].buckets"));
-    }
-
-    #[test]
-    fn blueprint_pipeline_event_triggers_are_available_and_input_waits_for_runtime() {
-        assert!(ensure_trigger_available(&Trigger::Schedule {
-            every: "20s".into()
-        })
-        .is_ok());
-        assert!(ensure_trigger_available(&Trigger::Event {
-            kind: "fixture.event".into(),
-            params: Value::Null,
-        })
-        .is_ok());
-        assert!(ensure_trigger_available(&Trigger::Input {
-            kind: MediaKind::Text,
-            source: DataRef::Text("hello".into()),
-        })
-        .is_ok());
-    }
-
-    #[test]
-    fn blueprint_event_subscription_action_table_covers_owner_and_provider_states() {
-        use SubscriptionAction::*;
-        use SubscriptionOwnerState::*;
-        use SubscriptionProviderState::*;
-        for (subscribed, owner, provider, expected) in [
-            (false, Active, Available, Subscribe),
-            (true, Active, Available, Keep),
-            (false, Active, Missing, Unavailable),
-            (false, Active, Ungranted, Unavailable),
-            (true, Active, Missing, Unsubscribe),
-            (true, Active, Ungranted, Unsubscribe),
-            (true, Stopped, Available, Unsubscribe),
-            (true, Expired, Available, Unsubscribe),
-            (true, OwnerClosed, Available, Unsubscribe),
-            (true, TeamClosed, Available, Unsubscribe),
-            (true, Amended, Available, Unsubscribe),
-            (false, Stopped, Available, Keep),
-        ] {
-            assert_eq!(
-                next_subscription_action(subscribed, owner, provider),
-                expected
-            );
-        }
-    }
-
-    #[test]
-    fn blueprint_pipeline_journal_summary_is_bounded_and_control_free() {
-        let entry = StepJournalEntry {
-            step_index: 0,
-            step_name: "run".into(),
-            step_kind: "command".into(),
-            state: JournalStepState::Done,
-            outcome: Some("done".into()),
-            started_at_ms: Some(1),
-            ended_at_ms: Some(2),
-            result_summary: Some(StepJournalEntry::bound_summary(&format!(
-                "{}\n{}",
-                "x".repeat(199),
-                "tail"
-            ))),
-            reason: None,
-        };
-        entry.validate().unwrap();
-        let expected = "x".repeat(199);
-        assert_eq!(entry.result_summary.as_deref(), Some(expected.as_str()));
-        assert_eq!(StepJournalEntry::bound_summary("a\u{1b}b"), "ab");
-    }
-}
+mod tests;

@@ -8,6 +8,7 @@ import { DIFF_HIGHLIGHT_MAX_LINES } from "../MarkdownBody";
 import { SYNTAX_HIGHLIGHT_ROOT_CLASS, themeAwarePrismStyle } from "../syntaxTheme";
 import { ToolOutputContent } from "../ToolOutputContent";
 import { toolKindVisual } from "./toolKindVisual";
+import { rawToolPayload } from "./toolParsing";
 
 type LineTone = "add" | "del" | "context";
 
@@ -31,12 +32,6 @@ function lineTone(line: string): LineTone {
 function hunkLabel(count: number): string {
   if (count === 0) return "empty";
   return count === 1 ? "1 hunk" : `${count} hunks`;
-}
-
-function rawInput(event: ToolEvent): string {
-  const input = event.message.toolInput;
-  if (input && Object.keys(input).length > 0) return JSON.stringify(input, null, 2);
-  return event.detail || event.summary || "";
 }
 
 interface HighlightNode { type: string; value?: string | number; children?: HighlightNode[] }
@@ -154,7 +149,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
         {expanded && showResult && failed && event.result && (
           <div data-testid="toolcard-result" className="px-3 pt-1"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>
         )}
-        {expanded && rawCommand && <div className="px-3 pt-1"><RawCommandDisclosure raw={rawInput(event)} /></div>}
+        {expanded && rawCommand && <div className="px-3 pt-1"><RawCommandDisclosure raw={rawToolPayload(event)} /></div>}
       </div>
     </section>
   );

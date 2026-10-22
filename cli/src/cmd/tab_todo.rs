@@ -37,9 +37,12 @@ impl AgentTodoStatus {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AgentTodoWriteItem {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
     content: String,
     status: AgentTodoStatus,
-    #[serde(rename = "activeForm")]
+    #[serde(default, rename = "activeForm")]
     active_form: String,
     #[serde(default)]
     link: Option<String>,
@@ -69,6 +72,58 @@ pub fn handle_agent(client: &mut dyn RpcClient, json_output: bool, write_from_pa
             &crate::cmd::print::CliError::new(error),
         ),
     }
+}
+
+pub fn handle_proposal(
+    client: &mut dyn RpcClient,
+    json_output: bool,
+    action: crate::args::todo::TodoAction,
+) {
+    let result = execute_proposal(client, action);
+    match result {
+        Ok(value) => print_value(&value, json_output),
+        Err(error) => crate::cmd::print::exit_with_cli_error(
+            json_output,
+            &crate::cmd::print::CliError::new(error),
+        ),
+    }
+}
+
+fn execute_proposal(
+    client: &mut dyn RpcClient,
+    action: crate::args::todo::TodoAction,
+) -> Result<Value, String> {
+    use crate::args::todo::TodoAction;
+    let actor = required_current_tab()?;
+    let (method, tab, from_pad, note_from_pad) = match action {
+        TodoAction::Submit => ("tab.todo.submit", actor.clone(), None, None),
+        TodoAction::Approve { tab, note_from_pad } => {
+            ("tab.todo.approve", tab, None, note_from_pad)
+        }
+        TodoAction::Amend {
+            tab,
+            from_pad,
+            note_from_pad,
+        } => ("tab.todo.review_amend", tab, Some(from_pad), note_from_pad),
+        _ => return Err("expected checklist proposal command".into()),
+    };
+    let mut params = json!({ "tab_id": tab, "caller_tab_id": actor });
+    if let Some(path) = from_pad {
+        let input: Vec<AgentTodoWriteItem> = parse_source(Some(&path), None)?;
+        let entries = input
+            .into_iter()
+            .map(write_entry)
+            .collect::<Result<Vec<_>, _>>()?;
+        params["items"] = json!(entries);
+    }
+    if let Some(path) = note_from_pad {
+        let note = crate::cmd::payload_source::read_from_pad(&path)?
+            .trim()
+            .to_owned();
+        validate_tab_todo_reason(&note)?;
+        params["note"] = json!(note);
+    }
+    client.call(method, Some(params))
 }
 
 fn execute_tab(client: &mut dyn RpcClient, action: TabTodoAction) -> Result<Value, String> {
@@ -273,7 +328,12 @@ fn write_declared_todos(
         .unwrap_or(0);
     let checklist = parse_checklist(value.get("checklist").cloned().unwrap_or(Value::Null))?
         .ok_or_else(|| "tab.todo.write returned no checklist".to_string())?;
-    let message = format!("{omitted_locked_items} omitted locked item(s) remain unchanged");
+    let tip = if checklist.proposal.is_none() {
+        "; hint: share it with your parent using codeterm todo submit"
+    } else {
+        ""
+    };
+    let message = format!("{omitted_locked_items} omitted locked item(s) remain unchanged{tip}");
     let mut reply = with_remaining(checklist, Some(message));
     reply["omitted_locked_items"] = json!(omitted_locked_items);
     Ok(reply)
@@ -281,7 +341,7 @@ fn write_declared_todos(
 
 fn write_entry(item: AgentTodoWriteItem) -> Result<TabTodoWriteEntry, String> {
     let active_form = &item.active_form;
-    if active_form.trim().is_empty()
+    if (item.id.is_none() && active_form.trim().is_empty())
         || active_form.chars().count() > MAX_TAB_TODO_TITLE_CHARS
         || active_form.chars().any(char::is_control)
     {
@@ -290,6 +350,7 @@ fn write_entry(item: AgentTodoWriteItem) -> Result<TabTodoWriteEntry, String> {
         ));
     }
     let entry = TabTodoWriteEntry {
+        id: item.id,
         content: item.content,
         state: item.status.state(),
         link: item.link,
@@ -440,6 +501,9 @@ fn print_checklist(checklist: &TabTodoChecklist) {
         "Tab {} checklist generation {} revision {} ({:?})",
         checklist.tab_id, checklist.generation, checklist.revision, checklist.status
     );
+    if let Some(proposal) = &checklist.proposal {
+        println!("Review: {:?}", proposal.state);
+    }
     for item in &checklist.items {
         println!("{}\t[{}]\t{}", item.id, state_label(item.state), item.title);
         if let Some(reason) = &item.reason {

@@ -79,6 +79,7 @@ impl ServiceContext {
                 || params.task_id.is_some()
                 || params.model.is_some()
                 || params.reasoning_effort.is_some()
+                || params.speed.is_some()
                 || params.system_prompt.is_some()
                 || params.args.is_some()
                 || params.resume_session_id.is_some()

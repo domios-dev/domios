@@ -1,4 +1,6 @@
-import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { createNoticePublisher } from "../../lib/notices";
+import { describeError } from "../../lib/describeError";
+import { useMultiplexer } from "../../store/multiplexer";
 import { tabActivity } from "../../lib/tabActivity";
 import { ComposerContextMeter } from "./ComposerContextMeter";
 import { DocumentsButton } from "./DocumentsPanel";
@@ -6,7 +8,8 @@ import { ChangesButton } from "./ChangesPanel";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
 import { isUtilityShell } from "../../lib/shellCommandState";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
@@ -58,10 +61,6 @@ interface TabTopBarProps {
   tabMenu?: HeaderTabMenu;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function TabRenameField({ title, onDone }: { title: string; onDone: (title: string | null) => void }) {
   const [value, setValue] = useState(title);
   return (
@@ -109,8 +108,8 @@ export function TabTopBar({
   const [reconnecting, setReconnecting] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [renaming, setRenaming] = useState(false);
-  const [reconnectError, setReconnectError] = useState<string | null>(null);
   const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
+  const { upsertToast } = useMultiplexer();
   const menuTab = tabMenu?.tab ?? null;
   const { openProviderSwitch, providerSwitchDialog } = useProviderSwitchDialog(menuTab);
   const onRename = tabMenu?.onRename;
@@ -118,31 +117,61 @@ export function TabTopBar({
   const pluginTabMenu = usePluginTabMenu();
   const telegramThread = useTelegramThreadMenu(tabId, menuTab !== null && !menuTab.remote_peer_id);
 
+  const reportFailure = useCallback((error: unknown, operation: string, retry?: () => void | Promise<void>) => {
+    const description = describeError(error, { operation });
+    createNoticePublisher({ upsertToast })({ kind: "toast", id: `tab-header-action-failure-${tabId}`,
+      title: description.title,
+      detail: description.cause,
+      severity: "Warning",
+      tabId: tabId,
+      workspaceId: workspaceId ?? null,
+      actions: [
+        ...(description.raw ? [{ label: "Copy details", run: async () => {
+              try {
+                await navigator.clipboard.writeText(description.raw);
+              }
+              catch {
+                return;
+              }
+            } }] : []),
+        ...(retry ? [{ label: "Retry", run: retry }] : []),
+      ] });
+  }, [tabId, upsertToast, workspaceId]);
+
+  const runRetryable = useCallback(async (operation: string, action: () => Promise<unknown>): Promise<void> => {
+    const run = async () => {
+      try {
+        await action();
+      } catch (error) {
+        reportFailure(error, operation, run);
+      }
+    };
+    await run();
+  }, [reportFailure]);
+
   const reconnect = useCallback(async () => {
     if (reconnecting) return;
     setReconnecting(true);
-    setReconnectError(null);
     try {
-      await reconnectTabSession(tabId);
+      await runRetryable("reconnecting this tab", () => reconnectTabSession(tabId));
     } catch (error) {
-      setReconnectError(errorMessage(error));
+      reportFailure(error, "reconnecting this tab", () => reconnect());
     } finally {
       setReconnecting(false);
     }
-  }, [tabId, reconnecting]);
+  }, [tabId, reconnecting, runRetryable, reportFailure]);
 
   const restartSession = useCallback(async () => {
     if (restarting) return;
     setRestarting(true);
-    setReconnectError(null);
     try {
-      await restartTabSession(tabId);
+      await runRetryable("restarting this tab", () => restartTabSession(tabId));
     } catch (error) {
-      setReconnectError(errorMessage(error));
+      reportFailure(error, "restarting this tab", () => restartSession());
     } finally {
       setRestarting(false);
     }
-  }, [tabId, restarting]);
+  }, [tabId, restarting, runRetryable, reportFailure]);
 
   useEffect(() => {
     if (!isActive || !canReconnect) return;
@@ -182,7 +211,7 @@ export function TabTopBar({
       void (async () => {
         if (!tabMenu?.onClose) return;
         if (!workspaceId) {
-          setReconnectError("Could not read Blueprint close inventory: workspace unavailable.");
+          reportFailure(new Error("Could not read Blueprint close inventory: workspace unavailable."), "closing this tab");
           return;
         }
         try {
@@ -191,20 +220,48 @@ export function TabTopBar({
           if (running.length > 0) setCloseBlueprints(running);
           else tabMenu.onClose?.();
         } catch (error) {
-          setReconnectError(errorMessage(error));
+          reportFailure(error, "closing this tab", () => runMenuAction(action));
         }
       })();
       return;
     }
-    setReconnectError(null);
     performTabMenuAction(tabId, action, { sessionBindingNonce: menuTab?.session_binding_nonce, switchProvider: openProviderSwitch, rename: () => setRenaming(true), close: tabMenu?.onClose })
-      .catch((error) => setReconnectError(errorMessage(error)));
+      .catch((error) => reportFailure(error, "updating this tab"));
   };
+
+  // Bubbles that do not fit one row stay clipped behind a toggle instead of wrapping the bar onto a second line.
+  const bubblesRef = useRef<HTMLDivElement>(null);
+  const [hiddenBubbles, setHiddenBubbles] = useState(0);
+  const [bubblesOpen, setBubblesOpen] = useState(false);
+  useLayoutEffect(() => {
+    const row = bubblesRef.current;
+    if (!row) return;
+    // Bubbles mount and resize on their own (plugins load late), so both child changes and child sizes re-measure.
+    const sizes = new ResizeObserver(() => check());
+    const check = () => {
+      const top = row.getBoundingClientRect().top;
+      setHiddenBubbles(Array.from(row.children).filter((child) => {
+        if (!(child instanceof HTMLElement) || child.dataset.bubblesToggle) return false;
+        const box = child.getBoundingClientRect();
+        return box.width > 0 && box.top - top >= TAB_BAR_CONTROL_H;
+      }).length);
+    };
+    const watch = () => {
+      sizes.disconnect();
+      sizes.observe(row);
+      for (const child of Array.from(row.children)) sizes.observe(child);
+      check();
+    };
+    const mutations = new MutationObserver(watch);
+    mutations.observe(row, { childList: true, subtree: true, characterData: true });
+    watch();
+    return () => { sizes.disconnect(); mutations.disconnect(); };
+  }, []);
 
   return (
     <div
       data-testid="tab-top-bar"
-      className="ct-tab-top-bar flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-1.5 px-2 sm:flex-nowrap sm:gap-2"
+      className="ct-tab-top-bar flex min-w-0 shrink-0 flex-nowrap items-start justify-between gap-1.5 px-2 sm:gap-2"
       style={{
         ["--ct-tab-pill-h" as string]: `${TAB_BAR_CONTROL_H}px`,
         paddingTop: 6,
@@ -228,19 +285,34 @@ export function TabTopBar({
           />
         )}
       </div>
-      <div className="ml-auto flex min-w-0 shrink items-center gap-1 sm:gap-1.5">
-        {reconnectError && (
-          <div data-testid="chat-reconnect-error" className="max-w-72">
-            <InlineErrorNotice error={reconnectError} operation="reconnecting this tab" />
-          </div>
+      <div className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1 sm:gap-1.5">
+      <div
+        ref={bubblesRef}
+        className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 overflow-hidden sm:gap-1.5"
+        style={bubblesOpen
+          ? { background: "var(--ct-bg)", rowGap: 8, paddingBottom: 8, marginBottom: -8, boxShadow: "0 12px 12px -6px var(--ct-bg)", position: "relative", zIndex: 3 }
+          : { maxHeight: TAB_BAR_CONTROL_H }}
+      >
+        {(hiddenBubbles > 0 || bubblesOpen) && (
+          <button
+            type="button"
+            data-bubbles-toggle="true"
+            className="ct-bar-pill inline-flex shrink-0 items-center justify-center gap-0.5 px-2 text-xs"
+            style={{ height: TAB_BAR_CONTROL_H }}
+            aria-expanded={bubblesOpen}
+            aria-label={bubblesOpen ? "Show fewer" : `Show ${hiddenBubbles} more`}
+            title={bubblesOpen ? "Show fewer" : `Show ${hiddenBubbles} more`}
+            onClick={() => setBubblesOpen((open) => !open)}
+          >
+            {bubblesOpen ? <ChevronDown size={14} aria-hidden style={{ transform: "rotate(180deg)" }} /> : <>+{hiddenBubbles}<ChevronDown size={12} aria-hidden /></>}
+          </button>
         )}
         {shellTab && isUtilityShell(shellTab) && <>
           <ShellPurposeIcon purpose={shellTab.purpose} icon={shellTab.icon} running={tabActivity(shellTab).active} />
           <ShellStatus tab={shellTab} />
         </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
-        <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
-        <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
+        {/* Order is priority: the first row keeps tokens, then changes, then plugins. */}
         {usageProvider && (
           <UsageBubble
             provider={usageProvider}
@@ -256,6 +328,9 @@ export function TabTopBar({
           <DocumentsButton tabId={tabId} />
           <ChangesButton tabId={tabId} />
         </div>
+        <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
+        <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
+      </div>
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}

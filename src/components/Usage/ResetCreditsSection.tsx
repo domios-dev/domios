@@ -1,3 +1,4 @@
+import {creditExpiryHint} from "./creditExpiry";
 import {useRef, useSyncExternalStore} from "react";
 import {createPortal} from "react-dom";
 import {formatUntil} from "../../lib/timeLabels";
@@ -8,6 +9,8 @@ import {availableResetCredits, resetCreditLabel, resetCreditsState, resetOutcome
 
 function expiryLabel(expiresAt: number | null | undefined) {
   if (expiresAt == null) return "Expiry not reported";
+  const hint = creditExpiryHint(expiresAt, Date.now());
+  if (hint) return <span className="ct-usage-credit-expiry">{hint}</span>;
   return <>Expires <time dateTime={new Date(expiresAt).toISOString()} title={new Date(expiresAt).toLocaleString()}>{formatUntil(expiresAt, Date.now())}</time></>;
 }
 
@@ -45,7 +48,7 @@ export function ResetCreditsSection({resets, model}: {resets?:ResetCredits|null;
         return <li key={id ?? "next"} className="ct-usage-reset-row" title={credit?.description}>
           <span className="ct-usage-reset-text">
             <span className="ct-usage-reset-name">{name}</span>
-            <span className="ct-usage-reset-note">{credit ? expiryLabel(credit.expiresAt) : "Chosen by provider"}</span>
+            <span className="ct-usage-reset-note">{credit ? expiryLabel(credit.expiresAt) : resets.nextExpiry != null ? expiryLabel(resets.nextExpiry) : "Chosen by provider"}</span>
           </span>
           <button type="button" className="ct-usage-reset-use" aria-label={`Use ${name}`} disabled={locked || state.disabled} onClick={event => use(id, event.currentTarget)}>Use</button>
         </li>;

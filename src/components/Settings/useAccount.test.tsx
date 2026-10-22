@@ -1,6 +1,9 @@
-import { act } from "react";
+import { act, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
+import type { Notification } from "../../lib/types";
+import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
+import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { request, rawBody, state } = vi.hoisted(() => ({
   request: vi.fn(), rawBody: vi.fn(() => "opaque-sensitive-response"), state: {
     identity:null as null | {uid:string;display_name:string;email:null;provider:string},
@@ -25,15 +28,42 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
   return {ok:true,json:async () => ({identity:state.identity,pending:false,last_sign_in_failure:state.failure})};
   },
 }));
-import { useAccount } from "./useAccount";
+import { signInFailureToastMessage, useAccount } from "./useAccount";
 import { AccountTab } from "./AccountTab";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT = true;
+
+it.each([
+  ["preparation", "sign-in setup failed"],
+  ["browser", "opening the sign-in page failed"],
+  ["callback", "the callback could not be validated"],
+  ["redemption", "the code exchange failed"],
+  ["credential_save", "saving sign-in credentials failed"],
+  ["publication", "publishing the signed-in session failed"],
+] as const)("names the %s stage and offers retry", (stage, expected) => {
+  const message = signInFailureToastMessage({ stage, error: "provider" });
+  expect(message).toContain(expected);
+  expect(message).toContain("Retry");
+});
+
 function Surface({name}:{name:string}) {
   const {model,signIn,signOut} = useAccount();
   return <section aria-label={name}><output>{model.kind === "signed_in" ? model.identity.uid : model.kind}</output>
     <button type="button" onClick={() => {void signIn({provider:"email",mode:"signup"});}}>Login</button>
     <button type="button" onClick={() => {void signOut();}}>Logout</button>
   </section>;
+}
+
+function AccountTabWithToasts() {
+  const [toasts, setToasts] = useState<Notification[]>([]);
+  const actions = useMemo(() => ({
+    upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => setToasts((current) => [
+      ...current.filter((item) => item.id !== toast.id), { ...toast, timestamp: 1, read: false },
+    ]),
+  }), []);
+  return <MultiplexerActionsContext.Provider value={actions as unknown as MultiplexerActionsContextType}>
+    <AccountTab />
+    <NotificationToastContainer toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
+  </MultiplexerActionsContext.Provider>;
 }
 it("updates both mounted account surfaces after login and logout and guards duplicate login", async () => {
   const host = document.createElement("div"); document.body.append(host);
@@ -84,7 +114,7 @@ it("keeps failed background account and plan reads quiet while preserving user a
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTab />));
+    await act(async () => root.render(<AccountTabWithToasts />));
     await act(async () => { await Promise.resolve(); });
     expect(host.querySelector('[data-testid="settings-copy-row"] code')?.textContent).toBe("user");
     expect(host.querySelector('[role="alert"]')).toBeNull();
@@ -99,7 +129,8 @@ it("keeps failed background account and plan reads quiet while preserving user a
     const manage = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Manage subscription");
     expect(manage).toBeDefined();
     await act(async () => manage!.click());
-    expect(host.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(host.querySelector('[data-testid="notification-toast"]')?.getAttribute("role")).toBe("status");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -107,16 +138,19 @@ it("keeps failed background account and plan reads quiet while preserving user a
   }
 });
 
-it("shows a direct sign-in failure in one accessible alert", async () => {
+it("shows a direct sign-in failure in a retryable toast", async () => {
   state.identity = null; state.failure = null; state.failLogin = true; state.failStatus = false; state.failPlan = false; state.failBillingAction = false;
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<AccountTab />));
+    await act(async () => root.render(<AccountTabWithToasts />));
     const signIn = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Sign in");
     expect(signIn).toBeDefined();
     await act(async () => signIn!.click());
-    expect(host.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(host.querySelector('[data-testid="notification-toast"]')?.getAttribute("role")).toBe("status");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(Array.from(host.querySelectorAll("button")).some((button) => button.textContent === "Retry")).toBe(true);
+    expect(Array.from(host.querySelectorAll("button")).some((button) => button.textContent === "Copy details")).toBe(true);
   } finally {
     await act(async () => root.unmount());
     host.remove();

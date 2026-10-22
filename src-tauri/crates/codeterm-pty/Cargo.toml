@@ -14,6 +14,7 @@ codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-paths = { path = "../codeterm-paths" }
 portable-pty = { path = "../../pty-fork" }
 vt100 = "0.16"
+vte = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -37,7 +38,7 @@ tempfile = "3"
 wait-timeout = "0.2"
 
 [target.'cfg(windows)'.dev-dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_RemoteDesktop", "Win32_System_WindowsProgramming", "Win32_Storage_FileSystem"] }
 
 [lints]
 workspace = true

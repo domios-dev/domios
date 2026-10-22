@@ -50,6 +50,7 @@ pub(super) fn into_params(
         creator_tab_id: body.creator_tab_id,
         ownership,
         model: body.model,
+        speed: body.speed,
         planned_model: None,
         planned_reasoning_effort: None,
         reasoning_effort: body.reasoning_effort,
@@ -76,9 +77,10 @@ mod tests {
     use super::*;
     #[test]
     fn wire_request_preserves_explicit_mode_environment_and_opaque_provider() {
-        let body: SpawnAgentBody = serde_json::from_value(serde_json::json!({"agent":"opaque-provider","execution_mode":"opaque-cloud","preset":"opaque-environment","task":"opaque-task"})).unwrap();
+        let body: SpawnAgentBody = serde_json::from_value(serde_json::json!({"agent":"opaque-provider","execution_mode":"opaque-cloud","preset":"opaque-environment","task":"opaque-task","speed":"opaque-tier"})).unwrap();
         let params = into_params(body, SpawnAgentParams::default(), None);
         assert_eq!(params.agent.as_deref(), Some("opaque-provider"));
+        assert_eq!(params.speed.as_deref(), Some("opaque-tier"));
         assert_eq!(params.execution_mode.as_deref(), Some("opaque-cloud"));
         assert_eq!(params.preset.as_deref(), Some("opaque-environment"));
         assert_eq!(params.task.as_deref(), Some("opaque-task"));

@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { act } from "react";
 import { Window } from "happy-dom";
 import type { DelayedMessage } from "./delayedSend";
-import { formatTickRow } from "./systemHeartbeatProjection";
 import type { DelayedMessagePatch, DelayedModalTarget } from "./DelayedMessageModal";
 
 async function main() {
@@ -112,12 +111,10 @@ async function main() {
     ticks: [{ atMs: 0, outcome: "sent", spinalVerdict: "processed", spinalReason: "delivered" }],
   };
   await render({ kind: "edit", message: system }, { edit: true });
-  assert.equal(dialog()?.querySelector('[data-testid="heartbeat-origin"]')?.textContent, "system");
   assert.equal(dialog()?.querySelector('[data-testid="heartbeat-cadence"]')?.textContent, "every 1m");
   assert.match(dialog()?.querySelector('[data-testid="heartbeat-reason"]')?.textContent ?? "", /task_a/);
   assert.equal(dialog()?.querySelector('[data-testid="heartbeat-content"]')?.textContent, system.text);
-  const tick = dialog()?.querySelector('[data-testid="heartbeat-tick"]')?.textContent ?? "";
-  assert.equal(tick, formatTickRow(system.ticks![0]));
+  assert.equal(dialog()?.querySelector('[data-testid="heartbeat-tick"]'), null, "the delivery log is not shown");
   const labels = Array.from(dialog()!.querySelectorAll("button")).map((button) => button.textContent?.trim() || button.getAttribute("aria-label"));
   for (const forbidden of ["Delete", "Save", "Send now", "Cancel", "Schedule"]) {
     assert.equal(labels.includes(forbidden), false, `${forbidden} is absent`);

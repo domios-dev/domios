@@ -109,7 +109,12 @@ pub fn deliver_orchestrator_onboarding(svc: &ServiceContext, tab_id: &str) {
     }
     // An anchoring Orchestrator owns a Team; mint it now if the promotion
     // left it unbound so the first message carries a real team id.
-    let resolution = match svc.mux.write().resolve_or_mint_team_for_parent(tab_id) {
+    let gate = svc.limit_gate();
+    let minted = svc.mux.write().resolve_or_mint_team_for_parent_admitted(
+        tab_id,
+        codeterm_service_core::service::billing::admit_new_team(&gate),
+    );
+    let resolution = match minted {
         Ok(resolution) => resolution,
         Err(e) => {
             log::warn!("[orchestrator-onboard] team resolve for {tab_id} failed: {e}");
@@ -212,6 +217,16 @@ pub fn maybe_deliver_orchestrator_promotion_onboarding(
     }
 }
 
+/// Promoting a Team-less tab to an anchor mints a Team at onboarding; refuse before the transition.
+pub fn admit_anchor_promotion(svc: &ServiceContext, tab_id: &str) -> Result<(), String> {
+    let gate = svc.limit_gate();
+    let mux = svc.mux.read();
+    if mux.get_tab(tab_id).is_some_and(|tab| tab.team_id.is_none()) {
+        codeterm_service_core::service::billing::admit_new_team(&gate)(mux.team_count())?;
+    }
+    Ok(())
+}
+
 pub fn make_orchestrator(svc: &ServiceContext, tab_id: &str) -> Result<(), String> {
     let was_orchestrator = {
         let mux = svc.mux.read();
@@ -221,6 +236,7 @@ pub fn make_orchestrator(svc: &ServiceContext, tab_id: &str) -> Result<(), Strin
         validate_make_orchestrator(tab)?;
         tab.anchors_team()
     };
+    admit_anchor_promotion(svc, tab_id)?;
 
     svc.transition_agent(codeterm_service_core::service::AgentTransitionRequest {
         tab_id: tab_id.to_string(),

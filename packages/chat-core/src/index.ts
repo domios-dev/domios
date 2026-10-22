@@ -21,6 +21,8 @@ export type {
   ToolRichResult,
 } from "./types";
 export type { ChatMsg } from "./gen/ChatMsg";
+export type { FrameKind } from "./gen/FrameKind";
+export type { SystemSend } from "./gen/SystemSend";
 export { sessionChanges, fileDiffFromEdit, type SessionChanges, type ChangesTurn, type RecordedFileChange } from "./sessionChanges";
 export { SYSTEM_ORIGIN_LABEL, systemOriginLabel } from "./originLabels";
 export { automationOrigin, type AutomationSource } from "./automationOrigin";
@@ -126,6 +128,7 @@ export {
   createTranscriptState,
   projectTranscript,
   reduceTranscript,
+  expandTranscriptGap,
   transcriptBackfillCursor,
   transcriptCommittedEnd,
   transcriptOffsetKind,

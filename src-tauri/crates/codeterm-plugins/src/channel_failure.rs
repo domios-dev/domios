@@ -51,7 +51,7 @@ pub(super) fn git_failure_cause(stderr: &str) -> String {
     ]) {
         return NETWORK_UNAVAILABLE.into();
     }
-    match last_line(stderr) {
+    match diagnostic_block(stderr) {
         Some(line) => format!("git failed: {line}"),
         None => "git failed".into(),
     }
@@ -86,12 +86,27 @@ pub(super) fn source_label(url: &str) -> String {
         .into()
 }
 
-fn last_line(stderr: &str) -> Option<String> {
-    let line = stderr
+fn diagnostic_block(stderr: &str) -> Option<String> {
+    let lines: Vec<&str> = stderr
         .lines()
         .map(str::trim)
-        .rfind(|line| !line.is_empty())?;
-    Some(line.chars().take(160).collect())
+        .filter(|line| !line.is_empty())
+        .collect();
+    let first = lines
+        .iter()
+        .position(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.starts_with("fatal:")
+                || lower.starts_with("error:")
+                || lower.starts_with("remote: error:")
+        })
+        .unwrap_or(0);
+    let detail = lines.get(first..)?.join("\n");
+    if detail.is_empty() {
+        None
+    } else {
+        Some(detail.chars().take(4096).collect())
+    }
 }
 
 #[cfg(test)]

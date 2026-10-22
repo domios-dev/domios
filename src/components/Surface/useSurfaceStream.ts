@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { DEV_BUILD } from "../../lib/devBuild";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { acceptViewportFrame } from "./resizeFrameModel";
+import { createViewportResizer } from "./viewportResizer";
+import { publishNotice } from "../../lib/notices";
 import { createFrameFeed, type FrameFeed } from "./frameFeed";
-import { frameMatchesViewport, type FrameMetadata, type StreamViewport } from "./streamModel";
+import { type FrameMetadata, type StreamViewport } from "./streamModel";
 import { streamLifecycleAction } from "./streamLifecycle";
 import type { SurfaceState } from "./surfaceChromeModel";
 import { isPreviewPaused, resizeArgs, SURFACE_METHOD, type Disconnect, type StreamFrame, type SurfaceNotice, type SurfaceStreamTransport } from "./surfaceStreamTransport";
@@ -36,21 +38,29 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
   const [notice, setNotice] = useState<SurfaceNotice | null>(null);
   const [paused, setPaused] = useState<SurfaceNotice | null>(null);
   const pausedRef = useRef(false);
-  const [feed] = useState(createFrameFeed);
   const connection = useRef<Connection>({ disconnect: null, sent: null, latest: null, mismatch: null });
+  const profile = useRef(state.profile);
+  profile.current = state.profile;
+  const [feed] = useState(() => createFrameFeed((frame) => profile.current === "attached"
+    || !documentActive() || acceptViewportFrame(frame.metadata, connection.current.latest)));
+
+  const resizer = useMemo<{ current: ReturnType<typeof createViewportResizer> | null }>(() => ({ current: null }), [transport]);
+  useEffect(() => () => { resizer.current?.dispose(); resizer.current = null; }, [resizer]);
 
   const sendResize = useCallback((viewport: StreamViewport) => {
     connection.current.sent = viewport;
-    transport.invoke(SURFACE_METHOD.resize, resizeArgs(viewport)).catch((error: unknown) => {
-      if (DEV_BUILD) console.debug("Background surface resize failed", error);
-    });
-  }, [transport]);
+    resizer.current ??= createViewportResizer(
+      (next) => transport.invoke(SURFACE_METHOD.resize, resizeArgs(next)),
+      (error) => publishNotice({ kind: "debug", severity: "Warning", title: "Background surface resize failed", detail: String(error) }),
+    );
+    resizer.current.push(viewport);
+  }, [resizer, transport]);
 
   const heal = useCallback((meta: FrameMetadata) => {
     const current = connection.current;
     // sent is null while the stage is hidden; a hidden stage must not claim the shared viewport.
     if (!current.latest || !current.sent || !documentActive()) return;
-    if (frameMatchesViewport(meta, current.latest)) {
+    if (acceptViewportFrame(meta, current.latest)) {
       current.mismatch = null;
       return;
     }

@@ -236,6 +236,8 @@ fn sentinel_schema_v4_graph_fields_round_trip_on_both_backends() {
     stopped.machine.stopped = true;
     stopped.revision += 1;
     stopped.last_reason = Some("explicit".into());
+    stopped.cleanup.stopped_at = Some(1_000);
+    stopped.cleanup.deletes_at = Some(1_801_000);
     assert_eq!(
         values(Store::new(path, clock).list()),
         values(&[stopped, graph]),

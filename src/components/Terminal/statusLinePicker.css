@@ -112,48 +112,39 @@ button.ct-status-identity:focus-visible {
   outline-offset: 1px;
 }
 
-.ct-model-picker__toggle {
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ct-muted-fg);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-  transition: background-color var(--ct-duration-smooth) var(--ct-ease-liquid-settle), color var(--ct-duration-fast) ease;
-}
-
-.ct-model-picker__toggle:hover,
-.ct-model-picker__toggle:focus-visible {
-  background: color-mix(in srgb, var(--ct-hover) 70%, transparent);
-  color: var(--ct-fg);
-}
-
-.ct-model-picker__toggle:focus-visible {
-  outline: 1px solid var(--ct-accent);
-}
-
+/* Every text start shares the menu row's 9px inset inside a 6px frame; controls run to the frame. */
 .ct-menu.ct-model-picker {
+  --ct-model-picker-inset: 9px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
+  padding: 6px;
   color: var(--ct-fg);
   font-family: var(--ct-font-ui);
   font-size: 12px;
   line-height: 1.35;
 }
 
+.ct-menu-row.ct-model-picker__toggle {
+  color: var(--ct-muted-fg);
+  font: inherit;
+}
+
+.ct-menu-row.ct-model-picker__toggle:hover,
+.ct-menu-row.ct-model-picker__toggle:focus-visible {
+  color: var(--ct-fg);
+}
+
 .ct-model-picker__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 2px 0 6px;
+  gap: 2px;
+  min-height: 30px;
+  padding-left: var(--ct-model-picker-inset);
 }
 
 .ct-model-picker__title {
+  flex: 1;
+  min-width: 0;
   font-weight: 600;
   font-size: 12.5px;
 }
@@ -186,9 +177,10 @@ button.ct-status-identity:focus-visible {
 .ct-model-picker__search {
   width: 100%;
   height: var(--ct-control-height-micro);
-  padding: 0 8px;
+  margin-top: 2px;
+  padding: 0 var(--ct-model-picker-inset);
   border: 1px solid var(--ct-border-default);
-  border-radius: 8px;
+  border-radius: var(--ct-menu-row-radius);
   background: color-mix(in srgb, var(--ct-bg) 60%, transparent);
   color: var(--ct-fg);
   font: inherit;
@@ -199,15 +191,23 @@ button.ct-status-identity:focus-visible {
   outline-offset: 0;
 }
 
+/* The fade spans only the list padding, so it shows only while rows scroll under it. */
 .ct-model-picker__list {
   display: flex;
   flex-direction: column;
+  gap: 1px;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-block: 8px;
-  scroll-padding-block: 12px;
-  mask-image: linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent);
+  padding-block: 4px;
+  scroll-padding-block: 4px;
+  mask-image: linear-gradient(to bottom, transparent, black 4px, black calc(100% - 4px), transparent);
+}
+
+.ct-model-picker__list > [role="group"] {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .ct-menu-row.ct-model-picker__option {
@@ -254,21 +254,31 @@ button.ct-status-identity:focus-visible {
   font-size: 10px;
 }
 
+.ct-model-picker__settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-block: 4px 10px;
+}
+
 .ct-model-picker__footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--ct-border-subtle);
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  background: inherit;
 }
 
 .ct-model-picker__effort {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 8px 4px 0;
-  border-top: 1px solid var(--ct-border-subtle);
+  gap: 6px;
+}
+
+.ct-model-picker__effort > .ct-model-picker__label {
+  padding-left: var(--ct-model-picker-inset);
 }
 
 .ct-model-picker__effort .ct-liquid-segmented {
@@ -293,21 +303,32 @@ button.ct-status-identity:focus-visible {
 .ct-model-picker__note,
 .ct-model-picker__empty {
   margin: 0;
-  padding: 0 4px;
+  padding-inline: var(--ct-model-picker-inset);
   color: var(--ct-muted-fg);
   font-size: 11px;
+}
+
+.ct-model-picker__empty {
+  padding-block: 6px;
 }
 
 .ct-model-picker__confirm {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px 4px 0;
-  border-top: 1px solid var(--ct-border-subtle);
+  gap: 10px;
 }
 
 .ct-model-picker__confirm p {
   margin: 0;
+  padding-inline: var(--ct-model-picker-inset);
+}
+
+.ct-model-picker__recovery {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding-top: 10px;
 }
 
 .ct-model-picker__actions {
@@ -326,8 +347,7 @@ button.ct-status-identity:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .ct-status-identity__text,
   .ct-status-identity__chevron,
-  .ct-status-identity,
-  .ct-model-picker__toggle {
+  .ct-status-identity {
     transition: none;
   }
   button.ct-status-identity:hover {

@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.14",
-  "minCodeterm": "1.14.9",
+  "version": "1.14.19",
+  "minCodeterm": "1.15.1",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -189,6 +189,7 @@
     "stopKey": "\u001b",
     "modelSwitch": "live_command",
     "modelSwitchCommands": {
+      "duringTurn": true,
       "readyInputRegex": "^\\s*❯\\s*$",
       "transcript": {
         "recordType": "user",
@@ -202,13 +203,21 @@
           "\\A<local-command-caveat>[^<>]*</local-command-caveat>\\z",
           "\\A<command-name>/model</command-name>\\s*<command-message>model</command-message>\\s*<command-args>\\s*</command-args>\\z",
           "\\A<command-name>/effort</command-name>\\s*<command-message>effort</command-message>\\s*<command-args>[^<>]*</command-args>\\z"
+        ],
+        "additionalRecordSources": [
+          {
+            "recordType": "system",
+            "contentPath": [
+              "content"
+            ]
+          }
         ]
       },
       "model": {
         "command": "/model",
         "confirmation": "(?i)^Set model to `?(?:{model}|{display_name})(?: [^`\\r\\n]+)?`? for this session only(?:$|[^a-z0-9_-])",
         "picker": {
-          "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*Enter to set as default · s to use this session only · Esc to cancel\\s*\\z",
+          "screenRegex": "(?m)^\\s*Select model\\s*$[\\s\\S]*^\\s*Enter to set as default · s to use this session only · Esc to cancel[^\\S\\r\\n]*\\r?$",
           "selectedRegex": "(?m)^\\s*❯\\s*(?P<position>\\d+)\\.\\s+[^\\r\\n]+\\r?$",
           "targetRegex": "(?im)^\\s*(?:❯\\s*)?(?P<position>\\d+)\\.\\s+(?P<label>{display_name}|{model})(?:\\s*[✓✔])?(?:\\s+[^\\r\\n]+)?\\r?$",
           "position": "number",
@@ -217,11 +226,29 @@
           "responseKey": "s",
           "cancelKey": "\u001b"
         },
+        "prompt": {
+          "screenRegex": "(?im)^\\s*[^\\r\\n?]+\\?\\s*$[\\s\\S]*?^\\s*❯\\s*1\\.\\s+[^\\r\\n]*(?:{model}|{display_name})[^\\r\\n]*\\r?\\n\\s*2\\.\\s+[^\\r\\n]+\\s*^\\s*[─━-]{3,}[^\\r\\n]*\\r?$",
+          "responseKeys": [
+            "\r"
+          ],
+          "cancelKeys": [
+            "\u001b"
+          ]
+        },
         "confirmationPromptKind": "switch_confirmation"
       },
       "effort": {
         "command": "/effort {effort}",
         "confirmation": "(?i)^Set effort level to {effort} \\(",
+        "prompt": {
+          "screenRegex": "(?im)^\\s*[^\\r\\n?]+\\?\\s*$[\\s\\S]*?^\\s*❯\\s*1\\.\\s+[^\\r\\n]*{effort}[^\\r\\n]*\\r?\\n\\s*2\\.\\s+[^\\r\\n]+\\s*^\\s*[─━-]{3,}[^\\r\\n]*\\r?$",
+          "responseKeys": [
+            "\r"
+          ],
+          "cancelKeys": [
+            "\u001b"
+          ]
+        },
         "confirmationPromptKind": "switch_confirmation"
       }
     },

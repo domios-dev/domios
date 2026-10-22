@@ -11,6 +11,9 @@ use parking_lot::Mutex;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
+#[path = "tests/wake.rs"]
+mod wake;
+
 fn fixture(session: Option<&str>, prelaunch: bool) -> (ServiceFixture, String) {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();

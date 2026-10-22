@@ -32,6 +32,7 @@ pub struct JsChatBackend {
     context_owner: ContextOwner,
     agent_tasks: bool,
     remote_task: Option<crate::remote_tasks::RemoteTaskCapability>,
+    agent_runtime: Option<crate::agent_runtime::AgentRuntimeCapability>,
     model_catalogue: ModelCatalogueCapability,
     model_catalogue_input_files: Vec<PathBuf>,
     session_exec_env: parking_lot::Mutex<HashMap<String, HashMap<String, String>>>,
@@ -52,6 +53,7 @@ impl JsChatBackend {
             context_owner: ContextOwner::Plugin,
             agent_tasks: false,
             remote_task: None,
+            agent_runtime: None,
             model_catalogue: ModelCatalogueCapability::default(),
             model_catalogue_input_files: Vec::new(),
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
@@ -72,6 +74,7 @@ impl JsChatBackend {
             agent_tasks: manifest.capabilities.chat_backend.agent_tasks
                 && manifest.capabilities.remote_task.is_none(),
             remote_task: manifest.capabilities.remote_task.clone(),
+            agent_runtime: manifest.capabilities.agent_runtime.clone(),
             model_catalogue: manifest.model_catalogue.clone(),
             model_catalogue_input_files: manifest.model_catalogue.fingerprint_files(
                 super::host_credentials::declared_files(&manifest.credentials),
@@ -195,6 +198,10 @@ fn chatbackend_host_exec_env(
 }
 
 impl ChatBackendProvider for JsChatBackend {
+    fn agent_runtime(&self) -> Option<crate::agent_runtime::AgentRuntimeCapability> {
+        self.agent_runtime.clone()
+    }
+
     fn remote_task_capability(&self) -> Option<crate::remote_tasks::RemoteTaskCapability> {
         self.remote_task.clone()
     }

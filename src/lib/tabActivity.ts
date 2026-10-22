@@ -51,6 +51,16 @@ function lazyFirstTurnComposerIsLive(tab: TabActivityInput | null | undefined): 
     && launch.binding_nonce === tab.session_binding_nonce;
 }
 
+function boundSessionRetiresShellStartup(tab: TabActivityInput | null | undefined): boolean {
+  return tab?.agent_booting === false
+    && Boolean(tab.agent_session_id?.trim())
+    && Boolean(tab.pty_id)
+    && Boolean(tab.session_binding_nonce?.trim())
+    && tab.reported_session_binding_nonce === tab.session_binding_nonce
+    && (tab.boot_stage === "pty_starting" || tab.boot_stage === "pty_spawned"
+      || tab.boot_stage === "reader_ready" || tab.boot_stage === "shell_ready");
+}
+
 export function tabActivity(tab: TabActivityInput | null | undefined, status?: TabStatus | null): TabActivity {
   if (tab?.frozen) return {
     kind: "idle", label: "Sleeping", status: "Idle", state: "idle",
@@ -69,7 +79,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
     || (startingStages.has(tab?.boot_stage) && !readyShell)
     || tab?.boot_stage === "awaiting_owner_prompt"
     || (declaresAgent && !sessionBound && tab?.boot_stage !== "agent_ready"))
-    && !lazyComposerReady;
+    && !lazyComposerReady && !boundSessionRetiresShellStartup(tab);
   const authoritativeStatus = status ?? (live?.state === "working" ? "Working"
     : live?.state === "question" ? "Waiting" : "Idle");
   let kind: TabActivity["kind"];

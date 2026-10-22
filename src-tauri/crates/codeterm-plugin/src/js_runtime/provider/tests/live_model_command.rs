@@ -79,6 +79,7 @@ fn live_command_mode_and_templates_round_trip_through_manifest() {
     let mut manifest: serde_json::Value = serde_json::from_str(MIN_MANIFEST).unwrap();
     manifest["commands"]["modelSwitch"] = json!("live_command");
     manifest["commands"]["modelSwitchCommands"] = json!({
+        "duringTurn": true,
         "confirmationSource": {"kind": "transcript"},
         "model": {"command": "/choose", "confirmation": "^accepted {model}$",
             "picker": {"screenRegex":"^picker", "selectedRegex":"selected (?P<position>\\d+)",
@@ -106,6 +107,7 @@ fn live_command_mode_and_templates_round_trip_through_manifest() {
     invalid["commands"]["modelSwitchCommands"]["model"]["prompt"]["cancelKeys"] = json!("escape");
     assert!(serde_json::from_value::<PluginManifest>(invalid).is_err());
     let commands = provider.model_switch_commands().unwrap();
+    assert!(commands.during_turn);
     assert_eq!(
         serde_json::to_value(commands).unwrap(),
         manifest["commands"]["modelSwitchCommands"]

@@ -280,6 +280,26 @@ impl ServiceContext {
         now_ms: u64,
     ) -> Result<crate::service::plan::heartbeat::HeartbeatLearnResult, OrchestratorLearningError>
     {
+        if let Some(policy) = caller
+            .tab_id
+            .as_deref()
+            .and_then(|tab| self.role_policy_for_tab(tab))
+        {
+            let (owner_tab, owner_session) = policy
+                .learning_owner(self, caller, plan_id, tag)
+                .map_err(OrchestratorLearningError::Authority)?;
+            return self
+                .plan_store
+                .add_heartbeat_learning(
+                    Some(plan_id),
+                    owner_tab.as_deref(),
+                    owner_session.as_deref(),
+                    text,
+                    tag,
+                    now_ms,
+                )
+                .map_err(OrchestratorLearningError::Store);
+        }
         self.authorize_plan_orchestrator(plan_id, caller)
             .map_err(OrchestratorLearningError::Authority)?;
         self.plan_store

@@ -39,7 +39,7 @@ async function mount(provider: ProviderDescriptor | undefined, currentServiceTie
   document.body.append(host);
   const root = createRoot(host);
   toasts.length = 0;
-  const render = (pendingSelection?: { model: string; effort: string | null }) => root.render(
+  const render = (pendingSelection?: { model: string; effort: string | null; confirmation_pending?: boolean }) => root.render(
     <MultiplexerActionsContext.Provider value={toastActions}>
     <StatusLineModelPicker
       tabId="tab"
@@ -58,7 +58,7 @@ async function mount(provider: ProviderDescriptor | undefined, currentServiceTie
   await act(async () => render());
   return {
     host,
-    async setPendingSelection(selection?: { model: string; effort: string | null }) {
+    async setPendingSelection(selection?: { model: string; effort: string | null; confirmation_pending?: boolean }) {
       await act(async () => render(selection));
     },
     trigger: () => host.querySelector<HTMLButtonElement>('[data-testid="status-model-trigger"]'),
@@ -637,4 +637,18 @@ test("model chip displays provider-confirmed tier names", async () => {
       assert.equal(view.trigger()!.textContent?.includes(" · ultrafast"),id === "ultrafast");
     } finally { await view.unmount(); }
   }
+});
+
+test("sent switches expose pending confirmation and cannot cancel an already written command", async () => {
+ const calls: string[] = [];
+ __setTabModelApiForTest({switchModel: async () => ({mode_used:"live_command",model_confirmation:"pending"}), cancelStagedModel:async () => {calls.push("cancel");}});
+ const view=await mount(descriptor("live_command"));
+ try {
+  await view.setPendingSelection({model:"fast",effort:null,confirmation_pending:true});
+  assert.match(view.trigger()!.getAttribute("aria-label")!, /Switch sent; confirms when this turn ends/);
+  assert.equal(toasts.length,0);
+  await act(async () => view.trigger()!.click());
+  await act(async () => button("Cancel").click());
+  assert.deepEqual(calls,[]);
+ } finally {await view.unmount();__setTabModelApiForTest(null);}
 });

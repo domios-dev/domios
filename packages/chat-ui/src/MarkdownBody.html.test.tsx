@@ -464,46 +464,12 @@ test("html fullscreen survives a markdown parent rerender", async () => {
   await act(async () => {
     openButton.dispatchEvent(new testWindow.MouseEvent("click", { bubbles: true }));
   });
-  assert(host.querySelector("button[title='Close fullscreen']"), "fullscreen opened");
+  assert(testWindow.document.querySelector("[role='dialog'][aria-label='Fullscreen HTML page']"), "fullscreen opened");
 
   await act(async () => {
     root.render(<RichMarkdown text={text} fontScale={1.25} />);
   });
-  assert(host.querySelector("button[title='Close fullscreen']"), "fullscreen survives a parent rerender");
-});
-
-test("html fullscreen follows its scroll host bounds after resize", async () => {
-  const rect = { top: 10, left: 20, width: 320, height: 240 };
-  const { host } = await render(
-    <div data-testid="scroll-host" style={{ overflowY: "auto" }}>
-      <RichMarkdown text={"```html\n<b>responsive fullscreen</b>\n```"} />
-    </div>,
-  );
-  const scrollHost = host.querySelector<HTMLElement>("[data-testid='scroll-host']");
-  assert(scrollHost, "scroll host rendered");
-  scrollHost.getBoundingClientRect = () => ({
-    ...rect,
-    right: rect.left + rect.width,
-    bottom: rect.top + rect.height,
-    x: rect.left,
-    y: rect.top,
-    toJSON: () => ({ ...rect }),
-  } as DOMRect);
-  const openButton = host.querySelector<HTMLButtonElement>("button[title='Open in fullscreen']");
-  assert(openButton, "fullscreen button rendered");
-  await act(async () => {
-    openButton.dispatchEvent(new testWindow.MouseEvent("click", { bubbles: true }));
-  });
-  const fullscreen = host.querySelector<HTMLElement>("button[title='Close fullscreen']")?.closest<HTMLElement>(".fixed");
-  assert(fullscreen?.style.width === "320px", "fullscreen starts at the scroll host width");
-
-  rect.width = 640;
-  rect.height = 480;
-  await act(async () => {
-    testWindow.dispatchEvent(new testWindow.Event("resize"));
-  });
-  assert(fullscreen.style.width === "640px", "fullscreen width follows the resized host");
-  assert(fullscreen.style.height === "480px", "fullscreen height follows the resized host");
+  assert(testWindow.document.querySelector("[role='dialog'][aria-label='Fullscreen HTML page']"), "fullscreen survives a parent rerender");
 });
 
 test("preview document CSP blocks network egress", () => {

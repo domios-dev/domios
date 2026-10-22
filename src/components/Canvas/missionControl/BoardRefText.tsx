@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 import { taskReferenceLabel } from "../taskDisplayKey";
+import type { TeamPlanSummary } from "./missionControlState";
 import type { Plan } from "../types";
 import { splitRefs } from "./missionControlBoardModel";
 
@@ -12,14 +13,14 @@ export interface BoardRef {
 export type BoardRefs = ReadonlyMap<string, BoardRef>;
 
 export function boardRefs(
-  plans: readonly Plan[],
+  plans: readonly (Plan | TeamPlanSummary)[],
   onOpenTask?: (taskId: string) => void,
   onOpenPlan?: (planId: string) => void,
 ): BoardRefs {
   const refs = new Map<string, BoardRef>();
   for (const plan of plans) {
     refs.set(plan.id, { label: plan.title, open: onOpenPlan && (() => onOpenPlan(plan.id)) });
-    for (const task of plan.tasks) {
+    for (const task of ("tasks" in plan ? plan.tasks : [])) {
       refs.set(task.id, { label: taskReferenceLabel(task), open: onOpenTask && (() => onOpenTask(task.id)) });
     }
   }

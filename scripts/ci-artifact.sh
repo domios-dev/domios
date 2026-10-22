@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Caller: CI ci-artifact-smoke.yml, tests.yml, rust-warnings-summary.yml, release-manifest-dry-run.yml, actions/rust-warnings; scripts release-dry-run-manifest.mjs
+# Caller: CI ci-artifact-smoke.yml, frontend-release.yml, tests-fast.yml, tests-rust.yml, rust-warnings-summary.yml, release-manifest-dry-run.yml, actions/rust-warnings; scripts release-dry-run-manifest.mjs
 # CI artifacts in the shared MinIO ci-artifacts bucket instead of GitHub artifact storage.
 #
 #   ci-artifact.sh put <key> <file>

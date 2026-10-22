@@ -177,6 +177,7 @@ pub(crate) fn prepare_worker_plan_task_prompt(
         params.title = Some(title);
         params.title_provenance = Some(crate::service::SpawnIdentityProvenance::Suggested);
     }
+    params.speed = params.speed.take().or_else(|| detail.task.speed.clone());
     if params.planned_reasoning_effort.is_none() {
         params.planned_reasoning_effort = params.reasoning_effort.clone();
     }
@@ -548,6 +549,11 @@ impl ServiceContext {
                 spawn_handle: None,
                 bound_at: now_ms,
             });
+        }
+        if let Some(speed) = params.speed.as_deref() {
+            self.plan_store
+                .update_task_speed(&binding.plan_id, &binding.task_id, Some(speed), now_ms)
+                .map_err(|error| error.to_string())?;
         }
         self.persist_current_attempt_session_model(tab_id);
         self.ui.emit(

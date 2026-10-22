@@ -203,7 +203,7 @@ export interface Tab {
   agent_runtime_config?: { confirmedServiceTier?: { selection: ServiceTierSelection; sessionId: string; bindingNonce: string | null }; serviceTier?: ServiceTierSelection; serviceTierAvailability?: Record<string, readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>; serviceTierAvailabilityBinding?: {sessionId:string;bindingNonce:string|null}; [key: string]: unknown } | null;
   agent_runtime_questions?: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
   agent_runtime_state?: import("./agentRuntimeState").AgentRuntimeState | null;
-  pending_model_selection?: { model: string; effort: string | null } | null;
+  pending_model_selection?: { model: string; effort: string | null; confirmation_pending?: boolean } | null;
   pending_model_switch_observation?: { launched_model: string } | null;
   close_restore?: { command: string | null; stopped: boolean; record_id: string | null; exact_session: boolean } | null;
   shell_profile?: ShellProfile | null;
@@ -235,6 +235,7 @@ export interface Tab {
   agent_session_id?: string | null;
   /** Launch-scoped proof used to reject chat events emitted by a prior tab binding. */
   session_binding_nonce?: string | null;
+  reported_session_binding_nonce?: string | null;
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   agent_requested_model?: string | null;
@@ -494,6 +495,7 @@ export interface CronRunInfo {
   tab_id: string | null;
   session_id?: string | null;
   cwd?: string | null;
+  summary?: string | null;
 }
 
 export interface CronJob {

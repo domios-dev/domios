@@ -8,11 +8,11 @@ use crate::service::local_preview::html_preview::{
 use codeterm_local_preview::PreviewPolicy;
 pub use codeterm_local_preview::{html_preview, references};
 
-fn agent_pad_screenshots(svc: &super::ServiceContext, tab_id: &str) -> Option<PathBuf> {
+fn agent_pad_root(svc: &super::ServiceContext, tab_id: &str) -> Option<PathBuf> {
     let pad = super::agent_pad::AgentPad::open(&svc.agent_pad_data_dir, tab_id).ok()?;
-    let pad_root = pad.path().canonicalize().ok()?;
-    let screenshots = pad.path().join("screenshots").canonicalize().ok()?;
-    (screenshots.parent() == Some(pad_root.as_path())).then_some(screenshots)
+    let root = pad.path().canonicalize().ok()?;
+    let pads = pad.path().parent()?.canonicalize().ok()?;
+    (root.parent() == Some(pads.as_path()) && root.file_name()?.to_str()? == tab_id).then_some(root)
 }
 
 #[derive(PartialEq)]
@@ -41,16 +41,26 @@ fn tab_policy(
     tab_id: &str,
     configured: &[String],
 ) -> Result<PreviewPolicy, String> {
+    let started = std::time::Instant::now();
     let authority = tab_authority(svc, tab_id)?;
+    let authority_us = started.elapsed().as_micros();
+    let transcript_started = std::time::Instant::now();
     let (messages, _) = super::tab_chat::tab_chat_snapshot(svc, tab_id, 0)?;
+    let transcript_us = transcript_started.elapsed().as_micros();
+    let binding_started = std::time::Instant::now();
     if authority != tab_authority(svc, tab_id)? {
         return Err("Preview session changed".into());
     }
+    let binding_us = binding_started.elapsed().as_micros();
+    let references_started = std::time::Instant::now();
     let references = references::referenced_paths(&messages, authority.cwd.as_deref());
+    let references_us = references_started.elapsed().as_micros();
+    let policy_started = std::time::Instant::now();
     let configured: Vec<_> = configured.iter().map(PathBuf::from).collect();
     let mut denied = configured.clone();
     let data_dir = crate::paths::data_dir();
     denied.push(data_dir.clone());
+    denied.push(svc.agent_pad_data_dir.clone());
     let mut evidence_denied = configured.clone();
     if let Some(home) = dirs::home_dir() {
         let ssh = home.join(".ssh");
@@ -62,9 +72,14 @@ fn tab_policy(
     for bucket in ["chat", "images", "files"] {
         policy = policy.with_uploads(&crate::attachments::bucket_dir(bucket), &configured)?;
     }
-    if let Some(screenshots) = agent_pad_screenshots(svc, tab_id) {
-        policy = policy.with_referenced_uploads(&screenshots, &evidence_denied)?;
+    if let Some(pad) = agent_pad_root(svc, tab_id) {
+        policy = policy.with_own_pad(&pad, &evidence_denied)?;
     }
+    log::debug!(
+        "[preview.policy] tab={} authority_us={} transcript_us={} binding_us={} references_us={} roots_us={} total_us={} messages={}",
+        tab_id, authority_us, transcript_us, binding_us, references_us,
+        policy_started.elapsed().as_micros(), started.elapsed().as_micros(), messages.len()
+    );
     Ok(policy)
 }
 
@@ -75,10 +90,18 @@ pub fn read(
     path: &str,
     kind: &str,
 ) -> Result<LocalPreviewFile, String> {
-    let policy = tab_policy(svc, tab_id, configured)?;
-    read_local_preview_file_guarded(path, kind, |path, canonical| {
-        policy.authorize(path, canonical)
-    })
+    let result = tab_policy(svc, tab_id, configured).and_then(|policy| {
+        read_local_preview_file_guarded(path, kind, |path, canonical| {
+            policy.authorize(path, canonical)
+        })
+    });
+    if let Err(error) = &result {
+        log::debug!(
+            "[local-preview] file refused: {}",
+            html_preview::refusal_reason(error)
+        );
+    }
+    result
 }
 
 pub fn check(
@@ -88,8 +111,16 @@ pub fn check(
     paths: Vec<String>,
 ) -> Result<LocalPreviewFiles, String> {
     let policy = tab_policy(svc, tab_id, configured)?;
-    Ok(check_local_preview_files_guarded(
-        paths,
-        |path, canonical| policy.authorize(path, canonical),
-    ))
+    let count = paths.len();
+    let started = std::time::Instant::now();
+    let result = check_local_preview_files_guarded(paths, |path, canonical| {
+        policy.authorize(path, canonical)
+    });
+    log::debug!(
+        "[preview.files] tab={} count={} elapsed_us={}",
+        tab_id,
+        count,
+        started.elapsed().as_micros()
+    );
+    Ok(result)
 }

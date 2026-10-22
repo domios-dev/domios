@@ -144,6 +144,7 @@ async fn check_and_apply_plugin(
         update_state: update_state.clone(),
     };
 
+    let server_identity = server_stop.install_identity()?;
     let server_stopped = std::sync::atomic::AtomicBool::new(false);
     let outcome = super::orchestrate::install_after_shutdown(
         bytes,
@@ -153,7 +154,8 @@ async fn check_and_apply_plugin(
                 super::viability::plugin_install_viability(verified_len)
             })
             .await
-            .map_err(|e| format!("viability probe task failed: {e}"))?
+            .map_err(|e| format!("viability probe task failed: {e}"))??;
+            super::install_holders::preflight(server_identity).await
         },
         || async {
             stop_pair_server(server_stop.as_ref(), &server_stopped).await?;

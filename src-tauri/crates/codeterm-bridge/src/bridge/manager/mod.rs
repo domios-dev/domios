@@ -38,6 +38,7 @@ pub struct OutboundMessage {
     /// Report back where this message landed, so its sender can address it
     /// again later. Absent means the sender never needs to find it.
     pub receipt: Option<PlacementReceipt>,
+    pub completion: Option<std::sync::mpsc::SyncSender<Result<(), String>>>,
     /// Who the message speaks for.
     pub route: OutboundRoute,
 }
@@ -49,7 +50,7 @@ pub enum OutboundRoute {
     Chat,
     /// A whole notification stays in chat while its visible tab gets a topic.
     TabNotification { tab_id: String },
-    /// A tab's own voice: its topic thread, sender header and main-chat pointer.
+    /// A tab's own voice: its topic thread and sender header.
     Tab { tab_id: String },
 }
 
@@ -205,6 +206,9 @@ impl BridgeManager {
                         .unwrap_or(0);
 
                     if chat_id == 0 {
+                        if let Some(completion) = &out_msg.completion {
+                            let _ = completion.send(Err("No Telegram chat_id available".into()));
+                        }
                         log::warn!("[bridge-outbound] no chat_id, dropping");
                         continue;
                     }
@@ -570,7 +574,7 @@ async fn send_media(
         _ => "document",
     };
 
-    let part = reqwest::multipart::Part::bytes(file_bytes).file_name(file_name);
+    let part = reqwest::multipart::Part::bytes(file_bytes).file_name(file_name.clone());
     let mut form = reqwest::multipart::Form::new()
         .text("chat_id", chat_id.to_string())
         .part(file_field, part);
@@ -620,11 +624,7 @@ async fn send_media(
                 .read_to_end(&mut file_bytes2)
                 .await
                 .map_err(|error| format!("Re-read failed: {}", error))?;
-            let file_name2 = std::path::Path::new(file_path)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "file".to_string());
-            let part2 = reqwest::multipart::Part::bytes(file_bytes2).file_name(file_name2);
+            let part2 = reqwest::multipart::Part::bytes(file_bytes2).file_name(file_name);
             let mut form2 = reqwest::multipart::Form::new()
                 .text("chat_id", chat_id.to_string())
                 .part(file_field, part2);
@@ -781,6 +781,7 @@ async fn apply_hook(
                     append: false,
                     buttons: None,
                     edit: None,
+                    completion: None,
                     receipt: None,
                     route: OutboundRoute::Chat,
                 };
@@ -866,3 +867,6 @@ mod tests;
 
 #[cfg(test)]
 mod off_runtime_tests;
+
+mod request;
+pub use request::outbound_content;

@@ -20,6 +20,21 @@ impl SentinelDeleteExt for ServiceContext {
         target: DeleteTarget,
         stop: bool,
     ) -> Result<Vec<String>, String> {
+        let curator = if self.is_curator_tab(&caller.tab) {
+            let DeleteTarget::One(id) = &target else {
+                return Err("Curator cannot bulk-delete Blueprints".into());
+            };
+            if !stop {
+                return Err("Curator deletion requires --stop".into());
+            }
+            self.authorize_role_blueprint(
+                &caller.tab,
+                Some(id),
+                codeterm_service_core::service::role_policy::BlueprintAction::Delete,
+            )?
+        } else {
+            false
+        };
         let handle = self
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
@@ -36,7 +51,7 @@ impl SentinelDeleteExt for ServiceContext {
                 tab: &caller.tab,
                 workspace: &caller.workspace,
                 team: caller.team.as_deref(),
-                team_owner,
+                team_owner: team_owner || curator,
             };
             let mut store = handle.store.lock();
             stage_delete(&mut store, &request, target, stop)?

@@ -8,9 +8,20 @@ use crate::MemManager;
 /// Prepare data for the REM agent — returns a text summary of candidates.
 /// Called by `codeterm mem dream --report` so the agent gets concrete data.
 pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
+    let blueprint_merges = mem.dream_blueprints()?;
     let conn = mem.conn();
     let conn = conn.lock();
     let mut lines = Vec::new();
+    if let Some(candidates) =
+        super::curator_candidates::render(&conn, chrono::Utc::now().timestamp())?
+    {
+        lines.push(candidates);
+    }
+    if blueprint_merges > 0 {
+        lines.push(format!(
+            "BLUEPRINT LIBRARY: merged {blueprint_merges} duplicate graphs"
+        ));
+    }
     if let Some(candidates) = super::area_candidates::render_candidates(&conn)? {
         lines.push(candidates);
     }

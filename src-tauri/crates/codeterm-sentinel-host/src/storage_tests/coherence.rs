@@ -157,7 +157,9 @@ fn storage_sentinel_rows_written_stay_bounded_by_the_changed_stage() {
             next_run: 5000,
         };
         let advanced = done(repo.schedule(vec![advance])).receipt.rows_written;
-        let stopped = done(repo.stop(id, "measured".into())).receipt.rows_written;
+        let stopped = done(repo.stop(id, "measured".into(), 1000))
+            .receipt
+            .rows_written;
         (advanced, stopped)
     };
     let first = create(&store, None, true, json!({}));

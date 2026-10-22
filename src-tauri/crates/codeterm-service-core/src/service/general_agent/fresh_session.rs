@@ -120,9 +120,11 @@ impl ServiceContext {
             &request.provider_id,
             Some(&self.mem),
         );
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
             validate_request(&mux, &general, &request)?;
+            crate::service::billing::admit_new_tab(&gate, &mux)?;
             create_fresh_tab(&mut mux, &request.workspace_id, chat_view)?
         };
         super::super::supporter_notify::record_ui_origin(&tab_id);

@@ -40,13 +40,23 @@ fn restore_frame_and_payload(
     ))
 }
 
+/// Briefs delivered before the tip form still sit in live transcripts; matching
+/// them keeps a restart from replaying a written brief.
+fn with_legacy_typed_instruction(payload: &str) -> Option<String> {
+    use codeterm_wire::domios::{DOMIOS_CLOSE_TAG, DOMIOS_LEGACY_TYPED_INSTRUCTION};
+    let body = payload.strip_suffix(DOMIOS_CLOSE_TAG)?;
+    Some(format!(
+        "{body} <tip>{DOMIOS_LEGACY_TYPED_INSTRUCTION}</tip>{DOMIOS_CLOSE_TAG}"
+    ))
+}
+
 fn restore_payload_candidates(payload: &str, typed_tail: bool) -> Vec<String> {
     if !typed_tail {
         return vec![payload.to_string()];
     }
     [
         codeterm_wire::domios::with_pasted_marker(payload),
-        codeterm_wire::domios::with_legacy_typed_instruction(payload),
+        with_legacy_typed_instruction(payload),
         (!payload.contains('\n')).then(|| payload.to_string()),
     ]
     .into_iter()
@@ -508,7 +518,7 @@ mod tests {
         assert_eq!(frame.to_message(), original);
         assert_eq!(payload, original);
         for tail in [
-            codeterm_wire::domios::with_legacy_typed_instruction(original).unwrap(),
+            with_legacy_typed_instruction(original).unwrap(),
             codeterm_wire::domios::with_pasted_marker(original).unwrap(),
         ] {
             let (tail_frame, tail_payload) = restore_frame_and_payload(&tail).unwrap();

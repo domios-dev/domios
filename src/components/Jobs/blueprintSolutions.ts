@@ -1,0 +1,32 @@
+import { webFetch } from "../../lib/webApi";
+import type { MergedJob } from "./jobsModel";
+
+export interface SavedSolution { id: string; workspaceId: string; when_to_use: string; how: string | null; uses: number; successes: number; last_used: number }
+export interface SolutionScope { workspace_id: string; team_id: string | null; id: string }
+export interface BlueprintSolutionsApi {
+  list(workspaceId: string): Promise<Omit<SavedSolution, "workspaceId">[]>;
+  save(scope: SolutionScope, when: string): Promise<{ id: string; status: "saved" }>;
+  archive(workspaceId: string, id: string): Promise<unknown>;
+}
+async function request<T>(action: string, body: object, confirmation?: string): Promise<T> {
+  const response = await webFetch(`/api/automation/blueprints/solutions/${action}`, {
+    method: "POST", headers: { "Content-Type": "application/json", ...(confirmation ? { "X-CodeTerm-Blueprint-Confirmation": confirmation } : {}) }, body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json() as Promise<T>;
+}
+export const blueprintSolutionsApi: BlueprintSolutionsApi = {
+  list: (workspaceId) => request("list", { workspace_id: workspaceId }),
+  save: (scope, when) => request("save", { ...scope, when_to_use: when }, scope.id),
+  archive: (workspaceId, id) => request("archive", { workspace_id: workspaceId, team_id: null, id }, id),
+};
+export function successfulSolutionScope(job: MergedJob): SolutionScope | null {
+  if (job.kind === "cron") return null;
+  if (job.kind === "sentinel") return job.sentinel.root?.solution_success ? {
+    workspace_id: job.sentinel.scenario.root.workspace_id, team_id: job.sentinel.scenario.root.team_id, id: job.sentinel.scenario.root.id,
+  } : null;
+  const pipeline = job.blueprint.pipeline;
+  const delivered = (view: typeof pipeline) => view.nodes.some((node) => node.kind === "result" && node.state === "delivered");
+  return delivered(pipeline) || pipeline.runs?.some((run) => delivered(run.pipeline))
+    ? { workspace_id: job.blueprint.identity.workspace_id, team_id: job.blueprint.identity.team_id, id: job.blueprint.identity.id } : null;
+}

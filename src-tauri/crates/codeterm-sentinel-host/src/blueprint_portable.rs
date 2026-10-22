@@ -1,8 +1,8 @@
 use codeterm_blueprint_types::blueprint_recipe::Recipe;
 use serde_json::Value;
 
-use crate::blueprint_pipeline::BlueprintExt;
 use crate::service_adapter::{SentinelCaller, SentinelExt};
+use crate::BlueprintApplyExt;
 use crate::{portable, scheduler::Handle};
 use codeterm_service_core::service::ServiceContext;
 
@@ -61,30 +61,25 @@ impl BlueprintPortableExt for ServiceContext {
         if caller.team.is_none() {
             return Err("Blueprint import requires a caller in a Team".into());
         }
-        let mut definition = recipe.bind(assignments)?;
-        let fields = definition
-            .as_object_mut()
-            .ok_or("recipe definition must be an object")?;
-        if fields.len() != 1 {
-            return Err("recipe definition must contain exactly one of create or spec".into());
-        }
-        if let Some(create) = fields.remove("create") {
-            let create = crate::public_definition::stored_definition(create)?;
-            serde_json::to_value(self.sentinel_create_stopped(
-                caller,
-                serde_json::from_value(create).map_err(|error| error.to_string())?,
-                stopped,
-            )?)
-            .map_err(|error| error.to_string())
-        } else if let Some(spec) = fields.remove("spec") {
-            self.blueprint_pipeline_create_stopped(
-                caller,
-                serde_json::from_value(spec).map_err(|error| error.to_string())?,
-                stopped,
-            )
-        } else {
-            Err("recipe definition must contain create or spec".into())
-        }
+        let definition = recipe.bind(assignments)?;
+        let result = self
+            .blueprint_apply_with_state(caller, definition, false, Some(stopped))
+            .map_err(|error| error.to_string())?;
+        let id = result["id"]
+            .as_str()
+            .ok_or("Applied Blueprint ID missing")?;
+        let handle = self
+            .host_extension::<Handle>()
+            .ok_or("blueprints not initialized")?;
+        let job = handle
+            .store
+            .lock()
+            .get(id)
+            .cloned()
+            .ok_or("Applied Blueprint missing")?;
+        let mut result = result;
+        result["blueprint"] = serde_json::to_value(job).map_err(|error| error.to_string())?;
+        Ok(result)
     }
 
     fn blueprint_export_host(

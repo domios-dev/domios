@@ -19,6 +19,38 @@ export function prCondition(expression, context = {}) {
   return condition(source, { ...context, inputs });
 }
 
+// A pull request runs tests.yml, which calls its tiers: inline the PR-reachable tiers into one job graph
+// and read their outputs from the shared scope gate. jobFiles names the file that owns each job.
+export function prWorkflow(workflows) {
+  const caller = workflows["tests.yml"];
+  const jobs = {};
+  const jobFiles = {};
+  const tiers = {};
+  for (const [id, job] of Object.entries(caller.jobs)) {
+    const file = job.uses?.match(/^\.\/\.github\/workflows\/(tests-[\w-]+\.yml)$/)?.[1];
+    if (!file) continue;
+    tiers[id] = file;
+    if (job.if !== undefined && !prCondition(job.if)) continue;
+    for (const [childId, child] of Object.entries(workflows[file].jobs)) {
+      jobs[childId] = child;
+      jobFiles[childId] = file;
+    }
+  }
+  for (const [id, job] of Object.entries(caller.jobs)) {
+    if (tiers[id]) continue;
+    const needs = [job.needs ?? []].flat().some(need => tiers[need]) ? ["changed"] : job.needs;
+    jobs[id] = { ...job, needs, if: job.if?.replace(/needs\.(\w+)\.outputs\./g, (match, need) => tiers[need] ? "needs.changed.outputs." : match) };
+    jobFiles[id] = "tests.yml";
+  }
+  return { ...caller, jobs, jobFiles };
+}
+
+const ownerOf = (workflow, id) => `${workflow.jobFiles?.[id] ?? "tests.yml"}:${id}`;
+const ownsPrJob = (workflow, owner) => {
+  const [file, id] = owner.split(":");
+  return workflow.jobFiles?.[id] === file;
+};
+
 export function prReachability(workflow, files, plugins) {
   const gate = workflow.jobs.changed;
   const scopeStep = gate.steps.find(step => step.id === "scope");
@@ -76,7 +108,7 @@ export function workflowErrors(workflow, catalogue, overlay, plugins, exceptions
     const job = workflow.jobs[item.job];
     if (!job || (job.if ?? null) !== item.job_if) errors.add(`${item.job}: change-scoped job condition drift`);
   }
-  const projected = selected.filter(entry => entry.ci?.some(owner => owner.startsWith("tests.yml:")));
+  const projected = selected.filter(entry => entry.ci?.some(owner => ownsPrJob(workflow, owner)));
   for (const files of prScenarios(plugins)) {
     const context = prReachability(workflow, files, plugins);
     const actual = new Set();
@@ -111,7 +143,7 @@ export function workflowErrors(workflow, catalogue, overlay, plugins, exceptions
           const entry = entries.get(entryId);
           if (!entry || !selectedIds.has(entryId)) errors.add(`${id}: ${entryId} is not selected by tier pr`);
           if (entry?.needs_live_agent || entry?.needs_instance || entry?.kind === "e2e-plain" || /playwright/i.test(entry?.runner ?? "")) errors.add(`${id}: forbidden live/instance/Playwright entry ${entryId}`);
-          if (!entry?.ci?.includes(`tests.yml:${id}`)) errors.add(`${id}: ${entryId} lacks catalogue CI ownership`);
+          if (!entry?.ci?.includes(ownerOf(workflow, id))) errors.add(`${id}: ${entryId} lacks catalogue CI ownership`);
           const recorded = exceptions.find(item => item.job === id && item.entry === entryId);
           if (!recorded || recorded.if !== (step.if ?? null)) errors.add(`${id}: ${entryId} change-scoped step condition drift`);
           const expectedRun = entryId === "ts-generated-types"
@@ -122,8 +154,8 @@ export function workflowErrors(workflow, catalogue, overlay, plugins, exceptions
         }
       }
     }
-    const expected = new Set(projected.flatMap(entry => entry.ci.filter(owner => owner.startsWith("tests.yml:"))
-      .map(owner => owner.slice("tests.yml:".length)).filter(id => context.jobs.includes(id))
+    const expected = new Set(projected.flatMap(entry => entry.ci.filter(owner => ownsPrJob(workflow, owner))
+      .map(owner => owner.split(":")[1]).filter(id => context.jobs.includes(id))
       .filter(id => {
         const recorded = exceptions.find(item => item.job === id && item.entry === entry.id);
         return recorded?.if == null || [false, true].some(failed => prCondition(recorded.if, { ...context, failed }));
@@ -137,16 +169,18 @@ export function workflowErrors(workflow, catalogue, overlay, plugins, exceptions
 
 export function ownershipErrors(catalogue, overlay, workflows, buildSource, plugins = []) {
   const errors = [];
+  const pr = prWorkflow(workflows);
   for (const entry of selectRunners(catalogue, overlay, { tier: "pr" }).runners) {
     if (entry.needs_live_agent || entry.needs_instance || entry.kind === "e2e-plain" || /playwright/i.test(entry.runner)) errors.push(`${entry.id}: forbidden live/instance/Playwright PR catalogue entry`);
     const owners = entry.ci ?? [];
     const valid = owners.some(owner => {
       const [file, id] = owner.split(":");
-      const workflow = workflows[file];
+      const inPr = ownsPrJob(pr, owner);
+      const workflow = inPr ? pr : workflows[file];
       const job = workflow?.jobs?.[id];
       if (!workflow?.on || !("pull_request" in workflow.on) || !job) return false;
-      const contexts = file === "tests.yml" ? prScenarios(plugins).map(files => prReachability(workflow, files, plugins)) : [{}];
-      const reachable = contexts.filter(context => file === "tests.yml" ? context.jobs.includes(id) : prCondition(job.if, context));
+      const contexts = inPr ? prScenarios(plugins).map(files => prReachability(workflow, files, plugins)) : [{}];
+      const reachable = contexts.filter(context => inPr ? context.jobs.includes(id) : prCondition(job.if, context));
       if (!reachable.length) return false;
       const steps = reachable.flatMap(context => runnableSteps(job, context));
       const commands = steps.map(step => normalize(step.run));
@@ -154,9 +188,6 @@ export function ownershipErrors(catalogue, overlay, workflows, buildSource, plug
       const combined = commands.join("\n");
       if (entry.runner.split(" && ").every(command => combined.includes(command.replace("./build.sh", "bash build.sh")))) return true;
       if (entry.id === "provider-boundary" && combined.includes(entry.runner)) return true;
-      if (["node-script-tests-serial", "node-script-tests-cargo", "test-catalogue"].includes(entry.id)) {
-        return combined.includes("bash build.sh script-guards") && buildSource.includes(entry.runner);
-      }
       return false;
     });
     if (!valid) errors.push(`${entry.id}: no pull_request workflow executes this tier-pr entry via its ci owners`);
@@ -170,7 +201,7 @@ const overlay = JSON.parse(read("tests/catalogue.overlay.json"));
 const plugins = JSON.parse(read("plugins/channel.json")).plugins;
 const workflows = Object.fromEntries(readdirSync(new URL("../../.github/workflows/", import.meta.url))
   .filter(file => file.endsWith(".yml")).map(file => [file, parse(read(`.github/workflows/${file}`))]));
-const workflow = workflows["tests.yml"];
+const workflow = prWorkflow(workflows);
 const exceptions = JSON.parse(read("docs/test-strategy/pr-commands.md").match(/```json\r?\n([\s\S]*?)\r?\n```/)[1]);
 const check = (value, cat = catalogue, all = workflows) => workflowErrors(value, cat, overlay, plugins, exceptions, all);
 

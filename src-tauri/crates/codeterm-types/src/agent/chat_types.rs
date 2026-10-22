@@ -64,8 +64,23 @@ pub struct MessageBlock {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChatTimelineMarker {
     Queued,
-    ExternalEdit { path: String },
+    ExternalEdit {
+        path: String,
+    },
     ContextCompaction,
+    /// Older rows of `session_id` exist before `before_offset` and load on demand.
+    HistoryGap {
+        source: ChatHistorySource,
+        session_id: String,
+        before_offset: u64,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatHistorySource {
+    ProviderSession,
+    ChatBackend,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
@@ -215,6 +230,10 @@ pub struct ChatMsg {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub segments: Option<Vec<codeterm_wire::envelope::MessageSegment>>,
+    /// The envelope grammar that produced `segments`; a client built for
+    /// another grammar refuses them instead of re-parsing `content`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub segments_version: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub timestamp: Option<String>,
     /// Monotonic source-order ordinal (JSONL rich-message index / structured row
@@ -346,13 +365,47 @@ pub struct ChatMsg {
 
 impl ChatMsg {
     pub fn refresh_segments(&mut self) {
-        self.segments =
-            (self.kind == "user").then(|| codeterm_wire::envelope::parse_envelope(&self.content));
+        let wire = std::mem::take(&mut self.content);
+        self.refresh_segments_from(&wire);
+        self.content = wire;
+    }
+
+    /// For a row whose stored `content` is already the clean body while the
+    /// display segments come from the wire text that carried it.
+    pub fn refresh_segments_from(&mut self, wire: &str) {
+        let parsed = (self.kind == "user").then(|| codeterm_wire::envelope::parse_envelope(wire));
+        self.segments_version = parsed
+            .is_some()
+            .then_some(codeterm_wire::envelope::ENVELOPE_GRAMMAR_VERSION);
+        self.segments = parsed;
     }
 
     pub fn with_segments(mut self) -> Self {
         self.refresh_segments();
         self
+    }
+}
+
+/// A host-originated ledger row: the exact wire text it delivered and the
+/// server-parsed segments the UI renders instead of re-parsing that text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+pub struct SystemSend {
+    pub content: String,
+    pub sent_at_ms: u64,
+    #[serde(default)]
+    pub segments: Vec<codeterm_wire::envelope::MessageSegment>,
+    #[serde(default)]
+    pub segments_version: u32,
+}
+
+impl SystemSend {
+    pub fn new(content: &str, sent_at_ms: u64) -> Self {
+        Self {
+            content: content.to_string(),
+            sent_at_ms,
+            segments: codeterm_wire::envelope::parse_envelope(content),
+            segments_version: codeterm_wire::envelope::ENVELOPE_GRAMMAR_VERSION,
+        }
     }
 }
 

@@ -4,8 +4,12 @@ pub use codeterm_sentinel::{
     stage_source, storage, store, terminal,
 };
 pub(crate) mod actions;
+pub mod blueprint_apply;
+pub mod blueprint_memory;
+pub use blueprint_memory::BlueprintMemoryExt;
 pub mod blueprint_pipeline;
 pub mod blueprint_portable;
+pub use blueprint_apply::BlueprintApplyExt;
 mod ports_impl;
 pub mod service_adapter;
 pub use blueprint_pipeline::BlueprintExt;
@@ -33,6 +37,7 @@ mod terminal_tests;
 #[cfg(test)]
 mod tests;
 pub(crate) mod wake;
+mod watch_input;
 
 #[cfg(test)]
 mod connected_tests;

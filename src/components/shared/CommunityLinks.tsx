@@ -2,6 +2,7 @@ import { siteLinks } from "../../../shared/siteLinks";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { AboutLink, SettingsCard } from "../Settings/shared";
 import type { DropdownMenuGroup } from "./DropdownMenu";
+import type { ReactNode } from "react";
 
 const community = [
   {name:"Telegram",url:siteLinks.telegram,icon:new URL("../../assets/community/telegram.svg",import.meta.url).href},
@@ -18,8 +19,8 @@ export function communityMenu(): DropdownMenuGroup {
     label:link.name,icon:<CommunityIcon source={link.icon} />,onClick:() => {void nativeBridge.openUrl(link.url);},
   }))};
 }
-export function CommunityLinks() {
-  return <SettingsCard title="Community">
+export function CommunityLinks({ icon }: { icon?: ReactNode }) {
+  return <SettingsCard icon={icon} title="Community">
     <div className="flex items-center gap-3">{community.map(link =>
       <AboutLink key={link.name} href={link.url} label={link.name} icon={<CommunityIcon source={link.icon} />}
         onOpen={url => {void nativeBridge.openUrl(url);}} />

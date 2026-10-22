@@ -79,6 +79,7 @@ fn planner_create(
     create_team_plan_for_caller(
         &harness.mux,
         &harness.plan_store,
+        &crate::service::billing::LimitGate::dormant(),
         title.into(),
         harness.root.display().to_string(),
         OrchestratorRef::from_tab("untrusted-request-owner"),
@@ -227,6 +228,7 @@ fn plan_create_uses_atomic_team_outcome() {
     let outcome = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
+        &crate::service::billing::LimitGate::dormant(),
         "Spec effort".into(),
         dir.path().display().to_string(),
         OrchestratorRef::from_tab(&owner_tab_id),
@@ -254,6 +256,7 @@ fn plan_goal_autocreate_uses_atomic_team_outcome() {
     let outcome = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
+        &crate::service::billing::LimitGate::dormant(),
         "Goal effort".into(),
         dir.path().display().to_string(),
         OrchestratorRef::from_tab(&owner_tab_id),
@@ -288,6 +291,7 @@ fn first_plan_response_has_team_naming_reminder() {
     let outcome = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
+        &crate::service::billing::LimitGate::dormant(),
         "Named effort".into(),
         dir.path().display().to_string(),
         OrchestratorRef::from_tab(&owner_tab_id),
@@ -311,6 +315,7 @@ fn existing_team_second_plan_preserves_hard_refuse() {
     let first = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
+        &crate::service::billing::LimitGate::dormant(),
         "First".into(),
         dir.path().display().to_string(),
         OrchestratorRef::from_tab(&owner_tab_id),
@@ -322,6 +327,7 @@ fn existing_team_second_plan_preserves_hard_refuse() {
     let error = create_team_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
+        &crate::service::billing::LimitGate::dormant(),
         "Second".into(),
         dir.path().display().to_string(),
         OrchestratorRef::from_tab(&owner_tab_id),

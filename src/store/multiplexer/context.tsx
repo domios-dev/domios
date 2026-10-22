@@ -46,7 +46,6 @@ export interface MultiplexerActionsContextType {
   selectTabByTab: (workspaceId: string, tabId: string) => Promise<void>;
   setFocusedTab: (tabId: string) => void;
   setTabPty: (tabId: string, ptyId: string) => void;
-  addNotification: (notif: Omit<Notification, "id" | "timestamp" | "read">) => void;
   upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => void;
   markRead: (id: string) => void;
   markAllRead: () => void;

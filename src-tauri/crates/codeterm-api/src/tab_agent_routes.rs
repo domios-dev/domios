@@ -111,6 +111,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             get(delayed_send_routes::list).post(delayed_send_routes::create),
         )
         .route(
+            "/api/tabs/{id}/system-heartbeats",
+            get(delayed_send_routes::system_heartbeats),
+        )
+        .route(
             "/api/delayed-messages/{id}",
             axum::routing::patch(delayed_send_routes::update).delete(delayed_send_routes::delete),
         )

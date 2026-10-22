@@ -481,7 +481,7 @@ impl ServiceFixture {
         let ui = Arc::new(RecordedUiEvents::with_broadcaster(events.clone()));
         let repo_sink = Arc::new(crate::repowatch::TauriRepoEventSink::new(ui.clone()));
         extensions.insert::<crate::repowatch::RepoWatchRegistryHandle>(Arc::new(
-            crate::repowatch::RepoWatchRegistry::new(repo_sink.clone()),
+            crate::repowatch::RepoWatchRegistry::new(repo_sink),
         ));
         extensions.insert::<crate::view_host::ViewRegistryHandle>(Arc::new(
             crate::view_host::ViewRegistry::new(),
@@ -529,6 +529,7 @@ impl ServiceFixture {
             ),
         )));
         extensions.insert(crate::service::mux_emitter::MuxEmitter::default());
+        extensions.insert(crate::service::hierarchy::PlannerReplayCoalescer::default());
         extensions.insert(crate::service::MuxEmitPending(Arc::new(AtomicBool::new(
             false,
         ))));
@@ -670,7 +671,6 @@ impl ServiceFixture {
         };
         let owner = Arc::new(service.clone());
         assert!(service.set_ext(Arc::downgrade(&owner)).is_ok());
-        repo_sink.bind_service(Arc::downgrade(&owner));
         crate::ports::orchestration::install_fixture(&owner);
         Self {
             service,

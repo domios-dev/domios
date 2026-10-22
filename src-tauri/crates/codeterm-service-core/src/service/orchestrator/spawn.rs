@@ -108,6 +108,11 @@ impl ServiceContext {
         }
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
         self.apply_model_preset(&agent, &mut params)?;
+        crate::service::spawn_speed::validate_agent_speed(
+            &self.agent_registry,
+            &agent,
+            params.speed.as_deref(),
+        )?;
         let reasoning_effort = params.reasoning_effort.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
@@ -124,7 +129,7 @@ impl ServiceContext {
         }
         let handle = self.spawn_tab_with_ready(spec, ready_tx)?;
         if let Some(tab) = self.mux.write().get_tab_mut(&handle.tab_id) {
-            crate::service::reasoning_effort::persist_launch_identity(
+            crate::service::reasoning_effort::persist_completed_launch_identity(
                 tab,
                 bind_params.planned_reasoning_effort.as_deref(),
                 bind_params.reasoning_effort.as_deref(),
@@ -250,6 +255,11 @@ impl ServiceContext {
             .await
             .map_err(|_| "preset resolution worker failed")??;
         }
+        crate::service::spawn_speed::validate_agent_speed(
+            &self.agent_registry,
+            &agent_cmd,
+            params.speed.as_deref(),
+        )?;
         let svc = self.clone();
         let probe = params.clone();
         let probe_agent = agent_cmd.clone();
@@ -395,13 +405,14 @@ impl ServiceContext {
                 .unwrap_or(false),
         );
 
+        let gate = self.limit_gate();
         let tab_id = {
             let mut mux = self.mux.write();
             let result = match params.existing_tab_id.as_deref() {
                 Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
-                None => {
-                    crate::service::spawn::create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?
-                }
+                None => crate::service::spawn::create_cleared_agent_tab(
+                    &mut mux, &ws_id, &clearance, &gate,
+                )?,
             };
             if let Some(ref dir) = params.cwd {
                 if let Some(tab) = mux.get_tab_mut(&result) {

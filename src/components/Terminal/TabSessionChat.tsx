@@ -1,3 +1,4 @@
+import { createNoticePublisher } from "../../lib/notices";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { ChildTranscriptScope } from "./ChildTranscriptScope";
@@ -27,7 +28,7 @@ import {
   messageRowTime,
   isSessionIntentOnlyMessage,
 } from "@codeterm/chat-ui";
-import { ChatBlockHostProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider, HistoryGapProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
@@ -217,7 +218,7 @@ function TabSessionChatBody({
   const floatingBottomInset = useChatLayoutInsets(chatRootRef);
   const chatFollowTailRef = useRef(true);
 
-  const { setFocusedTab, selectTabByTab, addNotification, answerNotification } = useMultiplexer();
+  const { setFocusedTab, selectTabByTab, upsertToast, answerNotification } = useMultiplexer();
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useLatestCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
@@ -259,21 +260,17 @@ function TabSessionChatBody({
   const resolvePluginName = usePluginDisplayNameResolver();
 
   const showComposerError = useLatestCallback((message: string) => {
-    addNotification({
-      tab_id: tabId,
-      workspace_id: null,
+    createNoticePublisher({ upsertToast })({ kind: "toast", tabId: tabId,
+      workspaceId: null,
       title: isMicrophonePermissionError(message)
         ? "Microphone unavailable"
         : "Chat error",
-      body: isMicrophonePermissionError(message)
+      detail: isMicrophonePermissionError(message)
         ? `${message} Open microphone permissions in Settings if needed.`
         : message,
       severity: "Error",
-      level: "failure",
-      ephemeral: true,
-      lifetime_ms: CHAT_ERROR_TOAST_LIFETIME_MS,
-    });
-  }, [addNotification, tabId]);
+      lifetimeMs: CHAT_ERROR_TOAST_LIFETIME_MS });
+  }, [upsertToast, tabId]);
 
   const {
     loading,
@@ -290,6 +287,7 @@ function TabSessionChatBody({
     backfillLoading,
     backfillNotice,
     loadOlder,
+    loadHistoryGap,
     showLatest,
     prepareMessage,
     setHistoryReading,
@@ -849,6 +847,7 @@ function TabSessionChatBody({
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
     <PluginNameProvider resolve={resolvePluginName}>
+    <HistoryGapProvider onLoad={loadHistoryGap}>
     <div
       ref={chatRootRef}
       className="ct-chat-shell w-full h-full flex flex-col relative"
@@ -1111,6 +1110,7 @@ function TabSessionChatBody({
       </ChatComposerSurface>
       </ComposerBackgroundWorkProvider>
     </div>
+    </HistoryGapProvider>
     </PluginNameProvider>
     </ChatBlockHostProvider>
     </LocalArtifactScope>

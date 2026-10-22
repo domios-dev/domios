@@ -12,8 +12,13 @@ import {
 import type { MissionControlSpend } from "./missionControlState";
 import { TEAM_SCOPE_CAPTION, teamModelRows, teamSpendNote, type TeamSpend } from "./teamSpend";
 
+const NO_MACHINE_SPEND: MissionControlSpend = {
+  scope: "machine", state: "not_recording", not_recording_reason: "not_read",
+  enable_setting: null, measured_tokens: 0, turns: 0, providers: [],
+};
+
 /** Models ranked by new input, the spend that costs; the long tail waits behind Show all. */
-export function ModelsCard({ spend, teamSpend = null }: { spend: MissionControlSpend; teamSpend?: TeamSpend | null }) {
+export function ModelsCard({ spend = NO_MACHINE_SPEND, teamSpend = null }: { spend?: MissionControlSpend; teamSpend?: TeamSpend | null }) {
   const rows = teamSpend ? teamModelRows(teamSpend) : modelSpendRows(spend);
   const [showAll, setShowAll] = useState(false);
   const tableId = useId();
