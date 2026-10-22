@@ -53,18 +53,21 @@
   border-style: dashed;
 }
 
-.ct-small-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  min-height: 1.25rem;
-  padding: 0 0.45rem;
-  border-radius: 999px;
-  border: 1px solid var(--ct-border);
-  color: var(--ct-muted-fg);
-  font-size: 0.6875rem;
-  text-transform: none;
-  letter-spacing: 0;
+/* Layered so Tailwind tone utilities on a pill (Chip variants) win over the muted default. */
+@layer components {
+  .ct-small-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 1.25rem;
+    padding: 0 0.45rem;
+    border-radius: 999px;
+    border: 1px solid var(--ct-border);
+    color: var(--ct-muted-fg);
+    font-size: 0.6875rem;
+    text-transform: none;
+    letter-spacing: 0;
+  }
 }
 
 .ct-liquid-segmented {

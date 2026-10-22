@@ -1,3 +1,5 @@
+/* Declared first so layers named by the imports below cannot reorder Tailwind's. */
+@layer theme, base, components, utilities;
 @import "./tokens.css";
 @import "./primitives.css";
 @import "./syntax-highlight.css";
@@ -426,8 +428,8 @@ button {
   line-height: var(--ct-line-height);
 }
 
-button,
-[role="button"] {
+/* Small pills keep their layered border so Chip tone utilities can recolour it. */
+:where(button:not(.ct-small-pill), [role="button"]:not(.ct-small-pill)) {
   border: none;
 }
 
