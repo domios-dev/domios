@@ -22,7 +22,7 @@
       "untrustedAboveLines": 0,
       "typedFollowUp": "\npasted by Domios",
       "pasteMarkerWhen": "multiline",
-      "requiresTypedInstructionForRoutedMessages": true
+      "marksRoutedMessages": true
     },
     "systemPromptDelivery": {
       "kind": "cli_flag",

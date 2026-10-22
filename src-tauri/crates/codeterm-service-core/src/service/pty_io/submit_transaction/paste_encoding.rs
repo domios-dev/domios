@@ -65,41 +65,15 @@ pub(crate) fn live_command_input(text: &str, live_mode: Option<bool>) -> Vec<u8>
     input
 }
 
-#[cfg(test)]
-pub(super) fn encode_paste_frame(
+pub(super) fn encode_paste_payload(
     text: &str,
-    typed_prefix: Option<&str>,
-    typed_suffix: Option<&str>,
-    live_mode: Option<bool>,
-    capability: PasteEncodingCapability,
-) -> Vec<u8> {
-    encode_paste_frame_with_tail(
-        text,
-        typed_prefix,
-        None,
-        typed_suffix,
-        live_mode,
-        capability,
-    )
-}
-
-/// `pasted_tail` rides as a second bracketed paste in the same write, only when the body itself is bracketed.
-pub(super) fn encode_paste_frame_with_tail(
-    text: &str,
-    typed_prefix: Option<&str>,
-    pasted_tail: Option<&str>,
-    typed_suffix: Option<&str>,
+    force_bracketed_paste: bool,
+    paste_marker: Option<&str>,
     live_mode: Option<bool>,
     capability: PasteEncodingCapability,
 ) -> Vec<u8> {
     if capability == PasteEncodingCapability::TaggedBlock {
-        let message = format!(
-            "{}{}{}",
-            typed_prefix.unwrap_or_default(),
-            text,
-            typed_suffix.unwrap_or_default()
-        );
-        let normalized = message.replace("\r\n", "\n").replace('\r', "\n");
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
         if normalized.contains('\n') {
             let mut tag = "domios".to_string();
             let mut suffix = 0;
@@ -113,15 +87,13 @@ pub(super) fn encode_paste_frame_with_tail(
     }
     let paste = xterm_paste(
         text,
-        typed_prefix.is_some().then_some(true).or(live_mode),
+        force_bracketed_paste.then_some(true).or(live_mode),
         capability,
     );
-    let mut input = typed_prefix.unwrap_or_default().as_bytes().to_vec();
-    input.extend_from_slice(paste.as_bytes());
-    if let Some(tail) = pasted_tail.filter(|_| paste.starts_with(BRACKETED_PASTE_START)) {
-        input.extend_from_slice(xterm_paste(tail, Some(true), capability).as_bytes());
+    let mut input = paste.as_bytes().to_vec();
+    if let Some(marker) = paste_marker.filter(|_| paste.starts_with(BRACKETED_PASTE_START)) {
+        input.extend_from_slice(xterm_paste(marker, Some(true), capability).as_bytes());
     }
-    input.extend_from_slice(typed_suffix.unwrap_or_default().as_bytes());
     input
 }
 
