@@ -74,7 +74,7 @@ impl ServiceContext {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            let text = format!("Checklist shared by {} (work continues):\n{}\nReview: codeterm todo approve --tab {} or codeterm todo amend --tab {} --from-pad checklist.json", target.id, items, target.id, target.id);
+            let text = format!("Checklist shared by {} (work continues):\n{}\nReview: domios todo approve --tab {} or domios todo amend --tab {} --from-pad checklist.json", target.id, items, target.id, target.id);
             self.deliver_checklist_notice(parent, &text).await;
         }
         self.ui.emit("tab-todo-proposed", serde_json::json!({ "tab_id": target.id, "parent_tab_id": target.parent_tab_id, "checklist": checklist }));

@@ -98,7 +98,7 @@ impl Worker {
             "waiting_on_prompt" => match &self.safe_choice {
                 Some(choice) => match self.safe_option {
                     Some(option) => format!(
-                        "inspect the classified {:?} prompt, answer {choice} with codeterm tab respond {option} --tab {}",
+                        "inspect the classified {:?} prompt, answer {choice} with domios tab respond {option} --tab {}",
                         self.prompt, self.tab_id
                     ),
                     None => format!(
@@ -168,13 +168,13 @@ impl HardWake {
     fn next_step(&self, plan: &str) -> String {
         match self {
             Self::TaskState(id) | Self::TaskClosed(id) => format!(
-                "inspect the changed task {id} with codeterm plan state {plan} and reconcile its review or dispatch"
+                "inspect the changed task {id} with domios plan state {plan} and reconcile its review or dispatch"
             ),
             Self::NewReport(id) => {
                 format!("read the new report {id} in {plan} and review its task")
             }
             Self::UndeliveredReport(id) => format!(
-                "retrieve persisted report {id} with codeterm orchestrator inspect --plan {plan} --json and review its task; investigate the undelivered report"
+                "retrieve persisted report {id} with domios orchestrator inspect --plan {plan} --json and review its task; investigate the undelivered report"
             ),
             Self::FailedGate(id) => {
                 format!("inspect failed gate {id} in {plan} and assign its repair before advancing")
@@ -312,7 +312,7 @@ impl Decision {
     }
 
     pub(crate) fn next_step_text(&self) -> String {
-        "Continue working on the active plan. Use `codeterm orchestrator status` for current actions."
+        "Continue working on the active plan. Use `domios orchestrator status` for current actions."
             .to_owned()
     }
 }

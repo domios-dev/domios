@@ -44,6 +44,6 @@ Each event: `{id, occurred_at, source, source_id?, target?, source_peer?, level:
 
 ## Related documents
 
-Bridge, setup-hook, and cron endpoints: `codeterm docs API-INTEGRATIONS`. Usage and log observability: `codeterm docs API-STATE`. Memory endpoints: `codeterm docs API-MEMORY`.
+Bridge, setup-hook, and cron endpoints: `domios docs API-INTEGRATIONS`. Usage and log observability: `domios docs API-STATE`. Memory endpoints: `domios docs API-MEMORY`.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

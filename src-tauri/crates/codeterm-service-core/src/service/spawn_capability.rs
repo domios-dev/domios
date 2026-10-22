@@ -23,7 +23,7 @@ pub(crate) enum MissingSpawnCapability {
     /// An agent process the host launches and supervises through a PTY.
     PtyAgentRuntime,
     /// `CODETERM_WORKER_ID` in the launch env — the only handle
-    /// `codeterm mem worker report` accepts.
+    /// `domios mem worker report` accepts.
     WorkerIdentityHandoff,
     RuntimeLaunchArguments,
 }

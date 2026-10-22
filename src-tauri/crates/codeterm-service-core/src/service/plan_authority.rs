@@ -21,7 +21,7 @@ pub struct AuthenticatedPlanCaller {
 pub enum PlanAuthorityError {
     PlanNotFound,
     /// Live same-tab, same-session caller holding a pre-relaunch lineage nonce.
-    /// Recoverable via `codeterm plan rebind` without a full agent restart.
+    /// Recoverable via `domios plan rebind` without a full agent restart.
     BindingStaleAfterRelaunch,
     /// No live binding proof: absent tab, dead/rebound session, wrong session,
     /// or a nonce with no lineage to this tab. A genuinely foreign caller lands
@@ -63,11 +63,11 @@ impl PlanAuthorityError {
         match self {
             Self::PlanNotFound => "plan not found",
             Self::BindingStaleAfterRelaunch => {
-                "the live bound planning session is required; its binding nonce is stale after a relaunch — re-sync with `codeterm plan rebind <plan>`"
+                "the live bound planning session is required; its binding nonce is stale after a relaunch — re-sync with `domios plan rebind <plan>`"
             }
             Self::BindingForeign => "the live bound planning session is required",
             Self::SessionUnregistered => {
-                "no agent session is registered for this tab — the provider reports one through its integration hook and none arrived. Establish the binding from this tab with `codeterm plan rebind <plan>`, then repair the integration so the next session registers itself."
+                "no agent session is registered for this tab — the provider reports one through its integration hook and none arrived. Establish the binding from this tab with `domios plan rebind <plan>`, then repair the integration so the next session registers itself."
             }
             Self::SessionBindingPending => {
                 "the plan write waited for this launch's session-binding event until its deadline; retry after this tab's session binding is registered"

@@ -33,7 +33,7 @@ fn declared_verbs_appear_in_the_skill_item() {
     for verb in [VERB_A, VERB_B] {
         assert!(
             item.body
-                .contains(&format!("codeterm plugin opaque-plugin {verb}")),
+                .contains(&format!("domios plugin opaque-plugin {verb}")),
             "{verb} is reachable from the item"
         );
     }
@@ -92,7 +92,7 @@ fn declared_verbs_win_over_config_help() {
 
 #[test]
 fn config_help_without_the_marker_yields_no_verbs() {
-    assert!(verbs_from_config_help("Run `codeterm plugin p health`.").is_empty());
+    assert!(verbs_from_config_help("Run `domios plugin p health`.").is_empty());
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn a_changed_manifest_replaces_the_item() {
     assert_eq!(plan.upserts.len(), 1);
     assert!(plan.upserts[0]
         .body
-        .contains("codeterm plugin opaque-plugin zz-gamma"));
+        .contains("domios plugin opaque-plugin zz-gamma"));
     assert!(plan.removals.is_empty());
 }
 

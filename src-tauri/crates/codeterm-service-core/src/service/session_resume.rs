@@ -17,7 +17,7 @@ impl ServiceContext {
             )
         {
             return Err(format!(
-                "Session {session_id} is bound to Tab {tab_id}, but its agent is not ready; recover it with: codeterm agent restart --tab {tab_id}"
+                "Session {session_id} is bound to Tab {tab_id}, but its agent is not ready; recover it with: domios agent restart --tab {tab_id}"
             ));
         }
         Ok(Some(tab_id))

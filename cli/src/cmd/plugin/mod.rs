@@ -214,7 +214,7 @@ fn print_human(value: &serde_json::Value) {
         println!("{msg}");
         return;
     }
-    // Passthrough (`codeterm plugin <id> <verb>`) → the plugin's `{ result }`.
+    // Passthrough (`domios plugin <id> <verb>`) → the plugin's `{ result }`.
     if let Some(result) = value.get("result").and_then(|v| v.as_str()) {
         println!("{result}");
         return;
@@ -222,7 +222,7 @@ fn print_human(value: &serde_json::Value) {
     println!("{}", serde_json::to_string_pretty(value).unwrap());
 }
 
-/// `codeterm plugin <id> <verb> [args…]` → route `plugin:<id>.<verb>` over the
+/// `domios plugin <id> <verb> [args…]` → route `plugin:<id>.<verb>` over the
 /// socket to the owning plugin's `onAgentCommand` (the inverse seam). The caller's
 /// worker/tab id is sent as `sessionId` so the host can scope the verb to the
 /// commands the plugin declared at spawn. A plugin-reported `{ error }` surfaces
@@ -231,10 +231,10 @@ fn pass_command(parts: Vec<String>) -> Result<serde_json::Value, String> {
     let mut it = parts.into_iter();
     let id = it
         .next()
-        .ok_or("usage: codeterm plugin <id> <verb> [args…]")?;
+        .ok_or("usage: domios plugin <id> <verb> [args…]")?;
     let verb = it
         .next()
-        .ok_or("usage: codeterm plugin <id> <verb> [args…]")?;
+        .ok_or("usage: domios plugin <id> <verb> [args…]")?;
     let args: Vec<String> = it.collect();
 
     let (mut client, _) = crate::client::SocketClient::connect_local()?;

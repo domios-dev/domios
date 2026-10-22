@@ -4,7 +4,7 @@ use crate::plan::Plan;
 
 // bodies into prompts — the registry stays a pointer, content is fetched on demand.
 pub const PLAN_SKILL_REGISTRY_POINTER: &str =
-    "Plan skills registry: `codeterm plan skill list` to browse, `codeterm plan skill show <slug>` to read one — never inline skill bodies.";
+    "Plan skills registry: `domios plan skill list` to browse, `domios plan skill show <slug>` to read one — never inline skill bodies.";
 
 // `pub`, not `pub(super)`: the app crate's heartbeat-delivery tests assert
 // against this structured summary directly rather than parsing rendered text.
@@ -52,12 +52,12 @@ pub fn list_plan_skill_summaries(plan: &Plan) -> Vec<PlanSkillRegistrySummary> {
 pub fn render_plan_skill_registry_line(plan_id: &str, count: usize) -> String {
     if count == 0 {
         return format!(
-            "Plan skills (plan {plan_id}): none registered — capture a reusable procedure with `codeterm plan skill new <slug>`."
+            "Plan skills (plan {plan_id}): none registered — capture a reusable procedure with `domios plan skill new <slug>`."
         );
     }
     let noun = if count == 1 { "skill" } else { "skills" };
     format!(
-        "Plan skills (plan {plan_id}): {count} {noun} registered — `codeterm plan skill list` to browse, `codeterm plan skill show <slug>` to read (bodies never inlined)."
+        "Plan skills (plan {plan_id}): {count} {noun} registered — `domios plan skill list` to browse, `domios plan skill show <slug>` to read (bodies never inlined)."
     )
 }
 
@@ -77,14 +77,14 @@ mod tests {
         let line = render_plan_skill_registry_line("plan_abc", 0);
         assert!(line.contains("plan_abc"));
         assert!(line.contains("none registered"));
-        assert!(line.contains("codeterm plan skill new"));
+        assert!(line.contains("domios plan skill new"));
     }
 
     #[test]
     fn nonzero_line_is_a_pointer_not_content() {
         let line = render_plan_skill_registry_line("plan_abc", 3);
         assert!(line.contains("3 skills registered"));
-        assert!(line.contains("codeterm plan skill list"));
+        assert!(line.contains("domios plan skill list"));
         assert!(line.contains("never inlined"));
         // A pointer line stays short; it must never carry SKILL.md bodies.
         assert!(line.len() < 200);
@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn pointer_constant_carries_no_body() {
-        assert!(PLAN_SKILL_REGISTRY_POINTER.contains("codeterm plan skill list"));
+        assert!(PLAN_SKILL_REGISTRY_POINTER.contains("domios plan skill list"));
         assert!(PLAN_SKILL_REGISTRY_POINTER.len() < 200);
     }
 

@@ -3,7 +3,7 @@
 ## Protocol version skew
 
 The socket server selects recovery by build mode: debug builds prescribe
-`./build.sh cli`; release builds prescribe `codeterm update install --auto`.
+`./build.sh cli`; release builds prescribe `domios update install --auto`.
 The CLI prints the daemon-composed typed error unchanged. Keep repository
 rebuild instructions here and release update instructions in product help.
 
@@ -22,6 +22,6 @@ upgrade-restore DEV instance. Keep this drill out of the shared production CLI
 primer; production agents can export sanitized backups without a test instance.
 
 `POST /api/session/backups/import` replaces a disposable named `upgrade-restore-*`
-DEV desk without PTYs; PROD refuses it. CLI: `codeterm sessions backups import --file /tmp/desk.json`.
+DEV desk without PTYs; PROD refuses it. CLI: `domios sessions backups import --file /tmp/desk.json`.
 Import returns `{imported_tabs, restart_required, boot_id}`; `/api/health` boot_id proves a subsequent restart.
 

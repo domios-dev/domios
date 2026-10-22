@@ -9,19 +9,19 @@ For an owner-requested integrated all-tab round, follow `evals/startup-matrix/RE
 
 Test Domios dev instance (port 7686) by interacting with agents via REST API and verifying mem state.
 
-## ⚠ Hard rule: never `codeterm` CLI for dev work
+## ⚠ Hard rule: never `domios` CLI for dev work
 
-The `codeterm` CLI **does not** read `CODETERM_API_URL` / `CODETERM_API_TOKEN`. It picks dev vs prod by:
+The `domios` CLI **does not** read `CODETERM_API_URL` / `CODETERM_API_TOKEN`. It picks dev vs prod by:
 1. `CODETERM_SOCKET_PATH` env var — if it contains `codeterm-dev`, use dev (`~/.codeterm-dev/config.toml` → port 7686).
 2. Otherwise → **prod** (`~/.codeterm/config.toml` → port 7685).
 
-Plain `codeterm cron create / trigger / mem save` from a regular shell will hit your **prod Domios** desktop daemon and spawn tabs inside the user's running app. **This is destructive — visible to the user, mutates their prod state, may burn API quota under their account.**
+Plain `domios cron create / trigger / mem save` from a regular shell will hit your **prod Domios** desktop daemon and spawn tabs inside the user's running app. **This is destructive — visible to the user, mutates their prod state, may burn API quota under their account.**
 
 **Always do dev testing via raw `curl` to `http://127.0.0.1:7686` with the dev token from `~/.codeterm-dev/config.toml`.** Use the `$API` / `$H` setup below — every command in this skill assumes them.
 
 If you absolutely need the CLI for a specific subcommand, prefix with both env vars:
 ```bash
-CODETERM_SOCKET_PATH=/fake/codeterm-dev/sock CODETERM_API_PORT=7686 codeterm <cmd>
+CODETERM_SOCKET_PATH=/fake/codeterm-dev/sock CODETERM_API_PORT=7686 domios <cmd>
 ```
 The fake socket path just has to contain the substring `codeterm-dev` so the CLI picks the dev config dir; the actual socket connection is only used by a few subcommands.
 
@@ -64,7 +64,7 @@ node scripts/dev-wheel-probe.mjs --api-port 7686 --delta 480
 Exit 1 means a probe did not move its scroller: first make sure the sidebar actually overflows (open enough tabs), then compare the `chain` of the failing point with the passing one; the first node that differs is the cause.
 
 DEV flow tracing writes bounded, rotated `~/.codeterm-dev/logs/trace.jsonl`; production writes no trace events. Unledgered PTY input uses a fresh trace ID; existing sends retain their IDs.
-From a DEV-bound shell, use `codeterm trace recent --limit 20`, then `codeterm trace show <trace_id|tab_id> --since 1h` to see ordered stages and gaps in the retained window.
+From a DEV-bound shell, use `domios trace recent --limit 20`, then `domios trace show <trace_id|tab_id> --since 1h` to see ordered stages and gaps in the retained window.
 Exact protocol-turn and append-window source links join assistant appends, including late links; a missing assistant stage means pending or missing evidence, not a delivery verdict.
 
 ## Chat scroll trace (iPhone viewport)
@@ -206,7 +206,7 @@ curl -s -X POST "$API/api/agents/spawn" -H "$H" -H "Content-Type: application/js
     "agent": "claude",
     "workspace_id": "WORKSPACE_ID",
     "title": "test-agent",
-    "task": "Your task here. Use codeterm mem search to find memories.",
+    "task": "Your task here. Use domios mem search to find memories.",
     "skip_permissions": true
   }'
 # Returns: {"tab_id": "xxx", "tab_id": "yyy", ...}
@@ -275,14 +275,14 @@ Cron jobs share the worker spawn path (`spawn_hidden_agent_impl`) — same launc
 # GET /api/crons, GET /api/crons/{id}/runs, DELETE /api/crons/{id}
 ```
 
-### Create + trigger via curl (NEVER `codeterm cron`)
+### Create + trigger via curl (NEVER `domios cron`)
 
 ```bash
 # Body schema mirrors CronJob; minimum required fields:
 JOB=$(curl -s -X POST "$API/api/crons" -H "$H" -H "Content-Type: application/json" -d '{
   "name":"dev-smoke",
   "schedule":"* * * * *",
-  "task":"Run this once then exit: codeterm mem worker report \"smoke ok with --area --kind tokens\"",
+  "task":"Run this once then exit: domios mem worker report \"smoke ok with --area --kind tokens\"",
   "agent":"claude",
   "model":"claude-haiku-4-5-20251001"
 }' | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
@@ -306,7 +306,7 @@ PS …> Remove-Item Env:CLAUDECODE …; Get-Content 'C:\…\.ct-task-XXXX' -Raw 
 ```
 NOT the legacy inline `claude --dangerously-skip-permissions (Get-Content '…' -Raw -Encoding UTF8) --model …` form. If you see the legacy form on a hidden cron tab, the daemon is running stale code (build didn't pick up `shell.rs` / `provider.rs` changes — verify `target/debug/codeterm.exe` mtime is newer than the source files you edited).
 
-Do NOT use `codeterm mem worker report` as the test payload of a **cron** task — cron tabs don't have `CODETERM_WORKER_ID` and the call exits 1 with `not in a worker tab`. Use a tool that doesn't depend on worker context (e.g. `codeterm mem save --kind note --title smoke …`) or have the task simply call `codeterm mem stats` and exit.
+Do NOT use `domios mem worker report` as the test payload of a **cron** task — cron tabs don't have `CODETERM_WORKER_ID` and the call exits 1 with `not in a worker tab`. Use a tool that doesn't depend on worker context (e.g. `domios mem save --kind note --title smoke …`) or have the task simply call `domios mem stats` and exit.
 
 ### Dreaming smoke
 
@@ -334,7 +334,7 @@ Note: `bash build.sh build` runs the production frontend bundle and currently fa
 - After sending message to GA, wait 20-60s for claude to process + extraction workers
 - After spawning agent, wait 30-60s for it to start + execute task
 - `/new` resets claude context but keeps mem — tests recall from fresh context
-- Cross-workspace: agents in any project workspace can `codeterm mem search` and find GA memories
+- Cross-workspace: agents in any project workspace can `domios mem search` and find GA memories
 - If something doesn't work, update this skill with what you learned
 
 ## Self-improvement
@@ -344,7 +344,7 @@ The skill lives at: `.agents/skills/dev-testing/SKILL.md`
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
+Moved out of the embedded `domios docs` pages because they describe Domios's own source:
 
 - [references/memory-internals.md](references/memory-internals.md) — memory storage, ranking, wake-up selection, workers and dreaming internals
 
@@ -352,7 +352,7 @@ Moved out of the embedded `codeterm docs` pages because they describe Domios's o
 
 Run after integration in canonical DEV; Workers do not start a lane server.
 Verify `/api/health` build equals the integration SHA. Use the Domios Browser
-(`codeterm plugin browser status`, `open --profile clean`, then `goto` the DEV
+(`domios plugin browser status`, `open --profile clean`, then `goto` the DEV
 web client), and select an owned, empty throwaway agent chat. Use a separate
 owned DEV agent as sender; never send a probe to an owner's working chat.
 

@@ -3,20 +3,20 @@
 Author a Blueprint as one YAML file, or apply a built-in YAML recipe directly. Check it offline before applying it to your Team.
 
 ```bash
-codeterm blueprint apply github --set repo=owner/repo --set id=42 --note "Report CI failures"
-codeterm blueprint new http-health > health.yaml
-codeterm blueprint check health.yaml --set url=https://example.com/health
-codeterm blueprint apply health.yaml --set url=https://example.com/health --dry-run
-codeterm blueprint apply health.yaml --set url=https://example.com/health
+domios blueprint apply github --set repo=owner/repo --set id=42 --note "Report CI failures"
+domios blueprint new http-health > health.yaml
+domios blueprint check health.yaml --set url=https://example.com/health
+domios blueprint apply health.yaml --set url=https://example.com/health --dry-run
+domios blueprint apply health.yaml --set url=https://example.com/health
 ```
 
 `recipe` lists built-ins. `new <recipe|watch|pipeline|command>` prints a commented file. `check` and `apply` accept either a recipe name or a filename (`-` reads stdin). Built-in recipes are the same files that `new` prints. `create` is an alias of `apply`; the old creation flags have been removed.
 
 ## Reuse a saved solution
 
-`codeterm blueprint new --like "watch CI run and ping me on failure"` and `codeterm blueprint apply --like "watch CI run and ping me on failure"` offer matching saved solutions beside built-ins without starting them. `codeterm blueprint recipe` lists built-in names and top saved solutions for the current project workspace. Reuse a saved solution with `codeterm blueprint apply memory:<recipe-id> --set key=value`. Each offer includes YAML and described typed inputs; instance inputs have no defaults. Named built-in recipes remain available offline.
+`domios blueprint new --like "watch CI run and ping me on failure"` and `domios blueprint apply --like "watch CI run and ping me on failure"` offer matching saved solutions beside built-ins without starting them. `domios blueprint recipe` lists built-in names and top saved solutions for the current project workspace. Reuse a saved solution with `domios blueprint apply memory:<recipe-id> --set key=value`. Each offer includes YAML and described typed inputs; instance inputs have no defaults. Named built-in recipes remain available offline.
 
-Nothing is saved automatically. The Team Orchestrator uses `codeterm blueprint keep <id> --when "Watch CI and report failing jobs early"` to queue a generalised solution. Workers cannot keep solutions. The problem description drives search, a short note explains the graph, and concrete commands, URLs, repository names, IDs and personal paths become required inputs. Instance values and credentials are never retained as defaults. Safety checks still apply to explicit keeps. Admission returns `queued`; debug output records the save decision or refusal.
+Nothing is saved automatically. The Team Orchestrator uses `domios blueprint keep <id> --when "Watch CI and report failing jobs early"` to queue a generalised solution. Workers cannot keep solutions. The problem description drives search, a short note explains the graph, and concrete commands, URLs, repository names, IDs and personal paths become required inputs. Instance values and credentials are never retained as defaults. Safety checks still apply to explicit keeps. Admission returns `queued`; debug output records the save decision or refusal.
 
 Solutions are memory skills, discoverable through ordinary memory search. Equivalent structures update one recipe's statistics. Ranking and eviction consider successes, twice the reuse count, an explicit-keep bonus and failures, with age decay. Each area retains at most 50 active entries; excess entries are archived, preserving their YAML. The Dreamer considers at most 50 entries in one area and merges at most eight pairs per cycle; it never creates solutions from runs. It can log a built-in promotion proposal. Background writes use a bounded queue; debug logs show items added today and recall hit rate.
 
@@ -54,8 +54,8 @@ Use exactly one `pipeline` or `watch`. Metadata stays at the top: `schema_versio
 ## Check and editor validation
 
 ```bash
-codeterm blueprint schema > blueprint.schema.json
-codeterm blueprint check health.yaml --set url=https://example.com/health --json
+domios blueprint schema > blueprint.schema.json
+domios blueprint check health.yaml --set url=https://example.com/health --json
 ```
 
 Scaffolds start with a `yaml-language-server` hint referring to `./blueprint.schema.json`. Save the schema beside the YAML file for editor validation. `check` remains authoritative: it accumulates structural and semantic errors, including duplicate keys, missing fields, unknown nodes, invalid durations, route targets and unreachable stages. Each diagnostic contains file, line, column, field, severity, message and a fix hint. Invalid files exit 2. Missing notes and hardcoded GitHub run IDs produce warnings and do not fail the check.
@@ -134,18 +134,18 @@ Actions and targets stay in the creator's Team/workspace. Commands are fixed by 
 ## Sharing and operation
 
 ```bash
-codeterm blueprint export <id> --out shared.yaml
-codeterm blueprint import shared.yaml --set binding_1=value
-codeterm blueprint list
-codeterm blueprint show <id>
-codeterm blueprint history <id>
-codeterm blueprint log <id>
-codeterm blueprint stop <id>
-codeterm blueprint delete <id> --stop
+domios blueprint export <id> --out shared.yaml
+domios blueprint import shared.yaml --set binding_1=value
+domios blueprint list
+domios blueprint show <id>
+domios blueprint history <id>
+domios blueprint log <id>
+domios blueprint stop <id>
+domios blueprint delete <id> --stop
 ```
 
 Both the UI and CLI export and import the same YAML. Export writes the same authoring YAML with sensitive commands, input data, patterns and local targets replaced by required described inputs. It excludes runtime/history and local owner IDs. Import binds those inputs in the caller's Team and starts stopped by default; `--start` starts immediately. Check exported files after supplying every required input.
 
-Stopped graphs and their history remain for 30 minutes before cleanup. Changed definitions create an immutable version; an unchanged apply reactivates a stopped graph under the same ID. Import uses the same name lookup and keeps the result stopped unless explicitly started. Advanced `update` accepts an internal definition file with `--expect-version` for explicit version/cause control. `history` definitions can be restored through that path, and `escalation resolve <id> <transition>` releases a held unknown case after repair. For a watch, use `show` to inspect its latest observation, progress and transitions; `log` provides pipeline journals. Unscheduled inputs omit `next_run`. Recipe examples: `codeterm docs BLUEPRINT-RECIPES`.
+Stopped graphs and their history remain for 30 minutes before cleanup. Changed definitions create an immutable version; an unchanged apply reactivates a stopped graph under the same ID. Import uses the same name lookup and keeps the result stopped unless explicitly started. Advanced `update` accepts an internal definition file with `--expect-version` for explicit version/cause control. `history` definitions can be restored through that path, and `escalation resolve <id> <transition>` releases a held unknown case after repair. For a watch, use `show` to inspect its latest observation, progress and transitions; `log` provides pipeline journals. Unscheduled inputs omit `next_run`. Recipe examples: `domios docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 43 -->
+<!-- revision: 44 -->

@@ -116,7 +116,7 @@ pub enum TabAction {
         lifecycle: bool,
     },
     /// Plain shell tab, inheriting the calling tab's workspace and Team. For an
-    /// AI tab use `codeterm agent spawn`.
+    /// AI tab use `domios agent spawn`.
     New {
         /// Shell lifetime: positive duration (30s, 10m, 2h), or none.
         #[arg(long, conflicts_with_all = ["chat_backend", "list_shells"])]
@@ -163,7 +163,7 @@ pub enum TabAction {
         eager: bool,
         /// Open a non-PTY chat-backend tab driven by the given plugin id
         /// (a plugin declaring the `chatBackend` capability).
-        /// `codeterm send`/`tab get-text` then route to the plugin, not a shell.
+        /// `domios send`/`tab get-text` then route to the plugin, not a shell.
         #[arg(long, value_name = "PLUGIN_ID")]
         chat_backend: Option<String>,
         /// JSON config object passed to the chat-backend plugin's `openSession`
@@ -599,7 +599,7 @@ pub enum BridgeAction {
     /// Send a message to Telegram or other service
     ///
     /// The bridge speaks as the CodeTerm bot; to message a contact as the owner, use
-    /// the telegram-client plugin (`codeterm plugin telegram-client chats` / `send`).
+    /// the telegram-client plugin (`domios plugin telegram-client chats` / `send`).
     Send {
         /// Message text (also used as caption for media types)
         #[arg(allow_hyphen_values = true)]
@@ -653,7 +653,7 @@ pub enum BridgeAction {
     },
     /// Migrate active bridge poller from this node to another mesh peer.
     Migrate {
-        /// Target peer instance_name (as shown in `codeterm mesh peers`).
+        /// Target peer instance_name (as shown in `domios mesh peers`).
         #[arg(long)]
         to: String,
         /// Service to migrate (currently only "telegram").

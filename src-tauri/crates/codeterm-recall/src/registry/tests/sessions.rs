@@ -9,14 +9,14 @@ fn session_candidate() -> SessionCandidate {
             "session_id": "sess-42",
             "provider": "fixture-provider",
             "title": "Release command",
-            "excerpt": "Use codeterm sessions get sess-42 to inspect the prior run.",
-            "pointer": "codeterm sessions get sess-42",
+            "excerpt": "Use domios sessions get sess-42 to inspect the prior run.",
+            "pointer": "domios sessions get sess-42",
         }),
         candidate: RerankCandidate {
             key: "session:fixture-provider:sess-42".into(),
             title: "Release command".into(),
             kind: "session".into(),
-            body: "title: Release command\nprovider: fixture-provider\ndate: Unix timestamp 1\nmatched excerpt: use codeterm sessions get".into(),
+            body: "title: Release command\nprovider: fixture-provider\ndate: Unix timestamp 1\nmatched excerpt: use domios sessions get".into(),
         },
     }
 }

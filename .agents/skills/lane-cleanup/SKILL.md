@@ -5,7 +5,7 @@ description: Safely audit and remove completed or abandoned Domios lane worktree
 
 # Lane Cleanup
 
-For Plan-wide cleanup, preview with `codeterm plan lanes <plan> --clean`, then
+For Plan-wide cleanup, preview with `domios plan lanes <plan> --clean`, then
 execute with `--confirm`. The live Plan Orchestrator may run this from a Team
 utility shell it created. Keep the shell's own tab id and launch nonce; never
 copy the parent's session or binding. The daemon checks recorded ownership and
@@ -61,5 +61,5 @@ record task cleanup as done. Use `-PlanId` and `-TaskId` to let the script recor
 that state automatically.
 
 When you do not already know which tab owns the lane, prefer the daemon-side verb
-`codeterm plan lane-remove <worktree> --branch <branch>`: it names the live tab
+`domios plan lane-remove <worktree> --branch <branch>`: it names the live tab
 holding the directory and refuses before anything is deleted.

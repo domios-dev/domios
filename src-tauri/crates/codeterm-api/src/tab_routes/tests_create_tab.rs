@@ -96,7 +96,7 @@ fn post_tabs_rejects_watcher_mode_chatbackend_config() {
     .unwrap_err();
     assert_eq!(
         err,
-        "watcher Tabs spawn via codeterm agent spawn --role Watcher"
+        "watcher Tabs spawn via domios agent spawn --role Watcher"
     );
 }
 

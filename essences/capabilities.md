@@ -12,6 +12,7 @@ Every element carries an explicit stable id in its metadata: a vector heading en
 
 ## Invariants that bind every vector
 
+- `domios` is the primary CLI command; `codeterm` remains a fully working alias. Help, usage, prompts and generated contracts teach the canonical name.
 - Production listens on port 7685 and is never killed by development work; development uses 7686 or a named instance.
 - Closing the desktop releases frontend resources while the daemon and its sessions continue; tray or application activation restores one authenticated frontend without replaying input.
 - Core asks capabilities, never provider identities. The [Supporter contract](supporter-agent.md) keeps model judgments subordinate to deterministic evidence across every vector.

@@ -44,7 +44,7 @@ pub fn planning_structure_nudge(
 pub fn planner_spawn_cmd_hint(orchestrator_tab_id: Option<&str>, plan_id: &str) -> String {
     let parent = orchestrator_tab_id.unwrap_or("<orch-tab>");
     format!(
-        "Choose an available provider and model appropriate for this planning task, then run: codeterm agent spawn <provider> [--model <model>] --parent-tab {parent} --role Planner --plan {plan_id}"
+        "Choose an available provider and model appropriate for this planning task, then run: domios agent spawn <provider> [--model <model>] --parent-tab {parent} --role Planner --plan {plan_id}"
     )
 }
 
@@ -53,7 +53,7 @@ pub fn planner_spawn_cmd_hint(orchestrator_tab_id: Option<&str>, plan_id: &str) 
 pub fn planner_peer_intro_line(plan_id: &str, orchestrator_tab_id: Option<&str>) -> String {
     let orch = orchestrator_tab_id.unwrap_or("unknown");
     format!(
-        "You are the Planner specialist for the active Team Plan {plan_id}; the Orchestrator owner is tab {orch}. {} The Orchestrator owns the Team Plan and states its GOAL, then delegates planning to you by default. Team membership gives you the same active Plan automatically; no separate Planner binding or General Agent bootstrap is required. First read `codeterm docs PLANNER`. Refine the active Team Plan and run its quality doctor. If no planning request has been delegated yet, reply that you are ready and WAIT.",
+        "You are the Planner specialist for the active Team Plan {plan_id}; the Orchestrator owner is tab {orch}. {} The Orchestrator owns the Team Plan and states its GOAL, then delegates planning to you by default. Team membership gives you the same active Plan automatically; no separate Planner binding or General Agent bootstrap is required. First read `domios docs PLANNER`. Refine the active Team Plan and run its quality doctor. If no planning request has been delegated yet, reply that you are ready and WAIT.",
         super::prompts_plan::PEER_PLANNER_CHARTER_LINE
     )
 }

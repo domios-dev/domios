@@ -235,7 +235,7 @@ fn run_plan(
             let has_legacy_spec_shortcut = spec.is_some() || spec_file.is_some();
             if has_legacy_spec_shortcut {
                 return Err(
-                    "plan create no longer accepts --spec/--spec-file text input; create a real spec with `codeterm spec create` and use `codeterm plan create --from-spec <id> --title <title>`".to_string(),
+                    "plan create no longer accepts --spec/--spec-file text input; create a real spec with `domios spec create` and use `domios plan create --from-spec <id> --title <title>`".to_string(),
                 );
             }
             let mut params = json!({

@@ -42,7 +42,7 @@ const FINISHED_DIARY_BODY: &str = "<insight>\n\
      HUBS_AFTER: 1\n\
      ORPHANS: bridged=18 deleted=4\n\
      CALIBRATION: swept 412 items\n\
-     ACTION: codeterm mem update fact_x42 --area auth\n\
+     ACTION: domios mem update fact_x42 --area auth\n\
      </log>";
 
 fn registry(name: &str) -> std::sync::Arc<GraphWorkerRegistry> {

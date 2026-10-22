@@ -94,7 +94,7 @@ fn dispatch_refuses_occupied_checkout() {
     assert!(error.message.contains(&checkout), "{}", error.message);
     assert!(
         error.message.contains(&format!(
-            "codeterm plan task update {} {} --worktree",
+            "domios plan task update {} {} --worktree",
             plan.id, dispatched_task_id
         )),
         "{}",
@@ -115,7 +115,7 @@ fn dispatch_refuses_occupied_checkout() {
     assert_eq!(
         data["dispatch_command"],
         format!(
-            "codeterm plan task dispatch {} {}",
+            "domios plan task dispatch {} {}",
             plan.id, dispatched_task_id
         )
     );
@@ -178,7 +178,7 @@ fn reported_attempt_with_live_executor_still_occupies_its_lane() {
     assert_eq!(error.data.as_ref().unwrap()["executor_tab_id"], "tab-live");
     assert_eq!(
         error.data.as_ref().unwrap()["release_command"],
-        "codeterm tab close --tab tab-live"
+        "domios tab close --tab tab-live"
     );
 }
 

@@ -64,7 +64,7 @@ fn refresh(
         )
         .map_err(|err| {
             format!(
-                "cannot start orchestrator refresh for tab {tab_id}.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
+                "cannot start orchestrator refresh for tab {tab_id}.\nfix: run `domios tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
                 concise_socket_error(err)
             )
         })?;
@@ -328,7 +328,7 @@ fn render_status(value: &Value) -> String {
         let hidden = action_total.saturating_sub(3);
         if hidden > 0 {
             out.push_str(&format!(
-                "- +{hidden} more; use `codeterm orchestrator inspect --plan {plan_id}`\n"
+                "- +{hidden} more; use `domios orchestrator inspect --plan {plan_id}`\n"
             ));
         }
     }
@@ -340,17 +340,17 @@ fn action_command(plan_id: &str, action: &Value) -> String {
     let task_id = action.get("task_id").and_then(|v| v.as_str());
     match (kind, task_id) {
         ("gate", Some(task)) => {
-            format!("codeterm task show {task} && codeterm plan task close {plan_id} {task}")
+            format!("domios task show {task} && domios plan task close {plan_id} {task}")
         }
         ("advance", Some(task)) => {
-            format!("codeterm task show {task} && codeterm plan record {plan_id} --task {task} --step decision:<next-instruction>")
+            format!("domios task show {task} && domios plan record {plan_id} --task {task} --step decision:<next-instruction>")
         }
-        ("dispatch", Some(task)) => format!("codeterm task show {task}"),
-        ("reconcile", _) => format!("codeterm plan reconcile {plan_id}"),
+        ("dispatch", Some(task)) => format!("domios task show {task}"),
+        ("reconcile", _) => format!("domios plan reconcile {plan_id}"),
         ("consider_stop", _) => {
-            format!("codeterm plan record {plan_id} --step decision:<loop-decision>")
+            format!("domios plan record {plan_id} --step decision:<loop-decision>")
         }
-        _ => format!("codeterm plan get {plan_id}"),
+        _ => format!("domios plan get {plan_id}"),
     }
 }
 
@@ -445,7 +445,7 @@ fn handoff(
     };
     let narrative = resolve_text(None, from_file)?;
     let seed = format!(
-        "run `codeterm plan handoff show {} --latest --markdown` FIRST, read `codeterm docs ORCHESTRATION` and the project's instructions, `codeterm plan get`, resume from next_actions; do not re-handoff.",
+        "run `domios plan handoff show {} --latest --markdown` FIRST, read `domios docs ORCHESTRATION` and the project's instructions, `domios plan get`, resume from next_actions; do not re-handoff.",
         plan_id
     );
 
@@ -537,14 +537,14 @@ fn tab_session_id(client: &mut SocketClient, tab_id: &str) -> Result<String, Str
 
 fn render_reseed_tab_lookup_error(tab_id: &str, err: SocketCallError) -> String {
     format!(
-        "cannot inspect tab {tab_id} for handoff reseed.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
+        "cannot inspect tab {tab_id} for handoff reseed.\nfix: run `domios tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
         concise_socket_error(err)
     )
 }
 
 fn render_reseed_tab_session_error(tab_id: &str) -> String {
     format!(
-        "cannot reseed because tab {tab_id} is not an agent or has no session.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`."
+        "cannot reseed because tab {tab_id} is not an agent or has no session.\nfix: run `domios tab list --agents` and pass an agent tab with `--tab <tab-id>`."
     )
 }
 
@@ -585,10 +585,8 @@ mod tests {
 
         assert!(rendered.contains("live_lanes: open=1 blocked=0 agents=1"));
         assert!(rendered.contains("drift: 2"));
-        assert!(
-            rendered.contains("codeterm task show task_a && codeterm plan task close pl_1 task_a")
-        );
-        assert!(rendered.contains("codeterm plan reconcile pl_1"));
+        assert!(rendered.contains("domios task show task_a && domios plan task close pl_1 task_a"));
+        assert!(rendered.contains("domios plan reconcile pl_1"));
     }
 
     // Dependency-gated lanes must count as blocked even when the literal blocked array is empty.
@@ -683,11 +681,11 @@ mod tests {
     fn action_commands_cover_task_and_plan_context() {
         assert_eq!(
             action_command("pl_1", &json!({"kind": "dispatch", "task_id": "task_b"})),
-            "codeterm task show task_b"
+            "domios task show task_b"
         );
         assert_eq!(
             action_command("pl_1", &json!({"kind": "reconcile"})),
-            "codeterm plan reconcile pl_1"
+            "domios plan reconcile pl_1"
         );
     }
 
@@ -703,7 +701,7 @@ mod tests {
         );
 
         assert!(msg.contains("cannot inspect tab tab1 for handoff reseed"));
-        assert!(msg.contains("codeterm tab list --agents"));
+        assert!(msg.contains("domios tab list --agents"));
         assert!(msg.contains("--tab <tab-id>"));
         assert!(!msg.contains("RPC error"));
         assert!(!msg.contains("-32603"));
@@ -714,7 +712,7 @@ mod tests {
         let msg = render_reseed_tab_session_error("tab1");
 
         assert!(msg.contains("cannot reseed because tab tab1 is not an agent or has no session"));
-        assert!(msg.contains("codeterm tab list --agents"));
+        assert!(msg.contains("domios tab list --agents"));
         assert!(msg.contains("--tab <tab-id>"));
     }
 }

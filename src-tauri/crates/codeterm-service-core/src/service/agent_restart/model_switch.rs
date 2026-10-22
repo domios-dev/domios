@@ -134,7 +134,7 @@ impl std::fmt::Display for ModelSwitchError {
             Self::NotFound(message) | Self::NotSwitchable(message) => formatter.write_str(message),
             Self::Unsupported { provider } => write!(
                 formatter,
-                "provider {provider} cannot switch a live agent's model; respawn with `codeterm agent spawn {provider} --model MODEL`"
+                "provider {provider} cannot switch a live agent's model; respawn with `domios agent spawn {provider} --model MODEL`"
             ),
             Self::InvalidModel(error) => write!(formatter, "{error}"),
             Self::UnsupportedReasoningEffort { model, requested, supported } => write!(

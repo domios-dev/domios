@@ -209,7 +209,7 @@ npm run test:unit -- chatSendStatus
 npm run test:unit -- TabSessionChat.delivery
 ```
 
-The provider-row harness verifies the real `codeterm` CLI before running those
+The provider-row harness verifies the real `domios` CLI before running those
 focused oracles. Its help and dry-run surface are:
 
 ```bash
@@ -355,7 +355,7 @@ Git for Windows at its standard location and rerun the same command.
 
 ## Related documents
 
-End-to-end and cross-platform verification: `.agents/skills/testing/SKILL.md`. Prompt detection: `.agents/skills/provider-authoring/prompt-detection.md`. Test design rules: `codeterm docs TEST-AUTHORING`.
+End-to-end and cross-platform verification: `.agents/skills/testing/SKILL.md`. Prompt detection: `.agents/skills/provider-authoring/prompt-detection.md`. Test design rules: `domios docs TEST-AUTHORING`.
 
 ---
 
@@ -607,7 +607,7 @@ tests fail on anything unlisted. A new `IS_WEB` / `isTauriEnv` /
 `__TAURI_INTERNALS__` branch in `src/` needs a classified entry in
 `src/lib/webForks.test.ts`; a new prompt file needs the steps in
 `.agents/skills/prompts/SKILL.md`; a new `prod-docs/<NAME>.md` is registered in the
-`codeterm docs` registry. Stable product behavior belongs in `essences/`; executable procedures belong in `.agents/skills/`.
+`domios docs` registry. Stable product behavior belongs in `essences/`; executable procedures belong in `.agents/skills/`.
 
 ## Recipes
 
@@ -708,7 +708,7 @@ For each batch, Workers run `./build.sh fmt` once, then one verification pass: o
 
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
 
 ## Independent server process oracle
 

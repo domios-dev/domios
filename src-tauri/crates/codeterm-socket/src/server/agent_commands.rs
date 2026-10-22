@@ -1,5 +1,5 @@
 //! `plugin:<id>.<verb>` JSON-RPC routing — the inverse seam (plan §1.5 F5 /
-//! §1.10). A spawned agent runs `codeterm plugin <id> <verb> [args…]`; the CLI
+//! §1.10). A spawned agent runs `domios plugin <id> <verb> [args…]`; the CLI
 //! sends method `plugin:<id>.<verb>` with `{ args, sessionId }`. We resolve the
 //! owning plugin in [`AgentCommandRegistry`](codeterm_service_core::agent_commands), enforce its
 //! `agent_commands` grant, optionally scope the verb to what the spawning plugin

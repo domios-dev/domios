@@ -164,7 +164,7 @@ fn role_identity_line(plan: &Plan, tab_id: Option<&str>) -> String {
 
 pub const HEARTBEAT_BLOCK_OPEN: &str = "<codeterm-orchestrator-heartbeat";
 pub const HEARTBEAT_MORE: &str =
-    "More: codeterm docs ORCHESTRATION; all learnings: codeterm orchestrator heartbeat show";
+    "More: domios docs ORCHESTRATION; all learnings: domios orchestrator heartbeat show";
 pub const MAX_SITUATIONAL_LEARNINGS: usize = 3;
 
 fn is_owner_rule(learning: &HeartbeatLearning) -> bool {
@@ -280,7 +280,7 @@ fn render_actionable_skills(plan: &Plan, actions: &[String], out: &mut String) {
         });
         if referenced {
             out.push_str(&format!(
-                "- skill {}: codeterm plan skill show --plan {} {}\n",
+                "- skill {}: domios plan skill show --plan {} {}\n",
                 skill.slug, plan.id, skill.slug
             ));
         }
@@ -338,23 +338,23 @@ fn render_heartbeat(
 
 pub(super) fn reconciliation_prompt(plan_id: &str, tab_id: Option<&str>) -> String {
     let status = tab_id.map_or_else(
-        || format!("codeterm orchestrator status --plan {plan_id}"),
-        |tab| format!("codeterm orchestrator status --plan {plan_id} --tab {tab}"),
+        || format!("domios orchestrator status --plan {plan_id}"),
+        |tab| format!("domios orchestrator status --plan {plan_id} --tab {tab}"),
     );
     format!(
         "STATE-RECONCILIATION:\n\
          - This tab owns an execution-mode plan with unfinished work; act on actionable tasks, and let dependency-waiting or machine-paused tasks wait.\n\
-         - If you forgot how to orchestrate, read `codeterm docs ORCHESTRATION` first.\n\
+         - If you forgot how to orchestrate, read `domios docs ORCHESTRATION` first.\n\
          - Worker reports are pushed into this tab automatically; judge each incoming report without polling an inbox.\n\
          - After dispatching a worker, end your turn immediately. Never sleep, wait, poll, or call `tab inspect`, `tab get-text`, `orchestrator status`, or inbox checks just to keep the turn open or watch progress; resume only when a worker report, user message, or system event is delivered automatically. Periodic-progress duties do not apply while waiting on a pushed report.\n\
          - Read the compact plan-owned status with `{status}`.\n\
-         - Use `codeterm orchestrator inspect --plan {plan_id} --json` only when a specific discrepancy requires full report bodies or raw lane state.\n\
-         - Reconcile live tabs against the plan with `codeterm plan reconcile {plan_id}`.\n\
+         - Use `domios orchestrator inspect --plan {plan_id} --json` only when a specific discrepancy requires full report bodies or raw lane state.\n\
+         - Reconcile live tabs against the plan with `domios plan reconcile {plan_id}`.\n\
          - {} \n\
          - Parallelize independent writer lanes, but serialize broad/heavy gates in one warm integration checkout so worker worktrees do not all rebuild/test at once.\n\
-         - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\
-         - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
-         - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
+         - Close verified tasks with `domios plan task close {plan_id} <task_id>`.\n\
+         - Bounce incomplete work with `domios send \"<next concrete instruction>\" --tab <worker_tab_id>` and record `domios plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
+         - Clean finished lane worktrees/branches/dev daemons, then record `domios plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
          - Heartbeat is derived automatically from plan and task state; never maintain heartbeat fields manually.",
         super::prompts_plan::QA_PIPELINE_DISCIPLINE.trim()
     )

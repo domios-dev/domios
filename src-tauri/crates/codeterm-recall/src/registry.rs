@@ -464,7 +464,7 @@ fn doc_hit_value(doc: &codeterm_mem::docs_source::DocCandidate) -> Value {
     let pointer = if doc.doc_name == "CLI" {
         format!("{} --help", doc.section_title)
     } else {
-        format!("codeterm docs {}", doc.doc_name)
+        format!("domios docs {}", doc.doc_name)
     };
     json!({
         "source": "doc",

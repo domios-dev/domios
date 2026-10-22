@@ -3,12 +3,12 @@
 How a bridge moves between mesh peers, and what never crosses the wire. The mesh model itself is in MESH.
 
 
-External-service bridges (Telegram today; Discord/Slack/etc. later) hold an exclusive long-poll lock against their upstream API — only one poller per bot token can be active at a time. `codeterm bridge migrate --to PEER` hot-relocates that poller from the source machine to a paired mesh peer **without restarting either daemon**. This is the recovery story for "I'm shutting this machine down for the night, please move the Telegram bot to another peer until I'm back."
+External-service bridges (Telegram today; Discord/Slack/etc. later) hold an exclusive long-poll lock against their upstream API — only one poller per bot token can be active at a time. `domios bridge migrate --to PEER` hot-relocates that poller from the source machine to a paired mesh peer **without restarting either daemon**. This is the recovery story for "I'm shutting this machine down for the night, please move the Telegram bot to another peer until I'm back."
 
 ### CLI
 
 ```bash
-codeterm bridge migrate --to PEER \
+domios bridge migrate --to PEER \
   [--service telegram] \
   [--announce] [--announce-chat-id <chat-id>] \
   [--no-rollback] [--force] [--claim-timeout-ms 10000]
@@ -28,7 +28,7 @@ Must run on the **source** machine. Running it through `--mesh PEER` is rejected
 8. **Verify.** Re-query both states. Source must be `active=false`, target must be `active=true`. Any mismatch triggers rollback.
 9. **Rollback (default).** If the target claim or verification fails, re-enable source config and call `POST /api/bridge/start` locally. If the source rollback succeeds, exit `1` (migration failed but cluster is consistent). If rollback also fails, exit `7` and print the manual repair command:
    ```
-   codeterm config set integrations.telegram_enabled true && codeterm bridge restart
+   domios config set integrations.telegram_enabled true && domios bridge restart
    ```
 10. **Optional `--announce`.** When `--announce` is set, post `[Domios] Telegram bridge migrated to <to> from <from>` to `--announce-chat-id` (defaults to the target's first allow-listed bridge user) via `POST /api/bridge/announce` on the target. Failures here are non-fatal — the migration is already done.
 
@@ -40,7 +40,7 @@ Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` fro
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--to` | *(required)* | Target peer `instance_name` (or `instance_id`) as shown in `codeterm mesh peers`. |
+| `--to` | *(required)* | Target peer `instance_name` (or `instance_id`) as shown in `domios mesh peers`. |
 | `--service` | `telegram` | Which bridge to migrate. Only `telegram` today. |
 | `--announce` | `false` | Post a one-shot blueprint message after success. |
 | `--announce-chat-id` | *(first allow-listed user)* | Telegram chat id for `--announce`. Defaults to the target's first allow-listed bridge user. |
@@ -58,4 +58,4 @@ Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` fro
 | `6` | Usage error (e.g. ran via `--mesh` — must run on the source machine) |
 | `7` | Split-brain (rollback also failed — manual repair needed) |
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

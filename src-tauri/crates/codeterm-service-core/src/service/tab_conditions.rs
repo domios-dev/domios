@@ -25,7 +25,7 @@ fn owner_prompt_notice_body(tab_id: &str, subject: &str, prompt: &PendingPrompt)
 
 fn parent_prompt_report_body(tab_id: &str, prompt: &PendingPrompt) -> String {
     let mut body = format!(
-        "Agent needs your response: {}\nAnswer it with `codeterm tab respond <option> --tab {tab_id}`.",
+        "Agent needs your response: {}\nAnswer it with `domios tab respond <option> --tab {tab_id}`.",
         prompt.question
     );
     for (index, option) in prompt.options.iter().enumerate() {

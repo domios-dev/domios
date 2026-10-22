@@ -1,1 +1,1 @@
-Persistent memory lives in Domios mem, not in `~/.claude/projects/*/memory/` or any provider-specific auto-memory. Those vanish on provider switch. Every `codeterm mem save` survives restarts and provider switches.
+Persistent memory lives in Domios mem, not in `~/.claude/projects/*/memory/` or any provider-specific auto-memory. Those vanish on provider switch. Every `domios mem save` survives restarts and provider switches.

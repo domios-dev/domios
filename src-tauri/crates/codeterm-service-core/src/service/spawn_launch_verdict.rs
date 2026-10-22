@@ -44,7 +44,7 @@ impl SpawnLaunchVerdict {
         };
         let stage = stage.map(|stage| stage.as_str()).unwrap_or("launching");
         Some(format!(
-            "agent in Tab {tab_id} has not reached readiness yet (stage: {stage}); check `codeterm tab list` before sending work"
+            "agent in Tab {tab_id} has not reached readiness yet (stage: {stage}); check `domios tab list` before sending work"
         ))
     }
 

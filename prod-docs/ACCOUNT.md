@@ -7,9 +7,9 @@ Sign in, manage a subscription, and control optional product analytics through t
 Provider configuration is read when the account service starts. `account.login_timeout_secs` defaults to 180 (valid range 1–600). Login opens the system browser with a random state and S256 challenge. Browser callbacks require matching state; redemption submits the verifier to the backend. The refresh credential stays in the configured secret store, and the ID token stays in memory. A saved credential is refreshed at startup.
 
 ```bash
-codeterm account login
-codeterm account status
-codeterm account logout
+domios account login
+domios account status
+domios account logout
 ```
 
 Account status includes `last_sign_in_failure`: `null`, or a safe `{stage, error}` record for the last completed unsuccessful sign-in. Stages are `preparation`, `browser`, `callback`, `redemption`, `credential_save`, and `publication`; redemption includes provider token exchange and profile retrieval. Errors are closed account error categories, never provider response bodies, URLs, identifiers or credentials. The record stays available across status reads and client remounts, and clears when an explicit sign-in starts or a session succeeds. Account surfaces show a plain-language message from this record. It describes only attempts completed by this running app; it cannot diagnose a past attempt made before this instrumentation.
@@ -17,9 +17,9 @@ Account status includes `last_sign_in_failure`: `null`, or a safe `{stage, error
 ## Subscription
 
 ```bash
-codeterm account plan
-codeterm account upgrade pro
-codeterm account portal
+domios account plan
+domios account upgrade pro
+domios account portal
 ```
 
 The round avatar and chevron immediately left of Settings open the Account menu. Signed-out users can choose Sign in, Create account, Google, Facebook or email. Sign-in and account creation share the system-browser flow; the mode changes its heading. When signed in, its initial opens identity, plan, Manage subscription and Sign out. Both account states offer Community links for Telegram and Discord; the Guide offers the same links, opened in the system browser. Settings > Account shows the same plan, status, period end, cancellation flag and stale marker. Upgrade and Manage subscription open the system browser. The client reads only the signed-in user's server record using the in-memory ID token. Signed-out users get free. A failed fetch retains the last known entitlement marked stale. Sign-in, explicit app focus (at most once per minute), and checkout return refresh the cache; browser return alone never grants access. Returning from checkout to the app bypasses the focus throttle once. Hosted completion may also open `domios://billing/return`.
@@ -28,7 +28,7 @@ The cloud service supplies subscription entitlements. Without a cloud endpoint, 
 
 ## Product analytics
 
-Product analytics is off by default. Settings > Privacy or `codeterm analytics status|enable|disable` records opt-in consent. Turning it off clears queued events and installation/account identifiers. If the analytics service is unavailable, the app holds the queue; analytics status reports `vendor_available=false`. Delivery follows the consent gate, the closed product event catalog below, and a bounded retry policy.
+Product analytics is off by default. Settings > Privacy or `domios analytics status|enable|disable` records opt-in consent. Turning it off clears queued events and installation/account identifiers. If the analytics service is unavailable, the app holds the queue; analytics status reports `vendor_available=false`. Delivery follows the consent gate, the closed product event catalog below, and a bounded retry policy.
 
 Every event contains its catalog properties plus a random installation ID (`device_id`), unique event ID (`insert_id`) and timestamp (`time`). An authenticated account contributes only its exact Firebase account UID (`user_id`, without hashing). Sign-out removes it from subsequent events; events already queued keep the identity that owned them. Sign-in while analytics is off does not persist an analytics account ID. Opting in while signed in attaches the current account ID. A restarted daemon clears its active analytics account ID until account refresh establishes the identity again.
 
@@ -87,4 +87,4 @@ Local callers only.
 | POST | `/api/account/upgrade` | `{plan, theme?}` | Open checkout in the system browser; `theme` (`light` or `dark`) sets the checkout page's theme |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

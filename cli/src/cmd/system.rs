@@ -1,4 +1,4 @@
-//! `codeterm system` — OS-level autostart triggers (schtasks / launchd /
+//! `domios system` — OS-level autostart triggers (schtasks / launchd /
 //! systemd). Explicit user invocation only; never auto-enabled.
 
 use crate::SystemAction;

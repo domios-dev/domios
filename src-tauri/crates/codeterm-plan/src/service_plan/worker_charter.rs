@@ -89,7 +89,7 @@ pub fn render_worker_charter(
         out.push('\n');
     }
     out.push_str(&format!(
-        "You are a Worker on task {task_id}: stay on this one task, spawn no agents, and end each turn with one `codeterm agent report`. If the task needs splitting, report partial with the remaining slices.\n"
+        "You are a Worker on task {task_id}: stay on this one task, spawn no agents, and end each turn with one `domios agent report`. If the task needs splitting, report partial with the remaining slices.\n"
     ));
     if skill_count >= 1 {
         out.push_str(prompts_plan::PLAN_SKILLS_WORKER_LINE);

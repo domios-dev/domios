@@ -67,7 +67,7 @@ impl SurfaceError {
                 "workspace {requested} differs from the owner's workspace {owner_workspace}"
             ),
             Self::NotASurface(tab) => {
-                format!("Tab {tab} is not a surface tab; close it with `codeterm tab close`")
+                format!("Tab {tab} is not a surface tab; close it with `domios tab close`")
             }
             Self::NotAStreamSurface(tab) => {
                 format!("Tab {tab} is not a stream surface; it has no frames or runtime calls")

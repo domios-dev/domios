@@ -19,7 +19,7 @@ Workers in lanes implement source, author coverage, and may run isolated checks 
 A mutating canonical Worker exists only through the explicit dispatch opt-in:
 
 ```bash
-codeterm plan task dispatch <plan> <task> --execution-intent mutating \
+domios plan task dispatch <plan> <task> --execution-intent mutating \
   --canonical-writer --kind qa --authorized-gate "<exact focused command>"
 ```
 
@@ -34,7 +34,7 @@ Judge the report and the diff, accept on review, and real-merge. Then rerun the 
 A verification Worker is spawned read-only and owns no task:
 
 ```bash
-codeterm agent spawn <provider> --role Worker \
+domios agent spawn <provider> --role Worker \
   --parent-tab <your tab> --report-to <your tab> \
   --cwd <canonical integration checkout> \
   --plan <plan_id> --execution-intent read_only \
@@ -101,14 +101,14 @@ More than five worktrees or direct Workers is cleanup pressure. More than ten is
 Curator is the default plan control loop. It reviews a bounded system digest with the Orchestrator's current provider, model and effort. Its chosen next delay is clamped to 45 minutes through two hours; a quiet Team has a four-hour idle floor. It may send one short message containing up to three questions to its Orchestrator, who may answer or skip. Open human questions, paused plans and completed plans suspend rounds.
 
 ```bash
-codeterm plan control-loop show <plan>
-codeterm plan control-loop run <plan>
-codeterm plan control-loop set <plan> curator
-codeterm plan control-loop set <plan> heartbeat --interval 30m
-codeterm plan curator grant <plan> <tab> --blueprint <id>
-codeterm plan curator grant <plan> <tab> --plan-skill <slug>
-codeterm plan curator grant <plan> <tab> --save <candidate>
-codeterm curator finish --next 90m --from-pad note.md
+domios plan control-loop show <plan>
+domios plan control-loop run <plan>
+domios plan control-loop set <plan> curator
+domios plan control-loop set <plan> heartbeat --interval 30m
+domios plan curator grant <plan> <tab> --blueprint <id>
+domios plan curator grant <plan> <tab> --plan-skill <slug>
+domios plan curator grant <plan> <tab> --save <candidate>
+domios curator finish --next 90m --from-pad note.md
 ```
 
 Heartbeat intervals are 15, 30, 45, 60, 90 or 120 minutes. Grants expire with the round and session. Blueprint grants cover only daemon-flagged duplicate or stale items; plan skill grants cover one slug. A Curator job belongs to its Team, retains ordinary job runs, and cannot be deleted manually. Its round metadata appears in a `curator_round` stride. The control-loop view exposes suspension and fallback reasons and seven-day counts.
@@ -136,10 +136,10 @@ Read it back and verify completeness, accuracy, and executability before reseed.
 Store reusable effort-local procedures as plan skills:
 
 ```bash
-codeterm plan skill list
-codeterm plan skill show <slug>
-codeterm plan skill new <slug>
-codeterm plan skill edit <slug>
+domios plan skill list
+domios plan skill show <slug>
+domios plan skill new <slug>
+domios plan skill edit <slug>
 ```
 
 Keep the oracle immutable and record keep/discard/supersede honestly. Promote a generally reusable recipe only during retrospective.
@@ -159,11 +159,11 @@ An effort is complete only when:
 
 ## Team-bound resources
 
-Every created agent, utility shell, and schedule belongs to its Team. Bind utility tabs and crons with `--team <team-id>`; helpers join with `codeterm agent spawn <provider> --team <team-id>` or `codeterm team adopt-agent <team-id> <tab-id>`. Create a standalone shell or cron only at the user's request. Team close finalizes members, attempts, lanes, and crons; workspace close applies this to every Team it contains. A Planner without spawn authority routes requests, including role, reason, and owned work, to its Orchestrator.
+Every created agent, utility shell, and schedule belongs to its Team. Bind utility tabs and crons with `--team <team-id>`; helpers join with `domios agent spawn <provider> --team <team-id>` or `domios team adopt-agent <team-id> <tab-id>`. Create a standalone shell or cron only at the user's request. Team close finalizes members, attempts, lanes, and crons; workspace close applies this to every Team it contains. A Planner without spawn authority routes requests, including role, reason, and owned work, to its Orchestrator.
 
 ## Closing a busy Team
 
-`codeterm team close <team>` is refused (`[TEAM CLOSE REFUSED] busy`, HTTP `409`) while any Team task is `in_progress` or any Worker member is working; the message names each Worker and task and nothing is closed. Finish or park the work first, or pass `--force` (`force_busy: true`; the desktop and web close dialogs send it after confirmation). A forced close reports `killed_workers`, `unfinished_tasks`, and `flagged_plans`. A plan that still has unfinished tasks is never archived: it stays `active`, ownerless and teamless, with an `orphaned` record (`team_id`, `reason`, `unfinished_task_ids`) that `plan list` shows as `[flagged: <reason>]`. Its in-progress tasks return to `pending` with the `team-closed` label, dirty lanes stay as cleanup debt, and `plan next` advises only `codeterm team adopt-plan <team-id> <plan>`, which clears the flag. A workspace close passes its `force` through as `force_busy`. A workspace with no tabs and no Teams closes for any caller, even without tab identity.
+`domios team close <team>` is refused (`[TEAM CLOSE REFUSED] busy`, HTTP `409`) while any Team task is `in_progress` or any Worker member is working; the message names each Worker and task and nothing is closed. Finish or park the work first, or pass `--force` (`force_busy: true`; the desktop and web close dialogs send it after confirmation). A forced close reports `killed_workers`, `unfinished_tasks`, and `flagged_plans`. A plan that still has unfinished tasks is never archived: it stays `active`, ownerless and teamless, with an `orphaned` record (`team_id`, `reason`, `unfinished_task_ids`) that `plan list` shows as `[flagged: <reason>]`. Its in-progress tasks return to `pending` with the `team-closed` label, dirty lanes stay as cleanup debt, and `plan next` advises only `domios team adopt-plan <team-id> <plan>`, which clears the flag. A workspace close passes its `force` through as `force_busy`. A workspace with no tabs and no Teams closes for any caller, even without tab identity.
 
 
 
@@ -175,4 +175,4 @@ Each non-quiet Curator finish note includes `MOVE: <one highest-leverage next st
 
 Every sixth real Curator round and each newly closed group triggers synthesis. Its digest includes the goal, correctness vector, open acceptance criteria count and the newest prior MOVE, RETRO and LEARN lines, dropping oldest history within the shared 8 KiB cap. A synthesis note may include `READY: yes|no ... [ids]`. READY is advisory: it appears in the round summary and never changes plan or release state.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

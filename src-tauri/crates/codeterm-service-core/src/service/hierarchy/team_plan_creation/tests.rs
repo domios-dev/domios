@@ -303,8 +303,8 @@ fn first_plan_response_has_team_naming_reminder() {
     let mut response = serde_json::json!({ "plan": outcome.plan });
     outcome.apply_to_response(&mut response);
     let reminder = response["_hints"][0].as_str().unwrap();
-    assert!(reminder.contains(&format!("codeterm team rename {} <name>", outcome.team_id)));
-    assert!(reminder.contains("codeterm docs ORCHESTRATION"));
+    assert!(reminder.contains(&format!("domios team rename {} <name>", outcome.team_id)));
+    assert!(reminder.contains("domios docs ORCHESTRATION"));
 }
 
 #[test]
