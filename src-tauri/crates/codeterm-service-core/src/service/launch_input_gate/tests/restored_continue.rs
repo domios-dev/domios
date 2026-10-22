@@ -5,7 +5,7 @@ use crate::multiplexer::types::request_continue;
 use crate::service::boot_stage::BootStage;
 use crate::service::turn_resume::{RuntimeReadiness, Step};
 
-fn step(mux: &MuxState, tab_id: &str, start_epoch: &str) -> Step {
+fn step(mux: &crate::multiplexer::commands::MuxState, tab_id: &str, start_epoch: &str) -> Step {
     crate::service::turn_resume::step(mux, tab_id, start_epoch, RuntimeReadiness::Unsupported)
 }
 use std::sync::Arc;
