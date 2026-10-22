@@ -297,8 +297,8 @@ pub(super) fn manifest_min_codeterm(dir: &Path) -> Option<String> {
 
 pub(super) fn compat_reason(min: &str, app: Option<&str>) -> String {
     match app {
-        Some(app) => format!("requires CodeTerm \u{2265} {min}, but this is {app}"),
-        None => format!("requires CodeTerm \u{2265} {min}"),
+        Some(app) => format!("requires Domios \u{2265} {min}, but this is {app}"),
+        None => format!("requires Domios \u{2265} {min}"),
     }
 }
 
@@ -309,7 +309,7 @@ pub(super) fn compat_check(min: Option<&str>) -> Result<(), String> {
         return Ok(());
     };
     let app_version =
-        semver::Version::parse(&app).map_err(|_| format!("invalid CodeTerm version: {app}"))?;
+        semver::Version::parse(&app).map_err(|_| format!("invalid Domios version: {app}"))?;
     let minimum =
         semver::Version::parse(min).map_err(|_| format!("invalid minCodeterm version: {min}"))?;
     if app_version.cmp_precedence(&minimum).is_lt() {

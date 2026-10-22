@@ -511,8 +511,8 @@ fn valid_client_identity(identity: &crate::server_bootstrap::ClientIdentity) -> 
             cfg!(target_os = "macos")
                 && team_id.len() == 10
                 && team_id.bytes().all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
-                && identifier == "com.codeterm.app"
-                && requirement == &format!("anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"{team_id}\"")
+                && identifier == "com.domios.app"
+                && requirement == &format!("anchor apple generic and identifier \"com.domios.app\" and certificate leaf[subject.OU] = \"{team_id}\"")
         }
     }
 }
@@ -531,7 +531,7 @@ fn resource_executable_matches(root: &Path, relative: &Path, executable: &Path) 
                 .parent()
                 .and_then(Path::parent)
                 .and_then(Path::file_name)
-                .is_some_and(|name| name == "CodeTerm.app")
+                .is_some_and(|name| name == "Domios.app")
             && root
                 .parent()
                 .is_some_and(|contents| contents.join("MacOS/domios-server") == executable)

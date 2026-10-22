@@ -62,7 +62,7 @@ pub(super) fn retain_daemon(exit_code: Option<i32>, shutting_down: bool) -> bool
 }
 
 pub(crate) fn single_instance_enabled(debug: bool, identifier: &str) -> bool {
-    !debug || identifier != "com.codeterm.app"
+    !debug || identifier != "com.domios.app"
 }
 
 #[cfg(test)]

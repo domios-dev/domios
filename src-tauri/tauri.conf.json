@@ -1,9 +1,9 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui-dart/tauri/HEAD/core/tauri-config-schema/schema.json",
-  "productName": "CodeTerm",
+  "productName": "Domios",
   "mainBinaryName": "domios",
   "version": "1.15.1",
-  "identifier": "com.codeterm.app",
+  "identifier": "com.domios.app",
   "build": {
     "frontendDist": "../target/domios-package/dist",
     "devUrl": "http://127.0.0.1:1420",
@@ -74,7 +74,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkwQzA2RDNCMDQ0REVGREUKUldUZTcwMEVPMjNBa0NjMmNVbWdUd3piWksvT1N0Wi9FQmx5OXRrVmZXNlF4VzZiQlFLM2MvTmcK",
       "endpoints": [
-        "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json"
+        "https://github.com/rollacode/codeterm-releases/releases/latest/download/domios-latest.json"
       ]
     },
     "deep-link": {

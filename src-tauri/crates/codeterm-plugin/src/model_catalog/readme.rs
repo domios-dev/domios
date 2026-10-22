@@ -59,7 +59,7 @@ pub(super) fn render_example(
         "# Example model catalog for `{0}`.\n\
          #\n\
          # To enable an override, copy this file to `{0}.toml` (drop the\n\
-         # `.example` suffix). CodeTerm picks up `{0}.toml` on the next read\n\
+         # `.example` suffix). Domios picks up `{0}.toml` on the next read\n\
          # — no restart. Delete it to fall back to built-in defaults.\n\
          #\n\
          # ## Merge semantics (default)\n\
@@ -70,7 +70,7 @@ pub(super) fn render_example(
          #   - Built-in id you didn't mention → stays, auto-updates on release.\n\
          #\n\
          # That means: adding one custom model doesn't freeze the rest of\n\
-         # your list — when a new CodeTerm release ships an updated built-in\n\
+         # your list — when a new Domios release ships an updated built-in\n\
          # catalog, it arrives automatically alongside your customizations.\n\
          #\n\
          # ## Full replacement\n\
@@ -79,7 +79,7 @@ pub(super) fn render_example(
          # `replace = true` at the top. Then this file is the entire list,\n\
          # and built-ins are ignored.\n\
          #\n\
-         # This `.example` file is regenerated on every CodeTerm start so you\n\
+         # This `.example` file is regenerated on every Domios start so you\n\
          # can always see what the current build ships with.\n\n",
         provider_id
     ));
@@ -135,15 +135,15 @@ pub(super) fn render_example(
     out
 }
 
-const README_BODY: &str = r#"# CodeTerm Model Catalog
+const README_BODY: &str = r#"# Domios Model Catalog
 
 This folder lets you override the model list for any agent provider without
-rebuilding CodeTerm. Useful when upstream ships new models faster than we cut
+rebuilding Domios. Useful when upstream ships new models faster than we cut
 releases.
 
 ## Quick start
 
-For every provider with a model picker, CodeTerm drops a
+For every provider with a model picker, Domios drops a
 `<provider>.example.toml` here on each startup. To enable an override:
 
 ```bash
@@ -152,7 +152,7 @@ cp claude.example.toml claude.toml
 # edit claude.toml — change models or reasoning efforts, set defaults
 ```
 
-CodeTerm picks `claude.toml` up immediately (no restart). Static provider
+Domios picks `claude.toml` up immediately (no restart). Static provider
 catalogs merge overrides by default; dynamic providers may treat an override as
 a pinned list. Delete `claude.toml` (the override; NOT the `.example` file) to
 fall back to provider defaults.
@@ -160,7 +160,7 @@ fall back to provider defaults.
 ## Files
 
 - `claude.toml`, `codex.toml`, `opencode.toml` — **your overrides** (only
-  present if you copied the example). Never touched by CodeTerm.
+  present if you copied the example). Never touched by Domios.
 - `claude.example.toml`, etc. — **always-current built-ins**, rewritten on
   every startup so you can see what ships with this build.
 - `README.md` — this file. Auto-installed on first run.
@@ -206,7 +206,7 @@ description = "Maximum reasoning depth."
 By default, your override **merges** with built-ins by id:
 - Same id      → your entry replaces the built-in (keeps original order).
 - New id       → your entry is appended at the end.
-- Built-in id you didn't mention → stays. Auto-updates on each CodeTerm
+- Built-in id you didn't mention → stays. Auto-updates on each Domios
   release.
 
 When a provider reports a live catalog (its own CLI probe), that catalog is the
@@ -224,13 +224,13 @@ the entire list, period.
 1. `<this dir>/<provider>.toml` (override) merged with built-ins, OR replacing
    them entirely if `replace = true`.
 2. Provider defaults: either the provider's live CLI catalog when available,
-   or plugin defaults shipped with the current CodeTerm build.
+   or plugin defaults shipped with the current Domios build.
 
-Syntax error or no `[[models]]` / `[[efforts]]` entries? CodeTerm logs a warning
+Syntax error or no `[[models]]` / `[[efforts]]` entries? Domios logs a warning
 and falls back to built-ins — the picker never goes empty.
 
 ## Full docs
 
-See `essences/capabilities.md#agent-models` in the CodeTerm repository for the
+See `essences/capabilities.md#agent-models` in the Domios repository for the
 stable model catalog contract.
 "#;

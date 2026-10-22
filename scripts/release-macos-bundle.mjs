@@ -23,6 +23,7 @@ export async function verifyMacPayload({ app, stage, expected }) {
   for (const [relative, bytes] of [
     ['Contents/MacOS/domios-server', expected.server],
     ['Contents/Resources/cli/codeterm', expected.cli],
+    ['Contents/Resources/cli/domios', expected.cli],
     ['Contents/Resources/server-component.json', expected.manifest],
   ]) {
     if (!(await regularBytes(path.join(app, relative))).equals(bytes)) {
@@ -51,7 +52,7 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
   const cargoTarget = env.CARGO_TARGET_DIR ? path.resolve(repo, env.CARGO_TARGET_DIR) : path.join(repo, 'src-tauri', 'target');
   const release = path.join(cargoTarget, ...targetArgs.slice(1), 'release');
   const bundleRoot = path.join(release, 'bundle');
-  const app = path.join(bundleRoot, 'macos', 'CodeTerm.app');
+  const app = path.join(bundleRoot, 'macos', 'Domios.app');
   const stage = path.join(repo, 'target', 'domios-package');
   const expected = {
     server: await regularBytes(path.join(stage, 'domios-server', 'domios-server')),
@@ -75,7 +76,7 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
   await invoke('codesign', ['--verify', '--strict', '--deep',
     '--test-requirement', '=' + manifest.client_identity.requirement, app]);
   const arch = target.startsWith('aarch64') ? 'aarch64' : 'x64';
-  const dmg = path.join(bundleRoot, 'dmg', `CodeTerm_${version}_${arch}.dmg`);
+  const dmg = path.join(bundleRoot, 'dmg', `Domios_${version}_${arch}.dmg`);
   await mkdir(path.dirname(dmg), { recursive: true });
   const scratch = await mkdtemp(path.join(bundleRoot, '.pair-dmg-'));
   let mounted = false;
@@ -83,15 +84,15 @@ export async function bundleMacPair({ repo = root, target, env = process.env,
   try {
     const imageSource = path.join(scratch, 'source');
     await mkdir(imageSource);
-    await invoke('ditto', ['--rsrc', '--extattr', app, path.join(imageSource, 'CodeTerm.app')]);
+    await invoke('ditto', ['--rsrc', '--extattr', app, path.join(imageSource, 'Domios.app')]);
     await linkApplications(path.join(imageSource, 'Applications'));
-    await invoke('hdiutil', ['create', '-volname', 'CodeTerm', '-srcfolder', imageSource, '-ov', '-format', 'UDZO', dmg]);
+    await invoke('hdiutil', ['create', '-volname', 'Domios', '-srcfolder', imageSource, '-ov', '-format', 'UDZO', dmg]);
     await invoke('codesign', ['--force', '--timestamp', '--keychain', keychain, '--sign', identity, dmg]);
     await invoke('codesign', ['--verify', '--strict', dmg]);
     await mkdir(mountpoint);
     await invoke('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mountpoint, dmg]);
     mounted = true;
-    const mountedApp = path.join(mountpoint, 'CodeTerm.app');
+    const mountedApp = path.join(mountpoint, 'Domios.app');
     await verifyMacPayload({ app: mountedApp, stage, expected });
     await invoke('codesign', ['--verify', '--strict', '--deep', mountedApp]);
   } finally {

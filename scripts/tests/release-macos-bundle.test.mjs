@@ -13,7 +13,7 @@ async function fixture(target, options, check) {
   const stage = path.join(repo, 'target', 'domios-package');
   const cargoTarget = options.cargoTarget ? path.join(repo, options.cargoTarget) : path.join(repo, 'src-tauri', 'target');
   const release = path.join(cargoTarget, ...(target.startsWith('x86_64') ? [target] : []), 'release');
-  const app = path.join(release, 'bundle', 'macos', 'CodeTerm.app');
+  const app = path.join(release, 'bundle', 'macos', 'Domios.app');
   const server = Buffer.from('fixture final signed server');
   const cli = Buffer.from('fixture final signed CLI');
   const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -23,6 +23,7 @@ async function fixture(target, options, check) {
     await writeFile(path.join(repo, 'package.json'), JSON.stringify({ version: '1.14.9' }));
     await writeFile(path.join(stage, 'domios-server', 'domios-server'), server);
     await writeFile(path.join(stage, 'cli', 'codeterm'), cli);
+    await writeFile(path.join(stage, 'cli', 'domios'), cli);
     const manifest = fullComponentManifest({ target, sourceSha: 'a'.repeat(40), serverSha256: hash(server), teamId: 'JMMWQ9LWF7' });
     await writeFile(path.join(stage, 'server-component.json'), JSON.stringify(manifest));
     const run = async (program, args) => {
@@ -42,7 +43,7 @@ async function fixture(target, options, check) {
       } else if (program === 'hdiutil' && args[0] === 'create') {
         await writeFile(args.at(-1), 'fixture disk image');
       } else if (program === 'hdiutil' && args[0] === 'attach') {
-        const mounted = path.join(args[args.indexOf('-mountpoint') + 1], 'CodeTerm.app');
+        const mounted = path.join(args[args.indexOf('-mountpoint') + 1], 'Domios.app');
         await cp(app, mounted, { recursive: true });
         if (options.corruptImage) await writeFile(path.join(mounted, 'Contents', 'MacOS', 'domios-server'), 'corrupt image server');
       }
@@ -75,7 +76,7 @@ for (const target of ['aarch64-apple-darwin', 'x86_64-apple-darwin']) {
       assert.ok(signing.every(call => !call.args.includes('--deep')));
       const requirementCheck = calls.find(call => call.program === 'codesign' && call.args.includes('--test-requirement'));
       assert.equal(requirementCheck.args[requirementCheck.args.indexOf('--test-requirement') + 1],
-        '=anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "JMMWQ9LWF7"');
+        '=anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "JMMWQ9LWF7"');
       assert.ok(calls.some(call => call.program === 'hdiutil' && call.args.includes('-readonly')));
       assert.ok(calls.some(call => call.program === 'hdiutil' && call.args[0] === 'detach'));
       assert.ok(!(await readdir(path.join(release, 'bundle'))).some(name => name.startsWith('.pair-dmg-')));
@@ -84,7 +85,7 @@ for (const target of ['aarch64-apple-darwin', 'x86_64-apple-darwin']) {
   });
 }
 
-for (const relative of ['Contents/MacOS/domios-server', 'Contents/Resources/cli/codeterm', 'Contents/Resources/server-component.json']) {
+for (const relative of ['Contents/MacOS/domios-server', 'Contents/Resources/cli/codeterm', 'Contents/Resources/cli/domios', 'Contents/Resources/server-component.json']) {
   test(`outer signing refuses changed frozen payload ${relative} before creating any image`, async () => {
     await fixture('aarch64-apple-darwin', { change: relative }, async ({ invoke, calls }) => {
       await assert.rejects(invoke(), /changed frozen bytes/);
@@ -97,8 +98,8 @@ test('a fresh local Cargo target holds the bundled app and image', async () => {
   await fixture('aarch64-apple-darwin', { cargoTarget: 'fresh-release-target' }, async ({ invoke, repo }) => {
     const result = await invoke();
     const release = path.join(repo, 'fresh-release-target', 'release', 'bundle');
-    assert.equal(result.app, path.join(release, 'macos', 'CodeTerm.app'));
-    assert.equal(result.dmg, path.join(release, 'dmg', 'CodeTerm_1.14.9_aarch64.dmg'));
+    assert.equal(result.app, path.join(release, 'macos', 'Domios.app'));
+    assert.equal(result.dmg, path.join(release, 'dmg', 'Domios_1.14.9_aarch64.dmg'));
   });
 });
 

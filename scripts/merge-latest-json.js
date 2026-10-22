@@ -48,7 +48,7 @@ function findFragments(root) {
       if (entry.isDirectory()) walk(full);
       // An overlay dir holds the fragments a lane wrote itself, under their own
       // `updater-<target>.json` names — no subdir-per-fragment ritual needed.
-      else if (entry.isFile() && (entry.name === 'latest.json' || /^updater-.*\.json$/.test(entry.name))) {
+      else if (entry.isFile() && ((entry.name === 'latest.json' || entry.name === 'domios-latest.json') || /^updater-.*\.json$/.test(entry.name))) {
         out.push(full);
       }
     }

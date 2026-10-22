@@ -141,9 +141,9 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ steps.tag.outputs.name }}"
-          if ($tag -like '*-rc*') { $manifest = 'latest-rc.json'; $prerelease = 'true' }
-          elseif ($tag -like '*-nightly*') { $manifest = 'latest-nightly.json'; $prerelease = 'true' }
-          else { $manifest = 'latest.json'; $prerelease = 'false' }
+          if ($tag -like '*-rc*') { $manifest = 'domios-latest-rc.json'; $prerelease = 'true' }
+          elseif ($tag -like '*-nightly*') { $manifest = 'domios-latest-nightly.json'; $prerelease = 'true' }
+          else { $manifest = 'domios-latest.json'; $prerelease = 'false' }
           "manifest=$manifest"     | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "prerelease=$prerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
@@ -419,7 +419,7 @@ jobs:
 
           # With createUpdaterArtifacts=true, Tauri v2 reuses the NSIS .exe
           # as the updater bundle; v1Compatible builds emit .nsis.zip. The .sig
-          # is NOT uploaded — the updater reads its signature from latest.json.
+          # is NOT uploaded — the updater reads its signature from domios-latest.json.
 
           # Fragment URL points at the public MIRROR repo (where the asset is mirrored
           # to and the updater fetches from), not the private source release.

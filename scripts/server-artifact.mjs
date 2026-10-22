@@ -136,7 +136,7 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
   const builtClient = regular(client);
   const expectedRoot = process.platform === 'win32' ? path.dirname(builtClient) : path.join(path.dirname(builtClient), '.domios-dev-runtime/lib/codeterm');
   const root = resolveDevResourceRoot(resourceRoot, expectedRoot);
-  const clientFile = process.platform === 'win32' ? builtClient : path.resolve(root, '../../bin', path.basename(builtClient));
+  const clientFile = process.platform === 'win32' ? path.join(root, 'domios-dev.exe') : path.resolve(root, '../../bin/domios-dev');
   const server = artifactReceipt({ cargoLog, treeLog, build, resources: root });
   if (path.dirname(server.executable) !== path.dirname(builtClient)) throw new Error('DEV server and client must share the exact Cargo artifact directory');
   if (path.basename(builtClient) !== `codeterm${process.platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected DEV client artifact filename');

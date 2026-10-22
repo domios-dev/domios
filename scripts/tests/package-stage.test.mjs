@@ -155,7 +155,7 @@ function build(host, args) {
   assert.ok(buildEntrypoint);
   const target = mkdtempSync(path.join(os.tmpdir(), 'domios-package-stage-'));
   try {
-    const extension = { windows: 'CodeTerm_0.0.0_x64-setup.exe', macos: 'CodeTerm_0.0.0_aarch64.dmg', linux: 'CodeTerm_0.0.0_amd64.deb' };
+    const extension = { windows: 'Domios_0.0.0_x64-setup.exe', macos: 'Domios_0.0.0_aarch64.dmg', linux: 'Domios_0.0.0_amd64.deb' };
     const platform = host.includes('windows') ? 'windows' : host.includes('darwin') ? 'macos' : 'linux';
     mkdirSync(path.join(target, 'release', 'bundle', 'pkg'), { recursive: true });
     writeFileSync(path.join(target, 'release', 'bundle', 'pkg', extension[platform]), 'fixture package');
@@ -191,7 +191,7 @@ test('macOS build signs locally, stages like release CI, notarizes and names the
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.lines, [
     'source', 'mac-signing <1>', 'target', 'prepare <bundle> <1>', 'stage <ct_with_firebase_build_config>',
-    'notarize </release/bundle>', 'Local package ready: <target>/release/bundle/pkg/CodeTerm_0.0.0_aarch64.dmg',
+    'notarize </release/bundle>', 'Local package ready: <target>/release/bundle/pkg/Domios_0.0.0_aarch64.dmg',
     'Install with: codeterm update install --from-file <package>',
   ]);
 });
@@ -203,7 +203,7 @@ test('macOS build skips notarization only by explicit flag', () => {
   assert.ok(!result.lines.some(line => line.startsWith('notarize')));
 });
 
-for (const [host, name] of [['x86_64-pc-windows-msvc', 'CodeTerm_0.0.0_x64-setup.exe'], ['x86_64-unknown-linux-gnu', 'CodeTerm_0.0.0_amd64.deb']]) {
+for (const [host, name] of [['x86_64-pc-windows-msvc', 'Domios_0.0.0_x64-setup.exe'], ['x86_64-unknown-linux-gnu', 'Domios_0.0.0_amd64.deb']]) {
   test(`${host} build loads the updater key and stages like release CI`, () => {
     const result = build(host, '');
     assert.equal(result.status, 0, result.stderr);

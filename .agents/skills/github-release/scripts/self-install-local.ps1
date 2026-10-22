@@ -3,7 +3,7 @@
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\self-install-local.ps1 -Installer <path> [-Resume]
 #
-# -Installer  Absolute path to CodeTerm_X.Y.Z_x64-setup.exe.
+# -Installer  Absolute path to Domios_X.Y.Z_x64-setup.exe.
 # -Resume     If set, launches codeterm again after install completes.
 #             (Auto-resume of tab sessions is a separate concern handled by
 #             codeterm's own SessionStart hook; see learning_auto_resume_*.)

@@ -4,7 +4,7 @@
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\self-install-local.ps1 -Installer <path>
 #
-# -Installer  Absolute path to CodeTerm_X.Y.Z_x64-setup.exe.
+# -Installer  Absolute path to Domios_X.Y.Z_x64-setup.exe.
 # The installed application always relaunches after a successful install.
 
 param(
@@ -42,7 +42,7 @@ if (-not $Worker) {
     )
     Write-Host "[self-install] Spawning detached installer helper..."
     Start-Process -FilePath 'powershell.exe' -ArgumentList $args -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog | Out-Null
-    Write-Host "[self-install] Helper started. This CodeTerm instance will restart."
+    Write-Host "[self-install] Helper started. This Domios instance will restart."
     Write-Host "[self-install] Logs: $outLog / $errLog"
     exit 0
 }

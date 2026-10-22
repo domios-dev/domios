@@ -67,8 +67,8 @@ export function fullComponentManifest({ target, sourceSha, serverSha256, clientS
   const mac = metadata.platform.startsWith('darwin-');
   const clientIdentity = mac
     ? { kind: 'macos_designated_requirement',
-        requirement: `anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "${teamId}"`,
-        team_id: teamId, identifier: 'com.codeterm.app' }
+        requirement: `anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "${teamId}"`,
+        team_id: teamId, identifier: 'com.domios.app' }
     : { kind: 'sha256', sha256: clientSha256 };
   return validateManifest({ schema: SERVER_COMPONENT_SCHEMA, server_build: sourceSha,
     server_executable: mac ? '../MacOS/domios-server' : `domios-server/${metadata.server}`,
@@ -201,6 +201,7 @@ export async function stageFullResources({ repo = root, target, sourceSha, cargo
   try {
     await copyRegularTree(server, path.join(temporary, 'domios-server', metadata.server));
     await copyRegularTree(bundledCliPath(repo, metadata), path.join(temporary, 'cli', metadata.cli));
+    await copyRegularTree(bundledCliPath(repo, metadata), path.join(temporary, 'cli', metadata.cli.replace('codeterm', 'domios')));
     for (const name of ['dist', 'skills', 'LICENSE', 'NOTICE']) {
       await copyRegularTree(path.join(repo, name), path.join(temporary, name));
     }
@@ -344,6 +345,8 @@ export async function produceCommonStage({ repo = root, target, tag, version, so
       stagedManifest: fullManifestBytes, packagedManifest: await regularBytes(component, 'full packaged manifest'),
       paths: { server, packagedServer, cli: path.join(fullStage, 'cli', metadata.cli), packagedCli: cli } });
     if (sha256(await regularBytes(cli, 'full packaged CLI')) !== cliHash) fail('full packaged CLI differs from signed CLI');
+    const alias = path.join(path.dirname(cli), metadata.cli.replace('codeterm', 'domios'));
+    if (sha256(await regularBytes(alias, 'full packaged CLI alias')) !== cliHash) fail('full packaged CLI alias differs from signed CLI');
     if (metadata.platform.startsWith('darwin-')) {
       const app = path.dirname(path.dirname(path.dirname(client)));
       run('codesign', ['--verify', '--deep', '--strict', app], repo);
@@ -351,6 +354,7 @@ export async function produceCommonStage({ repo = root, target, tag, version, so
     }
     await copyRegularTree(path.join(fullStage, 'domios-server', metadata.server), path.join(temporary, 'domios-server', metadata.server));
     await copyRegularTree(path.join(fullStage, 'cli', metadata.cli), path.join(temporary, 'cli', metadata.cli));
+    await copyRegularTree(path.join(fullStage, 'cli', metadata.cli.replace('codeterm', 'domios')), path.join(temporary, 'cli', metadata.cli.replace('codeterm', 'domios')));
     for (const name of ['dist', 'skills', 'LICENSE', 'NOTICE']) {
       await copyRegularTree(path.join(fullStage, name), path.join(temporary, name));
     }

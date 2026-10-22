@@ -39,8 +39,8 @@ fn components(client_digest: &str) -> ServerComponentManifest {
         server_sha256: "a".repeat(64),
         client_identity: if cfg!(target_os = "macos") {
             codeterm_types::server_bootstrap::ClientIdentity::MacosDesignatedRequirement {
-                requirement: r#"anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "ABCDE12345""#.into(),
-                team_id: "ABCDE12345".into(), identifier: "com.codeterm.app".into(),
+                requirement: r#"anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "ABCDE12345""#.into(),
+                team_id: "ABCDE12345".into(), identifier: "com.domios.app".into(),
             }
         } else {
             codeterm_types::server_bootstrap::ClientIdentity::Sha256 {
@@ -54,7 +54,7 @@ fn components(client_digest: &str) -> ServerComponentManifest {
 
 fn resource_root() -> PathBuf {
     PathBuf::from(if cfg!(target_os = "macos") {
-        "/Applications/CodeTerm.app/Contents/Resources"
+        "/Applications/Domios.app/Contents/Resources"
     } else if cfg!(windows) {
         "C:/Domios/resources"
     } else {

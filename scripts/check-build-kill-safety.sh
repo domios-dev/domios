@@ -14,7 +14,7 @@ fi
 filtered_prod_output="$(
   printf '%s\n' "$prod_inherited_output" \
     | grep -v 'ignoring inherited CODETERM_API_PORT=7685' \
-    | grep -v 'ignoring inherited prod CodeTerm port' \
+    | grep -v 'ignoring inherited prod Domios port' \
     || true
 )"
 if grep -q "7685" <<< "$filtered_prod_output"; then
@@ -51,12 +51,12 @@ fi
 
 default_policy="$(CODETERM_TEST_PRINT_BUILD_CACHE_POLICY=1 ./build.sh gateway-instance-policy)"
 named_policy="$(CODETERM_INSTANCE=provider-model-oracle CODETERM_API_PORT=7787 CODETERM_TEST_PRINT_BUILD_CACHE_POLICY=1 ./build.sh gateway-instance-policy)"
-grep -q "identifier=com.codeterm.dev$" <<< "$default_policy" || {
+grep -q "identifier=com.domios.dev$" <<< "$default_policy" || {
   echo "default instance identifier changed unexpectedly" >&2
   echo "$default_policy" >&2
   exit 1
 }
-grep -q "identifier=com.codeterm.dev.provider.model.oracle" <<< "$named_policy" || {
+grep -q "identifier=com.domios.dev.provider.model.oracle" <<< "$named_policy" || {
   echo "named instance must have its own WebView2 identifier" >&2
   echo "$named_policy" >&2
   exit 1

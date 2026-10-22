@@ -16,9 +16,9 @@ let assets;
 let deb;
 if (platform.startsWith('darwin-')) {
   const arch = platform === 'darwin-aarch64' ? 'aarch64' : 'x64';
-  bundle = `CodeTerm_${arch}.app.tar.gz`;
-  for (const suffix of ['', '.sig']) copyFileSync(path.join(directory, `CodeTerm_${version}_${arch}.app.tar.gz${suffix}`), path.join(directory, bundle + suffix));
-  assets = [bundle, `CodeTerm_${version}_${arch}.dmg`];
+  bundle = `Domios_${arch}.app.tar.gz`;
+  for (const suffix of ['', '.sig']) copyFileSync(path.join(directory, `Domios_${version}_${arch}.app.tar.gz${suffix}`), path.join(directory, bundle + suffix));
+  assets = [bundle, `Domios_${version}_${arch}.dmg`];
 } else {
   bundle = entries.find(name => name.endsWith('_aarch64.AppImage'));
   deb = entries.find(name => name.endsWith('_arm64.deb'));
