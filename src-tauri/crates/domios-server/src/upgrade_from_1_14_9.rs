@@ -1,6 +1,7 @@
 use codeterm_service_core::{PathOwnership, ResolvedInstancePaths};
 use rusqlite::{Connection, OpenFlags};
 mod legacy_scratch;
+pub(super) mod legacy_references;
 mod relocation_holders;
 mod stored_paths;
 use relocation_holders::{rename_legacy_root, SystemLegacyRootHolderProbe};
@@ -157,6 +158,13 @@ fn migrate(
         .and_then(|old_data| PathRebase::new(old_data, new_data))
     {
         notices.extend(rebase_stored_paths(new_data, &rebase));
+        if let Err(error) = stored_paths::rebase_json_file(identity.config(), &rebase) {
+            notices.push(format!(
+                "Cannot rewrite stored paths in {}: {error}. Update legacy data-root paths to {}.",
+                identity.config().display(),
+                new_data.display()
+            ));
+        }
         for root in &mut project_roots {
             *root = rebase.rebase_path(root);
         }
