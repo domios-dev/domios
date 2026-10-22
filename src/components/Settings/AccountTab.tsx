@@ -101,7 +101,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         {!signedIn && <p className={MUTED}>You’ll sign in when you choose a plan.</p>}
         <div className="w-full">
           <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
-            <PlanCards catalog={catalog} currentPlan={displayedPlan(billing.plan)}
+            <PlanCards viewRequested={focusCard === "subscription-plans" || plansRequest > 0} catalog={catalog} currentPlan={displayedPlan(billing.plan)}
               canPurchase={!billing.pending && !purchase.busy && !(signedIn && billing.planLoad === "loading")}
               onChoose={purchase.choose} intent={purchase.intent} onCancel={purchase.cancel}
               signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />
