@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { ChevronLeft, Folder, FolderPlus, Home, RefreshCw, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { BusyState } from "./BusyState";
+import { useBackDismissal } from "../../lib/backDismissal";
 
 interface DirEntry {
   name: string;
@@ -44,6 +45,8 @@ export function RemoteFolderPicker({
   const [showHidden, setShowHidden] = useState(false);
   const [newFolderName, setNewFolderName] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  useBackDismissal(true, onCancel);
 
   const load = useCallback(async (nextPath: string) => {
     setLoading(true);
@@ -71,7 +74,7 @@ export function RemoteFolderPicker({
     const name = newFolderName?.trim();
     if (!name || !path) return;
     setCreating(true);
-    setError(null);
+    setCreateError(null);
     try {
       const created = await invoke<{ path: string }>("fs_mkdir", {
         parent: path,
@@ -81,7 +84,7 @@ export function RemoteFolderPicker({
       // Jump straight into the new folder — that's what you made it for.
       await load(created.path);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setCreateError(e instanceof Error ? e.message : String(e));
     } finally {
       setCreating(false);
     }
@@ -162,7 +165,10 @@ export function RemoteFolderPicker({
             type="button"
             data-testid="folder-picker-new"
             disabled={loading || !path}
-            onClick={() => setNewFolderName((v) => (v === null ? "" : null))}
+            onClick={() => {
+              setCreateError(null);
+              setNewFolderName((v) => (v === null ? "" : null));
+            }}
             className="flex h-8 items-center gap-1 rounded px-2 text-xs hover:bg-[var(--ct-hover)] disabled:opacity-40"
           >
             <FolderPlus size={13} />
@@ -204,6 +210,11 @@ export function RemoteFolderPicker({
               {creating ? "Creating…" : "Create"}
             </button>
           </form>
+        )}
+        {newFolderName !== null && createError && (
+          <div className="px-3 pb-2">
+            <InlineErrorNotice error={createError} operation="creating this folder" />
+          </div>
         )}
 
         <form

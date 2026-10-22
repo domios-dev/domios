@@ -6,7 +6,6 @@ import { SidebarCronRow, SidebarResourceRow } from "./SidebarResourceRow";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { RowMenuButton } from "../shared/RowMenuButton";
 import { SidebarShellRow, type SidebarOwnerTabRowProps } from "./SidebarShellRow";
-import { persistTabRename } from "./SidebarPlanPeerPair";
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { generalInventorySections, generalWorkspaceJobs, projectUtilityShells } from "../General/generalOverviewModel";
 import { ServiceDrawer, type DrawerState } from "../MeshPanel/ServiceDrawer";
@@ -104,10 +103,7 @@ export function GeneralInventorySections({ generalWorkspaceId, onShowAllJobs, wo
             if (workspace) onNavigate(workspace.id, tabId);
           }}
           onCloseTab={(tabId) => onCloseTab(shell.workspace.id, tabId)}
-          onRenameTab={(tabId, title) => {
-            onRenameTab(shell.workspace.id, tabId, title);
-            persistTabRename(shell.workspace.id, tabId, title);
-          }} />
+          onRenameTab={(tabId, title) => onRenameTab(shell.workspace.id, tabId, title)} />
       </li>)}
     </InventoryGroup>
     {drawer && createPortal(<div className="[&_[role=dialog]]:max-w-[calc(100vw-2rem)]"><ServiceDrawer state={drawer} services={inventory.services} peers={inventory.peers} thisMachineName={inventory.thisMachine.name} thisMachineIp={inventory.thisMachine.ip} onClose={() => setDrawer(null)} onActionDone={inventory.refresh} /></div>, document.body)}

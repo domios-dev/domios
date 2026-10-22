@@ -23,6 +23,7 @@ import {
 import { mountWebLifecycle } from "../../lib/lifecycle";
 import { uid } from "../../lib/uid";
 import { reorderFailureToast } from "./reorderFailure";
+import { commitTabRename } from "./tabRename";
 import { freeLimitGate, precheckFreeLimit, raiseFreeLimit } from "../../components/billing/freeLimitGate";
 import { isFreeLimitRefusal, limitCounts, reusesWorkspace } from "../../components/billing/freeLimitModel";
 import { requestOrchestrationPair } from "./orchestrationPair";
@@ -1055,11 +1056,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "DISMISS_TOAST", id });
   }, []);
 
-  const setTabTitle = useCallback((workspaceId: string, tabId: string, title: string) => {
-    const workspace = stateRef.current.workspaces.find((ws) => ws.id === workspaceId);
-    if (!workspace?.tabs.includes(tabId)) return;
-    dispatch({ type: "SET_TAB_TITLE", tabId, title, level: TitleLevel.User });
-  }, []);
+  const renameTab = useCallback((workspaceId: string, tabId: string, title: string) => {
+    void commitTabRename(stateRef.current, {
+      dispatch,
+      persist: (args) => guardedInvoke("mux_rename_tab", args),
+      notify: publishNotice,
+    }, workspaceId, tabId, title);
+  }, [guardedInvoke, publishNotice]);
 
   const setAgentType = useCallback((tabId: string, agentType: string | null) => {
     dispatch({ type: "SET_AGENT_TYPE", tabId, agentType });
@@ -1105,7 +1108,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       clearNotifications,
       answerNotification,
       dismissToast,
-      setTabTitle,
+      renameTab,
       setAgentType,
       updateTabStatus,
       spawnClaudeTab,
@@ -1139,7 +1142,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       clearNotifications,
       answerNotification,
       dismissToast,
-      setTabTitle,
+      renameTab,
       setAgentType,
       updateTabStatus,
       spawnClaudeTab,

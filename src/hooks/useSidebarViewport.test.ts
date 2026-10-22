@@ -8,6 +8,7 @@ import {
   rootFontPxFor,
 } from "../lib/shellBreakpoint.testdata";
 import { SHELL_NARROW_MAX_PX } from "../lib/shellBreakpoint";
+import { dismissTopSurface } from "../lib/backDismissal";
 import { type SidebarViewport, useSidebarViewport } from "./useSidebarViewport";
 
 const window = new Window({ url: "http://localhost/" });
@@ -150,6 +151,15 @@ async function main() {
   await act(async () => state().closeOnPhone());
   assert.equal(state().open, false, "closeOnPhone left the overlay drawer open");
   assert.equal(state().mounted, true, "the overlay drawer unmounted before its slide-out");
+  await act(async () => state().toggle());
+  await act(async () => { assert.equal(dismissTopSurface(), true, "the open overlay drawer is a Back surface"); });
+  assert.equal(state().open, false, "system Back left the overlay drawer open");
+  await unmount();
+
+  installViewport(1280, DEFAULT_TERMINAL_FONT_PX);
+  unmount = await mount();
+  await act(async () => { assert.equal(dismissTopSurface(), false, "the in-flow sidebar is not a Back surface"); });
+  assert.equal(state().open, true, "system Back collapsed the in-flow sidebar");
   await unmount();
 
   const desktop = installViewport(1280, DEFAULT_TERMINAL_FONT_PX);
