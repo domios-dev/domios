@@ -21,9 +21,6 @@ macro_rules! entry {
 pub const ENTRIES: &[CatalogEntry] = &[
     entry!("checks-fan-in"),
     entry!("command-lines"),
-    entry!("github-pr-checks"),
-    entry!("github-run-jobs"),
-    entry!("github-runners"),
     entry!("latency-percentiles"),
     entry!("log-dedupe"),
     entry!("rule-classifier"),
@@ -31,6 +28,9 @@ pub const ENTRIES: &[CatalogEntry] = &[
 ];
 
 pub const UNAVAILABLE: &[(&str, &str)] = &[
+    ("catalog:github-pr-checks", "Native PR checks emits statusCheckRollup JSON, not the catalog checks array port"),
+    ("catalog:github-run-jobs", "Native run/jobs includes source_state, failed_jobs and raw fields excluded by the catalog strict port"),
+    ("catalog:github-runners", "Native runners emits state/online_count/label, not the catalog runners array port"),
     ("catalog:cron-run-wait", "Native callable observe has no cron-run wait/timeout result contract"),
     ("catalog:escalation-ladder", "Native callable ask has no argument-bound acknowledgement deadline contract"),
     ("catalog:http-probe", "Native HTTP response does not expose the catalog status/latency_ms/body port"),
