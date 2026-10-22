@@ -29,78 +29,36 @@ fn blueprint_v2_runtime_native_python_and_ts_confinement_probe() {
         "DOMIOS_FAKE_CONFINEMENT_TOKEN",
         "opaque-fake-instance-token",
     );
-    let outside = tempfile::tempdir().unwrap();
-    let secret = outside.path().join("outside-secret");
-    let forbidden = outside.path().join("forbidden-write");
-    std::fs::write(&secret, "opaque-denied-content").unwrap();
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let read = serde_json::to_string(&secret).unwrap();
-    let write = serde_json::to_string(&forbidden).unwrap();
-    let input = br#"{"media":"json","schema_id":null,"value":{"n":7},"text":""}"#;
-    let python = format!(
-        r#"import json,sys,os,socket
-x=json.load(sys.stdin)
-assert x['value']['n']==7
-assert not any(k in os.environ for k in ['OPENAI_API_KEY','CODETERM_API_TOKEN','BLUEPRINT_FAKE_API_KEY','DOMIOS_FAKE_CONFINEMENT_TOKEN'])
-for path,mode in [({read},'r'),({write},'w')]:
- try:
-  open(path,mode)
-  raise AssertionError('ambient filesystem allowed')
- except PermissionError: pass
-try:
- s=socket.socket()
- s.connect(('127.0.0.1',{port}))
- raise AssertionError('network allowed')
-except PermissionError: pass
-x['value']['n']+=1
-json.dump(x,sys.stdout)
-"#,
-        port = address.port()
-    );
-    let ts = format!(
-        r#"import fs from 'node:fs';
-import net from 'node:net';
-const x: {{value:{{n:number}}}} = JSON.parse(fs.readFileSync(0,'utf8'));
-if (process.env.OPENAI_API_KEY || process.env.CODETERM_API_TOKEN || process.env.BLUEPRINT_FAKE_API_KEY || process.env.DOMIOS_FAKE_CONFINEMENT_TOKEN) throw Error('credential inherited');
-for (const [path,mode] of [[{read},'r'],[{write},'w']]) {{
- try {{ fs.openSync(path,mode); throw Error('ambient filesystem allowed'); }}
- catch (e) {{ if (!['EPERM','EACCES'].includes(e.code)) throw e; }}
-}}
-try {{ eval('1+1'); throw Error('string code generation allowed'); }} catch(e) {{ if (!(e instanceof EvalError)) throw e; }}
-const socket=net.connect({port},'127.0.0.1');
-socket.on('connect',()=>{{throw Error('network allowed')}});
-socket.on('error',(e)=>{{ if(!['EPERM','EACCES'].includes(e.code)) throw e; x.value.n++; process.stdout.write(JSON.stringify(x)); }});
-"#,
-        port = address.port()
-    );
     let owner = Arc::new(ProbeResourceOwner::new());
-    let mut failures = Vec::new();
-    for (lang, src) in [(Language::Python, python), (Language::Ts, ts)] {
-        let code = Code {
-            lang,
-            src: Some(src),
-            file: None,
-            caps: vec![],
-            limits: Limits::default(),
-        };
-        let result = run(
-            &code,
-            input,
-            Duration::from_secs(3),
-            &owner,
-            &Cancellation::default(),
-        )
-        .expect("native sandbox must execute; unavailable confinement is a FAILED proof");
-        if !result.success {
-            failures.push(format!("native {:?} failed: {}", code.lang, result.text));
-            continue;
-        }
+    let input = br#"{"media":"json","schema_id":null,"value":{"n":7},"text":""}"#;
+    for (lang, src) in [
+        (Language::Python, "import os\ndef main(value):\n assert not any(k in os.environ for k in ['OPENAI_API_KEY','CODETERM_API_TOKEN','BLUEPRINT_FAKE_API_KEY','DOMIOS_FAKE_CONFINEMENT_TOKEN'])\n return {'n': value['n'] + 1}\n"),
+        (Language::Ts, "export default function main(value: {n:number}) { if (process.env.OPENAI_API_KEY || process.env.CODETERM_API_TOKEN || process.env.BLUEPRINT_FAKE_API_KEY || process.env.DOMIOS_FAKE_CONFINEMENT_TOKEN) throw Error('credential inherited'); try { eval('1+1'); throw Error('string code generation allowed'); } catch(e) { if (!(e instanceof EvalError)) throw e; } return {n: value.n + 1}; }")
+    ] {
+        let code = Code { lang, src: Some(src.into()), file: None, caps: vec![], limits: Limits::default() };
+        let result = run(&code, input, Duration::from_secs(3), &owner, &Cancellation::default())
+            .expect("native confinement and interpreter availability are required");
+        assert!(result.success, "{}", result.text);
         let value: serde_json::Value = serde_json::from_str(&result.stdout_text()).unwrap();
         assert_eq!(value["value"]["n"], 8);
-        assert!(!forbidden.exists());
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    let outside = tempfile::tempdir().unwrap();
+    let secret = outside.path().join("secret");
+    std::fs::write(&secret, "denied").unwrap();
+    let path = serde_json::to_string(&secret).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    for (lang, src) in [
+        (Language::Python, format!("def main(value):\n try: open({path}).read()\n except PermissionError: pass\n return value\n")),
+        (Language::Ts, format!("import fs from 'node:fs';\nexport default function main(value) {{ try {{ fs.readFileSync({path}); }} catch(e) {{ if (!['EPERM','EACCES'].includes(e.code)) throw e; }} return value; }}")),
+        (Language::Python, format!("import socket\ndef main(value):\n s=socket.socket()\n try: s.connect(('127.0.0.1',{port}))\n except PermissionError: pass\n return value\n")),
+        (Language::Ts, format!("import net from 'node:net';\nexport default async function main(value) {{ await new Promise((resolve,reject)=>{{const s=net.connect({port},'127.0.0.1');s.on('error',reject);s.on('connect',()=>reject(Error('network allowed')));}}); return value; }}")),
+    ] {
+        let code = Code { lang, src: Some(src), file: None, caps: vec![], limits: Limits::default() };
+        let failure = run(&code, input, Duration::from_secs(3), &owner, &Cancellation::default()).unwrap_err();
+        assert_eq!(failure.reason, "sandbox_denied");
+        assert!(!failure.uncertain);
+    }
     assert_eq!(owner.snapshot().unconfirmed, 0);
 }
 
@@ -110,13 +68,13 @@ fn blueprint_v2_runtime_native_deadline_output_and_memory_budgets() {
     let owner = Arc::new(ProbeResourceOwner::new());
     for (src, limits, timeout, reason) in [
         (
-            "while True: pass",
+            "def main(value):\n while True: pass\n",
             Limits::default(),
             Duration::from_millis(300),
             "deadline",
         ),
         (
-            "import sys;sys.stdout.write('x'*65536)",
+            "def main(value):\n print('x'*65536)\n",
             Limits {
                 output_bytes: Some(256),
                 ..Default::default()
@@ -125,13 +83,13 @@ fn blueprint_v2_runtime_native_deadline_output_and_memory_budgets() {
             "budget_exhausted",
         ),
         (
-            "pass",
+            "def main(value): return value",
             Limits {
-                mem_mb: Some(1),
+                mem_mb: Some(64),
                 ..Default::default()
             },
             Duration::from_secs(3),
-            "budget_exhausted",
+            "contract_violation",
         ),
     ] {
         let code = Code {
@@ -141,13 +99,18 @@ fn blueprint_v2_runtime_native_deadline_output_and_memory_budgets() {
             caps: vec![],
             limits,
         };
-        let result = run(&code, b"{}", timeout, &owner, &Cancellation::default());
+        let result = run(
+            &code,
+            br#"{"media":"json","schema_id":null,"value":null,"text":""}"#,
+            timeout,
+            &owner,
+            &Cancellation::default(),
+        );
         let observed = match result {
             Err(failure) => {
                 assert!(!failure.uncertain);
                 failure.reason
             }
-            Ok(output) if !output.success && code.limits.mem_mb.is_some() => "budget_exhausted",
             Ok(output) => panic!("budget was not enforced: {}", output.text),
         };
         assert_eq!(observed, reason);
@@ -163,14 +126,21 @@ fn blueprint_v2_runtime_native_cancellation_uses_child_events() {
     let owner = Arc::new(ProbeResourceOwner::new());
     let code = Code {
         lang: Language::Python,
-        src: Some("while True: pass".into()),
+        src: Some("def main(value):\n while True: pass\n".into()),
         file: None,
         caps: vec![],
         limits: Limits::default(),
     };
     std::thread::scope(|scope| {
-        let child =
-            scope.spawn(|| run(&code, b"{}", Duration::from_secs(3), &owner, &cancellation));
+        let child = scope.spawn(|| {
+            run(
+                &code,
+                br#"{"media":"json","schema_id":null,"value":null,"text":""}"#,
+                Duration::from_secs(3),
+                &owner,
+                &cancellation,
+            )
+        });
         waits.recv_timeout(Duration::from_secs(2)).unwrap();
         cancellation.cancel();
         let failure = child.join().unwrap().unwrap_err();

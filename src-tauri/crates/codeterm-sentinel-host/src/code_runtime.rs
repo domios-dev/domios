@@ -26,6 +26,7 @@ pub fn platform_supported(platform: &str) -> Result<(), RuntimeFailure> {
     }
 }
 
+#[cfg(all(test, target_os = "macos"))]
 pub fn run(
     code: &Code,
     input: &[u8],
@@ -33,7 +34,21 @@ pub fn run(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
 ) -> Result<Output, RuntimeFailure> {
+    run_with_output(code, input, timeout, owner, cancellation, None)
+}
+
+pub fn run_with_output(
+    code: &Code,
+    input: &[u8],
+    timeout: Duration,
+    owner: &Arc<ProbeResourceOwner>,
+    cancellation: &Cancellation,
+    output: Option<&codeterm_blueprint_types::blueprint_document::Port>,
+) -> Result<Output, RuntimeFailure> {
     platform_supported(std::env::consts::OS)?;
+    if code.limits.mem_mb.is_some() {
+        return Err(RuntimeFailure::new("contract_violation"));
+    }
     if code.src.as_ref().is_some_and(|source| source.len() > 16384) {
         return Err(RuntimeFailure::new("budget_exhausted"));
     }
@@ -47,46 +62,21 @@ pub fn run(
     {
         return Err(RuntimeFailure::new("sandbox_denied"));
     }
+    if !codeterm_blueprint_types::blueprint_document::code_contract::has_main(code) {
+        return Err(RuntimeFailure::new("contract_violation"));
+    }
     #[cfg(target_os = "macos")]
     {
-        macos::run(code, input, timeout, owner, cancellation)
+        macos::run(code, input, timeout, owner, cancellation, output)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (input, timeout, owner, cancellation);
+        let _ = (input, timeout, owner, cancellation, output);
         Err(RuntimeFailure::new("unsupported_platform"))
     }
 }
 
-pub fn run_from_directory(
-    code: &Code,
-    directory: &std::path::Path,
-    input: &[u8],
-    timeout: Duration,
-    owner: &Arc<ProbeResourceOwner>,
-    cancellation: &Cancellation,
-) -> Result<Output, RuntimeFailure> {
-    platform_supported(std::env::consts::OS)?;
-    #[cfg(target_os = "macos")]
-    let code = {
-        let mut code = code.clone();
-        if let Some(file) = code.file.take() {
-            if code.src.is_some() {
-                return Err(RuntimeFailure::new("contract_violation"));
-            }
-            code.src = Some(source::read(directory, &file)?);
-        }
-        code
-    };
-    #[cfg(not(target_os = "macos"))]
-    let code = {
-        let _ = directory;
-        code.clone()
-    };
-    run(&code, input, timeout, owner, cancellation)
-}
-
-#[cfg(target_os = "macos")]
+#[cfg(all(test, target_os = "macos"))]
 mod source;
 
 #[cfg(target_os = "macos")]

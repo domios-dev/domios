@@ -66,8 +66,9 @@ impl BlueprintApplyExt for ServiceContext {
         if caller.team.is_none() {
             return Err("Blueprint apply requires a caller in a Team".into());
         }
-        let document =
+        let mut document =
             codeterm_blueprint_types::blueprint_document::Document::from_definition(&definition)?;
+        codeterm_sentinel::seal_code::document(&mut document, std::path::Path::new(&caller.cwd))?;
         let definition = serde_json::to_value(&document).map_err(|error| error.to_string())?;
         let checks = codeterm_blueprint_types::blueprint_document::definition_errors(&definition)
             .into_iter()

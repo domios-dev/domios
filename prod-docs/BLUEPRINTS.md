@@ -53,11 +53,38 @@ Ports use the restricted JSON Schema fields `type`, `properties`, `required`, `a
 
 ## Execution support
 
-Admission lowers a v2 document to the runtime representation or returns an explicit unsupported diagnostic before effects. Code and call nodes can be serialized and checked, but their execution is currently refused. Runtime data binds, custom JSON ports, pipeline effect nodes, pipeline `other` handlers and per-node capability/budget enforcement also refuse when lowering cannot preserve their meaning. `domios-cli` capability is unavailable.
+Admission lowers a v2 document to the runtime representation or returns an explicit unsupported diagnostic before effects. Typed ports and a preceding node’s `out` data binding are supported on code inputs. Calls, pipeline effect nodes, pipeline `other` handlers and unsupported capability or budget fields refuse before effects. `domios-cli` capability is unavailable.
 
-Supported pipeline nodes are fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`.
+Supported pipeline nodes are `code`, fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`.
 
 A schedule trigger has `every: {lit: 20s}`. Input triggers have a media `kind` and a `source` literal containing `text`, an absolute `file` path or an HTTP(S) `url`; a string source denotes text. Event triggers name an installed capability kind and explicit parameters. Runtime availability is checked at apply.
+
+## Code nodes
+
+Python bodies define `def main(value):` and return a JSON value. TypeScript bodies define `export default function main(value)` (optionally async). The host supplies a fixed harness per language; author code is a separate file. The harness reads the bounded input envelope, calls `main` with its `value`, and writes the returned value with the node’s output media and schema. Text uses a string `value` and an empty `text` field, so it is carried once. Author prints go to stderr. Raw envelope scripts are unsupported.
+
+```yaml
+- id: swatch
+  code: {lang: python, src: 'def main(value): return "linen"'}
+  out: {type: string}
+- id: caption
+  code: {lang: python, src: 'def main(value): return value.upper()'}
+  bind: {in: swatch.out}
+  in: {type: string}
+  out: {type: string}
+```
+
+`code.src` is bounded to 16 KiB. Alternatively, `code.file` names a relative regular file beneath the apply caller’s cwd; symlinks and parent traversal refuse. Apply freezes its bounded bytes into `code.src` before persisting the graph. Later file edits do not change the stored body. Canonical nodes and execution summaries carry `body_sha256`. Runtime refuses unsealed `code.file` and missing `main`.
+
+Code execution requires macOS Seatbelt and a supported Python framework or Apple Silicon Homebrew interpreter. Windows, Linux and Intel Homebrew code execution refuse explicitly. The existing sandbox denies network, child processes and filesystem data outside the interpreter and private temp roots. No instance credentials enter its environment. TS launches once with type stripping and string code generation disabled; unsupported Node flags refuse.
+
+`wall_ms` defaults to 3000 for code; `output_bytes` defaults to 32768 and bounds combined stdout/stderr during capture. There is **no memory cap by default**. `limits.mem_mb` on macOS code is refused at check with `unsupported: memory budget on macOS`; no spawn failure counts as memory enforcement. Memory budgets on other nodes, output budgets on HTTP/agent nodes and watch limits also refuse. Command/GitHub output budgets and pipeline wall deadlines remain enforced.
+
+Ordinary exceptions and non-zero code exits produce routable `failed`, reason `code_failed`, with a bounded, redacted stderr tail. A permission-denial signal from the harness or Seatbelt launcher stops with `sandbox_denied`, including Python `PermissionError` caught by the body while tracing is active. These harness observations are diagnostic evidence; author code can disable language hooks. Seatbelt remains the confinement boundary. Missing confinement, invalid contracts, deadlines and exhausted output budgets stop before routing further effects.
+
+The stdin envelope remains bounded to 32 KiB. Plain text of 20 KiB passes intact. Oversized serialized payloads become an explicit JSON truncation value with `type: truncated`, `truncated: true`, `total_bytes`, `limit_bytes` and a bounded UTF-8 `prefix`. Typed contracts validate that delivered value and may refuse a truncation marker that violates their schema.
+
+Current hardening limitations: metadata/readlink access and root-directory listing remain broader than data reads, and `sysctl-read` remains unrestricted. These can disclose host metadata. Inherited descriptors rely on host `O_CLOEXEC`; no `closefrom` hardening is claimed. The profile has not been widened to support additional interpreters or dylib roots.
 
 ## Watches and effects
 
@@ -119,4 +146,4 @@ Only the Team Orchestrator keeps solutions. Supply one to five intents, preferab
 
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->

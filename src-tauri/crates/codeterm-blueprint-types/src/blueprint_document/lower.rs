@@ -26,6 +26,9 @@ pub(super) fn lower(doc: &Document) -> LowerResult {
     }
     for (i, node) in doc.nodes().enumerate() {
         let path = format!("steps[{i}]");
+        if doc.kind == Kind::Watch && node.limits.is_some() {
+            errors.push((format!("{path}.limits"), "unsupported: watch limits".into()));
+        }
         if node.call.is_some() {
             errors.push((
                 path.clone(),

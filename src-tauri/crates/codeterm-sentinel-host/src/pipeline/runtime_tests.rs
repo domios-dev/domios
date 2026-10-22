@@ -118,10 +118,9 @@ fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
 }
 
 #[cfg(target_os = "macos")]
-const PYTHON: &str =
-    "import sys,json\nx=json.load(sys.stdin)\nx['value']['n']+=1\njson.dump(x,sys.stdout)\n";
+const PYTHON: &str = "def main(value):\n value['n']+=1\n return value\n";
 #[cfg(target_os = "macos")]
-const TS: &str = "import fs from 'node:fs';const x:{value:{n:number}}=JSON.parse(fs.readFileSync(0,'utf8'));x.value.n++;process.stdout.write(JSON.stringify(x));";
+const TS: &str = "export default function main(value: {n:number}) { value.n++; return value; }";
 
 #[cfg(target_os = "macos")]
 #[test]
@@ -151,7 +150,7 @@ fn blueprint_v2_runtime_denied_body_stops_before_sink() {
     let root = tempfile::tempdir().unwrap();
     let forbidden = root.path().join("forbidden");
     let src = format!(
-        "open({},'w').write('denied')",
+        "def main(value):\n open({},'w').write('denied')\n return value",
         serde_json::to_string(&forbidden).unwrap()
     );
     prove_pipeline("python", &src, Some(JournalReason::SandboxDenied));
@@ -160,7 +159,11 @@ fn blueprint_v2_runtime_denied_body_stops_before_sink() {
 
 #[test]
 fn blueprint_v2_runtime_port_schema_and_capability_refusal() {
-    let mut doc = document("python", "pass", Path::new("opaque-sink"));
+    let mut doc = document(
+        "python",
+        "def main(value): return value",
+        Path::new("opaque-sink"),
+    );
     assert!(Document::from_definition(&doc).unwrap().lower().is_ok());
     doc["steps"][0]["code"]["caps"] = json!(["domios-cli"]);
     let refusal = Document::from_definition(&doc).unwrap_err();
@@ -182,7 +185,10 @@ fn blueprint_v2_runtime_port_schema_and_capability_refusal() {
 fn blueprint_v2_runtime_shared_context_binding_depth_and_step_budget() {
     let root = tempfile::tempdir().unwrap();
     let sink = root.path().join("must-not-run");
-    let (fixture, storage, handle, lease) = fixture(document("python", "pass", &sink), root.path());
+    let (fixture, storage, handle, lease) = fixture(
+        document("python", "def main(value): return value", &sink),
+        root.path(),
+    );
     let mut ctx = RunCtx::new(&handle, &fixture.service, &lease, "budget-proof");
     for _ in 0..8 {
         ctx.enter_call().unwrap();

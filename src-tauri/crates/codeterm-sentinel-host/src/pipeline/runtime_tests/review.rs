@@ -201,3 +201,109 @@ fn blueprint_v2_runtime_review_twenty_kib_command_reaches_next_step() {
     drop(fixture);
     close(storage);
 }
+
+#[test]
+fn blueprint_v2_runtime_review_oversized_payload_has_explicit_truncation() {
+    for text in [
+        "x".repeat(100_000),
+        "\0".repeat(20_000),
+        "界".repeat(40_000),
+    ] {
+        let encoded = ExecutionEnvelope::from_text(&text).encode().unwrap();
+        assert!(encoded.len() <= 32768);
+        let envelope = ExecutionEnvelope::decode(&encoded).unwrap();
+        assert_eq!(envelope.media, "json");
+        assert_eq!(envelope.value["type"], "truncated");
+        assert_eq!(envelope.value["truncated"], true);
+        assert_eq!(envelope.value["total_bytes"], text.len());
+        assert_eq!(envelope.value["limit_bytes"], 32768);
+        assert!(text.starts_with(envelope.value["prefix"].as_str().unwrap()));
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn blueprint_v2_runtime_review_raising_main_redacts_and_bounds_stderr() {
+    let root = tempfile::tempdir().unwrap();
+    let sink = root.path().join("failure-sink");
+    let mut doc = document("python", "def main(value):\n raise ValueError('x' * 6000 + '\\nbad row\\napi_key=opaque-should-not-leak')\n", &sink);
+    doc["steps"][1].as_object_mut().unwrap().remove("in");
+    let (fixture, storage, handle, lease) = fixture(doc, root.path());
+    let completion = run_pipeline(
+        &handle,
+        &fixture.service,
+        &lease,
+        "main-error",
+        &std::cell::Cell::new(false),
+    )
+    .unwrap();
+    assert_eq!(completion.state, JournalState::Done);
+    assert!(sink.exists());
+    let entries = journal(&handle, &lease.job.id);
+    let failure = entries
+        .iter()
+        .find(|entry| {
+            entry.step_name == "transform"
+                && entry
+                    .reason
+                    .as_ref()
+                    .is_some_and(|r| r.as_str() == "code_failed")
+        })
+        .unwrap();
+    let summary = failure.result_summary.as_ref().unwrap();
+    assert!(summary.contains("bad row"));
+    assert!(summary.contains("[redacted]"));
+    assert!(!summary.contains("opaque-should-not-leak"));
+    assert!(summary.len() <= 2048);
+    assert!(summary.contains("body_sha256="));
+    drop(handle);
+    drop(fixture);
+    close(storage);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn blueprint_v2_runtime_review_missing_main_refuses_before_launch() {
+    use codeterm_blueprint_types::blueprint_document::{Code, Language, Limits};
+    let owner = std::sync::Arc::new(crate::probe::owner::ProbeResourceOwner::new());
+    let code = Code {
+        lang: Language::Python,
+        src: Some("print(7)".into()),
+        file: None,
+        caps: vec![],
+        limits: Limits::default(),
+    };
+    let failure = crate::code_runtime::run(
+        &code,
+        b"{}",
+        Duration::from_secs(3),
+        &owner,
+        &Default::default(),
+    )
+    .unwrap_err();
+    assert_eq!(failure.reason, "contract_violation");
+    assert_eq!(owner.snapshot().settled_total, 0);
+}
+
+#[test]
+fn blueprint_v2_runtime_review_unsupported_limits_refuse_at_check() {
+    for node in [
+        json!({"id":"node","uses":"http","with":{"url":{"lit":"https://example.invalid"}},"limits":{"output_bytes":64}}),
+        json!({"id":"node","uses":"agent","with":{"task":{"lit":"opaque"}},"limits":{"output_bytes":64}}),
+        json!({"id":"node","run":{"lit":"echo opaque"},"limits":{"mem_mb":64}}),
+    ] {
+        let mut doc = document(
+            "python",
+            "def main(value): return value",
+            Path::new("unused"),
+        );
+        doc["steps"] = json!([node]);
+        let source = serde_yaml::to_string(&doc).unwrap();
+        let checked =
+            codeterm_blueprint_types::blueprint_document::check("limits.yaml", &source, &[]);
+        assert!(!checked.ok);
+        assert!(checked.diagnostics.iter().any(
+            |d| d.field.starts_with("steps[0].limits") && d.message.starts_with("unsupported:")
+        ));
+    }
+}

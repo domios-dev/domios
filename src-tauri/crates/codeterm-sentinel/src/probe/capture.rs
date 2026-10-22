@@ -318,6 +318,11 @@ pub fn resource_name(kind: ResourceKind) -> &'static str {
 }
 
 impl Output {
+    pub fn stderr_text(&self) -> String {
+        let start = 12usize.saturating_add(self.stdout.retained_bytes as usize);
+        String::from_utf8_lossy(self.bytes.get(start..).unwrap_or_default()).into_owned()
+    }
+
     /// Raw stdout of the command, read back from the layout `assemble` writes.
     pub fn stdout_text(&self) -> String {
         let len = self

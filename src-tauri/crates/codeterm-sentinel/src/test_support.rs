@@ -9,7 +9,8 @@ impl Store {
         owner: Owner,
         connected: bool,
     ) -> Result<Sentinel, String> {
-        let document = Document::from_definition(&value)?;
+        let mut document = Document::from_definition(&value)?;
+        crate::seal_code::document(&mut document, std::path::Path::new(&owner.cwd))?;
         let value = document.bind(&[]).map_err(|errors| format!("{errors:?}"))?;
         let runtime = Document::from_definition(&value)?
             .lower()
