@@ -1,12 +1,77 @@
 use super::*;
 
 #[test]
+fn gallery_paths_rewrite_individually_on_one_line() {
+    let source = "Lead\r\n@ds-image \"/origin/a one.png\" /origin/b.png\r\nTail";
+    let paths = HashMap::from([
+        ("/origin/a one.png".into(), "/target/a one.png".into()),
+        ("/origin/b.png".into(), "/target/b.png".into()),
+    ]);
+    let rewritten = rewrite(source, &directives(source), &paths).unwrap();
+    assert_eq!(
+        rewritten,
+        "Lead\r\n@ds-image \"/target/a one.png\" \"/target/b.png\"\r\nTail"
+    );
+    assert_eq!(
+        directives(&rewritten)[0].paths,
+        ["/target/a one.png", "/target/b.png"]
+    );
+}
+
+#[tokio::test]
+async fn gallery_transfer_counts_each_image_and_preserves_unsent_body_on_failure() {
+    let mut body =
+        serde_json::json!({"text": "@ds-image /origin/a.png /origin/b.png /origin/a.png"});
+    let mut calls = Vec::new();
+    transfer_with("POST", "/api/tabs/target/send", &mut body, |source, _| {
+        calls.push(source.clone());
+        std::future::ready(Ok(source.replace("/origin/", "/target/")))
+    })
+    .await
+    .unwrap();
+    assert_eq!(calls, ["/origin/a.png", "/origin/b.png"]);
+    assert_eq!(
+        body["text"],
+        "@ds-image \"/target/a.png\" \"/target/b.png\" \"/target/a.png\""
+    );
+
+    let mut body = serde_json::json!({"text": "@ds-image /origin/a.png /origin/b.png"});
+    let original = body.clone();
+    let result = transfer_with("POST", "/api/tabs/target/send", &mut body, |source, _| {
+        std::future::ready(if source.ends_with("b.png") {
+            Err("refused".into())
+        } else {
+            Ok("/target/a.png".into())
+        })
+    })
+    .await;
+    assert!(result.is_err());
+    assert_eq!(body, original);
+
+    let paths = (0..33)
+        .map(|index| format!("/origin/{index}.png"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut body = serde_json::json!({"text": format!("@ds-image {paths}")});
+    let original = body.clone();
+    let calls = std::cell::Cell::new(0);
+    let result = transfer_with("POST", "/api/tabs/target/send", &mut body, |_, _| {
+        calls.set(calls.get() + 1);
+        std::future::ready(Ok("/target/a.png".into()))
+    })
+    .await;
+    assert!(result.unwrap_err().contains("at most 32"));
+    assert_eq!(calls.get(), 0);
+    assert_eq!(body, original);
+}
+
+#[test]
 fn directives_keep_source_paths_and_skip_literal_examples() {
     let source = "Lead\r\n@ds-image \"C:\\work\\a_b [1].png\"\r\n@ct-document '/work/note.md'\n```text\n@ds-page /example.html\n```\n    @ds-image /indented.png\n";
     let plan = directives(source);
     assert_eq!(plan.len(), 2);
-    assert_eq!(plan[0].path, "C:\\work\\a_b [1].png");
-    assert_eq!(plan[1].path, "/work/note.md");
+    assert_eq!(plan[0].paths[0], "C:\\work\\a_b [1].png");
+    assert_eq!(plan[1].paths[0], "/work/note.md");
     assert_eq!(
         &source[plan[0].start..plan[0].end],
         "@ds-image \"C:\\work\\a_b [1].png\""
@@ -22,7 +87,7 @@ fn transferred_paths_replace_only_directives_and_preserve_prose_and_line_endings
     assert_eq!(
         directives(&rebound)
             .iter()
-            .map(|directive| directive.path.as_str())
+            .map(|directive| directive.paths[0].as_str())
             .collect::<Vec<_>>(),
         ["C:\\target\\image.png", "C:\\target\\image.png"]
     );
@@ -92,7 +157,7 @@ async fn transfer_rebinds_text_and_batch_to_one_target_copy() {
         body["text"].as_str().unwrap(),
         body["batch"][0]["text"].as_str().unwrap(),
     ] {
-        let path = &directives(text)[0].path;
+        let path = &directives(text)[0].paths[0];
         assert_eq!(target_files.get(path).unwrap(), b"fixture-image");
         assert!(!text.contains("/origin/"));
     }

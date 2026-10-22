@@ -121,6 +121,7 @@
     "remark-parse": "^11.0.0",
     "sigma": "^3.0.0",
     "unified": "^11.0.5",
-    "use-sync-external-store": "^1.6.0"
+    "use-sync-external-store": "^1.6.0",
+    "@codeterm/canvas-camera": "workspace:*"
   }
 }
