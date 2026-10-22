@@ -231,8 +231,8 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
     if (effectiveOrigin?.kind === "system_prompt" || effectiveOrigin?.kind === "system") {
       const prompt = effectiveOrigin.kind === "system_prompt";
-      const curatorStarted = !prompt && effectiveOrigin.context === "curator"
-        ? /^Curator round (\d+) spawned\b/.exec(message.content) : null;
+      const curatorStarted = !prompt && effectiveOrigin.context
+        ? /^curator:round_started:(\d+)$/.exec(effectiveOrigin.context) : null;
       return (
         <ChatNoticeCard
           testId={prompt ? "chat-system-prompt-card" : "chat-system-event"}

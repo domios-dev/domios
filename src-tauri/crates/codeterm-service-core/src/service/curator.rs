@@ -37,6 +37,12 @@ fn curator_envelope() -> crate::service::messenger::MessageEnvelope {
     crate::service::messenger::MessageEnvelope::codeterm_reminder("curator")
 }
 
+fn curator_started_envelope(number: u64) -> crate::service::messenger::MessageEnvelope {
+    crate::service::messenger::MessageEnvelope::codeterm_reminder(format!(
+        "curator:round_started:{number}"
+    ))
+}
+
 impl ServiceContext {
     pub fn curator_now(&self) -> Result<u64, String> {
         self.extensions
@@ -237,11 +243,7 @@ impl ServiceContext {
                 round.number, round.outcome, round.summary
             );
             result_delivery_error = self
-                .deliver_cron_report(
-                    &owner,
-                    curator_envelope(),
-                    &body,
-                )
+                .deliver_cron_report(&owner, curator_envelope(), &body)
                 .err();
         }
         if let Some(cron) = self.extensions.try_get::<crate::CronState>() {
