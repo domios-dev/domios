@@ -116,6 +116,7 @@ mod tests {
         let staged = codeterm_service_core::multiplexer::types::PendingModelSelection {
             model: "target/model".into(),
             effort: Some("high".into()),
+            confirmation_pending: false,
         };
         assert_eq!(
             selection(Some(&staged), None, Some("old/model"), Some("low")),
