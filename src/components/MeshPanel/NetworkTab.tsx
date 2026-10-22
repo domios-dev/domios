@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { createNoticePublisher } from "../../lib/notices";
 import { Users } from "lucide-react";
 import MyMachines from "./AddPeerPanel";
 import { accountPresence, meshFailureToast } from "./accountMachines";
@@ -18,7 +19,7 @@ export function NetworkTab({ triggerRefresh }: Props) {
 
   const signIn = useCallback(async () => {
     const failure = await account.signIn();
-    if (failure) upsertToast(signInFailureToast(failure, () => { void account.signIn(); }));
+    if (failure) createNoticePublisher({ upsertToast })(signInFailureToast(failure, () => { void account.signIn(); }));
   }, [account, upsertToast]);
 
   const onFailure = useCallback((operation: string, failure: AccountMeshFailure) => {
