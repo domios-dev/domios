@@ -945,3 +945,20 @@ fn shell_job_policy_requires_team_dev_and_excludes_agents() {
         WindowsJobPolicy::AllowExplicitServerBreakaway
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_pty_wrapper_preserves_exact_target_and_environment() {
+    let mut command = CommandBuilder::new(r"C:\Program Files\shell.exe");
+    command.args(["literal argument", r"C:\new\test"]);
+    command.env("OPAQUE_KEY", "opaque-value");
+    let target = command.get_argv().clone();
+    super::wrap_windows_pty_child(&mut command, "server.exe".into());
+    assert_eq!(&command.get_argv()[2..], target.as_slice());
+    assert_eq!(command.get_argv()[0], "server.exe");
+    assert_eq!(command.get_argv()[1], "pty-child");
+    assert_eq!(
+        command.get_env("OPAQUE_KEY"),
+        Some(std::ffi::OsStr::new("opaque-value"))
+    );
+}

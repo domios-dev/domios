@@ -11,6 +11,7 @@ pub struct ShellRestartOutcome {
     pub old_pty_id: Option<String>,
     pub new_pty_id: String,
     pub cwd: Option<String>,
+    pub command_delivered: bool,
 }
 
 impl ServiceContext {
@@ -18,7 +19,11 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         cwd: Option<String>,
+        command: Option<&str>,
     ) -> Result<ShellRestartOutcome, String> {
+        if let Some(command) = command {
+            codeterm_wire::shell_command::validate(command)?;
+        }
         let (old_pty_id, current_cwd, agent_type, agent_member) = {
             let mux = self.mux.read();
             let tab = mux
@@ -72,6 +77,15 @@ impl ServiceContext {
         }
         self.ensure_tab_pty_for_send(tab_id)?;
         let new_pty_id = self.resolve_pty_id(tab_id)?;
+        if let Some(command) = command {
+            self.prepare_utility_command(tab_id, command);
+            if let Err(error) = self.send_shell_cmd(tab_id, command) {
+                if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+                    tab.utility_command_pending = false;
+                }
+                return Err(error);
+            }
+        }
         self.emit_state_changed(MuxEmitCause::AgentRestart);
 
         Ok(ShellRestartOutcome {
@@ -79,6 +93,7 @@ impl ServiceContext {
             old_pty_id,
             new_pty_id,
             cwd: resolved_cwd,
+            command_delivered: command.is_some(),
         })
     }
 }
@@ -106,19 +121,4 @@ fn reject_non_shell_restart(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{reject_non_shell_restart, SHELL_RESTART_AGENT_MEMBER};
-
-    #[test]
-    fn shell_restart_rejects_agent_and_chat_backend_tabs() {
-        assert!(reject_non_shell_restart(Some("codex"), false, false).is_err());
-        assert!(reject_non_shell_restart(None, false, true).is_err());
-        assert!(reject_non_shell_restart(None, false, false).is_ok());
-    }
-
-    #[test]
-    fn shell_restart_refuses_exited_agent_member_tab() {
-        let refusal = reject_non_shell_restart(None, true, false).unwrap_err();
-        assert!(refusal.starts_with(SHELL_RESTART_AGENT_MEMBER));
-    }
-}
+mod tests;
