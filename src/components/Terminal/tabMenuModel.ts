@@ -39,7 +39,7 @@ export const TAB_MENU_LABELS = {
   replaceOrchestratorHint: "Starts a new Team owner without resuming this session.",
   providerHint: "Continues through a handoff on the target provider. Full history is not transferred.",
   plugins: "Plugins",
-  closeSession: "Close Session",
+  closeSession: "Close session",
   closeTab: "Close Tab",
 } as const;
 

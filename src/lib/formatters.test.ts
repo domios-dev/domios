@@ -1,4 +1,4 @@
-import { describeSchedule, timeAgo, formatTime } from "./formatters";
+import { describeSchedule, timeAgo, formatTime, formatFuture } from "./formatters";
 
 let passed = 0;
 let failed = 0;
@@ -56,16 +56,19 @@ assert("7d ago", timeAgo(now - 7 * 86_400_000), "7d ago");
 // ── formatTime ────────────────────────────────────────────────────
 
 console.log("\nformatTime:");
+const ENGLISH_STAMP = /^[A-Z][a-z]{2} \d{1,2}, \d{2}:\d{2}\s(AM|PM)$/;
 const ts = new Date(2025, 0, 15, 10, 30).getTime();
-const result = formatTime(ts);
-// Just verify it returns a non-empty string (locale-dependent)
-if (result && result.length > 0) {
-  console.log(`  ✓ formatTime returns "${result}"`);
-  passed++;
-} else {
-  console.error(`  ✗ formatTime returned empty`);
-  failed++;
-}
+assert("formatTime uses the English UI locale", String(ENGLISH_STAMP.test(formatTime(ts))), "true");
+
+// ── one-shot schedules and formatFuture ───────────────────────────
+
+console.log("\none-shot schedules:");
+const oneShot = 1792650940309;
+assert("epoch-ms schedule reads as a time", describeSchedule(String(oneShot)), `at ${formatTime(oneShot)}`);
+assert("padded epoch-ms schedule reads as a time", describeSchedule(` ${oneShot} `), `at ${formatTime(oneShot)}`);
+assert("short numeric schedule passthrough", describeSchedule("179265094030"), "179265094030");
+assert("formatFuture tomorrow uses the English UI locale", String(/^tomorrow \d{2}:\d{2}\s(AM|PM)$/.test(formatFuture(Date.now() + 25 * 3_600_000))), "true");
+assert("formatFuture later uses the English UI locale", String(ENGLISH_STAMP.test(formatFuture(Date.now() + 5 * 86_400_000))), "true");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} test(s) failed`);
