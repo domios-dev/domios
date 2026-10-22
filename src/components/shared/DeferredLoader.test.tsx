@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DeferredLoader } from "./DeferredLoader";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 
 const present = renderToStaticMarkup(
   <DeferredLoader state="present" className="loader-shape" aria-label="Loading" />,

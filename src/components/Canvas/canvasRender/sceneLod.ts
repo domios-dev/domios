@@ -4,7 +4,7 @@ import type { PresenceAgent } from "../presence/identity";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import type { Task, TaskStatus } from "../types";
 
-import { CANVAS_MIN_SCALE } from "../useCanvasViewport";
+import { CANVAS_MIN_SCALE } from "@codeterm/canvas-camera";
 
 export { CANVAS_MIN_SCALE };
 

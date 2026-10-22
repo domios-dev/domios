@@ -143,4 +143,21 @@ previews. Mesh transfers retain the 25 MiB attachment bound; previews retain
 their HTML (200,000 bytes), document (1,000,000 bytes) and image (10 MiB) bounds.
 Notification previews require the originating tab identity.
 
-<!-- revision: 2 -->
+One image line can name several absolute paths, separated by spaces. Quote each
+path when it contains spaces:
+
+```text
+@ds-image "/absolute/path/first image.png" "/absolute/path/second image.png"
+```
+
+A gallery shows at most 32 images and loads them progressively. Unavailable
+images retain a tile with the refusal reason. Fullscreen opens a zoomable canvas
+inside the Domios window. Wheel zooms images; plain scroll pans Mermaid.
+Ctrl/Cmd+wheel or pinch zooms either viewer, and dragging pans. Double-click or
+double-tap fits the set. Previous/next arrows or a horizontal swipe fly to an
+image; select an image to focus it, or use Show all to fit the gallery. Late image
+loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
+use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
+and Home to fit. Mermaid remains vector artwork at every zoom.
+
+<!-- revision: 4 -->

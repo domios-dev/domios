@@ -1,6 +1,7 @@
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Image as ImageIcon, RefreshCw, Maximize2, FolderOpen, X } from "lucide-react";
+import { FileText, RefreshCw, Maximize2, FolderOpen, X } from "lucide-react";
+import { LocalImageGallery } from "./LocalImageGallery";
 import { FullscreenOverlay } from "./FullscreenOverlay";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import {
@@ -45,6 +46,7 @@ export function LocalArtifactBlock({
   bare = false,
   onLoaded,
 }: LocalArtifactProps) {
+  if (directive.kind === "image") return <LocalImageGallery directive={directive} fullscreenRequest={fullscreenRequest} onLoaded={onLoaded} bare={bare} renderError={renderError} />;
   if (directive.kind === "page" && !/\.(md|markdown)$/i.test(directive.path)) {
     return <HtmlPreviewBlock text={`@file ${directive.path}`} renderError={renderError} fullscreenRequest={fullscreenRequest} />;
   }
@@ -100,16 +102,12 @@ function LoadedLocalArtifact({
     };
   }, [reload]);
 
-  const icon = directive.kind === "image"
-    ? <ImageIcon size={14} aria-hidden />
-    : <FileText size={14} aria-hidden />;
+  const icon = <FileText size={14} aria-hidden />;
 
   const content = <>
     {state.status === "loading" && <p>Loading…</p>}
     {state.status === "error" && (renderError ? renderError(state.error) : <p role="alert">{state.error}</p>)}
-    {state.status === "ready" && (directive.kind === "image"
-      ? <img src={state.file.data} alt={name} className="max-w-full object-contain" />
-      : state.file.media_type === "text/markdown" ? renderMarkdown(state.file.data)
+    {state.status === "ready" && (state.file.media_type === "text/markdown" ? renderMarkdown(state.file.data)
         : renderText ? renderText(state.file.data) : <pre className="whitespace-pre-wrap break-words">{state.file.data}</pre>)}
   </>;
   const reveal = () => void openLocalArtifact(directive.path).catch((error: unknown) => setState({ status: "error", file: null, error: String(error) }));

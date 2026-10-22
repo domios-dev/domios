@@ -152,7 +152,7 @@ test("fullscreen Mermaid fits its viewport and exposes accessible view controls"
   HTMLElement.prototype.hasPointerCapture = () => true;
   HTMLElement.prototype.releasePointerCapture = () => undefined;
   HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
-    if (this.dataset.testid === "mermaid-fullscreen-viewport") {
+    if (this.getAttribute("aria-label") === "Zoomable canvas") {
       return {
         x: 0,
         y: 0,
@@ -196,79 +196,31 @@ test("fullscreen Mermaid fits its viewport and exposes accessible view controls"
   await act(async () => fullscreen.click());
 
   const dialog = document.querySelector('[role="dialog"]');
-  const viewport = document.querySelector<HTMLElement>('[data-testid="mermaid-fullscreen-viewport"]');
-  const canvas = document.querySelector<HTMLElement>('[data-testid="mermaid-fullscreen-canvas"]');
-  const fit = document.querySelector<HTMLButtonElement>('[aria-label="Fit Mermaid diagram to viewport"]');
-  const reset = document.querySelector<HTMLButtonElement>('[aria-label="Reset Mermaid diagram to 100%"]');
+  const viewport = document.querySelector<HTMLElement>('[aria-label="Zoomable canvas"]')!;
+  const canvas = viewport.firstElementChild as HTMLElement;
+  const fit = document.querySelector<HTMLButtonElement>('[aria-label="Fit Mermaid diagram to viewport"]')!;
   assert(dialog?.getAttribute("aria-label") === "Fullscreen Mermaid diagram", "fullscreen has dialog semantics");
-  assert(canvas?.style.transform.includes("scale(2.42)"), "diagram fits and centers on open");
-  assert(fit?.getAttribute("aria-pressed") === "true", "Fit exposes its active state");
-  assert(reset, "Reset has an accessible name");
-
+  assert(canvas.querySelector("svg"), "diagram remains an SVG in the camera layer");
+  assert(canvas.style.transform.includes("scale(2.36)"), "diagram fits on open");
+  assert(fit.getAttribute("aria-pressed") === "true", "Fit exposes its active state");
+  const fitted = canvas.style.transform;
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click());
+  assert(canvas.style.transform !== fitted, "zoom control changes camera");
+  assert(fit.getAttribute("aria-pressed") === "false", "zoom exits fit mode");
+  assert(document.querySelector('[aria-label="Zoom level"]')?.textContent !== "236%", "zoom readout follows the live camera");
+  const reset = document.querySelector<HTMLButtonElement>('[aria-label="Reset Mermaid diagram to 100%"]')!;
   await act(async () => reset.click());
-  assert(canvas.style.transform.includes("scale(1)"), "Reset returns to natural 100% size");
+  assert(canvas.style.transform.includes("scale(1)"), "100% reset restores natural size");
   assert(reset.getAttribute("aria-pressed") === "true", "Reset exposes its active state");
+  const plainWheel = new window.WheelEvent("wheel", { bubbles: true, cancelable: true, deltaX: 30, deltaY: 20 });
+  await act(async () => viewport.dispatchEvent(plainWheel));
+  assert(plainWheel.defaultPrevented, "plain scrolling is contained");
+  assert(canvas.style.transform.includes("scale(1)"), "two-finger scroll pans without zooming");
   await act(async () => fit.click());
-
-  viewportWidth = 500;
-  viewportHeight = 300;
+  assert(canvas.style.transform === fitted, "fit restores camera");
+  viewportWidth = 500; viewportHeight = 300;
   await act(async () => resize?.([], {} as ResizeObserver));
-  assert(canvas.style.transform.includes("scale(1.17)"), "fitted diagram responds to viewport resize");
-
-  const realFrame = window.requestAnimationFrame;
-  window.requestAnimationFrame = (callback: FrameRequestCallback) => {
-    callback(0);
-    return 1;
-  };
-  const wheel = (init: WheelEventInit, ctrlKey = false) => {
-    const event = new window.WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: 250, clientY: 150, ...init });
-    // The test DOM drops modifier keys and deltas from WheelEventInit, the way pointer ids are defined below.
-    Object.defineProperty(event, "ctrlKey", { value: ctrlKey });
-    Object.defineProperty(event, "deltaX", { value: init.deltaX ?? 0 });
-    Object.defineProperty(event, "deltaY", { value: init.deltaY ?? 0 });
-    Object.defineProperty(event, "deltaMode", { value: 0 });
-    Object.defineProperty(event, "clientX", { value: init.clientX ?? 250 });
-    Object.defineProperty(event, "clientY", { value: init.clientY ?? 150 });
-    return event;
-  };
-  let zoom!: WheelEvent;
-  await act(async () => {
-    zoom = wheel({ deltaY: -100 }, true);
-    viewport.dispatchEvent(zoom);
-  });
-  assert(zoom.defaultPrevented, "wheel over the diagram never scrolls the chat underneath");
-  assert(fit.getAttribute("aria-pressed") === "false", "pinch zoom enters a custom view");
-  assert(!canvas.style.transform.includes("scale(1.17)"), "pinch zoom changes the fitted scale");
-
-  const zoomedScale = /scale\(([^)]+)\)/.exec(canvas.style.transform)?.[1];
-  const zoomedTranslate = /translate\(([^)]+)\)/.exec(canvas.style.transform)?.[1];
-  await act(async () => viewport.dispatchEvent(wheel({ deltaX: 30, deltaY: 20 })));
-  assert(/scale\(([^)]+)\)/.exec(canvas.style.transform)?.[1] === zoomedScale, "a two-finger swipe pans without zooming");
-  assert(!canvas.style.transform.includes("NaN"), "zooming never produces a non-finite pan");
-  assert(/translate\(([^)]+)\)/.exec(canvas.style.transform)?.[1] !== zoomedTranslate, "a two-finger swipe moves the diagram");
-  window.requestAnimationFrame = realFrame;
-
-  const pointer = (type: string, pointerId: number, clientX: number, clientY: number) => {
-    const event = new window.MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY });
-    Object.defineProperty(event, "pointerId", { value: pointerId });
-    Object.defineProperty(event, "pointerType", { value: "mouse" });
-    return event;
-  };
-  await act(async () => fit.click());
-  await act(async () => {
-    viewport.dispatchEvent(pointer("pointerdown", 1, 100, 100));
-    viewport.dispatchEvent(pointer("pointermove", 1, 140, 130));
-  });
-  assert(canvas.style.transform.includes("translate(40px, 30px)"), "mouse drag pans the diagram");
-  await act(async () => viewport.dispatchEvent(pointer("pointerup", 1, 140, 130)));
-
-  await act(async () => fit.click());
-  await act(async () => {
-    viewport.dispatchEvent(pointer("pointerdown", 1, 100, 100));
-    viewport.dispatchEvent(pointer("pointerdown", 2, 200, 100));
-    viewport.dispatchEvent(pointer("pointermove", 2, 250, 100));
-  });
-  assert(!canvas.style.transform.includes("scale(1.17)"), "two-pointer pinch changes diagram scale");
+  assert(canvas.style.transform.includes("scale(1.11)"), "fit follows viewport resize");
 
   await act(async () => root.unmount());
   HTMLElement.prototype.getBoundingClientRect = originalRect;

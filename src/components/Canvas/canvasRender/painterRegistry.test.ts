@@ -1,7 +1,7 @@
 
 import { Window } from "happy-dom";
 import type { LaidOutNode } from "../layout";
-import type { ViewportTransform } from "../useCanvasViewport";
+import type { ViewportTransform } from "@codeterm/canvas-camera";
 
 Object.defineProperty(globalThis, "document", { value: new Window().document, configurable: true });
 import type { HitRegion } from "./drawCard";

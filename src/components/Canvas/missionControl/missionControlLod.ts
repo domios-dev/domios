@@ -1,4 +1,4 @@
-import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE } from "../useCanvasViewport";
+import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE } from "@codeterm/canvas-camera";
 
 export type MissionControlLodLevel = "far" | "mid" | "close";
 
