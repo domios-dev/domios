@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 16511,
+  "stop_reason": "end_turn",
+  "session_id": "27088296-284c-4f52-991f-ca5aec467b36",
+  "total_cost_usd": 0.033085,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11568,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1988,
+    "output_tokens_details": {
+      "thinking_tokens": 1862
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11568,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1988,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11568,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11568
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1988,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11568,
+      "webSearchRequests": 0,
+      "costUSD": 0.033085,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1862,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: This Blueprint automates morning standup preparation by gathering git commits from a repository and using an AI agent to write a brief digest. It runs on a daily schedule, retrieves recent commits, processes them through an AI agent with a customizable task, and delivers a concise standup summary to the team. || INTENT: Generate daily standup digest from Git commit history || INTENT: Automate team standup summaries from recent repository changes || INTENT: Create morning standup updates using commit analysis || INTENT: Summarize previous work for daily standup automatically",
+  "ttft_ms": 15864,
+  "type": "result",
+  "duration_ms": 16653,
+  "uuid": "274ba730-a3cc-436a-92c3-f566f1b07532",
+  "ttft_stream_ms": 721,
+  "time_to_request_ms": 107,
+  "first_content_frame_ms": 721,
+  "queued_turn_count": 0,
+  "result_index": 0
+}
