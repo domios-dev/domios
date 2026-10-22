@@ -48,8 +48,8 @@ for path,mode in [({read},'r'),({write},'w')]:
   open(path,mode)
   raise AssertionError('ambient filesystem allowed')
  except PermissionError: pass
-s=socket.socket()
 try:
+ s=socket.socket()
  s.connect(('127.0.0.1',{port}))
  raise AssertionError('network allowed')
 except PermissionError: pass
@@ -75,6 +75,7 @@ socket.on('error',(e)=>{{ if(!['EPERM','EACCES'].includes(e.code)) throw e; x.va
         port = address.port()
     );
     let owner = Arc::new(ProbeResourceOwner::new());
+    let mut failures = Vec::new();
     for (lang, src) in [(Language::Python, python), (Language::Ts, ts)] {
         let code = Code {
             lang,
@@ -91,14 +92,11 @@ socket.on('error',(e)=>{{ if(!['EPERM','EACCES'].includes(e.code)) throw e; x.va
             &Cancellation::default(),
         )
         .expect("native sandbox must execute; unavailable confinement is a FAILED proof");
-        assert!(
-            result.success,
-            "native {:?} failed: {}",
-            code.lang, result.text
-        );
+        if !result.success { failures.push(format!("native {:?} failed: {}",code.lang,result.text)); continue; }
         let value: serde_json::Value = serde_json::from_str(&result.stdout_text()).unwrap();
         assert_eq!(value["value"]["n"], 8);
         assert!(!forbidden.exists());
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
     assert_eq!(owner.snapshot().unconfirmed, 0);
 }

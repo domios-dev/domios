@@ -46,7 +46,7 @@ fn profile(interpreter: &Path, temp: &Path) -> Result<String, RuntimeFailure> {
 (allow signal (target self))
 (allow sysctl-read)
 (allow file-read-metadata)
-(allow file-read* (subpath "/System/Library") (subpath "/usr/lib")
+(allow file-read* file-map-executable (subpath "/System/Library") (subpath "/usr/lib")
  (subpath {}) (subpath {}) (literal "/dev/null") (literal "/dev/urandom")
  (regex #"^/opt/homebrew/Cellar/[^/]+/[^/]+/lib/[^/]+[.]dylib$"))
 (allow file-write* (subpath {}) (literal "/dev/null"))
