@@ -113,8 +113,7 @@ fn rewrite(
                 .ok_or("Artifact transfer did not return a target path")?;
             match path {
                 Ok(path) => {
-                    if path.is_empty() || path.contains(['"', '', '
-']) {
+                    if path.is_empty() || path.contains(['"', '\r', '\n']) {
                         return Err("Artifact transfer returned an invalid target path".into());
                     }
                     targets.push(format!("\"{path}\""));
