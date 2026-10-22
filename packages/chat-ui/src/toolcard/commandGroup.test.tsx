@@ -101,7 +101,7 @@ describe("compound command group", () => {
     const group = groups[0];
     expect(lines(group).map((line) => line.dataset.rowRole)).toEqual(["codeterm", "script"]);
     expect(operators(group)).toEqual([]);
-    expect(group.querySelector('[data-testid="chat-command-group-title"]')?.textContent).toBe("codeterm mem secret get +1");
+    expect(group.querySelector('[data-testid="chat-command-group-title"]')?.textContent).toBe("domios mem secret get +1");
 
     const codetermLine = lines(group)[0];
     expect(codetermLine.querySelector('[data-testid="chat-tool-call"]')).toBeNull();
@@ -238,7 +238,7 @@ describe("compact command tree", () => {
     const title = host.querySelector('[data-testid="chat-command-group-title"]')?.textContent ?? "";
     expect(title).not.toBe(PLAN_CHAIN);
     expect(title).not.toContain(";");
-    expect(title).toBe("codeterm plan doctor +3");
+    expect(title).toBe("domios plan doctor +3");
     expect(host.querySelectorAll('[data-testid="toolcard-exit-code"]')).toHaveLength(1);
     expect(host.querySelectorAll('[data-testid="toolcard-duration"]')).toHaveLength(1);
     expect(host.querySelector('[data-testid="raw-command-disclosure"]')).toBeNull();

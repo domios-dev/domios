@@ -73,7 +73,9 @@ export function LinkedText(props: Props) {
 }
 
 function MentionLinkedText(props: Props) {
-  const mentions = canonicalMentions(props.text);
+  const host = useChatBlockHost();
+  // Without a mention host, task ids keep the plan-reference path that resolvePlanRef serves.
+  const mentions = canonicalMentions(props.text).filter((mention) => mention.kind !== "task" || host.mentions);
   if (!mentions.length) return <PlainLinkedText {...props} />;
   const nodes: React.ReactNode[] = [];
   let cursor = 0;

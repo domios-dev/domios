@@ -255,9 +255,10 @@ export async function runPlanControlLoop(api: ApiConfig, planId: string): Promis
   });
   if (!res.ok) {
     const body: unknown = await res.json().catch(() => null);
-    const error = body && typeof body === "object" && "error" in body ? body.error : null;
+    const record = body && typeof body === "object" ? body as Record<string, unknown> : null;
+    const error = record?.error ?? record?.message ?? null;
     const message = error && typeof error === "object" && "message" in error ? error.message : error;
-    throw new Error(typeof message === "string" && message.trim() ? message : "The Curator round could not start.");
+    throw new Error(typeof message === "string" && message.trim() ? message : `The Curator round could not start (HTTP ${res.status}).`);
   }
   return res.json();
 }
