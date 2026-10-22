@@ -44,6 +44,13 @@ pub async fn latest_release_tag() -> Result<String, String> {
 }
 
 pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateInfo, String> {
+    check_for_update_at(install_method, None).await
+}
+
+pub async fn check_for_update_at(
+    install_method: &InstallMethod,
+    manifest_url: Option<&str>,
+) -> Result<UpdateInfo, String> {
     let endpoint = super::channel::default_endpoints_for_install_method(
         super::Channel::Stable,
         install_method,
@@ -51,7 +58,11 @@ pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateIn
     .into_iter()
     .next()
     .ok_or("Missing updater endpoint")?;
-    let manifest = super::manifest::fetch(&endpoint).await?;
+    let endpoint = manifest_url.unwrap_or(&endpoint);
+    let manifest = super::manifest::fetch(endpoint).await.map_err(|error| {
+        log::error!("[updater] GET {endpoint} failed: {error}");
+        format!("GET {endpoint}: {error}")
+    })?;
     let current_str = codeterm_build_info::version();
     let compatible = super::manifest::current_platform_key()
         .is_some_and(|key| manifest.platforms.contains_key(key));
@@ -62,16 +73,21 @@ pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateIn
         &manifest.version,
         compatible,
     );
+    let download_url = super::manifest::current_platform_key()
+        .and_then(|key| manifest.platforms.get(key))
+        .map(|platform| platform.url.clone());
     Ok(UpdateInfo {
         current_version: current_str.into(),
         latest_version: manifest.version.clone(),
         update_available: availability.state
             == codeterm_plugins::AvailabilityState::UpdateAvailable,
         install_method: install_method.clone(),
-        update_command: build_update_command(install_method, &manifest.version),
-        download_url: super::manifest::current_platform_key()
-            .and_then(|key| manifest.platforms.get(key))
-            .map(|platform| platform.url.clone()),
+        update_command: build_update_command(
+            install_method,
+            &manifest.version,
+            download_url.as_deref(),
+        ),
+        download_url,
         release_url: format!(
             "https://github.com/{GITHUB_REPO}/releases/tag/v{}",
             manifest.version
@@ -82,13 +98,17 @@ pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateIn
     })
 }
 
-fn build_update_command(method: &InstallMethod, version: &str) -> Option<String> {
+fn build_update_command(
+    method: &InstallMethod,
+    version: &str,
+    download_url: Option<&str>,
+) -> Option<String> {
     match method {
         InstallMethod::Brew => Some("brew upgrade --cask codeterm".to_string()),
         InstallMethod::Scoop => Some("scoop update codeterm".to_string()),
-        InstallMethod::Deb => Some(format!(
-            "curl -sLO https://github.com/{}/releases/download/v{}/CodeTerm_{}_amd64.deb && sudo dpkg -i CodeTerm_{}_amd64.deb",
-            GITHUB_REPO, version, version, version
+        InstallMethod::Deb => download_url.map(|url| format!(
+            "curl --fail --location --output domios-update.deb -- '{}' && codeterm app quit --exact && sudo dpkg -i ./domios-update.deb && domios",
+            url.replace('\'', "'\\''")
         )),
         InstallMethod::Rpm => Some(format!(
             "curl -sLO https://github.com/{}/releases/download/v{}/CodeTerm-{}-1.x86_64.rpm && sudo rpm -U CodeTerm-{}-1.x86_64.rpm",
@@ -98,23 +118,17 @@ fn build_update_command(method: &InstallMethod, version: &str) -> Option<String>
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn latest_release_request_bypasses_mutable_github_cache() {
-        let request = latest_release_request(&reqwest::Client::new())
-            .build()
-            .unwrap();
-        assert_eq!(
-            request.headers()[reqwest::header::CACHE_CONTROL],
-            "no-cache, no-store"
-        );
-        assert_eq!(request.headers()[reqwest::header::PRAGMA], "no-cache");
-        assert!(request
-            .url()
-            .query_pairs()
-            .any(|(key, value)| key == "codeterm_cache_bust" && !value.is_empty()));
+pub fn debian_install_guidance(info: &UpdateInfo) -> Result<Option<(String, String)>, String> {
+    if info.install_method != InstallMethod::Deb || !info.update_available {
+        return Ok(None);
     }
+    let command = info
+        .update_command
+        .clone()
+        .ok_or("Debian manifest has no package URL")?;
+    let message = format!("This Debian installation is package-managed and requires root to update. From a terminal outside Domios: download the package, quit Domios with codeterm app quit --exact (or UI Quit), confirm it has stopped, then run sudo dpkg -i ./domios-update.deb and relaunch Domios. If quitting fails, stop here; do not replace files while Domios is running.\n{command}");
+    Ok(Some((command, message)))
 }
+
+#[cfg(test)]
+mod tests;
