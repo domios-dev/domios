@@ -19,6 +19,31 @@ pub struct CallFinding {
     pub pin: Option<CallPin>,
 }
 impl CallFinding {
+    pub fn into_diagnostic(self) -> Diagnostic {
+        use crate::blueprint_document::checker::{Finding, Proof, ProofAtom};
+        let arguments = self
+            .pin
+            .as_ref()
+            .map(|pin| vec![pin.id.clone(), pin.hash.clone()])
+            .unwrap_or_default();
+        let atom = ProofAtom::new(&self.name, arguments, true, &self.field, self.location);
+        Diagnostic::from_proof(
+            Finding {
+                rule: &self.rule,
+                name: &self.name,
+                severity: "error",
+                message: &self.message,
+                hint: "Correct the call contract; do not widen caller authority",
+            },
+            Proof {
+                atom: atom.clone(),
+                rule: self.rule.clone(),
+                children: Vec::new(),
+            },
+            vec![atom],
+            Vec::new(),
+        )
+    }
     fn new(
         parsed: &Parsed,
         node: &Node,

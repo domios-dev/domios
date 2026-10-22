@@ -42,7 +42,22 @@ pub fn safe_template(document: &Document, when_to_use: &str) -> bool {
             _ => true,
         }
     }
-    !unsafe_text(when_to_use) && serde_json::to_value(document).is_ok_and(|value| safe(&value))
+    let mut author = document.clone();
+    let dependencies = std::mem::take(&mut author.dependencies);
+    for node in author.steps.iter_mut().chain(&mut author.other) {
+        if let Some(call) = &mut node.call {
+            if let Some(pin) = &mut call.pin {
+                if pin.id.starts_with("file:") || pin.id.starts_with("inline:") {
+                    pin.id = "local-snapshot".into();
+                }
+            }
+        }
+    }
+    !unsafe_text(when_to_use)
+        && serde_json::to_value(author).is_ok_and(|value| safe(&value))
+        && dependencies
+            .values()
+            .all(|callee| safe_template(&callee.document, ""))
 }
 
 pub fn abstract_document(mut document: Document) -> Document {

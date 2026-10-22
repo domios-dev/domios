@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 mod imports;
 pub mod ports;
-pub use imports::{resolve, resolve_local, verify_local_sources};
+pub use imports::{resolve, resolve_local, resolve_saved, verify_local_sources};
 mod analysis;
 pub use analysis::{arguments, check_facts, CallFinding, VerifiedCall};
 #[cfg(test)]
@@ -31,6 +31,11 @@ pub struct FrozenCallee {
     pub locations: BTreeMap<String, Location>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_hash: Option<String>,
+}
+impl CallPin {
+    pub fn key(&self) -> String {
+        format!("{}@{}", self.id, self.hash)
+    }
 }
 impl FrozenCallee {
     pub fn verify(&self) -> Result<(), String> {
@@ -98,7 +103,7 @@ impl FrozenClosure {
     pub fn callee(&self, pin: &CallPin) -> Result<&FrozenCallee, String> {
         let callee = self
             .callees
-            .get(&pin.hash)
+            .get(&pin.key())
             .ok_or_else(|| format!("Missing pinned hash {}@{}", pin.id, pin.hash))?;
         if callee.id != pin.id {
             return Err(format!("Pinned identity mismatch: {}@{}", pin.id, pin.hash));
@@ -112,8 +117,8 @@ impl FrozenClosure {
             return Err("Call closure exceeds 256 KiB".into());
         }
         for (hash, callee) in &self.callees {
-            if hash != &callee.hash {
-                return Err("Dependency key is not its content hash".into());
+            if hash != &callee.pin().key() {
+                return Err("Dependency key is not its id@hash".into());
             }
             callee.verify()?;
         }
@@ -129,7 +134,7 @@ impl FrozenClosure {
                 .pin
                 .as_ref()
                 .ok_or("Unresolved call has no immutable pin")?;
-            if stack.contains(pin) {
+            if stack.iter().any(|prior| prior.id == pin.id) {
                 return Err("Recursive call closure".into());
             }
             let callee = self.callee(pin)?;
@@ -147,6 +152,8 @@ impl FrozenClosure {
                 return Err("Missing or corrupted pinned revision".into());
             }
             let head = resolver.head(&callee.id)?;
+            let mut head = head;
+            head.dependencies.clear();
             let hash = projection::identity(&head)?;
             if hash != callee.hash {
                 result.push(Drift {
@@ -173,13 +180,10 @@ pub struct Drift {
 
 pub(super) fn finding(parsed: &Parsed, field: &str, message: impl Into<String>) -> Diagnostic {
     let location = parsed.at(field);
-    Diagnostic {
-        file: location.file,
-        line: location.line,
-        column: location.column,
-        field: field.into(),
-        severity: "error".into(),
-        message: message.into(),
-        hint: "Use a unique local/inline callable or an exact scoped mem id/hash".into(),
-    }
+    Diagnostic::error(
+        location,
+        field,
+        &message.into(),
+        "Use a unique local/inline callable or an exact scoped mem id/hash",
+    )
 }

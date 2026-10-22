@@ -2,12 +2,13 @@ use super::*;
 
 pub(crate) struct PreparedBlueprint {
     pub(super) document: Document,
+    pub(super) team: Option<String>,
     pub(super) intents: Vec<String>,
     pub(super) evidence: Evidence,
     pub(super) index: index::IndexRow,
 }
 
-fn index_row(original: &Document, intents: &[String]) -> index::IndexRow {
+pub(super) fn index_row(original: &Document, intents: &[String]) -> index::IndexRow {
     use codeterm_blueprint_types::blueprint_memory::semantic_canon::{
         canonical_json, semantic_canon,
     };
@@ -83,6 +84,7 @@ impl MemManager {
             return Err("Blueprint solution exceeds document limit".into());
         }
         Ok(PreparedBlueprint {
+            team: None,
             document,
             intents,
             evidence,

@@ -1,0 +1,239 @@
+use super::*;
+use codeterm_blueprint_types::blueprint_document::calls::{
+    self, CallPin, FrozenClosure, MemoryResolver,
+};
+use rusqlite::OptionalExtension;
+use std::path::Path;
+
+pub(crate) fn initialize(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS blueprint_call_scopes (item_id TEXT PRIMARY KEY, area TEXT NOT NULL, team TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS blueprint_call_revisions (item_id TEXT NOT NULL, hash TEXT NOT NULL, area TEXT NOT NULL, team TEXT NOT NULL, document TEXT NOT NULL, PRIMARY KEY(item_id, hash, area, team));").map_err(|e|e.to_string())
+}
+pub(super) struct ScopedResolver<'a> {
+    pub conn: &'a Connection,
+    pub blobs: &'a Path,
+    pub area: &'a str,
+    pub team: &'a str,
+}
+impl ScopedResolver<'_> {
+    fn id<'a>(&self, id: &'a str) -> Result<&'a str, String> {
+        let id = id
+            .strip_prefix("mem:")
+            .ok_or("Expected mem: solution identity")?;
+        let exists:bool=self.conn.query_row("SELECT EXISTS(SELECT 1 FROM blueprint_call_scopes s JOIN mem_items m ON m.id=s.item_id WHERE s.item_id=?1 AND s.area=?2 AND s.team=?3 AND m.area=s.area AND m.source=?4)",params![id,self.area,self.team,SOURCE],|r|r.get(0)).map_err(|e|e.to_string())?;
+        if !exists {
+            return Err("Callee missing or outside caller Team/workspace".into());
+        }
+        Ok(id)
+    }
+}
+impl MemoryResolver for ScopedResolver<'_> {
+    fn head(&self, id: &str) -> Result<Document, String> {
+        let id = self.id(id)?;
+        let item = store::get(self.conn, id, self.blobs)?.ok_or("Missing callee")?;
+        model::parse_document(&item.body)
+    }
+    fn revision(&self, pin: &CallPin) -> Result<Document, String> {
+        let id = self.id(&pin.id)?;
+        let raw:Option<String>=self.conn.query_row("SELECT document FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND area=?3 AND team=?4",params![id,pin.hash,self.area,self.team],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+        let document: Document = serde_json::from_str(
+            &raw.ok_or_else(|| format!("Missing pinned hash {}@{}", pin.id, pin.hash))?,
+        )
+        .map_err(|e| e.to_string())?;
+        if codeterm_blueprint_types::blueprint_document::projection::identity(&document)?
+            != pin.hash
+        {
+            return Err("Pinned revision bytes are corrupted".into());
+        }
+        Ok(document)
+    }
+}
+pub(super) fn scope(conn: &Connection, id: &str, area: &str, team: &str) -> Result<(), String> {
+    conn.execute("INSERT INTO blueprint_call_scopes(item_id,area,team) VALUES(?1,?2,?3) ON CONFLICT(item_id) DO NOTHING",params![id,area,team]).map_err(|e|e.to_string())?;
+    let actual: (String, String) = conn
+        .query_row(
+            "SELECT area,team FROM blueprint_call_scopes WHERE item_id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    if actual != (area.into(), team.into()) {
+        return Err("Cannot change a saved solution's Team/workspace".into());
+    }
+    Ok(())
+}
+pub(super) fn same_scope(
+    conn: &Connection,
+    id: &str,
+    area: &str,
+    team: Option<&str>,
+) -> Result<bool, String> {
+    let scope: Option<(String, String)> = conn
+        .query_row(
+            "SELECT area,team FROM blueprint_call_scopes WHERE item_id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    Ok(match (scope, team) {
+        (Some((a, t)), Some(team)) => a == area && t == team,
+        (None, None) => true,
+        _ => false,
+    })
+}
+pub(super) fn retain(conn: &Connection, id: &str, document: &Document) -> Result<(), String> {
+    let scoped: Option<(String, String)> = conn
+        .query_row(
+            "SELECT area,team FROM blueprint_call_scopes WHERE item_id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let Some((area, team)) = scoped else {
+        return Ok(());
+    };
+    let mut body = document.clone();
+    body.dependencies.clear();
+    let hash = codeterm_blueprint_types::blueprint_document::projection::identity(&body)?;
+    let body = serde_json::to_string(&body).map_err(|e| e.to_string())?;
+    conn.execute("INSERT INTO blueprint_call_revisions(item_id,hash,area,team,document) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(item_id,hash,area,team) DO NOTHING",params![id,hash,area,team,body]).map_err(|e|e.to_string())?;
+    let stored:String=conn.query_row("SELECT document FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND area=?3 AND team=?4",params![id,hash,area,team],|r|r.get(0)).map_err(|e|e.to_string())?;
+    if stored != body {
+        return Err("Immutable revision collision or corruption".into());
+    }
+    Ok(())
+}
+pub(super) fn freeze(
+    conn: &Connection,
+    blobs: &Path,
+    area: &str,
+    team: Option<&str>,
+    document: Document,
+) -> Result<Document, String> {
+    let has_calls = document.nodes().any(|node| node.call.is_some());
+    if !has_calls && document.dependencies.is_empty() {
+        return Ok(document);
+    }
+    let team = team.ok_or("Call pins require a caller Team/workspace")?;
+    let resolver = ScopedResolver {
+        conn,
+        blobs,
+        area,
+        team,
+    };
+    let closure = calls::resolve_saved(document, &resolver).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|e| e.message)
+            .collect::<Vec<_>>()
+            .join("; ")
+    })?;
+    let (_, findings) = calls::check_facts(&closure);
+    if !findings.is_empty() {
+        return Err(findings
+            .into_iter()
+            .map(|f| format!("{}: {}", f.rule, f.message))
+            .collect::<Vec<_>>()
+            .join("; "));
+    }
+    Ok(closure.document())
+}
+impl MemManager {
+    pub fn save_blueprint_scoped(
+        &self,
+        area: &str,
+        team: &str,
+        document: Document,
+        intents: &[String],
+        evidence: Evidence,
+    ) -> Result<SaveResult, String> {
+        let mut prepared = self.qualify_blueprint(area, document, intents, evidence)?;
+        prepared.team = Some(team.into());
+        let saved = self.persist_blueprint(area, prepared, true, AREA_CAP)?;
+        self.index_after_save(&saved.id);
+        Ok(saved)
+    }
+    pub fn enqueue_blueprint_scoped(
+        self: &std::sync::Arc<Self>,
+        area: String,
+        team: String,
+        definition: serde_json::Value,
+        intents: Vec<String>,
+        evidence: Evidence,
+    ) -> Result<SaveResult, String> {
+        self.guard_commit()?;
+        let mut prepared = self.qualify_blueprint(
+            &area,
+            Document::from_definition(&definition)?,
+            &intents,
+            evidence,
+        )?;
+        prepared.team = Some(team);
+        let (reply, completion) = std::sync::mpsc::sync_channel(1);
+        self.queue_blueprint(Pending::Keep {
+            area,
+            prepared,
+            reply,
+        })?;
+        completion
+            .recv()
+            .map_err(|_| "Blueprint memory worker stopped before save completion")?
+    }
+    pub fn pin_blueprint_calls(
+        &self,
+        area: &str,
+        team: &str,
+        document: Document,
+    ) -> Result<Document, String> {
+        self.guard_commit()?;
+        let conn = self.conn.lock();
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let document = freeze(&tx, &self.blobs_dir, area, Some(team), document)?;
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(document)
+    }
+    pub fn blueprint_call_drift(
+        &self,
+        area: &str,
+        team: &str,
+        document: Document,
+    ) -> Result<Vec<calls::Drift>, String> {
+        let closure = FrozenClosure::from_document(document)?;
+        let conn = self.conn.lock();
+        closure.drift(&ScopedResolver {
+            conn: &conn,
+            blobs: &self.blobs_dir,
+            area,
+            team,
+        })
+    }
+    pub fn blueprint_callable(&self, area: &str, team: &str, id: &str) -> Result<Document, String> {
+        let conn = self.conn.lock();
+        ScopedResolver {
+            conn: &conn,
+            blobs: &self.blobs_dir,
+            area,
+            team,
+        }
+        .head(id)
+    }
+    pub fn blueprint_call_revision(
+        &self,
+        area: &str,
+        team: &str,
+        pin: &CallPin,
+    ) -> Result<Document, String> {
+        let conn = self.conn.lock();
+        ScopedResolver {
+            conn: &conn,
+            blobs: &self.blobs_dir,
+            area,
+            team,
+        }
+        .revision(pin)
+    }
+}
+#[cfg(test)]
+mod tests;

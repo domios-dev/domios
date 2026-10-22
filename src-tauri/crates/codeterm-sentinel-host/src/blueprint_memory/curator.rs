@@ -119,9 +119,16 @@ pub(super) fn keep(
                 episodes: episodes.iter().cloned().collect(),
                 granted,
             });
-            let saved = ctx
-                .mem
-                .save_blueprint(&area(&caller.workspace), document, when, proof)?;
+            let saved = ctx.mem.save_blueprint_scoped(
+                &area(&caller.workspace),
+                caller
+                    .team
+                    .as_deref()
+                    .ok_or("Saved callable requires a Team")?,
+                document,
+                when,
+                proof,
+            )?;
             evicted_ids = saved.evicted_ids;
             Ok(saved.id)
         },
