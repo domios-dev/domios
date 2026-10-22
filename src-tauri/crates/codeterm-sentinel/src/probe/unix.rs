@@ -132,7 +132,11 @@ pub fn run(
         return process.finish_failure();
     }
     match child_command.spawn() {
-        Ok(child) => process.adopt_child(child),
+        Ok(child) => {
+            #[cfg(any(test, feature = "test-support"))]
+            cancellation.spawned(child.id());
+            process.adopt_child(child);
+        }
         Err(error) => {
             process.failure = Some(ProbeFailure::new("probe_spawn_failed"));
             process.add_cleanup_error(error.to_string());

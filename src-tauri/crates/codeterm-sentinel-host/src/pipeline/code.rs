@@ -41,15 +41,7 @@ pub(super) fn run(
     ) {
         Ok(output) if !output.success => {
             let mut result = failed_input_step("code_failed");
-            let stderr = codeterm_util::redact::text(&output.stderr_text());
-            let mut start = stderr.len().saturating_sub(1536);
-            while !stderr.is_char_boundary(start) {
-                start += 1;
-            }
-            result.summary = format!(
-                "code failed; body_sha256={body_sha256}: {}",
-                &stderr[start..]
-            );
+            result.summary = failure_summary(&body_sha256, &output.stderr_text());
             result
         }
         Ok(output) => {
@@ -98,3 +90,22 @@ fn minimum(left: Option<u64>, right: Option<u64>) -> Option<u64> {
         (left, right) => left.or(right),
     }
 }
+
+fn failure_summary(body_sha256: &str, stderr: &str) -> String {
+    use codeterm_blueprint_types::blueprint_pipeline::MAX_RESULT_SUMMARY_CHARS;
+    let prefix = format!("code failed; body_sha256={body_sha256}: ");
+    let redacted = codeterm_util::redact::text(stderr);
+    let flattened = redacted.split_whitespace().collect::<Vec<_>>().join(" ");
+    let remaining = MAX_RESULT_SUMMARY_CHARS.saturating_sub(prefix.chars().count());
+    let reversed: String = flattened
+        .chars()
+        .filter(|c| !c.is_control())
+        .rev()
+        .take(remaining)
+        .collect();
+    let tail: String = reversed.chars().rev().collect();
+    prefix + &tail
+}
+
+#[cfg(test)]
+mod tests;

@@ -193,6 +193,8 @@ pub fn run_with_assignment(
         return run.finish_failure();
     }
     #[cfg(any(test, feature = "test-support"))]
+    cancellation.spawned(run.child_id);
+    #[cfg(any(test, feature = "test-support"))]
     match cancellation.child_ready(run.deadlines) {
         Ok(deadlines) => run.deadlines = deadlines,
         Err(error) => {

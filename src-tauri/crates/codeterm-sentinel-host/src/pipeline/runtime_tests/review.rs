@@ -70,7 +70,7 @@ fn blueprint_v2_runtime_review_ordinary_raise_routes_failed_with_stderr() {
         && entry
             .result_summary
             .as_ref()
-            .is_some_and(|s| s.contains("bad row") && s.len() <= 2048)));
+            .is_some_and(|s| s.contains("bad row") && s.chars().count() <= 200)));
     drop(handle);
     drop(fixture);
     close(storage);
@@ -254,7 +254,8 @@ fn blueprint_v2_runtime_review_raising_main_redacts_and_bounds_stderr() {
     assert!(summary.contains("bad row"));
     assert!(summary.contains("[redacted]"));
     assert!(!summary.contains("opaque-should-not-leak"));
-    assert!(summary.len() <= 2048);
+    assert!(summary.chars().count() <= 200);
+    assert!(!summary.chars().any(char::is_control));
     assert!(summary.contains("body_sha256="));
     drop(handle);
     drop(fixture);
