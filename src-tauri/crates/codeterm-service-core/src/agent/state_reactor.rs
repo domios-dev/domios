@@ -687,7 +687,16 @@ fn execute_action(svc: &ServiceState, tab_id: &str, action: TabStateAction) {
 
 /// Inject ordered key bytes into the tab's PTY (the `send --actions` path), off-thread so the poll loop never blocks.
 fn inject_keys(svc: &ServiceState, tab_id: &str, writes: Vec<Vec<u8>>) {
-    if svc.inject_raw_keys_async(tab_id, writes).is_err() {
+    if svc
+        .inject_human_keys_async(
+            tab_id,
+            writes
+                .into_iter()
+                .map(crate::service::messenger::HumanKeys::new)
+                .collect(),
+        )
+        .is_err()
+    {
         return;
     }
     log::info!("[state-reactor] injected keys into Tab {}", tab_id);

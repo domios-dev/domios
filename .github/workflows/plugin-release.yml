@@ -51,7 +51,7 @@ jobs:
           PLUGIN_PATH: ${{ steps.plugin.outputs.path }}
           PLUGIN_TAG: ${{ github.ref_name }}
         run: |
-          git archive --format=tar.gz --output="$PLUGIN_TAG.tar.gz" "$GITHUB_SHA:plugins/$PLUGIN_PATH"
+          node scripts/release-plugin.mjs archive "$PLUGIN_TAG" "$GITHUB_SHA" "$PLUGIN_TAG.tar.gz"
           shasum -a 256 "$PLUGIN_TAG.tar.gz" > "$PLUGIN_TAG.tar.gz.sha256"
       - name: Publish plugin release
         env:

@@ -81,7 +81,7 @@ pub struct Surface {
 #[serde(rename_all = "camelCase")]
 pub struct TabStateAction {
     /// Key names to inject, e.g. `["down", "enter"]` — same vocabulary as
-    /// `codeterm send --actions`.
+    /// `domios send --actions`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keys: Option<Vec<String>>,
     /// A resume to schedule for later (rate-limit recovery).

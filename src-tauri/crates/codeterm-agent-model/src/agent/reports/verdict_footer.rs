@@ -1,6 +1,6 @@
 use super::ReportStatus;
 
-const VERDICT_COMMAND: &str = "Next: codeterm plan review accept|bounce";
+const VERDICT_COMMAND: &str = "Next: domios plan review accept|bounce";
 const IN_REVIEW_SINCE: &str = "in review since";
 
 pub(super) fn append(

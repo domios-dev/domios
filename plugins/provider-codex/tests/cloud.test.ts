@@ -4,6 +4,7 @@ import {test} from "node:test";
 import vm from "node:vm";
 import {CLOUD_SIGN_IN_REASON, CODEX_CLOUD_ACCOUNT_REF, cloudTaskBackend, cloudTaskSnapshot} from "../src/cloud/backend";
 import {remoteChatBackend} from "../src/cloud/chatBackend";
+import {cloudExports} from "../src/cloud/plugin";
 import {createCodexCloudTransport} from "../src/cloud/transport";
 import type {Host} from "@codeterm/plugin-sdk";
 import type {RemoteTaskBinding, RemoteTaskCapability, RemoteTaskStorage} from "../../../packages/plugin-sdk/src/remoteTasks";
@@ -210,7 +211,8 @@ test("built production plugin shows a safe sign-in reason without an account", (
   const manifest = JSON.parse(readFileSync(new URL("../plugin.json", import.meta.url), "utf8"));
   const host = {
     manifestJson: () => JSON.stringify(manifest),
-    fs: {expandHome: () => "/provider-state"},
+    dataDir: () => "/provider-state",
+    fs: {expandHome: () => { throw new Error("Cloud storage must use the instance data root"); }},
     credentialPublic: () => null,
     fetch: () => { throw new Error("Unexpected unauthenticated request"); },
   };
@@ -256,4 +258,32 @@ test("a saved task from a foreign provider refuses restore before remote reads",
   const calls = f.calls.length;
   assert.throws(() => f.open().openSession(ctx));
   assert.equal(f.calls.length, calls);
+});
+
+
+test("Cloud task storage uses the supplied instance data root", () => {
+  for (const root of ["/custom/domios-named/", "C:\\Users\\Owner\\.domios-dev-fixture\\"]) {
+    let readPath = "";
+    const host = {
+      dataDir: () => root,
+      manifestJson: () => JSON.stringify({id: "codex", capabilities: {remoteTask: capability}}),
+      credentialPublic: () => null,
+      fs: {
+        expandHome: () => { throw new Error("Legacy root resolution is forbidden"); },
+        readFile(path: string) { readPath = path; return null; },
+      },
+    } as unknown as Host;
+    cloudExports(() => host).viewCall("read", {sessionId: "tab-fixture"});
+    assert.equal(readPath, `${root.replace(/[\\/]$/, "")}/codex/tasks/tab-fixture.json`);
+  }
+});
+
+test("Cloud task storage reports an unavailable instance root", () => {
+  for (const root of [null, undefined, ""]) {
+    const host = {
+      dataDir: () => root,
+      manifestJson: () => JSON.stringify({id: "codex", capabilities: {remoteTask: capability}}),
+    } as unknown as Host;
+    assert.throws(() => cloudExports(() => host).viewCall("read", {sessionId: "tab-fixture"}), /Cloud task storage is unavailable/);
+  }
 });

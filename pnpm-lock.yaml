@@ -10,6 +10,9 @@ importers:
 
   .:
     dependencies:
+      '@codeterm/canvas-camera':
+        specifier: workspace:*
+        version: link:packages/canvas-camera
       '@codeterm/chat-core':
         specifier: workspace:*
         version: link:packages/chat-core
@@ -195,6 +198,12 @@ importers:
         specifier: 2.9.0
         version: 2.9.0
 
+  packages/canvas-camera:
+    dependencies:
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+
   packages/chat-core: {}
 
   packages/chat-engine:
@@ -205,6 +214,9 @@ importers:
 
   packages/chat-ui:
     dependencies:
+      '@codeterm/canvas-camera':
+        specifier: workspace:*
+        version: link:../canvas-camera
       '@codeterm/chat-core':
         specifier: workspace:*
         version: link:../chat-core

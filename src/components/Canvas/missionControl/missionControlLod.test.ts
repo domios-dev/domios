@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Canvas/missionControl/missionControlLod.test.ts
 
-import { CANVAS_MIN_SCALE, CANVAS_MAX_SCALE } from "../useCanvasViewport";
+import { CANVAS_MIN_SCALE, CANVAS_MAX_SCALE } from "@codeterm/canvas-camera";
 import {
   MC_LOD_FAR_MAX,
   MC_LOD_MID_MAX,

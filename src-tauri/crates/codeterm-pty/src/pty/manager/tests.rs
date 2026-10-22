@@ -923,12 +923,17 @@ fn task_launch_env_survives_gui_and_normal_paths_without_ambient_authority() {
 }
 
 #[test]
-fn shell_job_policy_requires_team_dev_and_excludes_agents() {
+fn shell_job_policy_requires_team_build_qa_or_dev_and_excludes_agents() {
     use crate::multiplexer::types::ShellPurpose;
     for purpose in ShellPurpose::ALL {
         for team_member in [false, true] {
             for agent in [false, true] {
-                let expected = if team_member && !agent && purpose == ShellPurpose::Dev {
+                let expected = if team_member
+                    && !agent
+                    && matches!(
+                        purpose,
+                        ShellPurpose::Dev | ShellPurpose::Build | ShellPurpose::Qa
+                    ) {
                     WindowsJobPolicy::AllowExplicitServerBreakaway
                 } else {
                     WindowsJobPolicy::Contained
@@ -943,5 +948,22 @@ fn shell_job_policy_requires_team_dev_and_excludes_agents() {
     assert_eq!(
         command.windows_job_policy(),
         WindowsJobPolicy::AllowExplicitServerBreakaway
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_pty_wrapper_preserves_exact_target_and_environment() {
+    let mut command = CommandBuilder::new(r"C:\Program Files\shell.exe");
+    command.args(["literal argument", r"C:\new\test"]);
+    command.env("OPAQUE_KEY", "opaque-value");
+    let target = command.get_argv().clone();
+    super::wrap_windows_pty_child(&mut command, "server.exe".into());
+    assert_eq!(&command.get_argv()[2..], target.as_slice());
+    assert_eq!(command.get_argv()[0], "server.exe");
+    assert_eq!(command.get_argv()[1], "pty-child");
+    assert_eq!(
+        command.get_env("OPAQUE_KEY"),
+        Some(std::ffi::OsStr::new("opaque-value"))
     );
 }

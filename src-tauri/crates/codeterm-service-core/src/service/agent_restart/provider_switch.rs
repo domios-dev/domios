@@ -247,7 +247,7 @@ impl ServiceContext {
             self.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);
         }
         let session_id = result?;
-        self.send_text(&tab.id, &handoff).map_err(|error| format!("provider_switch_handoff_unconfirmed: target session {session_id} is running; input will not be replayed: {error}"))?;
+        self.send_text(&tab.id, &crate::service::messenger::AgentInput::Framed(crate::service::messenger::Messenger::from(crate::service::messenger::MessageEnvelope::codeterm_reminder("provider-handoff")).framed_delivery(&handoff))).map_err(|error| format!("provider_switch_handoff_unconfirmed: target session {session_id} is running; input will not be replayed: {error}"))?;
         self.persist_general_provider_switch(&tab, target, &input.launch_parameters, &session_id)?;
         self.schedule_session_persist_debounced();
         self.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);

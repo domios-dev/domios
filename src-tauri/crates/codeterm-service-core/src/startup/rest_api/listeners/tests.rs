@@ -124,11 +124,9 @@ fn mesh_reachability_configured_is_not_live_and_remote_loss_preserves_local() {
 async fn mesh_reachability_failed_secondary_bind_refuses_without_keeping_the_primary() {
     let primary = bind_listener("127.0.0.1:0").await.unwrap();
     let occupied = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let result = bind_remote(primary, Some(occupied.local_addr().unwrap())).await;
-    assert!(
-        result.is_err(),
-        "a secondary bind onto an occupied address must refuse"
-    );
+    let address = occupied.local_addr().unwrap();
+    let error = bind_remote(primary, Some(address)).await.unwrap_err();
+    assert!(error.to_string().contains(&address.to_string()));
 }
 
 #[tokio::test]

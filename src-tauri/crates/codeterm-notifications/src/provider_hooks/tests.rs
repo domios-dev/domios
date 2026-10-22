@@ -488,7 +488,7 @@ fn owned_install_without_consent_record_is_treated_as_consented_once() {
     );
     assert_eq!(
         provider_config.extra["integration_consent_note"].as_str(),
-        Some("inferred from an existing CodeTerm-owned integration")
+        Some("inferred from an existing Domios-owned integration")
     );
     assert!(!infer_consent_for_owned_install(
         &mut config,

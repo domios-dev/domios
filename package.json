@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "version": "1.15.1",
+  "version": "1.15.2",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -85,6 +85,7 @@
     "yaml": "2.9.0"
   },
   "dependencies": {
+    "@codeterm/canvas-camera": "workspace:*",
     "@codeterm/chat-core": "workspace:*",
     "@codeterm/chat-ui": "workspace:*",
     "@codeterm/provider-claude": "workspace:*",

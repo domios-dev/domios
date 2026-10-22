@@ -53,3 +53,18 @@ fn launch_error_carries_the_child_stderr_detail() {
     let bare = with_stderr_detail(io::Error::other("outer-failure"), None);
     assert_eq!(bare.to_string(), "outer-failure");
 }
+
+#[test]
+fn socket_bind_target_survives_launcher_stderr_forwarding() {
+    let cause = codeterm_util::local_endpoint::bind_error(
+        "/tmp/domios-bootstrap-fixture.sock",
+        io::Error::from(io::ErrorKind::AddrInUse),
+    );
+    let error = with_stderr_detail(
+        io::Error::other("Server launch failed before readiness"),
+        Some(cause.to_string()),
+    );
+    assert!(error
+        .to_string()
+        .contains("/tmp/domios-bootstrap-fixture.sock"));
+}

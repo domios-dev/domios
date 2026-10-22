@@ -11,8 +11,30 @@ pub(crate) fn vendor() -> Vendor {
         api_key: option_env!("DOMIOS_FIREBASE_API_KEY"),
         project_id: option_env!("DOMIOS_FIREBASE_PROJECT_ID"),
         app_id: option_env!("DOMIOS_FIREBASE_APP_ID"),
-        redeem_url: option_env!("DOMIOS_ACCOUNT_REDEEM_URL"),
-        signin_url: option_env!("DOMIOS_ACCOUNT_SIGNIN_URL"),
+        redeem_url: redeem_url(),
+        signin_url: signin_url(),
     }
 }
 pub(crate) const DEFAULT_SIGNIN_URL: &str = "https://auth.domios.dev/signin/";
+
+fn redeem_url() -> Option<&'static str> {
+    #[cfg(debug_assertions)]
+    {
+        option_env!("DOMIOS_ACCOUNT_REDEEM_URL")
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        Some(crate::firebase_endpoints::PRODUCTION.redeem)
+    }
+}
+
+fn signin_url() -> Option<&'static str> {
+    #[cfg(debug_assertions)]
+    {
+        option_env!("DOMIOS_ACCOUNT_SIGNIN_URL")
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        Some(crate::firebase_endpoints::PRODUCTION.signin)
+    }
+}

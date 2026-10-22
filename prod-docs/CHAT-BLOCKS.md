@@ -50,7 +50,7 @@ Telegram and Teams accounts).
 
 ## `@ds-plugin`
 
-The id is the plugin id from `codeterm plugin list` or a channel, such as
+The id is the plugin id from `domios plugin list` or a channel, such as
 `telegram-client`; ids use lowercase letters, digits, `.`, `_` and `-`. The card
 shows the plugin's icon, name and one-line outcome, and a status chip:
 Installed, Update available or Not installed. Install and Update use the same
@@ -72,7 +72,7 @@ live. Never ask the user to paste a token into the chat; offer this card.
 
 ## `@ds-setting`
 
-The key is a dot path into the config, the same one `codeterm config set`
+The key is a dot path into the config, the same one `domios config set`
 takes, for a setting that a plugin or agent provider declares in its settings
 schema: `plugins.<plugin-id>.<key>` or `agents.<provider-id>.<key>`. The card
 shows the setting's label and description from the schema and a control for its
@@ -95,16 +95,16 @@ other view. Act on the reply you receive, not on the card.
 
 ## `@ds-agent`
 
-The argument is a tab id or its 8-character prefix, as `codeterm tab list` and
+The argument is a tab id or its 8-character prefix, as `domios tab list` and
 routing markers show it. The card shows the agent's name, role, provider or
 model, state (Working, Idle, Waiting for you, Starting or Not running) and the
 plan task it is bound to, following them live. Open focuses the tab; Stop, shown
 only while the agent works, asks first and then interrupts the current turn
-like `codeterm tab stop`. A tab that has closed renders a "not found" note.
+like `domios tab stop`. A tab that has closed renders a "not found" note.
 
 ## `@ds-job`
 
-The argument is a Cron id or a Blueprint id from `codeterm cron list` or the
+The argument is a Cron id or a Blueprint id from `domios cron list` or the
 Jobs view; an exact name works when it names one job. The card shows the
 schedule, the next run, the last result and the state. A Cron offers Run now,
 and Pause or Resume after a confirmation; a running job offers a confirmed
@@ -143,4 +143,21 @@ previews. Mesh transfers retain the 25 MiB attachment bound; previews retain
 their HTML (200,000 bytes), document (1,000,000 bytes) and image (10 MiB) bounds.
 Notification previews require the originating tab identity.
 
-<!-- revision: 2 -->
+One image line can name several absolute paths, separated by spaces. Quote each
+path when it contains spaces:
+
+```text
+@ds-image "/absolute/path/first image.png" "/absolute/path/second image.png"
+```
+
+A gallery shows at most 32 images and loads them progressively. Unavailable
+images retain a tile with the refusal reason. Fullscreen opens a zoomable canvas
+inside the Domios window. Wheel zooms images; plain scroll pans Mermaid.
+Ctrl/Cmd+wheel or pinch zooms either viewer, and dragging pans. Double-click or
+double-tap fits the set. Previous/next arrows or a horizontal swipe fly to an
+image; select an image to focus it, or use Show all to fit the gallery. Late image
+loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
+use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
+and Home to fit. Mermaid remains vector artwork at every zoom.
+
+<!-- revision: 5 -->

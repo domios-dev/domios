@@ -222,7 +222,7 @@ mod tests {
             .unwrap()
             .clone();
         assert!(
-            job.task.contains("codeterm mem dream run"),
+            job.task.contains("domios mem dream run"),
             "task must invoke `mem dream run`, got: {:?}",
             job.task
         );
@@ -244,7 +244,7 @@ mod tests {
             .id
             .clone();
         arrange(&mut store, &id, |j| {
-            j.task = "codeterm mem dream && codeterm agent report \"dreaming complete\"\n".into();
+            j.task = "domios mem dream && domios agent report \"dreaming complete\"\n".into();
         });
         let _ = store.save();
 
@@ -252,7 +252,7 @@ mod tests {
         assert!(!created, "self-heal must not create a duplicate");
         let job = store.list().iter().find(|j| j.id == id).unwrap().clone();
         assert!(
-            job.task.contains("codeterm mem dream run"),
+            job.task.contains("domios mem dream run"),
             "stale bare `mem dream` task must be healed to `mem dream run`, got: {:?}",
             job.task
         );

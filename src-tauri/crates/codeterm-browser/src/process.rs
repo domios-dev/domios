@@ -351,7 +351,7 @@ mod tests {
         let dir = Path::new("/profiles/foreign");
         let error = super::super::profile::foreign_profile_error(dir, &error);
         assert!(error.contains(&dir.display().to_string()), "{error}");
-        assert!(error.contains("CodeTerm does not own"), "{error}");
+        assert!(error.contains("Domios does not own"), "{error}");
     }
 
     #[tokio::test]

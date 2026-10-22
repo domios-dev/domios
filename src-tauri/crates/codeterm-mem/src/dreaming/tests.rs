@@ -87,7 +87,7 @@ fn dreaming_telegram_step_substitution() {
         super::DREAMING_TELEGRAM_STEP_ENABLED,
     );
     assert!(
-        enabled.contains("codeterm bridge send"),
+        enabled.contains("domios bridge send"),
         "enabled prompt must instruct bridge send"
     );
     assert!(
@@ -105,7 +105,7 @@ fn dreaming_telegram_step_substitution() {
         super::DREAMING_TELEGRAM_STEP_DISABLED,
     );
     assert!(
-        !disabled.contains("codeterm bridge send"),
+        !disabled.contains("domios bridge send"),
         "disabled prompt must NOT mention bridge send anywhere"
     );
     assert!(
@@ -556,7 +556,7 @@ mod cron_task {
         let task = &store.created[0].task;
         assert_eq!(
             task.split_whitespace().collect::<Vec<_>>(),
-            ["codeterm", "mem", "dream", "run"]
+            ["domios", "mem", "dream", "run"]
         );
     }
 
@@ -566,7 +566,7 @@ mod cron_task {
         ensure(&mut store).unwrap();
         let id = store.jobs[0].id.clone();
         store.jobs[0].task =
-            "codeterm mem dream run && codeterm agent report \"dreaming complete\"\n".into();
+            "domios mem dream run && domios agent report \"dreaming complete\"\n".into();
         store.jobs[0].enabled = false;
         store.jobs[0].schedule = "30 12 * * *".into();
 
@@ -580,7 +580,7 @@ mod cron_task {
         assert_eq!(job.schedule, "30 12 * * *");
         assert_eq!(
             job.task.split_whitespace().collect::<Vec<_>>(),
-            ["codeterm", "mem", "dream", "run"]
+            ["domios", "mem", "dream", "run"]
         );
     }
 
@@ -591,12 +591,12 @@ mod cron_task {
         // Simulate an existing install left with the old broken command.
         let id = store.jobs[0].id.clone();
         store.jobs[0].task =
-            "codeterm mem dream && codeterm agent report \"dreaming complete\"\n".into();
+            "domios mem dream && domios agent report \"dreaming complete\"\n".into();
 
         let created = ensure(&mut store).unwrap();
         assert!(!created, "second call must not create a duplicate");
         assert!(
-            store.jobs[0].task.contains("codeterm mem dream run"),
+            store.jobs[0].task.contains("domios mem dream run"),
             "stale task must be healed to `mem dream run`, got: {:?}",
             store.jobs[0].task
         );

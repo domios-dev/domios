@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { childTranscriptViewState, childTranscriptTitle, compactSubagents, subagentTone } from "./childTranscriptViewModel";
+import { childTranscriptViewState, childTranscriptTitle, subagentTone } from "./childTranscriptViewModel";
 
 describe("child transcript view", () => {
   it("projects initial loading, empty, error and ready states", () => {
@@ -10,10 +10,7 @@ describe("child transcript view", () => {
     expect(childTranscriptViewState({loading:false,error:null,itemCount:2})).toBe("ready");
     expect(childTranscriptTitle(null)).toBe("Subagent");
   });
-  it("limits capsules and makes overflow available", () => {
-    expect(compactSubagents([1,2,3,4,5],false)).toEqual({visible:[1,2,3],hidden:2});
-    expect(compactSubagents([1,2,3,4],true)).toEqual({visible:[1,2,3,4],hidden:0});
-    expect(compactSubagents([],false)).toEqual({visible:[],hidden:0});
+  it("projects subagent tones", () => {
     expect(subagentTone("running")).toBe("active");
     expect(subagentTone("unknown")).toBe("scheduled");
   });

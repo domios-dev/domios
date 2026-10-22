@@ -10,7 +10,7 @@ Source-only lane: no Rust compilation, project tests, live checks or generated a
 
 ## Fork contract consumers
 
-`cli/src/args/agent.rs`, `cli/src/cmd/agent.rs`: `codeterm agent fork --tab ID`, and model switch `--force`. REST `api/agent_fork_routes.rs`, Tauri `commands/agent.rs`, web `src/lib/bridge.ts`, shared tab menu `tabMenuModel.ts` / `tabMenuActions.ts`, SDK / manifest fork declaration and provider descriptor all use the capability. Mesh explicitly refuses this local lifecycle action. The CLI primer is updated in `src-tauri/prompts/codeterm_cli.md`.
+`cli/src/args/agent.rs`, `cli/src/cmd/agent.rs`: `domios agent fork --tab ID`, and model switch `--force`. REST `api/agent_fork_routes.rs`, Tauri `commands/agent.rs`, web `src/lib/bridge.ts`, shared tab menu `tabMenuModel.ts` / `tabMenuActions.ts`, SDK / manifest fork declaration and provider descriptor all use the capability. Mesh explicitly refuses this local lifecycle action. The CLI primer is updated in `src-tauri/prompts/codeterm_cli.md`.
 
 The new tab resumes the source with the declared fork arguments and never pre-binds the source or an invented session id. Binding requires a distinct session plus launch evidence; hook claims require the exact nonce. Launch input remains on the existing bootstrap path. Source tab state is untouched.
 

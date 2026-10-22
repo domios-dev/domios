@@ -457,7 +457,7 @@ fn collect_section_index_entries(
             path,
             index_link_path: format!("sections/{}.md", super::tag_model::section_handle(section)),
             read_command: Some(format!(
-                "codeterm plan section show {} {}",
+                "domios plan section show {} {}",
                 plan.id, section.id
             )),
         });
@@ -472,7 +472,7 @@ fn task_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntryRaw> 
         title: format!("{} ({})", super::tag_model::task_handle(task), task.name),
         path: task_path(plan, &task.id)?,
         index_link_path: format!("tasks/{}.md", super::tag_model::task_handle(task)),
-        read_command: Some(format!("codeterm plan task show {} {}", plan.id, task.id)),
+        read_command: Some(format!("domios plan task show {} {}", plan.id, task.id)),
     })
 }
 

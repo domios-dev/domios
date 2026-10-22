@@ -82,7 +82,7 @@ pub const REPORT_NEXT_COMMANDS: &[&str] = &[
     "git status --short",
     "git add <files>",
     "git commit -m \"<message>\"",
-    "cat > \"$(codeterm pad path)/report.md\" <<'EOF'",
+    "cat > \"$(domios pad path)/report.md\" <<'EOF'",
     "STATUS: in_review",
     "CHANGES: files touched or 'none'",
     "TESTS RUN: exact isolated commands with counts and raw exits, or 'none'",
@@ -90,16 +90,16 @@ pub const REPORT_NEXT_COMMANDS: &[&str] = &[
     "GATES REQUESTED: exact deferred selectors for canonical QA, or 'none'",
     "FOLLOWUP: Orchestrator reviews and closes the task",
     "EOF",
-    "codeterm agent report --status in_review --sha YOUR_OWN_COMMIT_SHA --from-pad report.md",
+    "domios agent report --status in_review --sha YOUR_OWN_COMMIT_SHA --from-pad report.md",
     "# work in progress instead:",
-    "cat > \"$(codeterm pad path)/report.md\" <<'EOF'",
+    "cat > \"$(domios pad path)/report.md\" <<'EOF'",
     "STATUS: partial",
     "CHANGES: completed progress",
     "TESTS RUN: executed isolated checks, or 'none'",
     "GATES REQUESTED: none",
     "FOLLOWUP: exact remaining work",
     "EOF",
-    "codeterm agent report --status partial --from-pad report.md",
+    "domios agent report --status partial --from-pad report.md",
 ];
 
 impl ReportRefusal {
@@ -424,7 +424,7 @@ fn unresolved_lane_refusal() -> ReportRefusal {
             "{UNRESOLVED_LANE_REFUSAL_PREFIX}. This task requires a \
                  repository but no lane worktree is bound to your report, so the provided --sha \
                  cannot be validated against your own lane HEAD (never against the canonical \
-                 checkout). Re-dispatch this task with `codeterm plan task dispatch`, or report \
+                 checkout). Re-dispatch this task with `domios plan task dispatch`, or report \
                  with explicit `--plan <plan> --task <task>` so your lane is resolved."
         ),
         dirty_files: Vec::new(),

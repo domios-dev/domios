@@ -167,10 +167,8 @@ fn worker_prompt_orders_identity_context_task_commands_and_skill_fallback() {
     let agent_pad = task.find(crate::prompts::AGENT_PAD_RULE.trim()).unwrap();
     let assignment = task.find("## Assignment").unwrap();
     let brief = task.find("# Repair delivery").unwrap();
-    let ack = task.find("codeterm agent ack").unwrap();
-    let report = task
-        .find("codeterm agent report --status in_review")
-        .unwrap();
+    let ack = task.find("domios agent ack").unwrap();
+    let report = task.find("domios agent report --status in_review").unwrap();
     assert!(identity < primer && primer < context);
     assert!(context < agent_pad && agent_pad < assignment && assignment < brief);
     assert!(ack < brief && brief < report);

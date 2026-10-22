@@ -22,7 +22,7 @@ const REQUIRED_PLATFORMS = [
 ];
 
 const MANIFEST_URL =
-  "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.8/latest.json?cb=1";
+  "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.8/domios-latest.json?cb=1";
 
 const PASSING = {
   verified: true,
@@ -112,7 +112,7 @@ test("closure is refused when the verification ran without a cache-buster", () =
       ...PASSING,
       cache_busted: false,
       manifest:
-        "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.8/latest.json",
+        "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.8/domios-latest.json",
     });
     assert.equal(result.code, 1, result.output);
     assert.match(result.output, /without a cache-buster/);
@@ -128,7 +128,7 @@ test("closure is refused when the verification belongs to a previous release", (
       ...PASSING,
       version: "1.10.7",
       manifest:
-        "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.7/latest.json?cb=1",
+        "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.7/domios-latest.json?cb=1",
     });
     assert.equal(result.code, 1, result.output);
     assert.match(result.output, /belongs to v1\.10\.7/);
@@ -165,7 +165,7 @@ test("closure is refused when the record cites no release-scoped manifest URL", 
   try {
     // A record that cannot say which release it verified is ambiguous, and
     // ambiguous evidence must not certify a release.
-    const result = check(dir, { ...PASSING, manifest: "https://example.invalid/latest.json?cb=1" });
+    const result = check(dir, { ...PASSING, manifest: "https://example.invalid/domios-latest.json?cb=1" });
     assert.equal(result.code, 1, result.output);
     assert.match(result.output, /does not cite a release-scoped manifest URL/);
   } finally {
@@ -179,7 +179,7 @@ test("closure is refused when the record cites another release's manifest", () =
     const result = check(dir, {
       ...PASSING,
       manifest:
-        "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.7/latest.json?cb=1",
+        "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.7/domios-latest.json?cb=1",
     });
     assert.equal(result.code, 1, result.output);
     assert.match(result.output, /served from the v1\.10\.7 release/);
@@ -239,7 +239,7 @@ test("a version segment in an arbitrary path is not a release citation", () => {
   try {
     const result = check(dir, {
       ...PASSING,
-      manifest: "https://example.invalid/arbitrary/v1.10.8/latest.json?cb=1",
+      manifest: "https://example.invalid/arbitrary/v1.10.8/domios-latest.json?cb=1",
     });
     assert.equal(result.code, 1, result.output);
     assert.match(result.output, /does not cite a release-scoped manifest URL/);
@@ -254,7 +254,7 @@ test("a manifest cited from the private source repo is not public release eviden
     const result = check(dir, {
       ...PASSING,
       manifest:
-        "https://github.com/rollacode/codeterm/releases/download/v1.10.8/latest.json?cb=1",
+        "https://github.com/rollacode/codeterm/releases/download/v1.10.8/domios-latest.json?cb=1",
     });
     assert.equal(result.code, 1, result.output);
     assert.match(result.output, /does not cite a release-scoped manifest URL/);
@@ -274,7 +274,7 @@ test("an rc tag is a valid citation for its own version", () => {
         ...PASSING,
         version: "1.10.8-rc1",
         manifest:
-          "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.8-rc1/latest-rc.json?cb=1",
+          "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.8-rc1/domios-latest-rc.json?cb=1",
       }, "rc.json"),
       "--version", "1.10.8-rc1",
       "--issue", "55",

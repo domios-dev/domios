@@ -11,7 +11,8 @@ import { typedGraph } from "../Automation/blueprintModel.testdata";
 import { createAutomationCamera } from "../Automation/useAutomationViewport";
 
 const fakes = vi.hoisted(() => ({ fit: vi.fn(), zoom: vi.fn(), fly: vi.fn(), animate: vi.fn(), zoomIn: vi.fn(), zoomOut: vi.fn() }));
-vi.mock("./useCanvasViewport", () => ({
+vi.mock("@codeterm/canvas-camera", async (original) => ({
+  ...await original<typeof import("@codeterm/canvas-camera")>(),
   formatLayerTransform: () => "",
   useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, fitToView: fakes.fit, animateToView: fakes.fly, zoomBy: fakes.zoom }),
 }));

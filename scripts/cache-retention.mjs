@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { collectCargoBuilds, mapCheckouts, trimBuildDirectories } from './cargo-build-gc.mjs';
+import { trimLaneTargets } from './lane-target-gc.mjs';
 
 const DAY = 86400000;
 const markerName = '.codeterm-cache.json';
@@ -147,6 +148,10 @@ export function retain(gateway, checkout, { dryRun = false, automatic = false, n
   if (sweep) {
     sweepCheckout(checkout, dryRun, maxAgeDays, runner);
     trimCheckoutBuilds(checkout, dryRun, runner);
+    const common = runner('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: checkout, encoding: 'utf8' });
+    if (common.status === 0 && typeof common.stdout === 'string' && path.isAbsolute(common.stdout.trim())) {
+      reclaimed += trimLaneTargets(path.dirname(common.stdout.trim()), { checkout, dryRun, maxAgeDays, now, runner, log });
+    } else log('lane target trim refused: canonical checkout unavailable');
   }
   if (!dryRun) writeJson(stamp, { lastRun: now });
   log(`${dryRun ? 'would reclaim' : 'reclaimed'} ${reclaimed} exceptional bytes`);

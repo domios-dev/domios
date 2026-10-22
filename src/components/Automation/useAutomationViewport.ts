@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { useCanvasViewport, viewportShowsBounds, type ViewportBox, type ViewportTransform } from "../Canvas/useCanvasViewport";
+import { useCanvasViewport, viewportShowsBounds, type ViewportBox, type ViewportTransform } from "@codeterm/canvas-camera";
 import { frameBlueprint, type BlueprintLayout, type CanvasSize } from "./blueprintLayout";
 
 /** Camera and selection owned by the opener, so closing and reopening a Blueprint returns to the same view. */

@@ -62,6 +62,12 @@ The composer field row and its round controls agree through `--ct-composer-contr
 
 On phone-width shells, the NarrowExpand presentation starts with the context header folded. A glass pill above the composer shows the plan or linked kind, linked count, expand affordance and attention indication when needed. Tapping unfolds the existing header and its kind strips inside the capsule; starting a draft folds it again. Stop remains a reachable round control on the opposite side. Desktop retains the inline header. This is one context component with responsive presentation, not a duplicate phone implementation. Sources: `src/components/Terminal/ComposerContextHeader.tsx`, `src/components/Terminal/composerContext.css`, `src/styles/agent-state.css`, `src/hooks/useSidebarViewport.ts`, and `src/lib/shellBreakpoint.ts`.
 
+### Composer mentions
+
+Typing `@` searches at the caret and inserts readable plain text: task keys, or a name followed by a stable tab, plan or Blueprint reference. Sent messages render those references as chips; the input remains a textarea. Sources receive the composing tab's scope. Team tabs search their Team's active plans and visible Team/workspace Blueprints; independent tabs search team-less active plans in their workspace's project and workspace Blueprints. Other Teams' tasks and Blueprints never enter Team suggestions, and archived or completed plans stay hidden.
+
+Tab suggestions rank the same Team, then workspace, then other workspaces and attached mesh tabs in labelled groups. Cross-Team tabs are allowed, but appear in a distinct Other Teams group instead of the own-workspace group; plans, tasks and Blueprints remain strictly scoped. Within each tier agents precede shells, then exact, prefix and fuzzy matches; an exact title or id takes precedence over proximity. Tasks rank in progress, in review, blocked, pending/paused, done, then cancelled; an exact key takes precedence within the permitted scope. Escape, outside press and the close control preserve the draft and keep that token dismissed until a new `@` or backspace into the token. On phones the picker prefers the space above the composer and keyboard, uses touch-sized rows and scrolls internally; a short upper pane falls back to the useful side.
+
 ### One way back
 
 A view or detail has one way back: the shared `BackPill`, a `ct-bar-pill` with a chevron and visible "Back". Its accessible name identifies the destination. Returning follows the place the view was opened from, represented by `returnTo`, rather than forcing a visit to an intermediate hub. Jobs opened directly in Settings leaves Settings when the user returns.
@@ -125,7 +131,7 @@ The table records the classes of inconsistency found in a sweep of every surface
 
 | Surface | Problem | Rule |
 |---|---|---|
-| Chat command rows | A `codeterm plugin` call rendered as its CLI path and the plugin id ("plugin get lmstudio") | 1 |
+| Chat command rows | A `domios plugin` call rendered as its CLI path and the plugin id ("plugin get lmstudio") | 1 |
 | Chat message origin | A plugin's message header fell back to the plugin id when the message carried no label | 1 |
 | Chat removed-plugin state | Two unstyled paragraphs, with the plugin id as the headline | 1, 8 |
 | Settings, agent providers grid | Every provider card's subtitle was its id, repeating the name in machine form | 1 |

@@ -42,6 +42,7 @@ async function makeStage(parent, platform = 'linux-x86_64') {
   const payload = new Map([
     ['domios-server/' + metadata.server, serverBytes],
     ['cli/' + metadata.cli, text('synthetic CLI executable bytes')],
+    ['cli/' + metadata.cli.replace('codeterm', 'domios'), text('synthetic CLI executable bytes')],
     ['dist/index.html', text('<html><head><link rel="stylesheet" href="/assets/site.css"></head><body><script type="module" src="/assets/main.js"></script></body></html>')],
     ['dist/assets/main.js', text('synthetic frontend javascript')],
     ['dist/assets/site.css', text('synthetic frontend stylesheet')],
@@ -118,6 +119,22 @@ const expectedTargets = {
   'windows-aarch64': 'aarch64-pc-windows-msvc',
   'windows-x86_64': 'x86_64-pc-windows-msvc',
 };
+
+for (const platform of Object.keys(HEADLESS_TARGETS)) {
+  test(`${platform} requires both CLI names with identical executable bytes`, async t => withTemp(t, async root => {
+    const { stageDirectory, metadata } = await makeStage(root, platform);
+    const options = { stageDirectory, target: metadata.target, ...identity };
+    const validated = await validateHeadlessStage(options);
+    const primary = validated.files.find(file => file.path === `cli/${metadata.cli.replace('codeterm', 'domios')}`);
+    assert.equal(primary.mode, 0o755);
+    await writeFile(path.join(stageDirectory, primary.path), 'different CLI binary');
+    await rewriteInventory(stageDirectory, platform, metadata);
+    await assert.rejects(validateHeadlessStage(options), /CLI aliases must contain identical bytes/);
+    await unlink(path.join(stageDirectory, primary.path));
+    await rewriteInventory(stageDirectory, platform, metadata);
+    await assert.rejects(validateHeadlessStage(options), /required headless payload is missing/);
+  }));
+}
 
 test('finite target mapping and headless asset names preserve platform identity', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(HEADLESS_TARGETS).map(([platform, value]) => [platform, value.target])), expectedTargets);

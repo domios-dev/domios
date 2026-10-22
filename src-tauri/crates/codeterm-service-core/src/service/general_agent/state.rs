@@ -366,7 +366,7 @@ mod tests {
         );
         write_jsonl(
             &worker,
-            r#"{"type":"user","message":{"content":"codeterm agent report haiku facts done\nGPU facts"}}"#,
+            r#"{"type":"user","message":{"content":"domios agent report haiku facts done\nGPU facts"}}"#,
         );
 
         let mut candidates = vec![
@@ -394,7 +394,7 @@ mod tests {
         let worker = dir.path().join("worker.jsonl");
         write_jsonl(
             &worker,
-            r#"{"type":"user","message":{"content":"codeterm agent report haiku facts done\nGPU facts"}}"#,
+            r#"{"type":"user","message":{"content":"domios agent report haiku facts done\nGPU facts"}}"#,
         );
 
         let mut candidates = vec![SessionCandidate {

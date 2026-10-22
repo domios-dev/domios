@@ -124,7 +124,7 @@ impl ServiceContext {
             if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
                 tab.shell_profile = profile.clone();
             }
-            self.restart_shell_tab(tab_id, resolved_cwd.clone())?;
+            self.restart_shell_tab(tab_id, resolved_cwd.clone(), None)?;
         }
         let gate = self.limit_gate();
         let tab_id = {

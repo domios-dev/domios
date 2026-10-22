@@ -23,7 +23,7 @@ graph TD
   pty --> detect
   plugin --> cli
   types --> cli
-  app[codeterm app crate: 515k lines, 194k of them tests] --> plugin
+  app[domios app crate: 515k lines, 194k of them tests] --> plugin
   app --> pty
   app --> plan
   app --> mem

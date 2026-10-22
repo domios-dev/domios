@@ -119,7 +119,12 @@ impl ServiceContext {
         let current = account.session().await;
         snapshot_off_runtime(billing, current).await
     }
-    pub async fn billing_open(&self, plan: Option<&str>) -> Result<(), String> {
+    /// `theme` applies to checkout only; the portal is Paddle's own page.
+    pub async fn billing_open(
+        &self,
+        plan: Option<&str>,
+        theme: Option<codeterm_billing::CheckoutTheme>,
+    ) -> Result<(), String> {
         let session = self
             .account()
             .await?
@@ -130,7 +135,12 @@ impl ServiceContext {
         let (url, checkout_key) = match plan {
             Some(key) => {
                 let key = codeterm_billing::CheckoutKey::parse(key)?;
-                (billing.checkout_url(&session, key).await?, Some(key))
+                let url = billing.checkout_url(&session, key).await?;
+                let url = match theme {
+                    Some(theme) => codeterm_billing::checkout_url_with_theme(url, theme),
+                    None => url,
+                };
+                (url, Some(key))
             }
             None => (billing.portal_url(&session).await?, None),
         };

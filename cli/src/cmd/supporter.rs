@@ -19,7 +19,7 @@ pub(super) fn read_token(mut input: impl Read, is_terminal: bool) -> Result<Stri
     if is_terminal {
         return Err(
             "refusing to read the token from a terminal; pipe it in, e.g. \
-             `pbpaste | codeterm supporter token set`"
+             `pbpaste | domios supporter token set`"
                 .into(),
         );
     }
@@ -153,7 +153,7 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
             emit(json_mode, &selected, |value| {
                 if value["state"] == "saved_not_active" {
                     return format!(
-                        "saved, not active: {}. Retry with codeterm supporter use {}\n",
+                        "saved, not active: {}. Retry with domios supporter use {}\n",
                         adapter, adapter
                     );
                 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
-import { freeLimitGate } from "../billing/freeLimitGate";
+import { freeLimitGate, upgradePlan } from "../billing/freeLimitGate";
 import { accountPlanModel, manageActionForPlan, type AccountPlan, type PlanModel } from "./accountPlanModel";
 
 async function fetchPlan(focus: boolean, signal?: AbortSignal): Promise<PlanModel> {
@@ -10,32 +10,44 @@ async function fetchPlan(focus: boolean, signal?: AbortSignal): Promise<PlanMode
   return accountPlanModel(await response.json() as AccountPlan);
 }
 
-async function openBilling(action: "upgrade" | "portal", planKey?: string) {
-  const response = await localFetch(`/api/account/${action}`,{method:"POST",...(action === "upgrade" ? {headers:{"Content-Type":"application/json"},body:JSON.stringify({plan:planKey})} : {})});
+async function openPortal() {
+  const response = await localFetch("/api/account/portal",{method:"POST"});
   if (!response.ok) throw new Error(await response.text());
 }
 
+export type PlanLoad = "loading" | "ready" | "failed";
+
+interface LoadedPlan {
+  key: string | null;
+  plan: PlanModel | null;
+  failed: boolean;
+}
+
 export function useAccountPlan(identityKey: string | null) {
-  const [plan, setPlan] = useState<PlanModel | null>(null);
+  const [loaded, setLoaded] = useState<LoadedPlan>({ key: identityKey, plan: null, failed: false });
   const [pending, setPending] = useState(false);
   const busy = useRef(false);
   const loading = useRef<Promise<PlanModel | null>>(Promise.resolve(null));
   const active = useRef(0);
+  // A plan loaded for another identity is never shown, even for the render before the reload starts.
+  const plan = loaded.key === identityKey ? loaded.plan : null;
+  const planLoad: PlanLoad = plan ? "ready" : loaded.key === identityKey && loaded.failed ? "failed" : "loading";
   useEffect(() => {
     const generation = ++active.current;
     const controller = new AbortController();
-    setPlan(null);
+    setLoaded({ key: identityKey, plan: null, failed: false });
     async function refresh(focus = false): Promise<PlanModel | null> {
       try {
         const current = await fetchPlan(focus, controller.signal);
         if (active.current === generation) {
           freeLimitGate.setLimits(current.limits);
-          setPlan(current);
+          setLoaded({ key: identityKey, plan: current, failed: false });
         }
         return current;
       } catch (failure: unknown) {
         if (!controller.signal.aborted && active.current === generation) {
           if (DEV_BUILD) console.debug("Background account plan refresh failed", failure);
+          setLoaded((previous) => previous.plan ? previous : { key: identityKey, plan: null, failed: true });
         }
         return null;
       }
@@ -50,7 +62,7 @@ export function useAccountPlan(identityKey: string | null) {
     if (known) return known;
     const generation = active.current;
     const fresh = await fetchPlan(false);
-    if (active.current === generation) setPlan(fresh);
+    if (active.current === generation) setLoaded({ key: identityKey, plan: fresh, failed: false });
     return fresh;
   }
   async function run(action: () => Promise<void>): Promise<unknown | null> {
@@ -69,10 +81,11 @@ export function useAccountPlan(identityKey: string | null) {
   }
   return {
     plan,
+    planLoad,
     pending,
-    upgrade: (planKey: string) => run(() => openBilling("upgrade", planKey)),
+    upgrade: (planKey: string) => run(() => upgradePlan(planKey)),
     manage: (openPlans: () => void) => run(async () => {
-      if (manageActionForPlan(await knownPlan()) === "portal") await openBilling("portal");
+      if (manageActionForPlan(await knownPlan()) === "portal") await openPortal();
       else openPlans();
     }),
   };

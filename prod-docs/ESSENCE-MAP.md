@@ -4,7 +4,7 @@ The essence map is a compact, source-backed inventory for agents reasoning about
 
 ## Generate and validate
 
-From a repository root, generate the map with `codeterm essence-map generate --root .`. The command derives map nodes and edges only from `essences/capabilities.md` and `essences/core.md`, then writes `essences/map.jsonl`; it never treats hand-drawn map content as authoritative. Every other root-level stable essence must carry one fenced `map` block with a non-empty `anchors:` list naming nodes from those inventories. Both generation and validation check those anchors. Validate the generated map and decision log with `codeterm essence-map validate --root .`. Generation and validation run only in the canonical checkout: a linked worktree is refused with a clear error, because a map written there is a copy, not the project's map.
+From a repository root, generate the map with `domios essence-map generate --root .`. The command derives map nodes and edges only from `essences/capabilities.md` and `essences/core.md`, then writes `essences/map.jsonl`; it never treats hand-drawn map content as authoritative. Every other root-level stable essence must carry one fenced `map` block with a non-empty `anchors:` list naming nodes from those inventories. Both generation and validation check those anchors. Validate the generated map and decision log with `domios essence-map validate --root .`. Generation and validation run only in the canonical checkout: a linked worktree is refused with a clear error, because a map written there is a copy, not the project's map.
 
 ## Element ids and the source grammar
 
@@ -32,13 +32,13 @@ The declared core root is the project's own root: every core part is `part_of` i
 
 ## The decision journal
 
-`codeterm essence-map record --summary "<what changed>" --reason "<why>"` appends the next decision for the map as it stands. A map whose digest already matches the last decision records nothing, so regenerating an unchanged map is silent and the log stays a record of changes rather than of runs.
+`domios essence-map record --summary "<what changed>" --reason "<why>"` appends the next decision for the map as it stands. A map whose digest already matches the last decision records nothing, so regenerating an unchanged map is silent and the log stays a record of changes rather than of runs.
 
-Generation keeps the bytes it replaces under the Domios data directory's `map-history/<project-key>/<digest>.jsonl`, content-addressed, so a recorded decision can still be restored later without adding files to the repository. `codeterm essence-map revert --to decision-N` puts that map back and appends a further decision for the revert; the log is never rewritten. The project key is derived from the canonical project root, and a map is always regenerable from its essences.
+Generation keeps the bytes it replaces under the Domios data directory's `map-history/<project-key>/<digest>.jsonl`, content-addressed, so a recorded decision can still be restored later without adding files to the repository. `domios essence-map revert --to decision-N` puts that map back and appends a further decision for the revert; the log is never rewritten. The project key is derived from the canonical project root, and a map is always regenerable from its essences.
 
 ## One summary at a release
 
-`codeterm essence-map release-summary [--since decision-N]` composes the single owner-facing report for a release: every decision after the baseline, the current map digest, and exactly two choices — keep the generated map, or revert to the baseline. The map is never announced per change; the owner hears about it once, here, and the revert choice is the one question asked.
+`domios essence-map release-summary [--since decision-N]` composes the single owner-facing report for a release: every decision after the baseline, the current map digest, and exactly two choices — keep the generated map, or revert to the baseline. The map is never announced per change; the owner hears about it once, here, and the revert choice is the one question asked.
 
 ## Who authors the map
 
@@ -49,9 +49,9 @@ The workspace Map view also offers Create map and Refresh map on explicit owner 
 Explicit owner requests may attach a Cartographer at any time:
 
 ```bash
-codeterm team attach-cartographer <team> --provider <provider> --brief-file <path>
+domios team attach-cartographer <team> --provider <provider> --brief-file <path>
 ```
 
 The UTF-8 file is carried verbatim; `-` reads stdin. Add `--model` using the provider's published catalogue when desired. An already attached Cartographer receives the brief instead of spawning a second one.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

@@ -15,7 +15,7 @@ fn missing_cli_is_refused_before_an_empty_launch_command() {
         .err()
         .unwrap();
     assert!(
-        error.contains("codeterm agent cli install missing-launch"),
+        error.contains("domios agent cli install missing-launch"),
         "{error}"
     );
     assert!(

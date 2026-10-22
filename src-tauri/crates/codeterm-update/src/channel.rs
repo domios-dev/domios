@@ -5,23 +5,23 @@ use super::InstallMethod;
 
 pub fn manifest_filename(c: Channel) -> &'static str {
     match c {
-        Channel::Stable => "latest.json",
-        Channel::Rc => "latest-rc.json",
-        Channel::Nightly => "latest-nightly.json",
+        Channel::Stable => "domios-latest.json",
+        Channel::Rc => "domios-latest-rc.json",
+        Channel::Nightly => "domios-latest-nightly.json",
     }
 }
 
 pub fn manifest_filename_for_install_method(c: Channel, method: &InstallMethod) -> &'static str {
     match method {
         InstallMethod::Deb => match c {
-            Channel::Stable => "latest-deb.json",
-            Channel::Rc => "latest-rc-deb.json",
-            Channel::Nightly => "latest-nightly-deb.json",
+            Channel::Stable => "domios-latest-deb.json",
+            Channel::Rc => "domios-latest-rc-deb.json",
+            Channel::Nightly => "domios-latest-nightly-deb.json",
         },
         InstallMethod::Rpm => match c {
-            Channel::Stable => "latest-rpm.json",
-            Channel::Rc => "latest-rc-rpm.json",
-            Channel::Nightly => "latest-nightly-rpm.json",
+            Channel::Stable => "domios-latest-rpm.json",
+            Channel::Rc => "domios-latest-rc-rpm.json",
+            Channel::Nightly => "domios-latest-nightly-rpm.json",
         },
         _ => manifest_filename(c),
     }
@@ -53,67 +53,4 @@ pub fn immutable_endpoint_for_release(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn manifest_filename_mapping() {
-        assert_eq!(manifest_filename(Channel::Stable), "latest.json");
-        assert_eq!(manifest_filename(Channel::Rc), "latest-rc.json");
-        assert_eq!(manifest_filename(Channel::Nightly), "latest-nightly.json");
-    }
-
-    #[test]
-    fn package_install_methods_use_package_specific_manifests() {
-        assert_eq!(
-            manifest_filename_for_install_method(Channel::Stable, &InstallMethod::Deb),
-            "latest-deb.json"
-        );
-        assert_eq!(
-            manifest_filename_for_install_method(Channel::Rc, &InstallMethod::Deb),
-            "latest-rc-deb.json"
-        );
-        assert_eq!(
-            manifest_filename_for_install_method(Channel::Nightly, &InstallMethod::Rpm),
-            "latest-nightly-rpm.json"
-        );
-        assert_eq!(
-            manifest_filename_for_install_method(Channel::Stable, &InstallMethod::AppImage),
-            "latest.json"
-        );
-    }
-
-    #[test]
-    fn default_endpoints_format() {
-        let stable = default_endpoints(Channel::Stable);
-        assert_eq!(stable.len(), 1);
-        assert_eq!(
-            stable[0],
-            "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json"
-        );
-
-        let rc = default_endpoints(Channel::Rc);
-        assert!(rc[0].ends_with("/latest-rc.json"));
-
-        let nightly = default_endpoints(Channel::Nightly);
-        assert!(nightly[0].ends_with("/latest-nightly.json"));
-
-        let deb = default_endpoints_for_install_method(Channel::Stable, &InstallMethod::Deb);
-        assert_eq!(
-            deb[0],
-            "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest-deb.json"
-        );
-    }
-
-    #[test]
-    fn immutable_endpoint_pins_the_discovered_release() {
-        assert_eq!(
-            immutable_endpoint_for_release("v1.7.7", Channel::Stable, &InstallMethod::Nsis),
-            "https://github.com/rollacode/codeterm-releases/releases/download/v1.7.7/latest.json"
-        );
-        assert_eq!(
-            immutable_endpoint_for_release("v1.7.7", Channel::Stable, &InstallMethod::Deb),
-            "https://github.com/rollacode/codeterm-releases/releases/download/v1.7.7/latest-deb.json"
-        );
-    }
-}
+mod tests;

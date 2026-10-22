@@ -136,6 +136,8 @@ pub struct CuratorRound {
     #[serde(default)]
     pub learn: Vec<String>,
     #[serde(default)]
+    pub next_checks: Vec<String>,
+    #[serde(default)]
     pub ready: Option<String>,
     pub number: u64,
     pub started_at: u64,

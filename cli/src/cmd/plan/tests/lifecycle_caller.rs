@@ -382,7 +382,7 @@ fn plan_rebind_attempt_rpc_refusal_uses_the_shared_plan_error_renderer() {
     assert_eq!(client.calls.len(), 2);
     assert!(error.contains("stale_task_epoch"));
     assert!(error.contains("request owner epoch must equal the current task owner epoch"));
-    assert!(error.contains("codeterm plan task show pl_exact"));
+    assert!(error.contains("domios plan task show pl_exact"));
 }
 
 #[test]

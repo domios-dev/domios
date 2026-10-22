@@ -1,7 +1,5 @@
 # State, observability, and update API
 
-Secrets, sessions, web mirror, diagnostics, usage, logs, configuration, and update endpoints.
-
 ## Storage authority and recovery
 
 Each instance has one typed Storage owner for migrated desk, cron, and Blueprint state in `storage/state.db` beneath that instance's data directory. Storage opens before restore and schedulers start. Its one-time importer seals and verifies a copy of recognized legacy inputs under `storage/legacy-originals/`; it retains the original files and switches authority only after archive and semantic checks pass. A failed open, import, or verification leaves migrated state unavailable. Storage-dependent API operations return 503 with the Storage-unavailable error; they do not return or create an empty substitute.
@@ -43,16 +41,13 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | POST | `/api/session/save` | optional `{continue_tab, continue_prompt}` | Flush accepted desk writes through Storage. With `continue_tab`, the next start delivers one system continue to that tab (the supplied prompt or default) after its own resumed session is agent-ready; the response reports `registered` or a refusal reason (`no_agent_session`, `no_pty_agent_session`). A snapshot that would drop workspaces or tabs from the committed desk is refused unless it carries authorized-reduction intent; the committed desk remains authoritative. Storage errors are reported, never replaced by empty state. |
-| GET | `/api/session/backups` | — | List rotated full-desk backup projections from Storage, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `codeterm sessions backups list`. |
-| POST | `/api/session/backups/{name}/restore` | — | Additive desk recovery from one backup: recreates workspaces/tabs missing from the live desk under their original ids; existing ones are never modified or closed. Returns `{restored, workspaces_added, tabs_added, tabs_already_present}`; 404 for an unknown/invalid name. CLI: `codeterm sessions backups restore <name>`. |
+| GET | `/api/session/backups` | — | List rotated full-desk backup projections from Storage, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `domios sessions backups list`. |
+| POST | `/api/session/backups/{name}/restore` | — | Additive desk recovery from one backup: recreates workspaces/tabs missing from the live desk under their original ids; existing ones are never modified or closed. Returns `{restored, workspaces_added, tabs_added, tabs_already_present}`; 404 for an unknown/invalid name. CLI: `domios sessions backups restore <name>`. |
 
 Authenticated snapshot exchange: `GET /api/session/backups/{name}/export`
 accepts `latest` or a backup timestamp and returns a sanitized desk, Plan store,
 filler histories, size evidence and hidden-tab metadata. CLI:
-`codeterm sessions backups export latest --sanitize --out /tmp/desk.json`.
-`POST /api/session/backups/import` replaces a disposable named `upgrade-restore-*`
-DEV desk without PTYs; PROD refuses it. CLI: `codeterm sessions backups import --file /tmp/desk.json`.
-Import returns `{imported_tabs, restart_required, boot_id}`; `/api/health` boot_id proves a subsequent restart.
+`domios sessions backups export latest --sanitize --out /tmp/desk.json`.
 
 #### Web Mirror
 
@@ -70,7 +65,7 @@ Import returns `{imported_tabs, restart_required, boot_id}`; `/api/health` boot_
 | POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
 | POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
 
-Published reads, coalesced refresh and stream event order: `codeterm docs API-EVENTS`.
+Published reads, coalesced refresh and stream event order: `domios docs API-EVENTS`.
 
 #### Debug (test-only capabilities)
 | Method | Path | Body / Query | Description |
@@ -89,7 +84,7 @@ Per-provider usage snapshots come from each provider plugin's quota-free `fetchU
 | GET | `/api/usage/rollup/daily` | `?provider=…&since=<ms>&account_id=…` | Per-day max-used aggregates for the history chart. |
 | GET | `/api/usage/projection` | `?provider=…&account_id=…` | Median-baseline projection: per-DOW shape + scale + overspend ETA. |
 | POST | `/api/usage/refresh` | `{provider, account_id?}` | Trigger an out-of-band probe immediately. Returns `{queued, probe_id}`; `503` if the poller is not running. |
-| POST | `/api/usage/ledger/rebuild` | — | Re-derive KPI `token_usage` rows from the transcript behind every recorded usage cursor: one row per provider response, charged to the tab and plan of the rows it replaces. Idempotent. Returns `{sources, missing_sources, responses, legacy_rows_removed, unattributed_responses}`; `503` when the KPI ledger is not recording. CLI: `codeterm usage rebuild-ledger`. |
+| POST | `/api/usage/ledger/rebuild` | — | Re-derive KPI `token_usage` rows from the transcript behind every recorded usage cursor: one row per provider response, charged to the tab and plan of the rows it replaces. Idempotent. Returns `{sources, missing_sources, responses, legacy_rows_removed, unattributed_responses}`; `503` when the KPI ledger is not recording. CLI: `domios usage rebuild-ledger`. |
 
 Usage refresh is quota-free, rebuild is idempotent, projections are estimates, and unsupported providers have no automatic usage probe.
 
@@ -119,29 +114,7 @@ The scan is bounded, not exhaustive. Each provider orders its sessions by recenc
 
 Nothing is skipped silently. `warnings` lists, per provider, the sessions it could not fully search: `{provider, reason, sessions, message}`, where `reason` is `no_content_source`, `over_byte_cap`, `unreadable`, `content_truncated` (a store session searched only in its newest 8 MiB), or `scan_failed`. The CLI prints each `message` after the hits, also when nothing matched.
 
-Response shape:
-```json
-{
-  "hits": [
-    {
-      "meta": {
-        "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
-        "provider": "claude",
-        "project_path": "/Users/me/code/foo",
-        "title": null,
-        "summary": null,
-        "file_path": "/Users/me/.claude/projects/-Users-me-code-foo/0193e1a4-....jsonl",
-        "created_ts": 1744300000,
-        "modified_ts": 1744387200
-      },
-      "snippets": [
-        {"role": "user", "text": "…fix the webpack config so HMR works…", "ts": 1744300050}
-      ],
-      "match_count": 4
-    }
-  ]
-}
-```
+Search hits contain session metadata (ID, provider, project path, title, summary, file path, creation/modification timestamps), snippets (role, text, timestamp) and match count, alongside the warnings above.
 
 **GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Each provider answers from its own per-session record; session history is never enumerated, so the cost does not grow with the number of stored sessions. Returns `404` if no provider knows it (gone from disk, never existed, wrong machine).
 
@@ -196,34 +169,32 @@ toast or a push channel on is a capability the user never granted by typing a
 config key. Two shapes are refused with `403`: a dot-notation write naming any
 `notifications` path, and a partial merge carrying a `notifications` section from
 a caller that sent `X-CodeTerm-Tab-Id` (i.e. from inside a tab). An agent OFFERS
-the change instead — `codeterm notify send --offer <surface> --offer-accept <label>`
+the change instead — `domios notify send --offer <surface> --offer-accept <label>`
 — and it applies only when that label is tapped.
 
 #### Updates
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/update/check` | `?force=true` | Check for available updates on the active channel. Cached for 1 hour unless `force=true`. |
-| POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). `after_update` (optional) stashes a message to `~/.codeterm/post-update-message.txt`; the new daemon delivers it to the General tab after restart. Update application is single flight process-wide: a request arriving while another is applying is refused with `{"status":"already_in_flight"}`, which is distinct from `no_update`. |
-| GET | `/api/update/channel` | — | Returns the active diagnostic channel, currently `{"channel":"stable"}` on normal installs. |
-| POST | `/api/update/channel` | `{channel}` | Disabled while Domios ships only the default update channel; returns `409 update channel switching is disabled`. |
-| GET | `/api/update/status` | — | Current updater state and last update result |
+| GET | `/api/update/check` | `?force=true` | Check the active channel; cached for one hour unless forced. |
+| POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...&continue_tab=...` | Install as described below; without `auto`, requires a prior check and returns a package-manager command, browser URL, or `up_to_date`. |
+| GET | `/api/update/channel` | — | Active diagnostic channel: normally `{"channel":"stable"}`. |
+| POST | `/api/update/channel` | `{channel}` | Disabled; `409 update channel switching is disabled`. |
+| GET | `/api/update/status` | — | Updater progress plus durable `native_update` operation ID, sequence and outcome when readable. Unreadable handoffs are logged and omitted. |
 
-**Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — a wrong-key signature aborts the install before any binary is touched.
+Native auto-install uses stable, requires an attached application-host updater, returns `{"status":"updating"}` immediately and reports progress through status:
+1. Discover the release with a no-cache GitHub request and pin its immutable manifest. `manifest_url` overrides it; HTTPS is required.
+2. Download the platform artifact and verify its Ed25519 signature before installation. A wrong-key signature aborts before replacing binaries.
+3. The native client durably records the verified target, stops the exact attached server, installs and relaunches the pair.
+4. The replacement records `verified` only after enrollment with the expected instance, target version and matching client/server build. Interrupted operations never replay automatically.
 
-**Auto install flow (`method=auto`).** Auto-install returns `updating` immediately, then:
-1. Discovers the stable release with a no-cache GitHub request, then pins the install to that tag's immutable manifest. A `manifest_url` query override still takes precedence; non-HTTPS overrides require `dev-updater-allowlocal`.
-2. Downloads the selected platform artifact and verifies its signature before installing it.
-3. Shuts down gracefully and restarts the app.
-4. After restart, tabs with valid recorded provider sessions resume; stale or missing sessions launch fresh.
+After restart, valid recorded provider sessions resume; stale or missing sessions launch fresh. `continue_tab` must match the authenticated caller and uses its continuation owner. `after_update` persists the requester's message and identity for the General Agent continuation; failure to persist refuses installation.
 
-The HTTP response returns immediately (`{"status": "updating", "version": "..."}`); the app reports progress.
+**Debian:** `auto` downloads, verifies and privately stages the package, returning `elevation_required` with a `sudo dpkg -i` command on that file. In a terminal outside Domios, quit Domios, confirm it stopped, run that command and relaunch. `uitting inside a Domios tab terminates its shell, so quit is a separate step. Stop if quitting fails. The daemon never runs sudo. `after_update` is rejected for this manual flow.
 
-**Manual install fallback.** Without `method=auto`, the response carries either:
-- `{"status": "command", "command": "..."}` — for package-manager installs (Homebrew, Scoop) where running a shell command is the right action.
-- `{"status": "browser_opened", "url": "..."}` — for raw archive/installer downloads.
-- `{"status": "up_to_date"}` — when no update is available.
+**Outcomes:** HTTP 200: `updating`, `up_to_date`/`no_update`, `command` (Homebrew/Scoop), `browser_opened`, `already_in_flight`, `blocked` or `elevation_required`. The last two include an action reason. Applying is single flight across the process; `already_in_flight` differs from `no_update`. Debian staging contention returns 409.
+**Errors:** 400: invalid/disabled continuation, missing caller/prior check, or malformed channel; 500: blocking-worker or `update_handoff_write_failed`; 502: discovery, signature verification or staging failure; 503 `native_capability_unavailable`: no attached updater. Authentication/protocol middleware can refuse earlier. Install refusals log route, status and reason.
 
-**Errors:** `502 Failed to check for updates` when GitHub is unreachable; `400 Run check first` when `install` is called before `check` populated the cache; `400 invalid channel` on a malformed `channel` body.
+**Recovery:** use desktop Settings > Updates on macOS/Windows, or the official installer at https://github.com/rollacode/codeterm-releases/releases/latest with `domios update install --from-file <installer-path>`. Debian uses the verified staging flow above.
 
 ### Tab-scoped local previews
 
@@ -235,6 +206,6 @@ Read returns `{ "data": "...", "media_type": "..." }`; images use a base64 data 
 
 Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and a restrictive sandbox CSP. HTML is returned inside JSON and rendered in the existing sandboxed preview. Requests are capped at 120 per minute across these routes, four concurrent operations, 64 KiB request bodies and 128 paths per batch. Excess traffic returns `429`; oversized batches return `413`. Reveal in the OS and Open in the OS remain desktop-only.
 
-Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
+Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 29 -->
+<!-- revision: 35 -->

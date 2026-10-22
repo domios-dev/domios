@@ -67,6 +67,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             count,
             require_agent: _,
             to_shell: _,
+            system_context,
         } => {
             let mut stdin = std::io::stdin();
             if delay.is_some() || at.is_some() || every.is_some() || until.is_some() || count.is_some() {
@@ -75,7 +76,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     &mut stdin,
                 )
             } else {
-                send_text_to_api(text, tab, from_file, from_pad, *use_stdin, actions, &mut stdin)
+                send_text_to_api(
+                    text, tab, from_file, from_pad, *use_stdin, actions, system_context, &mut stdin,
+                )
             }
         }
         Commands::Delayed { action } => match action {
@@ -372,7 +375,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     return unsupported("remote tab restart does not support --timeout; ask an agent running on the target peer to restart the shell with --timeout");
                 }
                 if cmd.is_some() {
-                    return unsupported("remote tab restart does not support --cmd; restart then use codeterm tab exec");
+                    return unsupported("remote tab restart does not support --cmd; restart then use domios tab exec");
                 }
                 let id = tab.as_deref().unwrap_or("general");
                 (

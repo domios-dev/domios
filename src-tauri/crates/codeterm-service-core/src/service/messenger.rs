@@ -1,8 +1,6 @@
-//! Gateway for cross-tab / report / mesh deliveries. Routed PTY input carries a
-//! typed XML tag around a bracketed body paste; chatBackend keeps structured
-//! host-side transcript metadata.
-
+mod input;
 mod turn_resume;
+pub use input::{AgentInput, FramedDelivery, HumanInput, HumanKeys, LaunchBootstrap};
 
 use serde::{Deserialize, Serialize};
 
@@ -55,18 +53,7 @@ pub enum DeliveryWriteObserver {
     },
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(tag = "transport", rename_all = "snake_case")]
-pub enum QueuedAgentPayload {
-    Text {
-        text: String,
-    },
-    RoutedFrame {
-        opening_tag: String,
-        body: String,
-        suffix: String,
-    },
-}
+pub type QueuedAgentPayload = FramedDelivery;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentDeliveryPayload {
@@ -250,7 +237,7 @@ impl From<MessageEnvelope> for Messenger {
 
 impl Messenger {
     pub const AGENT_REPLY_HINT_PREFIX: &'static str = "[to reply, run: ";
-    pub const AGENT_REPLY_COMMAND: &'static str = "codeterm send";
+    pub const AGENT_REPLY_COMMAND: &'static str = "domios send";
     const SHELL_REPLY_HINT: &'static str = "[sender is a shell; reply here]";
     pub fn message(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
         MessageEnvelope::tab(from_name, from_tab).into()
@@ -309,6 +296,14 @@ impl Messenger {
             envelope: envelope.clone(),
         }
         .build()
+    }
+
+    pub(crate) fn delivery_frame(
+        &self,
+        target_is_agent: bool,
+        body: &str,
+    ) -> Option<FramedDelivery> {
+        target_is_agent.then(|| self.framed_delivery(body))
     }
 
     pub fn routed_frame(&self, body: &str) -> codeterm_wire::domios::DomiosFrame {
@@ -457,13 +452,16 @@ impl Messenger {
                     ),
             )
         };
-        log::debug!("[messenger] target={resolved_target} branch=pty agent={pty_agent_target} source_peer={:?}", envelope.peer);
+        log::debug!(
+            "[messenger] target={resolved_target} branch=pty agent={pty_agent_target} source_peer={:?}",
+            envelope.peer
+        );
         let entry = pty_submit_entry(envelope.kind);
         if envelope.kind == MessageKind::Message {
             super::provider_signals::warn_dispatch(svc, &envelope.from_tab, &resolved_target);
         }
         let messenger = Self::from(envelope.clone());
-        let routed_frame = should_prefix.then(|| messenger.routed_frame(body));
+        let routed_frame = messenger.delivery_frame(should_prefix, body);
         let text = if let Some(frame) = &routed_frame {
             frame.to_message()
         } else {
@@ -471,13 +469,10 @@ impl Messenger {
         };
         let (prepared_body, pad_file) =
             svc.substitute_paste_limited_body(&resolved_target, body.to_string(), text.len())?;
-        let routed_frame = routed_frame.map(|mut frame| {
-            frame.body = prepared_body.clone();
-            frame
-        });
+        let routed_frame = routed_frame.map(|frame| frame.with_body(prepared_body.clone()));
         let text = routed_frame
             .as_ref()
-            .map(codeterm_wire::domios::DomiosFrame::to_message)
+            .map(FramedDelivery::to_message)
             .unwrap_or(prepared_body);
         let relay_id = svc.prepare_reply_relay(
             &resolved_target,
@@ -492,14 +487,8 @@ impl Messenger {
                 let delivery =
                     crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |_| {
                         if pty_agent_target {
-                            let transport = match routed_frame {
-                                Some(frame) => QueuedAgentPayload::RoutedFrame {
-                                    opening_tag: frame.opening_tag,
-                                    body: frame.body,
-                                    suffix: frame.suffix,
-                                },
-                                None => QueuedAgentPayload::Text { text: text.clone() },
-                            };
+                            let transport =
+                                routed_frame.ok_or("agent delivery requires a routed frame")?;
                             svc.deliver_agent_payload(
                                 &resolved_target,
                                 AgentDeliveryPayload {
@@ -518,7 +507,10 @@ impl Messenger {
                                 &text,
                             )
                         } else {
-                            if let Err(error) = svc.send_text(&resolved_target, &text) {
+                            if let Err(error) = svc.send_text(
+                                &resolved_target,
+                                &svc.programmatic_input(&resolved_target, &text),
+                            ) {
                                 if !crate::service::delivery_error::DeliveryError::from_opaque(
                                     &resolved_target,
                                     error.clone(),
@@ -598,20 +590,16 @@ impl Messenger {
             let observer = envelope.delivery_observer.clone();
             let idempotency_key = envelope.id.clone().or(Some(message_id.clone()));
             let messenger = Self::from(envelope);
-            let mut frame = messenger.routed_frame(body);
+            let frame = messenger.framed_delivery(body);
             let wrapped = frame.to_message();
             let (body, _pad_file) =
                 svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
-            frame.body = body;
+            let frame = frame.with_body(body);
             let text = frame.to_message();
             let pty_id = svc.resolve_pty_id(to_tab)?;
             let payload = AgentDeliveryPayload {
                 trace_id: crate::flow_trace::envelope_flow(svc, to_tab, &messenger.envelope),
-                transport: QueuedAgentPayload::RoutedFrame {
-                    opening_tag: frame.opening_tag,
-                    body: frame.body,
-                    suffix: frame.suffix,
-                },
+                transport: frame,
                 observer,
                 idempotency_key,
                 expected_pty_id: Some(pty_id),
@@ -697,11 +685,11 @@ impl Messenger {
         if super::agent_runtime::requested_for_tab(svc, to_tab) {
             let token = envelope.id.clone().unwrap_or(message_id);
             let observer = envelope.delivery_observer.clone();
-            let frame = Self::from(envelope).routed_frame(body);
+            let frame = Self::from(envelope).framed_delivery(body);
             let wrapped = frame.to_message();
             let (body, _) =
                 svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
-            let input = codeterm_wire::domios::DomiosFrame { body, ..frame }.to_message();
+            let input = frame.with_body(body);
             return super::agent_runtime::transport::send_envelope(
                 svc, to_tab, &input, &token, observer,
             );
@@ -747,8 +735,12 @@ impl Messenger {
         }
 
         // The model gets the marker (sender + return address); the stored row carries only the clean body.
-        if let Err(error) = submit_chatbackend_provider_input(&marked, |input| {
-            svc.chatbackend_send(plugin_id, session_id, input)
+        if let Err(error) = submit_chatbackend_provider_input(&marked, |_| {
+            svc.chatbackend_send(
+                plugin_id,
+                session_id,
+                &AgentInput::Framed(Self::restore_framed_delivery(&marked)?),
+            )
         }) {
             if inserted {
                 crate::service::tab_chat::chatbackend_history::ChatBackendHistory::shared(
@@ -764,7 +756,16 @@ impl Messenger {
 
     /// Render the opening `<domios>` tag for this envelope.
     pub fn build(&self) -> String {
-        let mut attrs = vec![("from", self.envelope.kind.marker_kind().to_string())];
+        let marker_kind =
+            if self.envelope.kind == MessageKind::Message && self.envelope.from_tab.is_empty() {
+                "cli"
+            } else {
+                self.envelope.kind.marker_kind()
+            };
+        let mut attrs = vec![("from", marker_kind.to_string())];
+        if marker_kind == "cli" {
+            return domios_opening_tag(&attrs);
+        }
         if self.envelope.kind == MessageKind::System {
             if let Some(context) = self
                 .envelope
@@ -1055,29 +1056,20 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
 fn envelope_inbound_kind(envelope: &MessageEnvelope) -> &'static str {
     if envelope.from_plugin.is_some() {
         "plugin"
+    } else if envelope.kind == MessageKind::Message && envelope.from_tab.is_empty() {
+        "cli"
     } else {
         envelope.kind.inbound_kind()
     }
 }
 
-/// Reminders and host events always mark agent input; other kinds keep the
-/// self-send and empty-source guards. Shell input is never prefixed.
 fn should_prefix_pty(
-    kind: MessageKind,
+    _kind: MessageKind,
     target_is_agent: bool,
-    from_tab: &str,
-    resolved_target: &str,
+    _from_tab: &str,
+    _resolved_target: &str,
 ) -> bool {
-    if !target_is_agent {
-        return false;
-    }
-    if matches!(
-        kind,
-        MessageKind::Reminder | MessageKind::System | MessageKind::Pebble
-    ) {
-        return true;
-    }
-    !from_tab.is_empty() && from_tab != resolved_target
+    target_is_agent
 }
 
 /// Build a complete sender-attributed task frame. `None` means no valid source route.

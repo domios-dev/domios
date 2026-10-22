@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, LONG_RUNNING_WORK_MS } from "./composerBackgroundWorkModel";
+import { backgroundCommandName, backgroundOwnsTool, backgroundWorkElapsed, composerBackgroundWorkBubble, composerBackgroundWorkItems, LONG_RUNNING_WORK_MS, withProviderBackgroundWork } from "./composerBackgroundWorkModel";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 const now = Date.parse("2026-10-17T12:00:00.000Z");
+test("PTY background roster remains visible without runtime agent_activity rows and drains on completion", () => {
+  const items = withProviderBackgroundWork([], { child: "Inspect source" }, "own-session");
+  assert.equal(composerBackgroundWorkBubble(items)?.count, 1);
+  assert.equal(items[0].status, "running");
+  assert.equal(items[0].elapsed, "");
+  assert.equal(items[0].transcriptThreadId, undefined);
+  assert.equal(withProviderBackgroundWork(items, { child: "Inspect source" }, "own-session").length, 1);
+  assert.deepEqual(withProviderBackgroundWork([], {}, "own-session"), []);
+  assert.deepEqual(withProviderBackgroundWork([], { child: "Foreign" }), []);
+});
 const agent = (id: string, ageMs: number, toolInput: Record<string, unknown>, patch: Partial<NormalizedChatMessage> = {}): NormalizedChatMessage => ({
   id,
   type: "tool_call",
@@ -17,6 +27,14 @@ const agent = (id: string, ageMs: number, toolInput: Record<string, unknown>, pa
 });
 
 const process = {threadId:"root",processId:"process-1",itemId:"terminal-item",command:"node build.mjs",cwd:"C:/work",osPid:42};
+
+test("agent descriptions survive later activity and take priority over opaque paths", () => {
+  const items = composerBackgroundWorkItems([
+    agent("start", 30_000, { agent_call_id: "call", agent_state: "started", agent_description: "Inspect source" }),
+    agent("running", 20_000, { agent_call_id: "call", agent_id: "a743f86e11053a44a", agent_path: "a743f86e11053a44a", agent_state: "running" }),
+  ], [], now, { subagentsVisible: true, rootThreadId: "root" });
+  assert.equal(items[0].name, "Inspect source");
+});
 
 test("maps running terminals and capable-provider subagents into one counted bubble", () => {
   const items = composerBackgroundWorkItems([

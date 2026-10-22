@@ -17,7 +17,7 @@ import { fetchEssenceSource, fetchWorkspaceEssenceMaps } from "./essenceMapApi";
 import { extractEssenceSection } from "./essenceSourceSection";
 import { EssenceMapProjectView, projectName } from "./EssenceMapProjectView";
 import { layoutEssenceMapWorld, parseEssenceMapProject, projectPathsForWorkspace, type EssenceMapFile, type EssenceMapNode, type EssenceMapProject } from "./essenceMapModel";
-import { formatLayerTransform, useCanvasViewport } from "./useCanvasViewport";
+import { formatLayerTransform, useCanvasViewport } from "@codeterm/canvas-camera";
 import { EssenceDocumentTree, type EssenceDocumentEntry } from "./essenceDocumentTree";
 import { EssenceMapEmptyState } from "./EssenceMapEmptyState";
 import { askOrchestratorToBuildMap, findWorkspaceOrchestrator, type MapOrchestrator } from "./essenceMapOrchestrator";

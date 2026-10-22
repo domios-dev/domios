@@ -130,9 +130,7 @@ impl LoginFlow {
     }
     pub fn signin_url(&self, base: &str) -> Result<Url> {
         let mut url = Url::parse(base).map_err(|_| Error::Configuration)?;
-        if url.scheme() != "https"
-            || !url.username().is_empty()
-            || url.password().is_some()
+        if !crate::firebase_endpoints::allows_url(&url)
             || url.query().is_some()
             || url.fragment().is_some()
         {

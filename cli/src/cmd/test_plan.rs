@@ -1,9 +1,10 @@
 // Minimum length below which a test plan reads as an intention, not a scenario.
 pub const TEST_PLAN_MIN_CHARS: usize = 120;
 
-pub const TEST_PLAN_COMMAND_RUNNERS: [&str; 11] = [
+pub const TEST_PLAN_COMMAND_RUNNERS: [&str; 12] = [
     "npx",
     "cargo",
+    "domios",
     "codeterm",
     "bash",
     "curl",

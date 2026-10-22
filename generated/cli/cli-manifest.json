@@ -1,5 +1,5 @@
 {
-  "name": "codeterm",
+  "name": "domios",
   "about": "Domios CLI — control your terminal multiplexer",
   "aliases": [],
   "args": [
@@ -958,7 +958,7 @@
               "value_name": "MODEL",
               "possible_values": [],
               "default": null,
-              "help": "Model selector (e.g. \"github-copilot/claude-haiku-4.5\", \"gpt-5\"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available",
+              "help": "Model selector (e.g. \"github-copilot/claude-haiku-4.5\", \"gpt-5\"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `domios agent models <provider>` to see what's available",
               "aliases": []
             },
             {
@@ -2076,7 +2076,7 @@
               "value_name": "TO",
               "possible_values": [],
               "default": null,
-              "help": "Target peer instance_name (as shown in `codeterm mesh peers`)",
+              "help": "Target peer instance_name (as shown in `domios mesh peers`)",
               "aliases": []
             }
           ],
@@ -2366,7 +2366,7 @@
           "value_name": "MARKDOWN",
           "possible_values": [],
           "default": null,
-          "help": "Emit the generated/cli/cli.md auto-block markdown instead of JSON",
+          "help": "Emit the Markdown command reference instead of JSON",
           "aliases": []
         },
         {
@@ -2376,7 +2376,7 @@
           "value_name": "WRITE",
           "possible_values": [],
           "default": null,
-          "help": "Regenerate committed artifacts (generated/cli/cli-manifest.json + generated/cli/cli.md)",
+          "help": "Write the CLI manifest, Markdown reference and command-path exports",
           "aliases": []
         }
       ],
@@ -2610,7 +2610,7 @@
               "value_name": "SKILL",
               "possible_values": [],
               "default": null,
-              "help": "Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path",
+              "help": "Mem skill slug (`domios mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path",
               "aliases": []
             },
             {
@@ -5747,7 +5747,7 @@
               "value_name": "DB_PATH",
               "possible_values": [],
               "default": null,
-              "help": "Override the path to knowledge.db. Defaults to the same data dir the CLI uses elsewhere (`~/.codeterm/mem/knowledge.db` for prod, `~/.codeterm-dev/mem/knowledge.db` for dev)",
+              "help": "Override the path to knowledge.db. Defaults to the same data dir the CLI uses elsewhere (`~/.domios/mem/knowledge.db` for prod, `~/.domios-dev/mem/knowledge.db` for dev)",
               "aliases": []
             },
             {
@@ -6394,13 +6394,13 @@
         },
         {
           "name": "skill",
-          "about": "Skill management — folder-on-disk skills with mem index. Skills live as ~/.codeterm/skills/<name>/SKILL.md (+ optional support files). `add` registers the folder; Librarian re-vectorizes if SKILL.md changes",
+          "about": "Skill management — folder-on-disk skills with mem index. Skills live as ~/.domios/skills/<name>/SKILL.md (+ optional support files). `add` registers the folder; Librarian re-vectorizes if SKILL.md changes",
           "aliases": [],
           "args": [],
           "subcommands": [
             {
               "name": "add",
-              "about": "Register an existing skill folder. Reads <folder>/SKILL.md and saves a mem item with source_path linked to it. Re-runs are idempotent. Area can come from --area flag, YAML frontmatter (`area: foo`), or the parent folder name (~/.codeterm/skills/<area>/<skill>/SKILL.md)",
+              "about": "Register an existing skill folder. Reads <folder>/SKILL.md and saves a mem item with source_path linked to it. Re-runs are idempotent. Area can come from --area flag, YAML frontmatter (`area: foo`), or the parent folder name (~/.domios/skills/<area>/<skill>/SKILL.md)",
               "aliases": [],
               "args": [
                 {
@@ -6420,7 +6420,7 @@
                   "value_name": "FOLDER",
                   "possible_values": [],
                   "default": null,
-                  "help": "Folder containing SKILL.md (e.g. ~/.codeterm/skills/mem-testing)",
+                  "help": "Folder containing SKILL.md (e.g. ~/.domios/skills/mem-testing)",
                   "aliases": []
                 },
                 {
@@ -7029,7 +7029,7 @@
           "subcommands": [
             {
               "name": "set-addr",
-              "about": "Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr PEER-NAME 100.100.100.100 codeterm mesh peer set-addr PEER-NAME 192.168.1.42:7685",
+              "about": "Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: domios mesh peer set-addr PEER-NAME 100.100.100.100 domios mesh peer set-addr PEER-NAME 192.168.1.42:7685",
               "aliases": [],
               "args": [
                 {
@@ -9435,7 +9435,7 @@
               "value_name": "FORCE",
               "possible_values": [],
               "default": null,
-              "help": "Force removal, discarding uncommitted and untracked lane content",
+              "help": "Force Git cleanup after cleanliness and ancestry checks; dirty content stays protected",
               "aliases": []
             },
             {
@@ -14768,10 +14768,20 @@
           "value_name": "STDIN",
           "possible_values": [],
           "default": null,
-          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
+          "help": "Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: domios send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF",
           "aliases": [
             "from-stdin"
           ]
+        },
+        {
+          "name": "system-context",
+          "positional": false,
+          "required": false,
+          "value_name": "CONTEXT",
+          "possible_values": [],
+          "default": null,
+          "help": "Deliver a host system notice with this context and no reply address",
+          "aliases": []
         },
         {
           "name": "tab",
@@ -14820,7 +14830,7 @@
     },
     {
       "name": "service",
-      "about": "Manage daemon services (long-running processes monitored by codeterm)",
+      "about": "Manage daemon services (long-running processes monitored by Domios)",
       "aliases": [],
       "args": [],
       "subcommands": [
@@ -14916,7 +14926,7 @@
               "value_name": "KIND",
               "possible_values": [],
               "default": "daemon",
-              "help": "Service kind (default: daemon — for cron use `codeterm cron create`)",
+              "help": "Service kind (default: daemon — for cron use `domios cron create`)",
               "aliases": []
             },
             {
@@ -15980,7 +15990,7 @@
             },
             {
               "name": "set",
-              "about": "Store the token piped on stdin, e.g. `pbpaste | codeterm supporter token set --adapter typesafe-jev`. There is deliberately no argv flag for the value",
+              "about": "Store the token piped on stdin, e.g. `pbpaste | domios supporter token set --adapter typesafe-jev`. There is deliberately no argv flag for the value",
               "aliases": [],
               "args": [
                 {
@@ -16581,7 +16591,7 @@
         },
         {
           "name": "new",
-          "about": "Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab use `codeterm agent spawn`",
+          "about": "Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab use `domios agent spawn`",
           "aliases": [],
           "args": [
             {
@@ -16591,7 +16601,7 @@
               "value_name": "PLUGIN_ID",
               "possible_values": [],
               "default": null,
-              "help": "Open a non-PTY chat-backend tab driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`tab get-text` then route to the plugin, not a shell",
+              "help": "Open a non-PTY chat-backend tab driven by the given plugin id (a plugin declaring the `chatBackend` capability). `domios send`/`tab get-text` then route to the plugin, not a shell",
               "aliases": []
             },
             {
@@ -16601,7 +16611,7 @@
               "value_name": "CMD",
               "possible_values": [],
               "default": null,
-              "help": "Spawn a shell that runs this command on start (e.g. `\"cd /repo && ./build.sh dev\"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab",
+              "help": "Spawn a shell that runs this command on start (e.g. `\"npm run dev\"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab",
               "aliases": []
             },
             {
@@ -16719,7 +16729,7 @@
               "value_name": "TIMEOUT",
               "possible_values": [],
               "default": null,
-              "help": "Shell lifetime: positive duration (30s, 10m, 2h), or none",
+              "help": "Agent-owned shell lifetime: positive duration (30s, 10m, 2h), or none. Requires a live creating agent (CODETERM_TAB_ID); omit for human shells",
               "aliases": []
             },
             {

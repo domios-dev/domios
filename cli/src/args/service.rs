@@ -14,7 +14,7 @@ pub enum ServiceAction {
     /// Register a new daemon-kind service
     Add {
         name: String,
-        /// Service kind (default: daemon — for cron use `codeterm cron create`)
+        /// Service kind (default: daemon — for cron use `domios cron create`)
         #[arg(long, default_value = "daemon")]
         kind: String,
         /// Health check mode: http | tcp | process | script

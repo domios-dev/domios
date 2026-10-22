@@ -61,27 +61,40 @@ impl MemManager {
         let mut report = ReembedReport::default();
 
         if do_items {
-            let rows: Vec<(String, String)> = {
+            let items = {
                 let conn = self.conn.lock();
-                let mut stmt = conn
-                    .prepare("SELECT id, COALESCE(body_inline, '') FROM mem_items")
-                    .map_err(|e| e.to_string())?;
-                let mapped = stmt
-                    .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-                    .map_err(|e| e.to_string())?;
-                let mut out = Vec::new();
-                for row in mapped {
-                    out.push(row.map_err(|e| e.to_string())?);
-                }
-                out
+                let _read = UntouchedRead::begin(&conn)?;
+                let mut statement = conn
+                    .prepare("SELECT id FROM mem_items WHERE kind != 'archived'")
+                    .map_err(|error| error.to_string())?;
+                let ids = statement
+                    .query_map([], |row| row.get::<_, String>(0))
+                    .map_err(|error| error.to_string())?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())?;
+                ids.into_iter()
+                    .map(|id| store::get(&conn, &id, &self.blobs_dir))
+                    .collect::<Result<Vec<_>, _>>()?
             };
-            for (id, body) in rows {
-                if body.trim().is_empty() {
+            for item in items.into_iter().flatten() {
+                if !super::body_is_embeddable(&item.body) {
                     continue;
                 }
-                match self.index_embedding(&id, &body) {
+                #[cfg(feature = "embeddings")]
+                let text = super::reindex::compose_item_embed_text(
+                    &item.kind,
+                    &item.title,
+                    item.area.as_deref(),
+                    &item.tags,
+                    &item.body,
+                    item.source.as_deref(),
+                    item.summary.as_deref(),
+                );
+                #[cfg(not(feature = "embeddings"))]
+                let text = item.body;
+                match self.index_embedding(&item.id, &text) {
                     Ok(_) => report.items += 1,
-                    Err(e) => report.errors.push(format!("item {}: {}", id, e)),
+                    Err(error) => report.errors.push(format!("item {}: {}", item.id, error)),
                 }
             }
         }
@@ -221,12 +234,12 @@ impl MemManager {
 
 /// Hydration touches every read item; this savepoint is always rolled back, even on unwind.
 /// It also discards hydration's opportunistic file-source refresh, which the next read redoes.
-struct UntouchedRead<'c>(&'c rusqlite::Connection);
+pub(crate) struct UntouchedRead<'c>(&'c rusqlite::Connection);
 
 impl<'c> UntouchedRead<'c> {
     const BEGIN: &'static str = "SAVEPOINT mem_untouched_read";
 
-    fn begin(conn: &'c rusqlite::Connection) -> Result<Self, String> {
+    pub(crate) fn begin(conn: &'c rusqlite::Connection) -> Result<Self, String> {
         conn.execute_batch(Self::BEGIN)
             .map_err(|e| format!("begin untouched read: {e}"))?;
         Ok(Self(conn))

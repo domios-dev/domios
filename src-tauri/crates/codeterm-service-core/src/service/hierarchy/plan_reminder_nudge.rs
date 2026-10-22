@@ -51,6 +51,16 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
                 &svc.configuration().orchestration,
             )))
             .await;
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            if svc.plan_store.claim_retention_day(now_ms) {
+                let svc_for_retention = svc.clone();
+                drop(crate::async_runtime::spawn_blocking(move || {
+                    svc_for_retention.plan_store.prune_stale_plans(now_ms);
+                }));
+            }
             let svc_for_scan = svc.clone();
             if let Err(e) = crate::async_runtime::spawn_blocking(move || {
                 svc_for_scan.send_due_plan_time_reminders();
@@ -803,7 +813,13 @@ pub(crate) fn deliver_tab_todo_recitation(
     tab_id: &str,
     text: &str,
 ) -> Result<bool, String> {
-    svc.deliver_automated_plan_reminder(tab_id, text, None)
+    svc.gateway_deliver(
+        tab_id,
+        crate::service::messenger::MessageEnvelope::codeterm_reminder("checklist"),
+        text,
+        crate::service::message_gateway::DeliveryClass::SystemNotice,
+    )
+    .map(|delivery| delivery.is_written())
 }
 
 fn plan_reminder_state_key(plan_id: &str, kind: NudgeKind, plan: &Plan) -> String {

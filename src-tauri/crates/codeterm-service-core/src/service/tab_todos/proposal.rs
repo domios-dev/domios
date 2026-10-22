@@ -61,6 +61,8 @@ impl ServiceContext {
             )
             .await?;
         let checklist = self.todo_changed(checklist);
+        self.record_checklist_event(&target, actor, "tab_todo_shared", "Checklist shared")
+            .await?;
         if let Some(parent) = &target.parent_tab_id {
             let items = checklist
                 .items
@@ -74,8 +76,8 @@ impl ServiceContext {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            let text = format!("Checklist shared by {} (work continues):\n{}\nReview: codeterm todo approve --tab {} or codeterm todo amend --tab {} --from-pad checklist.json", target.id, items, target.id, target.id);
-            self.deliver_checklist_notice(parent, &text);
+            let text = format!("Checklist shared by {} (work continues):\n{}\n\nReview: domios todo approve --tab {} or domios todo amend --tab {} --from-pad checklist.json", target.id, items, target.id, target.id);
+            self.deliver_checklist_notice(parent, &text).await;
         }
         self.ui.emit("tab-todo-proposed", serde_json::json!({ "tab_id": target.id, "parent_tab_id": target.parent_tab_id, "checklist": checklist }));
         Ok(checklist)
@@ -196,6 +198,14 @@ impl ServiceContext {
             .proposal
             .as_ref()
             .ok_or_else(|| "review missing proposal".to_string())?;
+        let (kind, label) =
+            if proposal.state == codeterm_types::agent::TabTodoProposalState::Amended {
+                ("tab_todo_amended", "Checklist amended")
+            } else {
+                ("tab_todo_approved", "Checklist approved")
+            };
+        self.record_checklist_event(&target, actor.unwrap_or("user"), kind, label)
+            .await?;
         self.deliver_checklist_notice(
             &target.id,
             &format!(
@@ -204,7 +214,8 @@ impl ServiceContext {
                 proposal.note.as_deref().unwrap_or(""),
                 changes
             ),
-        );
+        )
+        .await;
         self.ui.emit(
             "tab-todo-reviewed",
             serde_json::json!({ "tab_id": target.id, "proposal": proposal }),
@@ -212,11 +223,66 @@ impl ServiceContext {
         Ok(checklist)
     }
 
-    fn deliver_checklist_notice(&self, target: &str, text: &str) {
-        if let Err(error) =
-            crate::service::hierarchy::deliver_tab_todo_recitation(self, target, text)
-        {
+    async fn deliver_checklist_notice(&self, target: &str, text: &str) {
+        if let Err(error) = self.deliver_checklist_text(target, text).await {
             log::warn!("[tab-todo] checklist notice unavailable for {target}: {error}");
         }
+    }
+
+    async fn record_checklist_event(
+        &self,
+        target: &super::TabIdentity,
+        actor: &str,
+        kind: &str,
+        label: &str,
+    ) -> Result<(), String> {
+        let svc = self.clone();
+        let target = target.clone();
+        let actor = actor.to_owned();
+        let kind = kind.to_owned();
+        let label = label.to_owned();
+        crate::service::blocking_run(move || {
+            let plan_id = target
+                .plan_id
+                .clone()
+                .or_else(|| {
+                    svc.plan_store
+                        .task_binding_for_tab(&target.id)
+                        .map(|(id, _)| id)
+                })
+                .or_else(|| {
+                    target.team_id.as_deref().and_then(|team| {
+                        svc.plan_store.active_plan_for_team(team).map(|(id, _)| id)
+                    })
+                });
+            if let Some(plan_id) = plan_id {
+                svc.plan_store
+                    .add_plan_stride(
+                        &plan_id,
+                        &kind,
+                        &format!("{label} by {}", target.id),
+                        crate::plan::AgentRef::from_tab(&actor),
+                        now_secs().saturating_mul(1000),
+                    )
+                    .map_err(|error| format!("unable to audit checklist review: {error}"))?;
+                svc.emit_plan_changed(&plan_id);
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    pub(super) async fn deliver_checklist_text(
+        &self,
+        target: &str,
+        text: &str,
+    ) -> Result<bool, String> {
+        let svc = self.clone();
+        let target = target.to_owned();
+        let text = text.to_owned();
+        crate::service::blocking_run(move || {
+            crate::service::hierarchy::deliver_tab_todo_recitation(&svc, &target, &text)
+        })
+        .await
     }
 }

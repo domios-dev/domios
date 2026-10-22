@@ -91,11 +91,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$TAG" == *-rc* ]]; then
-            echo "manifest=latest-rc.json" >> "$GITHUB_OUTPUT"
+            echo "manifest=domios-latest-rc.json" >> "$GITHUB_OUTPUT"
           elif [[ "$TAG" == *-nightly* ]]; then
-            echo "manifest=latest-nightly.json" >> "$GITHUB_OUTPUT"
+            echo "manifest=domios-latest-nightly.json" >> "$GITHUB_OUTPUT"
           else
-            echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
+            echo "manifest=domios-latest.json" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Merge and upload final channel manifests
@@ -109,9 +109,9 @@ jobs:
         run: |
           set -euo pipefail
           case "$MANIFEST" in
-            latest.json) DEB_MANIFEST=latest-deb.json ;;
-            latest-rc.json) DEB_MANIFEST=latest-rc-deb.json ;;
-            latest-nightly.json) DEB_MANIFEST=latest-nightly-deb.json ;;
+            domios-latest.json) DEB_MANIFEST=domios-latest-deb.json ;;
+            domios-latest-rc.json) DEB_MANIFEST=domios-latest-rc-deb.json ;;
+            domios-latest-nightly.json) DEB_MANIFEST=domios-latest-nightly-deb.json ;;
             *) echo "::error::unknown channel manifest $MANIFEST"; exit 1 ;;
           esac
           rm -rf "$RUNNER_TEMP/release-fragments" "$RUNNER_TEMP/release-base"
@@ -133,7 +133,7 @@ jobs:
               main_count=$((main_count + 1))
             fi
             mkdir -p "$destination"
-            cp "$fragment" "$destination/latest.json"
+            cp "$fragment" "$destination/domios-latest.json"
           done
           [ "$main_count" -gt 0 ] || { echo "::error::no platform updater fragments were published"; exit 1; }
           [ "$deb_count" -gt 0 ] || { echo "::error::no Debian updater fragment was published"; exit 1; }
@@ -156,12 +156,14 @@ jobs:
           jq -e --arg ver "$VER" \
             '(.version == $ver) and (.platforms["linux-x86_64"].signature | type == "string" and length > 0)' \
             "$DEB_MANIFEST" >/dev/null
-          gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" \
+          node scripts/legacy-updater-refusal.mjs . "$MANIFEST"
+          LEGACY="${MANIFEST#domios-}"
+          gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" "$LEGACY" "${LEGACY%.json}-deb.json" "${LEGACY%.json}-rpm.json" \
             --repo "$SOURCE_REPO" --clobber
 
           if [ "$PUBLISH_MIRROR" = true ]; then
             export GH_TOKEN="$MIRROR_TOKEN"
-            gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" \
+            gh release upload "$TAG" "$MANIFEST" "$DEB_MANIFEST" "$LEGACY" "${LEGACY%.json}-deb.json" "${LEGACY%.json}-rpm.json" \
               --repo "$MIRROR_REPO" --clobber
           fi
 
@@ -180,12 +182,19 @@ jobs:
           mkdir -p "$directory"
           repo="$SOURCE_REPO"
           if [ "$PUBLISH_MIRROR" = true ]; then repo="$MIRROR_REPO"; export GH_TOKEN="$MIRROR_TOKEN"; fi
-          for manifest in "$MANIFEST" latest-deb.json; do
+          for manifest in "$MANIFEST" domios-latest-deb.json; do
             jq -r '.platforms[].url | split("/")[-1]' "$manifest" | while IFS= read -r asset; do
               gh release download "$TAG" --repo "$repo" --pattern "$asset" --dir "$directory" --clobber
             done
             node scripts/verify-updater-manifest.mjs --manifest "$manifest" --local "$directory" --require-version "$VER"
           done
+
+      - name: Sync full release notes to source and public mirror
+        if: inputs.mirror
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: node scripts/sync-release-notes.mjs --tag "$TAG"
 
       - name: Mark source and public releases published
         if: inputs.mirror
@@ -198,18 +207,11 @@ jobs:
           set -euo pipefail
           gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false
           export GH_TOKEN="$MIRROR_TOKEN"
-          if [ "$MANIFEST" = latest.json ]; then
+          if [ "$MANIFEST" = domios-latest.json ]; then
             gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false --latest
           else
             gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false
           fi
-
-      - name: Sync full release notes to source and public mirror
-        if: inputs.mirror
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-        shell: bash
-        run: node scripts/sync-release-notes.mjs --tag "$TAG"
 
       - name: Verify published public mirror
         if: inputs.mirror
@@ -220,6 +222,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          node scripts/legacy-updater-refusal.mjs verify "https://github.com/$MIRROR_REPO/releases/download/$TAG/${MANIFEST#domios-}" "$VER"
           mkdir -p "$RUNNER_TEMP/public-mirror"
           source_release=$(gh release view "$TAG" --repo "$SOURCE_REPO" \
             --json isDraft,publishedAt)
@@ -236,9 +239,9 @@ jobs:
           jq -e --arg ver "$VER" '
             (.version == $ver)
             and (.platforms["darwin-aarch64"].signature | type == "string" and length > 0)
-            and (.platforms["darwin-aarch64"].url | endswith("/CodeTerm_aarch64.app.tar.gz"))
+            and (.platforms["darwin-aarch64"].url | endswith("/Domios_aarch64.app.tar.gz"))
             and (.platforms["darwin-x86_64"].signature | type == "string" and length > 0)
-            and (.platforms["darwin-x86_64"].url | endswith("/CodeTerm_x64.app.tar.gz"))
+            and (.platforms["darwin-x86_64"].url | endswith("/Domios_x64.app.tar.gz"))
             and (.platforms | has("windows-x86_64") and has("windows-aarch64"))
             and (.platforms | has("linux-x86_64") and has("linux-aarch64"))
           ' "$RUNNER_TEMP/public-mirror/$MANIFEST" >/dev/null
@@ -277,9 +280,9 @@ jobs:
         run: |
           set -euo pipefail
           case "$MANIFEST" in
-            latest.json) deb_manifest=latest-deb.json ;;
-            latest-rc.json) deb_manifest=latest-rc-deb.json ;;
-            latest-nightly.json) deb_manifest=latest-nightly-deb.json ;;
+            domios-latest.json) deb_manifest=domios-latest-deb.json ;;
+            domios-latest-rc.json) deb_manifest=domios-latest-rc-deb.json ;;
+            domios-latest-nightly.json) deb_manifest=domios-latest-nightly-deb.json ;;
             *) echo "::error::unknown channel manifest $MANIFEST"; exit 1 ;;
           esac
           node scripts/verify-updater-manifest.mjs \
@@ -350,7 +353,7 @@ jobs:
               public_published=true
               if printf '%s' "$public" \
                 | jq -e '.assets
-                  | (any(.name == "latest.json")
+                  | (any(.name == "domios-latest.json")
                      and any(.name == "issue-closure-boundary.json"))' >/dev/null; then
                 mirror_marker=true
               fi

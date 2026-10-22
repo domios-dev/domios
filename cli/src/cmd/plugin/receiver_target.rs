@@ -1,4 +1,4 @@
-//! `codeterm plugin receiver-target` — the host-owned tab that receives a webhook plugin's events.
+//! `domios plugin receiver-target` — the host-owned tab that receives a webhook plugin's events.
 
 use serde_json::{json, Value};
 

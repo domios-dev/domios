@@ -66,14 +66,7 @@ pub(super) fn dispatch(
             emit_plan_changed(svc, &id);
             let mut resp = json!({ "ok": true });
             if let Some(plan) = store.get(&id) {
-                let outcome =
-                    codeterm_service_core::service::plan::lane_cleanup::try_cleanup_task_lane(
-                        store,
-                        &plan,
-                        &tid,
-                        |tab_id| svc.tab_probe(tab_id).exists,
-                        now,
-                    );
+                let outcome = svc.cleanup_closed_task_lane(&plan, &tid, now);
                 resp["cleanup"] = json!({ "status": outcome.status(), "reason": outcome.reason() });
                 if matches!(
                     &outcome,

@@ -1,238 +1,174 @@
 # Tab lifecycle journal and unconditional restore
 
-Domios journals every authoritative tab lifecycle transition. This append-only **telemetry** records what each launch committed and when; it never authorizes session restore.
-
-**With Storage available, tab restore is unconditional.** Tabs open at shutdown come back. A claimed PTY session recovers its provider only from its own provider session record; without unique ownership it remains a shell, regardless of journal state.
+With Storage available, every tab open at shutdown returns. The append-only journal is telemetry, never restore authority. Claimed PTY sessions require unique provider ownership or remain shells.
 
 ## Utility shell deadlines
 
-Give test, QA and build shells a deadline (`30s`, `10m`, `2h`, at most 365 days); leave servers without one. Only the creating agent sets it; mesh requests are refused.
+Test/QA/build shells need deadlines (`30s`, `10m`, `2h`; maximum 365 days); servers need none. Only the creating agent controls deadlines; mesh requests are refused.
 
 ```bash
-codeterm tab new --purpose qa --timeout 30s --cmd "sleep 600"
-codeterm tab timeout --tab <ID> --timeout 20m   # resets from now; `none` disables
+domios tab new --purpose qa --timeout 30s --cmd "sleep 600"
+domios tab timeout --tab <ID> --timeout 20m  # from now; none disables
 ```
 
-A reset keeps the shell and its command. At expiry an idle shell closes quietly; running or unknown activity is terminated and the owner gets one `timed out` status giving shell lifetime and command elapsed separately. `tab restart` renews the previous lifetime from the restart; `--timeout` overrides it (or `none` disables it), for the owning agent only. Later commands share that lifetime. Daemon restarts preserve the absolute deadline; `tab inspect` shows `utility_deadline` (`started_ms`, `deadline_ms`, epoch ms) and the close journal records `utility_timeout`. An unrestorable shell is reported lost. REST: `POST /api/tabs` and `POST /api/tabs/{id}/restart` take optional `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
+Reset keeps shell/command. Expiry quietly closes idle shells; running/unknown activity is terminated with one owner `timed out` status separating shell lifetime and command elapsed. Commands share the deadline. `tab restart` renews lifetime from restart; `--timeout` overrides (`none` disables). Daemon restarts preserve absolute deadlines; unrestorable shells report lost. `tab inspect`: `utility_deadline` (`started_ms`, `deadline_ms`, epoch ms); close journals `utility_timeout`.
 
-`tab restart --cmd` runs the text verbatim, waits up to 10 s and returns the command's own exit status (timeout 124; unknown never succeeds). Only that command's start then finish mark completes it.
+REST: `POST /api/tabs` and `POST /api/tabs/{id}/restart` accept optional `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
 
-Shell commands (`tab new/restart --cmd`, `tab exec`) reject C0 controls other than tab/CR/LF; in JSON use forward slashes or doubled backslashes.
+`tab restart --cmd` returns on fresh-shell write ACK (`command_delivered: true`), errors on delivery failure; use `tab exec` for final exit status. `tab new/restart --cmd` and `tab exec` reject C0 except tab/CR/LF. JSON paths need forward slashes or doubled backslashes.
 
 ## Storage authority and recovery
 
-The instance's desk is owned by one Storage authority in `storage/state.db` beneath its data directory. Storage opens before restore; an open, import, or archive-verification failure leaves desk state unavailable and prevents a default-empty desk from replacing it. The typed importer preserves recognized source files under `storage/legacy-originals/`.
+Desk authority: `<data_dir>/storage/state.db`, opened before restore. Open/import/archive-verification failures leave state unavailable, never replaced by an empty desk. Import preserves recognized sources in `storage/legacy-originals/`.
 
-For backup, stop Domios cleanly and copy the complete `storage/` directory, including `state.db`, referenced assets, and the import archive. Restore into an empty `storage/` root with a Storage-compatible build. An older binary cannot see changes made after cutover in retained legacy files, so running it against those files is not rollback. Keep the backup and originals intact and use a compatible recovery path.
+Backup: stop cleanly; copy all `storage/` (DB, assets, import archive). Restore into empty `storage/` with a Storage-compatible build. Keep backup/originals: legacy files lack post-cutover changes, so an older binary is not rollback.
 
 ## The restore contract
 
-1. Storage loads the committed desk and every tab is rebuilt with its persisted `agent_session_id`, binding nonces, `role`, `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, model provenance, and chatBackend binding intact. Prior binding lineage is restored for every restored tab, whether or not it claims a session.
-2. A PTY agent tab resolves the unique provider whose store owns that tab's claimed session id, then relaunches that provider with the session (`--resume`-style continuation). A missing provider label does not bypass that lookup: a unique owner repairs the label before either visible or lazy restoration claims the launch. The repair keeps the session, rechecks the tab's identity before committing and never replays a historical task. Missing or ambiguous ownership keeps the saved session and refuses materialization. A provider proves ownership from its authoritative per-session record, present from the first turn, never only from a later secondary index, so a session not yet indexed still resumes. On an OpenCode resume only the explicit `--session` id is validated; no session is inferred from the latest record for a cwd.
-3. If a claimed session has no unique provider record, the tab comes back as a shell with a null provider label. A snapshot with no claimed session may still fresh-launch its explicitly persisted provider. Restore never chooses a claimed session's provider from another tab, the newest session for a cwd, or the journal.
-4. Pre-journal snapshots restore like everything else. Lineage fields are optional telemetry, not an admission ticket.
-5. A rebuilt record is not a restored agent. The restore report counts a pane as restored only once an agent process is observed live behind it. The persisted report is reconciled whenever lifecycle evidence changes, so a late-live pane replaces its earlier dropped outcome; each pane gets one log line per restore wave. A pane that came back as a bare shell is named with its role and reason (`agent_not_live`), and one whose liveness is not yet observable is reported as `agent_liveness_unobserved` rather than assumed either way.
-6. A provider exit observed while a graceful shutdown is armed (update, quit, restart, signal) keeps the tab's provider, session and nonces; the committed desk still names the session the next boot resumes. A failed launch preserves the provider, role/profile, saved session and exact restore data and keeps its failure card. Only an exit after the launch authenticated its session clears identity into binding lineage. Recovery accepts this tab's own nonce-verified session or journaled launch target, requires its provider to confirm the exact session exists for the tab's cwd, and binds it under a new nonce. `agent restart` resumes it in place with the recorded launch arguments. With `LaunchBindingUnconfirmed`, a shell-ready PTY, a known provider and no saved or journaled session, it starts that provider fresh and reports `fresh_launch`. A provider started by hand there inherits the exited launch's nonce; when its hook reports that newest retired nonce and no launch owns the tab, the tab adopts it (`agent_ready`).
-7. A team member whose provider exited to its shell before shutdown restores as that shell and is not relaunched. The report names it `agent_exited_before_shutdown` with `exited_session_id`; `agent restart` recovers it.
-8. A restored agent whose saved cwd is no longer a directory is not relaunched anywhere else: the Tab keeps its session and cwd, shows `spawn_failed` naming the missing directory, and raises a notification. Restore the directory, then `codeterm agent restart --tab ID`.
-9. Restore never replaces an unavailable exact saved session. When its provider confirms the session is missing, the failure card offers **Start new session** beside **Keep shell**. The explicit action, also available as `codeterm agent restart --tab ID --fresh`, preserves tab identity, cwd, Team, plan binding, model and effort while clearing the dead session and exact-restore binding. An existing exact session is refused; a live agent requires `--force`.
+1. Tabs retain `agent_session_id`, binding nonces, `role`, `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, model provenance, chatBackend binding and prior lineage, even without a session.
+2. PTY resume uses the session's unique provider, proven by its first-turn authoritative record, not a later index. Missing labels repair before visible/lazy launch claims, rechecking identity at commit, retaining session, never replaying tasks. OpenCode validates only explicit `--session`, never latest-for-cwd.
+3. Missing/ambiguous ownership retains session but refuses materialization: shell, null provider. Without a claimed session, the saved provider may launch fresh. Another tab, newest-for-cwd or journal never chooses a claimed session's provider.
+4. Pre-journal snapshots restore normally. Optional lineage is preserved verbatim for inspection, never admission.
+5. Restored counts require observed live agents (reporting below).
+6. Armed graceful-shutdown exits retain provider/session/nonces. Failed launches retain provider, role/profile, session, exact restore data and failure card. Only authenticated-launch exit clears identity into lineage. Recovery requires the provider to verify this tab's nonce-bound session or journaled launch target exists for its cwd, then binds a new nonce. `agent restart` resumes in place with saved arguments. `LaunchBindingUnconfirmed` + shell-ready PTY + known provider + no saved/journaled session yields `fresh_launch`. A hand-started provider inherits the exited nonce; its hook with the newest retired nonce adopts `agent_ready` only if no launch owns the tab.
+7. A Team member that exited to shell before shutdown stays a shell; report: `agent_exited_before_shutdown`, `exited_session_id`. Recover with `agent restart`.
+8. A missing saved cwd never redirects launch: retain cwd/session, show `spawn_failed` naming the directory and notify. Restore the directory, then `domios agent restart --tab ID`.
+9. Exact sessions are never silently replaced. Provider-confirmed missing sessions offer **Start new session** / **Keep shell**. `domios agent restart --tab ID --fresh` clears dead session/exact binding, retaining tab/cwd/Team/plan/model/effort. Existing exact sessions refuse; live agents require `--force`.
 
 ## Resume after restart
 
-An agent tab that was mid-turn when Domios stopped continues its work after the next start. The stop can be a quit, an update, a self-install, a crash or a kill; no shutdown hook is involved.
+Mid-turn PTY agents continue after quit/update/self-install/crash/kill; no shutdown hook:
 
-- **The working mark is persisted continuously.** Each live turn edge of a PTY agent tab (working, or idle/question) updates its `turn_resume` mark in Storage: the tab's own `session_id` and the `start_epoch` that observed it. A turn that ended before the stop clears the mark. Once a graceful shutdown is armed the mark is frozen, so teardown never erases the turn it interrupted.
-- **One continue per tab per start.** At start, a mark recorded by an earlier start and not yet settled is owed. The tab receives one system message from Domios through the post-ready send path, only when it is `agent_ready` with a nonce-verified binding on the same session the mark recorded. The claim (`settled: {start_epoch, outcome: "sent"}`) is saved before the payload is written, so a later crash never produces a second continue for the same turn. Work the agent resumes after that continue records a fresh mark for the following start.
-- **Skips are recorded, never retried.** A tab that resumes on another session, comes back as a shell, has no PTY agent session, or is not agent-ready within the 300-second failure deadline is settled with `outcome: {"skipped": "<reason>"}` (`session_not_resumed`, `no_agent_session`, `no_pty_agent_session`, `spawn_failed`, `session_unverified`, `agent_not_ready`, `claim_not_persisted`, `session_changed_before_send`, `send_refused`, `disabled`). Idle tabs carry no mark and receive nothing. Owner messages are never replayed.
-- **A requested continuation shares the same owner.** `update install --from-file` (and `build.sh install-local`) passes `--continue-tab`/`--continue-prompt` to `/api/session/save`; the tab's mark then carries that prompt, survives the caller's turn ending, and is delivered once in place of the default text. The installer helper itself never writes to a tab.
-- `[agent] continue_after_restart = false` (`codeterm docs CONFIG`) disables delivery; owed marks settle as `disabled`.
+- Each live working or idle/question edge persists `turn_resume` with the tab's own `session_id` and observing `start_epoch`. Turn completion clears it; armed graceful shutdown freezes it against teardown.
+- An earlier start's unsettled mark gets one Domios system continue via post-ready send at `agent_ready`, nonce-bound to that session. Claim (`settled: {start_epoch, outcome: "sent"}`) persists before write, preventing crash replay. Resumed work marks the following start.
+- Different-session/shell/non-PTY/not-ready-within-300-seconds marks settle without retry as `outcome: {"skipped": "<reason>"}` (e.g. `session_not_resumed`, `agent_not_ready`, `send_refused`, `disabled`). Idle tabs have no mark; owner messages never replay.
+- Refused or unconfirmed submission emits a system notice and `turn-resume-incident` with code, tab, session and `bytes_written`; settlement is `submit_unconfirmed`, never replayed.
+- `update install --from-file` passes `--continue-tab`/`--continue-prompt` to `/api/session/save`. That prompt survives the caller's turn completion and replaces the default continue once; the installer helper never writes to tabs.
+- `[agent] continue_after_restart = false` settles owed marks as `disabled` (see `domios docs CONFIG`).
 
-The mark is visible in the tab API object as `turn_resume`. The first start of a build that introduced it has no marks from the previous build to resume.
+The tab API exposes `turn_resume`; the first build introducing it has no earlier marks.
 
 ## Restore reporting and observed liveness
 
-`state/recovery/last_restore_report.json` is written when the wave is armed and whenever lifecycle evidence changes. A dropped or unobserved pane remains eligible for reconciliation, so a later live observation corrects an earlier absence in the report. The daemon logs one pane line per tab for the wave. The report also records `previous_epoch_end` — `clean_shutdown:<reason>` or `crash:<classification>` — so a restore that lost every agent to a planned update reads as that, and an unexplained one cannot hide behind a plausible story.
+`state/recovery/last_restore_report.json` updates at wave arming/evidence changes; late liveness corrects dropped/unobserved outcomes. One log line/pane/wave. `previous_epoch_end`: `clean_shutdown:<reason>` or `crash:<classification>`.
 
-Restored agent PTYs are materialized by the backend once the frontend reports ready, and still when it misses its readiness deadline: the deadline is never a reason to abandon relaunch. A wave materialized without the frontend records `backend_materialization: "frontend_readiness_deadline_elapsed"`, so panes still unobserved name what the restore was waiting on.
+Backend materializes PTYs on frontend readiness or deadline expiry, never abandons relaunch; expiry records `backend_materialization: "frontend_readiness_deadline_elapsed"`.
 
-Elapsed time or a rebuilt tab record alone never proves a live restored agent: liveness is observed from a live PTY session, a real launch transition, the shell's own finished-command report, or an open plugin session.
+Liveness needs live PTY session, real launch transition, own-shell finished-command report or open plugin session, never elapsed time/rebuilt records. Bare shells report role/reason `agent_not_live`; unknown: `agent_liveness_unobserved`.
 
-A launch that still owes its startup acknowledgement is not ready while its provider shows the owner a prompt: an `agent_ready` tab moves to `awaiting_owner_prompt` when that prompt surfaces and returns to `agent_ready` when it clears. A user-owned prompt also raises one action-needed notice for its blocker kind during that launch; the notice names the tab and what it needs. If the tab has a parent agent, Domios routes the parsed question and options there with instructions for `codeterm tab respond`. Owner-launched tabs keep the prompt owner-facing and do not receive automatic keys.
+While startup ACK is owed, owner prompts move `agent_ready` to `awaiting_owner_prompt`, then back on clearance. User-owned prompts notify once/blocker kind/launch with tab/need; parents receive question/options and `domios tab respond` instructions. Owner-launched tabs get no automatic keys.
 
-A pane observed `absent` is reconciled through the ordinary lifecycle teardown, so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or model label, and the existing guarded-input refusal arms with it.
+Observed `absent` panes undergo normal teardown: clear `agent_state`, elapsed timer, status line, `agent_session_id` and model label; arm guarded-input refusal.
 
 ## Where the journal lives
 
-| Instance | Path |
-|----------|------|
-| Production | `~/.codeterm/sessions/tab-lifecycle.jsonl` |
-| Dev | `~/.codeterm-dev/sessions/tab-lifecycle.jsonl` |
-| Named dev instance | `~/.codeterm-dev-<name>/sessions/tab-lifecycle.jsonl` |
-
-The journal remains under the instance's `sessions/` directory. It is telemetry and is not a Storage restore source.
-
-**Agent access is read-only.** Read, grep, or diff it; never hand-edit the journal or a snapshot.
+Production: `~/.domios/sessions/tab-lifecycle.jsonl`; other instances use their `sessions/`. Agent access: read-only; never edit journal/snapshots.
 
 ## Format
 
-One JSON object per line, in journal order. Two record kinds:
+One JSON object per line, in journal order: `transition` or compacted `checkpoint`.
 
-```jsonc
-// a committed transition
-{"record":"transition","entry":{
-  "seq":41,
-  "key":{"tab_id":"db79d2da","epoch":3,"operation_id":"6f1c…"},
-  "transition":{"transition":"session_bound","session_id":"…","binding_nonce":"…","source":"hook"},
-  "recorded_at":"2026-08-04T11:20:31Z"
-}}
+Shapes:
 
-// a compacted operation
-{"record":"checkpoint","checkpoint":{
-  "key":{"tab_id":"db79d2da","epoch":3,"operation_id":"6f1c…"},
-  "committed_through":46,
-  "authority":{"provider":"claude","session_id":"…","binding_nonce":"…",
-               "role":"Manager","role_profile":"orchestrator",
-               "team_id":"team_…","can_spawn":true,"depth":1},
-  "agent_type_write":{"origin":"spawn","new_provider":"claude",
-                       "session_id":"…","nonce_verified":true,"applied":true,
-                       "recorded_at":"2026-08-04T11:20:32Z"},
-  "sealed_at":"2026-08-04T11:20:33Z"
-}}
-```
+- `{record:"transition", entry:{seq, key, transition:{transition, ...fields}, recorded_at}}`
+- `{record:"checkpoint", checkpoint:{key, committed_through, authority, agent_type_write, sealed_at}}`
+`authority` contains `provider`, `session_id`, `binding_nonce`, `role`, `role_profile`, `team_id`, `can_spawn`, `depth`. Checkpoint `agent_type_write` contains `origin`, `new_provider`, `session_id`, `nonce_verified`, `applied`, `recorded_at`.
 
 ### Lineage
 
-`key` is the whole identity of one lifecycle operation:
-
-- `tab_id` — the tab.
-- `epoch` — monotonic per tab; a new one opens at every launch.
-- `operation_id` — a UUID minted with the epoch.
-
-A tab's own persisted lineage (`agent_identity.lifecycle_epoch` and `agent_identity.lifecycle_operation_id`) links its snapshot to its journal history for inspection. Restore preserves the lineage fields verbatim and otherwise ignores them.
+`key` identifies one operation: `tab_id`, per-tab monotonic launch `epoch`, and `operation_id` UUID minted with it. Persisted `agent_identity.lifecycle_epoch` / `agent_identity.lifecycle_operation_id` link snapshot to journal for inspection.
 
 ### Ordering
 
-`seq` is a single monotonic sequence across the whole file. It is the **only** ordering authority. `recorded_at` and `sealed_at` are UTC stamps for reading the journal by eye — they are never consulted for ordering, checkpoint selection, or conflict resolution.
-
-A line that fails to parse, or whose `seq` does not advance, refuses itself and everything after it, and the corruption is reported. The refused tail moves into `tab-lifecycle.refused.jsonl` beside the journal and is never replayed. Restore never reads the journal, but exit recovery proves a session only from replayable `session_bound` or checkpoint records.
+Only file-wide monotonic `seq` orders records; UTC `recorded_at` / `sealed_at` never order/select/resolve conflicts. Parse failure/nonadvancing `seq` refuses that line and tail, reports corruption, moves tail to adjacent `tab-lifecycle.refused.jsonl`; never replayed. Exit recovery requires replayable `session_bound`/checkpoint evidence.
 
 ### Transitions
 
-| `transition` | Meaning |
-|--------------|---------|
-| `epoch_opened` | A launch operation begins. |
-| `provider_identity_committed` | Provider accepted for this operation. |
-| `agent_type_write` | Provider-label write audit: origin, previous/new/attempted provider, caller tab, claimed session, nonce verification, and whether it applied. Parser writes are diagnostic only. |
-| `session_bound` | Provider session bound for the tab's current launch nonce. `source` is `hook` (the provider echoed the nonce), `pid_registry` (the provider's per-process record for a process in the tab's own PTY tree, start time matched), or `launch_marker` (the provider's session record carries the marker this launch wrote). The two detected sources run only after the hook missed its launch deadline; records without `source` read as `hook`. |
-| `role_binding` | Role/profile/`can_spawn`/`depth` as committed. `role` absent means a role deliberately cleared. |
-| `team_binding` | Team and parent as committed. `team_id` absent means unbound. |
-| `launch_ready` | **Seals** the operation. |
-| `restart_requested` | A restart was accepted; the relaunch opens a new epoch. |
-| `restore_awaiting_agent_restart` | Diagnostic: restore did not relaunch a member that exited before shutdown. Never authority. |
-| `rolled_back` | Authority withdrawn. The operation can never seal afterwards. |
-| `closed` | Tab gone. |
-| `permission_auto_confirm` | Diagnostic audit of opt-in permission auto-confirm: `decision` is `enabled`, `disabled`, `confirmed` (with `tool_name`, `option_label`, `rule`, `question`, `prompt_fingerprint`, `session_id`) or `refused` (with `reason`). Never authority; compaction keeps the newest 20 per tab. |
-| `remote_ownership_released` | Diagnostic record that local control ownership was released, including the peer and optional caller tab. Never authority; compaction keeps the newest 20 per tab. |
+Recorded at mutation commit, never inferred from later tab state:
 
-Transitions are recorded when the mutation commits, never inferred afterwards from tab state.
+| `transition` | Contract |
+|---|---|
+| `epoch_opened` | Launch operation begins. |
+| `provider_identity_committed` | Provider accepted. |
+| `agent_type_write` | Label-write audit: origin, previous/new/attempted provider, caller tab, claimed session, nonce verification, applied. Parser writes are diagnostic only. |
+| `session_bound` | Fields: `session_id`, `binding_nonce` (current launch). `source`: `hook` (nonce echoed; default if absent), `pid_registry` (own PTY-tree process record with matched start time), `launch_marker` (session record carries launch's marker). Detected sources run only after hook launch deadline. |
+| `role_binding` | Committed role/profile/`can_spawn`/`depth`; absent `role` deliberately clears it. |
+| `team_binding` | Committed Team/parent; absent `team_id` unbinds. |
+| `launch_ready` | Seals operation. |
+| `restart_requested` | Accepted restart; relaunch opens new epoch. |
+| `restore_awaiting_agent_restart` | Diagnostic: pre-shutdown exited member not relaunched; never authority. |
+| `rolled_back` | Withdraws authority; operation can never seal afterwards. |
+| `closed` | Tab gone. |
+| `permission_auto_confirm` | Opt-in permission auto-confirm audit: `decision` = `enabled`, `disabled`, `confirmed` (with `tool_name`, `option_label`, `rule`, `question`, `prompt_fingerprint`, `session_id`) or `refused` (with `reason`). Never authority; newest 20/tab retained. |
+| `remote_ownership_released` | Diagnostic local-control release, peer and optional caller tab. Never authority; newest 20/tab retained. |
 
 ### Checkpoints
 
-A **checkpoint** is a sealed launch that committed its provider and session without rollback or closure. It records that commitment but never authorizes restore.
+Sealed launches with provider/session committed and no rollback or closure; evidence only.
 
 ## Retention and compaction
 
-The journal is bounded, read-only diagnostic history; corruption is reported, checkpoints do not authorize restore, and compaction preserves surviving evidence.
+Bounded diagnostic history; compaction preserves surviving evidence.
 
 ## Inspecting it
 
-Inspect with filesystem tools:
+Filesystem inspection: filter `entry.key.tab_id`/`checkpoint.key.tab_id`; read `entry.seq`, `entry.recorded_at`, `entry.transition.transition`.
 
 ```bash
-JOURNAL=~/.codeterm-dev/sessions/tab-lifecycle.jsonl
-# everything that ever happened to one tab, in order
-grep '"tab_id":"db79d2da"' "$JOURNAL"
-# just the transition names and when they landed
-grep '"tab_id":"db79d2da"' "$JOURNAL" \
-  | jq -r '.entry | "\(.seq)  \(.recorded_at)  \(.transition.transition)"'
-# does this tab have a committed checkpoint at all?
-jq -c 'select(.record=="checkpoint" and .checkpoint.key.tab_id=="db79d2da")' "$JOURNAL"
-codeterm tab inspect --tab db79d2da --lifecycle
+domios tab inspect --tab db79d2da --lifecycle
 ```
 
-Session backup list and restore commands read Storage-backed desk projections. Restore is additive: it recreates missing workspaces and tabs under their original ids without changing or closing existing entries. For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a read-only `lifecycle` object with live lineage, ordered transitions, surviving checkpoint, and journal-tail health. Plain `tab list` and `tab list --workspace` stay separate from this telemetry, which has no restore or checkpoint-mutation surface.
+Session backups use Storage projections. Restore adds missing workspaces/tabs with original ids; existing entries stay unchanged/open. `tab inspect --tab ID --lifecycle` adds read-only `lifecycle`: live lineage, ordered transitions, surviving checkpoint, tail health. `tab list` / `tab list --workspace` omit it. No journal restore/checkpoint mutation.
 
 ## Attempt retirement fences a closed tab's dispatch
 
-Closed attempts cannot become ready or be reactivated; recover through the Plan owner. When the closed tab (or a fenced Worker whose agent process exited) held an `in_progress` task, the plan owner gets one `[worker lost: <task>]` notice and the bus one `worker-lost` event (`plan_id`, `task_id`, `worker_tab_id`, `orchestrator_tab_id`, `worktree_path`, `branch`, `lane` state `dirty`/`clean`/`missing`/`no_lane`/`unknown`, `cause`, `recovery`, `delivery`), keyed once per plan, task, and attempt. When the plan owner's tab has no live agent, the notice is withheld rather than typed into its shell (`delivery` `withheld_no_agent`), the user gets one alert naming the affected tasks, and each withheld notice is delivered once when the owner's agent is ready again. An attributed `tab close` of such a Worker is refused (`409`, `busy worker close refused`) unless `--force`; a human close returns `warnings`. `plan doctor` reports remaining `in_progress_tab_gone` drift as an error.
+Closed attempts cannot become ready/reactivate; recover through Plan owner. Closed tabs or fenced exited Workers holding `in_progress` tasks emit one `[worker lost: <task>]` owner notice and bus `worker-lost` per plan/task/attempt: `plan_id`, `task_id`, `worker_tab_id`, `orchestrator_tab_id`, `worktree_path`, `branch`, `lane` state, `cause`, `recovery`, `delivery`.
+
+No live owner agent: withhold (`delivery: withheld_no_agent`), alert user once with affected tasks, deliver once when owner ready; never type into shell. Attributed `tab close` of such Workers refuses (`409`, `busy worker close refused`) unless `--force`; human close returns `warnings`. `plan doctor`: `in_progress_tab_gone` is error.
 
 ## Not in scope
 
-- **Tab creation** is not journaled; the first `epoch_opened` marks its lifecycle.
-- **chatBackend lifecycle authority does not exist.** Those tabs may have detached provider-label audit records, but no lifecycle operation or checkpoint.
-- **Rollback to a named checkpoint** is not implemented. The journal records history; it does not replay it.
+- Tab creation: first journal entry is `epoch_opened`.
+- chatBackend lifecycle authority: detached provider-label audits only, no operation/checkpoint.
+- Named-checkpoint rollback or journal replay.
 
 ## General Agent recovery
 
-Recovery observes launch settlement, startup deadlines, PTY death, provider exit to a surviving shell, idle and busy without output. The watchdog uses those events and checks shutdown, launch grace, PTY liveness and restart bounds when each event occurs. A live PTY never authorizes a restart from screen evidence. Confirmed dead-PTY recovery retains the watchdog predicates independently of model availability.
+Watchdog checks shutdown, launch grace, PTY liveness/restart bounds on launch settlement, startup deadline, PTY death, provider exit to shell, idle or busy without output. Screens never authorize live-PTY restart. Confirmed dead-PTY recovery retains watchdog predicates without a model.
 
-The connected observer ignores confidence below 0.60. Model-only owner notifications require two agreeing observations at or above 0.80; model-authorized automatic actions require both observations at or above 0.90 and deterministic evidence:
+Connected observer ignores confidence below 0.60. Model-only owner notices require two agreeing observations >=0.80; automatic actions require both >=0.90 plus deterministic evidence:
 
-| State | Recovery authority |
+| State | Authority |
 |---|---|
-| Update prompt | Agent-owned prompts use one calibrated choice at 0.80 or above among provider-declared options. Owner-launched tabs keep the prompt for the owner. |
-| Crashed to shell | Confirmed provider exit event, provider absent from this tab's process tree and live shell PTY; resume a verified recovery session, otherwise launch fresh. Jev is audit-only. |
-| Starting past deadline | One restart, with provider absence or a dead PTY. |
-| Error loop | One restart, then notify; provider absence or a dead PTY is required. |
-| Login or unavailable model/quota | Owner notification with choices that match the blocker. |
-| Folder trust | Existing trust responder checks provenance, shared trust cache or a live same-provider tab with a verified session in the exact canonical directory. |
-| Command/tool permission | The tab's own permission policy; the observer does not approve it. |
+| Update prompt | Agent-owned: one calibrated choice >=0.80 among provider-declared options. Owner-launched: owner answers. |
+| Crashed to shell | Confirmed exit, provider absent from own process tree, live shell PTY: resume verified session or launch fresh. Jev audit-only. |
+| Starting past deadline | One restart; provider absent or PTY dead. |
+| Error loop | One restart, then notify; provider absent or PTY dead. |
+| Login or unavailable model/quota | Notify owner with blocker-matching choices. |
+| Folder trust | Trust responder requires provenance, shared trust cache or live same-provider tab with verified session in exact canonical directory. |
+| Command/tool permission | Tab's permission policy; observer never approves. |
 | Other | No recovery. |
 
-Automatic model recovery remains disabled until a separate human-labelled held-out set reaches 0.95 precision in the 0.90 automatic band and the live recovery oracle is recorded. Each automatic dispatch first writes the Supporter journal and emits a verbose notification. At most two automatic restarts are reserved durably per General Agent episode, even if configured higher. Exhaustion emits one failure notification and stops recovery until an owner restart resets the episode.
+Automatic model recovery requires separate human-labelled held-out precision 0.95 in the 0.90 band plus recorded live oracle. Each dispatch first journals to Supporter and notifies verbose. Durable maximum: two restarts/General Agent episode despite higher configuration. Exhaustion notifies failure once; owner restart resets episode.
 
-UI-created tabs suppress trust, permission and login owner notifications unless parent/spawner, team, cron, hidden-worker or General Agent ownership applies. The journal still records observations. Restored-tab notices are held for restore-wave settlement and grouped by state. Durable tab/state/launch keys prevent repeated notices across application restarts; a new launch can notify again.
+Trust/permission/login notice suppression and restore grouping: `domios docs AGENT-CONTROL`. Observations remain journaled; durable tab/state/launch keys survive app restarts, and new launches may notify again.
 
-Structural access refusals from the tab's bound provider session are always incidents, including UI-created tabs. They immediately open one `error` / `action_needed` notification per access-loss transition and keep the tab waiting on authentication. A successful provider turn clears the state and resolves the notice. See `codeterm docs NOTIFICATIONS`; role-tab escalation is documented in `codeterm docs ORCHESTRATION`.
+Bound-session access refusals immediately raise one `error` / `action_needed` incident/access-loss transition, even UI-created tabs, waiting on authentication. Successful turns clear/resolve it. See `domios docs NOTIFICATIONS`; role escalation: `domios docs ORCHESTRATION`.
 
 ## Unattended launch prompts
 
-Agent-, Team-, worker- and cron-owned tabs may encounter prompts while visible or hidden. Tabs launched directly by the owner without agent or Team ownership keep owner-facing prompts.
+Visible/hidden owned prompt policy lives in the same document (calibrated >=0.80 choices, structural fallback, owner-only blockers, provenance exceptions, direct owner-launched tabs).
 
-- For folder-trust, tool-permission and update prompts, one calibrated Supporter choice at 0.80 or above may select any provider-declared option. Domios submits that option through the prompt response surface; it never sends model-authored text.
-- If the calibrated choice is unavailable, fails, is capped, selects `other`, or is below 0.80, the existing structural responder decides. A prompt it cannot resolve is routed to the owner with its parsed options; user-audience tabs also raise one owner notice per blocker kind and launch, and include the parent agent when one exists.
-- Login, authentication, unavailable-model and quota prompts are always routed to the owner. Folder-trust choices at launch or in cron do not require host provenance for the model decision; provenance continues to govern other trust decisions.
-- Each routing decision enters the Supporter journal as `owned_prompt_answer` with `decided_by` set to `adapter` or `fallback(<reason>)`.
-
-Prompt choices are journaled without raw screen text or credentials.
-
-Hidden agent PTYs launch at 120x40, and their screen parser is sized to that PTY geometry, so a launch prompt is recognized from the screen the provider actually drew.
+Unresolved prompts route parsed options to owner. User-audience tabs notify once/blocker kind/launch, including parent agent if present. Supporter journals each decision as `owned_prompt_answer`, `decided_by: adapter` or `fallback(<reason>)`, without raw screen text/credentials. Hidden PTYs and screen parsers use 120x40 geometry.
 
 ## Provider updates
 
-The production instance automatically coordinates provider updates. This replaces
-owner consent offers with an automatic update and one verbose summary. Named and
-non-production instances participate only with
-`updater.allow_provider_updates_in_non_prod = true`.
+Production coordinates automatic updates with one verbose summary; named/non-production instances require `updater.allow_provider_updates_in_non_prod = true`.
 
-A provider update check or a classified ManualUpdate prompt starts the
-provider-declared update command in a utility process with a 300-second failure
-deadline. Provider and target-version claims are durable and shared across
-instances: the command runs once per target version, with one run per provider
-at a time. Prompts use only the provider-declared safe option through the prompt
-response API; Domios never chooses Update now inside an agent tab.
+Update check/classified ManualUpdate prompt runs declared updater in utility process (300-second deadline). Durable cross-instance provider/version claims permit one command/version, one run/provider at a time; interrupted claims prevent reruns. Prompt API uses declared safe option, never Update now in agent tab.
 
-Working tabs keep running throughout the update. On success, idle tabs,
-including the General Agent, restart through `agent restart` with verified
-session resume (`resumed`), or the pipeline's eligible `fresh_launch` fallback.
-A tab with an active turn or an in-progress task attempt stays pending until its
-next idle or task-settlement event. Each tab gets at most one automatic restart
-for that update. On command failure, no tab restarts; the owner receives one
-failure notice with bounded captured stdout and stderr. An interrupted durable
-claim is retained to prevent an unconfirmed updater from running twice.
+Working tabs continue. Success: idle tabs (General included) `agent restart` as verified `resumed` or eligible `fresh_launch`. Active turns/in-progress attempts await idle/task settlement; maximum one restart/tab/update. Failure: no restarts, one owner failure notice with bounded stdout/stderr.
 
-The summary reports restarted, pending and failed restart counts, and updates
-in place as pending tabs finish. Update runs, safe prompt answers and individual
-restart outcomes enter the Supporter journal.
+Summary counts restarted/pending/failed restarts and updates in place as pending tabs finish. Supporter journals update runs, safe prompt answers and individual restart outcomes.
 
-<!-- revision: 57 -->
+<!-- revision: 63 -->

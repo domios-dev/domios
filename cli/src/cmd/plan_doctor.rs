@@ -80,7 +80,7 @@ pub(crate) fn assert_quality_ready(
 
 fn render_quality_approval_error(plan_id: &str, report: &Value) -> String {
     format!(
-        "✗ plan approval blocked by quality doctor\n\n{}fix:\n  codeterm plan doctor {plan_id} --kind quality\n  codeterm plan approve {plan_id}",
+        "✗ plan approval blocked by quality doctor\n\n{}fix:\n  domios plan doctor {plan_id} --kind quality\n  domios plan approve {plan_id}",
         render_doctor(report)
     )
 }
@@ -150,7 +150,7 @@ fn doctor_report_authoritative(
                 path: project_root.join(id).display().to_string(),
                 task_id: None,
                 detail: format!("plan not found: {id}"),
-                fix: "verify the plan id with `codeterm plan list --all`, then rerun plan doctor"
+                fix: "verify the plan id with `domios plan list --all`, then rerun plan doctor"
                     .into(),
             });
         }

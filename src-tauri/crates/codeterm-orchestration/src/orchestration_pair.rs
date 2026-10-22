@@ -80,7 +80,7 @@ fn pair_retry_command(
         None => provider.to_string(),
     };
     format!(
-        "codeterm team pair --orchestrator {} --planner {} --workspace {}",
+        "domios team pair --orchestrator {} --planner {} --workspace {}",
         provider_spec(orchestrator_agent, orchestrator_model),
         provider_spec(planner_agent, planner_model),
         workspace_id
@@ -121,7 +121,7 @@ fn is_pair_creation_leaf(tab: &codeterm_service_core::multiplexer::types::Tab) -
 /// The exact command a refused leaf caller runs to create the pair
 /// deliberately, attributed to its own tab — never to a throwaway
 /// intermediary shell.
-const LEAF_PAIR_CREATION_FIX_COMMAND: &str = "codeterm team pair --acknowledge-leaf ...";
+const LEAF_PAIR_CREATION_FIX_COMMAND: &str = "domios team pair --acknowledge-leaf ...";
 
 fn leaf_pair_creation_refusal() -> String {
     format!(

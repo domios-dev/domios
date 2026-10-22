@@ -39,7 +39,7 @@ const WORKER_ACK_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
 const WORKER_ACK_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
 const AGENT_STARTUP_NOTICE_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
 const AGENT_STARTUP_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
-const WORKER_ACK_REMINDER: &str = "The startup binding for this tab looks wrong. Check whether CODETERM_TASK_ID names a task with no live attempt or whether this session never bound. If the assignment is live, acknowledge it with codeterm agent ack.";
+const WORKER_ACK_REMINDER: &str = "The startup binding for this tab looks wrong. Check whether CODETERM_TASK_ID names a task with no live attempt or whether this session never bound. If the assignment is live, acknowledge it with domios agent ack.";
 pub(crate) const WORKER_ACK_CONTEXT: &str = "worker-ack";
 
 fn interactive_child_pty_recovery(tab_id: &str, attempt_id: &str) -> Value {
@@ -48,11 +48,11 @@ fn interactive_child_pty_recovery(tab_id: &str, attempt_id: &str) -> Value {
         "target_tab_id": tab_id,
         "attempt_id": attempt_id,
         "primitives": [
-            format!("codeterm tab inspect --tab {tab_id}"),
-            format!("codeterm tab status --tab {tab_id}"),
-            format!("codeterm tab get-text --tab {tab_id}"),
-            format!("codeterm tab respond OPTION --tab {tab_id}"),
-            format!("codeterm send --tab {tab_id} --actions <bounded-visible-state-derived-actions>"),
+            format!("domios tab inspect --tab {tab_id}"),
+            format!("domios tab status --tab {tab_id}"),
+            format!("domios tab get-text --tab {tab_id}"),
+            format!("domios tab respond OPTION --tab {tab_id}"),
+            format!("domios send --tab {tab_id} --actions <bounded-visible-state-derived-actions>"),
         ],
     })
 }
@@ -726,7 +726,7 @@ pub fn worker_ack_timeout_event(
         "tab_id": tab_id,
         "attempt_id": attempt_id,
         "deadline_seconds": (WORKER_ACK_TIMEOUT + WORKER_ACK_FINAL_TIMEOUT).as_secs(),
-        "expected_command": "codeterm agent ack",
+        "expected_command": "domios agent ack",
         "spawn_command": spawn_command,
         "tab_state": TAB_STATE_ALIVE_AWAITING_INSPECTION,
         "attempt_state": ATTEMPT_STATE_FINALIZED,
@@ -758,11 +758,11 @@ fn agent_startup_notice_event(tab_id: &str, title: &str, attempt_id: &str) -> Va
         },
         "impact": "The spawned agent has not acknowledged its startup contract. The tab may be waiting on a provider prompt.",
         "inspect": [
-            format!("codeterm tab status --tab {tab_id}"),
-            format!("codeterm tab get-text --tab {tab_id}"),
+            format!("domios tab status --tab {tab_id}"),
+            format!("domios tab get-text --tab {tab_id}"),
         ],
-        "respond": format!("codeterm tab respond OPTION --tab {tab_id}"),
-        "hold": format!("codeterm agent startup-hold --tab {tab_id} --attempt {attempt_id}"),
+        "respond": format!("domios tab respond OPTION --tab {tab_id}"),
+        "hold": format!("domios agent startup-hold --tab {tab_id} --attempt {attempt_id}"),
         "recovery": interactive_child_pty_recovery(tab_id, attempt_id),
         "fallback": "Invoke recovery.capability for this exact tab and attempt. Never resend the assigned task payload.",
     })

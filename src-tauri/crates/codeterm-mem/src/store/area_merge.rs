@@ -163,7 +163,7 @@ pub fn merge_area(
             params![reason, id]).map_err(|e| e.to_string())?;
     }
     if let Some(source) = run_source {
-        let summary = format!("Area merge {from:?} -> {into:?}: {} items; undo each with codeterm mem restore <id> --version <history-row>.", rows.len());
+        let summary = format!("Area merge {from:?} -> {into:?}: {} items; undo each with domios mem restore <id> --version <history-row>.", rows.len());
         let diary_id = insert(
             &tx,
             &NewMemItem {

@@ -21,8 +21,8 @@ specific:
 
 ```bash
 git worktree add -b lane/<plan>-<task>-<slug> ../<repo>-worktrees/<slug> <base>
-codeterm plan task update <plan> <task>   --worktree <abs-path> --branch lane/<plan>-<task>-<slug>   --base <base> --destination <integration-branch>
-codeterm plan task dispatch <plan> <task> --agent <provider> --execution-intent mutating
+domios plan task update <plan> <task>   --worktree <abs-path> --branch lane/<plan>-<task>-<slug>   --base <base> --destination <integration-branch>
+domios plan task dispatch <plan> <task> --agent <provider> --execution-intent mutating
 ```
 
 Record `--destination` in that same call; omitting it dispatches successfully but
@@ -60,18 +60,16 @@ participate in canonical writer occupancy, so the parent coordinates those write
 
 For a plan-bound mesh Worker, the peer owns its lane and the origin owns review
 and integration. After accepting the attempt, run
-`codeterm plan task merge-remote-lane <plan> <task> <attempt>` on the origin.
+`domios plan task merge-remote-lane <plan> <task> <attempt>` on the origin.
 The command requires the peer tip to equal the accepted report SHA and the clean
 origin checkout to remain on its dispatch-time branch. It uses `git merge
 --no-ff` and records only after ancestry passes; cherry-pick and squash are invalid.
 
-Competition has no CLI verb; use the `plan.task.compete` route printed by `codeterm plan task show` for competition-enabled tasks. Each
+Competition has no CLI verb; use the `plan.task.compete` route printed by `domios plan task show` for competition-enabled tasks. Each
 **mutating** competitor gets its own worktree, branch, and base before spawning,
 so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
-
-<!-- revision: 19 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not Domios's own repository layout.
@@ -105,11 +103,10 @@ about lifecycle and evidence, not Domios's own repository layout.
    integration target. Never cherry-pick, squash, replay, or patch-copy lane
    commits. Rebase the lane onto the target when necessary, re-run its bounded
    review, then merge the lane itself.
-7. Run `scripts/merge-stack-audit.sh --target <candidate> <accepted-lane>...`
-   before final QA and the master PR. `MERGED` is clean; `PATCH_LANDED_STALE`
-   is only patch-equivalence evidence, not ancestry proof. `PATCH_LANDED_STALE`
-   and `UNLANDED` both fail the release gate until the lane is ancestry-merged
-   or explicitly deferred with a reason.
+7. Before final QA, prove each accepted lane is an ancestor of the integration
+   candidate with `git merge-base --is-ancestor <accepted-lane> <candidate>`.
+   Patch equivalence does not prove ancestry. Merge any missing lane or record
+   an explicit deferral before continuing.
 8. After acceptance, immediately remove merged branches, clean worktrees, stop
    lane-specific dev daemons, and record cleanup status. Deletion-only branch
    pushes must not run build gates.
@@ -117,22 +114,11 @@ about lifecycle and evidence, not Domios's own repository layout.
    and worktree gets one verdict: merged and cleaned, bounced, deferred
    with a recorded reason, or abandoned with rationale.
 
-Mechanism ownership:
-
-| Rule | Mechanism owner |
-|------|-----------------|
-| Code-only worker template and report refusal | `task_5a6d58c5` |
-| State transition invariants | `task_7140a28c` |
-| Lane liveness and stale labels | `task_1d0572d0` |
-| Board/card lane visibility | `task_03bf8da6` / `task_73ea1b9d` |
-| Auto cleanup | `task_540e7afa` |
-| Polling-smell nudges | `task_25dbe180` |
-
 ## Transfer an acknowledged Worker between Teams
 
 For an acknowledged task-bound Worker in another Team's approved plan,
 the current source parent Orchestrator may use
-`codeterm agent link --parent-tab <destination> --tab <worker>` to transfer it
+`domios agent link --parent-tab <destination> --tab <worker>` to transfer it
 to that plan's live Orchestrator in the same local workspace. Preserve plan,
 task, attempt, lane, session and nonce. The destination cannot pull it.
 Mismatched plan owner, binding, session or isolated lane refuses without state
@@ -142,4 +128,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 3 -->
+<!-- revision: 21 -->

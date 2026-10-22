@@ -2,6 +2,8 @@ use super::*;
 use std::process::Command;
 use std::sync::Arc;
 
+mod close_fixture;
+
 const CANONICAL: &str = "/repo";
 
 struct FakeGit {
@@ -67,7 +69,7 @@ fn lane_settle_accept_runs_one_ancestry_check_then_safe_removal() {
     let settlement = settle(&finished_lane("a"), CANONICAL, true, &mut git);
 
     assert_eq!(settlement, Settlement::Removed);
-    assert_eq!(git.ancestry_calls, [("lane/a".into(), "master".into())]);
+    assert_eq!(git.ancestry_calls, [("lane/a".into(), "HEAD".into())]);
     assert_eq!(git.removals.len(), 1);
     let removal = &git.removals[0];
     assert!(!removal.force, "automatic cleanup never forces");
@@ -109,7 +111,7 @@ fn lane_settle_live_holder_defers_cleanup_until_its_tab_closes_once() {
     assert_eq!(closed.ancestry_calls.len(), 1);
     assert!(!closed.removals[0].force);
 
-    for status in [CLEANUP_DONE, CLEANUP_RETAINED, CLEANUP_OFFERED] {
+    for status in [CLEANUP_DONE] {
         let settled = LaneRecord {
             cleanup_status: Some(status.into()),
             ..finished_lane("a")
@@ -118,6 +120,14 @@ fn lane_settle_live_holder_defers_cleanup_until_its_tab_closes_once() {
             !settled.wants(SettleTrigger::HolderClosed),
             "{status} is not revisited on close"
         );
+    }
+    for status in [CLEANUP_RETAINED, CLEANUP_OFFERED, "cleanup_debt"] {
+        let settled = LaneRecord {
+            cleanup_status: Some(status.into()),
+            ..finished_lane("a")
+        };
+        assert!(settled.wants(SettleTrigger::HolderClosed));
+        assert!(!settled.wants(SettleTrigger::Decided));
     }
 }
 
@@ -130,8 +140,8 @@ fn lane_settle_unmerged_lane_is_kept_and_recorded_with_reason() {
     assert!(git.removals.is_empty(), "unmerged work is never removed");
     let (status, hints) = recorded(&settlement);
     assert_eq!(status, CLEANUP_RETAINED);
-    assert!(hints[0].contains("not merged into master"));
-    assert!(hints[1].starts_with("codeterm plan lane-remove"));
+    assert!(hints[0].contains("not merged into HEAD"));
+    assert!(hints[1].starts_with("domios plan lane-remove"));
     let update = lane_update(&settlement).unwrap();
     assert_eq!(update.worktree_path, None, "the lane reference stays");
     assert_eq!(update.branch, None);
@@ -249,7 +259,7 @@ fn lane_settle_history_marks_every_finished_lane_terminal_without_git() {
     assert_eq!(ids, ["present", "vanished", "peer"]);
     let (status, hints) = recorded(&marked[0].1);
     assert_eq!(status, CLEANUP_OFFERED);
-    assert!(hints[0].starts_with("codeterm plan lane-remove '/lanes/present'"));
+    assert!(hints[0].starts_with("domios plan lane-remove '/lanes/present'"));
     assert_eq!(recorded(&marked[1].1).0, CLEANUP_DONE);
     let vanished = lane_update(&marked[1].1).unwrap();
     assert_eq!(vanished.worktree_path, Some(None));

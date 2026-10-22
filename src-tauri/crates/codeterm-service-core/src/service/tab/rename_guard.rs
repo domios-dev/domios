@@ -9,7 +9,7 @@ pub(crate) fn refuse_task_bound_rename(
 ) -> Result<(), String> {
     if task_binding.is_some() {
         return Err(format!(
-            "{TASK_BOUND_RENAME_REFUSAL_PREFIX}: Tab '{tab_id}' keeps its task-bound identity and planned name; use `codeterm tab describe` for progress"
+            "{TASK_BOUND_RENAME_REFUSAL_PREFIX}: Tab '{tab_id}' keeps its task-bound identity and planned name; use `domios tab describe` for progress"
         ));
     }
     Ok(())

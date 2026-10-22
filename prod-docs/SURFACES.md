@@ -56,10 +56,10 @@ the panel view. One plugin view can serve several surfaces by reading
 ## Opening, listing and closing
 
 ```bash
-codeterm surface list
-codeterm surface open dash:board
-codeterm surface open dash:board --owner <TAB>
-codeterm surface close --tab <TAB>
+domios surface list
+domios surface open dash:board
+domios surface open dash:board --owner <TAB>
+domios surface close --tab <TAB>
 ```
 
 - `surface list` shows the surfaces enabled plugins declare and the surface
@@ -79,18 +79,18 @@ codeterm surface close --tab <TAB>
   `--title-from-owner`; the label follows the owner if it is renamed.
 - `surface close --tab <TAB>` closes a surface tab and refuses any other tab,
   so it can never close an agent. The tab menu, the header close button and
-  `codeterm tab close` close it too.
+  `domios tab close` close it too.
 
 ## Surface tabs take no text
 
 A surface has no terminal and no agent. Every text path refuses it with a typed
 code instead of starting a shell:
 
-- `codeterm send`, the `/send` and chat-send routes, and agent-to-agent
+- `domios send`, the `/send` and chat-send routes, and agent-to-agent
   delivery return `surface_no_input`.
-- `codeterm tab get-text` and output reads return `surface_no_text`.
+- `domios tab get-text` and output reads return `surface_no_text`.
 
-Act on a surface through its plugin's verbs (`codeterm plugin --help` lists
+Act on a surface through its plugin's verbs (`domios plugin --help` lists
 installed plugins; each plugin documents its own verbs).
 
 ## Lifecycle
@@ -115,7 +115,7 @@ The viewer uses the two routes below; the owner agent uses its plugin's verbs.
 
 The `browser` plugin declares `browser:browser`, a stream surface on the
 `browser` runtime. Its owner agent drives it with the plugin verbs
-(`codeterm plugin browser <verb>`); the plugin's `help` verb prints the
+(`domios plugin browser <verb>`); the plugin's `help` verb prints the
 full guide. The verbs act only on the calling agent's own browser, and
 `open` creates it when the agent has none. When the user points at an element
 and sends a question, change or bug, the owner agent receives it as a Domios
@@ -185,4 +185,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

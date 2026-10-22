@@ -1,4 +1,4 @@
-//! `codeterm sessions backups` verb contracts: parse shape for desk-backup
+//! `domios sessions backups` verb contracts: parse shape for desk-backup
 //! list/restore, plus regression that extending the enum kept existing verbs.
 
 use crate::args::sessions::{BackupsAction, SessionsAction};

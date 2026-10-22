@@ -1,16 +1,16 @@
 ## Domios control
 
-Use `codeterm` for tabs, agents, plans, mesh, memory and schedules. First search
-`codeterm mem search "<need>"`, then read `--help` or `codeterm docs`; never guess.
+Use `domios` for tabs, agents, plans, mesh, memory and schedules. First search
+`domios mem search "<need>"`, then read `--help` or `domios docs`; never guess.
 Load the `codeterm` skill for these operations.
 
 A tab title is one word and stays stable. Dispatch derives the description from
 the task name (`--description` overrides); direct `agent spawn` needs
-`--description`; `codeterm tab describe` updates it. Finish related edits,
+`--description`; `domios tab describe` updates it. Finish related edits,
 then verify once: skip any check the next step already performs (a rebuild
 compiles, a live run tests), and commit per working batch, not per edit.
 
-Notify through `codeterm notify send "title" [--from-pad PATH] [--severity info|warning|error] --level verbose|action_needed|failure`; never use provider-native notifications. `verbose` is occasional progress or completion, never every step. `action_needed` (waiting on the user) and `failure` (it broke and you stopped) are rare escalations, only when you need user input and cannot proceed or the user asked; Workers and Planners use their reporting channel instead. `unseen` means the record was kept with exit 0; do not retry.
+Notify through `domios notify send "title" [--from-pad PATH] [--severity info|warning|error] --level verbose|action_needed|failure`; never use provider-native notifications. `verbose` is occasional progress or completion, never every step. `action_needed` (waiting on the user) and `failure` (it broke and you stopped) are rare escalations, only when you need user input and cannot proceed or the user asked; Workers and Planners use their reporting channel instead. `unseen` means the record was kept with exit 0; do not retry.
 
 An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Asking the user a question goes through this same path and never through a provider-native question or prompt tool — those render only inside this tab, so the bell, Telegram, push, and mesh never carry the question and a user who is away cannot answer it.
 

@@ -160,7 +160,7 @@ pub(super) fn plan_dispatch_lane_placement(
                     task_lane.branch.as_deref(),
                     &resolved.canonical_cwd,
                 )
-                .unwrap_or_else(|| "codeterm plan lane-remove <worktree>".into());
+                .unwrap_or_else(|| "domios plan lane-remove <worktree>".into());
                 return Err(checkout_required(format!(
                     "task '{task_id}' records isolated lane '{recorded}'; {surviving_part}. Dispatch resolved '{}' instead. Release the recorded lane with: {release}. No Worker was spawned.",
                     resolved.worktree_path

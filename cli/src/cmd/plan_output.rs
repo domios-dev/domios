@@ -300,16 +300,16 @@ mod tests {
             "strategy_warning": {
                 "consecutive_bounces": 3,
                 "review_round": 4,
-                "message": "Stop iterating this strategy. Re-diagnose per `codeterm docs BOUNCE`."
+                "message": "Stop iterating this strategy. Re-diagnose per `domios docs BOUNCE`."
             }
         });
         let rendered = render_strategy_warning(&val).unwrap();
         assert!(rendered.contains("3 consecutive stagnant bounces"));
         assert!(rendered.contains("review round 4"));
-        assert!(rendered.contains("codeterm docs BOUNCE"));
+        assert!(rendered.contains("domios docs BOUNCE"));
     }
 
-    const PLAN_NOT_FOUND: &str = "✗ plan 'zzzzzzzz' not found.\nfix: codeterm plan list --active";
+    const PLAN_NOT_FOUND: &str = "✗ plan 'zzzzzzzz' not found.\nfix: domios plan list --active";
 
     #[test]
     fn plan_json_error_line_is_the_shared_envelope_with_a_null_rpc_code() {

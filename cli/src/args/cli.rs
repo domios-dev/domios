@@ -1,5 +1,5 @@
 //! SOURCE OF TRUTH for the CodeTerm CLI surface.
-//! On any change here run `codeterm cli-manifest --write` to regenerate
+//! On any change here run `domios cli-manifest --write` to regenerate
 //! generated/cli/cli-manifest.json + generated/cli/cli.md. The tests `cli_manifest_is_fresh`,
 //! `docs_cli_md_is_fresh`, and `prompt_cli_commands_exist` (cli/src/cmd/manifest.rs)
 //! plus the chat-ui `recognize.test.ts` fail CI if anything drifts.
@@ -42,10 +42,11 @@ use super::usage::UsageAction;
 
 #[derive(Parser)]
 #[command(
-    name = "codeterm",
+    name = "domios",
+    bin_name = "domios",
     version,
     about = "Domios CLI — control your terminal multiplexer",
-    after_help = "Plugin management is available via `codeterm plugin --help`."
+    after_help = "Plugin management is available via `domios plugin --help`."
 )]
 pub struct Cli {
     /// Output raw JSON instead of human-readable text
@@ -117,10 +118,10 @@ pub enum Commands {
 
     /// Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
     CliManifest {
-        /// Regenerate committed artifacts (generated/cli/cli-manifest.json + generated/cli/cli.md)
+        /// Write the CLI manifest, Markdown reference and command-path exports
         #[arg(long)]
         write: bool,
-        /// Emit the generated/cli/cli.md auto-block markdown instead of JSON
+        /// Emit the Markdown command reference instead of JSON
         #[arg(long, conflicts_with = "write")]
         markdown: bool,
     },
@@ -203,7 +204,7 @@ pub enum Commands {
 
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:
-        ///   codeterm send --tab X --stdin <<'EOF'
+        ///   domios send --tab X --stdin <<'EOF'
         ///   any `backticks`, $vars, etc — zero interpolation
         ///   EOF
         ///
@@ -212,6 +213,10 @@ pub enum Commands {
         /// Neither status waits for the agent to answer.
         #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
         stdin: bool,
+
+        /// Deliver a host system notice with this context and no reply address.
+        #[arg(long, value_name = "CONTEXT", conflicts_with_all = ["actions", "delay", "at", "every", "until", "count", "to_shell"])]
+        system_context: Option<String>,
 
         /// Terminal actions to run after optional text, comma-separated.
         /// Keys: literal characters, enter, esc, tab, backspace, delete, up,
@@ -328,7 +333,7 @@ pub enum Commands {
         action: super::rest_api::RestApiAction,
     },
 
-    /// Manage daemon services (long-running processes monitored by codeterm)
+    /// Manage daemon services (long-running processes monitored by Domios)
     Service {
         #[command(subcommand)]
         action: ServiceAction,

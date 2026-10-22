@@ -761,14 +761,12 @@ fn routed_prefix_body_and_suffix_share_one_write_before_the_submit_key() {
     let body = "opaque routed body";
     let suffix = " [return hint] instruction</domios>";
 
-    run_with_submit_key_and_frame(
+    run_with_submit_key_and_payload(
         &trace,
-        body,
+        &format!("{prefix}{body}{suffix}"),
         true,
         b"\r",
-        Some(prefix),
-        None,
-        Some(suffix),
+        &format!("{prefix}{body}{suffix}"),
         VerifySubmitStrategy::None,
         opts(),
         |_, _| Ok(()),

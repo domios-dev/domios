@@ -1,4 +1,4 @@
-//! `codeterm plugin validate <dir>` — author-facing preflight for a plugin
+//! `domios plugin validate <dir>` — author-facing preflight for a plugin
 //! bundle. Runtime truth is reused, never re-interpreted: the strict daemon
 //! `PluginManifest` (deny_unknown_fields) and the QuickJS loader (`load_one`).
 

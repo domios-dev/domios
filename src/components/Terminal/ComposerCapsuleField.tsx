@@ -25,7 +25,6 @@ interface Hover {
 
 function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan; capsule: ComposerCapsule | null; hovered: boolean; upload?: ComposerUpload }) {
   const { name, detail } = capsuleLabelParts(span.label);
-  const kindLabel = capsule && ["video", "image", "file"].includes(capsule.kind) ? capsule.kind : null;
   return (
     <AttachmentCapsule
       inert
@@ -36,7 +35,7 @@ function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan;
         : <TriangleAlert aria-hidden className="ct-capsule__icon" style={{ color: "var(--ct-error, #f85149)" }} />}</> : undefined}
       labelContent={<>
         {CAPSULE_LEAD}
-        {kindLabel ? <span className="ct-capsule__kind" data-kind={kindLabel}><span style={{ visibility: "hidden" }}>{labelChars(name)}</span></span> : labelChars(name)}
+        {labelChars(name)}
         {detail && <span className="ct-capsule__detail">{labelChars(detail)}</span>}
         {CAPSULE_TRAIL}
       </>}

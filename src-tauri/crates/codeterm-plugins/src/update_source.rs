@@ -14,7 +14,7 @@ impl UpdateDiscoverySource for OfficialUpdateSource {
             return Err("Update discovery requires HTTPS".into());
         }
         let client = reqwest::blocking::Client::builder()
-            .user_agent("CodeTerm-Updater")
+            .user_agent("Domios-Updater")
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
                 if attempt.previous().len() >= 5 || !discovery_url_allowed(attempt.url().as_str()) {
                     attempt.error("Unsafe update redirect")

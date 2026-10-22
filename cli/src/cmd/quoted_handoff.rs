@@ -46,7 +46,7 @@ pub fn inline_refusal(source: &str, text: &str, remedy: &str) -> Option<String> 
         "{REFUSAL_CODE}: this payload is {} and went inline through the shell, which silently \
          mangles backticks, $, quotes, and newlines. The original bytes are already gone, so it \
          is refused before the handoff is accepted rather than delivered mangled.\n\
-         Required: stage the payload in this tab's pad (`codeterm pad path`) and pass {remedy}.",
+         Required: stage the payload in this tab's pad (`domios pad path`) and pass {remedy}.",
         shape_of(text)
     ))
 }

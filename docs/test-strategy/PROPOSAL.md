@@ -274,11 +274,11 @@ commands as current and `QUARANTINE.md` documents an active quarantine policy.
 
 | Piece | Role |
 |---|---|
-| `run.sh` | modes `all`, `setup`, `verify`, `cleanup`, `upgrade` (J5); `--dc` routes through `evals/_lib/lib.sh` |
+| `run.sh` | modes `all`, `setup`, `verify`, `cleanup`; `--dc` routes through `evals/_lib/lib.sh` |
 | `driver.mjs` | runs J1-J4 (`journeys/spawn.mjs`, `team.mjs`, `dispatch.mjs`, `restore.mjs`, `cleanup.mjs`) |
 | `restart.mjs` | bench-owned DEV restart, reusing `evals/restart-endurance/restart.mjs` |
 | `lib/` | `cdp`, `oracle`, `results`, `wait`, `tabs`, `fixtures`, `listener`, `env` |
-| README journeys table | J1 provider spawn/reply/stop, J2 Team dialog over CDP, J3 dispatch/bounce/accept, J4 restart restore, J5 upgrade N-1 to N (README:46-54) |
+| README journeys table | J1 provider spawn/reply/stop, J2 Team dialog over CDP, J3 dispatch/bounce/accept, J4 restart restore (README:46-54) |
 | README regressions table | five BLACKSTAR regressions mapped to the check that must fail on the pre-fix build (README:59-71) |
 
 | Runner | Command | Duration | Inst | Live | CI today |

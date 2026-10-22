@@ -13,7 +13,7 @@ function fixture(target, action) {
 test('fresh Linux compile stage gets marked stubs and cannot become a package', () => {
   fixture('x86_64-unknown-linux-gnu', (root, target) => {
     assertNoCompileBundleStubs({ root });
-    assert.equal(prepareCompileBundleStubs({ root, target }).created, 7);
+    assert.equal(prepareCompileBundleStubs({ root, target }).created, 8);
     const stage = path.join(root, 'target/domios-package');
     assert.match(readFileSync(path.join(stage, 'LICENSE'), 'utf8'), /CODETERM_COMPILE_STUB/);
     assert.throws(() => assertNoCompileBundleStubs({ root }), /cannot be packaged/);
@@ -26,7 +26,7 @@ test('existing real bytes are kept and partial stage is marked', () => {
     const stage = path.join(root, 'target/domios-package');
     mkdirSync(stage, { recursive: true });
     writeFileSync(path.join(stage, 'LICENSE'), 'real license');
-    assert.equal(prepareCompileBundleStubs({ root, target }).created, 6);
+    assert.equal(prepareCompileBundleStubs({ root, target }).created, 7);
     assert.equal(readFileSync(path.join(stage, 'LICENSE'), 'utf8'), 'real license');
     assert.throws(() => assertNoCompileBundleStubs({ root }), /cannot be packaged/);
   });
@@ -36,7 +36,7 @@ test('a complete real stage stays unmarked and package eligible', () => {
   fixture('x86_64-unknown-linux-gnu', (root, target) => {
     const stage = path.join(root, 'target/domios-package');
     for (const relative of [
-      'server-component.json', 'cli/codeterm', 'dist/index.html', 'skills/readme.md',
+      'server-component.json', 'cli/codeterm', 'cli/domios', 'dist/index.html', 'skills/readme.md',
       'LICENSE', 'NOTICE', 'domios-server/domios-server',
     ]) {
       const file = path.join(stage, relative);

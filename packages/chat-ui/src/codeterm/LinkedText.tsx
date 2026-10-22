@@ -3,6 +3,10 @@ import { localArtifactTextParts } from "@codeterm/chat-core";
 import { RichMarkdown } from "../MarkdownBody";
 import { ClipboardList, FileText, ListChecks } from "lucide-react";
 import { extractPlanRefs, linkifyPlanRefs, type PlanRefLinkSegment } from "./planRefs";
+import { canonicalMentions, type CanonicalMention } from "./canonicalMentions";
+import { useChatBlockHost } from "../blocks/ChatBlockHost";
+import { useLiveBinding } from "../blocks/liveBinding";
+import { ReferenceChip } from "./ReferenceChip";
 
 export type PlanRefKind = PlanRefLinkSegment["targetKind"];
 export type OpenPlan = (planId: string, focusId?: string, focusKind?: PlanRefKind) => void;
@@ -65,7 +69,33 @@ export function LinkedText(props: Props) {
   const parts = localArtifactTextParts(props.text);
   return <>{parts.map((part, index) => part.directive
     ? <RichMarkdown key={index} text={part.text} />
-    : <PlainLinkedText key={index} {...props} text={part.text} />)}</>;
+    : <MentionLinkedText key={index} {...props} text={part.text} />)}</>;
+}
+
+function MentionLinkedText(props: Props) {
+  const host = useChatBlockHost();
+  // Without a mention host, task ids keep the plan-reference path that resolvePlanRef serves.
+  const mentions = canonicalMentions(props.text).filter((mention) => mention.kind !== "task" || host.mentions);
+  if (!mentions.length) return <PlainLinkedText {...props} />;
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  for (const mention of mentions) {
+    nodes.push(<PlainLinkedText key={`text:${cursor}`} {...props} text={props.text.slice(cursor, mention.start)} />);
+    nodes.push(<MentionChip key={`mention:${mention.start}`} mention={mention} />);
+    cursor = mention.end;
+  }
+  nodes.push(<PlainLinkedText key={`text:${cursor}`} {...props} text={props.text.slice(cursor)} />);
+  return <span style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{nodes}</span>;
+}
+
+export function MentionChip({ mention }: { mention: CanonicalMention }) {
+  const host = useChatBlockHost();
+  const key = JSON.stringify([host.mentionTabId ?? "", mention.kind, mention.id]);
+  const value = useLiveBinding(host.mentions?.binding, key, null);
+  if (!value && mention.kind === "task") return <>{mention.text}</>;
+  return <ReferenceChip kind={mention.kind} label={value?.title ?? mention.id} fullRef={mention.id}
+    planId={value?.planId} targetId={value?.targetId} disabled={!value || value.state === "loading"} state={value?.state ?? (value ? "resolved" : "missing")}
+    onOpen={() => host.mentions?.open(key)} />;
 }
 
 function PlainLinkedText({ text, onOpenPlan, className, resolvePlanRef }: Props) {
@@ -74,44 +104,22 @@ function PlainLinkedText({ text, onOpenPlan, className, resolvePlanRef }: Props)
     <span className={className} style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
       {segments.map((seg, i) => {
         if (seg.kind === "text") return <React.Fragment key={i}>{seg.value}</React.Fragment>;
-        if (!onOpenPlan) return <React.Fragment key={i}>{seg.value}</React.Fragment>;
-        const resolved = resolvePlanRef?.(seg.planId, seg.targetId, seg.targetKind) ?? null;
-        const label = compactLabel(seg, resolved);
-        const status = stateSuffix(resolved?.state);
-        const disabled = resolved != null && resolved.state !== "resolved" && resolved.state !== "archived" && resolved.state !== "unowned";
-        const fullRef = resolved?.fullRef ?? fullRefLabel(seg);
-        return (
-          <button
-            key={i}
-            type="button"
-            data-testid={`chat-${seg.targetKind}-link`}
-            data-ref-kind={seg.targetKind}
-            data-ref-state={resolved?.state ?? "loading"}
-            data-target-id={seg.targetId}
-            data-plan-id={seg.planId}
-            disabled={disabled}
-            aria-label={`${REF_LABEL[seg.targetKind]} ${label}${status ? ` (${status})` : ""}. ${fullRef}`}
-            title={status ? `${label} (${status})\n${fullRef}` : `${label}\n${fullRef}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (disabled) return;
-              openRef(onOpenPlan, seg);
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              void navigator.clipboard.writeText(fullRef);
-            }}
-            className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1 rounded px-1 py-0.5 align-baseline font-mono text-[0.92em] transition-colors hover:brightness-110"
-            style={{ color: disabled ? "var(--ct-muted-fg, #8b949e)" : "var(--ct-accent, #6ea8fe)" }}
-          >
-            <RefIcon kind={seg.targetKind} />
-            <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{label}</span>
-            {status && <span className="text-[0.82em] opacity-70">({status})</span>}
-          </button>
-        );
+        return <PlanReference key={i} segment={seg} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />;
       })}
     </span>
   );
+}
+
+export function PlanReference({ segment: seg, onOpenPlan, resolvePlanRef }: Pick<Props, "onOpenPlan" | "resolvePlanRef"> & { segment: PlanRefLinkSegment }) {
+  if (!onOpenPlan) return <>{seg.value}</>;
+  const resolved = resolvePlanRef?.(seg.planId, seg.targetId, seg.targetKind) ?? null;
+  const label = compactLabel(seg, resolved);
+  const status = stateSuffix(resolved?.state);
+  const disabled = resolved != null && resolved.state !== "resolved" && resolved.state !== "archived" && resolved.state !== "unowned";
+  const fullRef = resolved?.fullRef ?? fullRefLabel(seg);
+  return <ReferenceChip kind={seg.targetKind} label={label} fullRef={fullRef}
+    status={status} disabled={disabled} state={resolved?.state ?? "loading"}
+    planId={seg.planId} targetId={seg.targetId} onOpen={() => openRef(onOpenPlan, seg)} />;
 }
 
 export function PlanRefCards({

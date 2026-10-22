@@ -572,7 +572,7 @@ fn select_web_dist(
             return Some(cand);
         }
     }
-    log::warn!("[web] no dist/ bundle found — browser UI disabled (build with `pnpm build`)");
+    log::warn!("[web] browser UI disabled: frontend bundle is missing from the installation");
     None
 }
 

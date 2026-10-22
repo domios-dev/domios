@@ -17,7 +17,7 @@ pub(crate) const VERSION_SKEW: i32 = -32002;
 pub(crate) const RECOVERY_COMMAND: &str = if cfg!(debug_assertions) {
     "./build.sh cli"
 } else {
-    "codeterm update install --auto"
+    "domios update install --auto"
 };
 
 /// A missing or non-integer client version is the oldest protocol, never an error.

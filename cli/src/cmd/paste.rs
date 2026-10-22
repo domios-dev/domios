@@ -41,7 +41,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                 crate::cmd::print::fail_with_hints(
                     2,
                     "paste body is empty (positional, --from-file, and --from-stdin all yielded nothing).",
-                    &["hint: pipe via heredoc — codeterm paste put --from-stdin <<'EOF' ... EOF"],
+                    &["hint: pipe via heredoc — domios paste put --from-stdin <<'EOF' ... EOF"],
                 );
             }
             let mut payload = serde_json::json!({ "body": resolved_body });

@@ -379,7 +379,7 @@ fn official_system_channel_record(id: &str, record: &serde_json::Value, channel:
         && path_matches
 }
 
-/// Core plugins speak to every agent (prompt line, `codeterm docs` guide). Dev runs
+/// Core plugins speak to every agent (prompt line, `domios docs` guide). Dev runs
 /// force ThirdParty trust, so there a bundled system id outside the user plugins dir counts.
 pub fn is_core_plugin(manifest: &PluginManifest, trust: crate::provider::ProviderTrust) -> bool {
     let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");

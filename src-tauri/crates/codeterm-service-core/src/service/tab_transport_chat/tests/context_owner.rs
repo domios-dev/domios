@@ -130,7 +130,9 @@ fn plugin_context_owner_send_path_is_unchanged() {
         &backend,
         fixture.plugin,
         fixture.session,
-        "the identical ask",
+        &crate::service::messenger::AgentInput::Human(
+            crate::service::messenger::HumanInput::composer("the identical ask"),
+        ),
     )
     .unwrap();
 
@@ -158,7 +160,9 @@ fn host_context_owner_uses_send_turn_and_never_send_message() {
         &backend,
         fixture.plugin,
         fixture.session,
-        "the identical ask",
+        &crate::service::messenger::AgentInput::Human(
+            crate::service::messenger::HumanInput::composer("the identical ask"),
+        ),
     )
     .unwrap();
 

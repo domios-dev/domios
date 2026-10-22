@@ -65,7 +65,7 @@ async fn sessions_resume_refuses_a_degraded_bound_tab_with_a_recovery_command() 
     assert!(
         error
             .1
-            .contains(&format!("codeterm agent restart --tab {tab_id}")),
+            .contains(&format!("domios agent restart --tab {tab_id}")),
         "{error:?}"
     );
     let mux = fixture.service.mux.read();
@@ -138,10 +138,10 @@ fn roleless_resume_reports_exact_promotion_and_relink_actions() {
     let actions = roleless_actions("tab-resumed");
     assert_eq!(
         actions["promotion"],
-        "codeterm agent set-orchestrator --tab tab-resumed"
+        "domios agent set-orchestrator --tab tab-resumed"
     );
     assert_eq!(
         actions["relink"],
-        "codeterm agent link --parent-tab <orchestrator-tab> --tab tab-resumed"
+        "domios agent link --parent-tab <orchestrator-tab> --tab tab-resumed"
     );
 }

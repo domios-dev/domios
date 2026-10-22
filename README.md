@@ -23,11 +23,11 @@
 
 ## What is Domios?
 
-Domios is a distributed OS for AI agents, with a terminal at its heart. It runs on macOS, Windows, and Linux. Agents get a shared control surface through the `codeterm` CLI, REST API, and socket API; people follow the same work through terminals, Chat, plans, and bridges.
+Domios is a distributed OS for AI agents, with a terminal at its heart. It runs on macOS, Windows, and Linux. Agents get a shared control surface through the `domios` CLI, REST API, and socket API; people follow the same work through terminals, Chat, plans, and bridges.
 
 Keep a conversation going with one agent, or give a goal to a meta-team. The **Orchestrator** coordinates and verifies, the **Planner** designs tasks and fits each Worker's role and model to the work, and named **Workers** execute in isolated lanes. Reports and review carry the work into the canonical checkout.
 
-Built with Tauri v2, Rust, React, TypeScript, and xterm.js. The product is called Domios; the repository, CLI, and install packages retain the `codeterm` name.
+Built with Tauri v2, Rust, React, TypeScript, and xterm.js. The product is called Domios; the primary CLI command is `domios`, with `codeterm` available as a working alias. Repository and package names are unchanged.
 
 ## Capabilities
 
@@ -112,7 +112,7 @@ For a production build, run `./build.sh build`. On Windows PowerShell, use `.\bu
 - [Orchestration](prod-docs/ORCHESTRATION.md) · [Lanes](prod-docs/LANES.md) · [Mesh](prod-docs/MESH.md) · [Memory](prod-docs/MEMORY.md)
 - [Telegram setup](prod-docs/TELEGRAM-SETUP.md) · [Voice transcription](prod-docs/TRANSCRIBE.md) · [Accounts](prod-docs/ACCOUNT.md)
 
-Inside Domios, run `codeterm docs` to discover the help embedded in your installed version, then `codeterm docs <NAME>` to read a document.
+Inside Domios, run `domios docs` to discover the help embedded in your installed version, then `domios docs <NAME>` to read a document.
 
 Contributions welcome: open an issue to discuss the change. Licensed under [PolyForm Shield 1.0.0](LICENSE).
 

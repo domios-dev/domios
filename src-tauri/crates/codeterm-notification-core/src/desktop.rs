@@ -78,7 +78,7 @@ impl DesktopPolicy {
 }
 
 /// The single entry to the desktop sink. A caller that named no level is
-/// refused here, so routing an agent through `codeterm notify` cannot widen
+/// refused here, so routing an agent through `domios notify` cannot widen
 /// what reaches the user.
 pub fn admit(declared: Option<NotifyLevel>, policy: &DesktopPolicy) -> DesktopAdmission {
     let Some(level) = declared else {

@@ -1,6 +1,6 @@
 # Secret store
 
-Domios exposes local secret storage through Settings → Secrets, `codeterm mem secret`, and `/api/secrets/*`. The active backend is configured in `config.toml` and can be changed without restarting.
+Domios exposes local secret storage through Settings → Secrets, `domios mem secret`, and `/api/secrets/*`. The active backend is configured in `config.toml` and can be changed without restarting.
 
 | Backend | Use | Storage |
 |---|---|---|
@@ -15,11 +15,11 @@ Secrets are local-only. `--mesh PEER mem secret …` is rejected with exit code 
 Local storage needs no login:
 
 ```bash
-echo -n "$VALUE" | codeterm mem secret save --name openai-prod --folder work
-codeterm mem secret get --name openai-prod
-codeterm mem secret search "openai"
-codeterm mem secret list --folder work --limit 20
-codeterm mem secret delete --name openai-prod
+echo -n "$VALUE" | domios mem secret save --name openai-prod --folder work
+domios mem secret get --name openai-prod
+domios mem secret search "openai"
+domios mem secret list --folder work --limit 20
+domios mem secret delete --name openai-prod
 ```
 
 `get` writes the raw value without a trailing newline. Use `--json` for `{item_id, name, value, notes}`. `search` and `list` return metadata only. Saving an existing name requires `--overwrite`; deleting prompts unless `--yes` is supplied.
@@ -34,8 +34,8 @@ codeterm mem secret delete --name openai-prod
 Create the Pebble secret from stdin so it never reaches argv or shell history, then read it back once to configure the sender:
 
 ```bash
-openssl rand -hex 32 | tr -d '\n' | codeterm mem secret save --name pebble_webhook_secret
-codeterm mem secret get --name pebble_webhook_secret
+openssl rand -hex 32 | tr -d '\n' | domios mem secret save --name pebble_webhook_secret
+domios mem secret get --name pebble_webhook_secret
 ```
 
 The daemon reads the entry on every request, so a rotation (`save --overwrite`) applies immediately. A missing, empty, or locked entry makes the route answer `503`; the plugin is never called. Route contract: [API-INTEGRATIONS.md](API-INTEGRATIONS.md#inbound-webhooks-pebble).
@@ -58,11 +58,11 @@ scoop install bitwarden-cli
 If `bw` is missing, Settings shows an install action and the CLI exits with code `6`. Custom Vaultwarden servers are supported. Changing the server while logged in requires a new login.
 
 ```bash
-codeterm mem secret status
-codeterm mem secret unlock --email user@example.com  # password from stdin
-codeterm mem secret sync
-codeterm mem secret lock
-codeterm mem secret logout
+domios mem secret status
+domios mem secret unlock --email user@example.com  # password from stdin
+domios mem secret sync
+domios mem secret lock
+domios mem secret logout
 ```
 
 Avoid `--password`: command-line arguments may be visible to other processes. A no-input `unlock` asks the active backend to restore its own session; it succeeds only for a backend that declares auto-unlock and has already armed it.
@@ -89,7 +89,7 @@ secret-backend plugin.
 3. **The backend owns the credential.** Only the backend persists a master password, in its own
    host-provided bucket (`codeterm.plugin.<id>`, the same location `host.secretSet` writes).
    Domios writes no separate credential file. Startup removes the retired
-   `~/.codeterm/secrets/bitwarden-master.env`; when it warns that the erase could not be proven,
+   `~/.domios/secrets/bitwarden-master.env`; when it warns that the erase could not be proven,
    rotate that master password.
 4. **Persisting requires explicit consent, carried on the wire.** `POST /api/secrets/unlock` takes
    `persist_for_auto_unlock` (default `false`), forwarded to the backend as the JS
@@ -102,7 +102,7 @@ secret-backend plugin.
    `auto_unlock_capable` (the declaration) and `master_password_saved` (declared **and** armed).
    `master_password_saved` is false whenever the backend did not declare the capability, even if
    credential bytes exist somewhere, because a backend that cannot use them has saved nothing.
-6. **No surface claims more than it did.** `codeterm mem secret save-master-password` refuses when
+6. **No surface claims more than it did.** `domios mem secret save-master-password` refuses when
    the backend declares nothing, hands the password to the vault when it does, and reports auto-unlock
    as armed only after the status flag says so.
 
@@ -131,18 +131,18 @@ delete --name NAME [--yes]
 
 Exit codes: `0` success, `2` invalid arguments, `3` locked, `4` logged out, `5` not found, `6` unavailable, `7` mesh rejected.
 
-The full REST contract is in `codeterm docs API-STATE` (Secrets).
+The full REST contract is in `domios docs API-STATE` (Secrets).
 
 ## Storage and security
 
-The `local` backend stores values in a plaintext JSON file at `<data_dir>/.secrets` (`~/.codeterm/.secrets`; dev `~/.codeterm-dev/.secrets`), Unix mode `0600`, namespaced by service. Values are **not encrypted** and the OS keychain is never used, in release or dev builds. Treat the file like an `.env`. Names and ids (no values) are indexed at `<data_dir>/secrets/local-index.json`.
+The `local` backend stores values in a plaintext JSON file at `<data_dir>/.secrets` (`~/.domios/.secrets`), Unix mode `0600`, namespaced by service. Values are **not encrypted** and the OS keychain is never used. Treat the file like an `.env`. Names and ids (no values) are indexed at `<data_dir>/secrets/local-index.json`.
 
 Item ids look like `local-0000002a`. They are never reused, so they stay unique across daemon restarts. Names are case-insensitive, and `get`/`delete` accept a name or an item id. `save --overwrite` keeps the existing notes when `--notes` is not given.
 
-`codeterm mem secret delete` asks for confirmation on a terminal. Without a terminal on stdin it exits non-zero immediately and asks for `--yes`; it never waits for input.
+`domios mem secret delete` asks for confirmation on a terminal. Without a terminal on stdin it exits non-zero immediately and asks for `--yes`; it never waits for input.
 
 Bitwarden owns vault encryption. Domios passes the master password and session through stdin or environment variables, never argv. A secret-backend plugin's persisted session and any remembered credential live in its own bucket, service `codeterm.plugin.<plugin-id>`, in the same plaintext local file.
 
 A process running as the same OS user can read that file. The mock backend has no security guarantees.
 
-<!-- revision: 12 -->
+<!-- revision: 15 -->

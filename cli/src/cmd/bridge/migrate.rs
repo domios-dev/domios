@@ -315,7 +315,7 @@ fn log_step(json: bool, step: &str, msg: &str) {
 
 fn report_split_brain(json: bool, source: &str, target: &str, service: &str, rollback_err: &str) {
     let repair_cmd = format!(
-        "codeterm config set integrations.{}_enabled true && codeterm bridge restart",
+        "domios config set integrations.{}_enabled true && domios bridge restart",
         service
     );
     if json {
