@@ -38,6 +38,7 @@ pub(super) fn read(directory: &Path, relative: &str) -> Result<String, RuntimeFa
         let flags = libc::O_RDONLY
             | libc::O_NOFOLLOW
             | libc::O_CLOEXEC
+            | libc::O_NONBLOCK
             | if last { 0 } else { libc::O_DIRECTORY };
         let fd = unsafe { libc::openat(parent.as_raw_fd(), part.as_ptr(), flags) };
         if fd < 0 {

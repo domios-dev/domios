@@ -20,7 +20,7 @@ pub use service_adapter::delete::SentinelDeleteExt;
 pub use service_adapter::graph::{AutomationFilesExt, AutomationGraphExt};
 pub use service_adapter::SentinelExt;
 pub(crate) mod classify;
-pub mod code_runtime;
+pub(crate) mod code_runtime;
 pub mod event_subscription;
 pub mod graph;
 pub mod pipeline;
