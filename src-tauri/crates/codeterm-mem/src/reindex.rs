@@ -19,6 +19,93 @@ pub fn body_is_embeddable(body: &str) -> bool {
     body.trim().chars().count() >= MIN_EMBED_BODY_CHARS
 }
 
+#[cfg(feature = "embeddings")]
+pub(crate) fn compose_item_embed_text(
+    kind: &str,
+    title: &str,
+    area: Option<&str>,
+    tags: &[String],
+    body: &str,
+    source: Option<&str>,
+    summary: Option<&str>,
+) -> String {
+    if source == Some("blueprint-library") {
+        if let Ok(document) = codeterm_blueprint_types::blueprint_memory::parse_document(body) {
+            return blueprint_description(&document, summary.unwrap_or_default());
+        }
+    }
+    compose_embed_text(kind, title, area, tags, body)
+}
+
+#[cfg(any(feature = "embeddings", test))]
+fn blueprint_description(
+    document: &codeterm_blueprint_types::blueprint_document::Document,
+    when_to_use: &str,
+) -> String {
+    use std::collections::BTreeSet;
+    let mut kinds = BTreeSet::new();
+    let mut sources = BTreeSet::new();
+    let mut sinks = BTreeSet::new();
+    if let Some(pipeline) = &document.pipeline {
+        for key in ["type", "kind"] {
+            if let Some(source) = pipeline["trigger"][key].as_str() {
+                sources.insert(source.to_owned());
+            }
+        }
+        for step in pipeline["steps"].as_array().into_iter().flatten() {
+            let kind = if step.get("run").is_some() {
+                "command"
+            } else {
+                step["uses"].as_str().unwrap_or_default()
+            };
+            if !kind.is_empty() {
+                kinds.insert(kind.to_owned());
+            }
+        }
+        if let Some(sink) = pipeline["result"]["to"].as_str() {
+            sinks.insert(sink.to_owned());
+        }
+    }
+    if let Some(watch) = &document.watch {
+        if watch.get("probe").is_some() {
+            kinds.insert("command".into());
+        }
+        if watch.get("observe").is_some() {
+            kinds.insert("observe".into());
+        }
+        for key in ["probe", "observe", "input", "terminal", "session"] {
+            if watch.get(key).is_some() {
+                sources.insert(key.to_owned());
+            }
+        }
+        if let Some(routes) = watch["routes"].as_object() {
+            for target in routes.values().filter_map(serde_json::Value::as_str) {
+                sinks.insert(target.to_owned());
+            }
+        }
+        if let Some(handlers) = watch["handlers"].as_object() {
+            for handler in handlers
+                .values()
+                .filter_map(serde_json::Value::as_array)
+                .flatten()
+            {
+                if let Some(kind) = handler["type"].as_str() {
+                    kinds.insert(kind.to_owned());
+                    sinks.insert(kind.to_owned());
+                }
+            }
+        }
+    }
+    let join = |values: BTreeSet<String>| values.into_iter().collect::<Vec<_>>().join(", ");
+    format!(
+        "{}\nNode kinds: {}\nSources: {}\nSinks: {}",
+        when_to_use.trim(),
+        join(kinds),
+        join(sources),
+        join(sinks)
+    )
+}
+
 /// Build the embedding input text for an item.
 /// Format: "kind: title [area] #tag1 #tag2\n\nbody" — compact header so
 /// the embedder captures title/kind/area/tags alongside body content.
@@ -43,32 +130,39 @@ pub fn compose_embed_text(
 }
 
 #[cfg(feature = "embeddings")]
-fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
-    let sql = r#"SELECT m.id, m.kind, m.title, m.area, m.tags_json, COALESCE(m.body_inline, '')
-                 FROM mem_items m
-                 LEFT JOIN mem_vectors v ON v.mem_id = m.id
-                 WHERE v.mem_id IS NULL AND m.body_inline IS NOT NULL AND LENGTH(TRIM(m.body_inline)) >= 12"#;
-    let mut out = Vec::new();
-    if let Ok(mut stmt) = conn.prepare(sql) {
-        if let Ok(rows) = stmt.query_map([], |r| {
-            let id: String = r.get(0)?;
-            let kind: String = r.get(1)?;
-            let title: String = r.get(2)?;
-            let area: Option<String> = r.get(3)?;
-            let tags_json: String = r.get(4)?;
-            let body: String = r.get(5)?;
-            let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-            Ok((
-                id,
-                compose_embed_text(&kind, &title, area.as_deref(), &tags, &body),
-            ))
-        }) {
-            for row in rows.flatten() {
-                out.push(row);
-            }
-        }
-    }
-    out
+fn query_missing_vectors(
+    conn: &rusqlite::Connection,
+    blobs: &std::path::Path,
+) -> Vec<(String, String)> {
+    let Ok(_read) = super::manager_search::UntouchedRead::begin(conn) else {
+        return Vec::new();
+    };
+    let Ok(mut statement) = conn.prepare(
+        "SELECT m.id FROM mem_items m LEFT JOIN mem_vectors v ON v.mem_id=m.id
+         WHERE v.mem_id IS NULL AND m.kind != 'archived'",
+    ) else {
+        return Vec::new();
+    };
+    let Ok(rows) = statement.query_map([], |row| row.get::<_, String>(0)) else {
+        return Vec::new();
+    };
+    rows.flatten()
+        .filter_map(|id| {
+            let item = super::store::get(conn, &id, blobs).ok()??;
+            body_is_embeddable(&item.body).then(|| {
+                let text = compose_item_embed_text(
+                    &item.kind,
+                    &item.title,
+                    item.area.as_deref(),
+                    &item.tags,
+                    &item.body,
+                    item.source.as_deref(),
+                    item.summary.as_deref(),
+                );
+                (id, text)
+            })
+        })
+        .collect()
 }
 
 impl MemManager {
@@ -90,7 +184,7 @@ impl MemManager {
                     return;
                 }
             };
-            let missing = query_missing_vectors(&conn);
+            let missing = query_missing_vectors(&conn, &blobs_dir);
             if missing.is_empty() {
                 log::info!("[mem] reindex catch-up: nothing missing");
                 return;
@@ -100,24 +194,7 @@ impl MemManager {
                 missing.len()
             );
             for (id, embed_text) in missing {
-                // embed_text already has title prefixed (from query_missing_vectors). If body was empty (blob storage), re-read blob and re-prefix title.
-                let actual_text = if embed_text.trim_end().ends_with("\n\n") {
-                    let row: Option<(String, Option<String>)> = conn
-                        .query_row(
-                            "SELECT title, body_blob_path FROM mem_items WHERE id = ?1",
-                            rusqlite::params![&id],
-                            |r| Ok((r.get(0)?, r.get(1)?)),
-                        )
-                        .ok();
-                    let Some((title, Some(rel))) = row else {
-                        continue;
-                    };
-                    let body = std::fs::read_to_string(blobs_dir.join(rel)).unwrap_or_default();
-                    format!("{}\n\n{}", title, body)
-                } else {
-                    embed_text
-                };
-                match embeddings::index(&conn, &id, &actual_text) {
+                match embeddings::index(&conn, &id, &embed_text) {
                     Ok(()) => log::info!("[mem] reindex direct: indexed {}", id),
                     Err(e) => log::warn!("[mem] reindex direct {}: {}", id, e),
                 }
@@ -130,14 +207,4 @@ impl MemManager {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::body_is_embeddable;
-
-    #[test]
-    fn embeddable_requires_real_body() {
-        assert!(!body_is_embeddable(""));
-        assert!(!body_is_embeddable("   \n  "));
-        assert!(!body_is_embeddable("too short"));
-        assert!(body_is_embeddable("a genuinely meaningful body of content"));
-    }
-}
+mod tests;
