@@ -381,13 +381,13 @@ fn index_queue_keeps_only_the_latest_snapshot_per_document() {
     let mut latest = first.clone();
     latest.title = "Latest title".into();
 
-    queue.enqueue(IndexJob::Plan(first));
-    queue.enqueue(IndexJob::Plan(latest));
+    queue.enqueue(IndexJob::Plan(first, PlanIndexScope::Full));
+    queue.enqueue(IndexJob::Plan(latest, PlanIndexScope::Full));
 
     let state = queue.state.lock();
     assert_eq!(state.order.len(), 1);
     assert_eq!(state.latest.len(), 1);
-    let IndexJob::Plan(snapshot) = state
+    let IndexJob::Plan(snapshot, _) = state
         .latest
         .get(&format!(
             "{}:plan:pl_queue",
