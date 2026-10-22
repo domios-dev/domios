@@ -48,6 +48,36 @@ impl CheckoutKey {
     }
 }
 
+/// The app's resolved appearance, so the website checkout opens in the same theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckoutTheme {
+    Light,
+    Dark,
+}
+impl CheckoutTheme {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+}
+
+/// Sets `theme` on a checkout URL, keeping every other parameter (`_ptxn` included) and the fragment.
+pub fn checkout_url_with_theme(mut url: url::Url, theme: CheckoutTheme) -> url::Url {
+    let kept: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(key, _)| key != "theme")
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    url.query_pairs_mut()
+        .clear()
+        .extend_pairs(kept)
+        .append_pair("theme", theme.as_str());
+    url
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
