@@ -186,6 +186,25 @@ impl CommandPicker {
     pub(super) fn cancel_key(&self) -> &[u8] {
         self.declaration.cancel_key.as_bytes()
     }
+
+    pub(super) fn cancellation_prompt(
+        &self,
+        target: &CommandTarget,
+    ) -> Result<CommandPrompt, String> {
+        CommandPrompt::new(
+            &crate::agent::provider::ModelSwitchPrompt {
+                screen_regex: format!(
+                    "(?:{})|(?:{})",
+                    self.screen.as_str(),
+                    self.selected.as_str()
+                ),
+                response_keys: vec![self.declaration.response_key.clone()],
+                cancel_keys: vec![String::from_utf8_lossy(self.cancel_key()).into_owned()],
+            },
+            target,
+            None,
+        )
+    }
 }
 
 impl ServiceContext {
@@ -213,12 +232,7 @@ impl ServiceContext {
         target: &CommandTarget,
         picker: &CommandPicker,
     ) -> Result<(), String> {
-        let declaration = crate::agent::provider::ModelSwitchPrompt {
-            screen_regex: picker.screen.as_str().into(),
-            response_keys: vec![picker.declaration.response_key.clone()],
-            cancel_keys: vec![String::from_utf8_lossy(picker.cancel_key()).into_owned()],
-        };
-        let mut prompt = CommandPrompt::new(&declaration, target, None)?;
+        let mut prompt = picker.cancellation_prompt(target)?;
         prompt.injected();
         self.cancel_command_prompt(target, &mut prompt)
     }
