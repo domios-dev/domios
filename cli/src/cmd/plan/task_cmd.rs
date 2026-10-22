@@ -1023,6 +1023,7 @@ pub(super) fn run_task(
             attempt,
             provider,
             model,
+            reasoning_effort,
             speed,
             parent,
             workspace,
@@ -1038,6 +1039,9 @@ pub(super) fn run_task(
             }
             if let Some(speed) = speed {
                 params["speed"] = json!(speed);
+            }
+            if let Some(effort) = reasoning_effort {
+                params["reasoning_effort"] = json!(effort);
             }
             if let Some(model) = model {
                 params["model"] = json!(model);
