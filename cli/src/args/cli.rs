@@ -333,7 +333,7 @@ pub enum Commands {
         action: super::rest_api::RestApiAction,
     },
 
-    /// Manage daemon services (long-running processes monitored by codeterm)
+    /// Manage daemon services (long-running processes monitored by Domios)
     Service {
         #[command(subcommand)]
         action: ServiceAction,

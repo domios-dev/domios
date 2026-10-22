@@ -430,11 +430,11 @@ To keep the plugin contract honest:
 | Three bundled providers extracted | ✅ shipped |
 | Per-plugin tests via `npx tsx` | ✅ shipped |
 | Per-plugin vitest config | ⏳ planned |
-| `codeterm plugin install` CLI | ⏳ planned |
-| Hot-reload from `~/.codeterm/plugins/` | ✅ shipped (filesystem events; last working VM retained on failure) |
+| `domios plugin install` CLI | ⏳ planned |
+| Hot-reload from `~/.domios/plugins/` | ✅ shipped (filesystem events; last working VM retained on failure) |
 | Server-side provider runtime (QuickJS `plugin.js`) | ✅ shipped — authoritative for claude/codex/opencode |
 | Full session/usage/chat surface in JS + `host.sqliteQuery` | ✅ shipped |
 | Snapshot CI for JSONL drift | ⏳ planned |
 | Non-provider plugin kinds | 🟡 contract-only (extensible by design) |
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

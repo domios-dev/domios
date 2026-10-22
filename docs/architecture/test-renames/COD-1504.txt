@@ -1,0 +1,3 @@
+attachments::tests::test_non_temp_safe_ascii_path_is_referenced_raw -> attachments::tests::test_non_temp_safe_ascii_path_is_copied
+attachments::tests::test_idempotent_on_already_safe_chat_path -> attachments::tests::test_chat_bucket_sources_are_copied_again
+attachments::tests::test_large_stable_file_is_linked_not_copied -> attachments::tests::test_large_stable_file_is_copied

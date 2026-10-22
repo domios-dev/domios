@@ -372,3 +372,23 @@ fn lane_clean_removes_clean_tracked_symlinks_without_changing_their_targets() {
     assert!(!Path::new(fixture.path()).exists());
     assert_eq!(std::fs::read(target).unwrap(), b"preserve");
 }
+
+#[test]
+fn lane_clean_preview_labels_previously_removed_lane_absent() {
+    let fixture = Fixture::new();
+    let removed = run_lane(&fixture.lane, true, &[], None);
+    assert_eq!(removed.action, "removed");
+    for confirm in [false, true] {
+        let row = run_lane(&fixture.lane, confirm, &[], None);
+        assert_eq!(row.action, "absent", "{row:?}");
+        assert!(row.reason.contains("already removed"));
+    }
+}
+
+#[test]
+fn lane_clean_preview_keeps_branch_only_cleanup_actionable() {
+    let fixture = Fixture::new();
+    git(fixture.cwd(), &["worktree", "remove", fixture.path()]).unwrap();
+    let row = run_lane(&fixture.lane, false, &[], None);
+    assert_eq!(row.action, "remove", "{row:?}");
+}

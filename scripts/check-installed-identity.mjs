@@ -28,7 +28,9 @@ export function checkInstalledIdentity(repo = root) {
   const files = [
     ...nativeIdentity,
     ...readdirSync(path.join(repo, '.agents/skills/github-release/scripts')).filter(name => /\.(?:sh|ps1)$/.test(name)).map(name => `.agents/skills/github-release/scripts/${name}`),
-    ...readdirSync(path.join(repo, 'src-tauri')).filter(name => /^tauri.*\.json$/.test(name)).map(name => `src-tauri/${name}`),
+    ...readdirSync(path.join(repo, 'src-tauri'))
+      .filter(name => /^tauri.*\.json$/.test(name) && !/^tauri\.dev\.conf-.+\.json$/.test(name))
+      .map(name => `src-tauri/${name}`),
     ...readdirSync(path.join(repo, '.github/workflows')).filter(name => /^release.*\.yml$/.test(name)).map(name => `.github/workflows/${name}`),
     ...readdirSync(path.join(repo, 'scripts')).filter(name => /^release-.*\.(?:mjs|sh|ps1)$/.test(name)).map(name => `scripts/${name}`),
   ];

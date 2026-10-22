@@ -14,6 +14,7 @@ const base = {
 const variant = (patch: Record<string, unknown>) => ({ ...base, ...patch }) as unknown as Tab;
 
 assert.equal(sameRowTab(base, base), true, "the same snapshot is the same row");
+assert.equal(sameRowTab(base, variant({ provider_signals: { background: { running: { child: "Inspect" } } } })), false, "background roster updates reach the row");
 assert.equal(sameRowTab(base, variant({ last_active_at_ms: 99 })), true, "activity timestamps do not re-render a row");
 assert.equal(sameRowTab(base, variant({ agent_state: { ...base.agent_state, elapsed_ms: 5000 } })), true, "elapsed timers do not re-render a row");
 assert.equal(sameRowTab(base, variant({ title: "Chef" })), false, "a new title re-renders the row");

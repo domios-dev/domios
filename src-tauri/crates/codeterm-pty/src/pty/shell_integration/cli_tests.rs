@@ -14,9 +14,11 @@ fn login_and_tool_shells_resolve_the_instance_cli_after_profiles() {
         std::fs::create_dir_all(dir).unwrap();
     }
     for (dir, marker) in [(&own, "owner"), (&foreign, "foreign")] {
-        let binary = dir.join("codeterm");
-        std::fs::write(&binary, format!("#!/bin/sh\nprintf '{marker}'\n")).unwrap();
-        std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for name in ["domios", "codeterm"] {
+            let binary = dir.join(name);
+            std::fs::write(&binary, format!("#!/bin/sh\nprintf '{marker}'\n")).unwrap();
+            std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
     }
     for profile in [".zprofile", ".zshrc", ".zlogin", ".bashrc"] {
         std::fs::write(
@@ -27,10 +29,13 @@ fn login_and_tool_shells_resolve_the_instance_cli_after_profiles() {
     }
     write_scripts(&integration);
     for (shell, args) in [
-        ("/bin/bash", vec!["-c", "codeterm"]),
-        ("/bin/bash", vec!["-lc", "codeterm"]),
-        ("/bin/zsh", vec!["-lc", "codeterm"]),
-        ("/bin/zsh", vec!["-lic", "/bin/zsh -lc codeterm"]),
+        ("/bin/bash", vec!["-c", "domios && codeterm"]),
+        ("/bin/bash", vec!["-lc", "domios && codeterm"]),
+        ("/bin/zsh", vec!["-lc", "domios && codeterm"]),
+        (
+            "/bin/zsh",
+            vec!["-lic", "/bin/zsh -lc 'domios && codeterm'"],
+        ),
     ] {
         if !std::path::Path::new(shell).is_file() {
             continue;
@@ -47,7 +52,11 @@ fn login_and_tool_shells_resolve_the_instance_cli_after_profiles() {
             .output()
             .unwrap();
         assert!(output.status.success(), "{shell}: {:?}", output);
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "owner", "{shell}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "ownerowner",
+            "{shell}"
+        );
     }
 }
 
@@ -59,14 +68,16 @@ fn powershell_resolves_the_instance_cli_after_profile_path_replacement() {
     let foreign = root.path().join("foreign bin");
     for dir in [&own, &foreign] {
         std::fs::create_dir_all(dir).unwrap();
-        std::fs::write(dir.join("codeterm.cmd"), "@echo off\r\nexit /b 0\r\n").unwrap();
+        for name in ["domios.cmd", "codeterm.cmd"] {
+            std::fs::write(dir.join(name), "@echo off\r\nexit /b 0\r\n").unwrap();
+        }
     }
     let script = root.path().join("integration.ps1");
     std::fs::write(&script, POWERSHELL_PS1).unwrap();
     let output = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command"])
         .arg(format!(
-            "$env:PATH='{}'; {}; (Get-Command codeterm).Source",
+            "$env:PATH='{}'; {}; (Get-Command domios).Source; (Get-Command codeterm).Source",
             foreign.display(),
             powershell_integration_command(&script)
         ))
@@ -75,7 +86,12 @@ fn powershell_resolves_the_instance_cli_after_profile_path_replacement() {
         .unwrap();
     assert!(output.status.success(), "{output:?}");
     assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        own.join("codeterm.cmd").to_str().unwrap()
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .collect::<Vec<_>>(),
+        vec![
+            own.join("domios.cmd").to_str().unwrap(),
+            own.join("codeterm.cmd").to_str().unwrap()
+        ]
     );
 }

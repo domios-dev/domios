@@ -27,7 +27,7 @@ mod lexical;
 #[cfg(feature = "embeddings")]
 mod scoped;
 #[cfg(feature = "embeddings")]
-use scoped::scoped_vectors;
+pub(crate) use scoped::scoped_vectors;
 
 const STOP_WORDS: &[&str] = &[
     "what",
@@ -474,7 +474,7 @@ fn is_issue_number(value: &str) -> bool {
     !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-fn extract_keywords(q: &str) -> HashSet<String> {
+pub(crate) fn extract_keywords(q: &str) -> HashSet<String> {
     let stops: HashSet<&str> = STOP_WORDS.iter().copied().collect();
     q.split(|c: char| !c.is_alphanumeric())
         .filter(|w| w.len() >= 3)

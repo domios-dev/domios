@@ -224,7 +224,9 @@ impl PlanStore {
     }
 }
 
-fn index_scope(writes: super::store_sync::RowWrites) -> super::search_index::PlanIndexScope {
+pub(super) fn index_scope(
+    writes: super::store_sync::RowWrites,
+) -> super::search_index::PlanIndexScope {
     log::debug!(
         "[plan.store] persisted rows: tasks={} milestones={} attempts={} deleted={}",
         writes.tasks,

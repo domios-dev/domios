@@ -142,6 +142,7 @@ pub(super) fn dispatch(
 
             let mut resp = serde_json::json!({
                 "tab_id": result.tab_id,
+                "team_id": result.team_id,
                 "agent": result.agent,
                 "model": result.model,
                 "title": result.title,

@@ -22,7 +22,7 @@ If a metadata field tells you a classification you wouldn't have made yourself �
 
 ## Config
 
-Under `[integrations.text_hooks]` in `~/.codeterm/config.toml`:
+Under `[integrations.text_hooks]` in `~/.domios/config.toml`:
 
 ```toml
 [integrations.text_hooks]
@@ -68,7 +68,7 @@ You don't usually configure text_hooks yourself as the agent — that's the user
 If the user reports "my classifier isn't working":
 1. Check `[integrations.text_hooks] enabled = true` in config.
 2. `curl -X POST http://127.0.0.1:7892` (or whatever `daemon_url` is) — daemon process up?
-3. Tail `~/.codeterm/logs/codeterm.log` — look for `[bridge] text_hook ...` lines showing what the daemon returned.
+3. Tail `~/.domios/logs/domios.log` — look for `[bridge] text_hook ...` lines showing what the daemon returned.
 4. If daemon returns `{}` or invalid JSON, the bridge falls back to `fallback_on_error` behaviour.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

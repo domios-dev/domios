@@ -25,7 +25,12 @@ pub fn send(
 ) -> Result<(), DeliveryError> {
     let rendered = input.text();
     let text = rendered.as_ref();
-    svc.require_managed_send_allowed(tab, None)
+    svc.require_admitted_input_allowed(tab, send_id)
+        .map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab.into(),
+            detail,
+        })?;
+    svc.require_managed_delivery_allowed(tab, None)
         .map_err(|detail| DeliveryError::TabBusyRefused {
             tab: tab.into(),
             detail,

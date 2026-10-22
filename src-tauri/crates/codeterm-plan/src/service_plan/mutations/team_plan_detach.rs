@@ -325,7 +325,7 @@ fn close_team_tasks(
     }
 }
 
-fn detach_closed_team_plan(plan: &mut Plan, team_id: &str, now_ms: u64) {
+pub(super) fn detach_closed_team_plan(plan: &mut Plan, team_id: &str, now_ms: u64) {
     let retired_owner = OrchestratorRef::default();
     if plan.owner != retired_owner {
         plan.owner_history.push(TransferRecord {

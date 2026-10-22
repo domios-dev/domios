@@ -5,8 +5,8 @@ fn test_health_returns_ok() {
     let result = health_result().unwrap();
     let json = result.into_json();
     assert_eq!(json["status"], "ok");
-    assert_eq!(json["name"], "CodeTerm");
-    assert!(json["version"].is_string());
+    assert_eq!(json["name"], "Domios");
+    assert_eq!(json["version"], codeterm_build_info::version());
     assert!(json["platform"].is_string());
 }
 

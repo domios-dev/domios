@@ -62,6 +62,7 @@ import { observeDeliveryStatus } from "./chatSendStore";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { adoptChatStartTiming, beginChatStartTiming, chatStartTimingEdge } from "./chatStartTiming";
 import { useChatWindowView } from "./useChatWindowView";
+import { useChatActivationReconcile } from "./useChatActivationReconcile";
 
 export {
   TEST_CHAT_REPLY_EVENT,
@@ -355,7 +356,7 @@ export function useChatSession({
             if (!canAdoptTranscriptAuthority(delta, agentSessionIdRef.current, sessionBindingNonceRef.current ?? null)) {
               throw new Error("Chat resume authority mismatch");
             }
-            commitLiveEvent({ ...delta, tab_id: tabId, offset_kind: "bytes" });
+            return !needsRecovery(commitLiveEvent({ ...delta, tab_id: tabId, offset_kind: "bytes" }));
           },
           isCurrent,
         );
@@ -757,6 +758,11 @@ export function useChatSession({
   ]);
 
   const retry = useCallback(() => requestRecoveryAttach(), [requestRecoveryAttach]);
+
+  const reconcileActivation = useCallback((cause: string) => {
+    if (attachmentStateRef.current === "attached") requestRecoveryAttach(false, cause);
+  }, [requestRecoveryAttach]);
+  useChatActivationReconcile(active, reconcileActivation);
 
   const historyRef = useRef(history);
   useEffect(() => {
