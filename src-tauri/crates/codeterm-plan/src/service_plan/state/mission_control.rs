@@ -83,6 +83,12 @@ pub struct EventLog {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct LinkedEventTask {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct PlanEvent {
     pub ts: u64,
     /// Last event folded into this line; equals `ts` when `count` is 1.
@@ -93,6 +99,8 @@ pub struct PlanEvent {
     pub author_tab_id: Option<String>,
     pub task_id: Option<String>,
     pub task_name: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub linked_tasks: Vec<LinkedEventTask>,
     pub text: String,
 }
 
@@ -459,6 +467,7 @@ fn planning_events(plan: &Plan, out: &mut Vec<PlanEvent>) {
             },
             task_id: None,
             task_name: None,
+            linked_tasks: vec![],
             text: format!("{} to {}", transition.from.as_str(), transition.to.as_str()),
         });
     }
@@ -475,6 +484,7 @@ fn task_events(plan: &Plan, titles: &BTreeMap<String, String>, out: &mut Vec<Pla
             author_tab_id: None,
             task_id: Some(task.id.clone()),
             task_name: Some(task.name.clone()),
+            linked_tasks: vec![],
             text: task.name.clone(),
         });
         for milestone in &task.milestones {
@@ -489,6 +499,10 @@ fn task_events(plan: &Plan, titles: &BTreeMap<String, String>, out: &mut Vec<Pla
                     author_tab_id,
                     task_id: Some(task.id.clone()),
                     task_name: Some(task.name.clone()),
+                    linked_tasks: vec![LinkedEventTask {
+                        id: task.id.clone(),
+                        name: task.name.clone(),
+                    }],
                     text: first_line(&milestone.text),
                 });
                 continue;
@@ -502,6 +516,7 @@ fn task_events(plan: &Plan, titles: &BTreeMap<String, String>, out: &mut Vec<Pla
                 author_tab_id,
                 task_id: Some(task.id.clone()),
                 task_name: Some(task.name.clone()),
+                linked_tasks: vec![],
                 text: first_line(&milestone.text),
             });
         }
@@ -524,6 +539,7 @@ fn stride_and_gate_events(
             author_tab_id,
             task_id: None,
             task_name: None,
+            linked_tasks: vec![],
             text: first_line(&stride.text),
         });
     }
@@ -543,6 +559,7 @@ fn stride_and_gate_events(
             author_tab_id: gate.asked_by_tab_id.clone(),
             task_id: None,
             task_name: None,
+            linked_tasks: vec![],
             text: first_line(&gate.question),
         });
     }
@@ -561,15 +578,27 @@ fn event_log(plan: &Plan) -> EventLog {
     let mut entries: Vec<PlanEvent> = Vec::with_capacity(raw.len());
     for event in raw {
         let folds_into_previous = entries.last().is_some_and(|previous| {
-            previous.kind == WORKER_REPORT_KIND
+            (previous.kind == WORKER_REPORT_KIND
                 && event.kind == WORKER_REPORT_KIND
                 && previous.author == event.author
-                && previous.task_id == event.task_id
+                && previous.task_id == event.task_id)
+                || (previous.kind == "tab_todo_linked"
+                    && event.kind == "tab_todo_linked"
+                    && previous.text == event.text)
         });
         if folds_into_previous {
             if let Some(previous) = entries.last_mut() {
                 previous.count += 1;
                 previous.last_ts = event.ts;
+                for task in event.linked_tasks {
+                    if !previous
+                        .linked_tasks
+                        .iter()
+                        .any(|linked| linked.id == task.id)
+                    {
+                        previous.linked_tasks.push(task);
+                    }
+                }
             }
             continue;
         }
