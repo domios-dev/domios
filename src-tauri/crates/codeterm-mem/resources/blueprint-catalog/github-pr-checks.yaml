@@ -1,0 +1,96 @@
+schema_version: 2
+kind: pipeline
+name: github-pr-checks
+note: Read a GitHub pull request's CI checks and return whether all passed plus the
+  names of failing ones.
+intent: tell me whether a pull request's CI checks passed and which ones failed
+anchors: []
+inputs:
+  repo:
+    type: string
+    description: Repository as owner/name
+  id:
+    type: integer
+    description: Pull request number
+types:
+  Check:
+    type: object
+    additionalProperties: false
+    required:
+    - conclusion
+    - name
+    properties:
+      conclusion:
+        type: string
+      name:
+        type: string
+  Checks:
+    type: object
+    additionalProperties: false
+    required:
+    - checks
+    properties:
+      checks:
+        type: array
+        items:
+          $ref: Check
+  ChecksVerdict:
+    type: object
+    additionalProperties: false
+    required:
+    - failing
+    - passed
+    - pending
+    properties:
+      failing:
+        type: array
+        items:
+          type: string
+      passed:
+        type: boolean
+      pending:
+        type: array
+        items:
+          type: string
+steps:
+- id: checks
+  uses: github
+  with:
+    repo:
+      input: repo
+    resource:
+      lit: pr_checks
+    id:
+      input: id
+  out:
+    $ref: Checks
+  routes:
+    done: summarize
+    failed: summarize
+- id: summarize
+  does: Split PR check runs into failing and still-pending names; passed only when
+    none fail or pend
+  code:
+    lang: python
+    src: |
+      def main(c):
+          bad = {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}
+          done = {"success", "neutral", "skipped"}
+          failing = sorted(x["name"] for x in c["checks"] if x["conclusion"] in bad)
+          pending = sorted(x["name"] for x in c["checks"]
+                           if x["conclusion"] not in bad and x["conclusion"] not in done)
+          return {"passed": not failing and not pending and bool(c["checks"]),
+                  "failing": failing, "pending": pending}
+  in:
+    $ref: Checks
+  bind:
+    in: checks.out
+  out:
+    $ref: ChecksVerdict
+  routes:
+    done: next
+    failed: stop
+result:
+  type:
+    $ref: ChecksVerdict
+  from: summarize.out
