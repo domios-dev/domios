@@ -50,7 +50,7 @@ fn each_intent_gets_its_own_vector_and_recall_takes_the_best_one() {
     assert_eq!(intents.len(), 3);
     assert!(intents
         .iter()
-        .all(|(_, vector)| vector.len() == crate::embeddings::EMBEDDING_DIMENSION));
+        .all(|(_, vector)| vector.len() == mem.embedder.identity().dimension));
     assert_eq!(vectors.slot(Slot::Canon).count(), 1);
     let only_vectors = RecallConfig {
         weights: Weights {
