@@ -24,7 +24,7 @@ impl ModelFiles {
     }
 
     pub(crate) fn get(&self, repo: &str, file: &str) -> Result<PathBuf, String> {
-        if let Some(path) = self.cache.repo(self.repo(repo)).get(file) {
+        if let Some(path) = self.cached(repo, file) {
             return Ok(path);
         }
         if std::env::var("HF_HUB_OFFLINE").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -41,6 +41,21 @@ impl ModelFiles {
             .repo(self.repo(repo))
             .get(file)
             .map_err(|e| format!("download {repo}/{file}: {e}"))
+    }
+
+    fn cached(&self, repo: &str, file: &str) -> Option<PathBuf> {
+        let repo = self.repo(repo);
+        if self.revision.len() == 40 && self.revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            let path = self
+                .cache
+                .path()
+                .join(repo.folder_name())
+                .join("snapshots")
+                .join(self.revision)
+                .join(file);
+            return path.is_file().then_some(path);
+        }
+        self.cache.repo(repo).get(file)
     }
 
     pub(crate) fn json(&self, repo: &str, file: &str) -> Result<Value, String> {
@@ -110,3 +125,6 @@ impl ModelFiles {
         Ok(tokenizer)
     }
 }
+
+#[cfg(test)]
+mod tests;
