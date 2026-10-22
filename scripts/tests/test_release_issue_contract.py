@@ -174,6 +174,15 @@ class ReleaseIssueContractTest(unittest.TestCase):
                 ["rollacode/codeterm#518"],
             )
 
+            parenthesised = resolve(
+                "Merge task_5c35la (Polish): Updates panel (Repository-Issue: rollacode/codeterm#652)"
+            )
+            self.assertEqual(parenthesised.returncode, 0, parenthesised.stderr)
+            self.assertEqual(
+                [issue["reference"] for issue in json.loads(parenthesised.stdout)["repository_issues"]],
+                ["rollacode/codeterm#652"],
+            )
+
             rejected = resolve("merge: lane (Repository-Issue: codeterm#518)")
             self.assertEqual(rejected.returncode, 2)
             self.assertIn("malformed Repository-Issue metadata", rejected.stderr)
