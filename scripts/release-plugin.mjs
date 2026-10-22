@@ -1,4 +1,4 @@
-// Caller: CI plugin-release.yml, tests.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs; skill github-release
+// Caller: CI plugin-release.yml, tests-fast.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs; skill github-release
 import path from "node:path";
 import { bumpPlugin, channelPlugins, checkPluginTag } from "./plugin-release-metadata.mjs";
 

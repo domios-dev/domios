@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Caller: CI tests.yml (rust test steps)
+// Caller: CI tests-rust.yml (rust test steps)
 // Reports whether the runner already has the pinned cargo-nextest, so a job never reinstalls it under a sibling job.
 import { spawnSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';

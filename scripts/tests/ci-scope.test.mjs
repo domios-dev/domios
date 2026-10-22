@@ -39,7 +39,7 @@ test("a plugin-only change selects that plugin without host gates", () => {
 });
 
 test("channel and shared plugin tooling changes verify every plugin", () => {
-  for (const file of ["plugins/channel.json", "plugins/provider-shared/updatePrompt.ts", "scripts/release-plugin.mjs", "scripts/ci-scope.mjs", ".github/workflows/tests.yml"]) {
+  for (const file of ["plugins/channel.json", "plugins/provider-shared/updatePrompt.ts", "scripts/release-plugin.mjs", "scripts/ci-scope.mjs", ".github/workflows/tests.yml", ".github/workflows/tests-fast.yml"]) {
     assert.deepEqual(classifyPaths([file], plugins), { frontend: false, rust: false, plugins });
   }
 });
@@ -83,18 +83,15 @@ test("a pull request keeps fast checks but leaves the heavy Rust and CLI matrix 
   assert.deepEqual(scopeForRun(["src/App.tsx"], plugins, false, true), { ...frontendOnly, heavy: false });
 });
 
-const workflow = readFileSync(new URL("../../.github/workflows/tests.yml", import.meta.url), "utf8");
+const workflow = ["tests-fast", "tests-rust"].map(name => readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8")).join("\n");
 const jobConditions = new Map([...workflow.matchAll(/^  ([\w-]+):\n(?:(?!^  [\w-]+:)[\s\S])*?^    if: \$\{\{ (.+) \}\}/gm)].map((match) => [match[1], match[2]]));
 
-function jobRuns(job, scope, { phase = "", cancelled = false, guards = "success" } = {}) {
+function jobRuns(job, scope, { cancelled = false } = {}) {
+  assert.match(workflow, new RegExp(`^  ${job}:$`, "m"), `Missing job ${job}`);
   const expression = jobConditions.get(job);
-  assert.ok(expression, `Missing condition for ${job}`);
+  if (!expression) return true;
   const outputs = Object.fromEntries(["frontend", "rust", "heavy"].map(key => [key, String(key === "heavy" ? scope.heavy ?? scope.rust : scope[key])]));
-  return condition(expression, {
-    inputs: { phase },
-    needs: { changed: { outputs }, guards: { result: guards } },
-    cancelled,
-  });
+  return condition(expression, { needs: { changed: { outputs } }, cancelled });
 }
 
 test("workflow wiring skips Rust jobs for frontend diffs and preserves generated types for Rust", () => {
@@ -136,19 +133,12 @@ test("a frontend release call runs the frontend checks and no Rust gate", () => 
 });
 
 
-test("workflow scope conditions retain phase, cancellation and the guards gate", () => {
-  for (const phase of ["", "all", "fast", "long"]) {
-    assert.equal(jobRuns("guards", rustOnly, { phase }), phase !== "long", `guards/${phase}`);
-    for (const job of ["rust-tests", "rust-platform"]) {
-      assert.equal(jobRuns(job, rustOnly, { phase }), phase !== "fast", `${job}/${phase}`);
-      assert.equal(jobRuns(job, rustOnly, { phase, cancelled: true }), false, `${job} cancelled`);
-      assert.equal(jobRuns(job, frontendOnly, { phase }), false, `${job} frontend`);
-    }
-  }
-  for (const result of ["failure", "skipped", "cancelled"]) {
-    for (const job of ["rust-tests", "rust-platform"]) {
-      assert.equal(jobRuns(job, rustOnly, { guards: result }), false, `${job} guards/${result}`);
-      assert.equal(jobRuns(job, rustOnly, { phase: "long", guards: result }), true, `${job} long skips guards/${result}`);
-    }
+test("workflow scope conditions retain cancellation, and guards always open the fast tier", () => {
+  assert.equal(jobRuns("guards", rustOnly), true);
+  assert.equal(jobRuns("guards", frontendOnly), true);
+  for (const job of ["rust-tests", "rust-platform"]) {
+    assert.equal(jobRuns(job, rustOnly), true, job);
+    assert.equal(jobRuns(job, rustOnly, { cancelled: true }), false, `${job} cancelled`);
+    assert.equal(jobRuns(job, frontendOnly), false, `${job} frontend`);
   }
 });
