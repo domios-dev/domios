@@ -9,7 +9,7 @@ fn during_turn_command_capability_native_js_parity() {
     assert!(native.during_turn);
     assert_eq!(native, js);
     assert!(native.model.prompt.is_some());
-    assert!(native.effort.as_ref().unwrap().prompt.is_none());
+    assert!(native.effort.as_ref().unwrap().prompt.is_some());
     assert_eq!(native.transcript.additional_record_sources.len(), 1);
     let mut value = serde_json::to_value(native).unwrap();
     value.as_object_mut().unwrap().remove("duringTurn");
