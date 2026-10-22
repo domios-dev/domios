@@ -29,6 +29,10 @@ pub struct DuplicateFinding {
 pub enum DuplicateStatus {
     Available(Vec<DuplicateFinding>),
     Unavailable(String),
+    Partial {
+        findings: Vec<DuplicateFinding>,
+        reason: String,
+    },
 }
 impl Default for DuplicateStatus {
     fn default() -> Self {
@@ -59,6 +63,14 @@ pub fn check_ir(ir: &PositionedIr, context: &CheckContext) -> Vec<Diagnostic> {
             "",
             "Blueprint document exceeds 256 KiB",
             "Split the graph",
+        )];
+    }
+    if let Err((field, message)) = ports::preflight(&parsed.document) {
+        return vec![Diagnostic::error(
+            parsed.at(&field),
+            &field,
+            &message,
+            "Declare an acyclic port schema within the total expansion budget",
         )];
     }
     let mut db = facts::database(ir, context);
@@ -115,7 +127,9 @@ pub fn check_ir(ir: &PositionedIr, context: &CheckContext) -> Vec<Diagnostic> {
     }
     schema_errors(&parsed, &mut diagnostics);
     diagnostics.extend(context.call_diagnostics.clone());
-    if let DuplicateStatus::Unavailable(reason) = &context.duplicates {
+    if let DuplicateStatus::Unavailable(reason) | DuplicateStatus::Partial { reason, .. } =
+        &context.duplicates
+    {
         let atom = ProofAtom::new(
             "duplicate_comparison_unavailable",
             vec![reason.clone()],

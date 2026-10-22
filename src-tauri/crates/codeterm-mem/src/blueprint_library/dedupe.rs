@@ -139,3 +139,37 @@ impl MemManager {
         Ok(twins)
     }
 }
+
+pub fn compare_documents(
+    a: &codeterm_blueprint_types::blueprint_document::Document,
+    b: &codeterm_blueprint_types::blueprint_document::Document,
+) -> Comparison {
+    use codeterm_blueprint_types::blueprint_memory::{
+        abstract_document, semantic_canon::canonical_json,
+    };
+    let normalize = |document: &codeterm_blueprint_types::blueprint_document::Document| {
+        let mut document = abstract_document(document.clone());
+        document.name = "candidate".into();
+        document.note = None;
+        document.intent = None;
+        document.anchors.clear();
+        document
+    };
+    let (a, b) = (normalize(a), normalize(b));
+    let (signature_a, signature_b) = (blueprint_wl::signature(&a), blueprint_wl::signature(&b));
+    let scores = Scores {
+        exact: canonical_json(&a) == canonical_json(&b),
+        same_hash: signature_a.hash == signature_b.hash,
+        s_struct: blueprint_wl::kernel(&signature_a.features, &signature_b.features),
+        cos_desc: 0.0,
+        cos_intent: 0.0,
+    };
+    let verdict = decide(&scores, &Thresholds::default());
+    Comparison {
+        verdict,
+        scores,
+        why: format!(
+            "{verdict:?}: abstracted canonical documents; WL h=3; candidate vectors unavailable"
+        ),
+    }
+}

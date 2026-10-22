@@ -111,8 +111,8 @@ fn blueprint_v2_check_cli_never_overwrites_with_inadmissible_repair() {
     assert_eq!(original.status.code(), Some(0));
     let result = cli(&path, &["--fix", "--write", "--json"]);
     assert_eq!(result.status.code(), Some(2));
-    assert_eq!(std::fs::read_to_string(&path).unwrap(),source);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
     let value: Value = serde_json::from_slice(&result.stdout).unwrap();
-    assert_eq!(value["fix"]["changed"],false);
+    assert_eq!(value["fix"]["changed"], false);
     assert!(value["fix"]["text"].is_null());
 }

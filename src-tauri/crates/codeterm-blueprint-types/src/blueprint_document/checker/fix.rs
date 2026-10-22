@@ -2,7 +2,7 @@ use super::super::{
     projection::{self, SemanticDiff},
     Document, Kind, Node, NodeKind, Parsed, Port, Trigger, ValueForm,
 };
-use super::{facts, slots, CheckContext, Diagnostic};
+use super::{slots, CheckContext, Diagnostic};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,6 +17,14 @@ pub struct FixResult {
 }
 
 pub fn fix(parsed: &Parsed, source: &str, context: &CheckContext) -> FixResult {
+    fix_with_assignments(parsed, source, context, &[])
+}
+pub fn fix_with_assignments(
+    parsed: &Parsed,
+    source: &str,
+    context: &CheckContext,
+    assignments: &[String],
+) -> FixResult {
     let before = &parsed.document;
     let mut result = FixResult {
         changed: false,
@@ -89,6 +97,13 @@ pub fn fix(parsed: &Parsed, source: &str, context: &CheckContext) -> FixResult {
         .filter(|n| n.kind() == "ask" && !n.buckets.is_empty() && !n.routes.contains_key("other"))
         .map(|n| n.id.clone())
         .collect::<Vec<_>>();
+    if before.kind == Kind::Pipeline && !unhandled.is_empty() {
+        result
+            .refusals
+            .push("Pipeline other escalation requires runtime support; repair refused".into());
+        result.notes.clear();
+        return result;
+    }
     for id in unhandled {
         escalate(&mut after, &id, &mut result.notes);
     }
@@ -106,6 +121,16 @@ pub fn fix(parsed: &Parsed, source: &str, context: &CheckContext) -> FixResult {
             return result;
         }
     };
+    let checked =
+        super::super::check_with_context(&parsed.at("").file, &text, assignments, context);
+    if !checked.ok {
+        result.refusals.push(format!(
+            "Candidate is not admissible: {}",
+            super::render(&checked.diagnostics, false)
+        ));
+        result.notes.clear();
+        return result;
+    }
     result.changed = source != text;
     if result.changed {
         let file = parsed.at("").file;
@@ -160,25 +185,6 @@ fn escalate(doc: &mut Document, decision: &str, notes: &mut Vec<String>) {
         let mut id = "escalate_other".to_string();
         while doc.nodes().any(|n| n.id == id) {
             id.push('_');
-        }
-        let last_index = doc.nodes().count().saturating_sub(1);
-        if doc.kind == Kind::Pipeline {
-            let original = doc.nodes().last().cloned();
-            if let Some(original) = original {
-                let outcomes = facts::outcomes(doc, &original, last_index);
-                if let Some(last) = doc.steps.iter_mut().chain(&mut doc.other).last() {
-                    for outcome in outcomes {
-                        if outcome != "failed" {
-                            last.routes.entry(outcome).or_insert("@stop".into());
-                        }
-                    }
-                    for target in last.routes.values_mut() {
-                        if matches!(target.as_str(), "next" | "@next") {
-                            *target = "@stop".into();
-                        }
-                    }
-                }
-            }
         }
         doc.other.push(Node {
             id: id.clone(),

@@ -115,25 +115,35 @@ fn definition(document: serde_json::Value, source: StageSource) -> StageDefiniti
         .unwrap()
         .lower()
         .unwrap();
+    let pipeline = matches!(source, StageSource::Pipeline(_));
+    let name = document["name"].as_str().unwrap().to_string();
     StageDefinition {
         document: Some(document),
         note: None,
         model_classification: false,
         session: false,
-        name: Some("source-round-trip".into()),
+        name: Some(name),
         source,
-        question: "did it finish?".into(),
+        question: if pipeline {
+            String::new()
+        } else {
+            "did it finish?".into()
+        },
         interval_ms: 20_000,
-        until: Some("done".into()),
+        until: if pipeline { None } else { Some("done".into()) },
         escalation_timeout_ms: None,
         max_transitions: 8,
         max_actions: 16,
-        buckets: vec![BucketDefinition {
-            name: "done".into(),
-            match_pattern: Some("^done$".into()),
-            rearm_on_change: false,
-            handlers: Vec::new(),
-        }],
+        buckets: if pipeline {
+            Vec::new()
+        } else {
+            vec![BucketDefinition {
+                name: "done".into(),
+                match_pattern: Some("^done$".into()),
+                rearm_on_change: false,
+                handlers: Vec::new(),
+            }]
+        },
         on_other: Vec::new(),
     }
 }
@@ -361,10 +371,14 @@ fn blueprint_stage_source_storage_codec_round_trips_all_variants() {
         ),
         (document.clone(), StageSource::Pipeline(pipeline(&document))),
     ];
-    for (index, (document, source)) in sources.into_iter().enumerate() {
+    for (index, (mut document, mut source)) in sources.into_iter().enumerate() {
         let key = format!("blueprint_codec_{index}");
-        let mut definition = definition(document, source.clone());
-        definition.name = Some(format!("source-round-trip-{index}"));
+        let name = format!("source-round-trip-{index}");
+        document["name"] = serde_json::json!(name);
+        if let StageSource::Pipeline(spec) = &mut source {
+            spec.name = name;
+        }
+        let definition = definition(document, source.clone());
         storage
             .sentinels()
             .create(SentinelCreate {
