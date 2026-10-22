@@ -14,13 +14,11 @@ import { journeyThree, journeyThreeAfterRestart } from "./journeys/dispatch.mjs"
 import { restartCheck, restoredSends, restoredTabsReady, snapshotBeforeRestart } from "./journeys/restore.mjs";
 import { journeyOne, providers } from "./journeys/spawn.mjs";
 import { apiNoContext, uiContext } from "./journeys/team.mjs";
-import { captureUpgradeBaseline, verifyUpgrade } from "./journeys/upgrade.mjs";
 
 export function parseArgs(argv) {
   const [mode, ...rest] = argv;
   if (!["setup", "verify", "cleanup"].includes(mode)) throw new Error(`unknown driver mode ${mode}`);
-  const options = { mode, out: null, providers: null, allTabs: false, historyBytes: 320 * 1024, deadlineSecs: 240, keep: false, expectBuildChange: false, plan: false,
-    upgradeBaselineOut: null, upgradeBaseline: null, secondStart: false };
+  const options = { mode, out: null, providers: null, allTabs: false, historyBytes: 320 * 1024, deadlineSecs: 240, keep: false, plan: false };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index], value = rest[index + 1];
     if (flag === "--out") { options.out = resolve(value); index += 1; }
@@ -29,10 +27,6 @@ export function parseArgs(argv) {
     else if (flag === "--deadline-secs") { options.deadlineSecs = Number(value); index += 1; }
     else if (flag === "--all-tabs") options.allTabs = true;
     else if (flag === "--keep") options.keep = true;
-    else if (flag === "--expect-build-change") options.expectBuildChange = true;
-    else if (flag === "--upgrade-baseline-out") { options.upgradeBaselineOut = resolve(value); index += 1; }
-    else if (flag === "--upgrade-baseline") { options.upgradeBaseline = resolve(value); index += 1; }
-    else if (flag === "--second-start") options.secondStart = true;
     else if (flag === "--plan") options.plan = true;
     else throw new Error(`unknown driver flag ${flag}`);
   }
@@ -100,15 +94,10 @@ async function setup(ctx) {
 
 async function verify(ctx) {
   if (!ctx.state.run) throw new Error("verify needs the state written by setup in the same --out directory");
-  if (ctx.options.secondStart) {
-    await verifyUpgrade(ctx, ctx.options.upgradeBaseline, { secondStart: true });
-    return;
-  }
   await restartCheck(ctx);
   await restoredTabsReady(ctx);
   await Promise.all([restoredSends(ctx), journeyThreeAfterRestart(ctx)]);
   await captureScreenshot(ctx, "verify");
-  if (ctx.options.upgradeBaseline) await verifyUpgrade(ctx, ctx.options.upgradeBaseline);
 }
 
 export async function main(argv) {
@@ -138,7 +127,6 @@ export async function main(argv) {
   try {
     if (options.mode === "setup") {
       await setup(ctx);
-      if (options.upgradeBaselineOut) await captureUpgradeBaseline(ctx, options.upgradeBaselineOut);
     }
     if (options.mode === "verify") await verify(ctx);
     if (options.mode === "cleanup" && !options.keep) await cleanup(ctx);

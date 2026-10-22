@@ -760,14 +760,6 @@ the directory), then exits 0 when moved or nothing remains, 75 while busy, and 3
 when both directories exist. Exit 3 means an older checkout recreated the legacy
 directory: delete it once no older checkout builds.
 
-**Before taking the 1.15.0 update on a 1.14.9 machine that builds Domios:** the
-1.14.9 updater registers every file of the install folder with Restart Manager
-and fails with `register install files: ... (os error 29)` when the gateway's
-tens of thousands of files sit there. Stop all builds, run
-`./build.ps1 gateway-relocate` from a checkout that has it, confirm
-`%LOCALAPPDATA%\CodeTerm\build-gateway` no longer exists, then update. From
-1.15.0 the updater registers only the install's executables and DLLs.
-
 ### Repairing a corrupted user PATH (Windows)
 
 Domios adds only its own `bin/` directory to `HKCU\Environment` `Path`, and
@@ -1297,7 +1289,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 49 -->
+<!-- revision: 50 -->
 
 ### Lane and batch scopes
 

@@ -71,7 +71,7 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    `docs/release/<version>-pr.md`. Review changed commands/docs and remove obsolete callers.
 2. Before a release-branch push, qualify the exact committed release head in canonical using
    the gates skill. `build.sh check` is not release qualification. Required live evidence includes
-   [core journeys](../../../evals/core-journeys/README.md) and
+   [core journeys J1–J4](../../../evals/core-journeys/README.md) and
    [upgrade restore](../../../evals/upgrade-restore/README.md), with isolated named instances,
    their documented commands, passing evidence contracts and real startup/restore results.
    Source fixtures or capture/import alone do not replace these gates.
@@ -387,4 +387,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
