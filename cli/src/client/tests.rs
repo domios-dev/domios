@@ -515,6 +515,37 @@ fn socket_transport_remains_primary_when_available() {
 }
 
 #[test]
+fn credentialed_fallback_skips_health_and_socket_rediscovery() {
+    let choice = select_startup_transport::<()>(
+        Err("pipe unavailable".into()),
+        || http_fallback_config_from(None, Some("7687"), Some("opaque-token")),
+        || panic!("credentialed fallback must start with RPC, not health"),
+        || panic!("credentialed fallback must not rescan sockets"),
+    )
+    .unwrap();
+    assert!(matches!(choice, TransportChoice::Http(_)));
+}
+
+#[test]
+fn credentialless_fallback_waits_before_reconnecting_to_ready_socket() {
+    let ready = std::cell::Cell::new(false);
+    let choice = select_startup_transport(
+        Err("pipe unavailable".into()),
+        || Err("token is unavailable".into()),
+        || {
+            ready.set(true);
+            Ok(true)
+        },
+        || {
+            assert!(ready.get());
+            Ok("ready socket")
+        },
+    )
+    .unwrap();
+    assert!(matches!(choice, TransportChoice::Socket("ready socket")));
+}
+
+#[test]
 fn dead_socket_uses_loopback_http_when_credentials_are_present() {
     let config = http_fallback_config_from(None, Some("7687"), Some("opaque-token"))
         .expect("port and API token configure HTTP fallback");
