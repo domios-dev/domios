@@ -14,10 +14,6 @@
       "measuredSeconds": 4.154
     },
     {
-      "key": "service::hierarchy::plan_reminder_nudge::approval_tests::plan_reminder_choice_invalid_or_unavailable_zero_emit",
-      "measuredSeconds": 1.349
-    },
-    {
       "key": "service::hierarchy::report_plan_ctx::tests::plan_evidence_role_test::planned_team_taskless_worker_reports_to_parent_without_plan_write",
       "measuredSeconds": 20.095
     },
