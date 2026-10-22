@@ -7,6 +7,9 @@ pub fn control_loop(
     action: PlanControlLoopAction,
 ) -> Result<Value, String> {
     let (method, mut params) = match action {
+        PlanControlLoopAction::Run { plan_id } => {
+            ("plan.control_loop.run", json!({"plan_id":plan_id}))
+        }
         PlanControlLoopAction::Show { plan_id } => {
             ("plan.control_loop.show", json!({"plan_id":plan_id}))
         }

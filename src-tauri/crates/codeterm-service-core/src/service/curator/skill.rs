@@ -17,7 +17,7 @@ impl ServiceContext {
         {
             return self.mem.save_with_outcome(item, replace);
         }
-        let identity = self.curator_identity(caller)?;
+        let identity = self.authenticate_curator(caller)?;
         if [&item.title, &item.body]
             .into_iter()
             .chain(item.summary.iter())
@@ -60,10 +60,7 @@ impl ServiceContext {
             })
             .map(|task| task.id.clone())
             .collect();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = self.curator_now()?;
         let shape = curator::fingerprint(&item.body);
         let id = self.curator_save_solution(
             &identity,
