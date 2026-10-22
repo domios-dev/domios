@@ -21,6 +21,7 @@ import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { ShellProfilesCard } from "./ShellProfilesCard";
 import { TabSleepCard } from "./TabSleepCard";
+import { EmbedderCard } from "./embedder/EmbedderCard";
 import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
 import { MessengersCard } from "./MessengersCard";
@@ -354,6 +355,7 @@ export function SettingsPanel({
 
                 <ShellProfilesCard config={localConfig} onUpdate={update} />
                 <TabSleepCard config={localConfig} onUpdate={update} />
+                <EmbedderCard config={localConfig} />
 
                 <SettingsCard icon={<MousePointer size={16} />} title="Terminal">
                   <label className="ct-settings-toggle">

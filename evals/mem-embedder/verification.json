@@ -1,0 +1,70 @@
+{
+  "product_source_commit": "5fc6ceb8702a2b19ff8cccd9e3f316d43daea0dc",
+  "verification_evidence_commit": "d5cc0cd54759f90334fd6ef7de8780b5b7be22b5",
+  "candidate_test": {
+    "command": "./build.sh test-one mem embedder_candidates --wait-build",
+    "exit": 0,
+    "passed": 1,
+    "job": "20261022T145927-4727-485",
+    "cache_fixture_added_later": "type-checked only; offline oracle supplies executed loader proof"
+  },
+  "historical_switch_test": {
+    "command": "./build.sh test-one mem embedder_default_switch --wait-build",
+    "exit": 0,
+    "passed": 1,
+    "job": "20261022T151247-26017-9104",
+    "fixture_removed_by_owner_scope": true
+  },
+  "lane_check": {
+    "command": "./build.sh lane-check codeterm-mem --tests",
+    "exit": 0,
+    "executed_tests": false,
+    "after_cache_fix": true
+  },
+  "parity": {
+    "command": "./build.sh embedding-parity --output evals/mem-embedder/l12-parity.json",
+    "first_exit": 127,
+    "first_failure": "bare python unavailable after successful compilation",
+    "fix": "pad-local python symlink to existing /usr/local/bin/python3, process PATH only",
+    "final_exit": 0,
+    "cases": 25,
+    "min_cosine": 0.9999999999997629,
+    "job": "20261022T153123-68759-11128"
+  },
+  "fmt": {
+    "command": "./build.sh fmt",
+    "exit": 0,
+    "summary": "rust=6 biome=23 changed=no"
+  },
+  "fmt_check": {
+    "command": "./build.sh fmt-check",
+    "exit": 75,
+    "executed": false,
+    "reason": "gateway busy with own parity job",
+    "retried": false
+  },
+  "check_queue": {
+    "command": "./build.sh check-queue --lane",
+    "exit": 75,
+    "job": "20261022T153237-69926-3742",
+    "checked_sha": "d5cc0cd54759f90334fd6ef7de8780b5b7be22b5",
+    "cargo_started": false,
+    "reason": "check-worktree publication incomplete; shared check-worktree is not a working tree",
+    "retried": false
+  },
+  "file_sizes": {
+    "command": "bash scripts/check-file-sizes.sh --fail",
+    "exit": 0
+  },
+  "ancestry": {
+    "provider_ancestor": true,
+    "blueprint_recall_ancestor": false,
+    "output": "separate"
+  },
+  "canonical_gates_requested": [
+    "./build.sh check-queue --lane",
+    "./build.sh fmt-check"
+  ],
+  "snapshot_worker_copies_deleted": true,
+  "pushed": false
+}

@@ -1611,6 +1611,7 @@ dependencies = [
  "codeterm-decision",
  "codeterm-mem-store",
  "codeterm-paths",
+ "codeterm-secrets",
  "codeterm-types",
  "codeterm-util",
  "hf-hub",
@@ -1634,6 +1635,7 @@ dependencies = [
  "ulid",
  "uuid",
  "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]

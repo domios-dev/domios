@@ -1,5 +1,6 @@
 use super::index::{self, cosine, IndexRow, Slot, Vectors};
 use crate::blueprint_wl::{self, Signature};
+use crate::solution_search::RELEVANCE_FLOOR;
 use crate::MemManager;
 use codeterm_blueprint_types::blueprint_memory::{self as model, Entry};
 use serde::{Deserialize, Serialize};
@@ -124,7 +125,8 @@ pub(super) fn rank(
             let words = tokens(&text).into_iter().collect::<HashSet<_>>();
             !keywords.is_empty()
                 && keywords.iter().filter(|word| words.contains(*word)).count() as f64
-                    / keywords.len() as f64 >= 0.55
+                    / keywords.len() as f64
+                    >= RELEVANCE_FLOOR
         })
         .collect::<Vec<_>>();
     if let Some(query_vector) = query_vector {
@@ -220,7 +222,7 @@ pub(super) fn rank(
         let top = order.first().map_or(0.0, |(_, score)| *score);
         for (rank, (index, score)) in order.iter().enumerate() {
             if weight > 0.0 {
-                if *list != List::Lexical && *score >= 0.55 {
+                if *list != List::Lexical && *score >= RELEVANCE_FLOOR {
                     relevant[*index] = true;
                 }
                 listed[*index] = true;
@@ -252,7 +254,12 @@ pub(super) fn rank(
         .into_iter()
         .zip(fused)
         .zip(why)
-        .zip(listed.into_iter().zip(relevant).map(|(listed, relevant)| listed && relevant))
+        .zip(
+            listed
+                .into_iter()
+                .zip(relevant)
+                .map(|(listed, relevant)| listed && relevant),
+        )
         .filter(|(_, listed)| *listed)
         .map(|(((candidate, score), mut why), _)| {
             let pending = candidate
@@ -351,7 +358,11 @@ fn bm25(candidates: &[Candidate], query: &str, enrichment: bool) -> Vec<f64> {
 }
 
 impl MemManager {
-    pub(super) fn candidates(&self, area: &str) -> Result<Vec<Candidate>, String> {
+    pub(super) fn candidates(
+        &self,
+        area: &str,
+        identity: Option<&crate::embedder::EmbedderIdentity>,
+    ) -> Result<Vec<Candidate>, String> {
         let conn = self.conn.lock();
         let library = super::load_entries_in(&conn, &self.blobs_dir, area, true)?;
         library
@@ -359,7 +370,10 @@ impl MemManager {
             .map(|entry| {
                 Ok(Candidate {
                     row: index::read_row(&conn, &entry.id)?,
-                    vectors: index::read_vectors(&conn, &entry.id)?,
+                    vectors: identity
+                        .map(|identity| index::read_vectors(&conn, &entry.id, identity))
+                        .transpose()?
+                        .unwrap_or_default(),
                     entry,
                 })
             })
@@ -374,14 +388,19 @@ impl MemManager {
         limit: usize,
         config: &RecallConfig,
     ) -> Result<Vec<BlueprintHit>, String> {
-        let query_vector = self.blueprint.embedder().query(intent).ok();
-        let candidates = self.candidates(area)?;
+        let query_vector = self.embedder.query(intent);
+        let candidates =
+            self.candidates(area, query_vector.as_ref().map(|vector| &vector.identity))?;
         let mut hits = rank(
             candidates,
             intent,
             query_vector
-                .as_deref()
-                .filter(|vector| index::valid_dimension(vector)),
+                .as_ref()
+                .filter(|vector| {
+                    vector.identity == self.embedder.identity()
+                        && index::valid_dimension(&vector.vector, vector.identity.dimension)
+                })
+                .map(|vector| vector.vector.as_slice()),
             draft,
             config,
             chrono::Utc::now().timestamp(),

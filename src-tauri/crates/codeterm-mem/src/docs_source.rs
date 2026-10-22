@@ -219,11 +219,28 @@ pub fn search_with_hybrid(query: &str, limit: usize, enabled: bool) -> Vec<DocCa
     let Some(vectors) = vectors::ready_vectors() else {
         return search(query, limit);
     };
-    vectors::hybrid_search(index(), query, limit, &vectors, &crate::embeddings::embed)
+    vectors::hybrid_search(
+        index(),
+        query,
+        limit,
+        &vectors,
+        &crate::embeddings::query_embed,
+    )
 }
 
 pub(crate) fn start_background_build(data_dir: &std::path::Path) {
     vectors::start_background_build(data_dir);
+}
+
+pub(crate) fn vector_section_count() -> usize {
+    corpus_sections().len()
+}
+
+pub(crate) fn reembed_vectors(
+    data_dir: &std::path::Path,
+    embedder: &std::sync::Arc<crate::embedder::ActiveEmbedder>,
+) -> Result<usize, String> {
+    vectors::reembed(data_dir, embedder)
 }
 
 pub fn prepare_hybrid_for_benchmark(data_dir: &std::path::Path) -> bool {

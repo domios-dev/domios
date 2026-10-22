@@ -58,9 +58,5 @@ pub(super) fn offers(stored: Value, intent: &str) -> Value {
     let matched = model::recall(&builtins, intent, OFFERS, chrono::Utc::now().timestamp())
         .into_iter()
         .map(|entry| json!({"id":entry.id,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"yaml":entry.document.yaml().unwrap_or_default(),"uses":entry.uses,"successes":entry.successes,"why":null}));
-    json!(stored
-        .into_iter()
-        .chain(matched)
-        .take(OFFERS)
-        .collect::<Vec<_>>())
+    json!(stored.chain(matched).take(OFFERS).collect::<Vec<_>>())
 }

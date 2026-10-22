@@ -1,3 +1,4 @@
+use crate::embedder::local::LocalModel;
 use crate::embedding_model::EmbeddingModel;
 use std::sync::{mpsc, OnceLock};
 use std::time::{Duration, Instant};
@@ -8,6 +9,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 type Reply = mpsc::SyncSender<Result<Vec<f32>, String>>;
 
 struct Request {
+    model: &'static LocalModel,
     text: String,
     reply: Reply,
 }
@@ -60,9 +62,15 @@ impl Worker {
         Ok(worker)
     }
 
-    fn embed(&self, text: &str, query: bool) -> Result<Vec<f32>, String> {
+    fn embed(
+        &self,
+        model: &'static LocalModel,
+        text: &str,
+        query: bool,
+    ) -> Result<Vec<f32>, String> {
         let (reply, response) = mpsc::sync_channel(1);
         let request = Request {
+            model,
             text: text.into(),
             reply,
         };
@@ -79,10 +87,6 @@ impl Worker {
         response
             .recv_timeout(REQUEST_TIMEOUT)
             .map_err(|e| format!("embedding response unavailable: {e}"))?
-    }
-
-    fn query_embed(&self, text: &str) -> Result<Vec<f32>, String> {
-        self.embed(text, true)
     }
 }
 
@@ -113,21 +117,21 @@ fn worker() -> Result<&'static Worker, String> {
         .map_err(Clone::clone)
 }
 
-pub(crate) fn embed(text: &str) -> Result<Vec<f32>, String> {
-    worker()?.embed(text, false)
-}
-
-pub(crate) fn query_embed(text: &str) -> Result<Vec<f32>, String> {
-    worker()?.query_embed(text)
+pub(crate) fn embed(
+    model: &'static LocalModel,
+    text: &str,
+    query: bool,
+) -> Result<Vec<f32>, String> {
+    worker()?.embed(model, text, query)
 }
 
 fn run<M>(
     receivers: Receivers,
     idle: Duration,
-    load: impl Fn() -> Result<M, String>,
+    load: impl Fn(&'static LocalModel) -> Result<M, String>,
     forward: impl Fn(&M, &str) -> Result<Vec<f32>, String>,
 ) {
-    let mut model = None;
+    let mut model: Option<(&'static LocalModel, M)> = None;
     let mut deadline = None;
     loop {
         let request = match receivers.next(deadline) {
@@ -140,10 +144,14 @@ fn run<M>(
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => return,
         };
-        if model.is_none() {
-            match load() {
+        if model
+            .as_ref()
+            .is_none_or(|(loaded, _)| *loaded != request.model)
+        {
+            model = None;
+            match load(request.model) {
                 Ok(loaded) => {
-                    model = Some(loaded);
+                    model = Some((request.model, loaded));
                     log::debug!("[embed] loaded candle model");
                 }
                 Err(error) => {
@@ -156,7 +164,7 @@ fn run<M>(
         let result = model
             .as_ref()
             .ok_or_else(|| "embedding model unavailable".into())
-            .and_then(|model| forward(model, &request.text));
+            .and_then(|(_, model)| forward(model, &request.text));
         let _ = request.reply.send(result);
         deadline = Some(Instant::now() + idle);
     }

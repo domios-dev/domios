@@ -56,6 +56,30 @@ Three layers:
 
 Filters narrow hybrid search; a connected Supporter automatically re-ranks results.
 
+### Embedder
+
+All of memory uses exactly one embedder: items, graph entities and the documentation vectors. The default is the local on-device model (`local`, `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, 384 dimensions). The selection lives in `[memory.embedder]` (`domios docs CONFIG`).
+
+```bash
+domios mem embedder list                     # providers, models, why a remote one is unavailable
+domios mem embedder status                   # provider, model, dimension, re-embed progress, vector-pending count
+domios mem embedder use local                # switch; prints how many items it re-embeds
+domios mem embedder use openai --model text-embedding-3-small --dimension 512
+```
+
+- **Switching.** The vector index is stamped with its provider, model and dimension. A switch recreates it empty at the new dimension and re-embeds every item, entity and documentation section in the background. Search keeps working throughout: keyword search always, and vectors only from the new model as they land. Vectors from another model are refused, never mixed. Settings → General → Memory embedder shows the same status and asks before it switches.
+- **Outages.** When the embedder is unavailable (remote outage, rate limit, missing key or local model), saves still succeed and keyword search finds them. The item is marked vector pending and is embedded again when the provider answers.
+- **Remote embedders send memory text to a third party.** A remote provider activates only when its API key is stored AND `memory.embedder.remote_opt_in = true`. Text flagged by the credential filter is never sent. The key is read once at activation and daemon start and is never taken from config, argv or the environment. Sources, in order (the file wins when both exist):
+  1. `<data_dir>/secrets/<provider>-embedder.key`: `~/.domios/secrets/` on prod, `~/.domios-dev/secrets/` on DEV, or the named instance's own data directory. It is readable only by its owner (mode 0600 on Unix; on Windows an ACL for the current user only);
+  2. the Domios secret store entry `<provider>-embedder`.
+
+  The owner stores it via stdin, never argv. For prod on Unix (use the selected instance's data directory for DEV):
+  ```bash
+  umask 077; mkdir -p ~/.domios/secrets; cat > ~/.domios/secrets/openai-embedder.key && chmod 600 ~/.domios/secrets/openai-embedder.key   # paste the key, then Ctrl-D
+  # or: domios mem secret save --name openai-embedder   (key on stdin)
+  ```
+  Agent-assisted path: when the owner explicitly asks an agent to set it up, the agent pipes the value the owner gave into one of those commands on stdin (never as an argument, never echoed, logged or saved in mem), then runs `domios mem embedder use <provider>`.
+
 ### Supporter Agent memory re-rank
 
 A second stage over `mem search` that runs automatically when an adapter is connected. Stage 1 remains hybrid recall, widened to a candidate pool; the adapter grades candidates and sorts them by relevance. Without a connected adapter, search behaves as before. There are no feature switches. `domios mem search --supporter on|off` is a per-request diagnostic override; without it, the connection decides. The legacy `--rerank` is exclusive with `--supporter on` (the request is refused as invalid).
@@ -181,4 +205,4 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 49 -->
+<!-- revision: 51 -->
