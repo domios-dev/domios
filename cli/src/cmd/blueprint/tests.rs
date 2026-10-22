@@ -521,8 +521,8 @@ fn blueprint_save_receipt_surfaces_every_evicted_id() {
 fn blueprint_like_preserves_hybrid_recall_without_shared_words() {
     let query = "Transmit structured output downstream";
     let stored = json!([
-        {"id":"skill_pipeline", "when_to_use":"Chain shell commands", "yaml":"opaque recipe"},
-        {"id":"skill_second", "when_to_use":"Parse JSON", "yaml":"another recipe"}
+        {"id":"skill_pipeline", "when_to_use":"Chain shell commands", "yaml":"opaque recipe", "why":"intent 0.92", "enrichment_pending":true},
+        {"id":"skill_second", "when_to_use":"Parse JSON", "yaml":"another recipe", "why":"intent 0.81", "intents":["Parse JSON"]}
     ]);
     assert!(stored[0]["when_to_use"]
         .as_str()
@@ -530,9 +530,46 @@ fn blueprint_like_preserves_hybrid_recall_without_shared_words() {
         .split_whitespace()
         .all(|word| !query.to_lowercase().contains(&word.to_lowercase())));
     let offers = memory::offers(stored.clone(), query);
-    assert_eq!(offers.as_array().unwrap().len(), 2);
+    let offers = offers.as_array().unwrap();
     for (index, id) in ["skill_pipeline", "skill_second"].iter().enumerate() {
-        assert_eq!(offers[index]["id"], format!("memory:{id}"));
-        assert_eq!(offers[index]["yaml"], stored[index]["yaml"]);
+        let mut expected = stored[index].clone();
+        expected["id"] = json!(format!("memory:{id}"));
+        assert_eq!(offers[index], expected);
+    }
+    for offer in &offers[2..] {
+        assert!(recipe_files::FILES.iter().any(|(id, _)| offer["id"] == *id));
+    }
+    let ids = offers
+        .iter()
+        .map(|offer| offer["id"].as_str().unwrap())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(ids.len(), offers.len());
+}
+
+#[test]
+fn blueprint_like_appends_builtins_after_daemon_results_within_five_offers() {
+    for count in [4, 5, 6] {
+        let stored = (0..count)
+            .map(|index| {
+                json!({
+                    "id":format!("saved-{index}"),
+                    "yaml":format!("opaque recipe {index}"),
+                    "intents":["A semantic match with no shared query words"],
+                    "why":"intent 0.92",
+                    "enrichment_pending":true
+                })
+            })
+            .collect::<Vec<_>>();
+        let offers = memory::offers(json!(stored), "HTTP endpoint response code");
+        let offers = offers.as_array().unwrap();
+        assert_eq!(offers.len(), 5);
+        for (index, original) in stored.iter().take(5).enumerate() {
+            let mut expected = original.clone();
+            expected["id"] = json!(format!("memory:saved-{index}"));
+            assert_eq!(offers[index], expected);
+        }
+        if count == 4 {
+            assert_eq!(offers[4]["id"], "http-health");
+        }
     }
 }
