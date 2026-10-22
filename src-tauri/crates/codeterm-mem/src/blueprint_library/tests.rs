@@ -584,6 +584,7 @@ fn curator_saves_blueprint_among_unrelated_facts_and_other_scopes() {
 #[cfg(feature = "embeddings")]
 #[test]
 fn blueprint_recall_uses_vectors_without_shared_words_and_scopes_before_limit() {
+    crate::embeddings::ensure_extension_registered();
     let mem = MemManager::open_in_memory().unwrap();
     let intent = "Detect stalled deployments";
     let query = "Identify frozen releases";
@@ -655,6 +656,7 @@ fn blueprint_recall_uses_vectors_without_shared_words_and_scopes_before_limit() 
 #[cfg(feature = "embeddings")]
 #[test]
 fn blueprint_usage_breaks_equal_retrieval_scores() {
+    crate::embeddings::ensure_extension_registered();
     let mem = MemManager::open_in_memory().unwrap();
     let first = mem
         .save_blueprint("project", document("done"), "Watch CI failure", evidence())
@@ -692,6 +694,7 @@ fn blueprint_usage_breaks_equal_retrieval_scores() {
 #[cfg(feature = "embeddings")]
 #[test]
 fn blueprint_recall_refuses_unrelated_vectors_even_when_the_only_solution_is_kept() {
+    crate::embeddings::ensure_extension_registered();
     let mem = MemManager::open_in_memory().unwrap();
     let id = mem
         .save_blueprint(
