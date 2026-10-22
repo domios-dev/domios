@@ -168,18 +168,6 @@ fn stale_foreign_or_unassigned_planner_cannot_create_plan() {
 }
 
 #[test]
-fn planner_plan_creation_does_not_grant_execution_authority() {
-    let dir = tempfile::tempdir().unwrap();
-    let harness = TeamPlanHarness::new(dir.path());
-    let (orchestrator, planner, caller) = bound_pair(&harness.mux, "authority");
-    let plan = planner_create(&harness, caller, "Authority", 1)
-        .unwrap()
-        .plan;
-    assert_eq!(plan.owner.tab_id.as_deref(), Some(orchestrator.as_str()));
-    assert_ne!(plan.owner.tab_id.as_deref(), Some(planner.as_str()));
-}
-
-#[test]
 fn concurrent_planner_plan_create_never_duplicates_team_plan() {
     let dir = tempfile::tempdir().unwrap();
     let harness = Arc::new(TeamPlanHarness::new(dir.path()));

@@ -591,6 +591,16 @@ At the same hook, installed `cargo-sweep` prunes the current checkout's `src-tau
 
 Run `./build.sh gc --dry-run` to preview or `./build.sh gc` to reclaim immediately (Windows: `./build.ps1 gc --dry-run` / `./build.ps1 gc`). Manual GC acquires the machine gateway, bypasses the hourly throttle, and reports exceptional bytes reclaimed plus sweep output. Dry-run preserves artifacts and the hourly timestamp. Normal targets have an age policy; current artifacts and protected exceptional targets can exceed their usual retained size.
 
+Check-queue worktrees live in `check-worktrees/<common-gitdir-hash>/check-worktree`
+inside the gateway. Linked lanes share their repository's checkout; independent
+clones use different checkouts. The old top-level `check-worktree` is untouched.
+Manual GC removes registered broken/pending leftovers belonging to the calling
+repository, plus unregistered directories without Git metadata in its hashed
+namespace. Foreign, unknown top-level and interrupted-publication paths remain.
+Prove changes with `CT_BUILD_GATEWAY_SCOPE=fixture` and
+`CT_BUILD_GATEWAY_FIXTURE_DIR=<private-directory>`; never repair another clone's
+live checkout. Focused regression: `node --test scripts/check-worktree.test.mjs`.
+
 Retention also checks exact lane `target`, `src-tauri/target` and `cli/target`
 directories under the provisioned worktree root. It trims them only when all
 artifact timestamps exceed `CODETERM_CACHE_MAX_AGE_DAYS`, the index tracks no

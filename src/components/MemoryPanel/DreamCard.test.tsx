@@ -105,36 +105,35 @@ async function dream_modal_has_summary_and_no_log_toggle() {
   console.log("✓ dream_modal_has_summary_and_no_log_toggle");
 }
 
-async function dream_card_centers_text() {
+async function dream_card_shows_excerpt_and_opens_incomplete_record() {
   setupDom([]);
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
   const longInsight = "x".repeat(400);
+  let opened = 0;
   await act(async () => {
     root.render(
       <DreamCard
         entry={entry(`<insight>${longInsight}</insight>`)}
         recordState={{ state: "incomplete_recoverable", reason: "reason-token" }}
-        onOpen={() => {}}
+        onOpen={() => { opened++; }}
       />,
     );
   });
   const body = host.querySelector('[data-testid="memory-dream-card-body"]');
   assert(body, "card body must render");
-  const classes = body.className.split(/\s+/);
-  for (const cls of ["flex", "items-center", "justify-center", "text-center"]) {
-    assert(classes.includes(cls), `card body must center its text (${cls}): ${body.className}`);
-  }
-  const clamp = body.querySelector(".line-clamp-6");
-  assert(clamp, "the excerpt keeps its line clamp");
-  assert((clamp.textContent ?? "").length < longInsight.length, "the excerpt stays truncated");
+  assert(body.textContent === `${longInsight.slice(0, 200)}…`, "the card bounds the insight excerpt");
   const badge = host.querySelector('[data-testid="memory-dream-card-incomplete"]');
   assert(badge, "incomplete badge renders");
   assert(badge.getAttribute("data-dream-record-state") === "incomplete_recoverable", "badge keeps its state");
-  assert(badge.parentElement?.className.split(/\s+/).includes("justify-center"), "the badge row is centered");
+  assert(badge.getAttribute("title") === "reason-token", "the incomplete reason remains available");
+  const card = host.querySelector<HTMLElement>('[data-testid="memory-dream-card"]');
+  assert(card, "the record can be opened");
+  await act(async () => card.click());
+  assert(opened === 1, "clicking the card opens its record once");
   await act(async () => root.unmount());
-  console.log("✓ dream_card_centers_text");
+  console.log("✓ dream_card_shows_excerpt_and_opens_incomplete_record");
 }
 
-void dream_modal_has_summary_and_no_log_toggle().then(dream_card_centers_text);
+void dream_modal_has_summary_and_no_log_toggle().then(dream_card_shows_excerpt_and_opens_incomplete_record);

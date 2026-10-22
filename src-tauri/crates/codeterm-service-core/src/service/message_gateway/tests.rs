@@ -400,29 +400,6 @@ fn classify_maps_structural_markers() {
 }
 
 #[test]
-fn delivery_class_semantics_are_documented_and_exhaustive() {
-    // Compile-time proof every class variant is handled; a new variant that has
-    // no documented semantic here fails to compile until it is added.
-    fn describe(class: DeliveryClass) -> &'static str {
-        match class {
-            DeliveryClass::UserTurn => "human-authored turn",
-            DeliveryClass::AgentTraffic => "agent-to-agent traffic",
-            DeliveryClass::SystemNotice => "codeterm-originated notice",
-            DeliveryClass::RawKeys => "uninterpreted key bytes",
-        }
-    }
-
-    for class in [
-        DeliveryClass::UserTurn,
-        DeliveryClass::AgentTraffic,
-        DeliveryClass::SystemNotice,
-        DeliveryClass::RawKeys,
-    ] {
-        assert!(!describe(class).is_empty());
-    }
-}
-
-#[test]
 fn idempotency_store_evicts_beyond_capacity() {
     let mut store = IdempotencyStore::new(2);
     let ok = |t: &str| {

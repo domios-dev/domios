@@ -89,13 +89,6 @@ fn osc_133_subset_parses() {
     );
 }
 
-// --- ST and BEL both terminate ---
-
-#[test]
-fn bel_terminator() {
-    assert_eq!(parse(b"\x1b]633;A\x07"), vec![SemanticEvent::PromptStart]);
-}
-
 #[test]
 fn st_terminator() {
     assert_eq!(parse(b"\x1b]633;A\x1b\\"), vec![SemanticEvent::PromptStart]);

@@ -419,7 +419,18 @@ run_nextest_scope() {
       # One feature resolution for every crate, so shared dependencies compile once.
       prepare_dev_frontend_dist "$(pwd -P)"
       prepare_bundle_stubs
-      targets+=(--workspace --lib --features codeterm-sentinel/test-support)
+      local lane_args cli_args=() arg
+      lane_args="$(node scripts/rust-test-lanes.mjs workspace)" || return $?
+      targets=()
+      while IFS= read -r arg; do targets+=("$arg"); done <<< "$lane_args"
+      local workspace_target cli_target
+      workspace_target="$(node scripts/rust-test-lanes.mjs workspace target)" || return $?
+      cli_target="$(node scripts/rust-test-lanes.mjs cli target)" || return $?
+      lane_args="$(node scripts/rust-test-lanes.mjs cli)" || return $?
+      while IFS= read -r arg; do cli_args+=("$arg"); done <<< "$lane_args"
+      CARGO_TARGET_DIR="$cli_target" cargo nextest list --manifest-path cli/Cargo.toml "${cli_args[@]}" \
+        --locked --list-type binaries-only --message-format json >/dev/null || return $?
+      export CARGO_TARGET_DIR="$workspace_target"
       ;;
     app|codeterm|service-core|codeterm-service-core)
       configure_app_test_cargo nextest
@@ -455,7 +466,15 @@ run_nextest_scope() {
     mesh|codeterm-mesh) package="codeterm-mesh"; targets+=(--lib) ;;
     plugin|codeterm-plugin) package="codeterm-plugin"; targets+=(--lib) ;;
     plugins|codeterm-plugins) package="codeterm-plugins"; targets+=(--lib) ;;
-    cli|codeterm-cli) manifest="cli/Cargo.toml"; package="codeterm-cli"; targets+=(--all-targets) ;;
+    cli|codeterm-cli)
+      manifest="cli/Cargo.toml"
+      local cli_selection cli_arg
+      cli_selection="$(node scripts/rust-test-lanes.mjs cli)" || return $?
+      targets=()
+      while IFS= read -r cli_arg; do targets+=("$cli_arg"); done <<< "$cli_selection"
+      cli_selection="$(node scripts/rust-test-lanes.mjs cli target)" || return $?
+      export CARGO_TARGET_DIR="$cli_selection"
+      ;;
     pty-fork) manifest="src-tauri/pty-fork/Cargo.toml" ;;
     codeterm-*) package="$scope"; targets+=(--lib) ;;
     *)
@@ -494,7 +513,7 @@ run_nextest_scope() {
     node "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/nextest-metadata-cache.mjs" "$timing_dir" "$manifest" "${targets[@]}" || return $?
   else
   if cargo nextest list --manifest-path "$manifest" "${targets[@]}" \
-    --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
+    --locked --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
     :
   else
     run_exit=$?
@@ -1317,10 +1336,20 @@ record_dev_target() {
 }
 
 dev_resource_dir() {
-  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/Domios.app/Contents/Resources"
+  elif [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/lib/codeterm"
   else
     tauri_debug_dir
+  fi
+}
+
+dev_frontend_dir() {
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    printf '%s\n' "$(pwd -P)/dist"
+  else
+    printf '%s\n' "$(dev_resource_dir)/dist"
   fi
 }
 
@@ -1333,7 +1362,9 @@ dev_built_app_path() {
 }
 
 dev_app_path() {
-  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/Domios.app/Contents/MacOS/domios-dev-app"
+  elif [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/domios-dev-app"
   else
     printf '%s\n' "$(tauri_debug_dir)/domios-dev-app.exe"
@@ -1434,7 +1465,7 @@ write_dev_provenance() {
     --build-sha "$build_sha" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --frontend "$(dev_resource_dir)/dist" \
+    --frontend "$(dev_frontend_dir)" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
     --vite-port "$CT_VITE_PORT" \
@@ -1452,7 +1483,7 @@ validate_dev_provenance() {
     --record "$(dev_provenance_record)" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --frontend "$(dev_resource_dir)/dist" \
+    --frontend "$(dev_frontend_dir)" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
     --vite-port "$CT_VITE_PORT" \
@@ -1461,6 +1492,10 @@ validate_dev_provenance() {
 }
 
 reload_dev_server() {
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    echo 'Named macOS DEV uses a sealed app pair; run ./build.sh dev instead.' >&2
+    return 2
+  fi
   local plan split_logs receipt build_sha started
   started="$(date +%s)"
   CT_SPLIT_DEV=1
@@ -2098,6 +2133,7 @@ build_and_launch_dev() {
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   build_dev_client "$conf" "${build_args[@]}"
   build_sha="$CODETERM_BUILD_SHA"
+  if [[ "$OSTYPE" == darwin* ]] && named_dev_isolated; then prepare_local_macos_signing 0; fi
   build_dev_frontend
   if [ "${CT_DEV_RETAIN_WINDOW:-0}" = 1 ]; then
     if dev_live_window_exe >/dev/null && cmp -s "$(dev_built_app_path)" "$(dev_app_path)"; then
@@ -2253,10 +2289,10 @@ start_web_watch() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_resource_dir)/dist" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_resource_dir)/dist" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2281,10 +2317,10 @@ start_dev_static_server() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_DEV_STATIC_DIST="$(dev_resource_dir)/dist" node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_DEV_STATIC_DIST="$(dev_resource_dir)/dist" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2939,6 +2975,7 @@ EOF
     ;;
   ci-tests)
     case "${2:-}" in full|platform|embeddings) ;; *) echo "Usage: ./build.sh ci-tests full|platform|embeddings" >&2; exit 2 ;; esac
+    prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     node scripts/collect-rust-warnings.mjs run --log "${RUST_WARNING_LOG:-ci-rust-warnings.log}" -- node scripts/ci-rust-tests.mjs "$2"
     ;;
@@ -3071,7 +3108,11 @@ EOF
     test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
-      cli|codeterm-cli|frontend-bundle|codeterm-frontend-bundle|input-macos|input-windows|pty-fork) ;;
+      cli|codeterm-cli)
+        SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope cli "test(~$test_filter)"
+        exit $?
+        ;;
+      frontend-bundle|codeterm-frontend-bundle|input-macos|input-windows|pty-fork) ;;
       *)
         if [ "$test_filter" != build_identity_required ]; then
           # Same workspace feature resolution as every other test run, so the warm build is reused.
