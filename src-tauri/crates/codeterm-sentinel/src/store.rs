@@ -47,6 +47,10 @@ pub struct Sentinel {
     pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,
     pub expires_at: Option<u64>,
+    #[serde(
+        default = "dormant_deadline",
+        skip_serializing_if = "is_dormant_deadline"
+    )]
     pub next_run: u64,
     #[serde(default, flatten)]
     pub cleanup: super::retention::Retention,
@@ -1037,3 +1041,11 @@ use due::{plan_due, scheduled_stop_notices};
 mod validate;
 pub use validate::duration_ms;
 pub use validate::validate;
+
+fn dormant_deadline() -> u64 {
+    codeterm_blueprint_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
+}
+
+fn is_dormant_deadline(value: &u64) -> bool {
+    *value == dormant_deadline()
+}

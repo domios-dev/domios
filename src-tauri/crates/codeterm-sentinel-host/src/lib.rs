@@ -37,6 +37,7 @@ mod terminal_tests;
 #[cfg(test)]
 mod tests;
 pub(crate) mod wake;
+mod watch_input;
 
 #[cfg(test)]
 mod connected_tests;
