@@ -1,0 +1,407 @@
+use super::engine::{atom, no, rule, yes, Atom, Database};
+use super::*;
+use crate::blueprint_document::{self, ValueForm};
+use serde_json::{json, Value};
+
+fn document(nodes: Value) -> Document {
+    serde_json::from_value(json!({"schema_version":2,"kind":"pipeline","name":"checker-fixture","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":nodes})).unwrap()
+}
+fn inspect(doc: &Document) -> Vec<Diagnostic> {
+    let source = serde_yaml::to_string(doc).unwrap();
+    let parsed = blueprint_document::parse("fixture.yaml", &source).unwrap();
+    check_ir(&parsed.ir(), &CheckContext::default())
+}
+fn contains(ds: &[Diagnostic], rule: &str) -> bool {
+    ds.iter()
+        .any(|d| d.rule == rule || contains(&d.folded, rule))
+}
+fn require(doc: Document, rule: &str) {
+    let ds = inspect(&doc);
+    let found = ds
+        .iter()
+        .find(|d| d.rule == rule)
+        .unwrap_or_else(|| panic!("missing {rule}: {ds:#?}"));
+    assert!(!found.id.is_empty());
+    assert_eq!(found.file, "fixture.yaml");
+    assert!(found.line > 1 && found.column > 0);
+    assert!(!found.failing.is_empty());
+    assert!(!found.passing.is_empty() || rule == "R10");
+    assert!(!found.proof.children.is_empty());
+    assert_eq!(inspect(&doc), ds);
+}
+#[test]
+fn blueprint_v2_check_r1_unreachable() {
+    require(
+        document(
+            json!([{"id":"a","run":{"lit":"echo a"},"routes":{"done":"@stop","failed":"@stop"}},{"id":"b","run":{"lit":"echo b"}}]),
+        ),
+        "R1",
+    );
+}
+#[test]
+fn blueprint_v2_check_r2_dead_output() {
+    require(
+        document(
+            json!([{"id":"a","uses":"convert","out":{"type":"string"}},{"id":"b","run":{"lit":"echo b"}}]),
+        ),
+        "R2",
+    );
+}
+#[test]
+fn blueprint_v2_check_r3_restricted_subsumption() {
+    for (source, target) in [
+        (json!({"type":"string"}), json!({"type":"integer"})),
+        (
+            json!({"type":"object","additionalProperties":false}),
+            json!({"type":"object","required":["a"],"properties":{"a":{"type":"integer"}}}),
+        ),
+        (
+            json!({"type":"object","properties":{"a":{"type":"integer"}},"additionalProperties":false}),
+            json!({"type":"object","additionalProperties":false}),
+        ),
+        (
+            json!({"type":"string","enum":["a","b"]}),
+            json!({"type":"string","enum":["a"]}),
+        ),
+        (
+            json!({"type":"string","maxLength":40}),
+            json!({"type":"string","maxLength":10}),
+        ),
+    ] {
+        require(
+            document(
+                json!([{"id":"a","run":{"lit":"echo a"},"out":source},{"id":"b","uses":"ask","in":target,"bind":{"in":"a.out"}}]),
+            ),
+            "R3",
+        );
+    }
+    let open: super::super::Port = serde_json::from_value(json!({"type":"object"})).unwrap();
+    let closed: super::super::Port =
+        serde_json::from_value(json!({"type":"object","additionalProperties":false})).unwrap();
+    assert!(!ports::subsumption_conflicts(&open, &closed).is_empty());
+}
+#[test]
+fn blueprint_v2_check_r4_contradictory_outcome() {
+    require(
+        document(json!([{"id":"a","run":{"lit":"echo a"},"routes":{"invented":"@stop"}}])),
+        "R4",
+    );
+    let source="schema_version: 2\nkind: pipeline\nname: duplicate-route\nsteps:\n- id: a\n  run: {lit: 'echo a'}\n  routes:\n    done: '@stop'\n    done: a\n";
+    assert!(!blueprint_document::check("duplicate.yaml", source, &[]).ok);
+}
+#[test]
+fn blueprint_v2_check_r5_backward_route() {
+    require(
+        document(json!([{"id":"a","run":{"lit":"echo a"},"routes":{"done":"a"}}])),
+        "R5",
+    );
+}
+#[test]
+fn blueprint_v2_check_r6_unknown_other_warning() {
+    let doc = document(json!([{"id":"a","uses":"ask","buckets":["ok"]}]));
+    require(doc.clone(), "R6");
+    let ds = inspect(&doc);
+    assert_eq!(
+        ds.iter().find(|d| d.rule == "R6").unwrap().severity,
+        "warning"
+    );
+}
+#[test]
+fn blueprint_v2_check_r7_observed_and_model_taint() {
+    for kind in ["agent", "http", "ask"] {
+        require(
+            document(json!([{"id":"a","uses":kind},{"id":"b","run":{"bind":"a.out"}}])),
+            "R7",
+        );
+    }
+}
+#[test]
+fn blueprint_v2_check_r8_fixed_slot_without_taint() {
+    require(
+        document(
+            json!([{"id":"a","uses":"convert"},{"id":"b","uses":"send","with":{"target":{"bind":"a.out"}}}]),
+        ),
+        "R8",
+    );
+}
+#[test]
+fn blueprint_v2_check_r9_caps_never_self_grant() {
+    let doc = document(json!([{"id":"a","run":{"lit":"echo a"},"caps":["net:example.org"]}]));
+    require(doc.clone(), "R9");
+    let context = CheckContext {
+        grants: BTreeSet::from(["net:example.org".into()]),
+        ..Default::default()
+    };
+    assert!(!contains(&check_document(&doc, &context), "R9"));
+}
+#[test]
+fn blueprint_v2_check_r10_ambient_cli_and_unapproved_cap() {
+    require(
+        document(json!([{"id":"a","run":{"lit":"codeterm tab list"}}])),
+        "R10",
+    );
+    let doc = document(json!([{"id":"a","run":{"lit":"echo a"},"caps":["domios-cli"]}]));
+    let context = CheckContext {
+        grants: BTreeSet::from(["domios-cli".into()]),
+        ..Default::default()
+    };
+    assert!(contains(&check_document(&doc, &context), "R10"));
+    assert!(contains(&check_document(&doc, &context), "R9"));
+}
+#[test]
+fn blueprint_v2_check_r11_bucket_bounds() {
+    let buckets = (0..33).map(|i| format!("b{i}")).collect::<Vec<_>>();
+    require(
+        document(json!([{"id":"a","uses":"ask","buckets":buckets}])),
+        "R11",
+    );
+}
+#[test]
+fn blueprint_v2_check_r12_step_bounds() {
+    let nodes = (0..65)
+        .map(|i| json!({"id":format!("a{i}"),"run":{"lit":"echo a"}}))
+        .collect::<Vec<_>>();
+    require(document(json!(nodes)), "R12");
+}
+#[test]
+fn blueprint_v2_check_bad_input_one_root_with_dependent_proofs() {
+    let mut nodes = vec![
+        json!({"id":"bad","run":{"lit":"echo source"},"out":{"type":"string","x-media":"nonsense"},"outcomes":["one","two","three","four","five"],"routes":{"one":"one","two":"two","three":"three","four":"four","five":"five"}}),
+    ];
+    for id in ["one", "two", "three", "four", "five"] {
+        nodes.push(json!({"id":id,"run":{"lit":"echo receiver"},"in":{"type":"string","x-media":"text"},"routes":{"done":"@stop","failed":"@stop"}}));
+    }
+    let doc = document(json!(nodes));
+    let ds = inspect(&doc);
+    let roots = ds
+        .iter()
+        .filter(|d| d.severity == "error")
+        .collect::<Vec<_>>();
+    assert_eq!(roots.len(), 1, "{ds:#?}");
+    assert_eq!(roots[0].name, "invalid_media");
+    assert_eq!(roots[0].folded.len(), 5);
+    assert!(roots[0].folded.iter().all(|d| d.rule == "R3"));
+    let rendered = render(&ds, true);
+    assert!(
+        rendered.contains("FAILING:")
+            && rendered.contains("PASSING:")
+            && rendered.contains("folded:")
+    );
+}
+#[test]
+fn blueprint_v2_check_safe_fix_diff_and_idempotence() {
+    let raw="name: repairs\nkind: pipeline\nschema_version: 2\ntrigger: {type: schedule, every: {lit: 1s}}\nsteps:\n- id: a\n  run: {lit: 'echo ready'}\n";
+    let parsed = blueprint_document::parse("fix.yaml", raw).unwrap();
+    assert!(contains(
+        &check_ir(&parsed.ir(), &CheckContext::default()),
+        "S2"
+    ));
+    let fixed = fix::fix(&parsed, raw, &CheckContext::default());
+    assert!(fixed.changed && fixed.diff.contains("--- a/fix.yaml"));
+    assert_eq!(
+        fixed.semantic_diff.as_ref().unwrap().document_fields,
+        vec!["trigger"]
+    );
+    let text = fixed.text.unwrap();
+    assert!(blueprint_document::check("fix.yaml", &text, &[]).ok);
+    let parsed = blueprint_document::parse("fix.yaml", &text).unwrap();
+    let second = fix::fix(&parsed, &text, &CheckContext::default());
+    assert!(!second.changed);
+    assert!(second.diff.is_empty());
+}
+#[test]
+fn blueprint_v2_check_fix_input_type_is_unambiguous_or_atomic_refusal() {
+    let mut doc = document(json!([{"id":"a","run":{"input":"command"}}]));
+    let source = serde_yaml::to_string(&doc).unwrap();
+    let parsed = blueprint_document::parse("inputs.yaml", &source).unwrap();
+    let fixed = fix::fix(&parsed, &source, &CheckContext::default());
+    let after = blueprint_document::parse("inputs.yaml", fixed.text.as_ref().unwrap()).unwrap();
+    assert_eq!(after.document.inputs["command"].kind, "string");
+    doc.steps[0]
+        .params
+        .insert("custom".into(), ValueForm::input("unknown"));
+    let source = serde_yaml::to_string(&doc).unwrap();
+    let parsed = blueprint_document::parse("inputs.yaml", &source).unwrap();
+    let refused = fix::fix(&parsed, &source, &CheckContext::default());
+    assert!(!refused.changed && refused.text.is_none() && !refused.refusals.is_empty());
+    doc.steps[0].caps.push("net:example.org".into());
+    let source = serde_yaml::to_string(&doc).unwrap();
+    let parsed = blueprint_document::parse("caps.yaml", &source).unwrap();
+    assert!(fix::fix(&parsed, &source, &CheckContext::default())
+        .text
+        .is_none());
+}
+#[test]
+fn blueprint_v2_check_other_fix_preserves_previous_terminal_fallthrough() {
+    let doc = document(
+        json!([{"id":"a","uses":"ask","buckets":["ok"]},{"id":"b","run":{"lit":"echo b"}}]),
+    );
+    let source = serde_yaml::to_string(&doc).unwrap();
+    let parsed = blueprint_document::parse("other.yaml", &source).unwrap();
+    let fixed = fix::fix(&parsed, &source, &CheckContext::default());
+    let after = blueprint_document::parse("other.yaml", fixed.text.as_ref().unwrap()).unwrap();
+    assert_eq!(after.document.steps[1].routes["done"], "@stop");
+    assert_eq!(
+        after.document.other[0].params["target"],
+        ValueForm::literal("creator")
+    );
+    assert!(!contains(&inspect(&after.document), "R6"));
+    assert!(
+        !fix::fix(
+            &after,
+            fixed.text.as_ref().unwrap(),
+            &CheckContext::default()
+        )
+        .changed
+    );
+}
+#[test]
+fn blueprint_v2_check_call_extension_preserves_taint_and_expanded_bounds() {
+    let doc = document(
+        json!([{"id":"callee","call":{"ref":"sub"}},{"id":"command","run":{"bind":"callee.out"}}]),
+    );
+    assert!(contains(&inspect(&doc), "C1"));
+    let context = CheckContext {
+        calls: BTreeMap::from([(
+            "callee".into(),
+            VerifiedCall {
+                result_tainted: true,
+                expanded_steps: 64,
+                ..Default::default()
+            },
+        )]),
+        ..Default::default()
+    };
+    let ds = check_document(&doc, &context);
+    assert!(!contains(&ds, "C1"));
+    assert!(contains(&ds, "R7") && contains(&ds, "R12"));
+}
+#[test]
+fn blueprint_v2_check_duplicates_are_evidence_or_honest_unavailability() {
+    let doc = document(json!([{"id":"a","run":{"lit":"echo a"}}]));
+    assert!(inspect(&doc)
+        .iter()
+        .any(|d| d.name == "duplicate_comparison_unavailable" && d.severity == "info"));
+    let context = CheckContext {
+        duplicates: DuplicateStatus::Available(vec![DuplicateFinding {
+            verdict: "structural_twin".into(),
+            other: "solution-id".into(),
+            why: "existing vector/WL result".into(),
+        }]),
+        ..Default::default()
+    };
+    assert!(contains(&check_document(&doc, &context), "R13"));
+}
+#[test]
+fn blueprint_v2_check_engine_stratification_safety_and_recursive_provenance() {
+    let location = blueprint_document::Location {
+        file: "engine".into(),
+        line: 1,
+        column: 1,
+    };
+    let mut db = Database::default();
+    db.edb(
+        "edge",
+        vec!["a".into(), "b".into()],
+        "edge",
+        location.clone(),
+    );
+    db.edb(
+        "edge",
+        vec!["b".into(), "c".into()],
+        "edge",
+        location.clone(),
+    );
+    let rules = vec![
+        rule(
+            "seed",
+            atom("reach", &["A", "B"]),
+            vec![yes("edge", &["A", "B"])],
+        ),
+        rule(
+            "transitive",
+            atom("reach", &["A", "C"]),
+            vec![yes("reach", &["A", "B"]), yes("edge", &["B", "C"])],
+        ),
+    ];
+    db.evaluate(&rules).unwrap();
+    let fact = Atom::new("reach", vec!["a".into(), "c".into()]);
+    let proof = db.proof(&fact).unwrap();
+    assert_eq!(proof.rule, "transitive");
+    assert_eq!(db.rows("reach").count(), 3);
+    assert_eq!(db.support(&fact).len(), 3);
+    let cycle = vec![rule(
+        "negative",
+        atom("a", &["A"]),
+        vec![yes("edge", &["A", "_"]), no("a", &["A"])],
+    )];
+    assert!(Database::default().evaluate(&cycle).is_err());
+    let unsafe_rule = vec![rule(
+        "unsafe",
+        atom("a", &["B"]),
+        vec![yes("edge", &["A", "_"])],
+    )];
+    assert!(Database::default().evaluate(&unsafe_rule).is_err());
+}
+#[test]
+fn blueprint_v2_check_native_recipes_have_no_static_errors() {
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../resources/blueprints");
+    let mut count = 0;
+    for file in std::fs::read_dir(root).unwrap() {
+        let file = file.unwrap().path();
+        if file.extension().and_then(|s| s.to_str()) != Some("yaml") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&file).unwrap();
+        let parsed = blueprint_document::parse(file.to_str().unwrap(), &source).unwrap();
+        let ds = check_ir(&parsed.ir(), &CheckContext::default());
+        assert!(!has_errors(&ds), "{}: {ds:#?}", file.display());
+        count += 1;
+    }
+    assert!(count >= 15);
+}
+
+#[test]
+fn blueprint_v2_check_watch_other_fix_is_admissible_and_idempotent() {
+    let doc: Document = serde_json::from_value(json!({"schema_version":2,"kind":"watch","name":"other-fix","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ok"],"matches":{"ok":{"lit":"ready"}},"routes":{"ok":"@stop"}}]})).unwrap();
+    let source = serde_yaml::to_string(&doc).unwrap();
+    let parsed = blueprint_document::parse("watch.yaml", &source).unwrap();
+    let fixed = fix::fix(&parsed, &source, &CheckContext::default());
+    let checked = blueprint_document::check("watch.yaml", fixed.text.as_ref().unwrap(), &[]);
+    assert!(checked.ok, "{:?}", checked.diagnostics);
+    let after = blueprint_document::parse("watch.yaml", fixed.text.as_ref().unwrap()).unwrap();
+    assert_eq!(after.document.steps[1].escalation_timeout_ms, Some(60_000));
+    assert!(
+        !fix::fix(
+            &after,
+            fixed.text.as_ref().unwrap(),
+            &CheckContext::default()
+        )
+        .changed
+    );
+}
+#[test]
+fn blueprint_v2_check_missing_input_inference_uses_actual_native_slot_types() {
+    for (kind, slot, expected) in [
+        ("github", "id", "integer"),
+        ("http", "expected_status", "string"),
+    ] {
+        let doc = document(json!([{"id":"a","uses":kind,"with":{(slot):{"input":"missing"}}}]));
+        let source = serde_yaml::to_string(&doc).unwrap();
+        let parsed = blueprint_document::parse("types.yaml", &source).unwrap();
+        let fixed = fix::fix(&parsed, &source, &CheckContext::default());
+        let after = blueprint_document::parse("types.yaml", fixed.text.as_ref().unwrap()).unwrap();
+        assert_eq!(after.document.inputs["missing"].kind, expected);
+    }
+}
+
+#[test]
+fn blueprint_v2_check_implicit_stdin_flow_checks_every_incoming_port() {
+    require(
+        document(
+            json!([{"id":"source","run":{"lit":"echo text"},"out":{"type":"string"}},{"id":"receiver","uses":"ask","in":{"type":"integer"}}]),
+        ),
+        "R3",
+    );
+}
