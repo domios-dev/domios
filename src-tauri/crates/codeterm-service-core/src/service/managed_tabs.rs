@@ -84,6 +84,15 @@ impl super::ServiceContext {
         target: &str,
         source: Option<&str>,
     ) -> Result<(), String> {
+        self.require_tab_input_allowed(target, source)?;
+        self.require_managed_delivery_allowed(target, source)
+    }
+
+    pub(crate) fn require_managed_delivery_allowed(
+        &self,
+        target: &str,
+        source: Option<&str>,
+    ) -> Result<(), String> {
         let mux = self.mux.read();
         let managed = mux.get_tab(target).and_then(|tab| tab.managed.as_ref());
         let source = source
@@ -114,6 +123,7 @@ impl super::ServiceContext {
         pty_id: &str,
         bytes: &[u8],
     ) -> Result<(), String> {
+        self.require_tab_input_allowed(pty_id, None)?;
         if bytes == b"\x1b" {
             return Ok(());
         }

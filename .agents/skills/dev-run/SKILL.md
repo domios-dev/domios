@@ -40,6 +40,50 @@ the window. A rerun with a live window builds beside it: the window locks its ex
 client link that succeeds proves the client unchanged and only the server swaps; a lock failure
 replaces the window. Hosts older than the Team DEV breakaway report that the window stays tied to the tab.
 
+## Firebase emulator DEV
+
+Start and seed the Firebase Emulator Suite using the sibling repository's
+[LOCAL-DEV.md](../../../../codeterm-firebase/docs/LOCAL-DEV.md) (published source:
+[codeterm-firebase/docs/LOCAL-DEV.md](https://github.com/rollacode/codeterm-firebase/blob/master/docs/LOCAL-DEV.md)).
+It uses the synthetic `demo-domios` project, Auth `19099`, Firestore `18080`,
+Functions `15001` and Hosting `15000`, all on `127.0.0.1`.
+
+Set the explicit runtime opt-in in the DEV utility shell before launching the
+debug server. Keep the normal named-instance selectors for a noncanonical lane:
+
+```powershell
+$env:DOMIOS_FIREBASE_EMULATOR = '1'
+$env:CODETERM_DEV_INSTANCE = 'firebase'
+$env:CODETERM_DEV_API_PORT = '17686'
+bash ./build.sh dev
+```
+
+For Bash, export those same three variables before `./build.sh dev`. The opt-in
+selects Firebase even with a saved local account provider and uses a fake API
+key; no production credentials are needed. Start sign-in from the desktop so
+the browser receives its state and PKCE challenge. Hosting serves
+`http://127.0.0.1:15000/signin/`; redemption and billing call
+`http://127.0.0.1:15001/demo-domios/us-central1/`. Identity Toolkit and securetoken
+use their respective API paths beneath `http://127.0.0.1:19099/`.
+
+Use the seeded identities/passwords from LOCAL-DEV.md. Log out before switching
+between emulator and production targets; saved refresh credentials belong to
+their Auth service. Unset the opt-in and restart DEV to restore its ordinary
+configuration. Emulator HTTP is admitted only for these exact service paths
+and ports with the opt-in enabled.
+
+Release builds compile in production Auth, `auth.domios.dev` sign-in and
+`us-central1-domios-d9357.cloudfunctions.net` functions. Runtime config and
+endpoint environment variables cannot redirect release builds. The emulator
+endpoint table and DEV grant activation are excluded from shipped release
+builds by `cfg(debug_assertions)`. DEV with the opt-in can verify the existing
+public RFC 8032 fixture key for `demo-domios`, test mode and epoch
+`fixture-online-v1`; Phase A keeps the existing envelope access behavior.
+The emulator backend currently returns the existing envelope without a signed
+grant, so local sign-in/entitlements do not establish a signed-grant round trip.
+Production `ACTIVATION` remains dormant (`None`) until an owner-reviewed epoch
+and production public key are pinned in source. Release never selects DEV trust.
+
 ## Measuring the live window
 
 `scripts/dev-perf/` attaches to the DEV webview over CDP (`CODETERM_DEV_CDP_PORT`, default
@@ -50,7 +94,7 @@ replaces the window. Hosts older than the Team DEV breakaway report that the win
 | `node scripts/dev-perf/typing.mjs --prompt "Write a long poem"` | Keystroke-to-frame latency at rest and while the active agent answers, React commits, which components rendered and why (context or hook) |
 | `node scripts/dev-perf/connections.mjs --seconds 30` | Daemon requests held open by the page; about six per origin starve everything else |
 | `node scripts/dev-perf/profile.mjs --seconds 10` | CPU self time and app-frame totals |
-| `node scripts/dev-perf/open.mjs http://127.0.0.1:<vite>/ --port <cdp>` | Opens a lane frontend as a DEV web client in a Domios Browser (`codeterm plugin browser endpoint`) with the hook installed |
+| `node scripts/dev-perf/open.mjs http://127.0.0.1:<vite>/ --port <cdp>` | Opens a lane frontend as a DEV web client in a Domios Browser (`domios plugin browser endpoint`) with the hook installed |
 | `node scripts/dev-perf/surface.mjs <scenario> --port <cdp> --url-match 127.0.0.1:<vite>` | One surface driven by real wheel, pointer, touch (`--width 390`) or key input: renders per component, long tasks, the hook or context behind each render and the props that re-rendered a memoized component |
 | `node scripts/dev-perf/suite.mjs ... --out run.jsonl` then `compare.mjs before.jsonl after.jsonl` | Every surface in order, and the before/after table |
 
@@ -415,7 +459,7 @@ well as the immediate environment before declaring recovery complete.
 
 - **`build.sh dev` hangs during link, then SIGKILL** — usually not enough RAM (linker eats a lot). Close other heavy apps, retry. If it repeats, `./build.sh clean && ./build.sh dev`.
 - **Health endpoint returns empty after `kill && dev`** — Rust is still linking. Poll the health endpoint for up to 40s before concluding the restart failed.
-- **`caffeinate` stays running after dev crashes** — if a session used `codeterm keepawake start`, the caffeinate child is owned by the dev process and should die with it. If it doesn't: `pkill -x caffeinate` (safe — targets only the literal binary name).
+- **`caffeinate` stays running after dev crashes** — if a session used `domios keepawake start`, the caffeinate child is owned by the dev process and should die with it. If it doesn't: `pkill -x caffeinate` (safe — targets only the literal binary name).
 - **Port 7686 already in use but no dev window** — stale process from a previous crash. `./build.sh kill` then start. If still occupied, `lsof -nP -iTCP:7686 -sTCP:LISTEN -t | xargs kill` and retry.
 - **2026-09-30: first named `dev --wait` exits 1 silently after bundle preparation** — `record_dev_target` ran `cd` into `<instance>/target/debug`, which a fresh named target does not have yet (only `release/`), and `set -e` aborted without a message. `record_dev_target` now creates the directory; on an older checkout, `mkdir -p ~/.domios-dev-<name>/target/debug` and rerun.
 - **`~/.domios-dev/mem/` corrupted / mem commands 500** — back it up and restart: `mv ~/.domios-dev ~/.domios-dev.bak-$(date +%s) && ./build.sh dev`.
@@ -460,11 +504,11 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
 
 ### REST listener bind recovery
 
-When the local socket works but HTTP is down, run `codeterm rest-api status` on the owning instance. A `bind_ownership_failed` diagnostic includes the address and OS error. Release the foreign port owner, then run `codeterm rest-api restart`; it waits for health proof and fails if binding still fails. These commands never fall back to HTTP or cross mesh. Confirm the actual Browser surface renders after Retry surface lookup. Never kill production to repair a listener collision.
+When the local socket works but HTTP is down, run `domios rest-api status` on the owning instance. A `bind_ownership_failed` diagnostic includes the address and OS error. Release the foreign port owner, then run `domios rest-api restart`; it waits for health proof and fails if binding still fails. These commands never fall back to HTTP or cross mesh. Confirm the actual Browser surface renders after Retry surface lookup. Never kill production to repair a listener collision.
 
 Fixed: checks queue silently behind a running DEV. The former Tauri launcher held
 the gateway for the app lifetime; update and rebuild with `dev`. Confirm
@@ -764,6 +808,6 @@ Debug `[boot-operation]` records measure embedded extraction, capability registr
 
 ### Component schema 2 and macOS nested server identity
 
-Component manifests now require schema2 and a platform-specific client_identity. Windows/Linux require the exact lowercase SHA256 variant; macOS requires the approved Apple-anchored team/identifier designated requirement. macOS resolves only ../MacOS/domios-server from Tauri's canonical CodeTerm.app/Contents/Resources root. The client validates its running code identity and the installed app seal; the server validates the attaching pinned client the same way. Server bytes remain SHA256-pinned on every platform. A schema1 manifest, foreign identity kind, weak requirement or wrong bundle path refuses; rebuild/restage the matching pair rather than bypassing verification. No signed macOS runtime proof is supplied by source or Windows lane compilation. Native CDP remains Windows-only.
+Component manifests now require schema2 and a platform-specific client_identity. Windows/Linux require the exact lowercase SHA256 variant; macOS requires the approved Apple-anchored team/identifier designated requirement. macOS resolves only ../MacOS/domios-server from Tauri's canonical Domios.app/Contents/Resources root. The client validates its running code identity and the installed app seal; the server validates the attaching pinned client the same way. Server bytes remain SHA256-pinned on every platform. A schema1 manifest, foreign identity kind, weak requirement or wrong bundle path refuses; rebuild/restage the matching pair rather than bypassing verification. No signed macOS runtime proof is supplied by source or Windows lane compilation. Native CDP remains Windows-only.
 
 Headless schema2 manifests use client_identity kind none and the exact flat domios-server/domios-server[.exe] layout on every OS. The server verifies those bytes without creating a native-host listener; native client enrollment refuses none. macOS flat raw-client DEV staging remains unsupported: native DEV needs a signed app-shaped pair, and debug builds do not bypass the platform identity rule.

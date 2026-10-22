@@ -434,7 +434,14 @@ fn failed_agent_readiness_is_not_overridden_by_shell_prompt_text() {
 
     let error = fixture
         .service
-        .send_text_input_delivery(&tab_id, "codex --no-daemon", true, None)
+        .send_text_input_delivery(
+            &tab_id,
+            &crate::service::messenger::AgentInput::Human(
+                crate::service::messenger::HumanInput::composer("codex --no-daemon"),
+            ),
+            true,
+            None,
+        )
         .unwrap_err();
 
     assert!(matches!(error, DeliveryError::TabBusyRefused { .. }));

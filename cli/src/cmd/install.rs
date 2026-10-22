@@ -1,29 +1,11 @@
 #[cfg(any(test, target_os = "windows", target_os = "macos"))]
 mod relaunch_env {
+    #[cfg(target_os = "windows")]
     pub(super) const CODETERM_RELAUNCH_KEY: &str = "CODETERM";
-
-    fn is_codeterm_relaunch_key(key: &str) -> bool {
-        let stem = CODETERM_RELAUNCH_KEY;
-        key.len() >= stem.len()
-            && key[..stem.len()].eq_ignore_ascii_case(stem)
-            && (key.len() == stem.len() || key[stem.len()..].starts_with('_'))
-    }
-
-    pub(super) fn filter_relaunch_env<I, K, V>(env: I) -> Vec<(K, V)>
-    where
-        I: IntoIterator<Item = (K, V)>,
-        K: AsRef<str>,
-    {
-        env.into_iter()
-            .filter(|(key, _)| !is_codeterm_relaunch_key(key.as_ref()))
-            .collect()
-    }
-
     #[cfg(any(target_os = "windows", target_os = "macos"))]
-    pub(super) fn apply_relaunch_env(command: &mut std::process::Command) {
-        command.env_clear();
-        command.envs(filter_relaunch_env(std::env::vars()));
-    }
+    pub(super) use codeterm_paths::relaunch_env::apply_relaunch_env;
+    #[cfg(test)]
+    pub(super) use codeterm_paths::relaunch_env::filter_relaunch_env;
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -62,7 +44,7 @@ fn windows_install_script(
         .map(|dir| dir.display().to_string())
         .unwrap_or_default()
         .replace('\'', "''");
-    // Match by install path: dev builds share the domios/domios-server image names.
+    // Match by install path: release builds share the domios-app/domios-server image names.
     format!(
         "@echo off\r\n\
         set \"LOG={log}\"\r\n\
@@ -95,12 +77,16 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
 
     let local_app_data = std::env::var("LocalAppData").unwrap_or_default();
     let target_exe = std::path::PathBuf::from(&local_app_data)
-        .join("codeterm")
-        .join("domios.exe");
+        .join("Domios")
+        .join("domios-app.exe");
 
     let log_path = std::path::PathBuf::from(&local_app_data)
-        .join("codeterm")
+        .join("Domios")
         .join("self-install.log");
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create install directory: {error}"))?;
+    }
     let bat_path =
         std::env::temp_dir().join(format!("codeterm-self-install-{}.bat", std::process::id()));
 
@@ -178,7 +164,7 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
              hdiutil attach -nobrowse -readonly -mountpoint \"$MP\" \"{dmg}\"\n\
              APP=$(ls -d \"$MP\"/*.app | head -1)\n\
              echo \"[self-install] installing $APP\"\n\
-             ditto \"$APP\" /Applications/CodeTerm.app\n\
+             ditto \"$APP\" /Applications/Domios.app\n\
              hdiutil detach \"$MP\" >/dev/null 2>&1 || true\n\
              rmdir \"$MP\" 2>/dev/null || true\n",
             dmg = installer_path,
@@ -186,7 +172,7 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
     } else {
         format!(
             "echo '[self-install] installing {app}'\n\
-             ditto \"{app}\" /Applications/CodeTerm.app\n",
+             ditto \"{app}\" /Applications/Domios.app\n",
             app = installer_path,
         )
     };
@@ -196,11 +182,11 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
          exec >> \"{log}\" 2>&1\n\
          echo \"[self-install] start $(date)\"\n\
          sleep 2\n\
-         echo '[self-install] quitting CodeTerm'\n\
-         osascript -e 'tell application \"CodeTerm\" to quit' >/dev/null 2>&1 || true\n\
+         echo '[self-install] quitting Domios'\n\
+         osascript -e 'tell application \"Domios\" to quit' >/dev/null 2>&1 || true\n\
          sleep 1\n\
          echo '[self-install] terminating any surviving process'\n\
-         P='/Applications/CodeTerm.app/Contents/MacOS/codeterm'\n\
+         P='/Applications/Domios.app/Contents/MacOS/domios-app'\n\
          for i in $(seq 1 20); do\n\
          \x20 pgrep -f \"$P\" >/dev/null 2>&1 || break\n\
          \x20 pkill -TERM -f \"$P\" 2>/dev/null || true\n\
@@ -209,10 +195,10 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
          pkill -9 -f \"$P\" 2>/dev/null || true\n\
          sleep 1\n\
          echo '[self-install] removing old app (unlink dodges ETXTBSY)'\n\
-         rm -rf /Applications/CodeTerm.app\n\
+         rm -rf /Applications/Domios.app\n\
          {install_block}\
          echo '[self-install] relaunching'\n\
-         open -a /Applications/CodeTerm.app\n\
+         open -a /Applications/Domios.app\n\
          echo '[self-install] done'\n\
          rm -f \"{script}\"\n",
         log = log.display(),
@@ -250,177 +236,16 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
 }
 
 #[cfg(test)]
-mod relaunch_env_tests {
-    use super::relaunch_env::filter_relaunch_env;
-
-    #[test]
-    fn filter_relaunch_env_strips_every_codeterm_variable_and_keeps_path_home() {
-        let filtered = filter_relaunch_env([
-            ("PATH", "/usr/bin"),
-            ("HOME", "/Users/andrey"),
-            ("USER", "andrey"),
-            ("TMPDIR", "/tmp"),
-            ("CARGO_TARGET_DIR", "/tmp/target"),
-            ("CODETERM", "1"),
-            ("CODETERM_INSTANCE", "aiderqa"),
-            ("CODETERM_API_PORT", "7697"),
-            ("CODETERM_API_URL", "http://127.0.0.1:7697"),
-            ("CODETERM_API_TOKEN", "secret"),
-            ("CODETERM_SOCKET_PATH", "/tmp/domios-dev-aiderqa.sock"),
-            ("CODETERM_DATA_DIR", "/Users/andrey/.domios-dev-aiderqa"),
-            ("CODETERM_DEV_IDENTIFIER", "com.codeterm.dev.aiderqa"),
-            ("CODETERM_TAB_ID", "tab-1"),
-            ("CODETERM_VITE_PORT", "1519"),
-            ("CODETERM_CDP_PORT", "9322"),
-        ]);
-
-        assert_eq!(
-            filtered,
-            vec![
-                ("PATH", "/usr/bin"),
-                ("HOME", "/Users/andrey"),
-                ("USER", "andrey"),
-                ("TMPDIR", "/tmp"),
-                ("CARGO_TARGET_DIR", "/tmp/target"),
-            ]
-        );
-    }
-
-    #[test]
-    fn filter_relaunch_env_keeps_nothing_instance_specific() {
-        let filtered = filter_relaunch_env([
-            ("HOME", "/home/andrey"),
-            ("PATH", "/bin"),
-            ("CODETERM", "1"),
-            ("CODETERM_INSTANCE", "aiderqa"),
-            ("CODETERM_DEV_IDENTIFIER", "com.codeterm.dev.aiderqa"),
-            ("CODETERM_DATA_DIR", "/home/andrey/.domios-dev-aiderqa"),
-            ("CODETERM_SOCKET_PATH", "/tmp/domios-dev-aiderqa.sock"),
-            ("CODETERM_API_PORT", "7697"),
-        ]);
-        let keys: Vec<&str> = filtered.iter().map(|(key, _)| *key).collect();
-        assert_eq!(keys, vec!["HOME", "PATH"]);
-        assert!(filtered.iter().all(|(key, _)| {
-            let upper = key.to_ascii_uppercase();
-            upper != "CODETERM" && !upper.starts_with("CODETERM_")
-        }));
-    }
-
-    #[test]
-    fn filter_relaunch_env_strips_codeterm_prefix_case_insensitively() {
-        let filtered = filter_relaunch_env([
-            ("Path", "/bin"),
-            ("Home", "/home/andrey"),
-            ("codeterm", "1"),
-            ("codeterm_instance", "aiderqa"),
-            ("CodeTerm_API_PORT", "7686"),
-            ("CODETERM_tab_id", "tab-1"),
-        ]);
-        assert_eq!(filtered, vec![("Path", "/bin"), ("Home", "/home/andrey")]);
-    }
-
-    #[test]
-    fn filter_relaunch_env_keeps_unrelated_and_short_keys() {
-        let filtered = filter_relaunch_env([
-            ("C", "1"),
-            ("CODETERM", "1"),
-            ("CODETERM_", ""),
-            ("CODETERMINAL", "x"),
-            ("NOT_CODETERM_INSTANCE", "keep"),
-        ]);
-        assert_eq!(
-            filtered,
-            vec![
-                ("C", "1"),
-                ("CODETERMINAL", "x"),
-                ("NOT_CODETERM_INSTANCE", "keep")
-            ]
-        );
-    }
-}
+#[path = "install/relaunch_env_tests.rs"]
+mod relaunch_env_tests;
 
 #[cfg(all(test, target_os = "windows"))]
-mod tests {
-    use super::{windows_helper_broker_script, windows_install_script};
-
-    fn install_script() -> String {
-        windows_install_script(
-            std::path::Path::new("install.log"),
-            "CodeTerm_setup.exe",
-            std::path::Path::new(r"C:\Users\me\AppData\Local\codeterm\domios.exe"),
-        )
-    }
-
-    #[test]
-    fn helper_stops_only_installed_processes_and_relaunches_the_domios_client() {
-        let script = install_script();
-
-        assert!(script
-            .contains(r"StartsWith('C:\Users\me\AppData\Local\codeterm\', 'OrdinalIgnoreCase')"));
-        assert!(!script.contains("taskkill /F /IM"));
-        assert!(script.contains(r#"start "" "C:\Users\me\AppData\Local\codeterm\domios.exe""#));
-    }
-
-    #[test]
-    fn helper_is_created_by_out_of_job_windows_broker() {
-        let script = windows_helper_broker_script();
-
-        assert!(script.contains("Invoke-CimMethod -ClassName Win32_Process"));
-        assert!(script.contains("CODETERM_SELF_INSTALL_HELPER"));
-        assert!(script.contains("ReturnValue -ne 0"));
-        assert!(!script.contains("Start-Process"));
-    }
-
-    #[test]
-    fn helper_never_writes_input_to_a_tab() {
-        let script = install_script();
-
-        assert!(!script.contains(" send "));
-        assert!(!script.contains("--tab"));
-    }
-
-    #[test]
-    fn installed_daemon_launch_scrubs_dev_and_build_environment() {
-        let script = install_script();
-
-        let scrub = script.find("set CODETERM ").unwrap();
-        let launch = script
-            .find("start \"\" \"C:\\Users\\me\\AppData\\Local\\codeterm\\domios.exe\"")
-            .unwrap();
-        assert!(scrub < launch);
-        for variable in [
-            "CARGO_TARGET_DIR",
-            "CARGO_INCREMENTAL",
-            "RUSTC_WRAPPER",
-            "SCCACHE_BASEDIRS",
-        ] {
-            assert!(script.contains(&format!("set \"{variable}=\"")));
-        }
-    }
-
-    #[test]
-    fn missing_installer_returns_failure_before_the_caller_withdraws_resume() {
-        let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("missing-installer.exe");
-
-        let result = super::run_install_from_file(missing.to_str().unwrap(), false);
-
-        assert!(result.is_err());
-    }
-}
+#[path = "install/tests.rs"]
+mod tests;
 
 #[cfg(all(test, target_os = "macos"))]
-mod mac_failure_tests {
-    #[test]
-    fn missing_installer_returns_failure_before_the_caller_withdraws_resume() {
-        let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("missing-installer.app");
-
-        let result = super::run_install_from_file(missing.to_str().unwrap(), false);
-
-        assert!(result.is_err());
-    }
-}
+#[path = "install/mac_failure_tests.rs"]
+mod mac_failure_tests;
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn run_install_from_file(_installer_path: &str, _json_output: bool) -> Result<(), String> {

@@ -113,3 +113,12 @@ fn lane_clean_output_has_one_compact_line_per_supplied_lane_and_reason() {
         assert!(line.ends_with(&reason));
     }
 }
+
+#[test]
+fn lane_clean_output_includes_residue_without_task_or_branch() {
+    let rows = json!({"lanes": [{"task_id": "", "branch": null, "worktree": "orphan-path", "action": "remove", "reason": "artifact residue"}]});
+    assert_eq!(
+        crate::cmd::plan_lanes::render_lane_cleanup(&rows),
+        "remove - - orphan-path: artifact residue\n"
+    );
+}

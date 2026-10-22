@@ -13,7 +13,3 @@ export function childTranscriptTitle(child: ChildMetadata | null): string {
 export function subagentTone(status: string | undefined): string {
   return status === "running" || status === "started" ? "active" : "scheduled";
 }
-
-export function compactSubagents<T>(items: readonly T[], expanded: boolean) {
-  return { visible: expanded ? items : items.slice(0, 3), hidden: expanded ? 0 : Math.max(0, items.length - 3) };
-}

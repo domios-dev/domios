@@ -2,6 +2,7 @@ use super::model::{choose_owner, surface_placement, surface_tab_row};
 use super::{surface_input_refusal, SurfaceTransport, SURFACE_NO_INPUT, SURFACE_NO_TEXT};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{SurfaceBacking, Tab, TabBacking};
+use crate::service::messenger::{AgentInput, HumanInput};
 use crate::service::tab_transport::TabTransport;
 
 fn surface_backing() -> TabBacking {
@@ -74,7 +75,7 @@ fn surface_tabs_refuse_text_input_with_a_typed_code() {
 
     let transport = SurfaceTransport;
     assert!(transport
-        .send("text", true)
+        .send(&AgentInput::Human(HumanInput::composer("text")), true)
         .unwrap_err()
         .starts_with(SURFACE_NO_INPUT));
     assert!(transport

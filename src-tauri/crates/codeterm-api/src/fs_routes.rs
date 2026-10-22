@@ -13,6 +13,8 @@ pub struct ListDirQuery {
     path: Option<String>,
     #[serde(default)]
     show_hidden: bool,
+    #[serde(default)]
+    files_only: bool,
 }
 
 #[derive(Serialize)]
@@ -138,26 +140,13 @@ pub async fn list_dir(
         ));
     }
 
-    let mut entries = Vec::new();
-    let read_dir = std::fs::read_dir(&current)
-        .map_err(|e| (StatusCode::FORBIDDEN, format!("Cannot read directory: {e}")))?;
-    for entry in read_dir.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if !file_type.is_dir() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !query.show_hidden && name.starts_with('.') {
-            continue;
-        }
-        entries.push(DirEntry {
-            name,
-            path: display_path(&entry.path()),
-        });
-    }
-    entries.sort_by_key(|e| e.name.to_lowercase());
+    let listing_path = current.clone();
+    let entries = tokio::task::spawn_blocking(move || {
+        directory_entries(&listing_path, query.show_hidden, query.files_only)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::FORBIDDEN, error))?;
 
     Ok(Json(ListDirResponse {
         path: display_path(&current),
@@ -167,3 +156,39 @@ pub async fn list_dir(
         entries,
     }))
 }
+
+fn directory_entries(
+    current: &Path,
+    show_hidden: bool,
+    files_only: bool,
+) -> Result<Vec<DirEntry>, String> {
+    let mut entries = Vec::new();
+    let read_dir =
+        std::fs::read_dir(&current).map_err(|e| format!("Cannot read directory: {e}"))?;
+    for entry in read_dir.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !(if files_only {
+            file_type.is_file()
+        } else {
+            file_type.is_dir()
+        }) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !show_hidden && name.starts_with('.') {
+            continue;
+        }
+        entries.push(DirEntry {
+            name,
+            path: display_path(&entry.path()),
+        });
+    }
+    entries.sort_by_key(|e| e.name.to_lowercase());
+
+    Ok(entries)
+}
+
+#[cfg(test)]
+mod tests;

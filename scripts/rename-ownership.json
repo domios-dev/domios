@@ -8,7 +8,7 @@
         "key": "COD-1293",
         "id": "task_rguoww",
         "handle": "backend-1-15-0-3",
-        "name": "1.15.0 rename phase 1 (Keeper): runtime identity (data, config, logs, sockets, keychain, mesh) and the 1.14.9 relocation",
+        "name": "1.15.0 rename phase 1 (Keeper): runtime identity (data, config, logs, sockets, keychain, mesh)",
         "paths": [
           "src-tauri/crates/cod\u0074term-paths",
           "src-tauri/crates/cod\u0074term-config",
@@ -383,6 +383,8 @@
           ".github/workflows/qualification.yml",
           ".github/workflows/ready-for-release.yml",
           ".github/workflows/script-catalog.yml",
+          ".github/workflows/tests-fast.yml",
+          ".github/workflows/tests-rust.yml",
           ".github/workflows/tests.yml",
           "scripts/affected-tests.mjs",
           "scripts/affected-tests.test.mjs",

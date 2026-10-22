@@ -17,7 +17,7 @@ Below the canvas, two tables share the surface: **Crons** (`kind = cron`, column
 
 ### Service entity
 
-Services have `kind = cron | daemon`. Cron jobs registered via `/api/crons` are projected as virtual `cron`-kind services — no data migration, they share the same cron store. Daemons are created via `codeterm service add` (see `--help`) or `POST /api/services` / `services.create` JSON-RPC.
+Services have `kind = cron | daemon`. Cron jobs registered via `/api/crons` are projected as virtual `cron`-kind services — no data migration, they share the same cron store. Daemons are created via `domios service add` (see `--help`) or `POST /api/services` / `services.create` JSON-RPC.
 
 Service listings include the latest health; activity is bounded to 10,000 rows / 30 days.
 
@@ -80,4 +80,4 @@ The add-service wizard handles manual daemon registration. Smart-Add inspects ru
 
 All four respond `503` when `mesh.enabled=false` (see top of doc).
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

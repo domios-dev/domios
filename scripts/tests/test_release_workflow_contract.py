@@ -132,7 +132,7 @@ class SingleRunGraphTest(unittest.TestCase):
         ):
             self.assertIn(f"  {job}:\n    name:", caller)
             block = caller[caller.index(f"  {job}:") :].split("\n\n", 1)[0]
-            self.assertRegex(block, r"\n    needs: \[prepare, (quick-checks, )?frontend-dist\]\n")
+            self.assertRegex(block, r"\n    needs: \[prepare, frontend-dist, builds-tier\]\n")
             self.assertIn(f"uses: ./.github/workflows/{workflow}", caller)
 
         final = caller[caller.index("  release-manifest:") : caller.index("  frontend:")]
@@ -200,7 +200,7 @@ class SingleRunGraphTest(unittest.TestCase):
         self.assertIn("Merge and upload final channel manifests", manifest)
         self.assertIn("Mark source and public releases published", manifest)
         self.assertIn("sync-release-notes.mjs", manifest)
-        self.assertIn("latest-deb.json", manifest)
+        self.assertIn("domios-latest-deb.json", manifest)
         self.assertNotIn("release-completion", manifest)
         self.assertEqual(len(verifier_steps(manifest)), 3)
         covered = set().union(

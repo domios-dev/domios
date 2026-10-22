@@ -77,13 +77,13 @@ jobs:
         run: |
           tag="${{ steps.tag.outputs.name }}"
           if [[ "$tag" == *-rc* ]]; then
-            echo "manifest=latest-rc.json" >> "$GITHUB_OUTPUT"
+            echo "manifest=domios-latest-rc.json" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           elif [[ "$tag" == *-nightly* ]]; then
-            echo "manifest=latest-nightly.json" >> "$GITHUB_OUTPUT"
+            echo "manifest=domios-latest-nightly.json" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
+            echo "manifest=domios-latest.json" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -157,7 +157,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ steps.tag.outputs.name }}
-          releaseName: 'CodeTerm ${{ steps.tag.outputs.name }}'
+          releaseName: 'Domios ${{ steps.tag.outputs.name }}'
           releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
           releaseDraft: true
           prerelease: ${{ steps.channel.outputs.prerelease }}
@@ -186,7 +186,7 @@ jobs:
           [ -n "$UPDATER_SIG" ] || { echo "::error::No .app.tar.gz signature under $BUNDLE_ROOT/macos"; exit 1; }
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
-          RELEASE_BUNDLE="$BUNDLE_ROOT/macos/CodeTerm_${MAC_ARCH_SUFFIX}.app.tar.gz"
+          RELEASE_BUNDLE="$BUNDLE_ROOT/macos/Domios_${MAC_ARCH_SUFFIX}.app.tar.gz"
           RELEASE_SIG="$RELEASE_BUNDLE.sig"
           cp "$UPDATER_BUNDLE" "$RELEASE_BUNDLE"
           cp "$UPDATER_SIG" "$RELEASE_SIG"
@@ -213,17 +213,20 @@ jobs:
             --repo "${{ github.repository }}"
           for f in _frags/updater-*.json; do
             # The -deb fragment claims the same linux-x86_64 key as the AppImage
-            # one but belongs to latest-deb.json; merged here it would win.
+            # one but belongs to domios-latest-deb.json; merged here it would win.
             case "$(basename "$f")" in *-deb.json) continue ;; esac
             base=$(basename "$f" .json)
             mkdir -p "manifest-fragments/$base"
-            cp "$f" "manifest-fragments/$base/latest.json"
+            cp "$f" "manifest-fragments/$base/domios-latest.json"
           done
           node scripts/merge-latest-json.js \
             --in manifest-fragments \
             --out "${{ steps.channel.outputs.manifest }}"
+          MANIFEST="${{ steps.channel.outputs.manifest }}"
+          node scripts/legacy-updater-refusal.mjs . "$MANIFEST"
+          LEGACY="${MANIFEST#domios-}"
           gh release upload "${{ steps.tag.outputs.name }}" \
-            "${{ steps.channel.outputs.manifest }}" \
+            "$MANIFEST" "$LEGACY" "${LEGACY%.json}-deb.json" "${LEGACY%.json}-rpm.json" \
             --clobber --repo "${{ github.repository }}"
 
       # Mirror the bundle, signature, and merged manifest to the public release
@@ -245,7 +248,7 @@ jobs:
           [ -n "$UPDATER_SIG" ] || { echo "::error::No .app.tar.gz signature under $BUNDLE_ROOT/macos"; exit 1; }
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
-          RELEASE_BUNDLE="$BUNDLE_ROOT/macos/CodeTerm_${MAC_ARCH_SUFFIX}.app.tar.gz"
+          RELEASE_BUNDLE="$BUNDLE_ROOT/macos/Domios_${MAC_ARCH_SUFFIX}.app.tar.gz"
           RELEASE_SIG="$RELEASE_BUNDLE.sig"
           cp "$UPDATER_BUNDLE" "$RELEASE_BUNDLE"
           cp "$UPDATER_SIG" "$RELEASE_SIG"
@@ -257,16 +260,19 @@ jobs:
             if [ "$PRERELEASE" = "true" ]; then
               gh release create "$TAG" \
                 --repo "$MIRROR_REPO" \
-                --title "CodeTerm $TAG" \
+                --title "Domios $TAG" \
                 --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
                 --prerelease
             else
               gh release create "$TAG" \
                 --repo "$MIRROR_REPO" \
-                --title "CodeTerm $TAG" \
+                --title "Domios $TAG" \
                 --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
             fi
           fi
 
-          gh release upload "$TAG" "$RELEASE_BUNDLE" "$RELEASE_SIG" "$MANIFEST" \
+          LEGACY="${MANIFEST#domios-}"
+          gh release upload "$TAG" "$RELEASE_BUNDLE" "$RELEASE_SIG" "$MANIFEST" "$LEGACY" "${LEGACY%.json}-deb.json" "${LEGACY%.json}-rpm.json" \
             --clobber --repo "$MIRROR_REPO"
+          node scripts/sync-release-notes.mjs --tag "$TAG"
+          node scripts/legacy-updater-refusal.mjs verify "https://github.com/$MIRROR_REPO/releases/download/$TAG/$LEGACY" "${TAG#v}"

@@ -331,6 +331,9 @@ pub(crate) fn start_servers(
         .lock()
         .set_fence_notifier(move || fence_wake.notify_all());
     if scheduler_ready {
+        service_state
+            .start_curator_events()
+            .expect("Curator runtime registration");
         cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
     }
     let sentinel_clock: cron::clock::SharedClock = test_clock
@@ -563,7 +566,7 @@ fn select_web_dist(
             return Some(cand);
         }
     }
-    log::warn!("[web] no dist/ bundle found — browser UI disabled (build with `pnpm build`)");
+    log::warn!("[web] browser UI disabled: frontend bundle is missing from the installation");
     None
 }
 

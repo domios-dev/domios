@@ -2,6 +2,20 @@
   "bundle": {
     "resources": {
       "../target/domios-package/domios-server/": "domios-server"
+    },
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/bin/domios": "../target/domios-package/cli/domios",
+          "/usr/bin/codeterm": "../target/domios-package/cli/codeterm"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/bin/domios": "../target/domios-package/cli/domios",
+          "/usr/bin/codeterm": "../target/domios-package/cli/codeterm"
+        }
+      }
     }
   }
 }

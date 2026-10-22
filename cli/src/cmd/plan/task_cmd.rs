@@ -1078,7 +1078,7 @@ pub(super) fn run_task(
                 return Ok(Some(val));
             }
             println!(
-                "Adopted checkpoint as owner epoch {} (attempt {}). Run codeterm agent ack.",
+                "Adopted checkpoint as owner epoch {} (attempt {}). Run domios agent ack.",
                 val.get("owner_epoch")
                     .and_then(|value| value.as_u64())
                     .unwrap_or(0),

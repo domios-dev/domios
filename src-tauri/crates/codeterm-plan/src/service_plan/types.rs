@@ -145,6 +145,7 @@ pub enum PlanError {
         kind: super::AttemptBindingRefusalKind,
         reason: String,
     },
+    Validation(String),
     Io(String),
 }
 
@@ -240,11 +241,11 @@ impl fmt::Display for PlanError {
             PlanError::WorkFacetViolation(violation) => write!(f, "{violation}"),
             PlanError::TaskCreationRequiresApproval => write!(
                 f,
-                "plan is still in planning mode; run `codeterm plan approve <plan>` before creating tasks, or pass --force for deliberate draft tasks"
+                "plan is still in planning mode; run `domios plan approve <plan>` before creating tasks, or pass --force for deliberate draft tasks"
             ),
             PlanError::TaskDispatchRequiresApproval => write!(
                 f,
-                "draft tasks are not dispatchable; the Plan Orchestrator must run `codeterm plan approve <plan>`"
+                "draft tasks are not dispatchable; the Plan Orchestrator must run `domios plan approve <plan>`"
             ),
             PlanError::DispatchInFlight { attempt_id, tab_id } => write!(
                 f,
@@ -263,7 +264,7 @@ impl fmt::Display for PlanError {
             ),
             PlanError::InProgressRequiresTab => write!(
                 f,
-                "rejected: nothing changed. in_progress needs an executor tab set in the same command. use `codeterm plan task dispatch <plan> <task>` (binds tab+status atomically), or `codeterm plan task update <plan> <task> --status in_progress --tab <tab-id>`. CODETERM_STATE_INVARIANTS=off is an emergency escape hatch and was NOT applied here"
+                "rejected: nothing changed. in_progress needs an executor tab set in the same command. use `domios plan task dispatch <plan> <task>` (binds tab+status atomically), or `domios plan task update <plan> <task> --status in_progress --tab <tab-id>`. CODETERM_STATE_INVARIANTS=off is an emergency escape hatch and was NOT applied here"
             ),
             PlanError::BlockedRequiresLabel => write!(
                 f,
@@ -283,7 +284,7 @@ impl fmt::Display for PlanError {
             ),
             PlanError::PauseRequiresReason => write!(
                 f,
-                "pausing a plan requires a reason; run `codeterm plan pause <plan> --reason \"<why>\"`"
+                "pausing a plan requires a reason; run `domios plan pause <plan> --reason \"<why>\"`"
             ),
             PlanError::QaNoteRequired => write!(
                 f,
@@ -313,7 +314,7 @@ impl fmt::Display for PlanError {
             ),
             PlanError::ReviewRoundExceeded { round, max_rounds } => write!(
                 f,
-                "review round {round} exceeds the default max of {max_rounds}; record a P0 exception first with `codeterm plan review override <plan> <task> --owner <o> --reason <r> --reproduction <repro>`"
+                "review round {round} exceeds the default max of {max_rounds}; record a P0 exception first with `domios plan review override <plan> <task> --owner <o> --reason <r> --reproduction <repro>`"
             ),
             PlanError::ReviewOracleScopeExpansion => write!(
                 f,
@@ -330,7 +331,7 @@ impl fmt::Display for PlanError {
             PlanError::ReviewNotInReview => write!(f, "task is not in_review"),
             PlanError::ReviewContinuationAttemptNotFound { task_id } => write!(
                 f,
-                "task '{task_id}' was found but its review attempt is missing or ambiguous; inspect it with `codeterm plan task show <plan_id> {task_id}`, then use `codeterm plan review bounce <plan_id> {task_id} --note \"<required changes>\"` when one attempt resolves"
+                "task '{task_id}' was found but its review attempt is missing or ambiguous; inspect it with `domios plan task show <plan_id> {task_id}`, then use `domios plan review bounce <plan_id> {task_id} --note \"<required changes>\"` when one attempt resolves"
             ),
             PlanError::ReviewContinuationDeliveryRefused {
                 task_id,
@@ -352,11 +353,11 @@ impl fmt::Display for PlanError {
             PlanError::GateRequiresQuestion => write!(f, "gate requires a non-empty question"),
             PlanError::GroupNotFound => write!(
                 f,
-                "task group not found; declare it first with `codeterm plan groups set <plan> --groups <key:label,...>`"
+                "task group not found; declare it first with `domios plan groups set <plan> --groups <key:label,...>`"
             ),
             PlanError::WaitingFocusRequiresOpenGate => write!(
                 f,
-                "waiting-focus requires naming an open gate id; use `codeterm plan decision list <plan>`"
+                "waiting-focus requires naming an open gate id; use `domios plan decision list <plan>`"
             ),
             PlanError::DependencyTaskNotFound { task_id } => {
                 write!(f, "dependency task '{task_id}' does not exist")
@@ -406,11 +407,11 @@ impl fmt::Display for PlanError {
             ),
             PlanError::ActivePlanRequiresTeam { plan_id } => write!(
                 f,
-                "active plan {plan_id} requires a live Team; adopt it with `codeterm team adopt-plan <team-id> {plan_id}`"
+                "active plan {plan_id} requires a live Team; adopt it with `domios team adopt-plan <team-id> {plan_id}`"
             ),
             PlanError::PlanActivationRequiresUnarchive { plan_id } => write!(
                 f,
-                "plan {plan_id} is archived; restore it with `codeterm plan unarchive {plan_id}` so its live Team binding is validated"
+                "plan {plan_id} is archived; restore it with `domios plan unarchive {plan_id}` so its live Team binding is validated"
             ),
             PlanError::PlanSkillAlreadyExists { slug } => {
                 write!(f, "plan skill '{slug}' already exists")
@@ -427,6 +428,7 @@ impl fmt::Display for PlanError {
             PlanError::AttemptBindingRestoreRefused { kind, reason } => {
                 write!(f, "same-attempt binding restoration refused ({kind:?}): {reason}")
             }
+            PlanError::Validation(message) => write!(f, "{message}"),
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -447,7 +449,9 @@ impl PlanError {
             PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
             PlanError::DispatchInFlight { .. } => RPC_DISPATCH_IN_FLIGHT,
             PlanError::RespawnAttemptNotCurrent { .. } => RPC_DISPATCH_IN_FLIGHT,
-            PlanError::InvalidExecutorName(_) | PlanError::InvalidPlanText(_) => -32602,
+            PlanError::InvalidExecutorName(_)
+            | PlanError::InvalidPlanText(_)
+            | PlanError::Validation(_) => -32602,
             PlanError::InvalidSplitParent { .. } => -32602,
             _ => RPC_INTERNAL_ERROR,
         }
@@ -692,6 +696,9 @@ impl PlanError {
             PlanError::AttemptBindingRestoreRefused { kind, reason } => serde_json::json!({
                 "type": "attempt_binding_restore_refused", "kind": kind, "reason": reason,
             }),
+            PlanError::Validation(message) => {
+                serde_json::json!({ "type": "validation", "message": message })
+            }
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
     }

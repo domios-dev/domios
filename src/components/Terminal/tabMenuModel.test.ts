@@ -230,4 +230,15 @@ it("offers a session fork only for a declaring provider and a bound local tab", 
   expect(buildTabMenu({...forkInput,descriptor:CURRENT}).some(entry=>entry.id==="fork")).toBe(false);
   expect(buildTabMenu({...forkInput,tab:tab({agent_session_id:null})}).some(entry=>entry.id==="fork")).toBe(false);
 });
+
+for (const surface of SURFACES) {
+  it("Curator offers only round closure on " + surface, () => {
+    const entries = buildTabMenu({
+      ...input(surface),
+      tab: tab({ role: "Manager", role_profile: "curator" }),
+      canClose: true,
+    });
+    expect(entries.map(entry => entry.id)).toEqual(["close"]);
+  });
+}
 finish();

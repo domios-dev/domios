@@ -91,7 +91,7 @@ impl CorrectiveShape {
     /// that belongs to a project workspace, not to the General Agent.
     pub fn pair_command(&self) -> String {
         format!(
-            "codeterm team pair --orchestrator {} --planner {} --workspace {}",
+            "domios team pair --orchestrator {} --planner {} --workspace {}",
             self.orchestrator(),
             self.planner(),
             self.workspace()
@@ -101,7 +101,7 @@ impl CorrectiveShape {
     /// The two-step form, for when the Orchestrator is spawned first.
     pub fn spawn_orchestrator_command(&self) -> String {
         format!(
-            "codeterm agent spawn {} --role Orchestrator --workspace {} --task \"<objective>\"",
+            "domios agent spawn {} --role Orchestrator --workspace {} --task \"<objective>\"",
             self.orchestrator(),
             self.workspace()
         )

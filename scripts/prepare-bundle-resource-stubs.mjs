@@ -17,7 +17,7 @@ function requiredPaths(target) {
   const server = windows ? 'domios-server.exe' : 'domios-server';
   const cli = windows ? 'codeterm.exe' : 'codeterm';
   const files = [
-    'server-component.json', `cli/${cli}`, 'dist/index.html',
+    'server-component.json', `cli/${cli}`, `cli/${cli.replace('codeterm', 'domios')}`, 'dist/index.html',
     'LICENSE', 'NOTICE', `domios-server/${server}`,
   ];
   if (windows) {

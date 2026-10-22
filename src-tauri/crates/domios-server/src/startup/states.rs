@@ -175,13 +175,13 @@ fn scrub_inherited_identity_env() {
     }
     if !scrubbed.is_empty() {
         log::info!(
-            "[startup] scrubbed inherited CodeTerm identity env: {}",
+            "[startup] scrubbed inherited Domios identity env: {}",
             scrubbed.join(", ")
         );
     }
 }
 
-/// Scrub prod-targeting CodeTerm env inherited when dev starts inside prod.
+/// Scrub prod-targeting Domios env inherited when dev starts inside prod.
 /// PTYs inherit daemon env, so every child must see this instance's API target.
 pub fn scrub_inherited_api_env(config_state: &ConfigState) {
     scrub_inherited_identity_env();

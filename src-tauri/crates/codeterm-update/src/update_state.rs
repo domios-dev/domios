@@ -270,7 +270,7 @@ mod state_tests {
     }
 }
 
-/// Detect how CodeTerm was installed based on executable path.
+/// Detect how Domios was installed based on executable path.
 pub fn detect_install_method() -> InstallMethod {
     let exe = match std::env::current_exe() {
         Ok(p) => p,
@@ -340,6 +340,8 @@ pub struct UpdateInfo {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AvailabilitySnapshot {
+    #[serde(default)]
+    pub checked_at_ms: Option<u64>,
     pub items: Vec<AvailabilityItem>,
     pub errors: BTreeMap<String, String>,
 }

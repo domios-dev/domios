@@ -12,9 +12,11 @@
     "./Button": "./src/Button.tsx",
     "./MessageBubble": "./src/MessageBubble.tsx",
     "./renderability": "./src/renderability.ts",
-    "./dsTasksBlock": "./src/codeterm/dsTasksBlock.ts"
+    "./dsTasksBlock": "./src/codeterm/dsTasksBlock.ts",
+    "./DeferredLoader": "./src/DeferredLoader.tsx"
   },
   "dependencies": {
+    "@codeterm/canvas-camera": "workspace:*",
     "@codeterm/chat-core": "workspace:*",
     "tlds": "^1.261.0"
   },

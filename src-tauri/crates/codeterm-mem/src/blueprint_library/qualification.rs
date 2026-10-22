@@ -20,11 +20,10 @@ impl MemManager {
         {
             return Err("When to use must contain 1..200 plain-text characters".into());
         }
-        let mut document = model::abstract_document(document);
-        document.name = format!(
-            "Saved solution {}",
-            model::curator::fingerprint(&model::structure(&document).to_string())
-        );
+        let document = model::abstract_document(document);
+        if !document.template_errors().is_empty() {
+            return Err("Blueprint solution fails current template validation".into());
+        }
         evidence.safe = model::safe_template(&document, when_to_use);
         let decision = model::decide(&evidence);
         if !decision.save {
@@ -32,23 +31,26 @@ impl MemManager {
         }
         if let Some(curator) = &evidence.curator {
             let relations = self
-                .search(&crate::SearchQuery {
-                    query: when_to_use.into(),
-                    limit: Some(3),
-                    ..Default::default()
-                })?
+                .recall_solutions(
+                    &crate::SearchQuery {
+                        query: when_to_use.into(),
+                        kind: Some("skill".into()),
+                        area: Some(area.into()),
+                        limit: Some(3),
+                        ..Default::default()
+                    },
+                    Some(SOURCE),
+                )?
                 .into_iter()
                 .map(|hit| {
-                    if hit.item.source.as_deref() == Some(SOURCE)
-                        && hit.item.area.as_deref() == Some(area)
-                        && model::parse_document(&hit.item.body).is_ok_and(|existing| {
-                            model::structure(&existing) == model::structure(&document)
-                        })
-                    {
-                        model::curator::Relation::Covers(hit.item.id)
-                    } else {
-                        model::curator::Relation::Conflict(hit.item.id)
-                    }
+                    let similarity = crate::solution_search::intent_similarity(
+                        when_to_use,
+                        hit.item.summary.as_deref().unwrap_or_default(),
+                    );
+                    let covers = model::parse_document(&hit.item.body).is_ok_and(|existing| {
+                        model::structure(&existing) == model::structure(&document)
+                    });
+                    crate::solution_search::relation(hit.item.id, similarity, covers)
                 })
                 .collect::<Vec<_>>();
             model::curator::decide(
@@ -57,16 +59,6 @@ impl MemManager {
                 false,
                 &relations,
             )?;
-            let grant = if curator.granted {
-                format!(" grant:{}:{}", curator.plan, curator.round)
-            } else {
-                String::new()
-            };
-            document.note = Some(format!(
-                "{}\nEvidence: {}{grant}",
-                document.note.as_deref().unwrap_or(""),
-                curator.episodes.join(" ")
-            ));
         }
         if !model::safe_template(&document, when_to_use) {
             return Err("Unsafe Blueprint evidence cannot be saved".into());

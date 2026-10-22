@@ -16,6 +16,7 @@ export interface UsePlansResult {
 }
 
 export interface UsePlansOptions {
+  chat?: boolean;
   enabled?: boolean;
   project?: string | null;
   contextKey?: number;
@@ -38,9 +39,10 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
     (signal) =>
       fetchPlans(apiRef.current, signal, {
         project: projectRef.current,
+        chat: options.chat,
       }),
     EMPTY_PLANS,
-    { enabled, deps: [api.host, api.port, api.token, project, options.contextKey] },
+    { enabled, deps: [api.host, api.port, api.token, project, options.contextKey, options.chat] },
   );
 
   const patchPlan = useCallback(
@@ -50,6 +52,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
       const ctrl = new AbortController();
       patchCtrls.current.set(planId, ctrl);
       try {
+        if (options.chat) { await refetch(); return; }
         const plan = await fetchPlan(apiRef.current, planId, ctrl.signal);
         if (ctrl.signal.aborted) return;
         setData((prev) => {
@@ -66,7 +69,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
         if (patchCtrls.current.get(planId) === ctrl) patchCtrls.current.delete(planId);
       }
     },
-    [enabled, refetch, setData],
+    [enabled, refetch, setData, options.chat],
   );
 
   useEffect(() => {

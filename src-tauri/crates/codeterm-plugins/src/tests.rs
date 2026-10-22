@@ -6,6 +6,7 @@ mod id_validation;
 mod system_channel;
 
 mod store_index_tests {
+    mod runtime_bundle;
     use super::*;
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
@@ -318,9 +319,9 @@ mod store_index_tests {
                 .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            assert!(msg.contains("codeterm plugin get configurable"), "{msg}");
+            assert!(msg.contains("domios plugin get configurable"), "{msg}");
             assert!(
-                msg.contains("codeterm plugin config configurable --set key=value"),
+                msg.contains("domios plugin config configurable --set key=value"),
                 "{msg}"
             );
             assert!(msg.to_lowercase().contains("ask the user"), "{msg}");

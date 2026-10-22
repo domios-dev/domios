@@ -75,10 +75,13 @@ pub fn address(identity: &super::protocol::ServerIdentity) -> io::Result<String>
 
 pub fn bind(identity: &super::protocol::ServerIdentity) -> io::Result<Listener> {
     let address = address(identity)?;
-    let name = address.to_ns_name::<GenericNamespaced>()?;
+    codeterm_util::local_endpoint::prepare_namespaced(&address)?;
+    let target = codeterm_util::local_endpoint::display_name(&address);
+    let name = address
+        .to_ns_name::<GenericNamespaced>()
+        .map_err(|error| codeterm_util::local_endpoint::bind_error(&target, error))?;
     let options = ListenerOptions::new().name(name);
-    // fchmod on a socket is EINVAL on macOS, which interprocess reports as Unsupported before bind;
-    // the per-user $TMPDIR already scopes the name there, so only Linux pins the mode.
+    // Interprocess reports socket fchmod as Unsupported on macOS; only Linux pins the mode.
     #[cfg(target_os = "linux")]
     let options = {
         use interprocess::os::unix::local_socket::ListenerOptionsExt;
@@ -92,7 +95,9 @@ pub fn bind(identity: &super::protocol::ServerIdentity) -> io::Result<Listener> 
         let sddl = widestring::U16CString::from_str("D:P(A;;GA;;;OW)").map_err(io::Error::other)?;
         options.security_descriptor(SecurityDescriptor::deserialize(&sddl)?)
     };
-    options.create_tokio()
+    options
+        .create_tokio()
+        .map_err(|error| codeterm_util::local_endpoint::bind_error(&target, error))
 }
 
 pub struct ShutdownCompletion {

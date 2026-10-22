@@ -45,8 +45,21 @@ fn runtime_adapter() -> codeterm_plugin::js_runtime::JsProvider {
 }
 
 fn register_runtime(svc: &ServiceContext) {
-    svc.agent_registry
-        .register_provider(Box::new(runtime_adapter()));
+    let adapter = runtime_adapter();
+    let provider = adapter.id().to_string();
+    svc.agent_registry.register_provider(Box::new(adapter));
+    let launched: Vec<_> = svc
+        .mux
+        .read()
+        .all_tabs()
+        .filter(|tab| tab.agent_type.as_deref() == Some(provider.as_str()))
+        .filter_map(|tab| Some((tab.id.clone(), tab.session_binding_nonce.clone()?)))
+        .collect();
+    for (tab, nonce) in launched {
+        crate::service::agent_runtime::authority::record_spawn_for_test(
+            svc, &tab, &provider, &nonce,
+        );
+    }
 }
 fn message() -> InboundMessage {
     InboundMessage {
@@ -140,7 +153,12 @@ fn bridge_main_and_local_send_share_refreshed_runtime_exact_session() {
             let svc = fixture.service.clone();
             let target = id.clone();
             tokio::task::spawn_blocking(move || {
-                svc.chatbackend_tab_send(&target, "opaque-local-body")
+                svc.chatbackend_tab_send(
+                    &target,
+                    &crate::service::messenger::AgentInput::Human(
+                        crate::service::messenger::HumanInput::composer("opaque-local-body"),
+                    ),
+                )
             })
             .await
             .unwrap()

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { localFetch } from "../../lib/webApi";
+import { checkoutTheme } from "./checkoutTheme";
 import { reachedLimit, refusedLimit, type FreeLimitKey, type FreeLimits, type LimitCounts, type LocalLimitKey, type MeshMachinesLimit } from "./freeLimitModel";
 
 /** The backend checks out commercial keys only, never the bare plan name. */
@@ -79,7 +80,7 @@ export async function upgradePlan(planKey: string = UPGRADE_PLAN_KEY): Promise<v
   const response = await localFetch("/api/account/upgrade", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ plan: planKey }),
+    body: JSON.stringify({ plan: planKey, theme: checkoutTheme() ?? undefined }),
   });
   if (!response.ok) throw new Error(await response.text());
 }

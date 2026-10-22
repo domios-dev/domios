@@ -43,7 +43,7 @@ pub enum CronAction {
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
-        /// Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject
+        /// Mem skill slug (`domios mem skill new <slug>`) to resolve and inject
         /// into the task brief at fire time as an explicit, Read-able path.
         #[arg(long)]
         skill: Option<String>,

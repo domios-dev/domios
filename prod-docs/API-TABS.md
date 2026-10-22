@@ -30,7 +30,7 @@ Tab creation accepts `shell` (profile id). `GET /api/shells?refresh=true` refres
 A workspace's `cwd_missing` flag is derived on daemon start, workspace open and spawn refusal. A missing folder or retired volume shows a workspace error with **Choose folder**, and session/team starts are unavailable until relocation. No folder fallback or polling occurs.
 
 ```bash
-codeterm workspace set-cwd <workspace-id> <absolute-folder>
+domios workspace set-cwd <workspace-id> <absolute-folder>
 ```
 
 This CLI command and the UI use the same relocation service. A spawn or pair request with an unusable cwd returns HTTP `422`, code `workspace_cwd_missing`, class `requires_workspace_repair`, the `path` and `workspace_id`, and a human message naming the workspace and recovery action.
@@ -112,11 +112,11 @@ Chat send and transcript routes: API-CHAT
 
 #### Session Rebind (POST /api/tabs/{id}/session/rebind)
 
-User-facing recovery is `codeterm tab rebind SESSION_ID --tab ID`: it binds the named existing provider session with `SessionStart` validation, without restarting or interrupting the agent. The response names `found_session_id`, `requested_session_id`, and whether the binding changed. A missing session cannot evict a materialized session and returns a conflict naming both ids.
+User-facing recovery is `domios tab rebind SESSION_ID --tab ID`: it binds the named existing provider session with `SessionStart` validation, without restarting or interrupting the agent. The response names `found_session_id`, `requested_session_id`, and whether the binding changed. A missing session cannot evict a materialized session and returns a conflict naming both ids.
 
-For an `agentRuntime` Chat tab, follow a rebind with `codeterm agent restart --tab ID`. Restart stops the stale runtime and resumes exactly the newly recorded session with its own history under a new nonce and epoch. A failed load preserves that target; retry the same restart command after resolving the provider failure. Use `--fresh` only when intentionally starting a new conversation.
+For an `agentRuntime` Chat tab, follow a rebind with `domios agent restart --tab ID`. Restart stops the stale runtime and resumes exactly the newly recorded session with its own history under a new nonce and epoch. A failed load preserves that target; retry the same restart command after resolving the provider failure. Use `--fresh` only when intentionally starting a new conversation.
 
-`GET /api/tabs/{id}/session/binding-state` reads the daemon's tab-scoped fact, never an inference: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with the current and requested session identities when known. `healthy` is the ordinary answer and carries no registry entry, so an absent entry alone never means trouble. Repair: `codeterm docs API-REPAIR`. Adopt a live foreign PTY as an agent send target: `codeterm docs API-ADOPT`.
+`GET /api/tabs/{id}/session/binding-state` reads the daemon's tab-scoped fact, never an inference: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with the current and requested session identities when known. `healthy` is the ordinary answer and carries no registry entry, so an absent entry alone never means trouble. Repair: `domios docs API-REPAIR`. Adopt a live foreign PTY as an agent send target: `domios docs API-ADOPT`.
 
 #### Hook auth
 
@@ -155,7 +155,7 @@ Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report
 | DELETE | `/api/themes/{id}` | — | Delete a custom theme |
 | POST | `/api/themes/apply` | `{name}` | Apply a theme by name |
 
-Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/.codeterm/themes/` (macOS/Linux).
+Custom themes are `.toml` files in `~/.domios/themes/` on every platform.
 
 #### Mesh Networking
 | Method | Path | Body / Query | Description |
@@ -184,7 +184,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | POST | `/api/mesh/announce/all` | `?to=peer_id?` | Announce local addresses to one or all peers |
 | POST | `/api/mesh/peers/{id}/addr` | `{ip, port?}` | Override a paired peer's cached address |
 
-Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the peer-ping scheduler: `codeterm docs MESH`.
+Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the peer-ping scheduler: `domios docs MESH`.
 
 **Relay streaming (`relay-stream` / `relay-asset`).** These let a browser reach a paired peer without knowing its address. `relay-stream` opens a signed mesh request to the peer's own `/api/events/stream` or `/api/output/stream` (the only whitelisted paths) and copies bytes straight through, never buffered, filtered, or reordered, so the stream's cursor/overflow contract carries over. `relay-asset` is scoped to read-only `plugins/{id}/ui/*` GETs (path traversal rejected) because an `<iframe src>` can't send a `Bearer` header: the `.html` entry self-verifies the caller's LOCAL api token via `?token=` (an exact path allowlist exempts it from bearer auth), and the daemon reaches the peer with a server-minted signed mesh token never serialized to the browser.
 
@@ -199,6 +199,6 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 ## Related documents
 
-Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
+Memory item, graph, calibration, and worker endpoints: `domios docs API-MEMORY`.
 
-<!-- revision: 64 -->
+<!-- revision: 65 -->

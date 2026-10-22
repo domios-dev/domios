@@ -1,9 +1,12 @@
 import { createNoticePublisher } from "../../lib/notices";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { CreditCard, UserRound } from "lucide-react";
 import { Button } from "../shared/Button";
 import { PlanCards } from "../billing/PlanCards";
+import { usePlanCatalog } from "../billing/planCatalogContext";
+import { displayedPlan } from "../billing/purchaseIntent";
+import { usePurchaseIntent } from "../billing/usePurchaseIntent";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS } from "./accountSignInOptions";
 import { CopyRow, SettingsCard, SettingsPage, SettingsPill } from "./shared";
 import { useAccountPlan } from "./useAccountPlan";
@@ -11,7 +14,7 @@ import { useAccount } from "./useAccount";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { useMultiplexer } from "../../store/multiplexer";
-import { billingFailureToast, signInFailureToast } from "./accountFailureToast";
+import { billingFailureToast } from "./accountFailureToast";
 import type { LoginHint } from "./accountModel";
 
 const MUTED = "m-0 text-xs text-[var(--ct-muted-fg)]";
@@ -24,33 +27,25 @@ function initialsOf(name: string): string {
 export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) {
   const { model, signIn, signOut } = useAccount();
   const billing = useAccountPlan(model.kind === "signed_in" ? model.identity.uid : null);
+  const catalog = usePlanCatalog();
   const [plansRequest, setPlansRequest] = useState(0);
   const { upsertToast } = useMultiplexer();
+  const notify = createNoticePublisher({ upsertToast });
   const retryHint = useRef<LoginHint | undefined>(undefined);
-  const lastSignInFailure = useRef<string | null>(null);
   const signedIn = model.kind === "signed_in";
-  useEffect(() => {
-    if (model.kind !== "error" || !model.failure) {
-      lastSignInFailure.current = null;
-      return;
-    }
-    const key = `${model.failure.stage}:${model.failure.error}`;
-    if (lastSignInFailure.current === key) return;
-    lastSignInFailure.current = key;
-    createNoticePublisher({ upsertToast })(signInFailureToast(model.failure, () => { void signIn(retryHint.current); }));
-  }, [model, signIn, upsertToast]);
-  const showBillingFailure = (error: unknown, operation: string, retry: () => void | Promise<void>) => {
-    createNoticePublisher({ upsertToast })(billingFailureToast(error, operation, billing.plan?.status, retry));
-  };
+  const purchase = usePurchaseIntent({
+    account: { model, signIn },
+    billing,
+    catalog,
+    notify,
+    retrySignIn: () => { void signIn(retryHint.current); },
+  });
   const revealPlans = () => setPlansRequest((count) => count + 1);
   const manageSubscription = async () => {
     const failure = await billing.manage(revealPlans);
-    if (failure) showBillingFailure(failure, "managing your subscription", () => manageSubscription());
+    if (failure) notify(billingFailureToast(failure, "managing your subscription", billing.plan?.status, () => manageSubscription()));
   };
-  const choosePlan = async (planKey: string) => {
-    const failure = await billing.upgrade(planKey);
-    if (failure) showBillingFailure(failure, "changing your subscription", () => choosePlan(planKey));
-  };
+  const staff = billing.plan?.fullAccess === true;
   const startSignIn = (hint: LoginHint) => {
     retryHint.current = hint;
     void signIn(hint);
@@ -93,8 +88,9 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
     <SettingsCard icon={<CreditCard size={16} />} title="Plan">
       <div className="flex flex-col items-start gap-3">
         <div className="flex w-full items-center gap-2">
-          <span className="text-xl font-semibold capitalize text-[var(--ct-fg)]">{billing.plan?.plan ?? "free"}</span>
-          {billing.plan && <SettingsPill tone={billing.plan.status === "active" ? "green" : "muted"}>{billing.plan.status}</SettingsPill>}
+          <span className="text-xl font-semibold capitalize text-[var(--ct-fg)]">{displayedPlan(billing.plan) ?? "free"}</span>
+          {staff ? <SettingsPill tone="accent">team access</SettingsPill>
+            : billing.plan && <SettingsPill tone={billing.plan.status === "active" ? "green" : "muted"}>{billing.plan.status}</SettingsPill>}
           {signedIn && <Button size="sm" variant="ghost" className="ml-auto text-xs" disabled={billing.pending} aria-busy={billing.pending}
             onClick={() => void manageSubscription()}>{billing.pending ? "Opening subscription…" : "Manage subscription"}</Button>}
         </div>
@@ -102,10 +98,13 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
           {billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
         </p>}
         {billing.plan?.stale && <p role="status" className={MUTED}>Showing the last known plan.</p>}
-        {!signedIn && <p className={MUTED}>Sign in to change your plan.</p>}
+        {!signedIn && <p className={MUTED}>You’ll sign in when you choose a plan.</p>}
         <div className="w-full">
           <SettingsCardAnchor id="subscription-plans" focused={focusCard === "subscription-plans"} focusRequest={plansRequest}>
-            <PlanCards currentPlan={billing.plan?.plan ?? null} canPurchase={signedIn && !billing.pending} onChoose={(planKey) => void choosePlan(planKey)} />
+            <PlanCards viewRequested={focusCard === "subscription-plans" || plansRequest > 0} catalog={catalog} currentPlan={displayedPlan(billing.plan)}
+              canPurchase={!billing.pending && !purchase.busy && !(signedIn && billing.planLoad === "loading")}
+              onChoose={purchase.choose} intent={purchase.intent} onCancel={purchase.cancel}
+              signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />
           </SettingsCardAnchor>
         </div>
       </div>

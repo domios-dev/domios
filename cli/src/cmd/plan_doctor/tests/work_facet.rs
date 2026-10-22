@@ -11,7 +11,7 @@ fn compliant_plan() -> Value {
             "id": "task_good", "name": "Good", "status": "pending",
             "section_ids": ["sec_work"], "body": "Enforce explicit work tagging",
             "acceptance_criteria": ["new tasks have one work value"],
-            "test_plan": "Run `./build.ps1 test-one plan work_facet`; assert invalid drafts never persist. Then run `codeterm plan doctor pl_work --kind quality` and require zero findings for the compliant fixture.",
+            "test_plan": "Run `./build.ps1 test-one plan work_facet`; assert invalid drafts never persist. Then run `domios plan doctor pl_work --kind quality` and require zero findings for the compliant fixture.",
             "correctness": "preserves unrelated tags", "executor_role": "plan-contract-engineer",
             "tags": ["area:plan", "work:backend", "topic", "work"]
         }]

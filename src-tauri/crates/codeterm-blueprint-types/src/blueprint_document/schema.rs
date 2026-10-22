@@ -82,3 +82,6 @@ pub fn schema() -> Value {
         }
     })
 }
+
+#[cfg(test)]
+mod tests;

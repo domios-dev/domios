@@ -1,15 +1,15 @@
 # Setting up a Telegram bot from scratch
 
-This bot bridge speaks as the CodeTerm bot. To message a contact as the owner from their own Telegram account, use the telegram-client plugin (`codeterm plugin telegram-client chats <name>`, then `codeterm plugin telegram-client send <chat-id> <text>`).
+This bot bridge speaks as the CodeTerm bot. To message a contact as the owner from their own Telegram account, use the telegram-client plugin (`domios plugin telegram-client chats <name>`, then `domios plugin telegram-client send <chat-id> <text>`).
 
 The user creates the bot with @BotFather, which issues its token. When the user hands you a fresh Telegram bot token to wire up:
 
 1. **Stash the token** (mode 600, gitignored path):
    ```bash
-   printf '%s\n' '<token>' > ~/.codeterm/secrets/telegram.token && chmod 600 ~/.codeterm/secrets/telegram.token
+   printf '%s\n' '<token>' > ~/.domios/secrets/telegram.token && chmod 600 ~/.domios/secrets/telegram.token
    ```
 
-2. **Allow the user**. In `~/.codeterm/config.toml` under `[integrations]`:
+2. **Allow the user**. In `~/.domios/config.toml` under `[integrations]`:
    ```toml
    telegram_enabled = true
    telegram_allowed_users = ["<user_id_as_quoted_string>"]
@@ -19,7 +19,7 @@ The user creates the bot with @BotFather, which issues its token. When the user 
 
 3. **Restart the bridge** so the new token / allow-list takes effect:
    ```bash
-   codeterm bridge restart
+   domios bridge restart
    ```
 
 4. **Smoke-check the token** without involving Domios:
@@ -30,14 +30,14 @@ The user creates the bot with @BotFather, which issues its token. When the user 
 
 5. **Have the user send a test message.** Tail the log to confirm receipt:
    ```bash
-   tail -f ~/.codeterm/logs/codeterm.log
+   tail -f ~/.domios/logs/domios.log
    ```
    Look for `[bridge] inbound from <name>`. If you see `[telegram] rejected user <id>`, the allow-list doesn't include them — go back to step 2.
 
 ## Common transient errors
 
 - **409 Conflict** during restart (~1 second window): the previous `getUpdates` poller hasn't released. Normal.
-- **Persistent 409**: a second daemon is polling the same bot (e.g. dev port 7686 AND prod port 7685 both have telegram_enabled), OR a webhook URL is set on the bot:
+- **Persistent 409**: a second Domios instance is polling the same bot, OR a webhook URL is set on the bot:
   ```bash
   curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo
   curl https://api.telegram.org/bot<TOKEN>/deleteWebhook
@@ -71,8 +71,8 @@ The bridge has a sanitizer that auto-fixes most of this transparently: stray `<w
 Send the first chunk normally, then use `--append` for follow-up text. The bridge edits the previous message in place (within 60s) by concatenating new text:
 
 ```bash
-codeterm bridge send --to 123456789 --service telegram "Here's what I found:"
-codeterm bridge send --to 123456789 --service telegram --append "1. Item one
+domios bridge send --to 123456789 --service telegram "Here's what I found:"
+domios bridge send --to 123456789 --service telegram --append "1. Item one
 2. Item two"
 ```
 
@@ -80,11 +80,11 @@ The user sees both parts merged into one Telegram message. **Send only the new t
 
 ## Escaped newlines from the CLI
 
-`codeterm bridge send` decodes each literal `\n` in its text argument into a
+`domios bridge send` decodes each literal `\n` in its text argument into a
 Telegram newline. This keeps quoted one-line shell commands readable:
 
 ```bash
-codeterm bridge send --to 123456789 --service telegram "first line\nsecond line"
+domios bridge send --to 123456789 --service telegram "first line\nsecond line"
 ```
 
 Use `--raw-text` only when the recipient must receive the literal characters
@@ -94,8 +94,8 @@ through as supplied by the shell.
 ## Media and delivery
 
 ```bash
-codeterm bridge send --to USER_ID --type photo --file /path/to/image.jpg --caption "Check this"
-codeterm bridge send --to USER_ID --type document --file /path/to/report.pdf --filename "Q1-report.pdf"
+domios bridge send --to USER_ID --type photo --file /path/to/image.jpg --caption "Check this"
+domios bridge send --to USER_ID --type document --file /path/to/report.pdf --filename "Q1-report.pdf"
 ```
 
 `--type` is `text` (default), `photo`, `document`, `voice`, `animation`, `video` or `sticker`. Positional text becomes the caption when `--caption` is absent; stickers take no caption. Any tab may `bridge send`, not only the General Agent. Long text is split into HTML-aware chunks on UTF-8 character boundaries, and a failed poller restarts after 5 seconds.
@@ -106,7 +106,7 @@ Domios has no screenshot CLI. If the user asks for a screen capture, ask them to
 
 With topics enabled for the bot in BotFather, each tab talks to the owner in its own topic of the owner's private chat:
 
-- The first notification or `bridge send` from a tab creates one topic named exactly after the tab title. Only while another live tab shares that title does it get a short `#xxxx` suffix from the tab id. Later sends reuse the binding, stored in `~/.codeterm/bridge/telegram-threads.json` (ids and topic names only).
+- The first notification or `bridge send` from a tab creates one topic named exactly after the tab title. Only while another live tab shares that title does it get a short `#xxxx` suffix from the tab id. Later sends reuse the binding, stored in `~/.domios/bridge/telegram-threads.json` (ids and topic names only).
 - Every tab post starts with the sender header `title · role · workspace · machine`, where role is `orchestrator`, `worker`, `planner` or `general`. Tab posts go only to their topic, with no duplicate in General; `--choice` buttons ride the topic post.
 - The main chat (no thread, or the general topic) stays the General Agent conversation, and the General Agent's own sends stay there with its header.
 - A message in a bound topic reaches that tab with `thread=<id>` in its Telegram `<domios>` tag. A reply to a tab's message reaches that tab even without topics. Everything else reaches the General Agent; `origin=closed_thread|closed_tab|unbound_thread` says when it came from a retired or unknown thread.
@@ -116,7 +116,7 @@ With topics enabled for the bot in BotFather, each tab talks to the owner in its
 Attach a tab to its topic (create or reuse) and print one sentence naming it:
 
 ```bash
-codeterm bridge thread open [--tab ID] [--service telegram]
+domios bridge thread open [--tab ID] [--service telegram]
 ```
 
 Without `--tab` it opens the caller's own topic. Only the General Agent may name another tab: the topic belongs to the target, carries its header, and routes replies to it. Any other caller naming a foreign tab is refused (socket `bridge.thread.open`, code `-32003`) before any Bot API call. The first open posts `you can talk to <tab> here` once, even when opens race; repeated opens create and post nothing. Every attach first checks the bound topic: one the owner closed is reopened, one the owner deleted is recreated with a fresh first message, and a send that hits a missing or closed topic marks the binding stale so the menu offers Attach again. A link is printed only for a supergroup forum (`t.me/c/<id>/<topic>`); Telegram documents no link that opens a topic in a bot's private chat, so there the sentence names the topic to pick from the chat's topic list. **Attach Telegram** and **Detach Telegram** under **Plugins** in the tab actions menu run the same host operations, so menu, CLI and General Agent opens share one binding and one first message; the sidebar tab menu and the tab header menu list them identically.
@@ -125,9 +125,9 @@ Without `--tab` it opens the caller's own topic. Only the General Agent may name
 
 To move the active poller to a paired peer without downtime:
 ```bash
-codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--claim-timeout-ms 10000]
+domios bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--claim-timeout-ms 10000]
 ```
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 15 -->
+<!-- revision: 18 -->

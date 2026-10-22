@@ -37,7 +37,7 @@ fn launched_shell_renews_requested_deadline_on_restart() {
     assert_eq!(during_command["deadline_ms"], original["deadline_ms"]);
     fixture
         .service
-        .restart_shell_tab(&shell.tab_id, None)
+        .restart_shell_tab(&shell.tab_id, None, None)
         .unwrap();
     fixture
         .service

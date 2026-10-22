@@ -20,8 +20,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 cd "$REPO_ROOT"
 
 NSIS_DIR="src-tauri/target/release/bundle/nsis"
-EXE="$NSIS_DIR/CodeTerm_${VER}_x64-setup.exe"
-ZIP="$NSIS_DIR/CodeTerm_${VER}_x64-setup.nsis.zip"
+EXE="$NSIS_DIR/Domios_${VER}_x64-setup.exe"
+ZIP="$NSIS_DIR/Domios_${VER}_x64-setup.nsis.zip"
 
 [ -f "$EXE" ] || { echo "missing $EXE (run win-bundle.sh first)" >&2; exit 1; }
 [ -f "$ZIP" ] || { echo "missing $ZIP (run win-bundle.sh first)" >&2; exit 1; }

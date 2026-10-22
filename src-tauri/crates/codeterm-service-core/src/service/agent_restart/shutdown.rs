@@ -40,8 +40,14 @@ impl ServiceContext {
         }
         let claim =
             crate::service::pty_io::submit_transaction::claim_exit_submit_cycle(&snap.pty_id);
-        let result =
-            self.deliver_pty_input_claimed(&snap.pty_id, &exit_command, true, claim.clone());
+        let result = self.deliver_pty_input_claimed(
+            &snap.pty_id,
+            &crate::service::messenger::AgentInput::Human(
+                crate::service::messenger::HumanInput::composer(&exit_command),
+            ),
+            true,
+            claim.clone(),
+        );
         if claim.provider_exited() {
             crate::service::agent_restart::timing::stage(
                 &snap.tab_id,

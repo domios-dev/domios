@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Package a notarized CodeTerm.app into a .app.tar.gz + .sig pair for the
+# Package a notarized Domios.app into a .app.tar.gz + .sig pair for the
 # tauri-plugin-updater channel manifest.
 #
 # Catches the bug that bit v1.3.0: without --no-mac-metadata, BSD tar embeds
 # com.apple.* xattrs as PAX headers, which the Rust tar crate (used by
-# tauri-updater) extracts as `._CodeTerm.app` AppleDouble files alongside the
-# bundle — and the updater rejects with "failed to unpack '._CodeTerm.app'".
+# tauri-updater) extracts as `._Domios.app` AppleDouble files alongside the
+# bundle — and the updater rejects with "failed to unpack '._Domios.app'".
 #
 # Echoes the base64-encoded signature to stdout (no trailing newline) so the
-# caller can substitute it into latest.json. The .sig file is also persisted
+# caller can substitute it into domios-latest.json. The .sig file is also persisted
 # next to the .tar.gz for archive but is NOT uploaded to the release (per
-# skill rules — the signature already lives inline in latest.json).
+# skill rules — the signature already lives inline in domios-latest.json).
 #
 # Usage: pack-mac-updater.sh <ver> <arch> <work-dir>
 #   arch: aarch64 | x64
@@ -29,14 +29,14 @@ case "$ARCH" in
   x64)     APP_DIR="$REPO_ROOT/src-tauri/target/x86_64-apple-darwin/release/bundle/macos" ;;
   *) echo "unknown arch: $ARCH (expected aarch64 or x64)" >&2; exit 2 ;;
 esac
-[ -d "$APP_DIR/CodeTerm.app" ] || { echo "ERROR: $APP_DIR/CodeTerm.app not found" >&2; exit 1; }
+[ -d "$APP_DIR/Domios.app" ] || { echo "ERROR: $APP_DIR/Domios.app not found" >&2; exit 1; }
 mkdir -p "$WORK"
-OUT="$WORK/CodeTerm_${VER}_${ARCH}.app.tar.gz"
+OUT="$WORK/Domios_${VER}_${ARCH}.app.tar.gz"
 
 # --no-mac-metadata is mandatory: see top-of-file comment.
-tar --no-mac-metadata -czf "$OUT" -C "$APP_DIR" CodeTerm.app
+tar --no-mac-metadata -czf "$OUT" -C "$APP_DIR" Domios.app
 
-# Sanity check: a non-BSD extractor must NOT materialize ._CodeTerm.app.
+# Sanity check: a non-BSD extractor must NOT materialize ._Domios.app.
 TESTDIR=$(mktemp -d)
 python3 -c "import tarfile; tarfile.open('$OUT').extractall('$TESTDIR')" 2>/dev/null
 if ls "$TESTDIR" | grep -q '^\._'; then
@@ -47,7 +47,7 @@ fi
 rm -rf "$TESTDIR"
 
 # Sign with minisign. The signature file content (base64) goes inline in
-# latest.json. The .sig file itself is NOT uploaded to the release.
+# domios-latest.json. The .sig file itself is NOT uploaded to the release.
 : "${TAURI_SIGNING_PRIVATE_KEY_PATH:?Prepare the job updater key first}"
 # The signer reads key content from TAURI_SIGNING_PRIVATE_KEY and refuses it beside the path; the bundler needs it as a path.
 env -u TAURI_SIGNING_PRIVATE_KEY pnpm exec tauri signer sign "$OUT" >/dev/null

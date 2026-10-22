@@ -70,7 +70,7 @@ for (const cacheRoot of [false, true]) {
       prepare_dev_frontend_dist() { :; }
       prepare_bundle_stubs() { :; }
       configure_lane_workspace_wrapper() { :; }
-      cargo() { [ "$CARGO_BUILD_BUILD_DIR" != canonical-build-directory ]; printf '%s' "$CARGO_BUILD_BUILD_DIR"; }
+      lane_cargo_check() { [ "$CARGO_BUILD_BUILD_DIR" != canonical-build-directory ]; printf '%s' "$CARGO_BUILD_BUILD_DIR"; }
       lane_check codeterm-fixture
       [ "$CARGO_BUILD_BUILD_DIR" = canonical-build-directory ]
     `], { cwd:path.resolve(import.meta.dirname, '../..'), encoding:'utf8' });
@@ -118,7 +118,7 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
     prepare_bundle_stubs() { :; }
     configure_lane_workspace_wrapper() { :; }
     enter_cargo_gateway() { return 99; }
-    cargo() { printf 'jobs=%s %s\\n' "$CARGO_BUILD_JOBS" "$*"; return 41; }
+    lane_cargo_check() { printf 'jobs=%s %s\\n' "$CARGO_BUILD_JOBS" "$*"; return 41; }
     lane_check codeterm-fixture && exit 1 || [ "$?" = 41 ]
     lane_check codeterm-fixture --tests && exit 1 || [ "$?" = 41 ]
     lane_check codeterm-pty codeterm-service-core --tests && exit 1 || [ "$?" = 41 ]
@@ -147,7 +147,7 @@ test('server lane routing admits only the explicit server package without real C
     configure_lane_workspace_wrapper() { :; }
     prepare_dev_frontend_dist() { :; }
     prepare_bundle_stubs() { :; }
-    cargo() { printf 'jobs=%s %s\\n' "$CARGO_BUILD_JOBS" "$*"; }
+    lane_cargo_check() { printf 'jobs=%s %s\\n' "$CARGO_BUILD_JOBS" "$*"; }
     lane_check domios-server --tests
     lane_check unrelated-package && exit 1 || [ "$?" = 2 ]
     lane_check domios-other && exit 1 || [ "$?" = 2 ]
@@ -168,7 +168,7 @@ test('lane workspace wrapper stays scoped to the lane subshell', () => {
     export RUSTC_WORKSPACE_WRAPPER=canonical-wrapper
     prepare_dev_frontend_dist() { :; }
     prepare_bundle_stubs() { :; }
-    cargo() { [ "$RUSTC_WORKSPACE_WRAPPER" != canonical-wrapper ]; [ -f "$RUSTC_WORKSPACE_WRAPPER" ]; }
+    lane_cargo_check() { [ "$RUSTC_WORKSPACE_WRAPPER" != canonical-wrapper ]; [ -f "$RUSTC_WORKSPACE_WRAPPER" ]; }
     lane_check codeterm-fixture
     [ "$RUSTC_WORKSPACE_WRAPPER" = canonical-wrapper ]
   `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });

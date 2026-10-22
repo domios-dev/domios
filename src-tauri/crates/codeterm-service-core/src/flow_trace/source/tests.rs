@@ -52,10 +52,10 @@ fn rpc_send_ingress_protocol_answer_reaches_sink_with_exact_client_turn_link() {
                 binding_nonce: Some("nonce".into()),
             }
         ));
-        let future = send::submit(
+        let future = send::test_submit(
             send::Origin::Agent,
             None,
-            send::start_params("session", &id, "opaque", None, json!({})),
+            send::test_start_params("session", &id, "opaque", None, json!({})),
             |method, request| {
                 assert_eq!(method, "turn/start");
                 assert_eq!(request["clientUserMessageId"], id);

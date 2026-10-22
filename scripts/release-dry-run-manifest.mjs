@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { writeLegacyRefusals } from './legacy-updater-refusal.mjs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createReadStream } from 'node:fs';
@@ -35,13 +36,13 @@ function evidenceNames(tag, platform) {
   const version = tag.slice(1);
   const arm = platform.endsWith('aarch64');
   const updater = platform.startsWith('darwin-')
-    ? [{ source: `CodeTerm_${version}_${arm ? 'aarch64' : 'x64'}.app.tar.gz`, name: `CodeTerm_${arm ? 'aarch64' : 'x64'}.app.tar.gz` }]
-    : platform.startsWith('windows-') ? [`CodeTerm_${version}_${arm ? 'arm64' : 'x64'}-setup.exe`]
-      : [`CodeTerm_${version}_${arm ? 'aarch64' : 'amd64'}.AppImage`, `CodeTerm_${version}_${arm ? 'arm64' : 'amd64'}.deb`];
+    ? [{ source: `Domios_${version}_${arm ? 'aarch64' : 'x64'}.app.tar.gz`, name: `Domios_${arm ? 'aarch64' : 'x64'}.app.tar.gz` }]
+    : platform.startsWith('windows-') ? [`Domios_${version}_${arm ? 'arm64' : 'x64'}-setup.exe`]
+      : [`Domios_${version}_${arm ? 'aarch64' : 'amd64'}.AppImage`, `Domios_${version}_${arm ? 'arm64' : 'amd64'}.deb`];
   const payloads = updater.map(entry => typeof entry === 'string' ? { source: entry, name: entry } : entry);
   const fragments = payloads.map((_, index) => `updater-${platform}${index ? '-deb' : ''}.json`);
   const headless = headlessAssetNames(tag, platform);
-  const installers = platform.startsWith('darwin-') ? [`CodeTerm_${version}_${arm ? 'aarch64' : 'x64'}.dmg`] : [];
+  const installers = platform.startsWith('darwin-') ? [`Domios_${version}_${arm ? 'aarch64' : 'x64'}.dmg`] : [];
   return { payloads, fragments, installers, headless: [headless.archive, headless.checksum, headless.manifest] };
 }
 function single(all, name, platform) {
@@ -187,15 +188,16 @@ export async function aggregate({ tag, sourceSha, inputDirectory, outputDirector
       await verifyHeadlessAssets({ tag, platform, directory, sourceSha });
       evidence.push({ ...receipt, ...retention(locations, platform, [...receipt.files, { name: 'dry-run-evidence.json' }]) });
     }
-    const latest = path.join(scratch, 'latest.json');
-    const latestDeb = path.join(scratch, 'latest-deb.json');
+    const latest = path.join(scratch, 'domios-latest.json');
+    const latestDeb = path.join(scratch, 'domios-latest-deb.json');
     invoke('merge-latest-json.js', ['--in', main, '--out', latest]);
     invoke('merge-latest-json.js', ['--in', deb, '--out', latestDeb]);
     verify(latest, payloads, tag.slice(1), PLATFORMS, pubkey);
     verify(latestDeb, payloads, tag.slice(1), ['linux-aarch64', 'linux-x86_64'], pubkey);
     await mkdir(outputDirectory, { recursive: true });
-    await copyFile(latest, path.join(outputDirectory, 'latest.json'));
-    await copyFile(latestDeb, path.join(outputDirectory, 'latest-deb.json'));
+    await copyFile(latest, path.join(outputDirectory, 'domios-latest.json'));
+    await copyFile(latestDeb, path.join(outputDirectory, 'domios-latest-deb.json'));
+    writeLegacyRefusals(outputDirectory);
     const retainedVia = evidence.some(entry => entry.retained_via === 'ci-artifact') ? 'ci-artifact' : 'private-store';
     const result = { schema: 1, mode: 'local_dry_run', tag, source_sha: sourceSha, platforms: PLATFORMS, retained_via: retainedVia, evidence };
     await writeFile(path.join(outputDirectory, 'manifest-local-verification.json'), JSON.stringify(result, null, 2) + '\n');

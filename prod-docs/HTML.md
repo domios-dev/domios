@@ -56,7 +56,7 @@ marker: only a Domios-delivered `<domios from=...>` frame carries provenance.
 ## Chat blocks
 
 Live `@ds-<name>` cards (guide, plugin, connect, setting, choice, agent, job,
-checklist, tasks) are catalogued in `codeterm docs CHAT-BLOCKS`.
+checklist, tasks) are catalogued in `domios docs CHAT-BLOCKS`.
 
 ## File-backed HTML fences
 
@@ -146,4 +146,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

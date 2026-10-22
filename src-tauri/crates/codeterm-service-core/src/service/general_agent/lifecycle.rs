@@ -95,7 +95,14 @@ fn deliver_confirmed_general_message(
 ) -> Result<(), String> {
     let evidence = launch_delivery_evidence(
         tab_id,
-        svc.send_launch_text_optimistic(pty_id, provider_id, text, true),
+        svc.send_launch_text_optimistic(
+            pty_id,
+            provider_id,
+            &crate::service::messenger::AgentInput::Launch(
+                crate::service::messenger::LaunchBootstrap::new(text),
+            ),
+            true,
+        ),
     );
     let outcome = svc.reconcile_pending_delivery(tab_id, evidence);
     match launch_delivery_failure(tab_id, outcome) {
@@ -305,17 +312,32 @@ pub fn start_general_agent(
                                     &general_cwd,
                                 ) {
                                     svc.set_agent_session_id(&pid, Some(sid.clone()));
-                                    log::info!("[general-agent] Restored durable session {} onto reused PTY {}", sid, pty_id);
+                                    log::info!(
+                                        "[general-agent] Restored durable session {} onto reused PTY {}",
+                                        sid,
+                                        pty_id
+                                    );
                                 }
                             }
                             svc.reconcile_boot_stage_with_session_binding(&pid);
-                            log::info!("[general-agent] Already running (tab={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
+                            log::info!(
+                                "[general-agent] Already running (tab={}, pty={}, provider={}) — skipping",
+                                pid,
+                                pty_id,
+                                current_agent
+                            );
                             return;
                         }
                         if agent_visible {
-                            log::info!("[general-agent] Permission policy changed for PTY {} — terminating before relaunch", pty_id);
+                            log::info!(
+                                "[general-agent] Permission policy changed for PTY {} — terminating before relaunch",
+                                pty_id
+                            );
                         } else {
-                            log::info!("[general-agent] Tab has live PTY {} but no agent output before deadline — terminating before relaunch", pty_id);
+                            log::info!(
+                                "[general-agent] Tab has live PTY {} but no agent output before deadline — terminating before relaunch",
+                                pty_id
+                            );
                         }
                         if let Err(reason) =
                             terminate_pty_before_relaunch(pty, screen_state, &pty_id)
@@ -455,7 +477,11 @@ pub fn start_general_agent(
         let owned = valid
             && state::session_id_is_owned(&svc.agent_registry, provider_name, &general_cwd, id);
         if !owned {
-            log::info!("[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh", id, provider_name);
+            log::info!(
+                "[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh",
+                id,
+                provider_name
+            );
             svc.set_agent_session_id(&tab_id, None);
             state::clear_session_id();
             let exclude = mux.write().other_session_ids(&tab_id);

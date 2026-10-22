@@ -39,6 +39,7 @@ pub fn run(
     cancellation: &Cancellation,
     cancellation_required: bool,
     environment: &Environment,
+    stdin: Option<std::fs::File>,
 ) -> Result<Output, ProbeFailure> {
     let mut process = UnixRun::new(deadlines, reservation, owner);
     if cancellation_required {
@@ -83,19 +84,17 @@ pub fn run(
     child_command
         .args(["-c", command])
         .current_dir(cwd)
-        .stdin(Stdio::null())
+        .stdin(stdin.map(Stdio::from).unwrap_or_else(Stdio::null))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
+    child_command.env_clear();
     child_command.envs(
         environment
             .variables
             .iter()
             .map(|(key, value)| (key, value)),
     );
-    for key in &environment.removed {
-        child_command.env_remove(key);
-    }
     if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
         process.set_failure("probe_cancelled");
         return process.finish_failure();

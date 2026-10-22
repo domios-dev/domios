@@ -87,15 +87,15 @@ pub fn annotate_reconcile_json(val: &mut Value) {
 fn reconcile_command(plan_id: &str, task_id: &str, kind: &str) -> String {
     match kind {
         "stale_in_review" | "accepted_but_not_done" => {
-            format!("codeterm task show {task_id} && codeterm plan task close {plan_id} {task_id}")
+            format!("domios task show {task_id} && domios plan task close {plan_id} {task_id}")
         }
         "in_progress_tab_gone" | "bound_to_closed_tab" => {
-            format!("codeterm task show {task_id} && codeterm plan task update {plan_id} {task_id} --status blocked --status-label \"owner retired; Orchestrator chooses reassign or respawn\"")
+            format!("domios task show {task_id} && domios plan task update {plan_id} {task_id} --status blocked --status-label \"owner retired; Orchestrator chooses reassign or respawn\"")
         }
         "report_target_write_missing" => {
-            format!("codeterm task show {task_id} && codeterm plan reconcile {plan_id}")
+            format!("domios task show {task_id} && domios plan reconcile {plan_id}")
         }
-        _ => format!("codeterm task show {task_id} && codeterm plan reconcile {plan_id} --fix"),
+        _ => format!("domios task show {task_id} && domios plan reconcile {plan_id} --fix"),
     }
 }
 
@@ -133,14 +133,12 @@ mod tests {
             ]
         }));
 
-        assert!(
-            rendered.contains("codeterm task show task_a && codeterm plan task close pl_1 task_a")
-        );
+        assert!(rendered.contains("domios task show task_a && domios plan task close pl_1 task_a"));
         assert!(rendered.contains(
-            "codeterm task show task_b && codeterm plan task update pl_1 task_b --status blocked --status-label \"owner retired; Orchestrator chooses reassign or respawn\""
+            "domios task show task_b && domios plan task update pl_1 task_b --status blocked --status-label \"owner retired; Orchestrator chooses reassign or respawn\""
         ));
-        assert!(rendered.contains("codeterm task show task_c && codeterm plan reconcile pl_1"));
-        assert!(!rendered.contains("codeterm plan reconcile pl_1 --fix"));
+        assert!(rendered.contains("domios task show task_c && domios plan reconcile pl_1"));
+        assert!(!rendered.contains("domios plan reconcile pl_1 --fix"));
     }
 
     #[test]
@@ -159,7 +157,7 @@ mod tests {
         assert_eq!(guidance["fix_label"], "stale-review");
         assert_eq!(
             guidance["command"],
-            "codeterm task show task_a && codeterm plan task close pl_1 task_a"
+            "domios task show task_a && domios plan task close pl_1 task_a"
         );
         assert!(!guidance["command"]
             .as_str()

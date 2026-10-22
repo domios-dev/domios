@@ -152,7 +152,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
         )}
         {body && (
           <div data-testid="chat-inbound-report-body" className="min-w-0 break-words" style={{ color: "var(--ct-fg)" }}>
-            <CompactMessageContent text={body} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
+            <CompactMessageContent markdown text={body} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
           </div>
         )}
         {detailFields.length > 0 && (

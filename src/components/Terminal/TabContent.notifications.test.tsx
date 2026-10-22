@@ -6,6 +6,7 @@ import { reducer } from "../../store/multiplexer/reducer";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { Titlebar } from "../Titlebar/Titlebar";
 import { TabContent } from "./TabContent";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 
 const fixture = vi.hoisted(() => ({ state: null as ExtendedState | null }));
 vi.mock("../Titlebar/KeepAwakeTray", () => ({ KeepAwakeTray: () => null }));
@@ -42,6 +43,28 @@ afterEach(async () => {
   await act(async () => root.render(null));
   host.remove();
   vi.unstubAllGlobals();
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+});
+
+it.each([false, true])("keeps a Worker checklist proposal out of the parent's human controls (chat=%s)", async (chat) => {
+  const parent = { id: "parent", title: "Parent", pty_id: null, tab_type: "Terminal", cwd: null,
+    backing: chat ? { kind: "chat_backend", plugin_id: "fixture" } : undefined } as Tab;
+  const worker = { id: "worker", title: "Worker", parent_tab_id: parent.id, has_checklist: false } as Tab;
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(async <T,>(command: string) => (command === "tab_todo_list" ? {
+    tab_id: worker.id, generation: 1, revision: 2, proposal: { state: "proposed" },
+    items: [{ id: "step", title: "Inspect the change", state: "in_progress" }],
+  } : {}) as T);
+  fixture.state!.tabs = { parent, worker };
+  const render = () => act(async () => root.render(<TabContent tab={parent} isFocused isVisible
+    onFocusTab={vi.fn()} onPtySpawned={vi.fn()} theme={{ background: "black" } as ThemeConfig} />));
+  await render();
+  fixture.state!.tabs.worker = { ...worker, has_checklist: true };
+  await render();
+  expect(host.querySelector(`main[aria-label="${chat ? "Chat" : "Terminal"}"]`)).not.toBeNull();
+  expect(host.querySelector('section[aria-label^="Checklist proposal"]')).toBeNull();
+  expect([...host.querySelectorAll("button")].filter(button => /^(Approve|Edit)$/.test(button.textContent ?? ""))).toHaveLength(0);
 });
 
 it.each([false, true])("renders tab controls and content without an attention region (chat=%s)", async (chat) => {

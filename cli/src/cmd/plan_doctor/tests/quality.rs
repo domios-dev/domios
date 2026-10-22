@@ -25,8 +25,8 @@ fn approval_error_includes_doctor_recovery_commands() {
     });
     let rendered = render_quality_approval_error("pl_1", &report);
     assert!(rendered.contains("plan approval blocked by quality doctor"));
-    assert!(rendered.contains("codeterm plan doctor pl_1 --kind quality"));
-    assert!(rendered.contains("codeterm plan approve pl_1"));
+    assert!(rendered.contains("domios plan doctor pl_1 --kind quality"));
+    assert!(rendered.contains("domios plan approve pl_1"));
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn quality_warns_on_terminal_task_cleanup_debt() {
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
     assert!(findings.iter().any(|f| f.kind == "cleanup_debt"));
     let finding = findings.iter().find(|f| f.kind == "cleanup_debt").unwrap();
-    assert!(finding.fix.contains("codeterm plan task update"));
+    assert!(finding.fix.contains("domios plan task update"));
     assert!(finding.fix.contains("--cleanup-status deferred"));
 }
 
@@ -393,7 +393,7 @@ fn quality_accepts_complete_task_and_plan_scaffold() {
             "section_ids": ["sec_1"],
             "body": "Implement the scoped change.",
             "acceptance_criteria": ["criterion"],
-            "test_plan": "Run `cargo test plan::scoped_change` and assert the new path is covered; then `codeterm plan doctor pl_1 --kind quality` round-trips with zero findings.",
+            "test_plan": "Run `cargo test plan::scoped_change` and assert the new path is covered; then `domios plan doctor pl_1 --kind quality` round-trips with zero findings.",
             "correctness": "matches spec",
             "executor_role": "rust-backend-dev"
         }]
@@ -720,7 +720,7 @@ fn quality_accepts_externalized_task_body_via_sidecar() {
             "section_ids": ["sec_1"],
             "body": "",
             "acceptance_criteria": ["criterion"],
-            "test_plan": "Run `cargo test plan::externalized_body` and assert the sidecar body is read; then `codeterm plan doctor pl_1 --kind quality` round-trips with zero findings.",
+            "test_plan": "Run `cargo test plan::externalized_body` and assert the sidecar body is read; then `domios plan doctor pl_1 --kind quality` round-trips with zero findings.",
             "correctness": "matches spec",
             "executor_role": "frontend-dev"
         }]
@@ -886,7 +886,7 @@ confirming that every relevant surface looks correct across the whole flow befor
 fn quality_clean_on_executable_test_plan() {
     let good =
         "Run `cargo test test_plan_vague` and assert exactly one test_plan_vague finding on \
-the seeded plan; then `codeterm plan doctor pl_1 --kind quality` round-trips clean.";
+the seeded plan; then `domios plan doctor pl_1 --kind quality` round-trips clean.";
     let plan = task_with_test_plan("implement", good);
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
     assert!(!findings.iter().any(|f| f.kind == "test_plan_vague"));
@@ -935,7 +935,7 @@ fn quality_seeded_plan_flags_exactly_one_vague_test_plan() {
                 "section_ids": ["sec_1"],
                 "body": "body",
                 "acceptance_criteria": ["criterion"],
-                "test_plan": "Run `cargo test test_plan_vague` and assert exactly one test_plan_vague finding on the seeded plan; then `codeterm plan doctor pl_1 --kind quality` round-trips clean.",
+                "test_plan": "Run `cargo test test_plan_vague` and assert exactly one test_plan_vague finding on the seeded plan; then `domios plan doctor pl_1 --kind quality` round-trips clean.",
                 "correctness": "matches spec",
                 "executor_role": "rust-backend-dev"
             }
@@ -1155,7 +1155,7 @@ fn roleless_task_plan() -> Value {
             "section_ids": ["sec_1"],
             "body": "Implement the scoped change.",
             "acceptance_criteria": ["criterion"],
-            "test_plan": "Run `cargo test plan::scoped_change` and assert the new path is covered; then `codeterm plan doctor pl_1 --kind quality` round-trips with zero findings.",
+            "test_plan": "Run `cargo test plan::scoped_change` and assert the new path is covered; then `domios plan doctor pl_1 --kind quality` round-trips with zero findings.",
             "correctness": "matches spec"
         }]
     })

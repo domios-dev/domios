@@ -54,12 +54,7 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     assert_eq!(method, "blueprint.apply_recipe");
     assert_eq!(params["id"], "skill_saved");
     assert_eq!(params["dry_run"], true);
-    let offers = memory::offers(json!([]), "HTTP endpoint response code");
-    assert!(offers
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|offer| offer["id"] == "http-health"));
+    assert_eq!(memory::offers(json!([])), json!([]));
 }
 
 #[test]
@@ -471,5 +466,25 @@ mod command_tests {
         .unwrap();
         assert_eq!(method, "blueprint.pipeline.update");
         assert_eq!(params["spec"], spec);
+    }
+}
+
+#[test]
+fn blueprint_like_preserves_hybrid_recall_without_shared_words() {
+    let query = "Transmit structured output downstream";
+    let stored = json!([
+        {"id":"skill_pipeline", "when_to_use":"Chain shell commands", "yaml":"opaque recipe"},
+        {"id":"skill_second", "when_to_use":"Parse JSON", "yaml":"another recipe"}
+    ]);
+    assert!(stored[0]["when_to_use"]
+        .as_str()
+        .unwrap()
+        .split_whitespace()
+        .all(|word| !query.to_lowercase().contains(&word.to_lowercase())));
+    let offers = memory::offers(stored.clone());
+    assert_eq!(offers.as_array().unwrap().len(), 2);
+    for (index, id) in ["skill_pipeline", "skill_second"].iter().enumerate() {
+        assert_eq!(offers[index]["id"], format!("memory:{id}"));
+        assert_eq!(offers[index]["yaml"], stored[index]["yaml"]);
     }
 }

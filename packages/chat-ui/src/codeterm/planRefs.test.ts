@@ -60,7 +60,8 @@ const TASK3 = "task_" + "f".repeat(32);
 
 // Safe boundaries: commands, URLs, and fenced/inline code stay plain text.
 {
-  assert(!hasPlanRefs(`codeterm plan show ${PLAN}`), "command line not linked");
+  assert(!hasPlanRefs(`codeterm plan show ${PLAN}`), "alias command line not linked");
+  assert(!hasPlanRefs(`domios plan show ${PLAN}`), "primary command line not linked");
   assert(!hasPlanRefs(`git show ${PLAN}`), "git command not linked");
   assert(!hasPlanRefs(`See https://example.test/${PLAN}`), "url not linked");
   assert(!hasPlanRefs("```txt\npl_hidden task_hidden\n```"), "fenced code not linked");

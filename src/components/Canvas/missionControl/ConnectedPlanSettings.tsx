@@ -14,7 +14,7 @@ export function ConnectedPlanSettings({ plan, api, initial, now }: {
   initial?: PlanControlLoop;
   now?: number;
 }) {
-  const { value, busy, loadError, update } = usePlanControlLoop(api, plan.id, plan.updated_at, initial);
+  const { value, busy, loadError, actionError, update, runNow } = usePlanControlLoop(api, plan.id, plan.updated_at, initial);
   const guide = useGuideNavigation();
   const clock = usePlanSettingsClock(now);
   const oversight = planOversight(plan, value, !api ? "disconnected" : loadError ? "unavailable" : "loading");
@@ -23,7 +23,10 @@ export function ConnectedPlanSettings({ plan, api, initial, now }: {
       disabled={!api || !value || busy || plan.status !== "active" || plan.mode === "complete"}
       onModeChange={mode => { if (mode !== value?.mode) void update({ mode }); }}
       onIntervalChange={ms => void update({ mode: "heartbeat", heartbeat_interval_secs: ms === null ? null : ms / 1000 })}
+      onRunNow={() => void runNow()}
+      runPending={Boolean(value?.running || value?.manual_run_requested)}
       onOpenGuide={guide ? () => guide.onOpen("curator") : undefined} />
     {loadError && <InlineErrorNotice role="alert" error={loadError} operation="loading plan settings" />}
+    {actionError && <InlineErrorNotice role="alert" description={{ title: "Curator could not run", cause: actionError, raw: actionError, actions: [] }} />}
   </>;
 }

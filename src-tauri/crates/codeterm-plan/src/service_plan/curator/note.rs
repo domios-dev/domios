@@ -9,7 +9,7 @@ pub struct CuratorNote {
     pub next_checks: Vec<String>,
     pub tidy: Vec<String>,
     pub candidates: Vec<String>,
-    pub asked: String,
+    pub asked: codeterm_types::plan::CuratorAsked,
 }
 
 pub fn duration_secs(text: &str) -> Option<u64> {
@@ -99,7 +99,7 @@ pub fn parse_for_round(
                         return Err("invalid ASKED".into());
                     }
                     asked_seen = true;
-                    note.asked = line.into();
+                    note.asked = line.parse()?;
                     continue;
                 }
                 if head == "MOVE" {

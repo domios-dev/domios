@@ -77,13 +77,9 @@ impl TeamExt for ServiceContext {
             .ok_or_else(|| format!("Team {team_id} not found"))?
             .workspace_id
             .clone();
-        let service = self.clone();
-        let capture_team = team_id.to_string();
-        let inventory = tokio::task::spawn_blocking(move || {
-            service.capture_close_inventory(&workspace, Some(&capture_team))
-        })
-        .await
-        .map_err(|error| error.to_string())??;
+        let inventory = self
+            .capture_close_inventory(&workspace, Some(team_id))
+            .await?;
         let result = close_team_inner(self, team_id, caller, force).await;
         let service = self.clone();
         match tokio::task::spawn_blocking(move || {

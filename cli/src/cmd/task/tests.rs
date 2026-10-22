@@ -568,3 +568,17 @@ mod executor_render_tests {
         .is_none());
     }
 }
+
+#[test]
+fn task_list_explains_plan_outside_project_like_plan_task_list() {
+    let reason = serde_json::json!({
+        "kind":"plan_outside_project", "plan_id":"pl_foreign",
+        "plan_project":"other", "requested_project":"current"
+    });
+    assert_eq!(
+        super::empty_task_list_message(&serde_json::json!({
+            "tasks":[], "empty_reason":reason
+        })),
+        crate::cmd::plan::render_empty_reason(&reason).unwrap()
+    );
+}

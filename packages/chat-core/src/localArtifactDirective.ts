@@ -1,13 +1,20 @@
 export type LocalArtifactKind = "page" | "image" | "video" | "document";
-export interface LocalArtifactDirective { kind: LocalArtifactKind; path: string; }
+export interface LocalArtifactDirective { kind: LocalArtifactKind; path: string; paths?: string[]; }
 export function parseLocalArtifactDirective(source: string): LocalArtifactDirective | null {
-  // `@ct-` is the pre-Domios prefix that older prompts and peers still emit.
-  const match = /^\s*@(?:ds|ct)-(page|image|document)\s+(?:"([^"]+)"|'([^']+)'|(.+?))\s*$/i.exec(
-    source.replace(/\r/g, ""),
-  );
-  const path = (match?.[2] || match?.[3] || match?.[4] || "").trim();
-  if (!match || !path || path.includes("\n")) return null;
-  return { kind: match[1].toLowerCase() as LocalArtifactKind, path };
+  const match = /^\s*@(?:ds|ct)-(page|image|document)\s+(.+?)\s*$/i.exec(source.replace(/\r/g, ""));
+  if (!match || match[2].includes("\n")) return null;
+  const kind = match[1].toLowerCase() as LocalArtifactKind;
+  const argument = match[2];
+  const tokens = argument.match(/"[^"]+"|'[^']+'|\S+/g) ?? [];
+  const paths = tokens.map(token => token.replace(/^(["'])(.*)\1$/, "$2"));
+  const absolute = (path: string) => /^(?:[a-z]:[\\/]|\/|\\\\)/i.test(path);
+  if (kind === "image" && paths.length > 1 && paths.every(absolute)) {
+    return { kind, path: paths[0], paths };
+  }
+  const path = argument.replace(/^(["'])(.*)\1$/, "$2").trim();
+  if (!path) return null;
+  return { kind, path };
+
 }
 
 

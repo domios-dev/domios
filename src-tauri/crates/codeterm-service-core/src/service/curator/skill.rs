@@ -1,6 +1,6 @@
 use super::{AuthenticatedPlanCaller, ServiceContext};
-use crate::mem::{MemKind, NewMemItem, SearchQuery};
-use codeterm_blueprint_types::blueprint_memory::curator::{self, Decision, Relation};
+use crate::mem::{MemKind, NewMemItem};
+use codeterm_blueprint_types::blueprint_memory::curator::{self, Decision};
 use codeterm_mem::manager_crud::SaveOutcome;
 
 impl ServiceContext {
@@ -17,7 +17,7 @@ impl ServiceContext {
         {
             return self.mem.save_with_outcome(item, replace);
         }
-        let identity = self.curator_identity(caller)?;
+        let identity = self.authenticate_curator(caller)?;
         if [&item.title, &item.body]
             .into_iter()
             .chain(item.summary.iter())
@@ -60,10 +60,7 @@ impl ServiceContext {
             })
             .map(|task| task.id.clone())
             .collect();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = self.curator_now()?;
         let shape = curator::fingerprint(&item.body);
         let id = self.curator_save_solution(
             &identity,
@@ -72,24 +69,7 @@ impl ServiceContext {
             episodes,
             now,
             |episodes, granted| {
-                let hits = self.mem.search(&SearchQuery {
-                    query: item.title.clone(),
-                    limit: Some(3),
-                    ..Default::default()
-                })?;
-                let relations = hits
-                    .iter()
-                    .map(|hit| {
-                        if hit.item.kind == "skill"
-                            && (hit.item.body == item.body
-                                || self.mem.curator_skill_covers(&hit.item.id, &item.body)?)
-                        {
-                            Ok(Relation::Covers(hit.item.id.clone()))
-                        } else {
-                            Ok(Relation::Conflict(hit.item.id.clone()))
-                        }
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
+                let relations = self.mem.curator_skill_relations(&item)?;
                 let decision = curator::decide(episodes, granted, false, &relations)?;
                 if let Decision::Improve(id) = &decision {
                     if !replace {

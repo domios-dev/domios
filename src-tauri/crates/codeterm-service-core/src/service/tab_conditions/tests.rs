@@ -82,7 +82,7 @@ fn parent_prompt_report_body_includes_parsed_options() {
     let body = super::parent_prompt_report_body("prompt-tab", &asked);
 
     assert!(body.contains("opaque permission question"));
-    assert!(body.contains("codeterm tab respond <option> --tab prompt-tab"));
+    assert!(body.contains("domios tab respond <option> --tab prompt-tab"));
     assert!(body.contains("1. Allow once (value: allow_once)"));
 }
 

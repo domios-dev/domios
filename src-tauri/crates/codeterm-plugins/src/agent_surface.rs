@@ -1,5 +1,5 @@
 //! The agent-facing part of `plugin get`: setup help, the verbs reachable
-//! through `codeterm plugin <id> <verb>`, and the bundled agent guide.
+//! through `domios plugin <id> <verb>`, and the bundled agent guide.
 
 use std::path::Path;
 

@@ -212,7 +212,7 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
         crate::cmd::print::fail(
             1,
             format!(
-                "no paired peer matching '{}'. Run `codeterm mesh peers` to list.",
+                "no paired peer matching '{}'. Run `domios mesh peers` to list.",
                 peer_name
             ),
         );

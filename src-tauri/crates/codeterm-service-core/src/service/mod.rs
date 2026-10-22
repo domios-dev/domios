@@ -44,6 +44,7 @@ pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
 pub mod chat_send_transaction;
 mod close_history;
+pub use close_history::close_inventory_error_data;
 pub mod codex_rpc;
 mod command_port_impl;
 pub mod context_feed;
@@ -85,6 +86,8 @@ pub mod notification;
 mod notification_desktop;
 pub(crate) mod notification_push;
 mod paired_planner;
+pub mod role_policy;
+mod tab_input_policy;
 pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
 pub(crate) mod orchestrator;
 pub mod ordered_actions;
@@ -371,7 +374,7 @@ pub struct ServiceContext {
     pub pty_ownership: pty_ownership::PtyOwnership,
     // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
-    // codeterm cron complete / mem worker report itself.
+    // domios cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
     /// Orchestrator-side view of remote (cross-mesh) workers, populated from
     /// inbound mesh reports. Drives the "remote Tab" ghost nodes in the UI.

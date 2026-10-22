@@ -54,8 +54,8 @@ fn fixture_client_identity(digest: String) -> codeterm_types::server_bootstrap::
     {
         let _ = digest;
         codeterm_types::server_bootstrap::ClientIdentity::MacosDesignatedRequirement {
-            requirement: r#"anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "ABCDE12345""#.into(),
-            team_id: "ABCDE12345".into(), identifier: "com.codeterm.app".into(),
+            requirement: r#"anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "ABCDE12345""#.into(),
+            team_id: "ABCDE12345".into(), identifier: "com.domios.app".into(),
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -67,7 +67,7 @@ fn fixture_client_identity(digest: String) -> codeterm_types::server_bootstrap::
 fn server_fixture(path: PathBuf, bytes: &[u8]) -> (ServerComponentManifest, ServerReady) {
     #[cfg(target_os = "macos")]
     let path = {
-        let contents = path.parent().unwrap().join("CodeTerm.app/Contents");
+        let contents = path.parent().unwrap().join("Domios.app/Contents");
         fs::create_dir_all(contents.join("MacOS")).unwrap();
         fs::create_dir_all(contents.join("Resources")).unwrap();
         contents.join("MacOS/domios-server")

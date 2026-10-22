@@ -10,15 +10,15 @@ Task execution attempts are append-only history on `Task.execution_attempts`. Th
 |--------|------|--------------|-------------|
 | GET | `/api/plans/{id}/tasks/{tid}/attempts` | — | List execution attempts recorded for one task |
 | GET | `/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}` | — | Show one attempt by stable attempt id, including derived report command, derived prompt, and last report summary when present |
-| POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `codeterm agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
+| POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `domios agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
 
 Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). Mutating dispatch requires known provider-allowance telemetry at or above `provider_reserve_pct` (default 5); a stale snapshot emits a warning but uses its last known reserve value instead of deadlocking dispatch. This preflight runs before lane provisioning or task mutation. An interrupted mutating attempt projects `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
 
-`POST /api/plans/{id}/tasks/{tid}/adopt-checkpoint` adopts the sealed checkpoint for the nonce-authenticated Worker named by the Domios identity headers. The equivalent CLI command is `codeterm plan task adopt-checkpoint <plan> <task>`. Successful adoption increments `owner_epoch`, creates a fresh `awaiting_worker_ack` attempt, and fences prior owner sessions.
+`POST /api/plans/{id}/tasks/{tid}/adopt-checkpoint` adopts the sealed checkpoint for the nonce-authenticated Worker named by the Domios identity headers. The equivalent CLI command is `domios plan task adopt-checkpoint <plan> <task>`. Successful adoption increments `owner_epoch`, creates a fresh `awaiting_worker_ack` attempt, and fences prior owner sessions.
 
 ## Team-bound plan creation
 
-An orchestrator's first plan creation is atomic: its response includes `plan.team_id`, top-level `team_id`, and `team_minted`. When `team_minted` is true, `_hints` includes `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION`. The `mux-state-changed` snapshot includes the Team registry in `teams` and each tab's `team_id`; committed plan mutations also emit `plan-changed`. A Team with an active plan refuses a second plan with the unchanged `team_already_has_active_plan` error.
+An orchestrator's first plan creation is atomic: its response includes `plan.team_id`, top-level `team_id`, and `team_minted`. When `team_minted` is true, `_hints` includes `domios team rename <team_id> <name>` and `domios docs ORCHESTRATION`. The `mux-state-changed` snapshot includes the Team registry in `teams` and each tab's `team_id`; committed plan mutations also emit `plan-changed`. A Team with an active plan refuses a second plan with the unchanged `team_already_has_active_plan` error.
 
 ## Team-bound plan activation and transfer
 
@@ -28,7 +28,7 @@ Every active plan must reference exactly one live Team, and a live Team may have
 
 ## Team staffing and Orchestrator recovery (POST /api/teams/{team_id}/members)
 
-`{provider, role, title?, task?, brief?, model?}` adds one member to an existing Team; `role` is `worker`, `planner`, `orchestrator`, or `cartographer`. Supply either `task` or `brief`, never both. This endpoint, the UI add-member action, the socket `team.add_member` verb, and `codeterm agent spawn <provider> --team <id> --role Orchestrator` are one service path. `codeterm team attach-cartographer <team> --provider <provider> [--model <model>] [--brief-file <path>]` uses that same path; `-` reads stdin verbatim.
+`{provider, role, title?, task?, brief?, model?}` adds one member to an existing Team; `role` is `worker`, `planner`, `orchestrator`, or `cartographer`. Supply either `task` or `brief`, never both. This endpoint, the UI add-member action, the socket `team.add_member` verb, and `domios agent spawn <provider> --team <id> --role Orchestrator` are one service path. `domios team attach-cartographer <team> --provider <provider> [--model <model>] [--brief-file <path>]` uses that same path; `-` reads stdin verbatim.
 
 A Team may have one optional Cartographer Manager. The first attachment spawns a tab with the built-in `cartographer` role kind and delivers the supplied brief as its launch task. Repeated attachments return the same `tab_id` with `reused: true` and deliver the brief to that tab without creating another; a send refusal fails the request. It is a non-anchoring Manager without Team-management, plan, or spawn authority. Team close removes the Cartographer tab and its Team binding with every other member; the default Orchestrator/Planner pair does not include one unless explicitly attached.
 
@@ -38,10 +38,10 @@ A Team holds **at most one live Orchestrator**, enforced as a headcount of live 
 
 ## Move a running tab into a Team
 
-`codeterm team adopt-agent <team> <tab>` attaches a running roleless agent or a plain shell to a Team you belong to. A shell joins the Team's utility shells and keeps its process (for example a dev server); describe it with `codeterm tab describe`.
+`domios team adopt-agent <team> <tab>` attaches a running roleless agent or a plain shell to a Team you belong to. A shell joins the Team's utility shells and keeps its process (for example a dev server); describe it with `domios tab describe`.
 
 ## Close Team (POST /api/teams/{team_id}/close)
 
 Closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, finalizes open attempts and lanes, deletes Team crons, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team. Ordinary tab closes keep the Team record; the one automatic exception is a pair-minted startup lease, whose forming, empty, fully owned Team is reaped once its two reserved launch attempts are gone. A present `X-CodeTerm-Tab-Id` header must identify the Team's Orchestrator or planner-profile Manager. With no caller tab header, a confirmed human sends `{force: true, confirm: "<team_id>"}` after the close dialog; the service logs this as `human-attributed (headerless, confirmed)`. Missing or mismatched confirmation is refused as Unattributed and logged. Unauthorized callers return `403`, and an unknown or already closed Team returns structured `404`. A busy Team (task `in_progress` or Worker working) returns `409` unless `force_busy: true`; plans with unfinished tasks stay active and flagged, never archived: see ORCHESTRATION-OPERATIONS.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

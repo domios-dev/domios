@@ -38,7 +38,7 @@ fn wake_steps(snapshot: &Snapshot, mut worker_steps: Vec<String>) -> Vec<String>
     steps.append(&mut worker_steps);
     steps.extend(snapshot.actionable_tasks.iter().map(|id| {
         format!(
-            "inspect actionable task {id} with codeterm plan state {} and choose its next action",
+            "inspect actionable task {id} with domios plan state {} and choose its next action",
             snapshot.plan_id
         )
     }));

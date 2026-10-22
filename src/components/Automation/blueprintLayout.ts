@@ -1,5 +1,5 @@
 import type { Box, Point } from "../Canvas/layout";
-import { computeFitTransform, type ViewportTransform } from "../Canvas/useCanvasViewport";
+import { computeFitTransform, type ViewportTransform } from "@codeterm/canvas-camera";
 import type { BlueprintModel, BlueprintNode, BlueprintPin, BlueprintWire } from "./blueprintModel";
 
 import { blueprintNodeKinds } from "./blueprintKinds";

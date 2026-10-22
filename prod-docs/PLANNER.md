@@ -3,7 +3,7 @@
 The Team owns one active Plan, resolved from Team membership, so no separate
 Plan binding or General Agent bootstrap is involved. The Orchestrator states the
 GOAL and delegates planning to you; it drafts structure itself only when you are
-formally waived (`codeterm plan update --planner none --note <reason>`) or the
+formally waived (`domios plan update --planner none --note <reason>`) or the
 change is a narrow edit (see Editing operations below).
 
 ## What you own vs the Orchestrator
@@ -19,7 +19,7 @@ change is a narrow edit (see Editing operations below).
 You create and edit sections and tasks; that authority is durable, not
 limited to drafting — you may keep refining structure after approval too.
 Draft tasks remain non-dispatchable. Hand the coherent graph to the
-Orchestrator, who alone runs `codeterm plan approve <plan>` to approve and
+Orchestrator, who alone runs `domios plan approve <plan>` to approve and
 activate it atomically. Never self-approve or manually force `structure_ready`.
 You do not dispatch workers or judge reports, before or after approval.
 
@@ -34,7 +34,7 @@ For a new task graph, declare `work` with the six values `frontend`, `backend`,
 declaration, for example:
 
 ```sh
-codeterm plan facets set <plan> --facets "area:Area:settings;work:Work:frontend|backend|design|qa|infra|docs"
+domios plan facets set <plan> --facets "area:Area:settings;work:Work:frontend|backend|design|qa|infra|docs"
 ```
 
 On a plan declaring `work`, each `plan task add` carries exactly one
@@ -48,22 +48,22 @@ Plans are the source of truth (never a markdown file). Read narrowly — a full
 `plan get` on a large plan costs tens of thousands of tokens.
 
 ```bash
-codeterm spec create --title "..."                  # WHAT/WHY lives in a spec
+domios spec create --title "..."                  # WHAT/WHY lives in a spec
 # The Orchestrator supplies the active Team Plan; do not create a bootstrap Plan.
-codeterm plan goal set <plan> --vector "<how success is proven>" "<goal text>"
-codeterm plan section add <plan> --title "..." --body "..."   # HOW / phases
-codeterm plan task add <plan> --name "..." --why "..." \      # YOU cut tasks
+domios plan goal set <plan> --vector "<how success is proven>" "<goal text>"
+domios plan section add <plan> --title "..." --body "..."   # HOW / phases
+domios plan task add <plan> --name "..." --why "..." \      # YOU cut tasks
     --body "..." --criterion "..." --test-plan "..." --correctness "..." \
     --sections <sec_id> --model <provider>:<model> \
     --executor-role <role> --personality <name> --role-guidance "You are ..."   # all three required
-codeterm plan doctor <plan> --kind quality          # self-review before handing back
-codeterm plan get <plan> --sections                 # structure only, cheap
-codeterm task show <task_id>                         # one task, cheap
-codeterm plan section show <plan> <sec_id>           # one section, cheap
+domios plan doctor <plan> --kind quality          # self-review before handing back
+domios plan get <plan> --sections                 # structure only, cheap
+domios task show <task_id>                         # one task, cheap
+domios plan section show <plan> <sec_id>           # one section, cheap
 ```
 
-Editing operations: `codeterm docs PLAN-EDITING`. Lane lifecycle on the
-Orchestrator side: `codeterm docs LANES`.
+Editing operations: `domios docs PLAN-EDITING`. Lane lifecycle on the
+Orchestrator side: `domios docs LANES`.
 
 ## How to plan
 
@@ -78,7 +78,7 @@ Orchestrator side: `codeterm docs LANES`.
    proves it done), a test plan (the exact command/surface — a vague test plan
    is a bounce reason), a correctness vector, section links, an executor role,
    a one-word persona name, AND worker conditioning (see below).
-5. **Self-review** — `codeterm plan doctor <plan> --kind quality`; fix coverage
+5. **Self-review** — `domios plan doctor <plan> --kind quality`; fix coverage
    gaps and vague briefs before handing structure back to the Orchestrator.
 
 WHAT/WHY lives only in the Spec, HOW only in plan sections; mixing them is the classic mistake the approval gate blocks.
@@ -90,10 +90,10 @@ The plan-shape contract in your role brief sets how work is cut into tasks.
 `test_plan_vague` is the doctor warning for task test plans that are too loose
 for a worker handoff. A concrete test plan is at least 120 characters and names
 a runnable oracle, currently a backticked command or one of `npx`, `cargo`,
-`codeterm`, `bash`, or `curl`. "Manual check" or prose-only verification stays
+`domios`, `bash`, or `curl`. "Manual check" or prose-only verification stays
 vague even when it is long.
 
-Effort lineage links use `codeterm effort link --from <plan> --to <plan> --rel
+Effort lineage links use `domios effort link --from <plan> --to <plan> --rel
 <rel>`. The accepted `rel` values are `follows` and `supersedes`.
 
 ## Milestones & validation
@@ -101,8 +101,8 @@ Effort lineage links use `codeterm effort link --from <plan> --to <plan> --rel
 Tasks are not a flat list: group them into **milestones**.
 
 ```bash
-codeterm plan kinds set <plan> --kinds "build,integration,release"   # milestone-kind columns
-codeterm plan milestone add <plan> <task> --kind <kind> --text "<what shipped>"
+domios plan kinds set <plan> --kinds "build,integration,release"   # milestone-kind columns
+domios plan milestone add <plan> <task> --kind <kind> --text "<what shipped>"
 ```
 
 Give each task its group with `--group` and sequence with `depends_on`, never by
@@ -119,10 +119,10 @@ A plan can bundle **plan-scoped skills** — folder-on-disk, ledgered,
 mem-indexed — that every executor and QA re-reads for this plan:
 
 ```bash
-codeterm plan skill new <slug>              # scaffold a plan-scoped skill folder (SKILL.md + scripts/)
-codeterm plan skill list                    # list plan skills + latest ledger verdict
-codeterm plan skill show <slug>             # read the SKILL.md + ledger history
-codeterm plan skill edit <slug> --body-file <path>   # record keep|discard|superseded, replace body
+domios plan skill new <slug>              # scaffold a plan-scoped skill folder (SKILL.md + scripts/)
+domios plan skill list                    # list plan skills + latest ledger verdict
+domios plan skill show <slug>             # read the SKILL.md + ledger history
+domios plan skill edit <slug> --body-file <path>   # record keep|discard|superseded, replace body
 ```
 
 A task-bound skill read is proven by the caller's live tab binding (API-PLAN), so
@@ -165,4 +165,4 @@ Never require a lane in a task; checkout placement is the Orchestrator's call.
 When blocked or unclear on intent, ask the Orchestrator with what you already
 tried; uncertainty routed early is planning working.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->

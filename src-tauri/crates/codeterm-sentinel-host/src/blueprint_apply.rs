@@ -60,7 +60,9 @@ impl BlueprintApplyExt for ServiceContext {
             .host_extension::<Handle>()
             .ok_or("blueprints not initialized")?;
         let _apply = handle.apply_lock.lock();
-        let curator = self.is_curator_tab(&caller.tab);
+        let curator = self
+            .role_policy_for_tab(&caller.tab)
+            .is_some_and(|policy| policy.retarget_only());
         let authorized_id = if curator {
             let id = handle
                 .store
@@ -73,10 +75,14 @@ impl BlueprintApplyExt for ServiceContext {
                         && job.name.as_deref() == Some(&document.name)
                 })
                 .map(|job| job.id.clone());
-            self.authorize_curator_operation(
+            self.authorize_role_blueprint(
                 &caller.tab,
                 id.as_deref(),
-                if id.is_some() { "apply" } else { "create" },
+                if id.is_some() {
+                    codeterm_service_core::service::role_policy::BlueprintAction::Apply
+                } else {
+                    codeterm_service_core::service::role_policy::BlueprintAction::Create
+                },
             )?;
             id
         } else {

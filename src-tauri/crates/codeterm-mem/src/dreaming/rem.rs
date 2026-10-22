@@ -6,7 +6,7 @@ use rusqlite::params;
 use crate::MemManager;
 
 /// Prepare data for the REM agent — returns a text summary of candidates.
-/// Called by `codeterm mem dream --report` so the agent gets concrete data.
+/// Called by `domios mem dream --report` so the agent gets concrete data.
 pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     let blueprint_merges = mem.dream_blueprints()?;
     let conn = mem.conn();
@@ -255,9 +255,9 @@ pub const DREAMING_TELEGRAM_STEP_ENABLED: &str = r#"Then push the INSIGHT (only 
 telegram so the vault talks back. OK if it errors — the diary in mem
 is the durable artifact:
 
-    codeterm mem search "telegram chat id" --limit 1
+    domios mem search "telegram chat id" --limit 1
     # extract the chat id, then:
-    codeterm bridge send --to <chat_id> --service telegram \
+    domios bridge send --to <chat_id> --service telegram \
       "🧠 Dreamer brief\n\n<just the insight, no <insight> tags, no log>"
     # If no fact found or bridge errors, skip — telegram is nice-to-have."#;
 

@@ -1168,8 +1168,8 @@ mod tests {
     }
 }
 
-pub(crate) fn launch_input_frame_prefix(
+pub(crate) fn launch_requires_bracketed_paste(
     composer: crate::agent::provider::ComposerCursorPosition,
-) -> Option<&'static str> {
-    (composer == crate::agent::provider::ComposerCursorPosition::PromptLine).then_some("")
+) -> bool {
+    composer == crate::agent::provider::ComposerCursorPosition::PromptLine
 }

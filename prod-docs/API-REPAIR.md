@@ -1,8 +1,8 @@
 # Tab Identity Repair
 
-REST contract for `POST /api/tabs/{id}/repair`, the verb behind `codeterm tab repair`.
+REST contract for `POST /api/tabs/{id}/repair`, the verb behind `domios tab repair`.
 
-`codeterm tab repair` corrects a live PTY tab without restarting it. An empty
+`domios tab repair` corrects a live PTY tab without restarting it. An empty
 request or `{"from_evidence":true}` verifies the tab's bound session and unique
 provider record, then corrects the provider label and clears its parser lock.
 `{"provider":"codex"}` adds an assertion that must match that evidence;
@@ -31,4 +31,4 @@ sources. Missing session proof is refused with
 `tab_repair_verified_session_required`; a caller outside the self/plan-owner
 authority set is refused with `tab_repair_not_authorized`.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

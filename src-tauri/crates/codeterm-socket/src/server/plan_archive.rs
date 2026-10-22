@@ -23,7 +23,7 @@ pub(super) fn retrospective_nudge(plan: &codeterm_service_core::plan::Plan) -> O
             plan.id
         ),
         format!(
-            "codeterm plan retrospective {} --body-file <pad-relative-path>",
+            "domios plan retrospective {} --body-file <pad-relative-path>",
             plan.id
         ),
     ))

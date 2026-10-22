@@ -10,7 +10,7 @@ import { HEADLESS_TARGETS, headlessAssetNames } from '../headless-release-packag
 const tag = 'v9.9.9';
 const sourceSha = 'a'.repeat(40);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-const dmgName = platform => `CodeTerm_9.9.9_${platform.endsWith('aarch64') ? 'aarch64' : 'x64'}.dmg`;
+const dmgName = platform => `Domios_9.9.9_${platform.endsWith('aarch64') ? 'aarch64' : 'x64'}.dmg`;
 
 async function fixture() {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'local-updater-fixture-'));
@@ -26,10 +26,10 @@ async function fixture() {
     const payload = payloadDirectory(platform);
     await mkdir(payload, { recursive: true });
     const names = platform.startsWith('darwin-')
-      ? [`CodeTerm_9.9.9_${platform.endsWith('aarch64') ? 'aarch64' : 'x64'}.app.tar.gz`]
-      : platform.startsWith('windows-') ? [`CodeTerm_9.9.9_${platform.endsWith('aarch64') ? 'arm64' : 'x64'}-setup.exe`]
-        : [`CodeTerm_9.9.9_${platform.endsWith('aarch64') ? 'aarch64' : 'amd64'}.AppImage`,
-          `CodeTerm_9.9.9_${platform.endsWith('aarch64') ? 'arm64' : 'amd64'}.deb`];
+      ? [`Domios_9.9.9_${platform.endsWith('aarch64') ? 'aarch64' : 'x64'}.app.tar.gz`]
+      : platform.startsWith('windows-') ? [`Domios_9.9.9_${platform.endsWith('aarch64') ? 'arm64' : 'x64'}-setup.exe`]
+        : [`Domios_9.9.9_${platform.endsWith('aarch64') ? 'aarch64' : 'amd64'}.AppImage`,
+          `Domios_9.9.9_${platform.endsWith('aarch64') ? 'arm64' : 'amd64'}.deb`];
     for (const name of names) {
       const bytes = Buffer.from('synthetic artifact ' + name);
       await writeFile(path.join(payload, name), bytes);
@@ -59,9 +59,9 @@ test('local dry-run uses original signed bytes across all six platforms and refu
     const result = await aggregate(args);
     assert.equal(result.mode, 'local_dry_run');
     assert.deepEqual(result.platforms, PLATFORMS);
-    const main = JSON.parse(await readFile(path.join(outputDirectory, 'latest.json'), 'utf8'));
+    const main = JSON.parse(await readFile(path.join(outputDirectory, 'domios-latest.json'), 'utf8'));
     assert.deepEqual(Object.keys(main.platforms).sort(), PLATFORMS);
-    const deb = JSON.parse(await readFile(path.join(outputDirectory, 'latest-deb.json'), 'utf8'));
+    const deb = JSON.parse(await readFile(path.join(outputDirectory, 'domios-latest-deb.json'), 'utf8'));
     assert.deepEqual(Object.keys(deb.platforms).sort(), ['linux-aarch64', 'linux-x86_64']);
 
     const receiptPath = path.join(inputDirectory, 'darwin-aarch64', 'dry-run-evidence.json');
@@ -69,7 +69,7 @@ test('local dry-run uses original signed bytes across all six platforms and refu
     await writeFile(receiptPath, JSON.stringify({ ...receipt, source_sha: 'b'.repeat(40) }));
     await assert.rejects(aggregate(args), /foreign dry-run/);
     await writeFile(receiptPath, JSON.stringify(receipt));
-    const archive = path.join(inputDirectory, 'darwin-aarch64', 'CodeTerm_aarch64.app.tar.gz');
+    const archive = path.join(inputDirectory, 'darwin-aarch64', 'Domios_aarch64.app.tar.gz');
     const original = await readFile(archive);
     await writeFile(archive, 'rebuilt');
     await assert.rejects(aggregate(args), /digest mismatch/);
@@ -83,7 +83,7 @@ test('local dry-run uses original signed bytes across all six platforms and refu
     await writeFile(receiptPath, JSON.stringify(receipt));
     await rm(path.join(inputDirectory, 'windows-aarch64'), { recursive: true });
     await assert.rejects(aggregate(args), /ENOENT/);
-    assert.equal((await readFile(path.join(outputDirectory, 'latest.json'), 'utf8')), JSON.stringify(main, null, 2) + '\n');
+    assert.equal((await readFile(path.join(outputDirectory, 'domios-latest.json'), 'utf8')), JSON.stringify(main, null, 2) + '\n');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -114,7 +114,7 @@ test('capture refuses a missing DMG or headless checksum', async () => {
   const { directory, payloadDirectory, captureOne } = await fixture();
   try {
     await rm(path.join(payloadDirectory('darwin-x86_64'), dmgName('darwin-x86_64')));
-    await assert.rejects(captureOne('darwin-x86_64'), /expected one darwin-x86_64 artifact CodeTerm_9\.9\.9_x64\.dmg; found 0/);
+    await assert.rejects(captureOne('darwin-x86_64'), /expected one darwin-x86_64 artifact Domios_9\.9\.9_x64\.dmg; found 0/);
     await rm(path.join(payloadDirectory('linux-aarch64'), headlessAssetNames(tag, 'linux-aarch64').checksum));
     await assert.rejects(captureOne('linux-aarch64'), /ENOENT/);
   } finally { await rm(directory, { recursive: true, force: true }); }
@@ -127,7 +127,7 @@ test('aggregate refuses a changed DMG or headless byte and a DMG missing from th
     const dmg = path.join(inputDirectory, 'darwin-aarch64', dmgName('darwin-aarch64'));
     const dmgBytes = await readFile(dmg);
     await writeFile(dmg, Buffer.concat([dmgBytes.subarray(0, -1), Buffer.from('!')]));
-    await assert.rejects(aggregate(args), /digest mismatch: CodeTerm_9\.9\.9_aarch64\.dmg/);
+    await assert.rejects(aggregate(args), /digest mismatch: Domios_9\.9\.9_aarch64\.dmg/);
     await writeFile(dmg, dmgBytes);
 
     const headless = headlessAssetNames(tag, 'windows-x86_64');

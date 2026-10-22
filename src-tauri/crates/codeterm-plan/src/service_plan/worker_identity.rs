@@ -3,7 +3,7 @@ use crate::plan::Task;
 pub use codeterm_types::plan::{task_executor_name, validate_executor_name};
 
 pub const WORKER_IDENTITY_END: &str = "<!-- codeterm-worker-identity-end -->";
-pub const WORKER_ACK_INSTRUCTION: &str = "Highest-priority startup action: run codeterm agent ack before any work. If it is refused or fails, send the exact error to your parent once and continue the assigned work; never retry it in a loop.";
+pub const WORKER_ACK_INSTRUCTION: &str = "Highest-priority startup action: run domios agent ack before any work. If it is refused or fails, send the exact error to your parent once and continue the assigned work; never retry it in a loop.";
 
 fn trimmed(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())

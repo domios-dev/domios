@@ -38,26 +38,27 @@ pub(super) fn consume(
         .agent_registry
         .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
         .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-    let launch_frame_prefix = svc
+    let force_bracketed_paste = svc
         .agent_registry
         .with_provider(&agent_cmd, |provider| {
-            crate::service::launch_delivery::launch_input_frame_prefix(
+            crate::service::launch_delivery::launch_requires_bracketed_paste(
                 provider.composer_cursor_position(),
             )
         })
-        .flatten();
+        .unwrap_or(false);
     let consumption = delivery_gate.consume_injection_with_readiness(
         &svc.mux,
         tab_id,
         svc,
         launch_input_readiness,
         || {
-            crate::service::pty_io::submit_transaction::submit_text_with_key_claimed_and_frame(
+            crate::service::pty_io::submit_transaction::submit_text_with_key_claimed(
                 svc,
                 pty_id,
-                &spec.payload,
-                launch_frame_prefix,
-                None,
+                &crate::service::messenger::AgentInput::Launch(
+                    crate::service::messenger::LaunchBootstrap::new(&spec.payload),
+                ),
+                force_bracketed_paste,
                 None,
                 true,
                 b"\r",
@@ -90,7 +91,10 @@ pub(super) fn consume(
         Ok(receipt) => Ok(receipt.outcome == LaunchConsumptionOutcome::AlreadyConfirmed),
         Err(error) if error.surfaces_as_launch_failure() => Err(error.to_string()),
         Err(error) => {
-            log::warn!("[launch-delivery] tab={tab_id} pty={pty_id} state={} bytes_written=true; pending evidence retained", error.delivery.code());
+            log::warn!(
+                "[launch-delivery] tab={tab_id} pty={pty_id} state={} bytes_written=true; pending evidence retained",
+                error.delivery.code()
+            );
             Ok(false)
         }
     }

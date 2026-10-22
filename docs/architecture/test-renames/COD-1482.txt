@@ -1,0 +1,1 @@
+pty::manager::tests::shell_job_policy_requires_team_dev_and_excludes_agents -> pty::manager::tests::shell_job_policy_requires_team_build_qa_or_dev_and_excludes_agents

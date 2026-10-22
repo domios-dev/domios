@@ -79,7 +79,7 @@ pub fn adopt_orphaned_plan_action(plan_id: &str, reason: &str) -> NextAction {
         kind: NextActionKind::AdoptPlan,
         task_id: None,
         loop_id: None,
-        message: format!("{reason}: codeterm team adopt-plan <team-id> {plan_id}"),
+        message: format!("{reason}: domios team adopt-plan <team-id> {plan_id}"),
     }
 }
 
@@ -108,7 +108,7 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
                 };
                 let message = if lane.qa_state == Some(QaState::Queued) {
                     format!(
-                        "claim QA {} ({}) with `codeterm plan qa next {} --claim --note \"<scope>\"`",
+                        "claim QA {} ({}) with `domios plan qa next {} --claim --note \"<scope>\"`",
                         lane.task_id, lane.name, s.plan_id
                     )
                 } else {

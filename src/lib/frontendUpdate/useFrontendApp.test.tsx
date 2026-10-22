@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { frontendSignals } from "./appState";
 import { useFrontendApp, type FrontendSelection } from "./useFrontendApp";
-import { DeferredLoader } from "../../components/shared/DeferredLoader";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 import { loadClientPageSelection, saveClientPageSelection } from "../clientPageSelection";
 
 const rootRendered = vi.hoisted(() => vi.fn());

@@ -15,6 +15,23 @@ function messages(text: string): NormalizedChatMessage[] {
 }
 
 describe("composer background work", () => {
+  it("subscribes to PTY provider roster changes without transcript or runtime support", async () => {
+    let current = { tabs: { tab: { id: "tab", agent_session_id: "own" } } } as unknown as ExtendedState;
+    const mux = createMuxStateStore(() => current);
+    let work!: ReturnType<typeof useComposerBackgroundWork>;
+    function Probe() { work = useComposerBackgroundWork("tab", false, false, []); return null; }
+    const root = createRoot(document.createElement("div"));
+    try {
+      await act(async () => root.render(<MuxStateStoreContext.Provider value={mux}><Probe /></MuxStateStoreContext.Provider>));
+      expect(work.items).toHaveLength(0);
+      current = { ...current, tabs: { tab: { ...current.tabs.tab, provider_signals: { auth: null, api_error: null, permission_mode: null, background: { running: { child: "Inspect source" }, overflow: false, history_incomplete: false, history_initialized: true } } } } };
+      await act(async () => mux.notify());
+      expect(work.items.map(item => item.threadId)).toEqual(["child"]);
+      current = { ...current, tabs: { tab: { ...current.tabs.tab, provider_signals: undefined } } };
+      await act(async () => mux.notify());
+      expect(work.items).toHaveLength(0);
+    } finally { await act(async () => root.unmount()); }
+  });
   it("keeps one value while transcript renders leave the work unchanged", async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const values: Array<ReturnType<typeof useComposerBackgroundWork>> = [];

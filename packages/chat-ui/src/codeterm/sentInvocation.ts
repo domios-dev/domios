@@ -5,10 +5,10 @@ import type { CodetermInvocation } from "./recognize";
  *  bubble rather than authoring a second sent-message shape. */
 export function sentInvocation(tabId: string, body: string): CodetermInvocation {
   return {
-    binary: "codeterm",
+    binary: "domios",
     path: ["send"],
     flags: { tab: tabId },
     positionals: [body],
-    raw: `codeterm send --tab ${tabId}`,
+    raw: `domios send --tab ${tabId}`,
   };
 }

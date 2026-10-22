@@ -21,7 +21,7 @@ pub struct AuthenticatedPlanCaller {
 pub enum PlanAuthorityError {
     PlanNotFound,
     /// Live same-tab, same-session caller holding a pre-relaunch lineage nonce.
-    /// Recoverable via `codeterm plan rebind` without a full agent restart.
+    /// Recoverable via `domios plan rebind` without a full agent restart.
     BindingStaleAfterRelaunch,
     /// No live binding proof: absent tab, dead/rebound session, wrong session,
     /// or a nonce with no lineage to this tab. A genuinely foreign caller lands
@@ -63,11 +63,11 @@ impl PlanAuthorityError {
         match self {
             Self::PlanNotFound => "plan not found",
             Self::BindingStaleAfterRelaunch => {
-                "the live bound planning session is required; its binding nonce is stale after a relaunch — re-sync with `codeterm plan rebind <plan>`"
+                "the live bound planning session is required; its binding nonce is stale after a relaunch — re-sync with `domios plan rebind <plan>`"
             }
             Self::BindingForeign => "the live bound planning session is required",
             Self::SessionUnregistered => {
-                "no agent session is registered for this tab — the provider reports one through its integration hook and none arrived. Establish the binding from this tab with `codeterm plan rebind <plan>`, then repair the integration so the next session registers itself."
+                "no agent session is registered for this tab — the provider reports one through its integration hook and none arrived. Establish the binding from this tab with `domios plan rebind <plan>`, then repair the integration so the next session registers itself."
             }
             Self::SessionBindingPending => {
                 "the plan write waited for this launch's session-binding event until its deadline; retry after this tab's session binding is registered"
@@ -280,29 +280,20 @@ impl ServiceContext {
         now_ms: u64,
     ) -> Result<crate::service::plan::heartbeat::HeartbeatLearnResult, OrchestratorLearningError>
     {
-        if caller
+        if let Some(policy) = caller
             .tab_id
             .as_deref()
-            .is_some_and(|tab| self.is_curator_tab(tab))
+            .and_then(|tab| self.role_policy_for_tab(tab))
         {
-            let identity = self
-                .curator_identity(caller)
+            let (owner_tab, owner_session) = policy
+                .learning_owner(self, caller, plan_id, tag)
                 .map_err(OrchestratorLearningError::Authority)?;
-            if identity.plan_id != plan_id || !matches!(tag, Some("curator" | "curator:next")) {
-                return Err(OrchestratorLearningError::Authority(
-                    "Curator learnings require this round's plan and curator tag".into(),
-                ));
-            }
-            let plan = self
-                .plan_store
-                .get(plan_id)
-                .ok_or_else(|| OrchestratorLearningError::Authority("plan absent".into()))?;
             return self
                 .plan_store
                 .add_heartbeat_learning(
                     Some(plan_id),
-                    plan.owner.tab_id.as_deref(),
-                    plan.owner.session_id.as_deref(),
+                    owner_tab.as_deref(),
+                    owner_session.as_deref(),
                     text,
                     tag,
                     now_ms,

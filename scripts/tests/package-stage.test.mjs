@@ -47,7 +47,7 @@ test('Windows stages the pair from the compiled client and bundles NSIS without 
   assert.deepEqual(stage('x86_64-pc-windows-msvc'), [
     'prefix <pnpm>',
     'pnpm <tauri> <build> <--no-bundle>',
-    stageFull('x86_64-pc-windows-msvc', '/fixture/target/release/domios.exe'),
+    stageFull('x86_64-pc-windows-msvc', '/fixture/target/release/domios-app.exe'),
     'prefix <pnpm>',
     'pnpm <tauri> <bundle> <--no-binary-patching> <--bundles> <nsis>',
   ]);
@@ -57,7 +57,7 @@ test('macOS compiles without the sidecar stub and assembles the signed pair app 
   assert.deepEqual(stage('aarch64-apple-darwin'), [
     'prefix <pnpm>',
     'pnpm <tauri> <build> <--no-bundle> <--config> <{"bundle":{"externalBin":[]}}>',
-    stageFull('aarch64-apple-darwin', '/fixture/target/release/domios'),
+    stageFull('aarch64-apple-darwin', '/fixture/target/release/domios-app'),
     'prefix <node>',
     'node <scripts/release-macos-bundle.mjs> <aarch64-apple-darwin>',
   ]);
@@ -67,7 +67,7 @@ test('Linux compiles without pair resources and bundles the release package form
   assert.deepEqual(stage('x86_64-unknown-linux-gnu'), [
     'prefix <pnpm>',
     'pnpm <tauri> <build> <--no-bundle> <--config> <{"bundle":{"resources":[],"externalBin":[]}}>',
-    stageFull('x86_64-unknown-linux-gnu', '/fixture/target/release/domios'),
+    stageFull('x86_64-unknown-linux-gnu', '/fixture/target/release/domios-app'),
     'prefix <pnpm>',
     'pnpm <tauri> <bundle> <--no-binary-patching> <--bundles> <deb,appimage>',
   ]);
@@ -77,7 +77,7 @@ test('an explicit cross target and release features reach every stage command', 
   const calls = stage('aarch64-apple-darwin', { CARGO_BUILD_TARGET: 'x86_64-apple-darwin', CODETERM_RELEASE_FEATURES: 'fixture' });
   assert.equal(calls[1], 'pnpm <tauri> <build> <--no-bundle> <--target> <x86_64-apple-darwin> <--features> <fixture> ' +
     '<--config> <{"bundle":{"externalBin":[]}}>');
-  assert.equal(calls[2], stageFull('x86_64-apple-darwin', '/fixture/target/x86_64-apple-darwin/release/domios'));
+  assert.equal(calls[2], stageFull('x86_64-apple-darwin', '/fixture/target/x86_64-apple-darwin/release/domios-app'));
   assert.equal(calls[4], 'node <scripts/release-macos-bundle.mjs> <x86_64-apple-darwin>');
 });
 
@@ -155,7 +155,7 @@ function build(host, args) {
   assert.ok(buildEntrypoint);
   const target = mkdtempSync(path.join(os.tmpdir(), 'domios-package-stage-'));
   try {
-    const extension = { windows: 'CodeTerm_0.0.0_x64-setup.exe', macos: 'CodeTerm_0.0.0_aarch64.dmg', linux: 'CodeTerm_0.0.0_amd64.deb' };
+    const extension = { windows: 'Domios_0.0.0_x64-setup.exe', macos: 'Domios_0.0.0_aarch64.dmg', linux: 'Domios_0.0.0_amd64.deb' };
     const platform = host.includes('windows') ? 'windows' : host.includes('darwin') ? 'macos' : 'linux';
     mkdirSync(path.join(target, 'release', 'bundle', 'pkg'), { recursive: true });
     writeFileSync(path.join(target, 'release', 'bundle', 'pkg', extension[platform]), 'fixture package');
@@ -191,7 +191,7 @@ test('macOS build signs locally, stages like release CI, notarizes and names the
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.lines, [
     'source', 'mac-signing <1>', 'target', 'prepare <bundle> <1>', 'stage <ct_with_firebase_build_config>',
-    'notarize </release/bundle>', 'Local package ready: <target>/release/bundle/pkg/CodeTerm_0.0.0_aarch64.dmg',
+    'notarize </release/bundle>', 'Local package ready: <target>/release/bundle/pkg/Domios_0.0.0_aarch64.dmg',
     'Install with: codeterm update install --from-file <package>',
   ]);
 });
@@ -203,7 +203,7 @@ test('macOS build skips notarization only by explicit flag', () => {
   assert.ok(!result.lines.some(line => line.startsWith('notarize')));
 });
 
-for (const [host, name] of [['x86_64-pc-windows-msvc', 'CodeTerm_0.0.0_x64-setup.exe'], ['x86_64-unknown-linux-gnu', 'CodeTerm_0.0.0_amd64.deb']]) {
+for (const [host, name] of [['x86_64-pc-windows-msvc', 'Domios_0.0.0_x64-setup.exe'], ['x86_64-unknown-linux-gnu', 'Domios_0.0.0_amd64.deb']]) {
   test(`${host} build loads the updater key and stages like release CI`, () => {
     const result = build(host, '');
     assert.equal(result.status, 0, result.stderr);

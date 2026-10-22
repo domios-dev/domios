@@ -95,7 +95,7 @@ pub(crate) fn status_lines(id: &str, status: &serde_json::Value) -> Vec<String> 
             let mut lines = vec![format!("WARNING: {id}: CLI `{binary}` is missing")];
             if let Some(command) = status.get("installer").and_then(|v| v.as_str()) {
                 lines.push(format!("Install command: {command}"));
-                lines.push(format!("fix: codeterm agent cli install {id}"));
+                lines.push(format!("fix: domios agent cli install {id}"));
             } else {
                 lines.push(
                     "WARNING: No installer declared for this OS; install the CLI manually.".into(),
@@ -180,7 +180,7 @@ mod tests {
         );
         assert_eq!(lines.len(), 3);
         assert!(lines[1].ends_with("opaque --install 'token'"));
-        assert!(lines[2].ends_with("codeterm agent cli install fixture"));
+        assert!(lines[2].ends_with("domios agent cli install fixture"));
     }
     #[test]
     fn no_cli_and_unknown_do_not_report_missing() {

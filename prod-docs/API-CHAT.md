@@ -15,7 +15,7 @@ Both routes exist as distinct handlers; choosing is route selection.
 
 `POST .../send` carries user text, mesh relays, service push-token writes, and low-level `actions` / `raw` / `batch` input. User text sent while a provider dialog is classified waits in the durable user-send queue until a PTY state change makes delivery safe; agent and programmatic text use the delivery outbox the same way. A failure serializes the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`, `pty_unavailable`, `submit_unconfirmed`).
 
-Local `codeterm send` uses socket `tab.send_text`: `OK (sent)` after a confirmed write, `OK (pending)` when the route accepted background work or wrote bytes without submit confirmation, a refusal when no bytes were written. A substituted send names its recipient inbox file as `pad_file`; human output prints the path and multi-target JSON reports `pad_files`. With `--json`, `delivery` and any `bytes_written` field carry the same distinction for one target; multi-target JSON includes `pending_written` for accepted writes that still lack submit confirmation. The resolved payload echo is emitted for confirmed delivery or a pending write.
+Local `domios send` uses socket `tab.send_text`: `OK (sent)` after a confirmed write, `OK (pending)` when the route accepted background work or wrote bytes without submit confirmation, a refusal when no bytes were written. A substituted send names its recipient inbox file as `pad_file`; human output prints the path and multi-target JSON reports `pad_files`. With `--json`, `delivery` and any `bytes_written` field carry the same distinction for one target; multi-target JSON includes `pending_written` for accepted writes that still lack submit confirmation. The resolved payload echo is emitted for confirmed delivery or a pending write.
 
 `POST .../chat-send` is the Chat UI user turn. A PTY tab without agent identity is refused before the send transaction so prose never reaches a bare shell. Accepted sends open a ledger entry for later reconciliation; `GET .../chat-send` reads it, `state` one of `accepted`, `unknown`, `confirmed`, `failed`.
 
@@ -24,7 +24,7 @@ Runtime-tab sends retain a Chat send ledger entry. A possible handoff returns
 not permission to replay. `GET .../chat-send` reconciles the receipt against exact
 own-session evidence. Other programmatic transports do not open this ledger entry.
 
-Neither route promises the recipient *answered*. Replies come through the sender's return-address channel (`codeterm send --tab ID [--mesh PEER]`, or `codeterm agent report` for a Worker). The recipient's visible terminal text is never a delivery signal.
+Neither route promises the recipient *answered*. Replies come through the sender's return-address channel (`domios send --tab ID [--mesh PEER]`, or `domios agent report` for a Worker). The recipient's visible terminal text is never a delivery signal.
 
 ### Transcript and send route index
 
@@ -77,4 +77,4 @@ Backfill accepts `offset_kind` (`bytes` or `items`) alongside `before_offset`; p
 
 A transcript read that starts after its source's first record begins with a gap row: `type: "system"`, `systemSubtype: "history_gap"`, `timelineMarker: {kind: "history_gap", source, session_id, before_offset}` with `source` `provider_session` (an archived context epoch) or `chat_backend` (a chat-backend log). `POST /api/tabs/{id}/chat-raw/history` with `{source, session_id, before_offset}` returns `{messages}`: the older page ending at that offset, led by a new gap row while older records remain. The session must be the Tab's own chat-backend session or one of its archived epochs; any other session is refused with 409.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

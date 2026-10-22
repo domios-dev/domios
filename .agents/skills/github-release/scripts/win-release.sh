@@ -65,6 +65,6 @@ echo "=== upload ===" >&2
 report_ready "WINDOWS_READY=$VER" "sig=$SIG" <<EOF
 Windows release v$VER built, signed, and uploaded to both rollacode/codeterm
 (private) and rollacode/codeterm-releases (mirror). Signature is the full
-.nsis.zip.sig contents base64-encoded — drop directly into latest.json under
+.nsis.zip.sig contents base64-encoded — drop directly into domios-latest.json under
 platforms.windows-x86_64.signature.
 EOF

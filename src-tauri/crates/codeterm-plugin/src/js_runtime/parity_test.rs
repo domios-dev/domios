@@ -1024,7 +1024,7 @@ fn routed_paste_instruction_capability_native_js_parity() {
         .expect("native provider declares paste handling");
 
     assert_eq!(claude.paste_capability(), Some(capability.clone()));
-    assert!(capability.requires_typed_instruction_for_routed_messages);
+    assert!(capability.marks_routed_messages);
     assert_eq!(load_js("codex").paste_capability(), None);
     assert_eq!(load_js("opencode").paste_capability(), None);
 }

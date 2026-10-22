@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
-import { collectChangedFiles, formatChangedFiles } from '../format-changed.mjs';
+import { argumentBatches, biomeCommand, defaultBase, collectChangedFiles, formatChangedFiles } from '../format-changed.mjs';
 
 const temporaryDirectories = [];
 
@@ -51,7 +51,7 @@ test('selects committed, staged, unstaged and untracked files while skipping del
   write(root, 'vendor/new.ts');
   write(root, 'target/new.ts');
 
-  assert.deepEqual(collectChangedFiles(root), [
+  assert.deepEqual(collectChangedFiles(root, 'develop'), [
     'committed.ts', 'staged.ts', 'unstaged.ts', 'untracked.ts',
   ]);
 });
@@ -73,8 +73,45 @@ test('formats a changed Rust file with its package edition', () => {
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'changed Rust source');
 
-  const result = formatChangedFiles(root);
+  const result = formatChangedFiles(root, 'develop');
   assert.deepEqual(result.rustFiles, ['src-tauri/src/lib.rs']);
   assert.deepEqual(result.biomeFiles, []);
   assert.match(readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8'), /pub fn answer\(\) -> u32 \{\n    42\n\}/);
+});
+
+test('batches quoted Windows paths within the budget without losing order', () => {
+  const files = Array.from({ length: 700 }, (_, i) => `src/path with spaces/quoted-"${i}.tsx`);
+  const prefix = ['node.exe', 'C:/long path/biome', 'check'];
+  const batches = argumentBatches(files, prefix, 1000);
+  assert.ok(batches.length > 20);
+  assert.deepEqual(batches.flat(), files);
+  for (const batch of batches) assert.ok([...prefix, ...batch].reduce((n, s) => n + s.length * 2 + 3, 1) <= 1000);
+  assert.throws(() => argumentBatches(['x'.repeat(1000)], prefix, 1000), /exceeds command-line budget/);
+});
+
+test('missing Biome names the lane and gives an installation hint', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'fmt-no-biome-'));
+  temporaryDirectories.push(root);
+  assert.throws(() => biomeCommand(root), error => error.message.includes(root) && error.message.includes('pnpm install --frozen-lockfile'));
+});
+
+test('default base follows canonical HEAD instead of a stale remote', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'fmt-canonical-'));
+  temporaryDirectories.push(root);
+  git(root, 'init', '-b', 'develop');
+  git(root, 'config', 'user.name', 'Fixture');
+  git(root, 'config', 'user.email', 'fixture@example.invalid');
+  write(root, 'base.txt');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'base');
+  git(root, 'branch', 'origin/develop');
+  write(root, 'canonical.ts');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'canonical advance');
+  const lane = path.join(root, 'lane');
+  git(root, 'worktree', 'add', '-b', 'lane-work', lane);
+  assert.deepEqual(collectChangedFiles(lane, defaultBase(lane, {})), []);
+  assert.equal(defaultBase(lane, { CODETERM_LANE_BASE: 'explicit-fixture' }), 'explicit-fixture');
+  write(lane, 'own.ts');
+  assert.deepEqual(collectChangedFiles(lane, defaultBase(lane, {})), ['own.ts']);
 });

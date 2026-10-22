@@ -26,6 +26,7 @@ export interface FloatingPosition {
 export interface FloatingSpacing {
   margin?: number;
   gap?: number;
+  keepSide?: boolean;
 }
 
 /** Below this much room on either side a popover may overlap its anchor rather than shrink to nothing. */
@@ -40,7 +41,7 @@ export function anchoredPopoverPosition(
   size: { width: number; height: number },
   viewport: FloatingViewport,
   placement: FloatingPlacement = "bottom-start",
-  { margin = 8, gap = 4 }: FloatingSpacing = {},
+  { margin = 8, gap = 4, keepSide = false }: FloatingSpacing = {},
 ): FloatingPosition {
   const leftEdge = (viewport.offsetLeft ?? 0) + margin;
   const topEdge = (viewport.offsetTop ?? 0) + margin;
@@ -54,10 +55,11 @@ export function anchoredPopoverPosition(
   const preferred = placement.startsWith("top") ? "top" : "bottom";
   const preferredRoom = preferred === "top" ? aboveRoom : belowRoom;
   const otherRoom = preferred === "top" ? belowRoom : aboveRoom;
-  const side = preferredRoom >= size.height || preferredRoom >= otherRoom
+  const constrainSide = keepSide && preferredRoom >= MIN_USEFUL_HEIGHT;
+  const side = constrainSide || preferredRoom >= size.height || preferredRoom >= otherRoom
     ? preferred
     : preferred === "top" ? "bottom" : "top";
-  const room = Math.max(side === preferred ? preferredRoom : otherRoom, Math.min(size.height, MIN_USEFUL_HEIGHT));
+  const room = constrainSide ? preferredRoom : Math.max(side === preferred ? preferredRoom : otherRoom, Math.min(size.height, MIN_USEFUL_HEIGHT));
   const maxHeight = Math.max(0, Math.min(size.height, room, screenHeight));
   const anchoredTop = side === "top" ? anchor.top - gap - maxHeight : anchor.bottom + gap;
   const top = Math.max(topEdge, Math.min(anchoredTop, bottomEdge - maxHeight));

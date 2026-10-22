@@ -101,6 +101,11 @@ def trim(root, directory, paths, dry_run=False):
             raise ValueError(f'refusing trim path: {target}')
     with contextlib.ExitStack() as stack:
         try:
+            if shared:
+                lane_lock = directory / '.domios-lane-check.lock'
+                with lane_lock.open('ab'):
+                    pass
+                stack.enter_context(cargo_lock(lane_lock))
             for lock in sorted(directory.glob('*/.cargo-lock')):
                 stack.enter_context(cargo_lock(lock))
         except OSError as error:

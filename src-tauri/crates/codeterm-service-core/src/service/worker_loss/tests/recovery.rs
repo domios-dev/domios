@@ -89,7 +89,7 @@ fn tab_gone_notice_advised_respawn_succeeds_once_and_refuses_replay() {
         .unwrap();
     assert!(loss.recovery.contains(&replacement));
     assert!(loss.recovery.contains("next"));
-    assert!(!loss.recovery.contains("codeterm plan task respawn"));
+    assert!(!loss.recovery.contains("domios plan task respawn"));
 }
 
 #[test]
@@ -202,5 +202,5 @@ fn delayed_loss_notice_names_live_replacement_without_advising_respawn() {
     assert_eq!(*route, LossRoute::Delivered);
     assert!(loss.notice_text().contains(&replacement));
     assert!(loss.notice_text().contains("next"));
-    assert!(!loss.notice_text().contains("codeterm plan task respawn"));
+    assert!(!loss.notice_text().contains("domios plan task respawn"));
 }

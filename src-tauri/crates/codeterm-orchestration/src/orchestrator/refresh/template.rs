@@ -8,7 +8,7 @@ pub const HANDOFF_REQUEST: &str = "\
 Refresh starting — snapshot BEFORE compaction. Record a HANDOFF stride capturing \
 only the in-head delta not already in plan state: current_focus, in-flight lanes \
 + their expected next events, unjudged reports, and any promises made to the user. \
-Run `codeterm orchestrator handoff --plan {plan_id}` (or `codeterm plan record \
+Run `domios orchestrator handoff --plan {plan_id}` (or `domios plan record \
 {plan_id} --step handoff:<summary>`). Do this now; refresh waits for it.";
 
 /// S4 — the fixed re-orient template injected AFTER compaction settles. The
@@ -16,9 +16,9 @@ Run `codeterm orchestrator handoff --plan {plan_id}` (or `codeterm plan record \
 /// mem-preferences block owned by task_5939a153 — do NOT build that block here.
 pub const REORIENT: &str = "\
 Refresh complete. Re-orient before resuming:
-(1) `codeterm plan state {plan_id}` — re-read the live frontier.
-(2) Read your latest HANDOFF stride (`codeterm plan handoff show {plan_id} --latest --markdown`).
-(3) If role rules feel fuzzy: `codeterm docs ORCHESTRATION`.
+(1) `domios plan state {plan_id}` — re-read the live frontier.
+(2) Read your latest HANDOFF stride (`domios plan handoff show {plan_id} --latest --markdown`).
+(3) If role rules feel fuzzy: `domios docs ORCHESTRATION`.
 (4) Re-derive the frontier and set current_focus.
 <<MEM_PREFERENCES>>
 Resume work now.";
@@ -39,8 +39,8 @@ mod tests {
     #[test]
     fn render_fills_plan_id_everywhere() {
         let out = render(REORIENT, "pl_42");
-        assert!(out.contains("codeterm plan state pl_42"));
-        assert!(out.contains("codeterm plan handoff show pl_42"));
+        assert!(out.contains("domios plan state pl_42"));
+        assert!(out.contains("domios plan handoff show pl_42"));
         assert!(!out.contains("{plan_id}"));
     }
 

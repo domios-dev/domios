@@ -21,6 +21,7 @@ fn send_every_maps_recurrence_through_mesh() {
         count: Some(3),
         require_agent: false,
         to_shell: false,
+        system_context: None,
     };
     let (method, path, body) = cli_command_to_api(&cmd);
     let after = std::time::SystemTime::now()

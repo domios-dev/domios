@@ -25,18 +25,18 @@ pub(crate) fn deliver_host_turn_for_session(
     provider: &dyn ChatBackendProvider,
     plugin_id: &str,
     session_id: &str,
-    text: &str,
+    input: &crate::service::messenger::AgentInput,
 ) -> Result<(), String> {
     deliver_host_turn(
         provider,
         session_id,
         &chatbackend_history::session_path(plugin_id, session_id),
         &chatbackend_history::context_sidecar_path(plugin_id, session_id),
-        text,
+        &input.text(),
     )
 }
 
-pub(crate) fn deliver_host_turn(
+fn deliver_host_turn(
     provider: &dyn ChatBackendProvider,
     session_id: &str,
     mirror: &Path,

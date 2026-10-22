@@ -5,11 +5,26 @@ description: Safely audit and remove completed or abandoned Domios lane worktree
 
 # Lane Cleanup
 
-For Plan-wide cleanup, preview with `codeterm plan lanes <plan> --clean`, then
+For Plan-wide cleanup, preview with `domios plan lanes <plan> --clean`, then
 execute with `--confirm`. The live Plan Orchestrator may run this from a Team
 utility shell it created. Keep the shell's own tab id and launch nonce; never
 copy the parent's session or binding. The daemon checks recorded ownership and
 the live Plan owner. Dirty, unmerged and occupied lanes remain protected.
+
+The preview also inventories unregistered residue under the lane root. Confirm
+removes only artifact directories without `.git` or tracked source, and checks
+registration and live holders again immediately before deletion. Unknown content
+stays protected. Removal unlinks reparse points without following their targets,
+uses extended Windows paths, verifies absence and reports exact failed paths
+with Windows holder evidence when available.
+
+Acceptance defers cleanup while the Worker is live and retries when it closes.
+Clean merged lanes lose their worktree and branch (`git branch -d`). Cancellation
+may remove a clean unmerged worktree while retaining its branch for recovery.
+Dirty lanes stay intact; reminders retain cleanup debt and its exact command.
+`build.sh gc` trims expired lane `target`, `src-tauri/target` and `cli/target`
+outputs using the configured build-cache retention, protecting recent artifacts,
+tracked content and the calling checkout.
 
 Use the bundled PowerShell script from the canonical checkout:
 
@@ -46,5 +61,5 @@ record task cleanup as done. Use `-PlanId` and `-TaskId` to let the script recor
 that state automatically.
 
 When you do not already know which tab owns the lane, prefer the daemon-side verb
-`codeterm plan lane-remove <worktree> --branch <branch>`: it names the live tab
+`domios plan lane-remove <worktree> --branch <branch>`: it names the live tab
 holding the directory and refuses before anything is deleted.

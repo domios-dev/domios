@@ -610,7 +610,7 @@ impl ServiceContext {
                     ) {
                         notices.push(format!(
                             "plan milestone relay to peer '{}' failed — check mesh pairing with \
-                             `codeterm mesh status`, then retry: {}",
+                             `domios mesh status`, then retry: {}",
                             peer, e
                         ));
                     }
@@ -628,7 +628,7 @@ impl ServiceContext {
                     notices.push(format!(
                         "plan '{}' is not active on this machine and no mesh homing peer is \
                          configured; milestone NOT recorded — spawn this worker via \
-                         `codeterm agent spawn --mesh <peer>` so the report homes to the \
+                         `domios agent spawn --mesh <peer>` so the report homes to the \
                          plan's owning machine",
                         h_plan
                     ));
@@ -965,7 +965,7 @@ impl ServiceContext {
         let preview = answer_text.chars().take(160).collect::<String>();
         let text = format!(
             "[gate answered: {gate_id}] Answer: {preview}\n\
-             Unblocked tasks are now pending. Review with: codeterm plan state {plan_id}"
+             Unblocked tasks are now pending. Review with: domios plan state {plan_id}"
         );
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
         let _ = self.gateway_deliver(
@@ -1001,7 +1001,7 @@ impl ServiceContext {
         };
         let Some(client) = client else {
             return Err(format!(
-                "peer '{}' is not paired — run `codeterm mesh status` to check connectivity, \
+                "peer '{}' is not paired — run `domios mesh status` to check connectivity, \
                  then retry",
                 peer
             ));

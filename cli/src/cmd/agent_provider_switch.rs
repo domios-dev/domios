@@ -34,7 +34,7 @@ pub(crate) fn run(
     if json {
         crate::cmd::print::print_json(&result);
     } else {
-        println!("Accepted provider switch {} for tab {}. Read: codeterm agent switch-provider-status {} --tab {}", result["operation_id"].as_str().unwrap(), tab, result["operation_id"].as_str().unwrap(), tab);
+        println!("Accepted provider switch {} for tab {}. Read: domios agent switch-provider-status {} --tab {}", result["operation_id"].as_str().unwrap(), tab, result["operation_id"].as_str().unwrap(), tab);
     }
 }
 

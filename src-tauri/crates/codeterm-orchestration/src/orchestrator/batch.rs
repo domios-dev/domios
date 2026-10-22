@@ -68,9 +68,29 @@ fn batch_send(
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
     if enter {
-        svc.send_text_detached(&tab_id, &text);
+        svc.send_text_detached(
+            &tab_id,
+            &codeterm_service_core::service::messenger::AgentInput::Framed(
+                codeterm_service_core::service::messenger::Messenger::from(
+                    codeterm_service_core::service::messenger::MessageEnvelope::codeterm_reminder(
+                        "plan",
+                    ),
+                )
+                .framed_delivery(&text),
+            ),
+        );
     } else {
-        svc.insert_text_detached(&tab_id, &text);
+        svc.insert_text_detached(
+            &tab_id,
+            &codeterm_service_core::service::messenger::AgentInput::Framed(
+                codeterm_service_core::service::messenger::Messenger::from(
+                    codeterm_service_core::service::messenger::MessageEnvelope::codeterm_reminder(
+                        "plan",
+                    ),
+                )
+                .framed_delivery(&text),
+            ),
+        );
     }
     Ok(serde_json::json!({"ok": true}))
 }

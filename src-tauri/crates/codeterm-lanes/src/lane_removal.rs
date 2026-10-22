@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -39,256 +38,12 @@ pub enum CleanupStatusDoneError {
     Verification(String),
 }
 
-const MAX_LANE_WALK_ENTRIES: usize = 100_000;
-const MAX_LANE_WALK_DEPTH: usize = 256;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LinkRemovalKind {
-    Directory,
-    File,
-}
-
-fn link_removal_kind(
-    is_symlink: bool,
-    metadata_is_directory: bool,
-    windows_directory_attribute: bool,
-) -> Option<LinkRemovalKind> {
-    if !is_symlink {
-        None
-    } else if metadata_is_directory || windows_directory_attribute {
-        Some(LinkRemovalKind::Directory)
-    } else {
-        Some(LinkRemovalKind::File)
-    }
-}
-
-pub(crate) fn remove_lane_links(path: &Path) -> Result<(), String> {
-    remove_lane_links_except(path, HashSet::new())
-}
-
-fn remove_lane_links_except(path: &Path, preserved: HashSet<PathBuf>) -> Result<(), String> {
-    let path = path.to_path_buf();
-    std::thread::Builder::new()
-        .name("lane-link-cleanup".into())
-        .spawn(move || remove_lane_links_blocking(&path, &preserved))
-        .map_err(|error| format!("cannot start lane link scan: {error}"))?
-        .join()
-        .map_err(|_| "lane link scan thread panicked".to_string())?
-}
-
 fn refuse_linked_lane_path(path: &Path) -> Result<(), String> {
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .map_err(|error| format!("cannot inspect lane path '{}': {error}", path.display()))?
-            .join(path)
-    };
-    let mut current = PathBuf::new();
-    for component in absolute.components() {
-        current.push(component.as_os_str());
-        match std::fs::symlink_metadata(&current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(format!(
-                    "lane removal refused: path component '{}' is a symlink or reparse point",
-                    current.display()
-                ));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
-            Err(error) => {
-                return Err(format!(
-                    "cannot inspect lane path component '{}': {error}",
-                    current.display()
-                ))
-            }
-        }
-    }
-    Ok(())
-}
-
-fn remove_lane_links_blocking(path: &Path, preserved: &HashSet<PathBuf>) -> Result<(), String> {
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(format!(
-                "cannot inspect lane path '{}': {error}",
-                path.display()
-            ))
-        }
-    };
-    if metadata.file_type().is_symlink() {
-        return remove_link(path, &metadata);
-    }
-    if !metadata.is_dir() {
-        return Ok(());
-    }
-    let mut pending = vec![(path.to_path_buf(), 0usize)];
-    let mut visited = 0usize;
-    while let Some((directory, depth)) = pending.pop() {
-        if depth > MAX_LANE_WALK_DEPTH {
-            return Err(format!(
-                "lane link scan exceeded depth at '{}'",
-                directory.display()
-            ));
-        }
-        let entries = std::fs::read_dir(&directory).map_err(|error| {
-            format!(
-                "cannot scan lane directory '{}': {error}",
-                directory.display()
-            )
-        })?;
-        for entry in entries {
-            visited += 1;
-            if visited > MAX_LANE_WALK_ENTRIES {
-                return Err(format!(
-                    "lane link scan exceeded {MAX_LANE_WALK_ENTRIES} entries at '{}'",
-                    directory.display()
-                ));
-            }
-            let entry = entry.map_err(|error| {
-                format!(
-                    "cannot inspect lane entry in '{}': {error}",
-                    directory.display()
-                )
-            })?;
-            let child = entry.path();
-            let metadata = std::fs::symlink_metadata(&child).map_err(|error| {
-                format!("cannot inspect lane entry '{}': {error}", child.display())
-            })?;
-            if metadata.file_type().is_symlink() {
-                if !preserved.contains(&child) {
-                    remove_link(&child, &metadata)?;
-                }
-            } else if metadata.is_dir() {
-                pending.push((child, depth + 1));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn remove_link(path: &Path, metadata: &std::fs::Metadata) -> Result<(), String> {
-    let kind = link_removal_kind(
-        metadata.file_type().is_symlink(),
-        metadata.is_dir(),
-        windows_directory_attribute(metadata),
-    )
-    .ok_or_else(|| {
-        format!(
-            "lane entry '{}' is not a symlink or reparse point",
-            path.display()
-        )
-    })?;
-    clear_readonly_link_attribute(path, metadata)?;
-    let result = match kind {
-        LinkRemovalKind::Directory => std::fs::remove_dir(path),
-        LinkRemovalKind::File => std::fs::remove_file(path),
-    };
-    result.map_err(|error| {
-        format!(
-            "cannot unlink lane reparse point or symlink '{}': {error}",
-            path.display()
-        )
-    })
-}
-
-#[cfg(windows)]
-fn windows_directory_attribute(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-
-    metadata.file_attributes() & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY
-        != 0
-}
-
-#[cfg(not(windows))]
-fn windows_directory_attribute(_: &std::fs::Metadata) -> bool {
-    false
-}
-
-#[cfg(windows)]
-fn clear_readonly_link_attribute(path: &Path, metadata: &std::fs::Metadata) -> Result<(), String> {
-    use std::os::windows::fs::MetadataExt;
-    use std::os::windows::fs::OpenOptionsExt;
-    use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Storage::FileSystem::{
-        FileBasicInfo, SetFileInformationByHandle, FILE_ATTRIBUTE_READONLY, FILE_BASIC_INFO,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
-        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES,
-    };
-
-    let attributes = metadata.file_attributes();
-    if attributes & FILE_ATTRIBUTE_READONLY == 0 {
-        return Ok(());
-    }
-    let handle = std::fs::OpenOptions::new()
-        .access_mode(FILE_WRITE_ATTRIBUTES)
-        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)
-        .map_err(|error| {
-            format!(
-                "cannot open lane reparse point '{}' to clear read-only: {error}",
-                path.display()
-            )
-        })?;
-    let info = FILE_BASIC_INFO {
-        FileAttributes: attributes & !FILE_ATTRIBUTE_READONLY,
-        ..Default::default()
-    };
-    let succeeded = unsafe {
-        SetFileInformationByHandle(
-            handle.as_raw_handle() as _,
-            FileBasicInfo,
-            (&info as *const FILE_BASIC_INFO).cast(),
-            std::mem::size_of::<FILE_BASIC_INFO>() as u32,
-        )
-    };
-    if succeeded == 0 {
-        return Err(format!(
-            "cannot clear read-only attribute on lane reparse point '{}': {}",
-            path.display(),
-            std::io::Error::last_os_error()
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(not(windows))]
-fn clear_readonly_link_attribute(_: &Path, _: &std::fs::Metadata) -> Result<(), String> {
-    Ok(())
+    codeterm_util::safe_tree::refuse_linked_ancestors(path)
 }
 
 pub(crate) fn remove_lane_residue(path: &Path) -> Result<(), String> {
-    remove_lane_links(path)?;
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => remove_link(path, &metadata)?,
-        Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(path).map_err(|error| {
-            format!(
-                "cannot remove lane leftovers at '{}': {error}",
-                path.display()
-            )
-        })?,
-        Ok(_) => std::fs::remove_file(path).map_err(|error| {
-            format!("cannot remove lane leftover '{}': {error}", path.display())
-        })?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(format!(
-                "cannot inspect lane leftovers '{}': {error}",
-                path.display()
-            ))
-        }
-    }
-    match std::fs::symlink_metadata(path) {
-        Ok(_) => Err(format!("lane leftovers remain at '{}'", path.display())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!(
-            "cannot verify lane leftovers at '{}': {error}",
-            path.display()
-        )),
-    }
+    codeterm_util::safe_tree::remove(path)
 }
 
 pub(crate) fn remove_lane_worktree(
@@ -296,45 +51,8 @@ pub(crate) fn remove_lane_worktree(
     worktree_path: &str,
     force: bool,
 ) -> Result<(), String> {
-    let path = Path::new(worktree_path);
-    refuse_linked_lane_path(path)?;
-    if force {
-        remove_lane_links(path)?;
-    } else {
-        let index = git_output(worktree_path, ["ls-files", "--stage", "-z"])?;
-        if !index.status.success() {
-            return Err(format!(
-                "cannot inspect tracked lane links: {}",
-                String::from_utf8_lossy(&index.stderr).trim()
-            ));
-        }
-        let mut preserved = HashSet::new();
-        for entry in index
-            .stdout
-            .split(|byte| *byte == 0)
-            .filter(|entry| entry.starts_with(b"120000 "))
-        {
-            let name = entry
-                .splitn(2, |byte| *byte == b'\t')
-                .nth(1)
-                .ok_or_else(|| "cannot parse tracked lane link".to_string())?;
-            let name = std::str::from_utf8(name)
-                .map_err(|_| "tracked lane link has a non-UTF-8 name".to_string())?;
-            preserved.insert(path.join(name));
-        }
-        remove_lane_links_except(path, preserved)?;
-    }
-    if force {
-        run_git(
-            canonical_cwd,
-            ["worktree", "remove", "--force", worktree_path],
-        )
-        .map_err(|error| format!("lane removal failed for '{worktree_path}': {error}"))?;
-    } else {
-        run_git(canonical_cwd, ["worktree", "remove", worktree_path])
-            .map_err(|error| format!("lane removal failed for '{worktree_path}': {error}"))?;
-    }
-    remove_lane_residue(path)
+    codeterm_util::worktree_cleanup::remove(canonical_cwd, worktree_path, force)
+        .map_err(|error| format!("lane removal failed for '{worktree_path}': {error}"))
 }
 
 pub fn recorded_lane_remnant(
@@ -403,7 +121,7 @@ pub(crate) fn holder_refusal(worktree_path: &str, holder: &LiveTabCwd) -> String
     format!(
         "✗ lane removal refused: tab '{title}' ({id}) is live with its shell in '{cwd}', \
 inside the lane worktree '{worktree_path}', so that directory is still in use. Nothing was removed.\n\
-close that tab first, then run the removal again:\n  codeterm tab close --tab {id}",
+close that tab first, then run the removal again:\n  domios tab close --tab {id}",
         title = holder.title,
         id = holder.id,
         cwd = holder.cwd,
@@ -413,6 +131,24 @@ close that tab first, then run the removal again:\n  codeterm tab close --tab {i
 pub fn remove_lane(
     request: &LaneRemovalRequest,
     live_tabs: &[LiveTabCwd],
+) -> Result<LaneRemovalOutcome, String> {
+    remove_lane_with_policy(request, live_tabs, false)
+}
+
+pub fn remove_cancelled_worktree(
+    request: &LaneRemovalRequest,
+    live_tabs: &[LiveTabCwd],
+) -> Result<LaneRemovalOutcome, String> {
+    if request.branch.is_some() || request.force {
+        return Err("cancelled cleanup must retain the branch and protect dirty worktrees".into());
+    }
+    remove_lane_with_policy(request, live_tabs, true)
+}
+
+fn remove_lane_with_policy(
+    request: &LaneRemovalRequest,
+    live_tabs: &[LiveTabCwd],
+    cancelled: bool,
 ) -> Result<LaneRemovalOutcome, String> {
     let worktree = strip_verbatim(request.worktree_path.trim());
     let worktree = worktree.as_str();
@@ -473,6 +209,22 @@ pub fn remove_lane(
         if !registered {
             return Err(format!(
                 "lane path '{worktree}' still exists but is not registered as a Git worktree; nothing was removed"
+            ));
+        }
+        if !cancelled {
+            let tip = git_value(&canonical, ["rev-parse", "HEAD"])?;
+            let ancestry = git_output(
+                worktree,
+                ["merge-base", "--is-ancestor", "HEAD", tip.as_str()],
+            )?;
+            if !ancestry.status.success() {
+                return Err(format!("lane '{worktree}' has commits not merged into canonical '{canonical}'; worktree retained"));
+            }
+        }
+        let status = git_output(worktree, ["status", "--porcelain", "--untracked-files=all"])?;
+        if !status.status.success() || !status.stdout.is_empty() {
+            return Err(format!(
+                "lane removal failed for '{worktree}': dirty or unreadable lane protected"
             ));
         }
         remove_lane_worktree(&canonical, worktree, request.force)?;
@@ -693,7 +445,7 @@ pub fn lane_remove_command(
     canonical_cwd: &str,
 ) -> String {
     let mut command = format!(
-        "codeterm plan lane-remove {}",
+        "domios plan lane-remove {}",
         shell_quote(&strip_verbatim(worktree_path))
     );
     if let Some(branch) = branch {
@@ -862,7 +614,7 @@ pub fn clear_vanished_lane_on_cleanup_done(
         .map_err(CleanupStatusDoneError::Verification)?;
     if let Some(remnant) = remnant {
         let release = lane_release_command(worktree_path, branch, canonical_cwd)
-            .unwrap_or_else(|| "codeterm plan lane-remove <worktree>".into());
+            .unwrap_or_else(|| "domios plan lane-remove <worktree>".into());
         return Err(CleanupStatusDoneError::Refused(format!(
             "cleanup is not complete: {remnant}. Release the recorded lane with: {release}"
         )));

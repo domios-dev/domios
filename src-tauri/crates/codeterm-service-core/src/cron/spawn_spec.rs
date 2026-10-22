@@ -37,19 +37,19 @@ pub(crate) fn build_cron_spawn_spec(
     chatbackends: &ChatBackendRegistry,
     inputs: CronSpawnInputs,
 ) -> SpawnTabSpec {
-    let curator = inputs.role.as_deref() == Some("curator");
+    let policy = crate::service::role_policy::resolve(inputs.role.as_deref());
     let mut params = SpawnAgentParams {
         agent: Some(inputs.agent.clone()),
         model: inputs.model,
         reasoning_effort: inputs.reasoning_effort,
         task: Some(inputs.task_text),
-        role: if curator {
-            Some("Manager".into())
+        role: if let Some(policy) = policy {
+            Some(policy.spawn_role().into())
         } else {
             inputs.role
         },
-        role_profile: curator.then(|| "curator".into()),
-        parent_tab_id: curator.then(|| inputs.creator_tab_id.clone()).flatten(),
+        role_profile: policy.map(|policy| policy.profile().as_str().into()),
+        parent_tab_id: policy.and_then(|_| inputs.creator_tab_id.clone()),
         // The owner chose this directory when authoring the schedule, so its trust prompt is answered.
         provisioned_cwd: inputs.cwd.clone(),
         cwd: inputs.cwd,
@@ -57,7 +57,11 @@ pub(crate) fn build_cron_spawn_spec(
         team_id: inputs.team_id,
         creator_tab_id: inputs.creator_tab_id.clone(),
         report_target_tab_id: inputs.report_target_tab_id,
-        title: Some(format!("cron:{}", inputs.job_name)),
+        title: Some(if policy.is_some() {
+            "Curator".into()
+        } else {
+            format!("cron:{}", inputs.job_name)
+        }),
         audience: TabAudience::UserOwnedAutomation,
         spawned_by_tab_id: inputs.creator_tab_id.clone(),
         ..Default::default()
@@ -69,8 +73,11 @@ pub(crate) fn build_cron_spawn_spec(
     );
 
     let mut spec = SpawnTabSpec::from_agent_params_with_chatbackends(chatbackends, params);
-    // Cron runs are observed through the run history viewer, never as a live tab.
-    spec.visibility = TabVisibility::Hidden;
+    spec.visibility = if policy.is_some() {
+        TabVisibility::Visible
+    } else {
+        TabVisibility::Hidden
+    };
     if let Some(metadata) = spec.chatbackend_launch.as_mut() {
         metadata.owner_linkage = Some(crate::service::spawn::RuntimeOwnerLinkage::CronRun {
             job_id: inputs.job_id.clone(),

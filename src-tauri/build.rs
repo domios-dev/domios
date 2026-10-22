@@ -67,11 +67,11 @@ fn embed_macos_info_plist() {
     let profile = std::env::var("PROFILE").unwrap_or_default();
     let is_debug = profile == "debug";
     let identifier = if is_debug {
-        "com.codeterm.dev"
+        "com.domios.dev"
     } else {
-        "com.codeterm.app"
+        "com.domios.app"
     };
-    let name = if is_debug { "CodeTerm Dev" } else { "CodeTerm" };
+    let name = if is_debug { "Domios Dev" } else { "Domios" };
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR not set"));
     let plist = out_dir.join("embedded-Info.plist");
     let body = format!(
@@ -86,7 +86,7 @@ fn embed_macos_info_plist() {
   <key>CFBundleName</key>
   <string>{name}</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>CodeTerm records voice notes so they can be attached to chat messages.</string>
+  <string>Domios records voice notes so they can be attached to chat messages.</string>
 </dict>
 </plist>
 "#,

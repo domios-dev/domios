@@ -2,7 +2,7 @@
 //! in-place recovery of a provider that exited to its shell.
 //!
 //! Wraps the manual /exit + resume dance documented in AGENT.md as a single
-//! atomic primitive callable from the CLI (`codeterm agent restart`) and from
+//! atomic primitive callable from the CLI (`domios agent restart`) and from
 //! the self-update flow (`feat/auto-update`) which restarts every agent tab
 //! around binary swap.
 
@@ -35,6 +35,8 @@ pub struct RestartTrackerState {
     in_progress: HashSet<String>,
     command_ptys: HashMap<String, (String, String)>,
     switch_confirmations: HashMap<String, Arc<crate::pty::screen_state::ScreenChangeSignal>>,
+    pending_command_observers:
+        HashMap<String, (String, Arc<crate::pty::screen_state::ScreenChangeSignal>)>,
 }
 
 pub type RestartTracker = Arc<Mutex<RestartTrackerState>>;

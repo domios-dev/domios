@@ -27,7 +27,11 @@ impl SentinelDeleteExt for ServiceContext {
             if !stop {
                 return Err("Curator deletion requires --stop".into());
             }
-            self.authorize_curator_operation(&caller.tab, Some(id), "delete")?
+            self.authorize_role_blueprint(
+                &caller.tab,
+                Some(id),
+                codeterm_service_core::service::role_policy::BlueprintAction::Delete,
+            )?
         } else {
             false
         };

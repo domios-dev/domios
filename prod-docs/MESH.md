@@ -5,7 +5,7 @@
 1. **The account is the only source of new links.** A machine joins the mesh only by linking a machine enrolled in the same account. There is no LAN broadcast, mDNS, UDP beacon, Tailnet-wide scan, manual address pairing, pairing request or introduction.
 2. **Paired is necessary, not sufficient.** Traffic on a paired edge also needs that edge's admission to be open right now (see *Admission and sign-out*).
 3. **AccessLevel** (Full/ReadOnly/AgentIsolated) is per-peer, per-machine and independent of account membership. Each machine decides locally what a peer can do. Default = Full.
-4. **Only explicit removal deletes a pair.** `codeterm mesh disconnect` (local unpair) or an account revoke removes it; sign-out, expiry, outage and account switches never do.
+4. **Only explicit removal deletes a pair.** `domios mesh disconnect` (local unpair) or an account revoke removes it; sign-out, expiry, outage and account switches never do.
 5. **One machine = one mesh.** Cannot be in two meshes simultaneously.
 
 ## Adding a machine
@@ -13,7 +13,7 @@
 Both machines must be signed in to the same account, enrolled, online to the account registry and directly reachable (for example over the same Tailnet). Pick the machine from the account's machine list, or run:
 
 ```bash
-codeterm mesh link <installation-id>
+domios mesh link <installation-id>
 ```
 
 The registry supplies the target's single published endpoint; no address is ever typed. Each side verifies the other's signed membership and installation-key possession over a transcript binding both installations, both Mesh keys, the account and two fresh nonces, then EACH side obtains its own fresh online link authorization. Neither side stores the pair until both authorizations are held, and the other machine needs no human approval. Offline linking has no path: a cached machine list, a cached membership, an old request, a replayed or foreign proof, or a backend-offline participant cannot create a link. A refused free machine slot returns the typed `mesh.machines` refusal with `limit` and `active_count`.
@@ -52,7 +52,7 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 - New links need both machines' fresh online account authorizations bound to one handshake transcript; no other path creates a pair.
 - A changed endpoint is metadata; it never replaces a peer's paired key.
 - Disconnect removes only the local pairing and tombstones that identity locally; it does not cascade through third parties and frees no account machine slot.
-- Only an owner authenticated with the local API token can lift a local revocation with `codeterm mesh unrevoke <instance-id>`; an explicit account link of that machine also lifts it.
+- Only an owner authenticated with the local API token can lift a local revocation with `domios mesh unrevoke <instance-id>`; an explicit account link of that machine also lifts it.
 
 ### Peer access levels
 
@@ -70,7 +70,7 @@ AgentIsolated ownership is stamped from the authenticated signed peer identity w
 Remote ownership remains until the local owner releases it. Closing the controller tab or Team on the remote machine does not currently send a reliable release signal. On the machine hosting the tab, run:
 
 ```bash
-codeterm tab release-ownership --tab <ID>
+domios tab release-ownership --tab <ID>
 ```
 
 The command is local-only and permits the local user/General Agent, the tab itself, or its Team Orchestrator. Once released, the remote peer loses AgentIsolated access to that tab and its `managed by` label disappears.
@@ -101,7 +101,7 @@ The serving browser origin remains its gateway. During an outage an already-load
 
 `plan`, `spec`, `task`, `effort`, and `team` accept `--mesh PEER`. The CLI resolves files and stdin locally, then sends the resulting content through the signed mesh RPC endpoint to the peer's in-process plan dispatcher. Implicit local Tab identity and working-directory defaults are not forwarded; explicit project paths refer to the target machine. Mutations require `Full` peer access and carry an idempotency ID.
 
-Mesh RPC requests carry the control-plane `protocol_version` integer. A peer on a newer protocol refuses an older (or versionless) caller with the typed version-skew error (`-32002`, both versions + recovery command), and the relay forwards that error untranslated — see `codeterm docs API-TRANSPORT`.
+Mesh RPC requests carry the control-plane `protocol_version` integer. A peer on a newer protocol refuses an older (or versionless) caller with the typed version-skew error (`-32002`, both versions + recovery command), and the relay forwards that error untranslated — see `domios docs API-TRANSPORT`.
 
 ## Cross-mesh worker reports (spawn + explicit bind)
 
@@ -111,13 +111,13 @@ Mesh RPC requests carry the control-plane `protocol_version` integer. A peer on 
 
 `PEER` accepts a paired instance ID or name. Ambiguous live names are refused; use the instance ID to select one.
 
-ACK and reports accept prior nonces issued to the same tab under its current session, verified by the hosting peer. A missing remote tab or an expired Worker ACK retires the origin attempt. Pending updates, dispatch, and respawn reconcile that state; `codeterm plan task respawn <plan> <task> --attempt <attempt>` dispatches a replacement on the attempt's recorded mesh peer. Lane history stays available for review and cleanup.
+ACK and reports accept prior nonces issued to the same tab under its current session, verified by the hosting peer. A missing remote tab or an expired Worker ACK retires the origin attempt. Pending updates, dispatch, and respawn reconcile that state; `domios plan task respawn <plan> <task> --attempt <attempt>` dispatches a replacement on the attempt's recorded mesh peer. Lane history stays available for review and cleanup.
 
 Models are validated by the peer's catalogue during Worker spawn. Use a qualified route such as `--model provider:model` when that provider is installed only on the peer; the origin preserves that route without consulting its local model catalogue.
 
 The peer requires the same repository identity and base commit, provisions its lane, and binds the Worker to origin plan/task/attempt IDs. Missing repo/base, offline peers, and lost relays are explicit attempt states; failed attempts close so dispatch can retry. The origin checks that the peer advertises `remote_task_dispatch` (`/api/identify` features) before creating an attempt, and an HTTP refusal from the peer is `peer_refused`, not `relay_lost`. ACK/report relays authenticate the Worker peer, attempt, worker tab, and `CODETERM_SESSION_BINDING_NONCE`; they do not require local Plan owner authority or `caller_tab_id`. Both peers must run the same control-plane protocol version. A lost dispatch response triggers one signed lookup for the existing Worker; recovered lane evidence records the spawn, while response loss alone is `relay_lost`, never proof of `peer_offline`.
 
-After origin review accepts the report, run `codeterm plan task merge-remote-lane <plan> <task> <attempt>`. The origin asks that authenticated peer for the bound lane bundle and refuses unless its tip equals the accepted report SHA. Integration requires a clean checkout on the dispatch-time destination branch, verifies the bundle, and creates a real merge commit with ancestry. Cherry-pick and squash are invalid.
+After origin review accepts the report, run `domios plan task merge-remote-lane <plan> <task> <attempt>`. The origin asks that authenticated peer for the bound lane bundle and refuses unless its tip equals the accepted report SHA. Integration requires a clean checkout on the dispatch-time destination branch, verifies the bundle, and creates a real merge commit with ancestry. Cherry-pick and squash are invalid.
 
 Both peers enforce Full access and owner rules. No token, provider credential, secret, or secret-bearing environment enters the task payload.
 
@@ -126,14 +126,14 @@ The general `agent spawn --mesh PEER --role Worker` path remains task-less and d
 1. Spawn the remote Worker so its report target is the mesh peer that owns the plan:
 
    ```bash
-   codeterm agent spawn claude --mesh PEER --role Worker --cwd <peer-workspace-path> --task-file <local-brief-path>
+   domios agent spawn claude --mesh PEER --role Worker --cwd <peer-workspace-path> --task-file <local-brief-path>
    ```
 
    A brief is authored prose, so it travels as a file. `--task "<brief>"` is refused once the text is multiline or over 240 characters: your shell would have expanded it before the CLI ran, and a remote Worker cannot be handed a silently truncated assignment. `--task-file -` with a single-quoted heredoc works the same way.
 
    Mesh spawns require `--cwd` to name a workspace directory on the peer; the peer refuses one that is not an absolute, existing directory there. Git Bash rewrites POSIX arguments such as `/srv/project` into Windows paths before the CLI runs, so pass a POSIX `--cwd` with `MSYS_NO_PATHCONV=1` set. A `--task-file` path is read on the caller machine and its contents are sent; the local path is never sent to the peer.
 
-   This is a **supported task-less Worker shape**, including for work that changes source on the peer: it owns no task because none can exist for it, and it declares no `--execution-intent`. Keep `--role Worker` — that is the field the peer resolves the Worker doctrine from, including the rule that every turn ends in exactly one `codeterm agent report`. A roleless spawn is accepted too and loses that doctrine silently, which on a remote machine means the work never reports home. `--execution-intent mutating` is still refused without a task binding, on the peer's own daemon; the mesh has no binding to give it, so leave the flag off.
+   This is a **supported task-less Worker shape**, including for work that changes source on the peer: it owns no task because none can exist for it, and it declares no `--execution-intent`. Keep `--role Worker` — that is the field the peer resolves the Worker doctrine from, including the rule that every turn ends in exactly one `domios agent report`. A roleless spawn is accepted too and loses that doctrine silently, which on a remote machine means the work never reports home. `--execution-intent mutating` is still refused without a task binding, on the peer's own daemon; the mesh has no binding to give it, so leave the flag off.
 
 The general mesh spawn path remains available for task-less work; it does not participate in the origin task/report/merge lifecycle above.
 
@@ -149,7 +149,7 @@ Recurring delayed-message create and edit operations require `delayed_recurrence
 
 ## Bridge migration
 
-Moving a Telegram bridge between peers (CLI, orchestration steps, secret locality, flags, exit codes): see `codeterm docs MESH-BRIDGE`.
+Moving a Telegram bridge between peers (CLI, orchestration steps, secret locality, flags, exit codes): see `domios docs MESH-BRIDGE`.
 
 ## Mesh-disabled gate (503)
 
@@ -161,10 +161,10 @@ Peer reachability updates automatically and emits `mesh-state-changed`.
 
 ## Related documents
 
-Service registry, health, inventory fields, and peer endpoints: `codeterm docs MESH-SERVICES`.
+Service registry, health, inventory fields, and peer endpoints: `domios docs MESH-SERVICES`.
 
 Mesh inventory is target-authoritative: machine-qualified rows carry provenance and capabilities derived from authenticated access, target policy, and the target route. Cached rows stay inspectable, but stale, offline, partial, denied, or protected mutations stay disabled with their reason. Daemons are registry entries, never controllable processes. Schedule actions appear only when granted. Remote or destructive actions name the target, await and announce its outcome, then refresh; failures never become optimistic local success.
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 55 -->
+<!-- revision: 57 -->

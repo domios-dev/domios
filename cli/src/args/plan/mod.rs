@@ -118,7 +118,7 @@ pub enum PlanAction {
         /// Lane branch to delete after worktree removal, if merged into project HEAD
         #[arg(long, value_name = "BRANCH")]
         branch: Option<String>,
-        /// Force removal, discarding uncommitted and untracked lane content
+        /// Force Git cleanup after cleanliness and ancestry checks; dirty content stays protected
         #[arg(long)]
         force: bool,
         /// Canonical checkout (needed for a missing worktree unless its task identifies the project)
@@ -444,9 +444,11 @@ pub enum PlanAction {
 
 #[derive(Subcommand)]
 pub enum PlanControlLoopAction {
-    Show {
-        plan_id: String,
-    },
+    /// Request one Curator round now, subject to the plan and human-wait gates.
+    Run { plan_id: String },
+    /// Show the plan's control-loop mode and heartbeat interval.
+    Show { plan_id: String },
+    /// Switch the plan between Curator rounds and the plain heartbeat.
     Set {
         plan_id: String,
         #[arg(value_parser = ["curator", "heartbeat"])]
@@ -458,6 +460,7 @@ pub enum PlanControlLoopAction {
 
 #[derive(Subcommand)]
 pub enum PlanCuratorAction {
+    /// Grant the Curator tab the blueprints, plan skills and saves it may use.
     Grant {
         plan_id: String,
         curator_tab: String,

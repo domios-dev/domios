@@ -1,0 +1,203 @@
+import { act, useMemo, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { Notification } from "../../lib/types";
+import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
+import { NotificationToastContainer } from "../Notifications/NotificationToast";
+
+const daemon = vi.hoisted(() => {
+  const state = {
+    identity: null as null | { uid: string; display_name: string; email: string; provider: string },
+    pending: false,
+    failure: null as null | { stage: "redemption"; error: "provider" },
+    account: { plan: "free", fullAccess: false },
+    logins: 0,
+    login: null as null | ((outcome: "ok" | "fail") => void),
+    upgrades: [] as string[],
+    upgradeFails: false,
+  };
+  const ok = (body: unknown) => ({ ok: true, json: async () => body, text: async () => "" });
+  const status = () => ({ identity: state.identity, pending: state.pending, last_sign_in_failure: state.failure });
+  const plan = () => {
+    const signedIn = state.identity !== null;
+    const current = signedIn ? state.account : { plan: "free", fullAccess: false };
+    return {
+      entitlements: { plan: current.plan, status: "active", current_period_end: 0, cancel_at_period_end: false },
+      access: { authority: current.fullAccess ? "admin" : current.plan === "free" ? "free" : "billing", full_access: current.fullAccess },
+      stale: false,
+    };
+  };
+  async function fetch(url: string, init?: RequestInit) {
+    const path = url.split("?")[0];
+    if (path.endsWith("/status")) return ok(status());
+    if (path.endsWith("/plan") || path.endsWith("/plan/refresh")) return ok(plan());
+    if (path.endsWith("/login")) {
+      state.logins++;
+      state.pending = true;
+      const outcome = await new Promise<"ok" | "fail">((resolve) => { state.login = resolve; });
+      state.pending = false;
+      state.login = null;
+      if (outcome === "fail") {
+        state.failure = { stage: "redemption", error: "provider" };
+        return { ok: false, text: async () => "opaque" };
+      }
+      state.failure = null;
+      state.identity = { uid: "user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+      return ok(status());
+    }
+    if (path.endsWith("/upgrade")) {
+      state.upgrades.push(JSON.parse(String(init?.body)).plan);
+      return state.upgradeFails ? { ok: false, text: async () => "opaque-billing-failure" } : ok({});
+    }
+    return ok({});
+  }
+  return { state, fetch };
+});
+
+vi.mock("../../lib/webApi", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../lib/webApi")>(),
+  localFetch: (url: string, init?: RequestInit) => daemon.fetch(url, init),
+}));
+
+import { AccountTab } from "./AccountTab";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+function Harness() {
+  const [toasts, setToasts] = useState<Notification[]>([]);
+  const actions = useMemo(() => ({
+    upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => setToasts((current) => [
+      ...current.filter((item) => item.id !== toast.id), { ...toast, timestamp: 1, read: false },
+    ]),
+  }), []);
+  return <MultiplexerActionsContext.Provider value={actions as unknown as MultiplexerActionsContextType}>
+    <AccountTab />
+    <NotificationToastContainer toasts={toasts} onDismiss={(id) => setToasts((current) => current.filter((toast) => toast.id !== id))} />
+  </MultiplexerActionsContext.Provider>;
+}
+
+let root: Root | null = null;
+let host: HTMLDivElement;
+
+beforeEach(() => {
+  Object.assign(daemon.state, {
+    identity: null, pending: false, failure: null, account: { plan: "free", fullAccess: false },
+    logins: 0, login: null, upgrades: [], upgradeFails: false,
+  });
+});
+
+afterEach(async () => {
+  await act(async () => root?.unmount());
+  root = null;
+  host.remove();
+});
+
+async function mount() {
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root!.render(<Harness />));
+}
+
+const settle = () => act(async () => { for (let turn = 0; turn < 10; turn++) await Promise.resolve(); });
+const card = (plan: string) => host.querySelector<HTMLElement>(`section[aria-label="${plan} plan"]`)!;
+const button = (scope: HTMLElement, name: string) =>
+  Array.from(scope.querySelectorAll("button")).find((candidate) => candidate.textContent?.trim() === name);
+const click = async (scope: HTMLElement, name: string) => {
+  await act(async () => button(scope, name)!.click());
+  await settle();
+};
+const finishLogin = async (outcome: "ok" | "fail") => {
+  await act(async () => daemon.state.login!(outcome));
+  await settle();
+};
+const toast = () => host.querySelector('[data-testid="notification-toast"]');
+
+it("signed out: Choose starts sign-in on that card, then opens checkout with no second click", async () => {
+  await mount();
+  expect(button(card("Pro"), "Choose Pro")?.disabled).toBe(false);
+  await click(card("Pro"), "Choose Pro");
+  expect(daemon.state.logins).toBe(1);
+  expect(card("Pro").querySelector('[role="status"]')).not.toBeNull();
+  expect(button(card("Sponsor"), "Choose Sponsor")?.disabled).toBe(true);
+  await finishLogin("ok");
+  expect(daemon.state.upgrades).toEqual(["pro_yearly"]);
+  expect(button(card("Pro"), "Choose Pro")?.disabled).toBe(false);
+  expect(toast()).toBeNull();
+});
+
+it("an account that already has Pro gets the confirmation and no checkout", async () => {
+  daemon.state.account = { plan: "pro", fullAccess: false };
+  await mount();
+  await click(card("Pro"), "Choose Pro");
+  await finishLogin("ok");
+  expect(daemon.state.upgrades).toEqual([]);
+  expect(card("Pro").querySelector('[role="status"]')).not.toBeNull();
+  expect(button(card("Pro"), "Choose Pro")).toBeUndefined();
+});
+
+it("staff are never sent to checkout, for any plan", async () => {
+  daemon.state.account = { plan: "free", fullAccess: true };
+  await mount();
+  await click(card("Sponsor"), "Choose Sponsor");
+  await finishLogin("ok");
+  expect(daemon.state.upgrades).toEqual([]);
+  expect(card("Sponsor").querySelector('[role="status"]')).not.toBeNull();
+  expect(button(card("Pro"), "Choose Pro")).toBeUndefined();
+});
+
+it("a Pro subscriber choosing Sponsor still goes to checkout", async () => {
+  daemon.state.account = { plan: "pro", fullAccess: false };
+  await mount();
+  await click(card("Sponsor"), "Choose Sponsor");
+  await finishLogin("ok");
+  expect(daemon.state.upgrades).toEqual(["sponsor_yearly"]);
+});
+
+it("Cancel returns to idle at once, and a late sign-in success opens no checkout", async () => {
+  await mount();
+  await click(card("Pro"), "Choose Pro");
+  await click(card("Pro"), "Cancel");
+  expect(card("Pro").querySelector('[role="status"]')).toBeNull();
+  await finishLogin("ok");
+  expect(daemon.state.upgrades).toEqual([]);
+  expect(toast()).toBeNull();
+});
+
+it("attaches to a sign-in already running elsewhere instead of starting another", async () => {
+  daemon.state.pending = true;
+  await mount();
+  await click(card("Pro"), "Choose Pro");
+  expect(daemon.state.logins).toBe(0);
+  expect(card("Pro").querySelector('[role="status"]')).not.toBeNull();
+  daemon.state.pending = false;
+  daemon.state.identity = { uid: "user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  await act(async () => window.dispatchEvent(new Event("domios:account-changed")));
+  await settle();
+  expect(daemon.state.upgrades).toEqual(["pro_yearly"]);
+});
+
+it("a failed sign-in returns the card to idle and its toast Retry resumes the same plan", async () => {
+  await mount();
+  await click(card("Sponsor"), "Choose Sponsor");
+  await finishLogin("fail");
+  expect(button(card("Sponsor"), "Choose Sponsor")?.disabled).toBe(false);
+  expect(toast()).not.toBeNull();
+  await click(toast() as HTMLElement, "Retry");
+  expect(daemon.state.logins).toBe(2);
+  await finishLogin("ok");
+  expect(daemon.state.upgrades).toEqual(["sponsor_yearly"]);
+});
+
+it("a checkout failure is a toast whose Retry checks out again", async () => {
+  daemon.state.identity = { uid: "user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.upgradeFails = true;
+  await mount();
+  await settle();
+  await click(card("Pro"), "Choose Pro");
+  expect(daemon.state.upgrades).toEqual(["pro_yearly"]);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  daemon.state.upgradeFails = false;
+  await click(toast() as HTMLElement, "Retry");
+  expect(daemon.state.upgrades).toEqual(["pro_yearly", "pro_yearly"]);
+});

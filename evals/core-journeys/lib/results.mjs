@@ -7,7 +7,6 @@ export const JOURNEYS = {
   J2: "Team start from the Start-a-session dialog API and UI context",
   J3: "Dispatch, ACK, report, bounce and accept for a chat_backend Worker",
   J4: "DEV restart: every restored tab ready, sends answered, attempt bindings intact",
-  J5: "Upgrade N-1 to N on a disposable instance, then J1-J4",
   CLEAN: "Owned plans, Teams, tabs and workspace removed",
   EVIDENCE: "Window screenshots captured for the run",
   HARNESS: "Harness error outside a journey check",

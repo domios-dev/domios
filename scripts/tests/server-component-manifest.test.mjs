@@ -109,8 +109,8 @@ test('macOS designated requirement has the fixed nested server path without a ra
   await createManifest({ cwd: stage.root, serverFile: stage.serverFile,
     serverBuild: 'fixture-server-build', serverExecutable: '../MacOS/domios-server',
     clientIdentity: { kind: 'macos_designated_requirement',
-      requirement: `anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "${teamId}"`,
-      team_id: teamId, identifier: 'com.codeterm.app' }, apiVersion: 3, bootstrapProtocol: 2 });
+      requirement: `anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "${teamId}"`,
+      team_id: teamId, identifier: 'com.domios.app' }, apiVersion: 3, bootstrapProtocol: 2 });
   const manifest = JSON.parse(await readFile(stage.outputFile, 'utf8'));
   assert.equal(manifest.schema, 2);
   assert.equal(manifest.server_executable, '../MacOS/domios-server');
@@ -118,7 +118,7 @@ test('macOS designated requirement has the fixed nested server path without a ra
   assert.equal(Object.hasOwn(manifest, 'client_sha256'), false);
   assert.throws(() => validateManifest({ ...manifest, server_executable: 'domios-server/domios-server' }));
   assert.throws(() => validateManifest({ ...manifest, client_identity: { kind: 'macos_designated_requirement',
-    requirement: 'identifier "com.codeterm.app"', team_id: teamId, identifier: 'com.codeterm.app' } }));
+    requirement: 'identifier "com.domios.app"', team_id: teamId, identifier: 'com.domios.app' } }));
 });
 
 test('missing staged artifacts refuse generation and remove any stale manifest', async t => {

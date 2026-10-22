@@ -102,11 +102,22 @@ pub async fn chat_send_text(
     let send_tab = tab_id.clone();
     let result = tokio::task::spawn_blocking(move || {
         if let Some(reservation) = reservation {
-            svc.prepare_and_admit_user_send(reservation, body.text.unwrap_or_default(), run_stages)
+            svc.prepare_and_admit_user_send(
+                reservation,
+                codeterm_service_core::service::messenger::HumanInput::composer(
+                    body.text.unwrap_or_default(),
+                ),
+                run_stages,
+            )
         } else {
             let (text, pad_file) =
                 svc.prepare_chat_send_text(&send_tab, body.text.unwrap_or_default(), run_stages)?;
-            let status = svc.start_chat_send(&send_tab, text, None, body.client_token)?;
+            let status = svc.start_human_chat_send(
+                &send_tab,
+                codeterm_service_core::service::messenger::HumanInput::composer(text),
+                None,
+                body.client_token,
+            )?;
             Ok(codeterm_service_core::service::agent_pad::ChatSendResult::new(status, pad_file))
         }
     })
@@ -311,6 +322,8 @@ pub struct SendTextBody {
     /// Mesh hops and hierarchy reports use the same marker family.
     #[serde(default)]
     pub(crate) source_tab: Option<String>,
+    #[serde(default)]
+    pub(crate) system_context: Option<String>,
     /// Originating peer name, injected by the mesh relay (authenticated from
     /// the signed token — peers cannot spoof it). Present ⇒ this delivery
     /// crossed the mesh; the label is peer-qualified `label@peer`.
@@ -350,6 +363,7 @@ pub(crate) enum SendAction {
     Delay { ms: u64 },
 }
 
+#[cfg(test)]
 pub(crate) use codeterm_service_core::agent::keys::action_key_bytes as send_action_bytes;
 
 /// Keys aimed at a provider dialog are written as-is, so Enter is a plain carriage return.
@@ -471,7 +485,7 @@ pub async fn send_text(
     let source_peer = body.source_peer.clone();
     let payload_bytes = route_payload_bytes(body.text.as_deref(), body.batch.as_deref());
     let has_service_token = svc_token_match.is_some();
-    let (origin, transport, target_has_agent) = tokio::task::spawn_blocking(move || {
+    let (_origin, transport, target_has_agent) = tokio::task::spawn_blocking(move || {
         let state = owner;
         let tab_id = target;
         surface_send_refusal(&state, &tab_id)?;
@@ -577,13 +591,16 @@ pub async fn send_text(
 
     log::debug!(
         "[api/send] tab={tab_id} source_peer={:?} has_source={} agent={target_has_agent} chat_backend={}",
-        body.source_peer, body.source_tab.is_some(), transport == TabInputTransport::ChatBackend
+        body.source_peer,
+        body.source_tab.is_some(),
+        transport == TabInputTransport::ChatBackend
     );
     let envelope_state = state.clone();
     let source_tab = body.source_tab.clone();
     let source_peer = body.source_peer.clone();
     let source_label = body.source_label.clone();
     let kind = body.kind.clone();
+    let system_context = body.system_context.clone();
     let source_model = body.source_model.clone();
     let source_is_agent = body.source_is_agent;
     let source_envelope = tokio::task::spawn_blocking(move || {
@@ -636,7 +653,10 @@ pub async fn send_text(
                 }
             });
 
-        source_envelope
+        system_context
+            .map(codeterm_service_core::service::messenger::MessageEnvelope::codeterm_reminder)
+            .or(source_envelope)
+            .or_else(|| Some(codeterm_service_core::service::messenger::MessageEnvelope::default()))
     })
     .await
     .map_err(|_| {
@@ -673,10 +693,13 @@ pub async fn send_text(
                     ),
                 ),
                 SendAction::Key { key } => {
-                    let Some(bytes) = send_action_bytes(key) else {
+                    let Some(bytes) = state.svc.encode_pty_action_key(&tab_id, key) else {
                         return Err((StatusCode::BAD_REQUEST, "unknown action key").into());
                     };
-                    if bytes == b"\r" {
+                    if matches!(
+                        key.replace('_', "-").to_ascii_lowercase().as_str(),
+                        "enter" | "return"
+                    ) {
                         ordered.push(codeterm_service_core::service::ordered_actions::OrderedPtyAction::Submit);
                     } else {
                         ordered.push(
@@ -695,11 +718,20 @@ pub async fn send_text(
         let (raw_text, pad_file) =
             preparation::substitute(&state.svc, &tab_id, raw_text, text.len()).await?;
         let text = prepend(&raw_text);
+        let typed_input = match source_envelope.as_ref() {
+            Some(envelope) if target_has_agent || transport == TabInputTransport::ChatBackend => {
+                codeterm_service_core::service::messenger::AgentInput::Framed(
+                    codeterm_service_core::service::messenger::Messenger::from(envelope.clone())
+                        .framed_delivery(&raw_text),
+                )
+            }
+            _ => state.svc.programmatic_input(&tab_id, &raw_text),
+        };
         if transport == TabInputTransport::ChatBackend {
             if !raw_text.is_empty() {
                 state
                     .svc
-                    .stage_text_when_ready(&tab_id, &text)
+                    .stage_text_when_ready(&tab_id, &typed_input)
                     .await
                     .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
             }
@@ -716,7 +748,7 @@ pub async fn send_text(
                         &owner_dialog_keys(&ordered),
                         |_, _| Ok(()),
                         |bytes| {
-                            svc.write_raw(&action_tab, bytes)
+                            svc.write_human_keys(&action_tab, &codeterm_service_core::service::messenger::HumanKeys::new(bytes))
                                 .map_err(|error| DeliveryError::from_opaque(&action_tab, error))
                         },
                         codeterm_service_core::service::ordered_actions::await_action_deadline,
@@ -725,7 +757,7 @@ pub async fn send_text(
                 codeterm_service_core::service::ordered_actions::execute_ordered_actions(
                     &text,
                     &ordered,
-                    |body, enter| match svc.send_text_input_delivery(&action_tab, body, enter, None)
+                    |body, enter| match svc.send_text_input_delivery(&action_tab, &typed_input, enter, None)
                     {
                         Ok(()) => {
                             bytes_written.set(bytes_written.get() || !body.is_empty() || enter);
@@ -750,7 +782,7 @@ pub async fn send_text(
                         Err(error) => Err(error),
                     },
                     |bytes| {
-                        svc.write_raw(&action_tab, bytes)
+                        svc.write_human_keys(&action_tab, &codeterm_service_core::service::messenger::HumanKeys::new(bytes))
                             .map_err(|error| {
                                 if bytes_written.get() {
                                     DeliveryError::SubmitUnconfirmed {
@@ -805,20 +837,25 @@ pub async fn send_text(
                 preparation::substitute(&state.svc, &tab_id, staged, wrapped.len()).await?;
             if let Some(path) = pad_file {
                 pad_files.push(path.display().to_string());
-                items.push(codeterm_service_core::service::pty_io::SendBatchItem {
-                    text: prepend(&text),
-                    delay_ms: chunk.delay_ms,
-                });
-            } else {
-                items.push(codeterm_service_core::service::pty_io::SendBatchItem {
-                    text: prepend(&text),
-                    delay_ms: chunk.delay_ms,
-                });
             }
+            let input = match source_envelope.as_ref() {
+                Some(envelope)
+                    if target_has_agent || transport == TabInputTransport::ChatBackend =>
+                {
+                    codeterm_service_core::service::messenger::AgentInput::Framed(
+                        codeterm_service_core::service::messenger::Messenger::from(
+                            envelope.clone(),
+                        )
+                        .framed_delivery(&text),
+                    )
+                }
+                _ => state.svc.programmatic_input(&tab_id, &text),
+            };
+            items.push((input, chunk.delay_ms));
         }
         let svc = state.svc.clone();
         let batch_tab = tab_id.clone();
-        tokio::task::spawn_blocking(move || svc.send_text_batch(&batch_tab, items))
+        tokio::task::spawn_blocking(move || svc.send_classified_batch(&batch_tab, items))
             .await
             .map_err(|_| {
                 (
@@ -843,15 +880,20 @@ pub async fn send_text(
         let owner = state.svc.clone();
         let target = tab_id.clone();
         let payload = raw_text.clone();
-        tokio::task::spawn_blocking(move || owner.write_raw(&target, payload.as_bytes()))
-            .await
-            .map_err(|_| {
-                SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "raw write task failed"))
-            })?
-            .map_err(|e| DeliveryError::PtyUnavailable {
-                tab: tab_id.clone(),
-                detail: e.to_string(),
-            })?;
+        tokio::task::spawn_blocking(move || {
+            owner.write_human_keys(
+                &target,
+                &codeterm_service_core::service::messenger::HumanKeys::new(payload.as_bytes()),
+            )
+        })
+        .await
+        .map_err(|_| {
+            SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "raw write task failed"))
+        })?
+        .map_err(|e| DeliveryError::PtyUnavailable {
+            tab: tab_id.clone(),
+            detail: e.to_string(),
+        })?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,
@@ -860,120 +902,46 @@ pub async fn send_text(
     }
 
     let raw_text = body.text.unwrap_or_default();
-    if let Some(envelope) = source_envelope {
-        let raw_text = preparation::stage(&state.svc, &tab_id, raw_text, run_stages).await?;
-        let svc = state.svc.clone();
-        let target = tab_id.clone();
-        let payload = raw_text.clone();
-        let (delivery, pad_file) = run_programmatic_delivery(&tab_id, move || {
-            codeterm_service_core::service::messenger::Messenger::deliver_with_pad_file(
-                &svc, &target, envelope, &payload,
-            )
-        })
-        .await?;
-        record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        use codeterm_service_core::service::messenger::Delivery;
-        let (delivery_state, send_id, bytes_written) = match delivery {
-            Delivery::Pending { delivery_id } => ("pending", Some(delivery_id), false),
-            Delivery::Unconfirmed { delivery_id } => ("pending", Some(delivery_id), true),
-            Delivery::ChatBackend { message_id } => ("sent", Some(message_id), true),
-            Delivery::Pty { .. } => ("sent", None, true),
-        };
-        let mut response = serde_json::json!({
-            "ok": true,
-            "delivery": delivery_state,
-            "send_id": send_id,
-            "bytes_written": bytes_written,
-            "pad_file": pad_file.map(|path| path.display().to_string())
-        });
-        if transport == TabInputTransport::Pty
-            && body
-                .source_peer
-                .as_deref()
-                .is_some_and(|peer| !peer.is_empty())
-        {
-            response["mesh"] = serde_json::json!(true);
-            response["delivery"] = serde_json::json!("sent");
-        }
-        return Ok(Json(response));
-    }
-
+    let envelope = source_envelope.unwrap_or_default();
     let raw_text = preparation::stage(&state.svc, &tab_id, raw_text, run_stages).await?;
-    let wrapped = prepend(&raw_text);
-    let (raw_text, pad_file) =
-        preparation::substitute(&state.svc, &tab_id, raw_text, wrapped.len()).await?;
-    let text = prepend(&raw_text);
-
-    if origin == SendOrigin::User
-        && (target_has_agent || transport == TabInputTransport::ChatBackend)
-    {
-        let owner = state.svc.clone();
-        let target = tab_id.clone();
-        let token = body.client_token;
-        let status =
-            tokio::task::spawn_blocking(move || owner.start_chat_send(&target, text, None, token))
-                .await
-                .map_err(|_| {
-                    SendRejection::from((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "chat send task failed",
-                    ))
-                })?
-                .map_err(|detail| DeliveryError::TabBusyRefused {
-                    tab: tab_id.clone(),
-                    detail,
-                })?;
-        record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        return Ok(Json(serde_json::json!({
-            "ok": true,
-            "delivery": "pending",
-            "send_id": status.send_id,
-            "pad_file": pad_file.map(|path| path.display().to_string())
-        })));
-    }
-
-    if origin == SendOrigin::Programmatic && target_has_agent && transport == TabInputTransport::Pty
-    {
-        let text = codeterm_pty::pty::ansi::sanitize_agent_prompt_input(&text);
-        let svc = state.svc.clone();
-        let target = tab_id.clone();
-        let payload = text.clone();
-        let delivery = run_programmatic_delivery(&tab_id, move || {
-            svc.deliver_agent_payload(
-                &target,
-                codeterm_service_core::service::messenger::AgentDeliveryPayload {
-                    trace_id: None,
-                    transport:
-                        codeterm_service_core::service::messenger::QueuedAgentPayload::Text {
-                            text: payload.clone(),
-                        },
-                    observer: None,
-                    idempotency_key: None,
-                    expected_pty_id: None,
-                    expected_session_id: None,
-                    expected_binding_nonce: None,
-                },
-                &payload,
-            )
-        })
-        .await?;
-        record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
-        return Ok(Json(serde_json::json!({
-            "ok": true,
-            "delivery": if matches!(delivery, codeterm_service_core::service::messenger::Delivery::Pending { .. } | codeterm_service_core::service::messenger::Delivery::Unconfirmed { .. }) { "pending" } else { "sent" },
-            "pad_file": pad_file.map(|path| path.display().to_string())
-        })));
-    }
-
-    // A plain text send always submits — no-Enter/keystroke cases go through
-    // `actions` or `raw`.
-    state.svc.send_text_when_ready(&tab_id, &text).await?;
-    record_push_activity(&state, &svc_token_match, &tab_id, &text);
-    Ok(Json(serde_json::json!({
+    let svc = state.svc.clone();
+    let target = tab_id.clone();
+    let payload = raw_text.clone();
+    let (delivery, pad_file) = run_programmatic_delivery(&tab_id, move || {
+        let class =
+            if envelope.kind == codeterm_service_core::service::messenger::MessageKind::System {
+                codeterm_service_core::service::message_gateway::DeliveryClass::SystemNotice
+            } else {
+                codeterm_service_core::service::message_gateway::DeliveryClass::AgentTraffic
+            };
+        svc.gateway_deliver_with_pad_file(&target, envelope, &payload, class)
+    })
+    .await?;
+    record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
+    use codeterm_service_core::service::messenger::Delivery;
+    let (delivery_state, send_id, bytes_written) = match delivery {
+        Delivery::Pending { delivery_id } => ("pending", Some(delivery_id), false),
+        Delivery::Unconfirmed { delivery_id } => ("pending", Some(delivery_id), true),
+        Delivery::ChatBackend { message_id } => ("sent", Some(message_id), true),
+        Delivery::Pty { .. } => ("sent", None, true),
+    };
+    let mut response = serde_json::json!({
         "ok": true,
-        "delivery": "sent",
+        "delivery": delivery_state,
+        "send_id": send_id,
+        "bytes_written": bytes_written,
         "pad_file": pad_file.map(|path| path.display().to_string())
-    })))
+    });
+    if transport == TabInputTransport::Pty
+        && body
+            .source_peer
+            .as_deref()
+            .is_some_and(|peer| !peer.is_empty())
+    {
+        response["mesh"] = serde_json::json!(true);
+        response["delivery"] = serde_json::json!("sent");
+    }
+    Ok(Json(response))
 }
 
 #[cfg(test)]

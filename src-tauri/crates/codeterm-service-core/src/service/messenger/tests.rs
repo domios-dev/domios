@@ -2,7 +2,9 @@ use super::*;
 
 #[tokio::test]
 async fn codex_rpc_send_messenger_preserves_routed_frame_and_queues_while_active() {
-    use crate::service::codex_rpc::send::{route_or_pty, start_params, submit, Origin};
+    use crate::service::codex_rpc::send::{
+        route_or_pty, test_start_params as start_params, test_submit as submit, Origin,
+    };
     let frame =
         Messenger::from(MessageEnvelope::tab("sender", "sender-a")).routed_frame("opaque payload");
     let text = frame.to_message();
@@ -308,7 +310,9 @@ fn delivery_local_agent_recipient_gets_complete_frame() {
     );
     assert_eq!(
         p.as_deref(),
-        Some("<domios from=\"tab\" label=\"Edison\" tab=\"e8a0ac20\" model=\"opus\">hello <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20]</tip></domios>")
+        Some(
+            "<domios from=\"tab\" label=\"Edison\" tab=\"e8a0ac20\" model=\"opus\">hello <tip>[to reply, run: domios send \"YOUR REPLY\" --tab e8a0ac20]</tip></domios>"
+        )
     );
 }
 
@@ -348,7 +352,9 @@ fn delivery_mesh_agent_recipient_gets_peer_qualified_frame() {
     );
     assert_eq!(
         p.as_deref(),
-        Some("<domios from=\"tab\" label=\"Edison@BLACKSTAR\" tab=\"e8a0ac20\" model=\"sonnet\" mesh=\"BLACKSTAR\">hello <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]</tip></domios>")
+        Some(
+            "<domios from=\"tab\" label=\"Edison@BLACKSTAR\" tab=\"e8a0ac20\" model=\"sonnet\" mesh=\"BLACKSTAR\">hello <tip>[to reply, run: domios send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]</tip></domios>"
+        )
     );
 }
 
@@ -440,28 +446,21 @@ fn should_prefix_system_marks_only_agent_recipients() {
 }
 
 #[test]
-fn should_prefix_message_keeps_self_send_guard() {
-    // A plain message to itself is NOT prefixed.
-    assert!(!should_prefix_pty(
-        MessageKind::Message,
-        true,
-        "e8a0ac20",
-        "e8a0ac20"
-    ));
-    // Empty source → no prefix.
-    assert!(!should_prefix_pty(
-        MessageKind::Message,
-        true,
-        "",
-        "e8a0ac20"
-    ));
-    // Distinct agent sender → prefix.
-    assert!(should_prefix_pty(
-        MessageKind::Message,
-        true,
-        "e8a0ac20",
-        "ce9bce56"
-    ));
+fn should_prefix_message_includes_self_and_anonymous_sends() {
+    for source in ["e8a0ac20", "", "other-tab"] {
+        assert!(should_prefix_pty(
+            MessageKind::Message,
+            true,
+            source,
+            "e8a0ac20"
+        ));
+        assert!(!should_prefix_pty(
+            MessageKind::Message,
+            false,
+            source,
+            "shell"
+        ));
+    }
 }
 
 #[test]

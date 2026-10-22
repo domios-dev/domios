@@ -10,7 +10,7 @@ External service integrations are configured under `[integrations]`.
 
 Connect a Telegram bot to the General Agent. Messages are routed bidirectionally:
 - **Inbound** (Telegram to Agent): Messages arrive as `[Telegram: user_id] text` in the PTY. Rapid messages within 300ms are debounced into a single delivery. A typing indicator is sent on every inbound message.
-- **Outbound** (Agent to Telegram): The agent sends replies via CLI: `codeterm bridge send --to USER_ID --service telegram "text"`. Without `--append`, always sends a new message. Use `--append` to concatenate text to the previous message (auto-inserts `\n\n` paragraph break, edits in-place within 60s window). Works from any tab, not just the General Agent.
+- **Outbound** (Agent to Telegram): The agent sends replies via CLI: `domios bridge send --to USER_ID --service telegram "text"`. Without `--append`, always sends a new message. Use `--append` to concatenate text to the previous message (auto-inserts `\n\n` paragraph break, edits in-place within 60s window). Works from any tab, not just the General Agent.
 
 ```toml
 [integrations]
@@ -20,9 +20,9 @@ telegram_allowed_users = []     # Telegram user IDs as strings, empty = allow al
 
 **Setup:**
 1. Create a bot via @BotFather on Telegram, get the token
-2. Save token to `~/.codeterm/secrets/telegram.token` (Windows: `%APPDATA%/codeterm/secrets/telegram.token`)
-3. Enable: `codeterm config set integrations.telegram_enabled true`
-4. Optionally restrict users: `codeterm config set integrations.telegram_allowed_users '["123456789"]'`
+2. Save token to `~/.domios/secrets/telegram.token`
+3. Enable: `domios config set integrations.telegram_enabled true`
+4. Optionally restrict users: `domios config set integrations.telegram_allowed_users '["123456789"]'`
 5. Restart Domios (hot-reload not yet supported)
 
 Connected services are shown as icons next to the tab title in the sidebar (`connected_services` field on the tab object).
@@ -104,9 +104,9 @@ Response (one of):
 **Setup:**
 
 1. Run a daemon listening on `daemon_url` that handles `GET /healthz` and `POST /pre_forward`.
-2. `codeterm config set integrations.text_hooks.enabled true`
-3. `codeterm config set integrations.text_hooks.daemon_url http://127.0.0.1:7892` (or wherever your daemon listens)
-4. Restart bridge (`codeterm bridge restart`) — picks up the new config.
+2. `domios config set integrations.text_hooks.enabled true`
+3. `domios config set integrations.text_hooks.daemon_url http://127.0.0.1:7892` (or wherever your daemon listens)
+4. Restart bridge (`domios bridge restart`) — picks up the new config.
 
 ### Graph nodes (plugin declarations)
 
@@ -130,19 +130,19 @@ A plugin contributes graph nodes through `capabilities.graphNodes` in its manife
 - **eventSources** declare up to 16 event kinds per plugin (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, at most 64 bytes, unique per plugin) with a 1-128 byte title and typed `params`/`payload` schemas. The schema subset is an object of scalar or one-level scalar-array properties (at most 32; `maxLength` <= 65536, `maxItems` <= 256) with optional `description` and `enum`; `$ref`, combinators (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
 ### Model endpoints and presets
 
-`codeterm model-provider` routes to the installed provider declaring model configuration support. In the app, each such harness's plugin page has a **Custom model endpoints** section with the same operations plus edit and model discovery: a typed key is saved to the secret store (masked, never shown again), or a saved secret is copied into the endpoint's owned slot. The HTTP endpoint `POST /api/model-providers` accepts `?provider=<id>` to address one harness.
+`domios model-provider` routes to the installed provider declaring model configuration support. In the app, each such harness's plugin page has a **Custom model endpoints** section with the same operations plus edit and model discovery: a typed key is saved to the secret store (masked, never shown again), or a saved secret is copied into the endpoint's owned slot. The HTTP endpoint `POST /api/model-providers` accepts `?provider=<id>` to address one harness.
 
 Endpoint ids must differ from every installed agent harness id; creation refuses a collision with `harness_id_collision` before saving configuration or credentials. Configured endpoint models appear in `agent models <harness>` even when live discovery fails. Select one with `agent spawn <harness> --model <endpoint>/<model>`; its model is validated against that endpoint's configured models.
 
 ```bash
-codeterm model-provider add --name local --kind openai-compatible --base-url http://localhost:1234/v1 --secret local-key --model model-id
-codeterm model-provider list
-codeterm model-provider test --name local
-codeterm model-provider remove --name local
-codeterm model-provider preset add --name demo --model local/model-id --prompt "Review the task" --temperature 0.2 --top-p 0.9 --steps 12
-codeterm model-provider preset list
-codeterm agent spawn opencode --preset demo
-codeterm model-provider preset remove --name demo
+domios model-provider add --name local --kind openai-compatible --base-url http://localhost:1234/v1 --secret local-key --model model-id
+domios model-provider list
+domios model-provider test --name local
+domios model-provider remove --name local
+domios model-provider preset add --name demo --model local/model-id --prompt "Review the task" --temperature 0.2 --top-p 0.9 --steps 12
+domios model-provider preset list
+domios agent spawn opencode --preset demo
+domios model-provider preset remove --name demo
 ```
 
 For `add`, pipe the key from a secure source on stdin; `--secret` is a name, never the value. Repeat `--model` for several models, or omit it to discover models through a connection test. Kinds are `openai-compatible` and `anthropic`. The key lives in the Domios secret store and is injected into the launch environment; OpenCode config contains only `{env:NAME}` references. Endpoint removal deletes only the Domios-owned entry and its owned secret; foreign entries and secrets are preserved.
@@ -153,7 +153,7 @@ Presets map a name to a model, prompt and optional parameters (temperature 0–2
 
 ### Secret store
 
-Pluggable secret store for the `codeterm mem secret` command family and the Settings → Secrets UI. Configure the active backend, (for Bitwarden) the default org/collection that new items land in, and (for Bitwarden) the server URL. Auto-unlock is not a config key: a secret-backend plugin opts in through its manifest and the unlock request (see the secret-store reference below).
+Pluggable secret store for the `domios mem secret` command family and the Settings → Secrets UI. Configure the active backend, (for Bitwarden) the default org/collection that new items land in, and (for Bitwarden) the server URL. Auto-unlock is not a config key: a secret-backend plugin opts in through its manifest and the unlock request (see the secret-store reference below).
 
 ```toml
 [integrations.secrets]
@@ -166,16 +166,16 @@ server_url = "https://vault.bitwarden.com"   # Public vault, or self-hosted Vaul
 ```
 
 Backends:
-- `local` (default) — a plaintext JSON file at `<data_dir>/.secrets` (`~/.codeterm/.secrets`; dev `~/.codeterm-dev/.secrets`), mode `0600` on Unix. Values are **not encrypted** and do **not** use the OS keychain; treat the file like an `.env`. A metadata-only index (names, ids, folders, timestamps) lives at `<data_dir>/secrets/local-index.json`. Offline, no external service.
+- `local` (default) — a plaintext JSON file at `<data_dir>/.secrets` (`~/.domios/.secrets`; dev `~/.domios-dev/.secrets`), mode `0600` on Unix. Values are **not encrypted** and do **not** use the OS keychain; treat the file like an `.env`. A metadata-only index (names, ids, folders, timestamps) lives at `<data_dir>/secrets/local-index.json`. Offline, no external service.
 - `bitwarden` — shells out to the official `bw` CLI. Install with `brew install bitwarden-cli` (macOS), `npm i -g @bitwarden/cli` (Linux/cross-platform), or `scoop install bitwarden-cli` (Windows). When `bw` is missing the Settings → Secrets page shows the install hint, an "Install Bitwarden CLI" button, and the CLI returns exit code 6 (backend unavailable). Supports `vault.bitwarden.com` and self-hosted Vaultwarden via `server_url`.
 - `mock` — in-memory only. Anything you save is lost on daemon restart. Use for dev / screenshots / tests.
 
 A secret-backend plugin keeps its persisted session and any remembered credential in its own host bucket (service `codeterm.plugin.<plugin-id>`), which uses the same plaintext local file as the `local` backend. Nothing here uses the OS keychain.
 
-**Secrets do not cross the mesh.** `codeterm --mesh PEER mem secret …` exits with code 7 and a clear error. The vault is local to the machine that holds it.
+**Secrets do not cross the mesh.** `domios --mesh PEER mem secret …` exits with code 7 and a clear error. The vault is local to the machine that holds it.
 
-Full secret-store reference, including CLI, storage internals, error mapping, and plugin authoring: `codeterm docs SECRETS`.
+Full secret-store reference, including CLI, storage internals, error mapping, and plugin authoring: `domios docs SECRETS`.
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 10 -->
+<!-- revision: 12 -->
