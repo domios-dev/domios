@@ -22,25 +22,34 @@ export function checkWorktreeRoot(repository, gateway) {
   return path.join(path.resolve(gateway), 'check-worktrees', identity);
 }
 
-export function noLinkedAncestors(directory) {
-  for (let cursor = path.resolve(directory); ; cursor = path.dirname(cursor)) {
-    if (fs.existsSync(cursor) && fs.lstatSync(cursor).isSymbolicLink()) throw new Error(`Unsafe check-worktree link: ${cursor}`);
-    if (cursor === path.dirname(cursor)) return;
+export function noLinkedPath(root, directory) {
+  const relative = path.relative(root, directory);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('Refusing check-worktree path outside gateway');
+  }
+  for (let cursor = path.resolve(directory); cursor !== root; cursor = path.dirname(cursor)) {
+    let stat;
+    try { stat = fs.lstatSync(cursor); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (stat?.isSymbolicLink()) throw new Error(`Unsafe check-worktree link: ${cursor}`);
   }
 }
 
 export function collectCheckWorktrees(repository, gateway, { dryRun = false, log = console.log } = {}) {
+  gateway = fs.realpathSync(gateway);
   const root = checkWorktreeRoot(repository, gateway);
   const collected = [];
-  for (const directory of [path.resolve(gateway), root]) {
-    noLinkedAncestors(directory);
+  for (const directory of [gateway, root]) {
+    noLinkedPath(gateway, directory);
     if (!fs.existsSync(directory)) continue;
     // Recovery owns both sides of an interrupted publication until it commits.
-    if (fs.existsSync(path.join(directory, 'check-worktree-publication.json'))) continue;
+    const journal = path.join(directory, 'check-worktree-publication.json');
+    noLinkedPath(gateway, journal);
+    if (fs.existsSync(journal)) continue;
     for (const entry of fs.readdirSync(directory)) {
       if (!/^check-worktree\.(broken|pending)-[a-zA-Z0-9-]+$/.test(entry)) continue;
       const candidate = path.join(directory, entry);
-      noLinkedAncestors(candidate);
+      noLinkedPath(gateway, candidate);
       if (!fs.lstatSync(candidate).isDirectory()) continue;
       const registered = registeredWorktree(repository, candidate);
       if (!registered) {
