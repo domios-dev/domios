@@ -17,6 +17,37 @@ pub fn grant_matches(grant: &CuratorGrant, identity: &CuratorIdentity) -> bool {
 }
 
 impl ServiceContext {
+    pub(crate) fn bind_curator_session(&self, tab_id: &str) -> Result<(), String> {
+        let index = self
+            .try_ext::<super::CuratorTabs>()
+            .ok_or("Curator runtime is unavailable")?;
+        let Some(plan_id) = index.0.read().get(tab_id).cloned() else {
+            return Ok(());
+        };
+        let caller = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id).ok_or("Curator tab absent")?;
+            if !tab.launch_session_authenticated() {
+                return Ok(());
+            }
+            AuthenticatedPlanCaller {
+                tab_id: Some(tab_id.into()),
+                session_id: tab.agent_session_id.clone(),
+                binding_nonce: tab.session_binding_nonce.clone(),
+            }
+        };
+        let before = self
+            .plan_store
+            .get(&plan_id)
+            .and_then(|plan| plan.control_loop.running);
+        self.authenticate_curator(&caller)?;
+        if before.is_some_and(|run| run.session_id.is_none() || run.binding_nonce.is_none()) {
+            self.ui
+                .emit("plan-changed", serde_json::json!({"plan_id":plan_id}));
+        }
+        Ok(())
+    }
+
     pub(crate) fn curator_message(
         &self,
         sender: &str,
@@ -169,6 +200,7 @@ impl ServiceContext {
         let session = caller
             .session_id
             .as_deref()
+            .or(tab.agent_session_id.as_deref())
             .ok_or("Curator session required")?;
         let nonce = caller
             .binding_nonce

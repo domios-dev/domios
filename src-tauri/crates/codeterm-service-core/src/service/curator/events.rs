@@ -103,6 +103,20 @@ impl ServiceContext {
                 tabs.insert(tab.clone(), id.to_string());
             }
         }
+        if let Some(tab) = plan
+            .control_loop
+            .running
+            .as_ref()
+            .and_then(|run| run.tab_id.as_deref())
+        {
+            let missing = { self.mux.read().get_tab(tab).is_none() };
+            if missing {
+                if let Err(error) = self.settle_closed_curator_tab(tab) {
+                    log::error!("[curator] missing tab {tab}: {error}");
+                }
+                return;
+            }
+        }
         if let Err(error) = self.reconcile_curator_plan(cron, &plan, now) {
             log::debug!("[curator] reconcile {id}: {error}");
         }
