@@ -153,7 +153,6 @@ impl PlanStore {
                 output_tokens: run.output_tokens,
                 save_id: run.save_id,
                 duration_ms: now.saturating_sub(run.started_at),
-                ..Default::default()
             };
             plan.control_loop.consecutive_failures = 0;
             plan.control_loop.fallback_reason = None;
