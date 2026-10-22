@@ -191,7 +191,7 @@ fn edit_skill(
     let skill_md = store::skill_md_path(&plan_dir, &slug);
     if !skill_md.is_file() {
         return Err(format!(
-            "plan skill '{slug}' not found; run `codeterm plan skill new {slug}`"
+            "plan skill '{slug}' not found; run `domios plan skill new {slug}`"
         ));
     }
     if let Some(path) = body_file {

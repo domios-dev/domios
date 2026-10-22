@@ -111,7 +111,7 @@ impl SaveMasterPasswordOutcome {
         match self {
             Self::CapabilityNotDeclared { backend } => vec![
                 format!("Backend '{backend}' does not declare the auto-unlock capability."),
-                "Nothing was stored. Run `codeterm mem secret unlock` when the session expires."
+                "Nothing was stored. Run `domios mem secret unlock` when the session expires."
                     .to_string(),
             ],
             Self::VaultRefused {

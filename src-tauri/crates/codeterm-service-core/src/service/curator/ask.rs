@@ -1,7 +1,7 @@
 use super::ServiceContext;
 
 pub(super) fn command(owner: &str) -> String {
-    format!("codeterm send --tab {owner} --from-pad ask.md")
+    format!("domios send --tab {owner} --from-pad ask.md")
 }
 
 pub(super) fn notification_refusal(service: &ServiceContext, tab: &str) -> String {

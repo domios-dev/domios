@@ -28,6 +28,7 @@ function isCommandLine(line: string): boolean {
   const trimmed = line.trimStart();
   return trimmed.startsWith("$ ")
     || trimmed.startsWith("> ")
+    || trimmed.startsWith("domios ")
     || trimmed.startsWith("codeterm ")
     || trimmed.startsWith("./build.sh ")
     || trimmed.startsWith("npx ")

@@ -283,11 +283,11 @@ fn worker_lost_notice_names_live_replacement_instead_of_advising_respawn() {
 
     assert!(loss.recovery.contains("attempt_replacement_opaque"));
     assert!(loss.recovery.contains("tab_replacement_opaque"));
-    assert!(!loss.recovery.contains("codeterm plan task respawn"));
+    assert!(!loss.recovery.contains("domios plan task respawn"));
     let notice = loss.notice_text();
     assert!(notice.contains("attempt_replacement_opaque"));
     assert!(notice.contains("tab_replacement_opaque"));
-    assert!(!notice.contains("codeterm plan task respawn"));
+    assert!(!notice.contains("domios plan task respawn"));
 }
 
 #[test]

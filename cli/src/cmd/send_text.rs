@@ -271,7 +271,7 @@ pub fn decide_send_eligibility(
 ) -> SendEligibility {
     match kind {
         TabKind::Surface => SendEligibility::Refuse(
-            "target is a plugin surface tab, which has no text input; drive it through the plugin's verbs (`codeterm plugin --help`)"
+            "target is a plugin surface tab, which has no text input; drive it through the plugin's verbs (`domios plugin --help`)"
                 .into(),
         ),
         _ if to_shell => SendEligibility::Allow,

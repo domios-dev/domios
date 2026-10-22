@@ -10,15 +10,15 @@ use crate::service::messenger::MessageEnvelope;
 use crate::service::ServiceContext;
 
 const PROMPT_RESPONSE_GUIDANCE: &str =
-    "Resolve its pending choice with `codeterm tab respond <number> --tab {tab_id}`.";
+    "Resolve its pending choice with `domios tab respond <number> --tab {tab_id}`.";
 const AUTH_SIGNAL_GUIDANCE: &str = "needs authentication or first-run setup.";
 const AUTH_SIGNAL_EVENT_TYPE: &str = "tab_state_auth_required";
 const MODEL_UNAVAILABLE_GUIDANCE: &str =
     "cannot use its requested model. Respawn it with a model from the provider catalogue.";
 const CRASH_RECOVERY_GUIDANCE: &str =
-    "returned to its shell. Inspect with `codeterm tab get-text --tab {tab_id}` and recover with `codeterm agent restart --tab {tab_id}` or respawn it.";
+    "returned to its shell. Inspect with `domios tab get-text --tab {tab_id}` and recover with `domios agent restart --tab {tab_id}` or respawn it.";
 const ERROR_LOOP_RECOVERY_GUIDANCE: &str =
-    "is repeating an error. Inspect with `codeterm tab get-text --tab {tab_id}` and recover with `codeterm agent restart --tab {tab_id}` or respawn it.";
+    "is repeating an error. Inspect with `domios tab get-text --tab {tab_id}` and recover with `domios agent restart --tab {tab_id}` or respawn it.";
 const STILL_STARTING_GUIDANCE: &str = "is still starting after its startup deadline.";
 
 #[cfg(test)]

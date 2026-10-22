@@ -162,7 +162,7 @@ async fn history_paginates_turns_and_items_without_jsonl() {
             Some("item-page"),
             Some("old"),
             json!({"data":[
-                {"turnId":"old","item":{"id":"command-id","type":"commandExecution","command":"codeterm blueprint list","status":"completed","exitCode":0,"aggregatedOutput":"one\ntwo\n"}},
+                {"turnId":"old","item":{"id":"command-id","type":"commandExecution","command":"domios blueprint list","status":"completed","exitCode":0,"aggregatedOutput":"one\ntwo\n"}},
                 {"turnId":"old","item":{"id":"mcp-id","type":"mcpToolCall","server":"codeterm","tool":"skill","arguments":{"name":"style"},"status":"completed","result":{"content":[{"type":"text","text":"skill body"}]}}},
                 {"turnId":"old","item":{"id":"answer-id","type":"agentMessage","text":"opaque-answer"}}
             ]}),

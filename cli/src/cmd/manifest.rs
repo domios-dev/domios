@@ -1,6 +1,6 @@
 //! Machine-readable dump of the clap command tree — the single source of truth
 //! consumed by generated/cli/cli.md, the prompt doctor, and the chat-card templates.
-//! Regenerate committed artifacts with `codeterm cli-manifest --write`.
+//! Regenerate committed artifacts with `domios cli-manifest --write`.
 
 use clap::{Arg, ArgAction, Command, CommandFactory};
 use serde::Serialize;
@@ -255,6 +255,7 @@ pub fn handle(write: bool, markdown: bool) {
 #[cfg(test)]
 mod tests {
     mod doc_references;
+    mod program_name;
     use super::*;
 
     #[test]
@@ -344,13 +345,12 @@ mod tests {
 
     #[test]
     fn cli_manifest_is_fresh() {
-        let committed = std::fs::read_to_string(output_path("cli-manifest.json")).expect(
-            "generated/cli/cli-manifest.json missing — run `codeterm cli-manifest --write`",
-        );
+        let committed = std::fs::read_to_string(output_path("cli-manifest.json"))
+            .expect("generated/cli/cli-manifest.json missing — run `domios cli-manifest --write`");
         assert_eq!(
             normalize_newlines(&committed),
             normalize_newlines(&to_json()),
-            "generated/cli/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
+            "generated/cli/cli-manifest.json is stale — run `domios cli-manifest --write`"
         );
     }
 
@@ -363,7 +363,7 @@ mod tests {
         assert_eq!(
             normalize_newlines(&md),
             normalize_newlines(&expected),
-            "generated/cli/cli.md stale — run `codeterm cli-manifest --write`"
+            "generated/cli/cli.md stale — run `domios cli-manifest --write`"
         );
     }
 
@@ -434,7 +434,7 @@ mod tests {
         assert_eq!(
             normalize_newlines(&committed),
             normalize_newlines(&to_command_paths()),
-            "commandPaths.ts is stale — run `codeterm cli-manifest --write`"
+            "commandPaths.ts is stale — run `domios cli-manifest --write`"
         );
     }
 
@@ -674,7 +674,7 @@ mod tests {
     #[test]
     fn root_globals_render_in_the_markdown_reference() {
         let markdown = to_markdown();
-        assert!(markdown.starts_with("#### `codeterm`\n"));
+        assert!(markdown.starts_with("#### `domios`\n"));
         for global in ["- `--json`", "- `--mesh`"] {
             assert!(
                 markdown.contains(global),

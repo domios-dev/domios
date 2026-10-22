@@ -12,12 +12,12 @@ pub const DREAMING_CRON_NAME: &str = "mem-dreaming-auto";
 /// The nightly optimizer task. `mem dream run` (phase=all) runs the SQL
 /// phases + calibration and spawns the REM graph worker that writes the
 /// daily_dream diary. Bare `mem dream` only prints help (no subcommand).
-const DREAMING_TASK: &str = "codeterm mem dream run\n";
+const DREAMING_TASK: &str = "domios mem dream run\n";
 
 /// Create the bundled dreaming cron if it doesn't exist already.
 /// - Schedule: "0 6 * * *" (6 AM)
 /// - Jitter: 0..30 minutes delay (1_800_000 ms) — fires between 6:00 and 6:30 AM
-/// - Task: runs `codeterm mem dream` in a fresh agent
+/// - Task: runs `domios mem dream` in a fresh agent
 /// - Workspace: "general" (the GA workspace)
 ///
 /// Returns true if a new cron was created, false if one already existed.

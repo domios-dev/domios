@@ -190,7 +190,7 @@ fn session_candidate(hit: SessionSearchHit, max_body_chars: usize) -> Option<Ses
         "provider": hit.meta.provider,
         "title": title,
         "excerpt": excerpt,
-        "pointer": format!("codeterm sessions get {}", hit.meta.session_id),
+        "pointer": format!("domios sessions get {}", hit.meta.session_id),
     });
     Some(SessionCandidate {
         hit: value,

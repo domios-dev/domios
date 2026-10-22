@@ -114,7 +114,7 @@ pub(super) fn dispatch(
             let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
                 match svc.arm_bound_worker_ack_deadline_for_tab(
                     &result.tab_id,
-                    format!("codeterm agent spawn --plan-task {task_ref}"),
+                    format!("domios agent spawn --plan-task {task_ref}"),
                 ) {
                     Ok(true) => None,
                     Ok(false) => Some(format!(

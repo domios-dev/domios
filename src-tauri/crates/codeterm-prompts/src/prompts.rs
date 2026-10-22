@@ -76,7 +76,7 @@ pub fn planner_task_routing_line() -> String {
 }
 
 /// Canonical role_guidance for tasks whose primary deliverable is tests.
-pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. `codeterm docs TEST-AUTHORING` is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
+pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. `domios docs TEST-AUTHORING` is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
 
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../../../prompts/orchestrator_suffix.md");
@@ -279,7 +279,7 @@ pub fn planner_onboarding_task(
 ) -> String {
     format!(
         "You are the Planner specialist for the active Team Plan {plan_id}, working with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. The Orchestrator owns the Team Plan and states its GOAL, then delegates planning to you by default. Refine that same Team Plan with `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. No separate Planner-to-Plan binding or General Agent bootstrap is required. If no planning request has been delegated yet, reply that you are ready and wait."
+First read `domios docs PLANNER` for your role. The Orchestrator owns the Team Plan and states its GOAL, then delegates planning to you by default. Refine that same Team Plan with `domios plan goal set`, `domios plan section add`, `domios plan task add`, `domios plan section show`, `domios plan get --sections`, and `domios plan doctor --kind quality`. No separate Planner-to-Plan binding or General Agent bootstrap is required. If no planning request has been delegated yet, reply that you are ready and wait."
     )
 }
 
@@ -291,7 +291,7 @@ pub fn planner_onboarding_task_no_plan(
 ) -> String {
     format!(
         "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). The Team may not have a Plan yet; the Orchestrator creates it and Team membership makes it visible to you automatically. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. Do not create a bootstrap Plan, bind yourself to a Plan, or contact the General Agent. Planning is delegated to you by default: refine the active Team Plan with the normal plan editing commands once the Orchestrator states the goal. If no planning request has been delegated yet, reply that you are ready and wait."
+First read `domios docs PLANNER` for your role. Do not create a bootstrap Plan, bind yourself to a Plan, or contact the General Agent. Planning is delegated to you by default: refine the active Team Plan with the normal plan editing commands once the Orchestrator states the goal. If no planning request has been delegated yet, reply that you are ready and wait."
     )
 }
 
@@ -348,16 +348,16 @@ pub const ORCH_ONBOARD_NO_PLAN_MARKER: &str =
     "No Team Plan exists yet — create and bind one before spawning a Planner.";
 /// Stable token for the plan-absent create command. `plan create` takes no
 /// `--team`; the bind is a separate verb, pinned by [`ORCH_ONBOARD_ADOPT_STEP`].
-pub const ORCH_ONBOARD_CREATE_STEP: &str = "codeterm plan create --title";
+pub const ORCH_ONBOARD_CREATE_STEP: &str = "domios plan create --title";
 /// Stable token for the plan-absent bind step that adopts the new plan.
-pub const ORCH_ONBOARD_ADOPT_STEP: &str = "codeterm team adopt-plan";
+pub const ORCH_ONBOARD_ADOPT_STEP: &str = "domios team adopt-plan";
 
 fn orchestrator_infra_brief_with_plan(tab_id: &str, team_id: &str, plan_id: &str) -> String {
     let spawn_cmd =
         codeterm_plan::service_plan::peer_mandate::planner_spawn_cmd_hint(Some(tab_id), plan_id);
     format!(
         "Your tab is {tab_id}. Your team is {team_id}. Your active Team Plan is {plan_id}.\n\n\
-         Begin with narrow state: `codeterm orchestrator status --plan {plan_id}`.\n\n\
+         Begin with narrow state: `domios orchestrator status --plan {plan_id}`.\n\n\
          Spawn your Planner directly (never through the General Agent) with exactly:\n{spawn_cmd}"
     )
 }

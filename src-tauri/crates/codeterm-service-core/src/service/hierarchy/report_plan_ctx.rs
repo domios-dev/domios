@@ -40,7 +40,7 @@ pub enum PlanOnlyReportAuthority {
 /// carried through — otherwise the sender learns only half of why it landed nowhere.
 pub(crate) fn nowhere_to_deliver_refusal(tab_id: &str, refused_task_write: Option<&str>) -> String {
     let mut message = format!(
-        "{NOWHERE_TO_DELIVER_REFUSAL}: tab '{tab_id}' resolves to no live recipient - no parent, no report target, no spawning tab. NOTHING was delivered and NOTHING was recorded; these words landed nowhere and must not be treated as sent. Ask for the target tab id, then use `codeterm send [--mesh <peer>] --tab <tab-or-alias> \"...\"`, or re-dispatch with a report target."
+        "{NOWHERE_TO_DELIVER_REFUSAL}: tab '{tab_id}' resolves to no live recipient - no parent, no report target, no spawning tab. NOTHING was delivered and NOTHING was recorded; these words landed nowhere and must not be treated as sent. Ask for the target tab id, then use `domios send [--mesh <peer>] --tab <tab-or-alias> \"...\"`, or re-dispatch with a report target."
     );
     if let Some(cause) = refused_task_write {
         message.push_str(&format!(
@@ -268,7 +268,7 @@ pub fn classify_plan_only_report_authority(
         .is_empty()
     {
         return Err(format!(
-            "{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: tab '{tab_id}' holds a task; use ordinary `codeterm agent report --status ...` for that task"
+            "{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: tab '{tab_id}' holds a task; use ordinary `domios agent report --status ...` for that task"
         ));
     }
     let caller_matches = details.caller_tab_id.as_deref() == Some(tab_id);
@@ -332,7 +332,7 @@ pub fn classify_plan_only_report_authority(
         })
         .ok_or_else(|| {
             format!(
-                "{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: tab '{tab_id}' has no current plan evidence grant; the live Plan owner must run `codeterm plan review authorize-reporter {plan_id} {tab_id} --class review|canonical_qa`"
+                "{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: tab '{tab_id}' has no current plan evidence grant; the live Plan owner must run `domios plan review authorize-reporter {plan_id} {tab_id} --class review|canonical_qa`"
             )
         })?;
     Ok(PlanOnlyReportAuthority::EvidenceReporter(grant.class))

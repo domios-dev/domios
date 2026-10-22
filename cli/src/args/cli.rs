@@ -1,5 +1,5 @@
 //! SOURCE OF TRUTH for the CodeTerm CLI surface.
-//! On any change here run `codeterm cli-manifest --write` to regenerate
+//! On any change here run `domios cli-manifest --write` to regenerate
 //! generated/cli/cli-manifest.json + generated/cli/cli.md. The tests `cli_manifest_is_fresh`,
 //! `docs_cli_md_is_fresh`, and `prompt_cli_commands_exist` (cli/src/cmd/manifest.rs)
 //! plus the chat-ui `recognize.test.ts` fail CI if anything drifts.
@@ -42,10 +42,11 @@ use super::usage::UsageAction;
 
 #[derive(Parser)]
 #[command(
-    name = "codeterm",
+    name = "domios",
+    bin_name = "domios",
     version,
     about = "Domios CLI — control your terminal multiplexer",
-    after_help = "Plugin management is available via `codeterm plugin --help`."
+    after_help = "Plugin management is available via `domios plugin --help`."
 )]
 pub struct Cli {
     /// Output raw JSON instead of human-readable text
@@ -203,7 +204,7 @@ pub enum Commands {
 
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:
-        ///   codeterm send --tab X --stdin <<'EOF'
+        ///   domios send --tab X --stdin <<'EOF'
         ///   any `backticks`, $vars, etc — zero interpolation
         ///   EOF
         ///

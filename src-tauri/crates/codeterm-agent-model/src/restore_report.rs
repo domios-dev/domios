@@ -305,7 +305,7 @@ fn log_pending_report(report: &RestoreReport, pending: &mut PendingRestore) {
                 .as_ref()
                 .map(|session| {
                     format!(
-                        " recover=codeterm agent restart --tab {} exited_session={}",
+                        " recover=domios agent restart --tab {} exited_session={}",
                         outcome.pane.tab_id, session
                     )
                 })

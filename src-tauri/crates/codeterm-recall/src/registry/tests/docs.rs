@@ -45,7 +45,7 @@ fn doc_only_candidate_can_win_without_changing_mem_access_counts() {
             "doc": section.doc_name,
             "section": section.section_title,
             "anchor": section.anchor,
-            "pointer": format!("codeterm docs {}", section.doc_name),
+            "pointer": format!("domios docs {}", section.doc_name),
             "via": "docs",
         }])
     );
@@ -61,13 +61,13 @@ fn doc_only_candidate_can_win_without_changing_mem_access_counts() {
 #[test]
 fn cli_command_candidate_points_to_its_help_command() {
     let backend = seeded();
-    let query = "codeterm sessions search";
+    let query = "domios sessions search";
     let section = codeterm_mem::docs_source::search(query, 1)
         .into_iter()
         .next()
         .expect("CLI command source match");
     assert_eq!(section.doc_name, "CLI");
-    assert_eq!(section.section_title, "codeterm sessions search");
+    assert_eq!(section.section_title, "domios sessions search");
     let title = format!("{} § {}", section.doc_name, section.section_title);
     let registry = relevance_registry(&[(&title, 0.99)]);
 
@@ -78,7 +78,7 @@ fn cli_command_candidate_points_to_its_help_command() {
     assert_eq!(output["hits"][0]["doc"], "CLI");
     assert_eq!(
         output["hits"][0]["pointer"],
-        "codeterm sessions search --help"
+        "domios sessions search --help"
     );
     assert_eq!(output["hits"][0]["via"], "docs");
 }

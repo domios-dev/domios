@@ -83,7 +83,7 @@ fn draft(plan: &Plan, task_id: &str, lane: u32) -> TaskCompeteDraft {
         base: None,
         destination: Some("develop".into()),
         task_prompt: "brief".into(),
-        report_command: "codeterm agent report".into(),
+        report_command: "domios agent report".into(),
         plan_skill_manifest: vec![],
     }
 }

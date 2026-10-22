@@ -172,10 +172,10 @@ fn install_message(base: &str, id: &str, reload_required: bool) -> String {
         msg.push_str(" — reload CodeTerm to activate");
     }
     msg.push_str(&format!(
-        ". To configure it: run `codeterm plugin get {id}` to see options, \
-         ask the user what they want, then use `codeterm plugin config {id} --set key=value` \
+        ". To configure it: run `domios plugin get {id}` to see options, \
+         ask the user what they want, then use `domios plugin config {id} --set key=value` \
          for non-secret fields. For secret fields, pipe the value to \
-         `codeterm plugin config {id} --secret FIELD`; never put the value in command arguments."
+         `domios plugin config {id} --secret FIELD`; never put the value in command arguments."
     ));
     msg
 }

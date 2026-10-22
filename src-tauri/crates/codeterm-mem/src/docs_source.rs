@@ -511,11 +511,7 @@ mod tests {
 
     #[test]
     fn docs_vectors_flag_off_is_bm25_identical() {
-        for query in [
-            "codeterm sessions search",
-            "secret unlock",
-            "unmatched query",
-        ] {
+        for query in ["domios sessions search", "secret unlock", "unmatched query"] {
             assert_eq!(
                 super::search_with_hybrid(query, 5, false),
                 super::search(query, 5)
@@ -552,10 +548,10 @@ mod tests {
         assert!(DOCS.iter().all(|doc| doc.name != "CLI"));
         let source_pairs = generated_cli_heading_prefix_pairs();
         assert!(source_pairs.iter().any(|(parent, child)| {
-            parent == "codeterm plan task" && child == "codeterm plan task add"
+            parent == "domios plan task" && child == "domios plan task add"
         }));
         assert!(!source_pairs.iter().any(|(parent, child)| {
-            parent == "codeterm plan task add" && child == "codeterm plan task attach"
+            parent == "domios plan task add" && child == "domios plan task attach"
         }));
 
         let sections = chunks_for_cli_reference(CLI_REFERENCE);
@@ -563,7 +559,7 @@ mod tests {
         assert!(sections.iter().all(|section| section.doc_name == "CLI"));
         assert!(sections
             .iter()
-            .all(|section| section.section_title.starts_with("codeterm")));
+            .all(|section| section.section_title.starts_with("domios")));
         let offending_pairs = command_prefix_pairs(&sections);
         if !offending_pairs.is_empty() {
             println!("offending generated CLI heading pairs: {offending_pairs:#?}");
@@ -576,17 +572,17 @@ mod tests {
             .iter()
             .map(|section| section.section_title.clone())
             .collect();
-        assert!(!titles.contains("codeterm"));
-        assert!(!titles.contains("codeterm plan task"));
-        assert!(titles.contains("codeterm plan task add"));
-        assert!(titles.contains("codeterm plan task attach"));
-        assert!(titles.contains("codeterm sessions get"));
-        assert!(titles.contains("codeterm sessions search"));
+        assert!(!titles.contains("domios"));
+        assert!(!titles.contains("domios plan task"));
+        assert!(titles.contains("domios plan task add"));
+        assert!(titles.contains("domios plan task attach"));
+        assert!(titles.contains("domios sessions get"));
+        assert!(titles.contains("domios sessions search"));
 
-        let result = Index::from_sections(sections).search("codeterm sessions search", 1);
+        let result = Index::from_sections(sections).search("domios sessions search", 1);
 
         assert_eq!(result[0].doc_name, "CLI");
-        assert_eq!(result[0].section_title, "codeterm sessions search");
+        assert_eq!(result[0].section_title, "domios sessions search");
     }
 
     #[test]

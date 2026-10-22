@@ -32,7 +32,7 @@ pub(crate) fn render_model_catalogue_error(data: &serde_json::Value) -> Option<S
         .get("refresh_command")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string)
-        .unwrap_or_else(|| format!("codeterm agent models {provider}"));
+        .unwrap_or_else(|| format!("domios agent models {provider}"));
     Some(format!("✗ {message}\nfix: {refresh}"))
 }
 
@@ -75,7 +75,7 @@ mod tests {
         let rendered = render_model_catalogue_error(&error).unwrap();
         assert!(rendered.contains("gpt-9-bogus"));
         assert!(rendered.contains("gpt-6-sol"));
-        assert!(rendered.contains("codeterm agent models codex"));
+        assert!(rendered.contains("domios agent models codex"));
     }
 
     #[test]
@@ -99,7 +99,7 @@ mod tests {
         let rendered = render_model_catalogue_error(&error).unwrap();
         assert!(rendered.contains("--agent on dispatch"), "{rendered}");
         assert!(rendered.contains("claude, opencode"), "{rendered}");
-        assert!(!rendered.contains("codeterm agent models"), "{rendered}");
+        assert!(!rendered.contains("domios agent models"), "{rendered}");
     }
 
     #[test]
@@ -109,7 +109,7 @@ mod tests {
             "provider": "codex",
             "requested_model": "gpt-9-bogus",
             "valid_model_ids": ["gpt-6-sol", "gpt-6-astra"],
-            "refresh_command": "codeterm agent models codex",
+            "refresh_command": "domios agent models codex",
             "message": "unknown model"
         });
         let error = CliError::from(SocketCallError::Rpc(RpcError {
@@ -131,7 +131,7 @@ mod tests {
         assert_eq!(output["data"]["valid_model_ids"][0], "gpt-6-sol");
         assert_eq!(
             output["data"]["refresh_command"],
-            "codeterm agent models codex"
+            "domios agent models codex"
         );
         assert_eq!(output["error"]["rpc_code"], -32602);
         assert_eq!(output["error"]["code"], "invalid_argument");

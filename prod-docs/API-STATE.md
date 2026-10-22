@@ -41,13 +41,13 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | POST | `/api/session/save` | optional `{continue_tab, continue_prompt}` | Flush accepted desk writes through Storage. With `continue_tab`, the next start delivers one system continue to that tab (the supplied prompt or default) after its own resumed session is agent-ready; the response reports `registered` or a refusal reason (`no_agent_session`, `no_pty_agent_session`). A snapshot that would drop workspaces or tabs from the committed desk is refused unless it carries authorized-reduction intent; the committed desk remains authoritative. Storage errors are reported, never replaced by empty state. |
-| GET | `/api/session/backups` | — | List rotated full-desk backup projections from Storage, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `codeterm sessions backups list`. |
-| POST | `/api/session/backups/{name}/restore` | — | Additive desk recovery from one backup: recreates workspaces/tabs missing from the live desk under their original ids; existing ones are never modified or closed. Returns `{restored, workspaces_added, tabs_added, tabs_already_present}`; 404 for an unknown/invalid name. CLI: `codeterm sessions backups restore <name>`. |
+| GET | `/api/session/backups` | — | List rotated full-desk backup projections from Storage, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `domios sessions backups list`. |
+| POST | `/api/session/backups/{name}/restore` | — | Additive desk recovery from one backup: recreates workspaces/tabs missing from the live desk under their original ids; existing ones are never modified or closed. Returns `{restored, workspaces_added, tabs_added, tabs_already_present}`; 404 for an unknown/invalid name. CLI: `domios sessions backups restore <name>`. |
 
 Authenticated snapshot exchange: `GET /api/session/backups/{name}/export`
 accepts `latest` or a backup timestamp and returns a sanitized desk, Plan store,
 filler histories, size evidence and hidden-tab metadata. CLI:
-`codeterm sessions backups export latest --sanitize --out /tmp/desk.json`.
+`domios sessions backups export latest --sanitize --out /tmp/desk.json`.
 
 #### Web Mirror
 
@@ -65,7 +65,7 @@ filler histories, size evidence and hidden-tab metadata. CLI:
 | POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
 | POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
 
-Published reads, coalesced refresh and stream event order: `codeterm docs API-EVENTS`.
+Published reads, coalesced refresh and stream event order: `domios docs API-EVENTS`.
 
 #### Debug (test-only capabilities)
 | Method | Path | Body / Query | Description |
@@ -84,7 +84,7 @@ Per-provider usage snapshots come from each provider plugin's quota-free `fetchU
 | GET | `/api/usage/rollup/daily` | `?provider=…&since=<ms>&account_id=…` | Per-day max-used aggregates for the history chart. |
 | GET | `/api/usage/projection` | `?provider=…&account_id=…` | Median-baseline projection: per-DOW shape + scale + overspend ETA. |
 | POST | `/api/usage/refresh` | `{provider, account_id?}` | Trigger an out-of-band probe immediately. Returns `{queued, probe_id}`; `503` if the poller is not running. |
-| POST | `/api/usage/ledger/rebuild` | — | Re-derive KPI `token_usage` rows from the transcript behind every recorded usage cursor: one row per provider response, charged to the tab and plan of the rows it replaces. Idempotent. Returns `{sources, missing_sources, responses, legacy_rows_removed, unattributed_responses}`; `503` when the KPI ledger is not recording. CLI: `codeterm usage rebuild-ledger`. |
+| POST | `/api/usage/ledger/rebuild` | — | Re-derive KPI `token_usage` rows from the transcript behind every recorded usage cursor: one row per provider response, charged to the tab and plan of the rows it replaces. Idempotent. Returns `{sources, missing_sources, responses, legacy_rows_removed, unattributed_responses}`; `503` when the KPI ledger is not recording. CLI: `domios usage rebuild-ledger`. |
 
 Usage refresh is quota-free, rebuild is idempotent, projections are estimates, and unsupported providers have no automatic usage probe.
 
@@ -169,7 +169,7 @@ toast or a push channel on is a capability the user never granted by typing a
 config key. Two shapes are refused with `403`: a dot-notation write naming any
 `notifications` path, and a partial merge carrying a `notifications` section from
 a caller that sent `X-CodeTerm-Tab-Id` (i.e. from inside a tab). An agent OFFERS
-the change instead — `codeterm notify send --offer <surface> --offer-accept <label>`
+the change instead — `domios notify send --offer <surface> --offer-accept <label>`
 — and it applies only when that label is tapped.
 
 #### Updates
@@ -194,7 +194,7 @@ After restart, valid recorded provider sessions resume; stale or missing session
 **Outcomes:** HTTP 200: `updating`, `up_to_date`/`no_update`, `command` (Homebrew/Scoop), `browser_opened`, `already_in_flight`, `blocked` or `elevation_required`. The last two include an action reason. Applying is single flight across the process; `already_in_flight` differs from `no_update`. Debian staging contention returns 409.
 **Errors:** 400: invalid/disabled continuation, missing caller/prior check, or malformed channel; 500: blocking-worker or `update_handoff_write_failed`; 502: discovery, signature verification or staging failure; 503 `native_capability_unavailable`: no attached updater. Authentication/protocol middleware can refuse earlier. Install refusals log route, status and reason.
 
-**Recovery:** use desktop Settings > Updates on macOS/Windows, or the official installer at https://github.com/rollacode/codeterm-releases/releases/latest with `codeterm update install --from-file <installer-path>`. Debian uses the verified staging flow above.
+**Recovery:** use desktop Settings > Updates on macOS/Windows, or the official installer at https://github.com/rollacode/codeterm-releases/releases/latest with `domios update install --from-file <installer-path>`. Debian uses the verified staging flow above.
 
 ### Tab-scoped local previews
 
@@ -206,6 +206,6 @@ Read returns `{ "data": "...", "media_type": "..." }`; images use a base64 data 
 
 Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and a restrictive sandbox CSP. HTML is returned inside JSON and rendered in the existing sandboxed preview. Requests are capped at 120 per minute across these routes, four concurrent operations, 64 KiB request bodies and 128 paths per batch. Excess traffic returns `429`; oversized batches return `413`. Reveal in the OS and Open in the OS remain desktop-only.
 
-Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
+Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

@@ -8,14 +8,14 @@ use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 
 /// CodeTerm commands a role or task launch runs to acknowledge and report.
 pub(crate) const LIFECYCLE_COMMANDS: &[&str] = &[
-    "codeterm agent startup-ack",
-    "codeterm agent ack",
-    "codeterm agent report",
-    "codeterm pad path",
+    "domios agent startup-ack",
+    "domios agent ack",
+    "domios agent report",
+    "domios pad path",
 ];
 
 /// Commands a scheduled run owes on top of the lifecycle set.
-pub(crate) const CRON_RUN_COMMANDS: &[&str] = &["codeterm cron complete"];
+pub(crate) const CRON_RUN_COMMANDS: &[&str] = &["domios cron complete"];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LaunchPurpose {

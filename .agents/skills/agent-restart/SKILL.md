@@ -5,7 +5,7 @@ description: "Exercise graceful, forced, and recovery paths for a Domios agent r
 
 # Agent-restart testing playbook
 
-How to test the `codeterm agent restart` flow against a dev instance —
+How to test the `domios agent restart` flow against a dev instance —
 both the graceful path (default) and the forced path (`--force`).
 
 Cross-references:
@@ -124,7 +124,7 @@ A common pattern: an Orchestrator notices a Worker is stuck and asks
 the system to restart it.
 
 ```bash
-codeterm agent restart --tab $WORKER_TAB_ID --grace-secs 30
+domios agent restart --tab $WORKER_TAB_ID --grace-secs 30
 ```
 
 For a Worker on another peer, add `--mesh PEER` and pass its peer-side tab id
@@ -132,7 +132,7 @@ explicitly. A mesh restart refuses without `--tab` and never reads the caller's
 local `CODETERM_TAB_ID`.
 
 ```bash
-codeterm agent restart --tab "$WORKER_TAB_ID" --grace-secs 30 --mesh PEER
+domios agent restart --tab "$WORKER_TAB_ID" --grace-secs 30 --mesh PEER
 ```
 
 The Orchestrator's Tab keeps running; only the Worker's PTY cycles.
@@ -143,7 +143,7 @@ child Tab ids which don't change across restart).
 ## 6. In-tab provider relaunch and recovery
 
 A provider started by hand inside a tab's surviving shell (for example through
-`codeterm tab exec`) has no launch pipeline to seal it. When its hook session
+`domios tab exec`) has no launch pipeline to seal it. When its hook session
 start echoes the tab's current binding nonce with an accepted session, while no
 launch owns the tab (`agent_booting` false), the tab still has a pre-agent stage
 (none, `pty_*`, `reader_ready`, `shell_ready`, `pty_reattached`), and its PTY is
@@ -176,7 +176,7 @@ bindings replay. Coverage: `exit_clear_keeps_verified_binding_in_lineage`,
 `compaction_replay` tests. Refusals happen before acceptance with `exit_recovery_no_live_shell`,
 `exit_recovery_no_verified_session` or `exit_recovery_session_not_owned`; then
 spawn a fresh agent, or replace a missing Team Orchestrator through
-`codeterm agent spawn <provider> --team <team-id> --role Orchestrator`. The
+`domios agent spawn <provider> --team <team-id> --role Orchestrator`. The
 General Agent keeps its own restart control. `tab restart` refuses an absent tab
 that still carries an agent role (`shell_restart_agent_member`): a hand-typed
 provider resume there bypasses the launch builder and starts the agent without
@@ -202,7 +202,7 @@ uses as authority. Once that shell is ready, exit recovery resumes it once. The
 restore report names the pane `agent_exited_before_shutdown` with
 `exited_session_id` and logs the recovery command, and the journal records one
 `restore_awaiting_agent_restart` per member and session, not one per boot.
-`codeterm agent restart --tab <id>` recovers that exact lineage session in place
+`domios agent restart --tab <id>` recovers that exact lineage session in place
 as above. A relaunch (restore, resume, restart, exit recovery) of a task-bound
 Worker owes no dispatch startup handshake: its persisted task binding alone
 never fails the launch for a missing startup waiter, and every launch failure
@@ -219,13 +219,13 @@ is shell input. A live provider behind a record that no longer declares it
 receives the raw text in its composer, where a leading `/` is a provider command.
 
 Manual check: exit an agent to its shell and confirm the caller's workspace map
-from `codeterm tab list` shows the tab `absent`, then run `codeterm agent restart --tab $TAB`. It returns
+from `domios tab list` shows the tab `absent`, then run `domios agent restart --tab $TAB`. It returns
 `agent_ready` with `recovered_in_place: true` and the prior `session_id`, the
 dev log shows `[agent-launch] origin=exit_recovery`, the tab is `live` on the same
 PTY, and a Chat UI send is delivered without `tab_busy_refused`.
 
 For a bare shell at `LaunchBindingUnconfirmed`, with a known provider and no
-verified recovery session selectable from lineage or journal, run `codeterm agent restart --tab <id>`. It replaces
+verified recovery session selectable from lineage or journal, run `domios agent restart --tab <id>`. It replaces
 the shell PTY, launches the provider from the recorded spawn without resuming
 the unverified session, and reports `action=fresh_launch`. If the provider or
 recorded launch cannot be used, the command fails instead of reporting success.

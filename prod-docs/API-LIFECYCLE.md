@@ -3,7 +3,7 @@
 Use the packaged CLI for cold install/update shutdown:
 
 ```bash
-codeterm app quit --exact --json
+domios app quit --exact --json
 ```
 
 This is local-only. It uses the selected instance's ordinary local credentials without putting a token in argv. Remote Mesh callers and service-push credentials cannot request application shutdown. No automatic retry occurs.
@@ -18,4 +18,4 @@ Nonzero outcomes are `refused` with reason busy, unsaved_work, no_instance, mism
 
 Installers must invoke their trusted packaged CLI, validate its complete confirmed receipt against the selected instance, and replace files only after exit0. A copied JSON receipt is not a reusable authorization token. This source contract does not itself prove a native platform, packaged installation, or updater run.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

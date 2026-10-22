@@ -25,7 +25,7 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
             plan,
             "missing_goal",
             "plan has no goal vector",
-            "set the north-star first: codeterm plan goal set <plan> --vector <objective>",
+            "set the north-star first: domios plan goal set <plan> --vector <objective>",
         ));
     }
     if !has_spec_source(plan) {
@@ -34,7 +34,7 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
             plan,
             "missing_spec_source",
             "plan is not linked to a spec",
-            "create/update the spec first, then use codeterm plan create --from-spec or spec link add",
+            "create/update the spec first, then use domios plan create --from-spec or spec link add",
         ));
     }
     if let Some(finding) = inspect_planner_pairing(path, plan) {
@@ -65,7 +65,7 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
             plan,
             "tasks_before_approval",
             "execution tasks are drafted before plan approval",
-            "run the approval gate and `codeterm plan approve <plan>`, or remove draft tasks with `codeterm plan task rm <plan> --all --yes`",
+            "run the approval gate and `domios plan approve <plan>`, or remove draft tasks with `domios plan task rm <plan> --all --yes`",
         ));
     }
     if tasks.is_empty() && !section_text.is_empty() {
@@ -284,7 +284,7 @@ fn inspect_loop_quality(path: &Path, plan: &Value, now_ms: u64) -> Vec<Finding> 
                 "exhausted_loop_still_running",
                 &format!("loop {loop_id} is still marked running at {count}/{budget}"),
                 &format!(
-                    "record the stop or repair the loop status: codeterm plan loop stop {loop_id}"
+                    "record the stop or repair the loop status: domios plan loop stop {loop_id}"
                 ),
             ));
         }
@@ -308,7 +308,7 @@ fn inspect_loop_quality(path: &Path, plan: &Value, now_ms: u64) -> Vec<Finding> 
                 "loop {loop_id} has been running without a recorded iteration for more than 3 days"
             ),
             &format!(
-                "record a fresh iteration with codeterm plan loop record {loop_id} --note \"...\" or stop it explicitly"
+                "record a fresh iteration with domios plan loop record {loop_id} --note \"...\" or stop it explicitly"
             ),
         ));
     }
@@ -531,7 +531,7 @@ fn inspect_planner_pairing(path: &Path, plan: &Value) -> Option<Finding> {
         "planner_unpaired",
         "orchestrator has no attached Planner",
         &format!(
-            "inspect the paired Team with `codeterm team show <team-id>` and bind its existing Planner: codeterm plan update {plan_id_str} --planner <planner-tab>; or waive: codeterm plan update {plan_id_str} --planner none --note \"<why>\""
+            "inspect the paired Team with `domios team show <team-id>` and bind its existing Planner: domios plan update {plan_id_str} --planner <planner-tab>; or waive: domios plan update {plan_id_str} --planner none --note \"<why>\""
         ),
     ))
 }

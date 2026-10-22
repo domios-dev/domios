@@ -116,7 +116,7 @@ mod importance_tests {
 pub(crate) fn validate_mem_forget_confirmation(area: &str, yes: bool) -> Result<(), String> {
     if !yes {
         return Err(format!(
-            "refusing to batch-delete area '{area}' without --yes; retry: codeterm mem forget {area} --yes"
+            "refusing to batch-delete area '{area}' without --yes; retry: domios mem forget {area} --yes"
         ));
     }
     Ok(())

@@ -57,10 +57,8 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
                     .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or(match kind {
-                        "logged_out" => {
-                            "secret store: logged out — run `codeterm mem secret unlock`"
-                        }
-                        "locked" => "secret store: vault locked — run `codeterm mem secret unlock`",
+                        "logged_out" => "secret store: logged out — run `domios mem secret unlock`",
+                        "locked" => "secret store: vault locked — run `domios mem secret unlock`",
                         "not_found" => "secret store: not found",
                         "already_exists" => {
                             "secret store: already exists (use --overwrite to replace)"

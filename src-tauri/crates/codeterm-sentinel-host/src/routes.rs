@@ -65,7 +65,7 @@ pub(super) fn notify_trigger_unavailable(svc: &ServiceContext, job: &Sentinel, r
     let reason = reason.chars().take(256).collect::<String>();
     let title = format!("Blueprint {} trigger unavailable", job.id);
     let message = format!(
-        "Blueprint '{}' cannot receive events: {reason}. Next step: inspect codeterm blueprint history {}",
+        "Blueprint '{}' cannot receive events: {reason}. Next step: inspect domios blueprint history {}",
         job.name.as_deref().unwrap_or(&job.id),
         job.id
     );
@@ -88,7 +88,7 @@ pub(super) fn notify_trigger_unavailable(svc: &ServiceContext, job: &Sentinel, r
 
 fn lifecycle_packet(notice: &StopNotice) -> String {
     format!(
-        "Blueprint graph '{}' ended. Reason: {}.\nNext step: codeterm blueprint history {}",
+        "Blueprint graph '{}' ended. Reason: {}.\nNext step: domios blueprint history {}",
         notice.name, notice.reason, notice.sentinel_id
     )
 }
@@ -293,9 +293,9 @@ fn escalation_packet(job: &Sentinel, transition_id: &str) -> String {
         "blueprint_id": job.id,
         "transition_id": transition_id,
         "next_steps": [
-            format!("inspect: codeterm blueprint history {}", job.id),
+            format!("inspect: domios blueprint history {}", job.id),
             format!(
-                "resolve: codeterm blueprint escalation resolve {} {}",
+                "resolve: domios blueprint escalation resolve {} {}",
                 job.id, transition_id
             )
         ]
@@ -564,7 +564,7 @@ mod tests {
 
         assert_eq!(
             lifecycle_packet(&notice),
-            "Blueprint graph 'Budget watch' ended. Reason: transition_budget_exhausted.\nNext step: codeterm blueprint history sentinel_budget"
+            "Blueprint graph 'Budget watch' ended. Reason: transition_budget_exhausted.\nNext step: domios blueprint history sentinel_budget"
         );
     }
 
@@ -603,9 +603,9 @@ mod tests {
         assert_eq!(
             packet["next_steps"],
             serde_json::json!([
-                format!("inspect: codeterm blueprint history {}", job.id),
+                format!("inspect: domios blueprint history {}", job.id),
                 format!(
-                    "resolve: codeterm blueprint escalation resolve {} transition_one",
+                    "resolve: domios blueprint escalation resolve {} transition_one",
                     job.id
                 )
             ])

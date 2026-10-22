@@ -97,7 +97,7 @@ pub struct CronJob {
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
-    /// Mem skill slug (`codeterm mem skill new <slug>`) resolved and injected
+    /// Mem skill slug (`domios mem skill new <slug>`) resolved and injected
     /// into the task brief at fire time — see `cron::scheduler::fire_job`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill: Option<String>,

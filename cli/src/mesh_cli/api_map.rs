@@ -372,7 +372,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     return unsupported("remote tab restart does not support --timeout; ask an agent running on the target peer to restart the shell with --timeout");
                 }
                 if cmd.is_some() {
-                    return unsupported("remote tab restart does not support --cmd; restart then use codeterm tab exec");
+                    return unsupported("remote tab restart does not support --cmd; restart then use domios tab exec");
                 }
                 let id = tab.as_deref().unwrap_or("general");
                 (

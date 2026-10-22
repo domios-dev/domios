@@ -35,7 +35,7 @@ Domios runs as two processes: a headless server that owns every core part, and a
 
 Invariants: the client links only client and shared code and reaches server state only through its attach and native-host protocol; shared code never reaches the server layer; nothing outside the client depends on it; restarting or closing the window leaves the server, terminals and agent sessions running; a repository guard fails any dependency that breaks this layer rule.
 
-The CLI command groups and their accepted inputs and behavior form a product contract. Its generated reference, chat actions, and agent prompts stay aligned with the command tree. Breaking CLI-to-service requests are rejected with a clear version-mismatch response and recovery guidance; additive optional operations and fields remain compatible. Command feedback distinguishes errors that require action, advisory hints, and nonfatal warnings.
+The primary CLI command is `domios`; `codeterm` is a fully working alias without a deprecation warning. Help, usage and generated contracts use the canonical name regardless of the invoked name. The CLI command groups and their accepted inputs and behavior form a product contract. Its generated reference, chat actions, and agent prompts stay aligned with the command tree. Breaking CLI-to-service requests are rejected with a clear version-mismatch response and recovery guidance; additive optional operations and fields remain compatible. Command feedback distinguishes errors that require action, advisory hints, and nonfatal warnings.
 
 ## Core parts
 

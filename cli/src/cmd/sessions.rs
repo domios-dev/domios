@@ -131,7 +131,7 @@ fn render_search_human(query: &str, val: &serde_json::Value) -> String {
         }
         let _ = writeln!(
             out,
-            "  resume:  codeterm sessions resume {}\n",
+            "  resume:  domios sessions resume {}\n",
             shell_quote(sid)
         );
         if let Some(snips) = hit.get("snippets").and_then(|v| v.as_array()) {
@@ -400,7 +400,7 @@ fn handle_backups(
                     tabs
                 );
             }
-            println!("\nRestore one (additive, replaces nothing): codeterm sessions backups restore <NAME>");
+            println!("\nRestore one (additive, replaces nothing): domios sessions backups restore <NAME>");
         }
         BackupsAction::Restore { name } => {
             let url = format!(

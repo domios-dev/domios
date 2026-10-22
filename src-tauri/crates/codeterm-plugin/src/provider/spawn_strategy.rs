@@ -286,7 +286,7 @@ impl StarterPrompt {
         match self {
             Self::TeamBootstrap => Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()),
             Self::StartupHandshake => Some(
-                "Before any other action, run `codeterm agent startup-ack`. Then continue with the assigned role or task.",
+                "Before any other action, run `domios agent startup-ack`. Then continue with the assigned role or task.",
             ),
             Self::NoStarter | Self::AssignedTask | Self::IdleWakeup => None,
         }

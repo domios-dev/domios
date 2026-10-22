@@ -59,5 +59,5 @@ fn fixture_mem_search_ranks_the_matching_plugin_verb() {
     assert!(best
         .item
         .body
-        .contains("Invocation: `codeterm plugin telegram-client send <chat-id> <text>`"));
+        .contains("Invocation: `domios plugin telegram-client send <chat-id> <text>`"));
 }

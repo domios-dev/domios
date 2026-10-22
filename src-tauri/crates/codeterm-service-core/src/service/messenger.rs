@@ -246,7 +246,7 @@ impl From<MessageEnvelope> for Messenger {
 
 impl Messenger {
     pub const AGENT_REPLY_HINT_PREFIX: &'static str = "[to reply, run: ";
-    pub const AGENT_REPLY_COMMAND: &'static str = "codeterm send";
+    pub const AGENT_REPLY_COMMAND: &'static str = "domios send";
     const SHELL_REPLY_HINT: &'static str = "[sender is a shell; reply here]";
     pub fn message(from_name: impl Into<String>, from_tab: impl Into<String>) -> Self {
         MessageEnvelope::tab(from_name, from_tab).into()

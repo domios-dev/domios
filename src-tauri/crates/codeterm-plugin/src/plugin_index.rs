@@ -117,7 +117,7 @@ fn plugin_entry(
         body.push_str("\n\n");
     }
     body.push_str(&format!(
-        "Installed plugin. Inspect its current configuration and agent guidance with `codeterm plugin get {id}`.\n"
+        "Installed plugin. Inspect its current configuration and agent guidance with `domios plugin get {id}`.\n"
     ));
     if !capabilities.is_empty() {
         body.push_str(&format!("\nCapabilities:\n{}\n", bullets(capabilities)));
@@ -167,7 +167,7 @@ fn verb_entry(
     let id = &manifest.id;
     let name = &manifest.display_name;
     let verb = usage.split_whitespace().next().unwrap_or(usage);
-    let invocation = format!("codeterm plugin {id} {usage}");
+    let invocation = format!("domios plugin {id} {usage}");
     let args = usage
         .split_once(char::is_whitespace)
         .map(|(_, args)| args.trim())

@@ -134,7 +134,7 @@ When a value must match, import the shared constant instead of quoting it.
   task whose primary deliverable is tests (new specs, drills, eval
   harnesses, baseline suites) — decided at task creation, like every role.
 - **How the charter arrives**: the task's `role_guidance` names this doc as
-  the operating instruction ("You are a test-author; `codeterm docs
+  the operating instruction ("You are a test-author; `domios docs
   TEST-AUTHORING` is your charter — read it before writing"), and the
   dispatch brief carries it. The role never depends on the agent
   remembering to look.
@@ -145,4 +145,4 @@ When a value must match, import the shared constant instead of quoting it.
   red-green demo and the isolation-first run of each new test. A test-author
   report without a red-green demo bounces.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

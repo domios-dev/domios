@@ -1,5 +1,5 @@
 # Domios API Reference
-Authenticated transports: REST, local socket JSON-RPC and `codeterm`.
+Authenticated transports: REST, local socket JSON-RPC and `domios`.
 
 ### One behavior across transports
 
@@ -7,9 +7,9 @@ REST, socket and CLI share authorization, PTY cleanup, events and hierarchy vali
 
 The CLI's local socket needs no TCP. Unix peer credentials or the Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing, and transport.
 
-Every socket and mesh RPC envelope carries a `protocol_version`; an older or versionless client is refused with `-32002`. Wire shape: `codeterm docs API-TRANSPORT`.
+Every socket and mesh RPC envelope carries a `protocol_version`; an older or versionless client is refused with `-32002`. Wire shape: `domios docs API-TRANSPORT`.
 
-Human `codeterm workspace list` shows authoritative topology in stable creation order; inspect one tab with `codeterm tab inspect <id>` (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`, `source` one of `explicit`, `caller-tab`, `workspace-env`, `focus-fallback`. Resolution is never positional: `--workspace`, `$CODETERM_TAB_ID` via workspace membership, a validated `$CODETERM_WORKSPACE_ID`, then the active workspace. With no rung, stdout stays empty and it exits 1 (`--json` puts the error on stdout).
+Human `domios workspace list` shows authoritative topology in stable creation order; inspect one tab with `domios tab inspect <id>` (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`, `source` one of `explicit`, `caller-tab`, `workspace-env`, `focus-fallback`. Resolution is never positional: `--workspace`, `$CODETERM_TAB_ID` via workspace membership, a validated `$CODETERM_WORKSPACE_ID`, then the active workspace. With no rung, stdout stays empty and it exits 1 (`--json` puts the error on stdout).
 
 ## REST API
 Base URL: `http://<host>:7685/api`. This reference covers agent- and operator-facing routes; web-mirror and debug internals are not listed.
@@ -95,7 +95,7 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/mesh/attachments/transfer` | `{ordinary_tab_id, peer_id, path, kind}` | Origin-host handoff: sends a local attachment's bytes to the owning peer's `POST /api/tabs/{id}/attachments` and returns that peer's `{path, kind, size, reference}`. Transfer failure is an error, never the original path. Remote sends from this host (`/send`, `/chat-send`, `/delayed-messages`) whose text still names an attachment stored here are refused with `source_attachment_path`. |
 | GET | `/api/tabs/{id}/chat-send` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | POST | `/api/tabs/{id}/stop` | — | Interrupt an active turn through structured abort or the provider-declared stop sequence. `stopped:true` follows a terminal status event; with no active turn nothing is sent (`{stopped:false, reason:"not_working", status}`), and without a stop capability the response is `{stopped:false, reason:"stop_unsupported"}`. |
-| POST | `/api/tabs/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Run a shell command until the shell reports it finished or exits: `{output, offset, exit_code, completion}` (`command_finished` \| `shell_exited` \| `timeout`). `timeout_ms` (default 10000) is a failure deadline that adds `timeout:true`. `409` for an agent tab or an exited shell. `codeterm tab exec` exits with the command's code, `124` on timeout |
+| POST | `/api/tabs/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Run a shell command until the shell reports it finished or exits: `{output, offset, exit_code, completion}` (`command_finished` \| `shell_exited` \| `timeout`). `timeout_ms` (default 10000) is a failure deadline that adds `timeout:true`. `409` for an agent tab or an exited shell. `domios tab exec` exits with the command's code, `124` on timeout |
 | GET | `/api/tabs/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
 | GET | `/api/tabs/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, incl. alternate buffer), backend-served so hidden tabs work. Response: `{"text", "formatted", "tab_id"}`; `?formatted=true` keeps raw ANSI including cursor position and visibility. |
 | GET | `/api/tabs/{id}/usage` | — | Latest usage/cost counters for this tab |
@@ -128,12 +128,12 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 |--------|------|------|-------------|
 | POST | `/api/tabs/{id}/role` | `{role, parent_tab_id?, can_spawn?, plan_id?}` | Set tab role (`Orchestrator` or `Worker`; `Conductor` aliases `Orchestrator`). A `Manager` with `role_profile: "planner"` requires `plan_id`; an omitted `parent_tab_id` resolves to the plan's live Orchestrator owner instead of refusing, and an explicit one wins. |
 | DELETE | `/api/tabs/{id}/role` | — | Clear role: detach a Worker, or retire an Orchestrator while keeping the final anchor's Team and active Plan for a replacement |
-| GET | `/api/tabs/{id}/status` | — | Tab status (`working` \| `question` \| `idle` \| `error` \| `exited`, the value `tab list` shows) + role + children info, including `pending_prompt` when a numbered provider prompt is active (`question` and `options`). `codeterm tab status --json` returns the same prompt data. |
+| GET | `/api/tabs/{id}/status` | — | Tab status (`working` \| `question` \| `idle` \| `error` \| `exited`, the value `tab list` shows) + role + children info, including `pending_prompt` when a numbered provider prompt is active (`question` and `options`). `domios tab status --json` returns the same prompt data. |
 | POST | `/api/tabs/{id}/report` | `{message, caller_tab_id?, caller_session_id?, session_binding_nonce?, plan_id?, task_id?, status?, ...}` | Send an authenticated hierarchy report. A Plan-authorized task-less reporter uses `plan_id` without `task_id`/`status`; success returns `plan_report` and persists a task-less Plan stride before Orchestrator delivery. |
 | GET | `/api/tabs/{id}/reports` | `?clear=true` | Read reports from children (optionally clearing them) |
 | POST | `/api/tabs/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether tab can spawn children |
 | POST | `/api/tabs/{id}/agent-type` | `{agent_type}` | Mark a tab as running a specific agent provider |
-| POST | `/api/tabs/{id}/prompt/respond` | `{value}` | Respond to the active numbered prompt. `codeterm tab respond <option> --tab <id>` uses the one-based option shown by status and refuses when the prompt is no longer on screen. |
+| POST | `/api/tabs/{id}/prompt/respond` | `{value}` | Respond to the active numbered prompt. `domios tab respond <option> --tab <id>` uses the one-based option shown by status and refuses when the prompt is no longer on screen. |
 | POST | `/api/tabs/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | Versioned provider catalog (changes emit catalogue events to selectors): `id`, `display_name`, models, reasoning efforts/defaults (per-model values override the provider list, API-AGENTS), settings, and `kind`: `agent` (PTY) or `shell` (chat backend, also exposing presets and Chat UI support). `availability` is `available`, `unavailable`, or `unknown`; PTY lookup uses `binary_name`; backends use optional `cli_binary`. Spawn refuses `unavailable` before creating a tab; `unknown` warns. Debug builds add `stub_replay`, true when a launch of that provider is replaced by the `CODETERM_STUB_AGENT_CMD` replayer; release builds omit it. |
 | POST | `/api/agents/providers/refresh` | `{provider_id}` | Explicitly refreshes a provider's model catalogue before a listing: a catalogue that requires live discovery re-probes; any other catalogue gets the reader-gated re-probe (TTL window, or a changed credential/config/provider binary). Returns `{provider_id, discovery_required, refreshed, reason}`; `reason` names why a probe published nothing and is null after a refresh. |
@@ -142,9 +142,9 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/agents/helper` | `{title, task}` | Shared spawn for UI AI helper buttons (Configure with AI, Mesh Set up with AI). The daemon resolves the General Agent provider, places the tab in the General workspace and working directory regardless of the active workspace, and starts a roleless visible launch that always carries a first turn. Other fields are refused. A missing General workspace, launch failure or undelivered first turn errors and rolls the tab back. `delivery_state` is `confirmed` only when the first turn was submitted through the PTY with submit evidence, `launched` when the provider consumed it inline at launch without that evidence. |
 | GET | `/api/remote-workers` | `?tab=<id>` | Orchestrator view of cross-mesh workers, built from inbound mesh reports. `?tab=` returns that orchestrator's workers; otherwise the full `{ tab_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_tab, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
-Configure-with-AI, provider install, auto-confirm, the Pebble webhook and plugin receiver targets: `codeterm docs API-INTEGRATIONS`.
+Configure-with-AI, provider install, auto-confirm, the Pebble webhook and plugin receiver targets: `domios docs API-INTEGRATIONS`.
 
-Plugin surface routes (`/api/surfaces/*`): `codeterm docs SURFACES`.
+Plugin surface routes (`/api/surfaces/*`): `domios docs SURFACES`.
 
 #### Batch
 | Method | Path | Body | Description |
@@ -162,16 +162,16 @@ Plugin surface routes (`/api/surfaces/*`): `codeterm docs SURFACES`.
 #### Supporter visibility
 | Method | Path | Query | Description |
 |--------|------|-------|-------------|
-| GET | `/api/supporter/activity` | `?limit=N&team_id=...` | Latest redacted decisions, default 50 and maximum 100; optional persisted Team attribution filter. Contract: `codeterm docs API-MEMORY`. |
+| GET | `/api/supporter/activity` | `?limit=N&team_id=...` | Latest redacted decisions, default 50 and maximum 100; optional persisted Team attribution filter. Contract: `domios docs API-MEMORY`. |
 
 #### Plan task mutation authority
 
 Task-mutating calls (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`) carry caller/session/binding/owner-epoch authority (REST: matching `X-CodeTerm-*` headers). Once owned, the caller must match the recorded owner. `GET /api/tasks` and socket `task.list` return the same object: `tasks` plus an optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`, `plan_outside_project`, `no_plans_in_scope`, `no_tasks_in_scope`, `all_tasks_inactive`, or `no_match_for_filters`. The field is absent when tasks exist; consumers ignore unknown kinds and never invent a local explanation.
 
-Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reached by `codeterm plan record`) cross the same boundary: an op naming a task another tab holds is refused unless the caller is that holder or the plan owner. Callers name themselves with `caller_tab_id`; an unidentified caller cannot claim a hold. The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with `type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`, and nothing is written. A bearer token proves a client is permitted, never that it holds the task.
+Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reached by `domios plan record`) cross the same boundary: an op naming a task another tab holds is refused unless the caller is that holder or the plan owner. Callers name themselves with `caller_tab_id`; an unidentified caller cannot claim a hold. The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with `type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`, and nothing is written. A bearer token proves a client is permitted, never that it holds the task.
 
-A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
+A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `domios docs ORCHESTRATION`.
 
 Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 212 -->
+<!-- revision: 213 -->

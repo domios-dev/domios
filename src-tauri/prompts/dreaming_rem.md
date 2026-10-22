@@ -39,15 +39,15 @@ reads the diary you leave, and everything else is graph mutation work.
 | 8 | D Calibration (read-only) | 2 calls | `CALIBRATION`, `ARCHIVED` |
 | 9 | B Final diary, self-link, report | — | `PATTERN`, `ENTITY_COUNT_AFTER`, `ACTION` |
 
-After EVERY stage, `codeterm mem update <diary_id> --body '...'` with the full
+After EVERY stage, `domios mem update <diary_id> --body '...'` with the full
 log so far (stages not reached yet stay `pending`). If the run is cut short,
 the diary still says what happened.
 
 ## STAGE 0 — Start
 
     date -u +%Y-%m-%dT%H:%M:%SZ          # remember this start time
-    codeterm mem stats
-    codeterm mem save --kind daily --title "dream: <UTC YYYY-MM-DD HH:MM>" \
+    domios mem stats
+    domios mem save --kind daily --title "dream: <UTC YYYY-MM-DD HH:MM>" \
       --tags dream-diary --area _dreams --skip-extract --summary "WIP: dreaming" \
       '<insight></insight><log>STARTED: <start time></log>'
 
@@ -55,15 +55,15 @@ The returned id is `<diary_id>` for the whole run.
 
 ## STAGE 1 — Bulk pre-clean (server-side, one call each, never edge by edge)
 
-    codeterm mem graph prune-dream-hub-edges --json    # diary -> hub backlinks
-    codeterm mem graph collapse-synonym-edges --json   # parallel synonym edges
+    domios mem graph prune-dream-hub-edges --json    # diary -> hub backlinks
+    domios mem graph collapse-synonym-edges --json   # parallel synonym edges
 
 Log `DREAM_BACKLINKS: <deleted>` and `PARALLEL_EDGES: collapsed=<deleted>`.
 These deflate most hubs before A.1 starts.
 
 ## STAGE 2 — A.1 Hub decomposition
 
-    codeterm mem graph hubs --threshold 20 --limit 5
+    domios mem graph hubs --threshold 20 --limit 5
 
 Returns the top hubs by degree (descending). `total_hubs` is the count above
 the threshold (that is `HUBS_BEFORE`); `excluded` lists the by-design dreams
@@ -81,14 +81,14 @@ more search noise, so if anything is skipped it is the smallest. For each:
 
 1. Decompose: one call per cluster, straight from the JSON —
 
-       codeterm mem graph introduce-topic --topic-id <suggested_topic> \
+       domios mem graph introduce-topic --topic-id <suggested_topic> \
          --type <entity_type> --sources <members, comma-separated> \
          --anchor <hub id> --reason "dreamer-recluster"
 
    If a cluster is weak (its members plainly share nothing), skip that
    cluster, not the hub.
 2. If clusters leave a large residue on a RED-ZONE hub, or the JSON has no
-   `clusters` at all, re-call `codeterm mem graph hubs --threshold 20
+   `clusters` at all, re-call `domios mem graph hubs --threshold 20
    --limit 5 --sample 100` to read every neighbour title, group them by theme
    in your head (reuse `existing_anchors` first; new slugs are
    `topic_<theme>`, never dated), and call `introduce-topic` with 2+ sources
@@ -104,13 +104,13 @@ more search noise, so if anything is skipped it is the smallest. For each:
      `skipped: neighbors do not form coherent themes`.
    "Too big", "it is a person", "next run" are never reasons.
 
-Verify: re-run `codeterm mem graph hubs --threshold 20 --limit 5`; its
+Verify: re-run `domios mem graph hubs --threshold 20 --limit 5`; its
 `total_hubs` is `HUBS_AFTER`. Log one `HUBS:` line per hub you were given.
 
 ## STAGE 3 — A.2 Islands and orphans (15 actions total)
 
-    codeterm mem graph islands --max-size 6 --limit 20
-    codeterm mem graph orphans --limit 30
+    domios mem graph islands --max-size 6 --limit 20
+    domios mem graph orphans --limit 30
 
 `ISLANDS_BEFORE` = `total_components`, `ORPHANS_BEFORE` = `count`.
 For each island, top to bottom, until the cap:
@@ -119,17 +119,17 @@ For each island, top to bottom, until the cap:
   entity): bridge with ONE edge from the first / most central member. Never
   invent a new topic when the anchor exists.
 
-      codeterm mem graph relate --from <member> --rel applies_to \
+      domios mem graph relate --from <member> --rel applies_to \
         --to <suggested_anchor> --reason "dreamer-island-bridge"
 
 - No real anchor (`topic_misc`) but a coherent theme: promote it —
 
-      codeterm mem graph introduce-topic --topic-id topic_<theme> --type Topic \
+      domios mem graph introduce-topic --topic-id topic_<theme> --type Topic \
         --sources <2+ members> --anchor <a real project_/topic_ hub> \
         --reason "dreamer-island-promote"
 
 - Garbage (extraction leftovers like `auto: User has mentioned ...`,
-  duplicate `tech_*` stubs): `codeterm mem archive <id> --reason "orphan or junk stub"`,
+  duplicate `tech_*` stubs): `domios mem archive <id> --reason "orphan or junk stub"`,
   or `mem graph alias` when the name is a duplicate entity.
 
 Orphans: link a `rule`/`skill`/`preference` with a clear area to its area's
@@ -139,40 +139,40 @@ Density is not the goal: every node findable through its topic is.
 
 Verify: re-run both commands; `ISLANDS_AFTER` = `total_components`,
 `ORPHANS_AFTER` = `count`. If you created topics, run
-`codeterm mem reembed --scope entities`.
+`domios mem reembed --scope entities`.
 Log `ISLANDS: bridged=N promoted=M archived=K`, `ORPHANS: bridged=N archived=M`.
 
 ## STAGE 4 — A.3 Dedup (10 pair checks)
 
-    codeterm mem graph find-duplicate-entities --strategy exact-name --limit 10
-    codeterm mem graph find-duplicate-entities --strategy vector --threshold 0.90 --limit 10
+    domios mem graph find-duplicate-entities --strategy exact-name --limit 10
+    domios mem graph find-duplicate-entities --strategy vector --threshold 0.90 --limit 10
 
-For each pair: `codeterm mem graph related --id <a>` and `--id <b>`. Same
-concept, different name: `codeterm mem graph alias --alias <lesser>
+For each pair: `domios mem graph related --id <a>` and `--id <b>`. Same
+concept, different name: `domios mem graph alias --alias <lesser>
 --canonical <better>`. Different concepts: keep both.
 
 Content duplicates you noticed in A.1/A.2: read both with `mem get`. Genuine
 duplicate, merge it in one call so the lesser remains recoverable:
 
-    codeterm mem merge --keeper <keeper> --lesser <lesser> --body '<merged body>'
+    domios mem merge --keeper <keeper> --lesser <lesser> --body '<merged body>'
 
 The lesser is archived and linked to the keeper, so `mem restore <lesser>`
 undoes it. Add `--conflict` when the two state different values and the
 keeper wins. The server refuses pinned, skill, rule and preference items as
 the lesser, and refuses once the night's merge cap is reached: then stop
-merging and log `MERGED: ... cap reached`. Different angles: `codeterm mem
+merging and log `MERGED: ... cap reached`. Different angles: `domios mem
 graph relate --from <a> --rel similar_to --to <b>`. When in doubt, keep both.
 
 For the preface's AREA MERGE CANDIDATES, judge the sample titles and read
 items when needed. Only if both areas mean the same topic, fold the smaller
 item count into the larger (ties: keep either):
 
-    codeterm mem area merge <smaller> --into <larger> --dry-run
-    codeterm mem area merge <smaller> --into <larger>
+    domios mem area merge <smaller> --into <larger> --dry-run
+    domios mem area merge <smaller> --into <larger>
 
 At most 3 area merges per run; the server also enforces this cap. Leave
 unsure pairs alone. Scope stays intact. Each item has one audited change;
-`codeterm mem restore <id> --version <history-row>` undoes its area merge.
+`domios mem restore <id> --version <history-row>` undoes its area merge.
 The server saves a summary diary entry. Include one `AREA_MERGED:` summary
 line per completed area merge in this run's diary too, using returned counts.
 
@@ -181,21 +181,21 @@ Log `DEDUP: aliases=N duplicates=M` and
 
 ## STAGE 5 — A.4 Repair primitives (typed CLI only, never raw SQL)
 
-    codeterm mem graph find-duplicate-relations \
+    domios mem graph find-duplicate-relations \
       --group-by from_id,relation_type,to_id,valid_from --limit 20 --json
 
 Groups carry `key`, `count`, `rowids` and `sample`. Identical payloads: drop
-all but the lowest rowid with `codeterm mem graph delete-relations --rowids
+all but the lowest rowid with `domios mem graph delete-relations --rowids
 <others> --actor dreamer`. Same key but different confidence/properties:
-`codeterm mem graph merge-relations --keep <highest-confidence rowid> --merge
+`domios mem graph merge-relations --keep <highest-confidence rowid> --merge
 <others> --actor dreamer`. Ambiguous: skip.
 
 Then housekeeping, each once; apply only when the dry run reports `count > 0`:
 
-    codeterm mem graph repair-orphan-vectors --dry-run
-    codeterm mem graph repair-orphan-vectors --actor dreamer
-    codeterm mem graph repair-orphan-blobs --dry-run
-    codeterm mem graph repair-orphan-blobs --actor dreamer
+    domios mem graph repair-orphan-vectors --dry-run
+    domios mem graph repair-orphan-vectors --actor dreamer
+    domios mem graph repair-orphan-blobs --dry-run
+    domios mem graph repair-orphan-blobs --actor dreamer
 
 `augment-entity --id <id> --patch '<json>' --actor dreamer` is allowed only
 for a property grounded in a mem item you read tonight.
@@ -203,8 +203,8 @@ Log `REPAIR: deleted=N merged=M orphan_vectors=V orphan_blobs=B`.
 
 ## STAGE 6 — E Vector hygiene
 
-    codeterm mem graph prune-thin-vectors --dry-run
-    codeterm mem graph prune-thin-vectors
+    domios mem graph prune-thin-vectors --dry-run
+    domios mem graph prune-thin-vectors
 
 It drops only vectors of bodyless items, never the items. Log
 `VECTOR_HYGIENE: pruned=<N>`.
@@ -212,15 +212,15 @@ It drops only vectors of bodyless items, never the items. Log
 ## STAGE 7 — C Maintenance (10 updates)
 
 Use up to 10 IDs from the supervisor preface's `UNCLASSIFIED` section.
-Read each with `codeterm mem get <id>`, then assign an area only when clear:
+Read each with `domios mem get <id>`, then assign an area only when clear:
 
-    codeterm mem update <id> --area <area>
+    domios mem update <id> --area <area>
 
 For promotion, inspect the supplied `LEARNINGS >30d` IDs with `mem get` and
 use their age and access counts; promote only old, often-accessed learnings:
 
-    codeterm mem learn-promote <id>
-    codeterm mem graph revive-broken --dry-run
+    domios mem learn-promote <id>
+    domios mem graph revive-broken --dry-run
 
 An absent candidate section means zero candidates for that operation. Never
 replace it with an empty search query or an empty area filter. Revive only
@@ -234,8 +234,8 @@ The supervisor already ran the calibration sweep before you started. Never
 invoke the sweep. Read what it did, with `<since>` = your start time minus one
 hour, written out as a literal timestamp:
 
-    codeterm mem calibration log --since <since> --count
-    codeterm mem calibration log --since <since> --limit 30
+    domios mem calibration log --since <since> --count
+    domios mem calibration log --since <since> --limit 30
 
 `APPLIED` = rows whose `changed_by` ends in promote or demote; archived = rows
 with `change_type` archive. The `dreamer-calibration:stale` rows are the
@@ -248,9 +248,9 @@ Log `ARCHIVED: <item_id> (<reason>); ...` for every archive row, or
 
 ## STAGE 9 — B Final diary, self-link, report
 
-`codeterm mem stats` gives `ENTITY_COUNT_AFTER`. Then write the final body:
+`domios mem stats` gives `ENTITY_COUNT_AFTER`. Then write the final body:
 
-    codeterm mem update <diary_id> --summary '<one-sentence teaser of the insight>' \
+    domios mem update <diary_id> --summary '<one-sentence teaser of the insight>' \
       --body '<the full body below>'
 
 Body shape (the frontend parses these tags):
@@ -293,16 +293,16 @@ activity. `<mood>` is optional, one or two lowercase words (not the area name).
 
 Self-link the diary (an orphaned diary is a failed run):
 
-    codeterm mem graph relate --from <diary_id> --rel belongs_to --to project_dreams
+    domios mem graph relate --from <diary_id> --rel belongs_to --to project_dreams
     # if project_dreams is missing (404):
-    codeterm mem graph create --id project_dreams --entity-type Project --scope global
-    codeterm mem graph related --id <diary_id>     # must show >= 1 edge
+    domios mem graph create --id project_dreams --entity-type Project --scope global
+    domios mem graph related --id <diary_id>     # must show >= 1 edge
 
 {telegram_notify_step}
 
 Report, tying the run to its diary by identity:
 
-    codeterm mem worker report --diary <diary_id> --finalization succeeded \
+    domios mem worker report --diary <diary_id> --finalization succeeded \
       "Hubs: decomposed N, skipped M. Islands: bridged X, deleted Y. Merged: <lesser> -> <keeper> (<why>), or none. Archived: <id> (<reason>), or none. Diary saved."
 
 If the final update or the self-link did not confirm, report the truth:

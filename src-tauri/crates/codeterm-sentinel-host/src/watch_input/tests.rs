@@ -123,5 +123,5 @@ fn watch_apply_refuses_missing_runtime_then_converts_and_records_observation() {
         .typed_pipeline_log(id, 20)
         .err()
         .unwrap();
-    assert!(message.contains(&format!("codeterm blueprint show {id}")));
+    assert!(message.contains(&format!("domios blueprint show {id}")));
 }

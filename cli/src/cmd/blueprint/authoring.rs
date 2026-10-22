@@ -77,7 +77,7 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
 }
 
 pub(super) fn scaffold(kind: &str) -> Result<String, String> {
-    let header="# yaml-language-server: $schema=./blueprint.schema.json\n# Save `codeterm blueprint schema` beside this file as blueprint.schema.json.\n# Check: codeterm blueprint check FILE; apply: codeterm blueprint apply FILE.\n";
+    let header="# yaml-language-server: $schema=./blueprint.schema.json\n# Save `domios blueprint schema` beside this file as blueprint.schema.json.\n# Check: domios blueprint check FILE; apply: domios blueprint apply FILE.\n";
     if let Some((_, source)) = recipe_files::FILES.iter().find(|(name, _)| *name == kind) {
         return Ok(format!("{header}{source}"));
     }

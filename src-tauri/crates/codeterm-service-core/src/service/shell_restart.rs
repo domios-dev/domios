@@ -114,7 +114,7 @@ fn reject_non_shell_restart(
     // Exit teardown clears the provider but keeps the role; a hand-typed resume here launches without the granted access.
     if agent_member {
         return Err(format!(
-            "{SHELL_RESTART_AGENT_MEMBER}: this agent Tab's provider exited; run `codeterm agent restart --tab <TAB>` to resume its verified session with the granted access"
+            "{SHELL_RESTART_AGENT_MEMBER}: this agent Tab's provider exited; run `domios agent restart --tab <TAB>` to resume its verified session with the granted access"
         ));
     }
     Ok(())

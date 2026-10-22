@@ -128,7 +128,7 @@ fn degraded_rebound_runtime_has_an_honest_resume_refusal_and_restart_recovery() 
         .existing_session_resume_tab("earlier-thread")
         .unwrap_err();
     assert!(
-        error.contains(&format!("codeterm agent restart --tab {}", fixture.tab)),
+        error.contains(&format!("domios agent restart --tab {}", fixture.tab)),
         "{error}"
     );
     assert_eq!(fixture.requests().len(), before);
