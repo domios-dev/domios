@@ -763,7 +763,7 @@ mod tests {
         assert!(task.contains("Your intent: dedup db"));
         assert!(task.contains("Your worker id: gw_test"));
         assert!(task.contains("merge dups"));
-        assert!(task.contains("codeterm mem worker report"));
+        assert!(task.contains("domios mem worker report"));
     }
 
     #[test]

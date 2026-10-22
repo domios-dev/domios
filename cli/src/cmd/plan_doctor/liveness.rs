@@ -27,7 +27,7 @@ pub(super) fn liveness_findings(
                 path: path.display().to_string(),
                 task_id: None,
                 detail: format!("could not read tab liveness from plan.reconcile: {error}"),
-                fix: format!("rerun `codeterm plan reconcile {plan_id}` once the daemon answers"),
+                fix: format!("rerun `domios plan reconcile {plan_id}` once the daemon answers"),
             }];
         }
     };
@@ -51,8 +51,8 @@ pub(super) fn liveness_findings(
                     .unwrap_or("task is in_progress but its Worker tab is gone")
                     .to_string(),
                 fix: format!(
-                    "recover the lost Worker: `codeterm plan task respawn {plan_id} {task_id} --attempt <attempt>` \
-                     (attempt ids: `codeterm plan task attempts {plan_id} {task_id}`), or `codeterm plan reconcile {plan_id} --fix`"
+                    "recover the lost Worker: `domios plan task respawn {plan_id} {task_id} --attempt <attempt>` \
+                     (attempt ids: `domios plan task attempts {plan_id} {task_id}`), or `domios plan reconcile {plan_id} --fix`"
                 ),
             }
         })

@@ -329,7 +329,7 @@ fn write_declared_todos(
     let checklist = parse_checklist(value.get("checklist").cloned().unwrap_or(Value::Null))?
         .ok_or_else(|| "tab.todo.write returned no checklist".to_string())?;
     let tip = if checklist.proposal.is_none() {
-        "; hint: share it with your parent using codeterm todo submit"
+        "; hint: share it with your parent using domios todo submit"
     } else {
         ""
     };

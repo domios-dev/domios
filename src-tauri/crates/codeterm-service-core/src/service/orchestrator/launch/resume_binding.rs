@@ -55,7 +55,7 @@ pub(super) fn binding_turn(
     (binding_turn_required(relaunch, lazy_session, first_turn_planned, resume_target)
         && pending.is_none_or(|state| state.is_accepted())).then(|| FallbackDeliverySpec {
         channel: PendingDeliveryChannel::FallbackBootstrap,
-        payload: "This agent session has been restored. Run `codeterm identify` to verify your connection, then resume your interrupted work. If there is no pending work, wait for the next instruction.".into(),
+        payload: "This agent session has been restored. Run `domios identify` to verify your connection, then resume your interrupted work. If there is no pending work, wait for the next instruction.".into(),
     })
 }
 
@@ -145,7 +145,7 @@ pub(super) fn finish_unbound_relaunch(
     svc.log_system_notice(
         "Orchestration incident: restored agent needs recovery".into(),
         Some(format!(
-            "Impact: Tab {} has no authenticated session binding and cannot act as a Team member. Cleanup: its launch was retired; written bootstrap input will not be replayed. Fallback: inspect this Tab and recover it explicitly with `codeterm agent restart --tab {}`. Cause: {reason}.",
+            "Impact: Tab {} has no authenticated session binding and cannot act as a Team member. Cleanup: its launch was retired; written bootstrap input will not be replayed. Fallback: inspect this Tab and recover it explicitly with `domios agent restart --tab {}`. Cause: {reason}.",
             attempt.tab_id, attempt.tab_id,
         )),
         Some("error"),

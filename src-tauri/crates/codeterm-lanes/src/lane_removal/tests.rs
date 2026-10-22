@@ -305,7 +305,7 @@ fn lane_removal_refuses_when_tab_holds_worktree() {
     assert!(error.contains("Planck"), "{error}");
     assert!(error.contains("still in use"), "{error}");
     assert!(
-        error.contains("codeterm tab close --tab tab_holder"),
+        error.contains("domios tab close --tab tab_holder"),
         "{error}"
     );
     assert!(
@@ -376,7 +376,7 @@ fn lane_removal_refuses_unmerged_branch_before_deleting_worktree() {
     .unwrap_err();
 
     assert!(error.contains("commits not merged"), "{error}");
-    assert!(error.contains("codeterm plan lane-remove"), "{error}");
+    assert!(error.contains("domios plan lane-remove"), "{error}");
     assert!(!error.contains("branch -D"), "{error}");
     assert!(Path::new(&lane.cwd).is_dir());
     assert!(branch_exists(&project, &lane.branch));

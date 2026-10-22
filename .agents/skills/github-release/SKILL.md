@@ -52,7 +52,7 @@ files, which select an application release. Frontend discovery is separate from 
 For a plugin release, run `node scripts/release-plugin.mjs bump <id> <version>`, with explicit
 `--min-codeterm` only when a new host capability is required. Verify `release-plugin.mjs check`
 and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag the verified master
-commit `plugin-<id>-v<version>`. Verify the installed version through `codeterm plugin update-system`.
+commit `plugin-<id>-v<version>`. Verify the installed version through `domios plugin update-system`.
 The tag's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
 `plugins/` tree as `codeterm-core.tar.gz` (+ `.sha256`, `.source-commit`) to the public
 `rollacode/codeterm-releases` release `codeterm-core-latest`, skips an older master commit, and
@@ -264,7 +264,7 @@ certificate and pinned Apple intermediates into a unique RUNNER_TEMP keychain, v
 and notary credentials, and clean up only their own keychain/files in always(). No persistent login
 keychain changes or copied private keys are a release prerequisite. Updater keys use temporary
 restricted files; Tauri needs `TAURI_SIGNING_PRIVATE_KEY` pointing to the prepared key file.
-Off-CI recovery copies live in Bitwarden, read with `codeterm mem secret get --name <slug>` and
+Off-CI recovery copies live in Bitwarden, read with `domios mem secret get --name <slug>` and
 never printed: `codeterm-tauri-minisign-private-key` (updater signing, empty password; its public
 key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-env`. The Developer ID
 certificate is backed up only as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` repo secrets.
@@ -313,7 +313,7 @@ through the existing ci-artifact tooling rather than assuming GitHub artifact st
 
 ## Monitoring and failure recovery
 
-Read `codeterm docs BLUEPRINTS`. Use one named monitor per actual run ID; validate its probe once
+Read `domios docs BLUEPRINTS`. Use one named monitor per actual run ID; validate its probe once
 and verify blueprint show names that run's real bucket. Handle success, failure, cancellation,
 probe error and queued-too-long explicitly. Stop at terminal; never leave repeated failing probes,
 sleep/poll loops or duplicate watchers. A launch acknowledgement is not a completed build receipt.
@@ -350,7 +350,7 @@ A partial recovery cannot mint complete release evidence. Manual mirror repair n
 must reuse original verified artifacts/fragments, not handwrite a reduced latest.json.
 
 Served bytes are not the whole proof: on a host still running the previous version,
-`codeterm update install --auto` must install this release and come back on the new pair with
+`domios update install --auto` must install this release and come back on the new pair with
 sessions restored. A published defect ships as the next patch version through this same train;
 never move a tag or re-upload changed bytes under a published version.
 
@@ -378,7 +378,7 @@ Keep a handoff file current with candidate and workflow SHAs, run URL/ID, inputs
 runner names, first failures and owners, build counts per target, artifact names/sizes/SHA256,
 full/headless server/CLI equality, extraction/checksum readback, smoke receipts and every unrun or
 UNVERIFIED platform. Record signing/notarization/update gaps and any routing/config changes explicitly.
-Deliver results once through `codeterm agent report`; milestones and blockers may be short updates.
+Deliver results once through `domios agent report`; milestones and blockers may be short updates.
 
 After publication, verify the updater/install/restore surfaces authorized by the owner. Cleanup
 follows the lane-cleanup and build skills, with ancestry checks and preserved unmerged work;
@@ -387,4 +387,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

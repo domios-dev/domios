@@ -1,5 +1,6 @@
 import { COMMAND_PATHS, type CommandPathNode } from "./commandPaths";
-import { commandShape } from "./commandShape";
+import { commandShape, commandRowLabel } from "./commandShape";
+import { sentInvocation } from "./sentInvocation";
 import { recognize } from "./recognize";
 
 let passed = 0,
@@ -20,6 +21,18 @@ function ok(c: boolean, name: string) {
 }
 
 console.log("\n--- recognize ---\n");
+
+for (const binary of ["domios", "codeterm", "domios.exe", "codeterm.exe"]) {
+  const invocation = recognize(`${binary} tab get-text --tab opaque-tab`);
+  eq(invocation?.path, ["tab", "get-text"], `${binary} dispatch path`);
+  eq(invocation?.flags, { tab: "opaque-tab" }, `${binary} dispatch flags`);
+}
+const primaryGroup = commandShape("domios tab list | tail -1");
+ok(primaryGroup.kind === "group", "primary command keeps pipeline presentation");
+if (primaryGroup.kind === "group") {
+  eq(commandRowLabel(primaryGroup.rows[0]), "domios tab list", "command rows use primary name");
+}
+eq(sentInvocation("opaque-tab", "opaque-body").raw, "domios send --tab opaque-tab", "routed message command uses primary name");
 
 const inv = recognize('codeterm send --tab bda0e267 "Понял, буду"');
 eq(inv?.path, ["send"], "send path");

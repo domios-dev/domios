@@ -45,7 +45,7 @@ REST endpoints for memory items, retrieval, graph operations, workers, calibrati
 | POST | `/api/mem/sync` | `{...}` | Synchronize source-tracked memory. |
 | GET | `/api/mem/sync/status` | — | Read memory synchronization status. |
 
-The HTTP search route retains full item details for the Memory UI. CLI `codeterm mem search --json` emits compact hits containing only an item `id` (or a doc pointer), `source`, optional `via`, baseline `score`, and Supporter `relevance`; it omits titles, bodies, summaries, and tags. Use `codeterm mem get <id> --json` to retrieve a full memory record. The CLI response keeps the Supporter status, fallback reason, and low-confidence fields.
+The HTTP search route retains full item details for the Memory UI. CLI `domios mem search --json` emits compact hits containing only an item `id` (or a doc pointer), `source`, optional `via`, baseline `score`, and Supporter `relevance`; it omits titles, bodies, summaries, and tags. Use `domios mem get <id> --json` to retrieve a full memory record. The CLI response keeps the Supporter status, fallback reason, and low-confidence fields.
 
 **Actor and worker headers:**
 
@@ -79,7 +79,7 @@ The HTTP search route retains full item details for the Memory UI. CLI `codeterm
 
 #### Graph self-repair
 
-These whitelist-bounded Dreamer primitives audit every destructive operation to `graph_purge_log`. See `codeterm docs MEMORY` for the full Dreamer flow.
+These whitelist-bounded Dreamer primitives audit every destructive operation to `graph_purge_log`. See `domios docs MEMORY` for the full Dreamer flow.
 
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -114,8 +114,8 @@ These whitelist-bounded Dreamer primitives audit every destructive operation to 
 
 ## Related documents
 
-Memory skills, workers, sync, and dreaming: `codeterm docs MEMORY-SERVICES`. Service and activity endpoints: `codeterm docs API-SERVICES`.
+Memory skills, workers, sync, and dreaming: `domios docs MEMORY-SERVICES`. Service and activity endpoints: `domios docs API-SERVICES`.
 
 Connection failures use JSON `{error: {code, message}}`; codes include unavailable, authentication_failed, unknown_adapter, invalid_model and invalid_request. Token values are never returned.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

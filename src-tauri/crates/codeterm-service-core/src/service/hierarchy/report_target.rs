@@ -46,7 +46,7 @@ pub(crate) fn is_explicit_plan_foreign(
 ///
 /// Returns `(from_title, Some(target))` when a real target exists, or
 /// `(from_title, None)` when the report has no implicit recipient and must fail
-/// with an explicit `codeterm send` hint. The resolution order is:
+/// with an explicit `domios send` hint. The resolution order is:
 ///
 /// 1. `report_target_mesh_peer` (+ tab/alias) — explicit remote target set by
 ///    `agent spawn --mesh PEER --report-to ...`; wins so a remote worker reports

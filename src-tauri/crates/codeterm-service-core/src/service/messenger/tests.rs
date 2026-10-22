@@ -308,7 +308,7 @@ fn delivery_local_agent_recipient_gets_complete_frame() {
     );
     assert_eq!(
         p.as_deref(),
-        Some("<domios from=\"tab\" label=\"Edison\" tab=\"e8a0ac20\" model=\"opus\">hello <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20]</tip></domios>")
+        Some("<domios from=\"tab\" label=\"Edison\" tab=\"e8a0ac20\" model=\"opus\">hello <tip>[to reply, run: domios send \"YOUR REPLY\" --tab e8a0ac20]</tip></domios>")
     );
 }
 
@@ -348,7 +348,7 @@ fn delivery_mesh_agent_recipient_gets_peer_qualified_frame() {
     );
     assert_eq!(
         p.as_deref(),
-        Some("<domios from=\"tab\" label=\"Edison@BLACKSTAR\" tab=\"e8a0ac20\" model=\"sonnet\" mesh=\"BLACKSTAR\">hello <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]</tip></domios>")
+        Some("<domios from=\"tab\" label=\"Edison@BLACKSTAR\" tab=\"e8a0ac20\" model=\"sonnet\" mesh=\"BLACKSTAR\">hello <tip>[to reply, run: domios send \"YOUR REPLY\" --tab e8a0ac20 --mesh BLACKSTAR]</tip></domios>")
     );
 }
 

@@ -162,7 +162,7 @@ also set `CODETERM_DATA_DIR` to `<data-dir>` and `CODETERM_API_URL` to
 `CODETERM_SOCKET_PATH` (for example `verify-smoke-<random>` and
 `codeterm-dev-verify-smoke-<random>.sock`). This forces a private HTTP fallback
 without scanning or connecting to another local server. Leave
-`CODETERM_API_PORT` unset, then run `codeterm identify --json` to verify
+`CODETERM_API_PORT` unset, then run `domios identify --json` to verify
 authenticated CLI access. Do not put the token in argv, the URL, or smoke
 output.
 
@@ -271,11 +271,11 @@ A generated artifact is produced from a source of truth and is never hand-edited
 
 | Source of truth | Generated artifact | Regenerate | Verify |
 |---|---|---|---|
-| CLI clap definitions in `cli/src/args/` | `generated/cli/cli-manifest.json`, `generated/cli/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` | Build the checkout's CLI, then run `cli-manifest --write` (`./build.sh cli` also installs the CLI into the active dev data directory). Never use the installed `codeterm` from `PATH`. | `cli_manifest_is_fresh`, `docs_cli_md_is_fresh`, and `chat_ui_command_paths_are_fresh` |
-| `essences/capabilities.md` and `essences/core.md` | `essences/map.jsonl` | `codeterm essence-map generate --root .` | `codeterm essence-map validate --root .` and `essence_map_contract_committed_artifacts_are_fresh` |
+| CLI clap definitions in `cli/src/args/` | `generated/cli/cli-manifest.json`, `generated/cli/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` | Build the checkout's CLI, then run `cli-manifest --write` (`./build.sh cli` also installs the CLI into the active dev data directory). Never use the installed `domios` from `PATH`. | `cli_manifest_is_fresh`, `docs_cli_md_is_fresh`, and `chat_ui_command_paths_are_fresh` |
+| `essences/capabilities.md` and `essences/core.md` | `essences/map.jsonl` | `domios essence-map generate --root .` | `domios essence-map validate --root .` and `essence_map_contract_committed_artifacts_are_fresh` |
 | `src-tauri/prompts/**` and their loader consts | the `.agents/skills/prompts/inventory.md` inventory | edit the inventory row by hand | `bash scripts/check-prompts-doc.sh` |
 | Registered public routes in `src-tauri/src/api/routes.rs` | `prod-docs/API.md` | edit the API index by hand | `bash scripts/check-api-docs.sh` |
-| `prod-docs/*.md` and `cli/src/cmd/docs.rs` | the embedded `codeterm docs` set | update the source and registry; there is no separate document generator | `registered_documents_have_one_title_and_fit_the_reading_boundary` and `codeterm docs <NAME>` from the built checkout |
+| `prod-docs/*.md` and `cli/src/cmd/docs.rs` | the embedded `domios docs` set | update the source and registry; there is no separate document generator | `registered_documents_have_one_title_and_fit_the_reading_boundary` and `domios docs <NAME>` from the built checkout |
 
 A lane Worker runs isolated checks only. When a generator needs the checkout's built CLI (`essence-map` also refuses a linked worktree), list the exact regeneration and verification commands under `GATES REQUESTED` for the Orchestrator's canonical wave batch.
 
@@ -423,7 +423,7 @@ and hits to prove usage, and distinguish fresh Cargo targets from cache hits.
 `build.sh` owns cache setup through `scripts/cache-policy.sh`; `build.ps1`
 forwards to it. Release, DEV and capped Rust tests use the same configuration.
 On eight, air, ubunta, ROG, BLACKSTAR and green, first run
-`codeterm mem secret sync`. The two vault entries are
+`domios mem secret sync`. The two vault entries are
 `domios-sccache-s3-access-key` and `domios-sccache-s3-secret-key`.
 Build setup resolves both directly into process environment variables
 `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; never write them to a file,
@@ -469,7 +469,7 @@ sets workflow-level `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from the rep
 secrets `SCCACHE_AWS_ACCESS_KEY_ID` and `SCCACHE_AWS_SECRET_ACCESS_KEY`, plus
 `CODETERM_SCCACHE_CREDENTIAL_SOURCE=runner`, so cache-policy takes the keys from
 the job environment on every runner, including the BLACKSTAR WSL runners that
-have no `codeterm` CLI. Reusable workflows receive them through `secrets: inherit`;
+have no `domios` CLI. Reusable workflows receive them through `secrets: inherit`;
 containerized builds forward the names with bare `-e NAME`. Values stay in process
 environment, never runner `.env`, command arguments, files or logs; both are
 required. The vault entries above remain the source on dev machines and peers.
@@ -527,7 +527,7 @@ calls; a successful build alone is not cache-hit proof.
 | Stats report S3 and zero requests with no server process/listener | Sccache emits configured synthetic stats when its server cannot be reached | Use `cache-verify`/`cache-stats` live-endpoint checks; provision while idle, then measure actual request and hit deltas. Do not classify synthetic stats as reuse. |
 | CI refuses with exit 75 while another build is running | CI invoked cache configuration instead of read-only verification | Use `cache-verify` and set `CODETERM_SCCACHE_VERIFY_ONLY=1` for subsequent CI build processes. Provision storage separately while idle. |
 | A dev build requests S3 but refuses with exit 75 after another caller switched the server back to local | An unresolved-key caller could downgrade a previously shared server | Keep the no-downgrade guard: missing keys reuse running S3; keys may switch local to S3 only while idle. Verify `bash scripts/check-shared-sccache.sh`. |
-| Local fallback line on an intended builder | One or both vault entries could not resolve | Run `codeterm mem secret sync` locally, inspect secret backend status, then rerun with the machine idle. Never print the values. |
+| Local fallback line on an intended builder | One or both vault entries could not resolve | Run `domios mem secret sync` locally, inspect secret backend status, then rerun with the machine idle. Never print the values. |
 | Lane check fails in dependency compilation with `sccache: ... os error 10048` | The cache path failed to acquire a Windows socket; this receipt does not establish a Rust source error | Preserve the failed receipt and use the documented process-local `CODETERM_USE_SCCACHE=0` for one bounded lane check. Do not restart the shared cache server or raise the deadline. |
 | Shared server startup fails | Endpoint unreachable, credentials rejected, or installed sccache lacks S3 support | Verify Tailscale connectivity and tool features; inspect metadata and server health without secret logging. Preserve the failed receipt. |
 | Windows build reports MSVC not found despite an installed VS 2022 C++ workload | The VC tools are installed outside the default BuildTools directory | Use `setup_env` discovery through the installed `vswhere` utility; the default tools remain first choice, and discovered host/cross compiler paths also enter process PATH. Verify `source build.sh env` and `bash scripts/check-msvc-discovery.sh`; install nothing or change no global PATH for a relocated installation. |
@@ -546,7 +546,7 @@ Troubleshooting:
 
 ## Peer build gateways (mesh build farm)
 
-Mesh peers run the same verbs in their own gateway, with their own warm cache and stable build path, so several machines check lanes in parallel instead of queueing on one gateway. Peers and their fetch-only checkouts are listed in `.codeterm/build-machine/peers.json`; a peer marked `"routable": false` (eight, the release builder) is refused until its owner frees it, and `CODETERM_PEERS_ENABLE=eight` enables it for one call. All remote work goes through `codeterm tab new --mesh <peer> --cmd ...`; never ssh by hand, never put a credential in a command, and never touch a machine's runner pause.
+Mesh peers run the same verbs in their own gateway, with their own warm cache and stable build path, so several machines check lanes in parallel instead of queueing on one gateway. Peers and their fetch-only checkouts are listed in `.codeterm/build-machine/peers.json`; a peer marked `"routable": false` (eight, the release builder) is refused until its owner frees it, and `CODETERM_PEERS_ENABLE=eight` enables it for one call. All remote work goes through `domios tab new --mesh <peer> --cmd ...`; never ssh by hand, never put a credential in a command, and never touch a machine's runner pause.
 
 | Verb | What happens |
 |---|---|
@@ -558,11 +558,11 @@ Mesh peers run the same verbs in their own gateway, with their own warm cache an
 | `./build.sh test-one <scope> <name> --peer <name>` and `--prereq DIFF` on any peer verb | `test-one` runs the same focused test in the peer's gateway. `--prereq DIFF` ships a unified diff (base64 in the job command) that the peer applies with `git apply --index` and commits locally on top of the job SHA before the runner starts. Use it for an identical prerequisite such as a unix compile fix the SHA predates. The commit is never pushed, the next job's checkout discards it, and check-queue then checks `HEAD`. The dispatcher prints and records the diff's name and sha256. A diff that does not apply reports `outcome=bootstrap_failed stage=prereq` and leaves the checkout clean at the SHA. |
 | `./build.sh peer-route [--os OS]` | Shows what `--peer auto` would choose. |
 
-Dispatch returns at once with `peer-job: id=... peer=... remote-tab=... deadline=...` and writes a record under `<gateway dir>/peer-jobs/`. The SHA must be on a remote-tracking branch (push first). Completion is one message to the calling agent tab (`CODETERM_TAB_ID`, or `--reply-tab`) through `codeterm send --require-agent --mesh <origin instance id>`; nothing polls. The message starts `[peer-job <id>] peer=<peer> verb=<verb> sha=<sha> outcome=passed|failed|busy|deadline exit=N wall=Ns`, then the same summary lines the local verb prints (`errors=`, `warnings=... failing=`, `app-test ...` receipts, `check-queue: sha=...`, nextest `Summary [...] N tests run: ...`, `check-workspace: ...`), up to 12 error or failing-test lines, and `remote-log=<peer path> gateway-log=<peer gateway log>`. Bootstrap failures report `outcome=not_setup|busy|bootstrap_failed stage=<step>` instead.
+Dispatch returns at once with `peer-job: id=... peer=... remote-tab=... deadline=...` and writes a record under `<gateway dir>/peer-jobs/`. The SHA must be on a remote-tracking branch (push first). Completion is one message to the calling agent tab (`CODETERM_TAB_ID`, or `--reply-tab`) through `domios send --require-agent --mesh <origin instance id>`; nothing polls. The message starts `[peer-job <id>] peer=<peer> verb=<verb> sha=<sha> outcome=passed|failed|busy|deadline exit=N wall=Ns`, then the same summary lines the local verb prints (`errors=`, `warnings=... failing=`, `app-test ...` receipts, `check-queue: sha=...`, nextest `Summary [...] N tests run: ...`, `check-workspace: ...`), up to 12 error or failing-test lines, and `remote-log=<peer path> gateway-log=<peer gateway log>`. Bootstrap failures report `outcome=not_setup|busy|bootstrap_failed stage=<step>` instead.
 
-`--peer auto` reads each OS-matching routable peer's load over mesh: `codeterm tab list --mesh <peer>` finds its `Buildpeer` tab and `codeterm tab exec --mesh <peer>` runs `./build.sh peer-status`, which first reaps a dead gateway owner or queue ticket exactly as `gateway-status` does (so a cancelled CI job's orphaned lock never reads as busy), then prints one `PEER_STATUS {json}` line (gateway state, active job, queue length, last job end, peer job lock). The least-loaded idle peer wins, ties going to the peer idle longest; a peer that is unreachable, not set up or slower than the 20 s probe deadline is skipped, and when no peer is idle the dispatch exits 75 with each peer's state.
+`--peer auto` reads each OS-matching routable peer's load over mesh: `domios tab list --mesh <peer>` finds its `Buildpeer` tab and `domios tab exec --mesh <peer>` runs `./build.sh peer-status`, which first reaps a dead gateway owner or queue ticket exactly as `gateway-status` does (so a cancelled CI job's orphaned lock never reads as busy), then prints one `PEER_STATUS {json}` line (gateway state, active job, queue length, last job end, peer job lock). The least-loaded idle peer wins, ties going to the peer idle longest; a peer that is unreachable, not set up or slower than the 20 s probe deadline is skipped, and when no peer is idle the dispatch exits 75 with each peer's state.
 
-Bounds: a mesh tab cannot carry `--timeout` (only a local owning agent can), so each job tab is `--eager` and stays open after the job for inspection (close finished ones with `codeterm tab close --mesh <peer>`); the verb deadline (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`) is enforced by the peer runner, which kills the build tree at the deadline and still reports `outcome=deadline`; clone and fetch abort below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab for its own job identity; `tab restart` renews a shell's previous lifetime.
+Bounds: a mesh tab cannot carry `--timeout` (only a local owning agent can), so each job tab is `--eager` and stays open after the job for inspection (close finished ones with `domios tab close --mesh <peer>`); the verb deadline (check-queue 45m, nextest 30m, check-linux 45m, setup 20m; override with `--deadline 90m`) is enforced by the peer runner, which kills the build tree at the deadline and still reports `outcome=deadline`; clone and fetch abort below 1 KB/s for 60 s; one job holds the checkout's `.git/codeterm-peer-job.lock` (a lock older than 4 h is stale) and a second job reports `busy`. Peer logs live in `<checkout>/.git/codeterm-peer-jobs/<id>.log`. Each dispatch creates a new tab for its own job identity; `tab restart` renews a shell's previous lifetime.
 
 Peer `path` (in `peers.json`): mesh shells are non-login, so a peer whose node or cargo is outside the default PATH lists those directories (ubunta: `$HOME/.local/node22/bin`); the job command and the status probe export them first, and a job without node reports `outcome=bootstrap_failed stage=node_missing`.
 
@@ -571,7 +571,7 @@ Measurements: ROG (Windows) via one `check-series` on develop 7fc9cf309, area ro
 Peer toolchain records: ROG (user amigo) had toolchains in `~/.rustup` but no proxies in `~/.cargo/bin`; `peer-setup ROG --install-toolchain` added rustup 1.29.1 proxies and cargo-nextest 0.9.148 there (default toolchain 1.95.0) and changed nothing under `C:\domios-ci` or the machine PATH. To remove it, delete those exes except `sccache.exe`, never `rustup self uninstall`, which deletes the `~/.rustup` other runs use. Never run `--install-toolchain` while another run uses that peer's toolchain.
 
 Troubleshooting:
-- No completion message arrives and the remote tab is gone: the shell exited before the runner started (for example a Windows peer without the `git-bash` profile). Check `codeterm tab list --mesh <peer>` and the peer's `peers.json` `shell`.
+- No completion message arrives and the remote tab is gone: the shell exited before the runner started (for example a Windows peer without the `git-bash` profile). Check `domios tab list --mesh <peer>` and the peer's `peers.json` `shell`.
 - `outcome=not_setup stage=checkout_dir`: run `./build.sh peer-setup <peer>` first.
 - `outcome=bootstrap_failed stage=runner_missing`: the SHA predates the peer runner; dispatch a SHA that contains `scripts/build-peer.mjs`.
 - `outcome=bootstrap_failed stage=checkout`: the peer checkout has local changes; it is fetch-only and must stay clean.
@@ -623,7 +623,7 @@ directories (whose checkout no longer exists) are removed. Directory mtime is
 not a usage signal: Cargo writes deep inside the hash directory, so a live
 directory can look idle for days. `CODETERM_CACHE_MAX_AGE_DAYS` governs
 exceptional targets and cargo-sweep, not deletion of live build directories.
-`codeterm plan lanes --clean` removes worktrees upstream: their build directories
+`domios plan lanes --clean` removes worktrees upstream: their build directories
 become orphans on the next hourly retention.
 
 GC takes nonblocking exclusive locks on every `.cargo-lock` below each orphan and
@@ -676,7 +676,7 @@ gates skill's Release section owns that step.
 
    From an agent tab, launch it with a receipt (PowerShell and bash lines:
    [utility-shell-reports](../utility-shell-reports/SKILL.md#launcher-recipes-copy-paste)):
-   `codeterm tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd "./build.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"`.
+   `domios tab new --team <team-id> --purpose build --timeout 10m --cwd "<checkout>" --cmd "./build.ps1 install-local -NotifyTab $env:CODETERM_TAB_ID"`.
    rustfmt, the file-size gate and the clean-checkout check run first, in seconds.
 
    This route is Windows-only, requires the clean canonical checkout, reuses a
@@ -722,7 +722,7 @@ gates skill's Release section owns that step.
 
    ```powershell
    ./build.ps1 build
-   codeterm update install --from-file "<printed-installer-path>"
+   domios update install --from-file "<printed-installer-path>"
    ```
 
    `build` always creates a fresh nonincremental target under
@@ -742,7 +742,7 @@ gates skill's Release section owns that step.
 
    ```bash
    ./build.sh build                 # or: ./build.sh build --no-notarize
-   codeterm update install --from-file "<printed-dmg-path>"
+   domios update install --from-file "<printed-dmg-path>"
    ```
 
    Signing uses the login keychain's single Developer ID Application identity
@@ -864,8 +864,8 @@ initialization. Smoke the produced bundled CLI directly as well.
 | The CLI docs test reports `API exceeds 24 KiB` | The API index repeats adoption details already owned by `API-ADOPT.md` | Keep `API.md` to the endpoint summary and move the full contract to `API-ADOPT.md`; bump the production doc revision and run `build.ps1 test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`. Never raise the 24 KiB limit. |
 | The CLI docs test reports `API-TABS exceeds 24 KiB` | The tab API's notification contract repeats channel policy wording | Preserve every contract statement while compacting redundant prose; move a passage to a registered linked doc only if it cannot fit. Bump the production doc revision and rerun the focused docs test; never raise the 24 KiB limit. |
 | Embedded docs differ across platforms or exceed 24 KiB only on Windows | CRLF checkout conversion enlarged the bytes embedded by `include_str!` | Keep `prod-docs/*.md text eol=lf` in `.gitattributes`, refresh clean doc files in existing checkouts, and compile the CLI again. The boundary test measures the actual embedded bytes without normalizing them; never raise the limit. |
-| Several registered docs exceed 240 lines or 24 KiB after parallel lanes merge | Each lane appended prose, often hard-wrapped, and restated contracts another doc owns | Reflow hard-wrapped paragraphs to one line each, remove statements owned by another doc, then split a coherent section into a new registered doc (`cli/src/cmd/docs.rs`) with a `codeterm docs <NAME>` pointer; bump each changed doc's revision. Never raise the limits. |
-| `essence_map_contract_committed_artifacts_are_fresh` reports a stale source digest | `essences/capabilities.md` or `essences/core.md` changed after `essences/map.jsonl` was generated | Run `codeterm essence-map generate --root .`, validate with `codeterm essence-map validate --root .`, and commit the generated map. Never edit generated nodes by hand. |
+| Several registered docs exceed 240 lines or 24 KiB after parallel lanes merge | Each lane appended prose, often hard-wrapped, and restated contracts another doc owns | Reflow hard-wrapped paragraphs to one line each, remove statements owned by another doc, then split a coherent section into a new registered doc (`cli/src/cmd/docs.rs`) with a `domios docs <NAME>` pointer; bump each changed doc's revision. Never raise the limits. |
+| `essence_map_contract_committed_artifacts_are_fresh` reports a stale source digest | `essences/capabilities.md` or `essences/core.md` changed after `essences/map.jsonl` was generated | Run `domios essence-map generate --root .`, validate with `domios essence-map validate --root .`, and commit the generated map. Never edit generated nodes by hand. |
 | A release-time test fails in `#[cfg(test)]` code while `check` is green | `check` compiles non-test targets and does not compile the Rust test profile | Run `./build.ps1 check-tests` on Windows or `./build.sh check-tests` on Unix, fix the test-profile compile error, then rerun the same gate. |
 | A real newly spawned QA tab reports stale identity although its hook binding is live, while fixture-only report tests pass | Plan evidence authorization required a session environment variable that a fresh provider process does not have; tests always supplied one | Exercise `plan_evidence_session_test` with absent session metadata and an attested nonce. Resolve only the exact daemon-registered tab session, retain all grant/session/nonce refusals, and verify the real CLI after installation. |
 | `release-preflight` fails the action-card or Web fork inventory suite after a transport/presentation change | A card fixture bypassed the batch router, or a new platform branch lacked its required transport classification | Test single help invocations in the action card and multi-action batches through `ToolCallBubble`; register the exact Web transport branch in `webForks.test.ts`. Run both focused suites, then repeat preflight. |
@@ -885,7 +885,7 @@ initialization. Smoke the produced bundled CLI directly as well.
 | `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs, or rewrote an identical LF-only manifest and left Git's Windows stat cache reporting a false name-only change | Do not install when the patch is non-empty. Current provenance hashes the binary patch plus working-tree bytes, so a metadata-only rewrite is accepted; rerun `install-local` from a clean tree. |
 | Self-install logs `starting` and the window never returns | A helper inherited the calling PTY Job and died when `taskkill` closed that Job | Rebuild the current CLI; it creates the helper through the out-of-job Windows process broker. Re-run `install-local`, inspect `%LOCALAPPDATA%\codeterm\self-install.log`, and verify port 7685 health. |
 | Domios restarts but the initiating tab does not resume | The continuation send failed or the Tab id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
-| Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted Domios and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `codeterm identify`. |
+| Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted Domios and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `domios identify`. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | Local install cannot read Tauri permissions under a deleted release directory | A relocated Cargo target retained absolute build-script `root-output` paths. | `install-local` now detects mismatched output roots before Cargo, preserves that exact cache in a sibling `.relocated-*` directory, and regenerates its local target; it leaves current warm caches and the machine sccache intact. |
 | `test-one app usage_routes` exits 97 with zero matches | The usage route module had no tests, so the assigned selector had no oracle. | Add focused query and persisted wire-contract coverage in that module, then rerun the same selector; never accept zero matches or replace it with the whole app suite. |
@@ -946,7 +946,7 @@ foreground owner:
 
 ```powershell
 # Verify no previous dev listener/process remains, then open one visible tab.
-codeterm tab new --team <team-id> --purpose dev --cmd "Set-Location '<checkout>'; ./build.ps1 dev"
+domios tab new --team <team-id> --purpose dev --cmd "Set-Location '<checkout>'; ./build.ps1 dev"
 ```
 
 Keep that Tab open and require all of the following before reporting ready:
@@ -1161,7 +1161,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | `test-one app` reports a missing field in `SpawnTabSpec` after adding spawn routing state | A full constructor or test fixture bypassed `Default`, so ordinary source review missed the new required field. | Set the field explicitly in every full constructor and fixture, then rerun the exact focused test before continuing. |
 | The docs gate reports `API-TRANSPORT exceeds 24 KiB` after adding an RPC row | The transport index is at its embedded size boundary. | Keep the index row concise and put the purge procedure and storage limits in MEMORY; rerun the focused embedded-doc test without raising its limit. |
 | `test-one cli cmd::docs` reports an embedded document over its line boundary | Independently valid reference additions accumulated past the agent reading limit, and ordinary compilation does not exercise the embedded-doc contract. | Compact repeated prose without deleting behavior, or split the document by responsibility and register the new whole document. Rerun the exact docs filter. |
-| `verify` fails both an embedded-doc boundary and `cli_manifest_is_fresh` | A documentation edit crossed its registered reading limit while committed CLI metadata already lagged the current command surface. | Compact or split the named document, regenerate with the freshly built `codeterm cli-manifest --write`, rerun both focused CLI tests, then rerun `verify`. |
+| `verify` fails both an embedded-doc boundary and `cli_manifest_is_fresh` | A documentation edit crossed its registered reading limit while committed CLI metadata already lagged the current command surface. | Compact or split the named document, regenerate with the freshly built `domios cli-manifest --write`, rerun both focused CLI tests, then rerun `verify`. |
 | Focused `tsx` tests pass but `verify` reports fixture duplicates, unused bindings, or incomplete interface objects | Runtime transpilation exercised behavior without the TypeScript compiler's static contract. | Repair the fixtures and call sites, run the repository TypeScript compiler boundary, then rerun the focused tests and `verify`; runtime green alone is not integration proof. |
 | Focused TS unit tests pass but `verify` reports TS2550 for `Array.at` or TS2367 after repeated count assertions | The direct `tsx` runner does not enforce the repository TypeScript target, and an assertion signature can narrow a mutable observation to a stale literal. | Use target-compatible indexing and a non-narrowing equality helper for repeated observations, rerun the focused unit file, then rerun `verify`. |
 | `test-one app <filter>` exits 0 after running 0 tests for code under a workspace crate | The filter was sent to the app test binary instead of the crate that owns the tests, so a zero-match run looked green. | Use the supported owning target from `build.ps1 help` (for example, `test-one mem <filter>`), confirm the output reports a nonzero test count, then rerun the broad gate. |
@@ -1259,15 +1259,15 @@ email-link sign-in are enabled for the selected Firebase project. Save the
 values once with stdin:
 
 ```text
-codeterm mem secret save --name DOMIOS_FIREBASE_API_KEY
-codeterm mem secret save --name DOMIOS_FIREBASE_PROJECT_ID
-codeterm mem secret save --name DOMIOS_FIREBASE_APP_ID
-codeterm mem secret save --name DOMIOS_ACCOUNT_REDEEM_URL
-codeterm mem secret save --name DOMIOS_BILLING_FUNCTIONS_URL
+domios mem secret save --name DOMIOS_FIREBASE_API_KEY
+domios mem secret save --name DOMIOS_FIREBASE_PROJECT_ID
+domios mem secret save --name DOMIOS_FIREBASE_APP_ID
+domios mem secret save --name DOMIOS_ACCOUNT_REDEEM_URL
+domios mem secret save --name DOMIOS_BILLING_FUNCTIONS_URL
 ```
 
 Run each command and provide that value through stdin; omit `--value` so it
-stays out of shell history. The `codeterm mem secret` command uses `save` for
+stays out of shell history. The `domios mem secret` command uses `save` for
 this operation. Do not put these values in repository files.
 
 Account, billing and analytics own one build_config module each, using option_env!.
@@ -1296,7 +1296,7 @@ found", and plugin generation or the unit runner reports ERR_MODULE_NOT_FOUND fo
 esbuild or tsx. Run
 pnpm install --frozen-lockfile in the lane's Team QA shell, then rerun the affected
 non-Rust checks. A failed dependency lookup selected no executable tests.
-<!-- revision: 50 -->
+<!-- revision: 51 -->
 
 ### Lane and batch scopes
 

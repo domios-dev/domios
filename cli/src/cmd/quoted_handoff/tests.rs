@@ -53,7 +53,7 @@ fn quoted_handoff_refuses_the_same_payload_before_any_receiver_sees_it() {
     let refusal = inline_refusal(INLINE_SOURCE, AFTER_SHELL, PAD_REMEDY)
         .expect("an inline authored handoff is refused");
     assert!(refusal.starts_with(REFUSAL_CODE));
-    assert!(refusal.contains("codeterm pad path"));
+    assert!(refusal.contains("domios pad path"));
     assert!(refusal.contains("--from-pad"));
 
     let mut receiver = FakeReceiver::default();

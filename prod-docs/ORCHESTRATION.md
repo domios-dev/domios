@@ -7,14 +7,14 @@ Use command `--help` for syntax.
 Start narrow:
 
 ```bash
-codeterm orchestrator status --plan <plan> --tab <orchestrator-tab>
-codeterm plan reconcile <plan>
-codeterm task show <task>
+domios orchestrator status --plan <plan> --tab <orchestrator-tab>
+domios plan reconcile <plan>
+domios task show <task>
 ```
 
-Use `codeterm orchestrator inspect --plan <plan> --json` only when compact status cannot explain drift.
+Use `domios orchestrator inspect --plan <plan> --json` only when compact status cannot explain drift.
 
-Read playbooks with `codeterm docs <NAME>`; list with `codeterm docs`:
+Read playbooks with `domios docs <NAME>`; list with `domios docs`:
 
 | Need | Read |
 |---|---|
@@ -40,7 +40,7 @@ The Team owns and exposes its active Plan through Team membership; its bound Pla
 - Tasks carry bounded scope/ownership, acceptance/correctness, and executable tests. Strides record evidence, decisions, reports, and working points.
 - Never replace planner state with a standalone markdown implementation plan.
 
-Split oversized tasks with `codeterm plan task split <plan> <task> --child <name>`; dispatch children in lanes and keep the parent open until all are done or cancelled. Workers may propose splits but never spawn; see `ORCHESTRATION-TASKS`.
+Split oversized tasks with `domios plan task split <plan> <task> --child <name>`; dispatch children in lanes and keep the parent open until all are done or cancelled. Workers may propose splits but never spawn; see `ORCHESTRATION-TASKS`.
 Use canonical for authorized, small, local, low-risk fixes when cheaper than delegation; dispatch plan-owned source work by default. Canonical access never permits self-assignment.
 Team utilities inherit cleanup; use `--no-team` only to outlive it deliberately. Plan adoption binds the Team's unique live Planner.
 
@@ -52,13 +52,13 @@ Only the live Plan owner may cancel, pend, reassign, respawn, or dispatch a tab-
 
 ## The loop
 
-After every report, reminder, task close, tab death, or gate, reconcile with `codeterm plan reconcile <plan>`, fix only owned drift, and inspect all open tasks. Give each actionable task an exit; task sequencing governs staffing and parked work. See `ORCHESTRATION-TASKS` for reports and `ORCHESTRATION-OPERATIONS` for canonical verification and heartbeat.
+After every report, reminder, task close, tab death, or gate, reconcile with `domios plan reconcile <plan>`, fix only owned drift, and inspect all open tasks. Give each actionable task an exit; task sequencing governs staffing and parked work. See `ORCHESTRATION-TASKS` for reports and `ORCHESTRATION-OPERATIONS` for canonical verification and heartbeat.
 
-Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[worker lost: <task>]` with task, lane, dirt, and recovery. Tell the user and run its named `codeterm plan task respawn` command.
+Worker death during `in_progress` (tab closed/crashed or agent exited) pushes `[worker lost: <task>]` with task, lane, dirt, and recovery. Tell the user and run its named `domios plan task respawn` command.
 
 Use disjoint isolated lanes for parallel writers. After review and real merge, rerun the wave's selectors in canonical; never cherry-pick, squash, replay, or patch-copy. Heartbeat derives from Plan state; answer reminders there, never by editing heartbeat, focus, or lane fields.
 
-Close a reported Worker after its clean lane is integrated and no author correction remains, even during parent QA. Deferrals and hypothetical defects do not justify retaining it. Preserve review, evidence, and recoverable identity; restore through the supported lifecycle if needed. Keep active/unreported work and fixtures. Close idle utilities/watchers, stop dev first, and prune only clean ancestry-verified lanes with `codeterm plan lanes <plan> --clean --confirm`; record cleanup. Closing a tab never accepts its task.
+Close a reported Worker after its clean lane is integrated and no author correction remains, even during parent QA. Deferrals and hypothetical defects do not justify retaining it. Preserve review, evidence, and recoverable identity; restore through the supported lifecycle if needed. Keep active/unreported work and fixtures. Close idle utilities/watchers, stop dev first, and prune only clean ancestry-verified lanes with `domios plan lanes <plan> --clean --confirm`; record cleanup. Closing a tab never accepts its task.
 
 Accepted clean merged lanes are removed completely when their Worker closes, including ignored build output; merged branches are deleted with `git branch -d`. Cancelled clean worktrees may be removed while unmerged branches remain recoverable. Dirty or unmerged accepted lanes remain cleanup debt with an exact command. Plan cleanup also previews unregistered artifact residue beneath the worktree root and removes it only with confirmation. Registered worktrees, source and link targets stay protected; deletion failures name the exact path and available holder evidence.
 
@@ -70,14 +70,14 @@ Discovery must lead to decisions and implementation, review or verification; res
 
 ## Planning ownership
 
-Duplicate Worker guidance in `plan doctor` is advisory. Summarize a green draft and ask the owner; after UI approval verify `planning_state=approved`, after conversational approval run `codeterm plan approve <plan>` once and verify it. Record Planner waivers.
+Duplicate Worker guidance in `plan doctor` is advisory. Summarize a green draft and ask the owner; after UI approval verify `planning_state=approved`, after conversational approval run `domios plan approve <plan>` once and verify it. Record Planner waivers.
 ## Dispatch contract
 
 Workers default to full machine access; `--execution-intent` governs task and report authority, not OS permissions. Confine one with `--sandbox read-only|workspace-write` on `agent spawn` or local `plan task dispatch`. Task-less verification reports omit `--status` and `--task`.
 
 ## Worker kinds
 
-Kinds add prompt guidance, not machine access or execution ability. `reviewer` is read-only code review by default; use it for independent review of lane diffs. `qa` and `release_manager` support assigned mutations or task-less use; spawn task-less kinds with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. Task-less instances own no task, default to mutating intent, report to their parent without `--task`/`--status`, and gain no Plan authority. Neither kind spawns children. QA provides browser verification and may accept or bounce only an exact parent-delegated in-review task with evidence; it cannot hold or dispatch. Release managers coordinate current releases; publication and tags require owner GO. See `AGENT-CONTROL`.
+Kinds add prompt guidance, not machine access or execution ability. `reviewer` is read-only code review by default; use it for independent review of lane diffs. `qa` and `release_manager` support assigned mutations or task-less use; spawn task-less kinds with `domios agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. Task-less instances own no task, default to mutating intent, report to their parent without `--task`/`--status`, and gain no Plan authority. Neither kind spawns children. QA provides browser verification and may accept or bounce only an exact parent-delegated in-review task with evidence; it cannot hold or dispatch. Release managers coordinate current releases; publication and tags require owner GO. See `AGENT-CONTROL`.
 
 Task-bound Workers need `--plan-task <task>` and explicit `--execution-intent` for ACK, lane, and status. Gates authorize only recorded commands, never source edits; task-bound gates are declared on dispatch, where enforced. QA review delegation is explicit.
 

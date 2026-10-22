@@ -195,7 +195,7 @@ fn adoption_warnings(
 ) -> Vec<String> {
     let mut warnings = Vec::new();
     warnings.push(format!(
-        "plan will remain archived until adopted by a live Team: codeterm team adopt-plan <team-id> {}",
+        "plan will remain archived until adopted by a live Team: domios team adopt-plan <team-id> {}",
         plan.id
     ));
     let source_project = paths::project_root(Path::new(

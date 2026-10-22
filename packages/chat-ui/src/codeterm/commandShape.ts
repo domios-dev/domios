@@ -141,7 +141,7 @@ export function toolCommandShape(event: ToolEvent): CommandShape {
 }
 
 export function commandRowLabel(row: CommandRow): string {
-  if (row.role === "codeterm") return `codeterm ${row.invocation.path.join(" ")}`;
+  if (row.role === "codeterm") return `domios ${row.invocation.path.join(" ")}`;
   if (row.role === "command") return shellSegmentLabel(row.segment);
   const { argv } = row.segment;
   const start = commandArgvStart(argv);

@@ -346,7 +346,7 @@ fn worker_ack_timeout_reports_a_surviving_finalized_attempt() {
         "task",
         "tab",
         "attempt",
-        "codeterm plan task dispatch plan task",
+        "domios plan task dispatch plan task",
     );
 
     assert_eq!(event["kind"], "worker_ack_startup_failed");
@@ -360,10 +360,10 @@ fn worker_ack_timeout_reports_a_surviving_finalized_attempt() {
     assert_eq!(event["recovery"]["attempt_id"], "attempt");
     let primitives = event["recovery"]["primitives"].as_array().unwrap();
     for primitive in [
-        "codeterm tab inspect --tab tab",
-        "codeterm tab status --tab tab",
-        "codeterm tab get-text --tab tab",
-        "codeterm tab respond OPTION --tab tab",
+        "domios tab inspect --tab tab",
+        "domios tab status --tab tab",
+        "domios tab get-text --tab tab",
+        "domios tab respond OPTION --tab tab",
     ] {
         assert!(primitives
             .iter()
@@ -371,7 +371,7 @@ fn worker_ack_timeout_reports_a_surviving_finalized_attempt() {
     }
     assert!(primitives.iter().any(|value| value
         .as_str()
-        .is_some_and(|value| value.starts_with("codeterm send --tab tab --actions "))));
+        .is_some_and(|value| value.starts_with("domios send --tab tab --actions "))));
     assert!(event.get("cleanup").is_none());
     assert!(event.get("cleanup_error").is_none());
     assert_eq!(
@@ -398,7 +398,7 @@ fn worker_ack_timeout_reports_a_surviving_finalized_attempt() {
 
 #[test]
 fn worker_ack_timeout_keeps_spawn_prose_as_opaque_json_data() {
-    let spawn_command = "codeterm agent spawn --plan-task task; Write-Output 'opaque text'";
+    let spawn_command = "domios agent spawn --plan-task task; Write-Output 'opaque text'";
     let event = worker_ack_timeout_event("plan", "task", "tab", "attempt", spawn_command);
 
     assert_eq!(event["spawn_command"], spawn_command);
@@ -487,7 +487,7 @@ fn startup_ack_from_a_task_bound_tab_refuses_and_names_agent_ack() {
         .service
         .acknowledge_agent_startup(&worker_tab_id, "pty-a", "nonce-a")
         .expect_err("task-bound tabs use the task ACK route");
-    assert!(error.contains("codeterm agent ack"));
+    assert!(error.contains("domios agent ack"));
 }
 
 #[test]

@@ -131,7 +131,7 @@ The table records the classes of inconsistency found in a sweep of every surface
 
 | Surface | Problem | Rule |
 |---|---|---|
-| Chat command rows | A `codeterm plugin` call rendered as its CLI path and the plugin id ("plugin get lmstudio") | 1 |
+| Chat command rows | A `domios plugin` call rendered as its CLI path and the plugin id ("plugin get lmstudio") | 1 |
 | Chat message origin | A plugin's message header fell back to the plugin id when the message carried no label | 1 |
 | Chat removed-plugin state | Two unstyled paragraphs, with the plugin id as the headline | 1, 8 |
 | Settings, agent providers grid | Every provider card's subtitle was its id, repeating the name in machine form | 1 |

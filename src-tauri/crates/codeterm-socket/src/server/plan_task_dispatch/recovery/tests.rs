@@ -21,7 +21,7 @@ fn startup_recovery_targets_the_attempt_and_reserves_hold_for_current_evidence()
     assert_eq!(event["startup_attempt_id"], "pty-attempt");
     assert_eq!(
         event["startup_hold"]["command"],
-        "codeterm agent startup-hold --tab worker-tab --attempt pty-attempt"
+        "domios agent startup-hold --tab worker-tab --attempt pty-attempt"
     );
     assert_eq!(
         event["startup_hold"]["requires_prompt_bound_evidence"],

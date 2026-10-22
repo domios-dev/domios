@@ -317,7 +317,7 @@ fn brief_includes_body_acceptance_and_task_authority() {
     assert!(brief.contains("- atomic"));
     assert!(brief.contains("- returns Tab id"));
     assert!(brief.starts_with("You are the Worker responsible for: Wire dispatch RPC"));
-    assert!(!brief.contains("codeterm agent report"));
+    assert!(!brief.contains("domios agent report"));
     assert!(!brief.contains("--base "));
 }
 
@@ -407,7 +407,7 @@ fn brief_omits_empty_optional_sections() {
     assert!(!brief.contains("## Test plan"));
     assert!(!brief.contains("## Sections"));
     assert!(!brief.contains("## Strides"));
-    assert!(!brief.contains("codeterm agent report"));
+    assert!(!brief.contains("domios agent report"));
 }
 
 #[test]

@@ -3,11 +3,11 @@
 A recipe is a YAML Blueprint with typed `inputs`. Apply a built-in directly for common work; print its file when you need a custom graph.
 
 ```bash
-codeterm blueprint recipe
-codeterm blueprint apply github --set repo=owner/repo --set id=42
-codeterm blueprint new http-health > health.yaml
-codeterm blueprint check health.yaml --set url=https://example.com/health
-codeterm blueprint apply health.yaml --set url=https://example.com/health --dry-run
+domios blueprint recipe
+domios blueprint apply github --set repo=owner/repo --set id=42
+domios blueprint new http-health > health.yaml
+domios blueprint check health.yaml --set url=https://example.com/health
+domios blueprint apply health.yaml --set url=https://example.com/health --dry-run
 ```
 
 Use `--note` to explain the particular watch. `check` is offline; `apply --dry-run` also checks live Team scope, destinations and installed capabilities. Applying by exact name updates the existing graph instead of adding another.
@@ -33,11 +33,11 @@ Use `--note` to explain the particular watch. `check` is offline; `apply --dry-r
 GitHub's `resource` input accepts `run` or `jobs`; PR checks have their own recipe because their outcome set differs. Runners accept an optional `label`. `interval` and `timeout_ms` inputs have bounded defaults. HTTP accepts `expected_status` (`2xx` or a code) and a timeout up to 10000ms. Redirects are not followed.
 
 ```bash
-codeterm blueprint apply github --set repo=owner/repo --set id=42 --set resource=jobs
-codeterm blueprint apply github-pr-checks --set repo=owner/repo --set id=7
-codeterm blueprint apply github-runners --set repo=owner/repo --set label=linux-build
-codeterm blueprint apply github-org-runners --set org=organization --set label=linux-build
-codeterm blueprint apply http-health --set url=https://example.com/health --set expected_status=204
+domios blueprint apply github --set repo=owner/repo --set id=42 --set resource=jobs
+domios blueprint apply github-pr-checks --set repo=owner/repo --set id=7
+domios blueprint apply github-runners --set repo=owner/repo --set label=linux-build
+domios blueprint apply github-org-runners --set org=organization --set label=linux-build
+domios blueprint apply http-health --set url=https://example.com/health --set expected_status=204
 ```
 
 Edit the file's `on` routes when composing branches. Keep inputs for reusable parameters, and use a custom `run` step only when a built-in node does not fit. A command returns text; HTTP and GitHub expose fixed outcomes. `on: {done: stop, failed: diagnose}` routes to a later `diagnose` stage.
@@ -48,6 +48,6 @@ Watch same-Team tabs with `observe: tab:<id>`, or a cron's exact verified run wi
 
 Unknown cases can use `handlers.other` to escalate to the creator or a same-Team agent. Repair the YAML and apply it, then resolve the held transition. The model chooses a finite bucket; fixed code-defined handlers own actions and targets.
 
-Full format, validation diagnostics, editor schema and sharing: `codeterm docs BLUEPRINTS`.
+Full format, validation diagnostics, editor schema and sharing: `domios docs BLUEPRINTS`.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

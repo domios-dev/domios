@@ -69,7 +69,7 @@ pub fn generate(
         let identity = super::store::get(conn, IDENTITY_ID, blobs_dir)?
             .map(|i| i.body)
             .unwrap_or_else(|| {
-                "No identity configured. Tell the agent what to call you and run `codeterm mem save --kind preference --title identity \"...\"`.".to_string()
+                "No identity configured. Tell the agent what to call you and run `domios mem save --kind preference --title identity \"...\"`.".to_string()
             });
         let truncated = truncate_tokens(&identity, opts.l0_budget_tokens);
         l0_tokens = approx_tokens(&truncated);

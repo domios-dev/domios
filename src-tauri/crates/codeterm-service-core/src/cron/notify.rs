@@ -29,7 +29,7 @@ pub fn decide_notification(
         Some(FailureNotification::RepeatedFailure {
             title: format!("Cron \"{}\" failing repeatedly", name),
             body: format!(
-                "{} consecutive failed runs (tab={}). `codeterm cron history {}` for detail.",
+                "{} consecutive failed runs (tab={}). `domios cron history {}` for detail.",
                 consecutive_failures, tab_label, job_id
             ),
         })
@@ -37,7 +37,7 @@ pub fn decide_notification(
         Some(FailureNotification::AutoDisabled {
             title: format!("Cron \"{}\" auto-disabled", name),
             body: format!(
-                "{} consecutive failures — job disabled. Fix it, then `codeterm cron enable {}`.",
+                "{} consecutive failures — job disabled. Fix it, then `domios cron enable {}`.",
                 consecutive_failures, job_id
             ),
         })

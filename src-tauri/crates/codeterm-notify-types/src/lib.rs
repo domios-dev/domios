@@ -68,7 +68,7 @@ pub enum NotifyDestination<'a> {
     /// The OS notification centre.
     Desktop,
     /// A resolved push channel, addressed by the same service id
-    /// `codeterm bridge send --service <id>` takes.
+    /// `domios bridge send --service <id>` takes.
     Channel(&'a str),
 }
 

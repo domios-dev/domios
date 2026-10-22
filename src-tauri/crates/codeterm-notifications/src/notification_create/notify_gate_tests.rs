@@ -1,4 +1,4 @@
-//! `notify_gate` at the sink: what an agent's `codeterm notify` call actually
+//! `notify_gate` at the sink: what an agent's `domios notify` call actually
 //! reaches, proved against the same fail-closed standard the push channel meets.
 
 use super::*;

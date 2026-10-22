@@ -42,7 +42,7 @@ fn draft(plan_id: &str, task_id: &str, lane: u32, branch: Option<&str>) -> TaskC
         base: branch.map(|_| "abc123".to_string()),
         destination: Some("develop".into()),
         task_prompt: "brief".into(),
-        report_command: "codeterm agent report".into(),
+        report_command: "domios agent report".into(),
         plan_skill_manifest: vec![],
     }
 }

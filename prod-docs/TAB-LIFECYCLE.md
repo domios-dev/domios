@@ -9,8 +9,8 @@ Domios journals every authoritative tab lifecycle transition. This append-only *
 Give test, QA and build shells a deadline (`30s`, `10m`, `2h`, at most 365 days); leave servers without one. Only the creating agent sets it; mesh requests are refused.
 
 ```bash
-codeterm tab new --purpose qa --timeout 30s --cmd "sleep 600"
-codeterm tab timeout --tab <ID> --timeout 20m   # resets from now; `none` disables
+domios tab new --purpose qa --timeout 30s --cmd "sleep 600"
+domios tab timeout --tab <ID> --timeout 20m   # resets from now; `none` disables
 ```
 
 A reset keeps the shell and its command. At expiry an idle shell closes quietly; running or unknown activity is terminated and the owner gets one `timed out` status giving shell lifetime and command elapsed separately. `tab restart` renews the previous lifetime from the restart; `--timeout` overrides it (or `none` disables it), for the owning agent only. Later commands share that lifetime. Daemon restarts preserve the absolute deadline; `tab inspect` shows `utility_deadline` (`started_ms`, `deadline_ms`, epoch ms) and the close journal records `utility_timeout`. An unrestorable shell is reported lost. REST: `POST /api/tabs` and `POST /api/tabs/{id}/restart` take optional `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
@@ -34,8 +34,8 @@ For backup, stop Domios cleanly and copy the complete `storage/` directory, incl
 5. A rebuilt record is not a restored agent. The restore report counts a pane as restored only once an agent process is observed live behind it. The persisted report is reconciled whenever lifecycle evidence changes, so a late-live pane replaces its earlier dropped outcome; each pane gets one log line per restore wave. A pane that came back as a bare shell is named with its role and reason (`agent_not_live`), and one whose liveness is not yet observable is reported as `agent_liveness_unobserved` rather than assumed either way.
 6. A provider exit observed while a graceful shutdown is armed keeps the tab's provider, session and nonces; the committed desk still names the session the next boot resumes. A failed launch preserves the provider, role/profile, saved session and exact restore data and keeps its failure card. Only an exit after the launch authenticated its session clears identity into binding lineage. Recovery accepts this tab's own nonce-verified session or journaled launch target, requires its provider to confirm the exact session exists for the tab's cwd, and binds it under a new nonce. `agent restart` resumes it in place with the recorded launch arguments. With `LaunchBindingUnconfirmed`, a shell-ready PTY, a known provider and no saved or journaled session, it starts that provider fresh and reports `fresh_launch`. A provider started by hand there inherits the exited launch's nonce; when its hook reports that newest retired nonce and no launch owns the tab, the tab adopts it (`agent_ready`).
 7. A team member whose provider exited to its shell before shutdown restores as that shell and is not relaunched. The report names it `agent_exited_before_shutdown` with `exited_session_id`; `agent restart` recovers it.
-8. A restored agent whose saved cwd is no longer a directory is not relaunched anywhere else: the Tab keeps its session and cwd, shows `spawn_failed` naming the missing directory, and raises a notification. Restore the directory, then `codeterm agent restart --tab ID`.
-9. Restore never replaces an unavailable exact saved session. When its provider confirms the session is missing, the failure card offers **Start new session** beside **Keep shell**. The explicit action, also available as `codeterm agent restart --tab ID --fresh`, preserves tab identity, cwd, Team, plan binding, model and effort while clearing the dead session and exact-restore binding. An existing exact session is refused; a live agent requires `--force`.
+8. A restored agent whose saved cwd is no longer a directory is not relaunched anywhere else: the Tab keeps its session and cwd, shows `spawn_failed` naming the missing directory, and raises a notification. Restore the directory, then `domios agent restart --tab ID`.
+9. Restore never replaces an unavailable exact saved session. When its provider confirms the session is missing, the failure card offers **Start new session** beside **Keep shell**. The explicit action, also available as `domios agent restart --tab ID --fresh`, preserves tab identity, cwd, Team, plan binding, model and effort while clearing the dead session and exact-restore binding. An existing exact session is refused; a live agent requires `--force`.
 
 ## Resume after restart
 
@@ -46,7 +46,7 @@ An agent tab that was mid-turn when Domios stopped continues its work after the 
 - **Skips are recorded, never retried.** A tab that resumes on another session, comes back as a shell, has no PTY agent session, or is not agent-ready within the 300-second failure deadline is settled with `outcome: {"skipped": "<reason>"}` (for example `session_not_resumed`, `agent_not_ready`, `send_refused`, `disabled`). Idle tabs carry no mark and receive nothing. Owner messages are never replayed.
 - **Unconfirmed continuation is an incident.** A refused or unconfirmed submission emits a system notice and `turn-resume-incident` event with code, tab, session and `bytes_written`; it settles as `submit_unconfirmed` and is never replayed.
 - **A requested continuation shares the same owner.** `update install --from-file` passes `--continue-tab`/`--continue-prompt` to `/api/session/save`; the tab's mark then carries that prompt, survives the caller's turn ending, and is delivered once in place of the default text. The installer helper itself never writes to a tab.
-- `[agent] continue_after_restart = false` (`codeterm docs CONFIG`) disables delivery; owed marks settle as `disabled`.
+- `[agent] continue_after_restart = false` (`domios docs CONFIG`) disables delivery; owed marks settle as `disabled`.
 
 The mark is visible in the tab API object as `turn_resume`. The first start of a build that introduced it has no marks from the previous build to resume.
 
@@ -58,7 +58,7 @@ Restored agent PTYs are materialized by the backend once the frontend reports re
 
 Elapsed time or a rebuilt tab record alone never proves a live restored agent: liveness is observed from a live PTY session, a real launch transition, the shell's own finished-command report, or an open plugin session.
 
-A launch that still owes its startup acknowledgement is not ready while its provider shows the owner a prompt: an `agent_ready` tab moves to `awaiting_owner_prompt` when that prompt surfaces and returns to `agent_ready` when it clears. A user-owned prompt also raises one action-needed notice for its blocker kind during that launch; the notice names the tab and what it needs. If the tab has a parent agent, Domios routes the parsed question and options there with instructions for `codeterm tab respond`. Owner-launched tabs keep the prompt owner-facing and do not receive automatic keys.
+A launch that still owes its startup acknowledgement is not ready while its provider shows the owner a prompt: an `agent_ready` tab moves to `awaiting_owner_prompt` when that prompt surfaces and returns to `agent_ready` when it clears. A user-owned prompt also raises one action-needed notice for its blocker kind during that launch; the notice names the tab and what it needs. If the tab has a parent agent, Domios routes the parsed question and options there with instructions for `domios tab respond`. Owner-launched tabs keep the prompt owner-facing and do not receive automatic keys.
 
 A pane observed `absent` is reconciled through the ordinary lifecycle teardown, so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or model label, and the existing guarded-input refusal arms with it.
 
@@ -156,10 +156,10 @@ grep '"tab_id":"db79d2da"' "$JOURNAL" \
   | jq -r '.entry | "\(.seq)  \(.recorded_at)  \(.transition.transition)"'
 # does this tab have a committed checkpoint at all?
 jq -c 'select(.record=="checkpoint" and .checkpoint.key.tab_id=="db79d2da")' "$JOURNAL"
-codeterm tab inspect --tab db79d2da --lifecycle
+domios tab inspect --tab db79d2da --lifecycle
 ```
 
-Session backup list and restore commands read Storage-backed desk projections. Restore is additive: it recreates missing workspaces and tabs under their original ids without changing or closing existing entries. For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a read-only `lifecycle` object with live lineage, ordered transitions, surviving checkpoint, and journal-tail health. Plain `tab list` and `tab list --workspace` stay separate from this telemetry, which has no restore or checkpoint-mutation surface.
+Session backup list and restore commands read Storage-backed desk projections. Restore is additive: it recreates missing workspaces and tabs under their original ids without changing or closing existing entries. For one selected live tab, `domios tab inspect --tab ID --lifecycle` adds a read-only `lifecycle` object with live lineage, ordered transitions, surviving checkpoint, and journal-tail health. Plain `tab list` and `tab list --workspace` stay separate from this telemetry, which has no restore or checkpoint-mutation surface.
 
 ## Attempt retirement fences a closed tab's dispatch
 
@@ -192,7 +192,7 @@ Automatic model recovery remains disabled until a separate human-labelled held-o
 
 UI-created tabs suppress trust, permission and login owner notifications unless parent/spawner, team, cron, hidden-worker or General Agent ownership applies. The journal still records observations. Restored-tab notices are held for restore-wave settlement and grouped by state. Durable tab/state/launch keys prevent repeated notices across application restarts; a new launch can notify again.
 
-Structural access refusals from the tab's bound provider session are always incidents, including UI-created tabs. They immediately open one `error` / `action_needed` notification per access-loss transition and keep the tab waiting on authentication. A successful provider turn clears the state and resolves the notice. See `codeterm docs NOTIFICATIONS`; role-tab escalation is documented in `codeterm docs ORCHESTRATION`.
+Structural access refusals from the tab's bound provider session are always incidents, including UI-created tabs. They immediately open one `error` / `action_needed` notification per access-loss transition and keep the tab waiting on authentication. A successful provider turn clears the state and resolves the notice. See `domios docs NOTIFICATIONS`; role-tab escalation is documented in `domios docs ORCHESTRATION`.
 
 ## Unattended launch prompts
 

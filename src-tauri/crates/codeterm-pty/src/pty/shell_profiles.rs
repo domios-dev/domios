@@ -112,9 +112,7 @@ pub fn select(
         .cloned()
         .map(Some)
         .ok_or_else(|| {
-            format!(
-                "Unknown or unavailable shell profile: {id}. Run codeterm tab new --list-shells"
-            )
+            format!("Unknown or unavailable shell profile: {id}. Run domios tab new --list-shells")
         })
 }
 

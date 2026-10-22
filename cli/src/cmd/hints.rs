@@ -3,36 +3,36 @@ use serde_json::{json, Value};
 use crate::cmd::report_guard::UNBOUND_WORKER_BINDING_ADVISORY;
 
 const ORCHESTRATION_REMINDER: &str =
-    "hint: orchestrating? read `codeterm docs ORCHESTRATION`; before dispatch, run `codeterm plan doctor <plan> --kind quality`";
+    "hint: orchestrating? read `domios docs ORCHESTRATION`; before dispatch, run `domios plan doctor <plan> --kind quality`";
 const ORCHESTRATION_REMINDER_EVERY: u64 = 5;
 const ORCHESTRATION_REMINDER_STATE: &str = "orchestration-hint-count";
 
 pub fn task_sections_hint(plan_id: &str, task_id: &str) -> String {
     format!(
-        "hint: task is not linked to a plan section. If it belongs to a plan, connect it: codeterm plan task link {plan_id} {task_id} --sections <id-or-handle> (ids: codeterm plan get {plan_id} --sections)"
+        "hint: task is not linked to a plan section. If it belongs to a plan, connect it: domios plan task link {plan_id} {task_id} --sections <id-or-handle> (ids: domios plan get {plan_id} --sections)"
     )
 }
 
 pub fn task_model_hint(plan_id: &str, task_id: &str) -> String {
     format!(
-        "hint: task has no model/model_rationale. Capture routing intent: codeterm plan task update {plan_id} {task_id} --model <provider>:<model> --why <reason>"
+        "hint: task has no model/model_rationale. Capture routing intent: domios plan task update {plan_id} {task_id} --model <provider>:<model> --why <reason>"
     )
 }
 
 pub fn spec_create_next_plan_hint(spec_id: &str) -> String {
     format!(
-        "hint: planning sequence: 1) codeterm plan create --from-spec {spec_id} --title <title> 2) codeterm plan goal set <plan> --vector <proof> <goal> 3) codeterm plan section add <plan> --title <phase> --body <how> 4) codeterm plan task add <plan> --name <task> --executor-role <role> --personality <name> --role-guidance <conditioning> ... 5) codeterm plan doctor <plan> --kind quality"
+        "hint: planning sequence: 1) domios plan create --from-spec {spec_id} --title <title> 2) domios plan goal set <plan> --vector <proof> <goal> 3) domios plan section add <plan> --title <phase> --body <how> 4) domios plan task add <plan> --name <task> --executor-role <role> --personality <name> --role-guidance <conditioning> ... 5) domios plan doctor <plan> --kind quality"
     )
 }
 
 pub fn spec_section_add_link_hint(spec_id: &str) -> String {
     format!(
-        "hint: -> link it or build the plan from this spec: codeterm spec link add <plan_id> --spec {spec_id} --spec-section <section_id> --plan-section <section_id> OR codeterm plan create --from-spec {spec_id} --title <title>"
+        "hint: -> link it or build the plan from this spec: domios spec link add <plan_id> --spec {spec_id} --spec-section <section_id> --plan-section <section_id> OR domios plan create --from-spec {spec_id} --title <title>"
     )
 }
 
 pub fn plan_create_spec_first_hint() -> String {
-    "WARNING: plans start with a spec. Sequence: `codeterm spec create --title <title>` -> `codeterm plan create --from-spec <id> --title <title>` -> `codeterm plan goal set` -> `codeterm plan section add` -> `codeterm plan task add` -> `codeterm plan doctor <plan> --kind quality`".to_string()
+    "WARNING: plans start with a spec. Sequence: `domios spec create --title <title>` -> `domios plan create --from-spec <id> --title <title>` -> `domios plan goal set` -> `domios plan section add` -> `domios plan task add` -> `domios plan doctor <plan> --kind quality`".to_string()
 }
 
 /// Shared rule set for the task-quality lint: what `plan task add` warns on at
@@ -74,7 +74,7 @@ pub fn task_quality_guard_hint(
         return None;
     }
     Some(format!(
-        "WARNING: task is missing {}. Add checkable work definition now: codeterm plan task add {plan_id} --name <name> --executor-role <role> --personality <name> --role-guidance <conditioning> --body <work brief> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
+        "WARNING: task is missing {}. Add checkable work definition now: domios plan task add {plan_id} --name <name> --executor-role <role> --personality <name> --role-guidance <conditioning> --body <work brief> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
         missing.join(", ")
     ))
 }
@@ -244,8 +244,8 @@ mod tests {
     #[test]
     fn section_hint_points_to_update_and_section_ids() {
         let hint = task_sections_hint("pl_1", "task_1");
-        assert!(hint.contains("codeterm plan task link pl_1 task_1 --sections <id-or-handle>"));
-        assert!(hint.contains("codeterm plan get pl_1 --sections"));
+        assert!(hint.contains("domios plan task link pl_1 task_1 --sections <id-or-handle>"));
+        assert!(hint.contains("domios plan get pl_1 --sections"));
     }
 
     #[test]
@@ -259,19 +259,19 @@ mod tests {
     #[test]
     fn spec_create_hint_surfaces_planning_sequence() {
         let hint = spec_create_next_plan_hint("sp_1");
-        assert!(hint.contains("codeterm plan create --from-spec sp_1 --title <title>"));
-        assert!(hint.contains("codeterm plan goal set"));
-        assert!(hint.contains("codeterm plan section add"));
-        assert!(hint.contains("codeterm plan task add"));
-        assert!(hint.contains("codeterm plan doctor <plan> --kind quality"));
+        assert!(hint.contains("domios plan create --from-spec sp_1 --title <title>"));
+        assert!(hint.contains("domios plan goal set"));
+        assert!(hint.contains("domios plan section add"));
+        assert!(hint.contains("domios plan task add"));
+        assert!(hint.contains("domios plan doctor <plan> --kind quality"));
     }
 
     #[test]
     fn plan_create_without_spec_hint_surfaces_sequence() {
         let hint = plan_create_spec_first_hint();
-        assert!(hint.contains("codeterm spec create --title <title>"));
-        assert!(hint.contains("codeterm plan create --from-spec <id> --title <title>"));
-        assert!(hint.contains("codeterm plan doctor <plan> --kind quality"));
+        assert!(hint.contains("domios spec create --title <title>"));
+        assert!(hint.contains("domios plan create --from-spec <id> --title <title>"));
+        assert!(hint.contains("domios plan doctor <plan> --kind quality"));
     }
 
     #[test]

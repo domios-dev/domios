@@ -74,7 +74,7 @@ impl std::fmt::Display for ProviderPreflightError {
                 ..
             } => write!(
                 f,
-                "Provider not installed: {} (`{}`) launches `{}`, which is not on this machine. Searched: [{}]. Install command: {}. fix: codeterm agent cli install {}",
+                "Provider not installed: {} (`{}`) launches `{}`, which is not on this machine. Searched: [{}]. Install command: {}. fix: domios agent cli install {}",
                 display_name,
                 provider_id,
                 binary,

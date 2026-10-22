@@ -135,9 +135,9 @@ pub(crate) fn busy_worker_close_warnings(tab_id: &str, assignments: &[WorkerLoss
 pub(crate) fn recovery_command(plan_id: &str, task_id: &str, attempt_id: Option<&str>) -> String {
     match attempt_id {
         Some(attempt_id) => {
-            format!("codeterm plan task respawn {plan_id} {task_id} --attempt {attempt_id}")
+            format!("domios plan task respawn {plan_id} {task_id} --attempt {attempt_id}")
         }
-        None => format!("codeterm plan reconcile {plan_id} --fix"),
+        None => format!("domios plan reconcile {plan_id} --fix"),
     }
 }
 

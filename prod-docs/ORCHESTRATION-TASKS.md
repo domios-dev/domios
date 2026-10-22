@@ -12,26 +12,26 @@ any open state → cancelled
 ```
 
 - `in_progress` requires both a live runtime binding and the Worker's durable
-  `codeterm agent ack`; either may arrive first.
+  `domios agent ack`; either may arrive first.
 - Explicit dispatch or respawn of a blocked task returns it to pending in the
   same mutation that reserves the new attempt, preserving the old block reason
   in a plan stride. Dispatch refuses review-held tasks; respawn can replace a
   review-held attempt through the documented review recovery path.
 - `dispatch_ready` proves PTY, session, and lane readiness but does not start
   the task. A missing ACK emits `worker_ack_timeout` after the bounded deadline.
-- `codeterm agent report --status in_review` atomically records the handoff,
+- `domios agent report --status in_review` atomically records the handoff,
   moves the bound task to `in_review`, and pushes the report into the
   Orchestrator tab. Workers never poll or separately update task status.
-- `codeterm agent report --status blocked` persists the Worker's report and
+- `domios agent report --status blocked` persists the Worker's report and
   evidence as one block proposal notice; it leaves the task status, assignment,
   and lane unchanged. Only the Plan owner or Planner blocks explicitly with
-  `codeterm plan task update <plan> <task> --status blocked --status-label
+  `domios plan task update <plan> <task> --status blocked --status-label
   "<reason; owner trigger>"`. A block label must be supplied with that update.
 - `blocked` means only an outside prerequisite can advance the task (an owner
   decision, approval, access). Work sequenced after a release or milestone is
   not blocked: keep it `pending` in a later group (`plan task update --group`).
 - The Orchestrator alone dispatches and holds `in_review` tasks. It may hand one
-  in-review task to a direct child QA with `codeterm plan review delegate`;
+  in-review task to a direct child QA with `domios plan review delegate`;
   that QA may accept or bounce only the handed task and must attach its
   evidence note. A QA cannot hold, dispatch, or transition any other task.
   `hold` preserves assignment and lane; `bounce` resumes the Worker when its
@@ -42,13 +42,13 @@ any open state → cancelled
   from open work and resumes when the gate is answered or the provider recovers.
 ## Group milestones
 
-Group tasks with `--group` and declare their sequence with `codeterm plan groups
+Group tasks with `--group` and declare their sequence with `domios plan groups
 set`. Pending tasks in later groups, including after-release work, stay parked
 until their group reaches the frontier. They do not appear in actionable-task
 reminders or stale-task drift; the reminder gives one count for parked work.
 
-Regression records and group notes are optional recordkeeping. `codeterm plan
-qa next`, `codeterm plan qa override`, and `codeterm plan groups close --note`
+Regression records and group notes are optional recordkeeping. `domios plan
+qa next`, `domios plan qa override`, and `domios plan groups close --note`
 remain available, and pending records appear as dispatch advisories. They never
 block an otherwise authorized dispatch. Run focused checks for each change and
 merged wave; run the broad regression suite once on the release SHA.
@@ -65,13 +65,13 @@ Before a wave:
 2. Define a disjoint lane map: task, files, branch/worktree, expected output,
    focused oracle, and central gates requested.
 3. Run plan doctor.
-4. Default to an authored task and dispatch it through `codeterm plan task dispatch`; use `codeterm agent spawn --role Worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Lanes by default,
+4. Default to an authored task and dispatch it through `domios plan task dispatch`; use `domios agent spawn --role Worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Lanes by default,
    `--canonical-writer` only by deliberate choice (operations playbook). Add
    `--kind qa` or `--kind release_manager` to a canonical dispatch when the
    Worker needs that built-in prompt; it does not change `executor_role` or
    replace parent authorization. Direct task-bound spawn cannot reserve canonical.
 5. Wait for the pushed `worker_ack` described in Task lifecycle.
-6. Dispatch failure: immediately send a standalone user alert (impact, affected tasks, cleanup, active fallback); verify rollback. After two same-class failures, stop dispatching; diagnose/escalate the coordination incident via `codeterm notify send ... --level action_needed` and a plan stride on the task. Await owner direction before retrying.
+6. Dispatch failure: immediately send a standalone user alert (impact, affected tasks, cleanup, active fallback); verify rollback. After two same-class failures, stop dispatching; diagnose/escalate the coordination incident via `domios notify send ... --level action_needed` and a plan stride on the task. Await owner direction before retrying.
    Never self-implement plan-owned work to bypass failed dispatch; mark the task done only after an acknowledged Worker attempt or owner decision.
 
 Every Worker has a clear Orchestrator title and description. Task dispatch
@@ -99,12 +99,12 @@ checklist in Domios; no parent and no provider todo tool is needed. Write the
 whole list as a JSON array to your pad and declare it:
 
 ```bash
-codeterm todo write --from-pad todos.json
+domios todo write --from-pad todos.json
 ```
 
 Each entry is `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "id?", "link?", "reason?" }`.
 The first write creates the checklist. Later writes reconcile it: an entry
-matches by `id` from `codeterm todo list`, falling back to exact `content` title matching.
+matches by `id` from `domios todo list`, falling back to exact `content` title matching.
 An id entry may omit `content` and `activeForm`; it changes only status/reason,
 preserving the title, links, attempts and history. A new
 `content` appends an item; an omitted item you added is removed. Items a
@@ -122,18 +122,18 @@ a bounce reopens locked criteria.
 
 The sidebar shows a checklist disclosure on every agent row whose tab holds a
 checklist, including rows of paired peers that report one.
-`codeterm todo list` reads your own list; an Orchestrator reads a child's with
-`codeterm tab todo list --tab <child-id>`.
+`domios todo list` reads your own list; an Orchestrator reads a child's with
+`domios tab todo list --tab <child-id>`.
 
-Workers share the checklist with `codeterm todo submit` and continue work.
+Workers share the checklist with `domios todo submit` and continue work.
 The parent agent receives its criteria and plan items together for agent-to-agent
 review; its chat shows no human review card or Approve/Edit controls.
 `Not reviewed yet` in the sidebar and Underway is informational.
 Only the Worker's parent or Plan owner may review through the CLI:
 
 ```bash
-codeterm todo approve --tab <child-id> --note-from-pad note.md
-codeterm todo amend --tab <child-id> --from-pad todos.json --note-from-pad note.md
+domios todo approve --tab <child-id> --note-from-pad note.md
+domios todo amend --tab <child-id> --from-pad todos.json --note-from-pad note.md
 ```
 
 The note is optional. Amendment uses the same array as `todo write`; `id` keeps
@@ -152,15 +152,15 @@ note. Sharing, review and checklist reminders never gate work or reporting.
 ## Owner decision holds
 
 Pause only when an owner decision blocks all tasks. Ask once with
-`codeterm notify send "<question>" --level action_needed` (repeat `--choice
+`domios notify send "<question>" --level action_needed` (repeat `--choice
 "<label>"` for options), then wait for the owner's next message in this tab.
 Paused plans have no heartbeat or reminders. Resume with
-`codeterm plan resume <plan_id>` and continue the frontier.
+`domios plan resume <plan_id>` and continue the frontier.
 
 ## Provider access loss and archive advisories
 
 A provider access-loss incident sends a `[provider access lost]` system notice to the tab's parent (a roleless spawned child included); a role tab without a parent falls back to its plan's Orchestrator. A top-level Orchestrator escalates through the owner notification. The `provider-access-lost` event identifies the affected tab, provider, bound session, notification and target. The work owner can recover login or respawn the work on another provider; an access refusal never means a completed task.
 
-Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
+Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `domios plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

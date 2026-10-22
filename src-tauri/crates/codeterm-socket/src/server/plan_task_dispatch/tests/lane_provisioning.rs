@@ -582,7 +582,7 @@ fn recorded_lane_with_surviving_branch_commits_still_refuses() {
 
     assert!(error.message.contains(&old.branch), "{}", error.message);
     assert!(error.message.contains("branch '") && error.message.contains("commits not merged"));
-    assert!(error.message.contains("codeterm plan lane-remove"));
+    assert!(error.message.contains("domios plan lane-remove"));
     assert!(error.message.contains("--project"));
     assert!(!error.message.contains("branch -D"));
     super::git(&fixture.project, &["branch", "-D", &old.branch]);
@@ -624,7 +624,7 @@ fn recorded_lane_with_a_surviving_worktree_registration_still_refuses() {
     assert!(error
         .message
         .contains(&registered_path.display().to_string()));
-    assert!(error.message.contains("codeterm plan lane-remove"));
+    assert!(error.message.contains("domios plan lane-remove"));
     assert!(error.message.contains("--project"));
     super::git(&fixture.project, &["worktree", "prune", "--expire", "now"]);
 }

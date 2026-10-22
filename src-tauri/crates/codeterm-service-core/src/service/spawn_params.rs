@@ -355,7 +355,7 @@ pub fn chatbackend_spawn_config(
 
 pub fn reject_direct_watcher_chatbackend_config(config: &serde_json::Value) -> Result<(), String> {
     if config.get("mode").and_then(|v| v.as_str()) == Some("watcher") {
-        Err("watcher Tabs spawn via codeterm agent spawn --role Watcher".into())
+        Err("watcher Tabs spawn via domios agent spawn --role Watcher".into())
     } else {
         Ok(())
     }

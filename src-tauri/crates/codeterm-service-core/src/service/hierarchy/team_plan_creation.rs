@@ -39,7 +39,7 @@ impl TeamPlanCreationOutcome {
             return;
         }
         let reminder = format!(
-            "Name this Team: codeterm team rename {} <name>; then read codeterm docs ORCHESTRATION.",
+            "Name this Team: domios team rename {} <name>; then read domios docs ORCHESTRATION.",
             self.team_id
         );
         if let Some(hints) = response

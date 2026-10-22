@@ -323,7 +323,7 @@ pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskS
         });
         print_siblings(val.get("siblings"), &opts);
         print_label_list("subtasks", val.get("subtasks"));
-        println!("record: codeterm plan record {plan} --task {id} --step status_update:<text>");
+        println!("record: domios plan record {plan} --task {id} --step status_update:<text>");
     } else if canonical_mutation_id(val).is_some() {
         print_hints_stderr(&hints);
         if let Some(id) = canonical_mutation_id(val) {

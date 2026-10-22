@@ -92,7 +92,7 @@ impl Counterpart {
 /// The exact reach command a member uses to message its counterpart. `--tab`
 /// accepts the tab id (see prompts/codeterm_rule.md).
 pub(crate) fn reach_command(tab_id: &str) -> String {
-    format!("codeterm send \"…\" --tab {tab_id}")
+    format!("domios send \"…\" --tab {tab_id}")
 }
 
 /// The body one member reads about its counterpart: names it, its tab id, and
@@ -154,10 +154,7 @@ mod tests {
 
     #[test]
     fn reach_command_uses_tab_flag_with_tab_id() {
-        assert_eq!(
-            reach_command("abc-123"),
-            "codeterm send \"…\" --tab abc-123"
-        );
+        assert_eq!(reach_command("abc-123"), "domios send \"…\" --tab abc-123");
     }
 
     #[test]

@@ -1132,7 +1132,7 @@ pub(super) fn dispatch(
                 provisioned_lane: None,
                 lane_protection,
                 spawn_command: format!(
-                    "codeterm plan task respawn {id} {tid} --attempt {}",
+                    "domios plan task respawn {id} {tid} --attempt {}",
                     draft.source_attempt.id
                 ),
             };

@@ -447,7 +447,7 @@ fn timeout_event_is_actionable_without_authorizing_a_resend() {
         "task",
         "tab",
         "attempt",
-        "codeterm plan task dispatch plan task",
+        "domios plan task dispatch plan task",
     );
 
     assert_eq!(event["kind"], "worker_ack_startup_failed");
@@ -458,7 +458,7 @@ fn timeout_event_is_actionable_without_authorizing_a_resend() {
             .unwrap()
             * 2
     );
-    assert_eq!(event["expected_command"], "codeterm agent ack");
+    assert_eq!(event["expected_command"], "domios agent ack");
     assert_eq!(
         event["tab_state"],
         codeterm_service_core::service::worker_ack::TAB_STATE_ALIVE_AWAITING_INSPECTION
@@ -477,7 +477,7 @@ fn timeout_event_is_actionable_without_authorizing_a_resend() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|primitive| primitive.as_str() == Some("codeterm tab get-text --tab tab")));
+        .any(|primitive| primitive.as_str() == Some("domios tab get-text --tab tab")));
     assert!(event.get("cleanup").is_none());
     assert!(event.get("cleanup_error").is_none());
 }

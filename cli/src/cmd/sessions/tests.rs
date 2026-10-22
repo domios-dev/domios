@@ -150,6 +150,6 @@ fn search_human_resume_hint_is_the_provider_agnostic_command() {
         "warnings": []
     });
     let out = render_search_human("q", &body);
-    assert!(out.contains("codeterm sessions resume ses_token"), "{out}");
+    assert!(out.contains("domios sessions resume ses_token"), "{out}");
     assert!(out.contains("[any-provider] snippet-token"), "{out}");
 }

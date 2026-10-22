@@ -48,62 +48,62 @@ Backward-compat alias: `Conductor` -> `Orchestrator`.
 
 **Briefs.** Pass a brief with `--task-file PATH` or `--task-file -` fed by a single-quoted heredoc. The CLI refuses a multiline or over-240-character inline `--task`, because the shell has already expanded its backticks, `$`, quotes and newlines; a short scalar such as `--task "run tests"` stays fine. Every Worker brief names its report command, or the Worker finishes without reporting.
 
-**Worker discipline.** A task-bound Worker executes its one task, reports with `codeterm agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `partial` with the needed decomposition, so the Orchestrator splits it. A Worker `--status blocked` report proposes an owner decision for an external dependency, persists its reason and evidence, and leaves the task unchanged; only the Plan owner or Planner explicitly blocks the task.
+**Worker discipline.** A task-bound Worker executes its one task, reports with `domios agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `partial` with the needed decomposition, so the Orchestrator splits it. A Worker `--status blocked` report proposes an owner decision for an external dependency, persists its reason and evidence, and leaves the task unchanged; only the Plan owner or Planner explicitly blocks the task.
 
-**Task-less Worker kinds.** `qa`, `release_manager` and `reviewer` are still Workers and always sit under their parent in the Team hierarchy, but they own no Plan task. Spawn with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. They cannot spawn children or gain filesystem write access from gate grants. They report to their parent without `--status`. A QA may accept or bounce only an exact in-review task its parent delegates with `codeterm plan review delegate`; its verdict requires an evidence note, and it cannot hold or dispatch tasks. A `reviewer` launches read-only unless the parent passes `--execution-intent mutating` for that exact assignment, and it never accepts work, closes a review, edits a Plan, publishes or releases.
+**Task-less Worker kinds.** `qa`, `release_manager` and `reviewer` are still Workers and always sit under their parent in the Team hierarchy, but they own no Plan task. Spawn with `domios agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. They cannot spawn children or gain filesystem write access from gate grants. They report to their parent without `--status`. A QA may accept or bounce only an exact in-review task its parent delegates with `domios plan review delegate`; its verdict requires an evidence note, and it cannot hold or dispatch tasks. A `reviewer` launches read-only unless the parent passes `--execution-intent mutating` for that exact assignment, and it never accepts work, closes a review, edits a Plan, publishes or releases.
 
 **Push-based reports:** Reports go to the spawning Orchestrator, auto-injected into its PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
 
 ```bash
 # Mark current tab as orchestrator
-codeterm agent set-orchestrator --tab $CODETERM_TAB_ID
+domios agent set-orchestrator --tab $CODETERM_TAB_ID
 
 # View the complete local workspace map (workspaces, Teams, Plans, and nested tabs); --workspace selects the existing one-workspace tree; --agents = agent tabs only
-codeterm tab list
+domios tab list
 
 # Get one tab's state (working|question|idle|error|exited, as tab list shows), type, session, prompt
-codeterm tab status --tab $WORKER
+domios tab status --tab $WORKER
 
 # Include pending_prompt question and numbered options for an active provider dialog
-codeterm tab status --tab $WORKER --json
+domios tab status --tab $WORKER --json
 
 # Answer one-based option 1 from the displayed prompt; refuses if it left the screen
-codeterm tab respond 1 --tab $WORKER
+domios tab respond 1 --tab $WORKER
 
 # Repair a wrong live provider label from the tab's verified session, no restart
-codeterm tab repair --from-evidence
+domios tab repair --from-evidence
 
 # The Plan owner can repair an assigned worker through the same evidence boundary
-codeterm tab repair --from-evidence --tab $WORKER
+domios tab repair --from-evidence --tab $WORKER
 
 # Adopt a live foreign PTY as an agent send target without restarting it
-codeterm tab adopt-agent --tab $FOREIGN --provider <provider-id>
+domios tab adopt-agent --tab $FOREIGN --provider <provider-id>
 # A login shell is refused unless the owner passes --force
-codeterm tab adopt-agent --tab $FOREIGN --provider <provider-id> --force
+domios tab adopt-agent --tab $FOREIGN --provider <provider-id> --force
 
 TEAM_ID=$CODETERM_TEAM_ID
 # Clear role; a final Orchestrator retains its Team and active Plan for replacement
-codeterm agent unlink --tab $CODETERM_TAB_ID
+domios agent unlink --tab $CODETERM_TAB_ID
 
 # Replace that missing Orchestrator while preserving the Team and Plan history
-codeterm agent spawn claude --team "$TEAM_ID" --role Orchestrator
+domios agent spawn claude --team "$TEAM_ID" --role Orchestrator
 ```
 
 The `agent.report` webhook event fires when any agent sends a report, enabling async orchestration patterns.
 
 ### One-call agent spawn
 
-The `task` field is baked into the launch command via the `-p` flag, so the agent starts working immediately with no delay. Spawn answers once the launch reaches a verdict, bounded at 20 s: `launch_state` `ready`, or `starting` with a warning while the agent is still coming up; a provider that exits before readiness fails the spawn with its output tail (`codeterm docs API-AGENTS`). Each spawned agent gets its own tab (does NOT auto-switch active tab). Uses socket API for reliability.
+The `task` field is baked into the launch command via the `-p` flag, so the agent starts working immediately with no delay. Spawn answers once the launch reaches a verdict, bounded at 20 s: `launch_state` `ready`, or `starting` with a warning while the agent is still coming up; a provider that exits before readiness fails the spawn with its output tail (`domios docs API-AGENTS`). Each spawned agent gets its own tab (does NOT auto-switch active tab). Uses socket API for reliability.
 
 ```bash
 # Spawn a Worker under the Orchestrator
-codeterm agent spawn claude --title "Worker-1" --description "Runs focused tests" --role Worker --parent-tab $CODETERM_TAB_ID --task "run tests"
+domios agent spawn claude --title "Worker-1" --description "Runs focused tests" --role Worker --parent-tab $CODETERM_TAB_ID --task "run tests"
 
 # Spawn defaults to claude if no agent specified
-codeterm agent spawn --title "Helper" --description "Helps with repository work" --role Worker --parent-tab $CODETERM_TAB_ID
+domios agent spawn --title "Helper" --description "Helps with repository work" --role Worker --parent-tab $CODETERM_TAB_ID
 
 # Cross-workspace spawn
-codeterm agent spawn claude --workspace WS_ID --title "Remote" --description "Audits the remote workspace" --role Worker --parent-tab $CODETERM_TAB_ID
+domios agent spawn claude --workspace WS_ID --title "Remote" --description "Audits the remote workspace" --role Worker --parent-tab $CODETERM_TAB_ID
 ```
 
 Returns: tab_id, tab_id, pty_id, agent, title, role.
@@ -130,13 +130,13 @@ Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `
 
 ## General Agent recovery
 
-A connected Supporter Agent helps Domios notice when the General Agent is stuck. It works automatically, with no feature switches. Without a connected adapter, the existing dead-process recovery and normal tab behavior remain. Connect through Settings > Agents > Supporter Agent or `codeterm supporter use <adapter>`; required adapters first need a token through `token set --adapter <adapter>`. Saved connections keep their own models and tokens when switching. `codeterm supporter disconnect <adapter>` removes one; removing the active adapter stops the Supporter. Memory ranking, tab observations, the shared budget and sent text are explained in `codeterm docs MEMORY` and the Guide (`@ds-guide supporter-agent` on its own paragraph).
+A connected Supporter Agent helps Domios notice when the General Agent is stuck. It works automatically, with no feature switches. Without a connected adapter, the existing dead-process recovery and normal tab behavior remain. Connect through Settings > Agents > Supporter Agent or `domios supporter use <adapter>`; required adapters first need a token through `token set --adapter <adapter>`. Saved connections keep their own models and tokens when switching. `domios supporter disconnect <adapter>` removes one; removing the active adapter stops the Supporter. Memory ranking, tab observations, the shared budget and sent text are explained in `domios docs MEMORY` and the Guide (`@ds-guide supporter-agent` on its own paragraph).
 
 The General Agent watchdog reacts to PTY death, provider exit to a shell and launch settlement. It respects shutdown, launch grace and restart limits; screen text alone never authorizes restarting a live agent. Model-authorized recovery remains notify-only until a separate held-out accuracy check passes.
 
 | Observed condition | Required evidence and response |
 |---|---|
-| Update prompt | An agent-owned tab may answer with one calibrated choice at 0.80 or above among provider-declared options. Owner-launched tabs keep the prompt for the owner. See `codeterm docs CONFIG`. |
+| Update prompt | An agent-owned tab may answer with one calibrated choice at 0.80 or above among provider-declared options. Owner-launched tabs keep the prompt for the owner. See `domios docs CONFIG`. |
 | Crash to shell | The provider is absent from this tab's process tree and its recovery session is verified. Resume in the same tab. |
 | Startup failure after its deadline | One restart within the overall episode limit. |
 | Error loop | One restart, then an owner notification if the condition continues. |
@@ -151,7 +151,7 @@ There are at most two automatic restarts per General Agent episode (the configur
 
 Trust, permission and login notifications are suppressed for tabs the owner opened directly from the UI; the journal still records the condition. The General Agent, agent-spawned, Team, cron and hidden-worker tabs keep their notifications. After a Domios restart, restored tabs with the same condition produce one grouped notification per condition at restore completion. A durable key for tab, condition and launch prevents reporting the same condition twice across restarts.
 
-Agent-, Team-, worker- and cron-owned tabs, visible or hidden, may answer folder-trust, tool-permission and update prompts with one calibrated Supporter choice at 0.80 or above among provider-declared options. Domios uses the existing prompt response surface and never submits model-authored text. If the model is absent, fails, is capped, selects `other` or is below 0.80, the structural responder decides and unresolved prompts notify the owner. Folder-trust prompts at launch or in cron can use this choice without host provenance; provenance still decides elsewhere. Login, authentication, unavailable-model and quota prompts are never answered automatically. Tabs launched directly by the owner without agent or Team ownership keep owner-facing prompts. Details: `codeterm docs TAB-LIFECYCLE`.
+Agent-, Team-, worker- and cron-owned tabs, visible or hidden, may answer folder-trust, tool-permission and update prompts with one calibrated Supporter choice at 0.80 or above among provider-declared options. Domios uses the existing prompt response surface and never submits model-authored text. If the model is absent, fails, is capped, selects `other` or is below 0.80, the structural responder decides and unresolved prompts notify the owner. Folder-trust prompts at launch or in cron can use this choice without host provenance; provenance still decides elsewhere. Login, authentication, unavailable-model and quota prompts are never answered automatically. Tabs launched directly by the owner without agent or Team ownership keep owner-facing prompts. Details: `domios docs TAB-LIFECYCLE`.
 
 ## Command Palette
 
@@ -165,8 +165,8 @@ Domios tracks and restores terminal state across sessions:
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`. Before injecting the resume flag, Domios checks that the session still exists on disk — missing sessions (cleared cache, machine-synced config without sessions) launch fresh instead of looping on `No conversation found with session ID`.
 - **Pre-generated session ids**: For providers that accept an injected session id (Claude today), Domios pre-generates a UUID and passes it via `--session-id` at launch. Each tab gets a unique id even when several tabs share the same cwd.
 - **SessionStart hook**: Claude's `SessionStart` matcher POSTs back to `/api/tabs/{id}/hook/session_start`, so `/new` and `/clear` inside the TUI rotate the persisted `agent_session_id` immediately.
-- **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
-- **Already-bound sessions**: `sessions resume` reuses a tab only while its bound agent is ready. A degraded, failed or unverified tab returns a conflict with `codeterm agent restart --tab ID` as its recovery command. For an `agentRuntime` Chat tab rebound to another session, that restart stops the old runtime and resumes the recorded session and its own history.
+- **Cross-provider session search**: `domios sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `domios sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
+- **Already-bound sessions**: `sessions resume` reuses a tab only while its bound agent is ready. A degraded, failed or unverified tab returns a conflict with `domios agent restart --tab ID` as its recovery command. For an `agentRuntime` Chat tab rebound to another session, that restart stops the old runtime and resumes the recorded session and its own history.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->
