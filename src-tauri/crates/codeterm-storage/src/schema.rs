@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 mod blueprint;
+mod blueprint_calls;
 mod blueprint_v2;
 mod desk;
 mod sentinel;
@@ -48,6 +49,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE blueprints ADD COLUMN creation_options TEXT CHECK (creation_options IS NULL OR length(creation_options) <= 256);",
     blueprint_v2::DOCUMENT_SCHEMA,
     blueprint_v2::CLEANUP,
+    blueprint_calls::SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

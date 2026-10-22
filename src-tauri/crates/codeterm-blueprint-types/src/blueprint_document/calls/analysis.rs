@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct VerifiedCall {
-    pub fixed_arguments: BTreeSet<String>,
+    pub fixed_arguments: BTreeMap<String, String>,
     pub result_tainted: bool,
     pub expanded_steps: usize,
 }
@@ -239,12 +239,12 @@ fn graph(
             );
         }
         let mut tainted = BTreeSet::new();
-        let mut fixed = BTreeSet::new();
+        let mut fixed = BTreeMap::new();
         for (name, arg) in &call.arguments {
             if is_tainted(arg, tainted_inputs, &verified) {
                 tainted.insert(name.clone());
             } else {
-                fixed.insert(name.clone());
+                fixed.insert(name.clone(), serde_json::to_string(arg).unwrap_or_default());
             }
         }
         for (child_index, child) in callee.document.nodes().enumerate() {

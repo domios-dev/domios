@@ -1,10 +1,12 @@
-use super::{projection, Diagnostic, Document, Location, Parsed};
+use super::{projection as document_projection, Diagnostic, Document, Location, Parsed};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 mod imports;
+pub mod lower;
 pub mod ports;
+pub mod projection;
 pub use imports::{resolve, resolve_local, resolve_saved, verify_local_sources};
 mod analysis;
 pub use analysis::{arguments, check_facts, CallFinding, VerifiedCall};
@@ -42,7 +44,7 @@ impl FrozenCallee {
         if !self.document.dependencies.is_empty() {
             return Err("A callee snapshot must use the flat dependency closure".into());
         }
-        if projection::identity(&self.document)? != self.hash {
+        if document_projection::identity(&self.document)? != self.hash {
             return Err(format!(
                 "Pinned bytes do not match {}@{}",
                 self.id, self.hash
@@ -148,18 +150,18 @@ impl FrozenClosure {
         let mut result = Vec::new();
         for callee in self.callees.values().filter(|c| c.id.starts_with("mem:")) {
             let pinned = resolver.revision(&callee.pin())?;
-            if projection::identity(&pinned)? != callee.hash {
+            if document_projection::identity(&pinned)? != callee.hash {
                 return Err("Missing or corrupted pinned revision".into());
             }
             let head = resolver.head(&callee.id)?;
             let mut head = head;
             head.dependencies.clear();
-            let hash = projection::identity(&head)?;
+            let hash = document_projection::identity(&head)?;
             if hash != callee.hash {
                 result.push(Drift {
                     pin: callee.pin(),
                     head_hash: hash,
-                    diff: projection::diff(&callee.document, &head),
+                    diff: document_projection::diff(&callee.document, &head),
                 });
             }
         }
@@ -175,7 +177,7 @@ pub trait MemoryResolver {
 pub struct Drift {
     pub pin: CallPin,
     pub head_hash: String,
-    pub diff: projection::SemanticDiff,
+    pub diff: document_projection::SemanticDiff,
 }
 
 pub(super) fn finding(parsed: &Parsed, field: &str, message: impl Into<String>) -> Diagnostic {
@@ -186,4 +188,12 @@ pub(super) fn finding(parsed: &Parsed, field: &str, message: impl Into<String>) 
         &message.into(),
         "Use a unique local/inline callable or an exact scoped mem id/hash",
     )
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CallFrame {
+    pub node: String,
+    pub id: String,
+    pub hash: String,
 }

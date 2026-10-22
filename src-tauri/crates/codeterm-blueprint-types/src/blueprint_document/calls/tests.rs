@@ -1,4 +1,5 @@
 use super::*;
+use crate::blueprint_document::projection as ir_projection;
 use crate::blueprint_document::{Port, ValueForm};
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -194,7 +195,7 @@ fn blueprint_v2_call_typed_positive_has_fixed_argument_and_exact_transported_clo
     assert!(findings.is_empty(), "{findings:?}");
     assert_eq!(
         verified["call"].fixed_arguments,
-        BTreeSet::from(["p".into()])
+        BTreeMap::from([("p".into(), json!({"lit":{"n":7}}).to_string())])
     );
     assert_eq!(verified["call"].expanded_steps, 1);
     let restored = FrozenClosure::from_document(
@@ -207,7 +208,6 @@ fn blueprint_v2_call_typed_positive_has_fixed_argument_and_exact_transported_clo
         closure.root.document.steps[0].call
     );
 }
-use std::collections::BTreeSet;
 #[test]
 fn blueprint_v2_call_arguments_missing_extra_and_mistyped_are_rejected() {
     let tree = Tree::new();
@@ -323,11 +323,11 @@ fn blueprint_v2_call_view_diff_lower_preserve_identity_and_contract_changes() {
         let mut after = serde_json::to_value(&before).unwrap();
         after[field] = value;
         let after: Document = serde_json::from_value(after).unwrap();
-        assert!(projection::diff(&before, &after)
+        assert!(ir_projection::diff(&before, &after)
             .document_fields
             .contains(&field.into()));
     }
-    let graph = projection::canonical(&before);
+    let graph = ir_projection::canonical(&before);
     assert_eq!(
         graph.nodes[0].node.call.as_ref().unwrap().pin,
         before.steps[0].call.as_ref().unwrap().pin
@@ -340,7 +340,7 @@ fn blueprint_v2_call_view_diff_lower_preserve_identity_and_contract_changes() {
             _ => json!({"ref":"changed","pin":{"id":"missing","hash":"0"}}),
         };
         let after: Document = serde_json::from_value(after).unwrap();
-        assert!(projection::diff(&before, &after).changed["call"].contains(&field.into()));
+        assert!(ir_projection::diff(&before, &after).changed["call"].contains(&field.into()));
     }
     assert!(before
         .lower()
@@ -352,7 +352,7 @@ fn blueprint_v2_call_view_diff_lower_preserve_identity_and_contract_changes() {
     after.dependencies.get_mut(&key).unwrap().document.steps[0]
         .caps
         .push("net:changed".into());
-    assert!(projection::diff(&before, &after)
+    assert!(ir_projection::diff(&before, &after)
         .document_fields
         .contains(&"dependencies".into()));
     assert!(FrozenClosure::from_document(after).is_err());
