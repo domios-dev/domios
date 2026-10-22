@@ -30,8 +30,10 @@ test('removed lanes lose their units and unshared incremental sessions; live and
   const unknown = unit('unknown', '5'.repeat(16), []);
   const recent = unit('recent', '6'.repeat(16), [gone], 1);
   const windows = unit('windows', '7'.repeat(16), ['C\\:/project space/project-worktrees/gone']);
+  const relative = unit('relative', '8'.repeat(16), ['crates\\codeterm-orchestration']);
+  const relativeLane = unit('relative-lane', '9'.repeat(16), ['..\\project-worktrees\\gone']);
   const paths = orphanLanePaths(root, { exists: lane => lane === live });
   for (const dir of [orphan.dir, orphan.session, sharedGone.dir, windows.dir]) assert.ok(paths.includes(dir), dir);
-  for (const dir of [sharedGone.session, sharedLive.dir, mixed.dir, unknown.dir, recent.dir]) assert.ok(!paths.includes(dir), dir);
+  for (const dir of [sharedGone.session, sharedLive.dir, mixed.dir, unknown.dir, recent.dir, relative.dir, relative.session, relativeLane.dir]) assert.ok(!paths.includes(dir), dir);
   assert.ok(paths.some(file => file.endsWith(`libonly_gone-${'1'.repeat(16)}.rlib`)));
 });

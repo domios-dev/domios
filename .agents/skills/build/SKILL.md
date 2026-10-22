@@ -1611,6 +1611,18 @@ parent-owned platform rows; source fixtures and compilation do not execute them.
 
 ### Diagnose an unchanged-SHA test rebuild
 
+`test-one <scope> <filter>` qualifies the filter with the owning Cargo package.
+The shared workspace selection includes every Cargo workspace member and all
+test targets, plus catalogue path dependencies; membership metadata is cached
+by manifest and lockfile contents. CLI target selection is local to its nextest
+invocation. Reverse-dependency scopes prepare frontend and bundle resources
+before compiling, including in a fresh checkout.
+
+Orphan lane collection requires absolute lane provenance. Rustc can emit
+workspace-relative dep-info (for example `crates/codeterm-orchestration/src/lib.rs`)
+without its original cwd; those units are retained until reliable provenance
+exists. Never resolve that path against whichever checkout runs GC.
+
 Nextest logs `[test-loop]` phases for gateway, sccache, resource preparation,
 listing and Cargo metadata. Record two unchanged canonical runs on BLACKSTAR,
 including the complete command wall time; the second must report Cargo Fresh
