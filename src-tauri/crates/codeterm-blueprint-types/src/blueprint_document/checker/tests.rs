@@ -364,7 +364,11 @@ fn blueprint_v2_check_native_recipes_have_no_static_errors() {
 
 #[test]
 fn blueprint_v2_check_watch_other_fix_is_admissible_and_idempotent() {
-    let doc: Document = serde_json::from_value(json!({"schema_version":2,"kind":"watch","name":"other-fix","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ok"],"matches":{"ok":{"lit":"ready"}},"routes":{"ok":"@stop"}}]})).unwrap();
+    let doc: Document = serde_json::from_value(json!({"schema_version":2,"kind":"watch","name":"other-fix","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["ok"],"matches":{"ok":{"lit":"ready"}},"routes":{"ok":"@stop"}}]})).unwrap();
+    assert!(
+        doc.lower().is_ok(),
+        "positive fixture must already satisfy runtime bounds"
+    );
     let source = serde_yaml::to_string(&doc).unwrap();
     let parsed = blueprint_document::parse("watch.yaml", &source).unwrap();
     let fixed = fix::fix(&parsed, &source, &CheckContext::default());
@@ -380,6 +384,17 @@ fn blueprint_v2_check_watch_other_fix_is_admissible_and_idempotent() {
         )
         .changed
     );
+    let mut unbounded = doc;
+    unbounded.steps[0].timeout = None;
+    let source = serde_yaml::to_string(&unbounded).unwrap();
+    let parsed = blueprint_document::parse("unbounded.yaml", &source).unwrap();
+    let fixed = fix::fix(&parsed, &source, &CheckContext::default());
+    let checked = blueprint_document::check("unbounded.yaml", fixed.text.as_ref().unwrap(), &[]);
+    assert!(!checked.ok);
+    assert!(checked
+        .diagnostics
+        .iter()
+        .any(|d| d.message.contains("explicit timeout")));
 }
 #[test]
 fn blueprint_v2_check_missing_input_inference_uses_actual_native_slot_types() {

@@ -430,16 +430,7 @@ pub(super) fn outcomes(doc: &Document, node: &Node, index: usize) -> Vec<String>
     }
     let base: &[&str] = match node.kind() {
         "http" => &["up", "down", "failed"],
-        "github" => match node
-            .params
-            .get("resource")
-            .and_then(ValueForm::value)
-            .and_then(Value::as_str)
-        {
-            Some("runners") => &["online", "offline", "failed"],
-            Some("run" | "jobs") => &["done", "failed", "failing"],
-            _ => &["done", "failed"],
-        },
+        "github" => return github_outcomes(doc, node),
         "notify" | "send" | "cron" | "blueprint" | "respond_prompt" | "escalate" | "stop" => {
             if node.routes.is_empty() {
                 &[]
@@ -489,4 +480,51 @@ fn scan(
             );
         }
     }
+}
+
+fn github_outcomes(doc: &Document, node: &Node) -> Vec<String> {
+    let resources = match node.params.get("resource") {
+        Some(ValueForm::Lit { lit }) => vec![lit.clone()],
+        Some(ValueForm::Input { input }) => doc
+            .inputs
+            .get(input)
+            .and_then(|port| ports::resolve(port, &doc.types).ok())
+            .and_then(|port| port.choices)
+            .unwrap_or_else(all_github_resources),
+        _ => all_github_resources(),
+    };
+    resources
+        .into_iter()
+        .filter_map(|value| {
+            serde_json::from_value::<crate::blueprint_github::GithubResource>(value).ok()
+        })
+        .flat_map(|resource| {
+            crate::blueprint_pipeline::StepKind::Github {
+                probe: crate::blueprint_github::GithubProbe {
+                    repo: String::new(),
+                    org: None,
+                    label: None,
+                    timeout_ms: crate::blueprint_github::PROBE_RUNTIME_MS,
+                    resource,
+                    id: 0,
+                },
+            }
+            .outcomes()
+            .unwrap_or_default()
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+fn all_github_resources() -> Vec<Value> {
+    use crate::blueprint_github::GithubResource;
+    [
+        GithubResource::Run,
+        GithubResource::Jobs,
+        GithubResource::PrChecks,
+        GithubResource::Runners,
+    ]
+    .into_iter()
+    .filter_map(|resource| serde_json::to_value(resource).ok())
+    .collect()
 }
