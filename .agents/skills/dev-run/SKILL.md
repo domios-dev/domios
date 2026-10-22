@@ -504,7 +504,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
 
 ### REST listener bind recovery
 
@@ -810,4 +810,38 @@ Debug `[boot-operation]` records measure embedded extraction, capability registr
 
 Component manifests now require schema2 and a platform-specific client_identity. Windows/Linux require the exact lowercase SHA256 variant; macOS requires the approved Apple-anchored team/identifier designated requirement. macOS resolves only ../MacOS/domios-server from Tauri's canonical Domios.app/Contents/Resources root. The client validates its running code identity and the installed app seal; the server validates the attaching pinned client the same way. Server bytes remain SHA256-pinned on every platform. A schema1 manifest, foreign identity kind, weak requirement or wrong bundle path refuses; rebuild/restage the matching pair rather than bypassing verification. No signed macOS runtime proof is supplied by source or Windows lane compilation. Native CDP remains Windows-only.
 
-Headless schema2 manifests use client_identity kind none and the exact flat domios-server/domios-server[.exe] layout on every OS. The server verifies those bytes without creating a native-host listener; native client enrollment refuses none. macOS flat raw-client DEV staging remains unsupported: native DEV needs a signed app-shaped pair, and debug builds do not bypass the platform identity rule.
+Headless schema2 manifests use client_identity kind none and the exact flat domios-server/domios-server[.exe] layout on every OS. The server verifies those bytes without creating a native-host listener; native client enrollment refuses none. macOS flat raw-client DEV staging remains unsupported. Named isolated DEV stages the signed app pair described below; debug builds retain the platform identity rule.
+
+### Named isolated macOS DEV
+
+Use an explicit unused instance and private API/frontend/CDP ports from the assigned lane:
+
+```bash
+CODETERM_DEV_INSTANCE=macdev-fix CODETERM_DEV_API_PORT=17991 \
+CODETERM_DEV_VITE_PORT=14991 CODETERM_DEV_CDP_PORT=9491 ./build.sh dev --wait --wait-build
+```
+
+The launcher stages `<instance-target>/debug/.domios-dev-runtime/Domios.app`,
+with the native client and signed server in `Contents/MacOS` and the component
+inventory in `Contents/Resources`. Host and target-qualified Cargo outputs stay
+unchanged. Tauri resolves `../Resources` from that client; no resource override
+or fake Cargo marker is used. Canonical DEV, Windows/Linux and release paths
+retain their existing layouts.
+
+The normal local signing selector requires one Developer ID Application identity
+in the login keychain; ambiguous or unavailable identities refuse. Explicit
+`APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID` and `RELEASE_KEYCHAIN` select an existing
+approved identity. No ad-hoc fallback or notarization is used for this local DEV
+bundle. The nested server is signed before inventory hashing, then the outer
+app is sealed without `--deep` signing. Strict nested verification tests the
+exact Apple-anchored team and `com.domios.app` requirement before provenance is
+recorded; native verification still runs at launch.
+
+The production-mode frontend watcher and static server use the checkout's
+`dist/`, outside the sealed app. The app's resource snapshot stays immutable.
+Named macOS `dev-server` refuses before shutdown because replacing nested code
+would change the seal beneath a running client; use the same scoped `dev`
+command for native/server edits. `dev-prebuilt --wait` reuses an unchanged signed
+pair with the same explicit instance/port settings. Stop only that owned named
+instance through `CODETERM_DEV_INSTANCE=macdev-fix CODETERM_DEV_API_PORT=17991
+./build.sh kill`; never address prod, canonical DEV or another app instance.
