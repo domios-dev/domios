@@ -30,6 +30,25 @@ if (descriptor.status !== "in_review") throw new Error("latest report status mus
 if (!descriptor.fields.some((field) => field.label === "changes" && field.value === "Added provider matrix")) throw new Error("compound report fields parse regression");
 if (descriptor.body !== "") throw new Error("a fully structured report must not invent a body");
 
+const markdownHost = document.createElement("div");
+document.body.append(markdownHost);
+const markdownRoot = createRoot(markdownHost);
+await act(async () => markdownRoot.render(
+  <InboundReportCard
+    message={{ id: "opaque-markdown", type: "user", inboundKind: "report",
+      content: "task: pl_a7c9/task_b8d1\nstatus: In Review\nsha: abc123456789\n\n## Result\n\nFollow pl_a7c9/task_b8d1.\n\n- **Opaque item**\n\n```text\nopaque code\n```\n\n[Evidence](https://example.test/evidence)" }}
+    sender="opaque" expanded onToggle={() => {}} onOpenPlan={() => {}}
+  />,
+));
+const markdownBody = markdownHost.querySelector('[data-testid="chat-inbound-report-body"]');
+if (markdownBody?.querySelector("h2")?.textContent !== "Result") throw new Error("report heading must render with a plan reference present");
+if (!markdownBody.querySelector("li strong")) throw new Error("report list and emphasis must render");
+if (!markdownBody.querySelector("code")?.textContent?.includes("opaque code")) throw new Error("report code must render");
+if (!markdownBody.querySelector('a[href="https://example.test/evidence"]')) throw new Error("report link must render");
+if (!markdownHost.textContent?.includes("In Review") || !markdownHost.textContent?.includes("abc1234")) throw new Error("report header chips must remain");
+await act(async () => markdownRoot.unmount());
+markdownHost.remove();
+
 // Real Curie payload: structured status plus a free-form multiline message.
 const curie = parseInboundReport(CURIE_PARTIAL_REPORT);
 if (curie.status !== "Partial") throw new Error(`report status regression: got ${JSON.stringify(curie.status)}`);
@@ -55,7 +74,7 @@ if (!curieDetails) throw new Error("partial report Details disclosure missing");
 await act(async () => curieDetails.click());
 if (!curieHost.querySelector('[data-testid="chat-inbound-report-body"]')) throw new Error("expanded report card renders no body element");
 for (const marker of CURIE_PARTIAL_REPORT_BODY_MARKERS) {
-  if (!curieHost.textContent?.includes(marker)) throw new Error(`expanded report card dropped body line: ${JSON.stringify(marker)}`);
+  if (!curieHost.textContent?.includes(marker.trimStart())) throw new Error(`expanded report card dropped body line: ${JSON.stringify(marker)}`);
 }
 await act(async () => curieRoot.unmount());
 curieHost.remove();
