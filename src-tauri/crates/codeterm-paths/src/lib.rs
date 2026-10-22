@@ -81,18 +81,18 @@ pub fn socket_path() -> String {
     }
 }
 
-/// Full socket display path: `/tmp/<name>` on Unix, `\.\pipe\<name>` on Windows.
+/// Display spelling of the current platform's namespaced socket.
 pub fn socket_display_path() -> String {
-    let bare = socket_path();
+    namespaced_socket_display_path(&socket_path())
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        format!("\\\\.\\pipe\\{}", bare)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        format!("/tmp/{}", bare)
+pub fn namespaced_socket_display_path(name: &str) -> String {
+    if cfg!(windows) {
+        format!(r"\\.\pipe\{name}")
+    } else if cfg!(any(target_os = "linux", target_os = "android")) {
+        format!("@{name}")
+    } else {
+        format!("/tmp/{name}")
     }
 }
 

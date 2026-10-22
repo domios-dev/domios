@@ -93,7 +93,12 @@ const DATABASES: &[(&str, &[StoredColumn])] = &[
     ),
 ];
 
-const JSON_FILES: &[&str] = &["plugin-channels.json", "mem/workers.json"];
+const JSON_FILES: &[&str] = &[
+    "crons.json",
+    "config.json",
+    "plugin-channels.json",
+    "mem/workers.json",
+];
 
 /// Rewrites a path spelled under the legacy data root to the same place under its renamed sibling.
 pub(super) struct PathRebase {
@@ -102,6 +107,7 @@ pub(super) struct PathRebase {
     name_offset: usize,
     replacement: String,
     windows: bool,
+    home_root: bool,
 }
 
 impl PathRebase {
@@ -120,6 +126,12 @@ impl PathRebase {
             name_offset,
             replacement,
             windows,
+            home_root: dirs::home_dir().is_some_and(|home| {
+                legacy
+                    .parent()
+                    .and_then(|parent| normalized_spelling(parent, windows))
+                    == normalized_spelling(&home, windows)
+            }),
         })
     }
 
@@ -209,8 +221,18 @@ impl PathRebase {
     fn match_root(&self, text: &str, start: usize, json: bool) -> Option<(usize, usize)> {
         let mut at = start;
         let mut name_start = at;
-        for (index, &expected) in self.pattern.iter().enumerate() {
-            if index == self.name_offset {
+        let home_pattern: Vec<char>;
+        let (pattern, name_offset) = if text[start..].starts_with("~/") {
+            if !self.home_root {
+                return None;
+            }
+            home_pattern = [vec!['~', '/'], self.pattern[self.name_offset..].to_vec()].concat();
+            (home_pattern.as_slice(), 2)
+        } else {
+            (self.pattern.as_slice(), self.name_offset)
+        };
+        for (index, &expected) in pattern.iter().enumerate() {
+            if index == name_offset {
                 name_start = at;
             }
             if expected == '/' {
@@ -401,12 +423,14 @@ fn write_column(
     Ok(())
 }
 
-fn rebase_json_file(path: &Path, rebase: &PathRebase) -> io::Result<bool> {
+pub(super) fn rebase_json_file(path: &Path, rebase: &PathRebase) -> io::Result<bool> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     };
+    serde_json::from_str::<serde_json::Value>(&text)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let Some(rebased) = rebase.rebase_json(&text) else {
         return Ok(false);
     };
