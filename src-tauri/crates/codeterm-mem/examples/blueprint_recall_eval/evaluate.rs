@@ -1,5 +1,5 @@
 use crate::fixtures::{Gold, Pair, Query};
-use crate::library::{Library, AREA};
+use crate::library::{Library, ALL_AREAS};
 use codeterm_mem::blueprint_library::dedupe::{decide, Scores, Thresholds, Verdict};
 use codeterm_mem::blueprint_library::{BlueprintHit, RecallConfig};
 use serde::{Deserialize, Serialize};
@@ -46,7 +46,7 @@ pub fn hits(
 ) -> Result<Vec<BlueprintHit>, String> {
     library
         .mem
-        .recall_blueprint_hits(AREA, text, None, depth, config)
+        .recall_blueprint_hits(ALL_AREAS, text, None, depth, config)
 }
 
 pub fn to_hits(library: &Library, hits: &[BlueprintHit]) -> Vec<Hit> {

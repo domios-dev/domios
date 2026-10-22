@@ -10,6 +10,7 @@ mod generate;
 mod grid;
 mod guard;
 mod library;
+mod probe;
 mod quota;
 mod report;
 mod rerank;
@@ -52,6 +53,8 @@ fn run(args: &[String]) -> Result<(), String> {
             &required(args, "--label")?,
             &PathBuf::from(required(args, "--out")?),
         )
+    } else if has("--probe") {
+        probe::probe(&required(args, "--probe")?)
     } else if has("--report") {
         report::report()
     } else if has("--query") {
