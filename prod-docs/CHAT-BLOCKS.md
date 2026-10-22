@@ -150,10 +150,14 @@ path when it contains spaces:
 @ds-image "/absolute/path/first image.png" "/absolute/path/second image.png"
 ```
 
-Images appear as a compact strip. Fullscreen opens a zoomable canvas inside the
-Domios window. Wheel or pinch zooms around the pointer, drag pans, and double-click
-or double-tap fits the set. Previous/next arrows or a horizontal swipe fly to an
-image; click an image to focus it, or use Show all to fit the gallery. Mermaid
-fullscreen uses the same zoom, pan and fit controls while keeping vector detail.
+A gallery shows at most 32 images and loads them progressively. Unavailable
+images retain a tile with the refusal reason. Fullscreen opens a zoomable canvas
+inside the Domios window. Wheel zooms images; plain scroll pans Mermaid.
+Ctrl/Cmd+wheel or pinch zooms either viewer, and dragging pans. Double-click or
+double-tap fits the set. Previous/next arrows or a horizontal swipe fly to an
+image; select an image to focus it, or use Show all to fit the gallery. Late image
+loads preserve your chosen view. Reset restores 100% scale. Focus the canvas to
+use arrow keys for gallery navigation or diagram pan, +/- to zoom, 0 for 100%,
+and Home to fit. Mermaid remains vector artwork at every zoom.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -4,7 +4,7 @@ import { Clock3, Network, RefreshCw, Workflow } from "lucide-react";
 import type { TransportClient } from "../../lib/transportClient";
 import type { PairedPeer } from "../../lib/types";
 import { BusyState } from "../shared/BusyState";
-import { DeferredLoader } from "../shared/DeferredLoader";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 import { CRON_ID_PREFIX } from "../MeshPanel/types";
 import { BackPill } from "../shared/BackPill";
 import { UI_BUTTON } from "../shared/design";

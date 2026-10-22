@@ -1,4 +1,4 @@
-import type { ViewportTransform } from "../useCanvasViewport";
+import type { ViewportTransform } from "@codeterm/canvas-camera";
 import type { Box } from "./geometry";
 import { boxesOverlap } from "./geometry";
 import type { WorkspaceLayout } from "./types";

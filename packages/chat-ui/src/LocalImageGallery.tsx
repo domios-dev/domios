@@ -1,50 +1,44 @@
-import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { Image as ImageIcon, RefreshCw, Maximize2, FolderOpen } from "lucide-react";
 import type { LocalArtifactDirective } from "@codeterm/chat-core";
-import { ImageFullscreen, type FullscreenImage } from "./ImageFullscreen";
-import { loadLocalArtifact, type LocalPreviewFile } from "./localArtifactLoader";
-import { useLocalArtifactTabId } from "./LocalArtifactScope";
+import { ImageFullscreen, revealLocalFile, REVEAL_UNAVAILABLE } from "./ImageFullscreen";
+import { localArtifactOpeningAvailable, type LocalPreviewFile } from "./localArtifactLoader";
+import { useLocalImageGallery } from "./useLocalImageGallery";
+import { DeferredLoader } from "./DeferredLoader";
+import { ViewerButton } from "./ViewerButton";
+import { GALLERY_PATH_LIMIT } from "./galleryLoading";
 
-export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = false, onLoaded }: {
+export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = false, onLoaded, renderError }: {
   directive: LocalArtifactDirective;
   fullscreenRequest?: number;
   bare?: boolean;
   onLoaded?: (file: LocalPreviewFile | null) => void;
+  renderError?: (error: string) => ReactNode;
 }) {
-  const tabId = useLocalArtifactTabId();
-  const [images, setImages] = useState<FullscreenImage[]>([]);
-  const [open, setOpen] = useState<number | null>(null);
-  const [reload, setReload] = useState(0);
-  const anchor = useRef<HTMLElement>(null);
-  const loaded = useRef(onLoaded);
-  loaded.current = onLoaded;
-  const key = JSON.stringify(directive.paths ?? [directive.path]);
-  useEffect(() => {
-    let cancelled = false;
-    setImages([]); loaded.current?.(null);
-    const paths = JSON.parse(key) as string[];
-    void Promise.all(paths.map(async path => {
-      try {
-        const file = await loadLocalArtifact(path, "image", tabId);
-        return { path, file };
-      } catch (error) { return { path, error: String(error) }; }
-    })).then(results => {
-      if (cancelled) return;
-      setImages(results.map(result => ({ path: result.path, name: result.path.split(/[\\/]/).pop() ?? result.path, src: result.file?.data ?? "", error: result.error })));
-      loaded.current?.(results.find(result => result.file)?.file ?? null);
-    });
-    return () => { cancelled = true; };
-  }, [key, tabId, reload]);
-  useEffect(() => { if (fullscreenRequest) setOpen(0); }, [fullscreenRequest]);
-  return <section ref={anchor} data-testid="chat-ds-image" aria-label="Image preview" className="my-2 rounded-lg border p-2" style={{ borderColor: "var(--ct-border)" }}>
-    {!bare && <div className="flex items-center gap-2">
-      <button type="button" aria-label="Open image gallery" disabled={!images.length} onClick={() => setOpen(0)}>Fullscreen</button>
-      <button type="button" aria-label="Reload images" onClick={() => setReload(value => value + 1)}>Reload</button>
-    </div>}
-    {!images.length && <p role="status">Loading…</p>}
-    <div className="flex gap-2 overflow-x-auto">
-      {images.map((image, index) => <button key={image.path} type="button" aria-label={`Fullscreen ${image.name}`} onClick={() => setOpen(index)} className="shrink-0">
-        {image.error ? <span role="status" aria-label={`${image.name} not available`} className="inline-flex h-32 w-40 items-center justify-center rounded border p-2 text-sm">Image not available</span> : <img src={image.src} alt={image.name} style={{ maxHeight: images.length > 1 ? 160 : 480, maxWidth: "100%", objectFit: "contain" }} />}
-      </button>)}
+  const { images, open, setOpen, reload, anchor, omitted, loading } = useLocalImageGallery(directive, fullscreenRequest, onLoaded);
+  const name = directive.path.split(/[\\/]/).pop() ?? directive.path;
+  const single = !directive.paths || directive.paths.length === 1;
+  const reveal = localArtifactOpeningAvailable();
+  return <section ref={anchor} data-testid="chat-ds-image" aria-label={single ? `image preview: ${name}` : "Image gallery preview"}
+    className={bare ? "" : "my-2 overflow-hidden rounded-lg border"} style={bare ? undefined : { borderColor: "var(--ct-border)", background: "var(--ct-surface)" }}>
+    {!bare && <header className="flex min-w-0 flex-wrap items-center gap-2 border-b px-2.5 py-1.5 text-[11px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>
+      <ImageIcon size={14} aria-hidden />
+      <span className="font-medium" style={{ color: "var(--ct-fg)" }}>{single ? name : `${Math.min(directive.paths?.length ?? 1, GALLERY_PATH_LIMIT)} images`}</span>
+      <span className="min-w-0 flex-1 truncate opacity-60" title={directive.path}>{directive.path}</span>
+      <ViewerButton aria-label={single ? `Fullscreen ${name}` : "Open image gallery"} disabled={!images.length} onClick={() => setOpen(0)} title="Fullscreen"><Maximize2 size={13} aria-hidden /></ViewerButton>
+      {single && <ViewerButton aria-label={`Reveal ${name}`} disabled={!reveal || Boolean(images[0]?.error)} onClick={() => revealLocalFile(directive.path)} title={reveal ? "Reveal in file manager" : REVEAL_UNAVAILABLE}><FolderOpen size={13} aria-hidden /></ViewerButton>}
+      <ViewerButton aria-label={single ? `Reload ${name}` : "Reload images"} disabled={loading} onClick={reload} title="Reload"><RefreshCw size={13} aria-hidden /></ViewerButton>
+    </header>}
+    {omitted > 0 && <p role="alert">Showing the first 32 images. {omitted} additional images were omitted.</p>}
+    <div className="flex gap-2 overflow-x-auto p-2">
+      {images.map((image, index) => <div key={index} className="shrink-0">
+        <button type="button" aria-label={`Fullscreen ${image.name}`} onClick={() => setOpen(index)} className="rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]" style={{ minWidth: 44, minHeight: 44 }}>
+          {image.pending ? <DeferredLoader state="present" role="status" aria-label={`Loading ${image.name}`} className="inline-flex h-32 w-40 items-center justify-center">Loading…</DeferredLoader>
+            : image.error ? <span role="status" aria-label={`${image.name} not available`} className="inline-flex h-32 w-40 items-center justify-center rounded border p-2 text-sm">Image not available</span>
+              : <img src={image.src} alt={image.name} loading="lazy" style={{ maxHeight: single ? 480 : 160, maxWidth: "100%", objectFit: "contain" }} />}
+        </button>
+        {image.error && (renderError ? renderError(image.error) : <p role="alert" className="max-w-64 whitespace-pre-wrap text-xs">{image.error}</p>)}
+      </div>)}
     </div>
     {open !== null && images[open] && <ImageFullscreen image={images[open]} images={images} anchorRef={anchor} onClose={() => setOpen(null)} />}
   </section>;

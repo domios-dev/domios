@@ -85,6 +85,7 @@
     "yaml": "2.9.0"
   },
   "dependencies": {
+    "@codeterm/canvas-camera": "workspace:*",
     "@codeterm/chat-core": "workspace:*",
     "@codeterm/chat-ui": "workspace:*",
     "@codeterm/provider-claude": "workspace:*",
@@ -121,7 +122,6 @@
     "remark-parse": "^11.0.0",
     "sigma": "^3.0.0",
     "unified": "^11.0.5",
-    "use-sync-external-store": "^1.6.0",
-    "@codeterm/canvas-camera": "workspace:*"
+    "use-sync-external-store": "^1.6.0"
   }
 }
