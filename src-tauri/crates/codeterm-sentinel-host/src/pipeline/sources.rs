@@ -2,7 +2,13 @@ use super::*;
 use codeterm_blueprint_types::blueprint_github::GithubResource;
 use codeterm_blueprint_types::blueprint_source::SourceReading;
 
-pub(super) fn run(handle: &Handle, lease: &Lease, step: &Step, previous: &str) -> StepResult {
+pub(super) fn run(
+    handle: &Handle,
+    lease: &Lease,
+    step: &Step,
+    input: &ExecutionEnvelope,
+) -> StepResult {
+    let previous = input.payload_text();
     if let StepKind::Http { probe } = &step.kind {
         if let Err(reason) = probe.validate() {
             return failed_input_step(&reason);
@@ -46,14 +52,14 @@ pub(super) fn run(handle: &Handle, lease: &Lease, step: &Step, previous: &str) -
         .unwrap_or(runtime);
     let environment = crate::probe_env::command();
     let result = if matches!(step.kind, StepKind::Command { .. }) {
-        probe::run_with_budget_input(
+        probe::run_enveloped(
             &command,
             Path::new(&lease.job.cwd),
-            remaining,
-            runtime,
+            remaining.min(runtime),
             &handle.probe_owner,
             &environment,
-            previous,
+            input,
+            &lease.cancelled,
         )
     } else {
         probe::run_with_budget(
@@ -113,7 +119,7 @@ pub(super) fn run(handle: &Handle, lease: &Lease, step: &Step, previous: &str) -
                 uncertain: false,
             }
         }
-        Err(failure) => command_failure(failure, previous),
+        Err(failure) => command_failure(failure, &previous),
     }
 }
 

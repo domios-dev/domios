@@ -40,6 +40,7 @@ pub fn run(
     cancellation_required: bool,
     environment: &Environment,
     stdin: Option<std::fs::File>,
+    executable: Option<(&Path, &[std::ffi::OsString])>,
 ) -> Result<Output, ProbeFailure> {
     let mut process = UnixRun::new(deadlines, reservation, owner);
     if cancellation_required {
@@ -80,9 +81,16 @@ pub fn run(
         }));
         return process.finish_failure();
     }
-    let mut child_command = Command::new("/bin/sh");
+    let mut child_command = if let Some((program, args)) = executable {
+        let mut child = Command::new(program);
+        child.args(args);
+        child
+    } else {
+        let mut child = Command::new("/bin/sh");
+        child.args(["-c", command]);
+        child
+    };
     child_command
-        .args(["-c", command])
         .current_dir(cwd)
         .stdin(stdin.map(Stdio::from).unwrap_or_else(Stdio::null))
         .stdout(Stdio::piped())
