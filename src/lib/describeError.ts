@@ -80,6 +80,7 @@ export function describeError(input: unknown, context: ErrorContext = {}): Error
   const result = (title: string, cause: string, actions: ErrorAction[], pending = false): ErrorDescription => ({ title, cause, actions, raw, ...(pending ? { pending: true } : {}) });
   const kind = code.toLowerCase();
   if (kind === "reorder_failed") return result("Could not save the new order", message || "Refresh the workspace and try again.", ["retry"]);
+  if (kind === "tab_rename_failed") return result("Could not rename the tab", message || "The previous name was restored. Try again.", ["retry"]);
   const spawn = /spawn|createprocess|executable|shell/i.test(raw);
   // OS codes are interpreted only in spawn errors; e.g. ENOENT elsewhere may mean an attachment.
   const inferred = !code;
