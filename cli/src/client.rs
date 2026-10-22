@@ -3,6 +3,8 @@ use std::io::{BufRead, BufReader, Write};
 use interprocess::local_socket::{prelude::*, GenericNamespaced};
 use serde::{Deserialize, Serialize};
 
+mod startup;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 /// Stable provenance labels for values in `identify --json`.
 pub enum ResolutionSource {
@@ -105,11 +107,9 @@ fn select_transport<T>(
 }
 
 fn http_fallback_config() -> Result<HttpFallbackConfig, String> {
-    http_fallback_config_from(
-        std::env::var("CODETERM_API_URL").ok().as_deref(),
-        std::env::var("CODETERM_API_PORT").ok().as_deref(),
-        std::env::var("CODETERM_API_TOKEN").ok().as_deref(),
-    )
+    let resolved = crate::resolve_api_config();
+    let base_url = startup::target_url()?;
+    http_fallback_config_from(Some(&base_url), None, resolved.token.as_deref())
 }
 
 fn http_fallback_config_from(
@@ -120,12 +120,19 @@ fn http_fallback_config_from(
     let token = token
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "CODETERM_API_TOKEN is not set".to_owned())?;
+    Ok(HttpFallbackConfig {
+        base_url: http_base_url_from(api_url, api_port)?,
+        token: token.to_owned(),
+    })
+}
+
+fn http_base_url_from(api_url: Option<&str>, api_port: Option<&str>) -> Result<String, String> {
     let base_url = if let Some(value) = api_url {
         let url =
-            reqwest::Url::parse(&value).map_err(|_| "CODETERM_API_URL is invalid".to_owned())?;
+            reqwest::Url::parse(value).map_err(|_| "CODETERM_API_URL is invalid".to_owned())?;
         if url.scheme() != "http"
             || url.host_str() != Some("127.0.0.1")
-            || url.username() != ""
+            || !url.username().is_empty()
             || url.password().is_some()
             || !matches!(url.path(), "" | "/")
             || url.query().is_some()
@@ -144,10 +151,7 @@ fn http_fallback_config_from(
             .ok_or_else(|| "CODETERM_API_PORT is not set to a valid port".to_owned())?;
         format!("http://127.0.0.1:{port}")
     };
-    Ok(HttpFallbackConfig {
-        base_url,
-        token: token.to_owned(),
-    })
+    Ok(base_url)
 }
 
 pub trait RpcClient {
@@ -243,7 +247,10 @@ impl SocketClient {
             std::env::var("CODETERM_INSTANCE").ok().as_deref(),
             std::env::var("CODETERM_API_PORT").ok().as_deref(),
         )?;
-        discover_socket_resolution()
+        discover_socket_resolution().or_else(|error| {
+            startup::before_fallback(false)?;
+            Err(error)
+        })
     }
 
     pub fn connect_local() -> Result<(Self, ResolvedSocket), String> {
@@ -252,7 +259,10 @@ impl SocketClient {
             std::env::var("CODETERM_INSTANCE").ok().as_deref(),
             std::env::var("CODETERM_API_PORT").ok().as_deref(),
         )?;
-        let discovered = discover_socket_resolution();
+        let mut discovered = discover_socket_resolution();
+        if discovered.is_err() && startup::before_fallback(true)? {
+            discovered = discover_socket_resolution();
+        }
         let fallback_socket = ResolvedSocket {
             path: discovered
                 .as_ref()
@@ -270,7 +280,11 @@ impl SocketClient {
             TransportChoice::Http(config) => Self::connect_http(config)
                 .map(|client| (client, fallback_socket))
                 .map_err(|http_error| {
-                    format!("Domios socket attempt failed: {socket_error}; loopback HTTP attempt failed: {http_error}")
+                    if http_error.starts_with("HTTP 503: ") {
+                        http_error
+                    } else {
+                        format!("Domios socket attempt failed: {socket_error}; loopback HTTP attempt failed: {http_error}")
+                    }
                 }),
         }
     }
@@ -311,8 +325,7 @@ impl SocketClient {
         let value = probe
             .json::<serde_json::Value>()
             .map_err(|_| "loopback HTTP RPC probe returned invalid JSON".to_owned())?;
-        http_rpc_result(status, value)
-            .map_err(|_| "loopback HTTP RPC probe was refused".to_owned())?;
+        http_rpc_result(status, value).map_err(|error| error.to_string())?;
         Ok(Self {
             transport: ClientTransport::Http {
                 client,
@@ -449,6 +462,9 @@ fn http_rpc_result(
     status: reqwest::StatusCode,
     response: serde_json::Value,
 ) -> Result<serde_json::Value, SocketCallError> {
+    if let Some(error) = startup::refusal(&response) {
+        return Err(SocketCallError::Transport(error));
+    }
     if let Some(error) = response.get("error") {
         return Err(SocketCallError::Rpc(RpcError {
             code: error
