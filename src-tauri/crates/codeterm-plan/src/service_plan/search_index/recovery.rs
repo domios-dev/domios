@@ -1,0 +1,142 @@
+use super::*;
+
+impl super::super::PlanStore {
+    pub(crate) fn seed_search_indexes(&self) {
+        let plans = self.list_full();
+        let specs = self.list_specs_full();
+        let roots = plans
+            .iter()
+            .map(|plan| super::super::paths::project_root(plan_project_root(plan)))
+            .chain(
+                specs
+                    .iter()
+                    .map(|spec| super::super::paths::project_root(spec_project_root(spec))),
+            )
+            .collect::<HashSet<_>>();
+        for root in roots {
+            self.enqueue_project_index(&root, &plans, &specs);
+        }
+    }
+
+    pub(super) fn enqueue_project_index(
+        &self,
+        root: &Path,
+        plans: &[Plan],
+        specs: &[Spec],
+    ) -> PlanReindexResult {
+        let scope = project_scope(root);
+        let plans = plans
+            .iter()
+            .filter(|plan| project_scope(plan_project_root(plan)) == scope)
+            .collect::<Vec<_>>();
+        let specs = specs
+            .iter()
+            .filter(|spec| project_scope(spec_project_root(spec)) == scope)
+            .collect::<Vec<_>>();
+        let ids = plans
+            .iter()
+            .flat_map(|plan| plan_units(plan, &scope))
+            .chain(specs.iter().flat_map(|spec| spec_units(spec, &scope)))
+            .map(|unit| unit.id)
+            .collect::<HashSet<_>>();
+        let units = ids.len();
+        index_queue().enqueue(IndexJob::Prune(root.to_path_buf(), ids));
+        for plan in &plans {
+            enqueue_plan_index((*plan).clone(), PlanIndexScope::Full);
+        }
+        for spec in &specs {
+            enqueue_spec_index((*spec).clone());
+        }
+        PlanReindexResult {
+            project: root.display().to_string(),
+            scope,
+            plans: plans.len(),
+            specs: specs.len(),
+            units,
+        }
+    }
+
+    pub fn reindex_project_index(&self, project: &Path) -> Result<PlanReindexResult, String> {
+        let _writer_turn = self.mutation_writer.enter();
+        let root = super::super::paths::project_root(project);
+        Ok(self.enqueue_project_index(&root, &self.list_full(), &self.list_specs_full()))
+    }
+}
+
+pub(super) fn prune_project(root: &Path, live: &HashSet<String>) -> Result<(), String> {
+    let conn = open_index(root)?;
+    let mut existing = indexed_units_like(&conn, "planunit_%")?;
+    existing.retain(|id, _| !live.contains(id));
+    apply_unit_changes(root, conn, existing, &[], false).map(drop)
+}
+
+pub(super) fn purge_plan_indexes(plan: &Plan, specs: &[Spec]) -> Result<(), String> {
+    let mut indexes = HashSet::from([project_index_path(plan_project_root(plan))]);
+    indexes.extend(
+        specs
+            .iter()
+            .map(|spec| project_index_path(spec_project_root(spec))),
+    );
+    let directory = port().data_dir().join("plan-indexes");
+    match std::fs::read_dir(&directory) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry.map_err(|error| format!("read plan index directory: {error}"))?;
+                let db = entry.path().join(INDEX_FILE);
+                if db.is_file() {
+                    indexes.insert(db);
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("read plan indexes: {error}")),
+    }
+    let entities = std::iter::once(plan.id.as_str())
+        .chain(specs.iter().map(|spec| spec.id.as_str()))
+        .collect::<HashSet<_>>();
+    for db in indexes.into_iter().filter(|db| db.is_file()) {
+        purge_entities(&db, &entities)
+            .map_err(|error| format!("delete plan {} from {}: {error}", plan.id, db.display()))?;
+    }
+    Ok(())
+}
+
+fn purge_entities(db: &Path, entities: &HashSet<&str>) -> Result<(), String> {
+    port().ensure_embedding_registered();
+    let mut conn = Connection::open(db).map_err(|error| error.to_string())?;
+    conn.busy_timeout(PLAN_INDEX_BUSY_TIMEOUT)
+        .map_err(|error| error.to_string())?;
+    port().init_embedding_ext(&conn);
+    let units = indexed_units_like(&conn, "planunit_%")?;
+    let vectors: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = 'mem_vectors')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let tx = conn.transaction().map_err(|error| error.to_string())?;
+    if vectors {
+        for entity in entities {
+            tx.execute(
+                "DELETE FROM mem_vectors WHERE mem_id LIKE ?1",
+                [format!("planunit_{entity}_%")],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    for id in units.keys().filter(|id| {
+        entities
+            .iter()
+            .any(|entity| id.starts_with(&format!("planunit_{entity}_")))
+    }) {
+        tx.execute("DELETE FROM mem_fts WHERE mem_id = ?1", [id])
+            .map_err(|error| error.to_string())?;
+        tx.execute("DELETE FROM mem_items WHERE id = ?1", [id])
+            .map_err(|error| error.to_string())?;
+    }
+    tx.commit().map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests;

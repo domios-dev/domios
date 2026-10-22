@@ -263,6 +263,7 @@ impl PlanStore {
                 .insert(id.clone(), Arc::new(Mutex::new(spec)));
             store.spec_index.write().insert(id, entry);
         }
+        store.seed_search_indexes();
         Ok(store)
     }
 
