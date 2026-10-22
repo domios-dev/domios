@@ -427,7 +427,7 @@ pub(crate) fn effect(
         if ctx.call_state.simulate {
             "effect simulated"
         } else {
-            "effect delivered"
+            "effect accepted"
         },
     ))
 }

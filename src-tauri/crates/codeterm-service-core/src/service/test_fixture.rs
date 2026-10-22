@@ -153,6 +153,16 @@ impl Drop for TestPtyGuard {
 pub struct RecordedAgentDeliveries {
     _boundary: super::agent_delivery_outbox::test_boundary::Boundary,
     pub texts: Arc<Mutex<Vec<String>>>,
+    finished: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl RecordedAgentDeliveries {
+    pub fn wait_for_flush(&self) {
+        self.finished
+            .lock()
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("agent delivery flush completes before the failure deadline");
+    }
 }
 
 #[derive(Default)]
@@ -208,6 +218,11 @@ impl ServiceFixture {
         session_id: &str,
         binding_nonce: &str,
     ) -> RecordedAgentDeliveries {
+        self.bind_recorded_agent_identity(tab_id, session_id, binding_nonce);
+        self.record_agent_deliveries(tab_id)
+    }
+
+    fn bind_recorded_agent_identity(&self, tab_id: &str, session_id: &str, binding_nonce: &str) {
         {
             let mut mux = self.service.mux.write();
             mux.link_pty(tab_id, format!("recorded-{tab_id}"));
@@ -220,12 +235,26 @@ impl ServiceFixture {
             tab.reported_session_binding_nonce = Some(binding_nonce.to_string());
             tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
         }
-        self.record_agent_deliveries(tab_id)
+    }
+
+    pub fn resume_recorded_agent_recipient(&self, tab: &str, session: &str, nonce: &str) {
+        super::mark_tab_agent_launch_started(&self.service.mux, tab);
+        self.bind_recorded_agent_identity(tab, session, nonce);
+        self.service.reconcile_authenticated_agent_input(tab);
+    }
+
+    pub fn has_pending_agent_delivery(&self, tab: &str) -> bool {
+        self.service
+            .pending_delivery_payloads
+            .agent_deliveries
+            .has_pending(tab)
+            .unwrap()
     }
 
     pub fn record_agent_deliveries(&self, tab_id: &str) -> RecordedAgentDeliveries {
         let texts = Arc::new(Mutex::new(Vec::new()));
         let captured = Arc::clone(&texts);
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
         let boundary = super::agent_delivery_outbox::test_boundary::Boundary::install(
             tab_id,
             Arc::new(move |payload| {
@@ -233,11 +262,14 @@ impl ServiceFixture {
                 captured.lock().push(text);
                 Ok(())
             }),
-            Arc::new(|| {}),
+            Arc::new(move || {
+                let _ = finished_tx.send(());
+            }),
         );
         RecordedAgentDeliveries {
             _boundary: boundary,
             texts,
+            finished: Mutex::new(finished_rx),
         }
     }
 

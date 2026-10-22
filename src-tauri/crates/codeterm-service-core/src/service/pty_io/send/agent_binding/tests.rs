@@ -17,6 +17,7 @@ fn launching_tab() -> Tab {
 fn pinned(tab: &Tab) -> AgentDeliveryPayload {
     let (pty, session, nonce) = delivery_binding(tab).unwrap();
     AgentDeliveryPayload {
+        durable_delivery: None,
         trace_id: None,
         transport: crate::service::messenger::Messenger::from(
             crate::service::messenger::MessageEnvelope::from_codeterm(),

@@ -68,7 +68,15 @@ enum SavedCase {
 fn run(document: Document, simulate: bool) -> Receipt {
     run_saved(document, simulate, None)
 }
-fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCase>) -> Receipt {
+fn run_saved(document: Document, simulate: bool, saved_case: Option<SavedCase>) -> Receipt {
+    run_fixture(document, simulate, saved_case, false)
+}
+fn run_fixture(
+    mut document: Document,
+    simulate: bool,
+    saved_case: Option<SavedCase>,
+    restored_sink: bool,
+) -> Receipt {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, creator) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&creator).unwrap();
@@ -79,6 +87,14 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
     mux.get_tab_mut(&creator).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
     if saved_case.is_some() {
         mux.get_tab_mut(&creator).unwrap().role = Some(codeterm_types::agent::AgentRole::Manager);
+    }
+    if restored_sink {
+        let tab = mux.get_tab_mut(&creator).unwrap();
+        tab.agent_type = Some("restored-call-recipient".into());
+        tab.agent_session_id = Some("call-sink-session".into());
+        tab.session_binding_nonce = Some("saved-call-sink-binding".into());
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+        mux = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
     }
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let service = &instance.fixture.service;
@@ -210,20 +226,26 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
         );
         codeterm_service_core::service::mark_tab_agent_launch_started(&service.mux, &creator);
     }
-    let deliveries = instance.fixture.bind_recorded_agent_recipient(
-        &creator,
-        "call-sink-session",
-        "call-sink-binding",
-    );
+    let deliveries = if restored_sink {
+        instance.fixture.record_agent_deliveries(&creator)
+    } else {
+        instance.fixture.bind_recorded_agent_recipient(
+            &creator,
+            "call-sink-session",
+            "call-sink-binding",
+        )
+    };
     {
         let mux = service.mux.read();
         let recipient = mux.get_tab(&creator).unwrap();
-        assert!(!recipient.restored_from_snapshot);
+        assert_eq!(recipient.restored_from_snapshot, restored_sink);
         assert!(recipient.launch_session_authenticated());
-        assert_eq!(
-            recipient.pty_id.as_deref(),
-            Some(format!("recorded-{creator}").as_str())
-        );
+        if !restored_sink {
+            assert_eq!(
+                recipient.pty_id.as_deref(),
+                Some(format!("recorded-{creator}").as_str())
+            );
+        }
     }
     let sink_pad = service.ensure_agent_pad(&creator).unwrap();
     let sink_inbox = sink_pad.path().join("inbox");
@@ -288,6 +310,59 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
         .as_millis();
     let started = std::time::Instant::now();
     let result = execute_step(&mut ctx, &step, ExecutionEnvelope::from_text(""));
+    if restored_sink {
+        assert!(
+            result.is_ok(),
+            "a restored recipient must admit the call result durably: {:?}",
+            result.as_ref().err()
+        );
+        deliveries.wait_for_flush();
+        assert!(
+            service
+                .mux
+                .read()
+                .get_tab(&job.creator_tab_id)
+                .unwrap()
+                .restored_from_snapshot
+        );
+        assert!(instance
+            .fixture
+            .has_pending_agent_delivery(&job.creator_tab_id));
+        assert!(deliveries.texts.lock().is_empty());
+        let files = std::fs::read_dir(&sink_inbox)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            files.len(),
+            1,
+            "the original durable result is retained while held"
+        );
+        let body = std::fs::read_to_string(files[0].path()).unwrap();
+        assert!(body.contains("Original run: call-proof; timestamp: "));
+        assert!(body.ends_with("{\"n\":8}"));
+        instance.fixture.resume_recorded_agent_recipient(
+            &job.creator_tab_id,
+            "call-sink-session",
+            "first-call-sink-binding",
+        );
+        deliveries.wait_for_flush();
+        assert!(!instance
+            .fixture
+            .has_pending_agent_delivery(&job.creator_tab_id));
+        assert_eq!(deliveries.texts.lock().len(), 1);
+        instance.fixture.resume_recorded_agent_recipient(
+            &job.creator_tab_id,
+            "call-sink-session",
+            "second-call-sink-binding",
+        );
+        deliveries.wait_for_flush();
+        assert_eq!(
+            deliveries.texts.lock().len(),
+            1,
+            "a second rebind cannot replay the result"
+        );
+    }
     let child_pids = spawned.try_iter().collect::<Vec<_>>();
     if matches!(result, Err(JournalReason::Deadline)) {
         use std::io::Write;
@@ -361,6 +436,63 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
         view,
     }
 }
+
+fn pure_source() -> Document {
+    let mut document = source(false);
+    let key = document.dependencies.keys().next().unwrap().clone();
+    let mut callee = document.dependencies.remove(&key).unwrap();
+    callee.document.steps[0].run = None;
+    callee.document.steps[0].uses = Some(blueprint_document::NodeKind::Filter);
+    callee.document.steps[0]
+        .params
+        .insert("pattern".into(), ValueForm::literal(".*"));
+    callee.hash = blueprint_document::projection::identity(&callee.document).unwrap();
+    let call = document.steps[0].call.as_mut().unwrap();
+    call.arguments
+        .insert("p".into(), ValueForm::literal(json!({"n":8})));
+    call.pin = Some(callee.pin());
+    document.dependencies.insert(callee.pin().key(), callee);
+    document
+}
+
+#[test]
+fn blueprint_v2_call_restored_result_stays_pending_then_delivers_once_after_rebind() {
+    let receipt = run_fixture(pure_source(), false, None, true);
+    assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
+    assert_eq!(receipt.notices, ["{\"n\":8}"]);
+    assert!(receipt.child_pids.is_empty());
+    assert!(receipt
+        .journal
+        .iter()
+        .any(|row| row.step_name == "fixed-sink" && row.state == JournalState::Done));
+}
+#[test]
+fn blueprint_v2_call_distinct_result_effects_in_one_run_are_both_delivered_once() {
+    let mut document = pure_source();
+    let key = document.dependencies.keys().next().unwrap().clone();
+    let mut callee = document.dependencies.remove(&key).unwrap();
+    let mut second = callee.document.steps[1].clone();
+    second.id = "second-fixed-sink".into();
+    callee.document.steps.push(second);
+    callee.hash = blueprint_document::projection::identity(&callee.document).unwrap();
+    document.steps[0].call.as_mut().unwrap().pin = Some(callee.pin());
+    document.dependencies.insert(callee.pin().key(), callee);
+    let receipt = run(document, false);
+    assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
+    assert_eq!(receipt.notices.len(), 2);
+    assert!(receipt.notices.iter().all(|payload| payload == "{\"n\":8}"));
+    for id in ["fixed-sink", "second-fixed-sink"] {
+        assert_eq!(
+            receipt
+                .journal
+                .iter()
+                .filter(|row| row.step_name == id && row.state == JournalState::Done)
+                .count(),
+            1
+        );
+    }
+}
+
 #[test]
 fn blueprint_v2_call_real_executor_delivers_eight_to_actual_local_notification_sink() {
     let receipt = run(source(false), false);

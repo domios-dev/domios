@@ -136,4 +136,6 @@ Callable `other` handlers are refused at check time; move failure handling to th
 
 The simulation harness is internal and has no CLI verb. It records bounded delivery provenance in memory with zero delivery and no real run journal. Process, code, agent, HTTP and conversion nodes refuse before launch; pure filters and calls share the normal budget and port checks.
 
-<!-- revision: 52 -->
+Blueprint results addressed to a restored PTY agent tab retain the exact saved provider and session. The durable outbox holds them for the first authenticated launch of that session, with a fixed 24-hour delivery TTL. Messages retain the original run id and timestamp. A changed recipient session or provider, failed launch, or expired TTL produces a durable failure receipt in the producer's AgentPad and a status event; a live producer also receives a failure notification. A result that may already have been written remains uncertain and is never replayed. Restored chat-backend delivery uses its existing reopen path and reports reopen failures; it does not yet use this durable hold.
+
+<!-- revision: 53 -->
