@@ -73,6 +73,7 @@ pub fn run(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
     environment: &Environment,
+    stdin: Option<std::fs::File>,
 ) -> Result<Output, ProbeFailure> {
     run_with_assignment(
         command,
@@ -82,6 +83,7 @@ pub fn run(
         owner,
         cancellation,
         environment,
+        stdin,
         |job, process| {
             if unsafe { AssignProcessToJobObject(job, process) } == 0 {
                 Err(last_error())
@@ -100,6 +102,7 @@ pub fn run_with_assignment(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
     environment: &Environment,
+    stdin: Option<std::fs::File>,
     assign: impl FnOnce(HANDLE, HANDLE) -> Result<(), String>,
 ) -> Result<Output, ProbeFailure> {
     let mut run = WindowsRun::new(deadlines, reservation, owner);
@@ -136,7 +139,7 @@ pub fn run_with_assignment(
         return run.finish_failure();
     }
     run.launch_state.job_ready();
-    if let Err(error) = run.prepare_capture() {
+    if let Err(error) = run.prepare_capture(stdin) {
         run.fail("probe_capture_prepare_failed");
         run.add_error(error);
         return run.finish_failure();
@@ -385,19 +388,12 @@ impl WindowsRun {
         }
         let mut command_line = capture::windows_command_line(command, self.events.as_ref());
         let mut current_directory = cwd.as_os_str().encode_wide().chain([0]).collect::<Vec<_>>();
-        let mut environment_block = (!environment.is_empty()).then(|| environment.windows_block());
-        let environment_pointer = environment_block
-            .as_mut()
-            .map(|block| block.as_mut_ptr().cast())
-            .unwrap_or(null_mut());
+        let mut environment_block = environment.windows_block();
+        let environment_pointer = environment_block.as_mut_ptr().cast();
         let creation_flags = CREATE_SUSPENDED
             | CREATE_NO_WINDOW
             | EXTENDED_STARTUPINFO_PRESENT
-            | if environment_block.is_some() {
-                CREATE_UNICODE_ENVIRONMENT
-            } else {
-                0
-            };
+            | CREATE_UNICODE_ENVIRONMENT;
         let mut information = windows_sys::Win32::System::Threading::PROCESS_INFORMATION::default();
         if self.cancelled() {
             unsafe { DeleteProcThreadAttributeList(attributes) };
