@@ -2,7 +2,7 @@ use super::{ComposerInputState, PromptSignal, PtyScreen, ScreenChangeSignal, She
 use codeterm_util::lock_hold::TimedMutex;
 use std::collections::HashMap;
 use std::ops::DerefMut;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 type ScreenMap = Arc<TimedMutex<HashMap<String, Arc<ScreenEntry>>>>;
@@ -10,6 +10,7 @@ type ScreenMap = Arc<TimedMutex<HashMap<String, Arc<ScreenEntry>>>>;
 struct ScreenEntry {
     state: TimedMutex<PtyScreen>,
     removed: AtomicBool,
+    handles: AtomicUsize,
 }
 
 pub struct ScreenHandle {
@@ -20,26 +21,30 @@ pub struct ScreenHandle {
 
 impl ScreenHandle {
     pub fn lock(&self) -> impl DerefMut<Target = PtyScreen> + '_ {
+        self.entry.state.lock()
+    }
+
+    pub fn lock_for_update(&self) -> impl DerefMut<Target = PtyScreen> + '_ {
         let state = self.entry.state.lock();
         self.entry.removed.store(false, Ordering::SeqCst);
         state
     }
 
     pub fn try_lock(&self) -> Option<impl DerefMut<Target = PtyScreen> + '_> {
-        let state = self.entry.state.try_lock()?;
-        self.entry.removed.store(false, Ordering::SeqCst);
-        Some(state)
+        self.entry.state.try_lock()
     }
 }
 
 impl Drop for ScreenHandle {
     fn drop(&mut self) {
-        if !self.entry.removed.load(Ordering::SeqCst) {
+        if self.entry.handles.fetch_sub(1, Ordering::AcqRel) != 1
+            || !self.entry.removed.load(Ordering::SeqCst)
+        {
             return;
         }
         let mut screens = self.screens.lock();
-        // A queued operation must keep the removed parser reachable until it acquires its guard.
-        if Arc::strong_count(&self.entry) == 2
+        // Release the pin before checking retirement so concurrent drops have exactly one last owner.
+        if self.entry.handles.load(Ordering::Acquire) == 0
             && self.entry.removed.load(Ordering::SeqCst)
             && screens
                 .get(&self.pty_id)
@@ -68,6 +73,7 @@ impl ScreenState {
     }
 
     fn handle(&self, pty_id: &str, entry: Arc<ScreenEntry>) -> ScreenHandle {
+        entry.handles.fetch_add(1, Ordering::Relaxed);
         ScreenHandle {
             screens: self.screens.clone(),
             pty_id: pty_id.to_string(),
@@ -75,20 +81,28 @@ impl ScreenState {
         }
     }
 
-    fn existing(&self, pty_id: &str) -> Option<ScreenHandle> {
-        let entry = self.screens.lock().get(pty_id).cloned()?;
-        Some(self.handle(pty_id, entry))
+    pub fn existing(&self, pty_id: &str) -> Option<ScreenHandle> {
+        let screens = self.screens.lock();
+        let entry = screens.get(pty_id)?;
+        if entry.removed.load(Ordering::SeqCst) {
+            return None;
+        }
+        Some(self.handle(pty_id, entry.clone()))
+    }
+
+    pub fn contains_pty(&self, pty_id: &str) -> bool {
+        self.screens.lock().contains_key(pty_id)
     }
 
     pub fn pty(&self, pty_id: &str) -> ScreenHandle {
-        let entry = self
-            .screens
-            .lock()
+        let mut screens = self.screens.lock();
+        let entry = screens
             .entry(pty_id.to_string())
             .or_insert_with(|| {
                 Arc::new(ScreenEntry {
                     state: TimedMutex::new("screen_state_parser", PtyScreen::default()),
                     removed: AtomicBool::new(false),
+                    handles: AtomicUsize::new(0),
                 })
             })
             .clone();
@@ -97,7 +111,7 @@ impl ScreenState {
 
     fn with_pty<T>(&self, pty_id: &str, read: impl FnOnce(&mut PtyScreen) -> T) -> T {
         let screen = self.pty(pty_id);
-        let mut screen = screen.lock();
+        let mut screen = screen.lock_for_update();
         read(&mut screen)
     }
 
@@ -274,3 +288,6 @@ impl ScreenState {
         true
     }
 }
+
+#[cfg(test)]
+mod tests;

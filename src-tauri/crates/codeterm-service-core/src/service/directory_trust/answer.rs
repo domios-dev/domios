@@ -185,7 +185,11 @@ impl AnswerIo for BoundAnswerIo {
             return Err("folder trust PTY binding changed".into());
         }
         let (generation, screen) = {
-            let state = self.service.screen_state.pty(&self.pty);
+            let state = self
+                .service
+                .screen_state
+                .existing(&self.pty)
+                .ok_or("folder trust screen unavailable")?;
             let state = state.lock();
             let generation = self.signal.generation();
             let screen = state

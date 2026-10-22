@@ -161,7 +161,7 @@ fn diagnostic_onboarding_deadline_records_unknown_unevaluated_predicates() {
         .role = Some(codeterm_types::agent::roles::AgentRole::Worker);
     let observed_screen = {
         let screens = fixture.service.screen_state.pty(&attempt.pty_id);
-        let mut screens = screens.lock();
+        let mut screens = screens.lock_for_update();
         screens.resize(180, 40);
         let frame = screen.lines().collect::<Vec<_>>().join("\r\n");
         screens.process(frame.as_bytes());

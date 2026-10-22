@@ -101,7 +101,9 @@ impl PreparedSwitchConfirmation {
                 break;
             };
             let _ = tab;
-            let screens = self.service.screen_state.pty(&self.pty);
+            let Some(screens) = self.service.screen_state.existing(&self.pty) else {
+                break;
+            };
             let screens = screens.lock();
             let Some(screen) = screens.get_screen_text() else {
                 break;

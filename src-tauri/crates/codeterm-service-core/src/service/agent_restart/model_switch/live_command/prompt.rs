@@ -93,7 +93,9 @@ impl ServiceContext {
         let Some(readiness) = &target.readiness else {
             return false;
         };
-        let screens = self.screen_state.pty(&target.pty_id);
+        let Some(screens) = self.screen_state.existing(&target.pty_id) else {
+            return false;
+        };
         let screens = screens.lock();
         screens
             .get_screen_rows()
@@ -143,7 +145,10 @@ impl ServiceContext {
         {
             return Err("the session changed before the live command confirmation".into());
         }
-        let screen_state = self.screen_state.pty(&target.pty_id);
+        let screen_state = self
+            .screen_state
+            .existing(&target.pty_id)
+            .ok_or_else(|| "the command screen is unavailable".to_owned())?;
         let screen_state = screen_state.lock();
         let screen = screen_state.get_screen_text().unwrap_or_default();
         prompt.respond(&screen, |keys| self.pty.lock().write(&target.pty_id, keys))
@@ -166,7 +171,10 @@ impl ServiceContext {
                 {
                     return Err("session changed; the old command dialog was not touched".into());
                 }
-                let screen_state = self.screen_state.pty(&target.pty_id);
+                let screen_state = self
+                    .screen_state
+                    .existing(&target.pty_id)
+                    .ok_or_else(|| "the command screen is unavailable".to_owned())?;
                 let screen_state = screen_state.lock();
                 let screen = screen_state
                     .get_screen_text()

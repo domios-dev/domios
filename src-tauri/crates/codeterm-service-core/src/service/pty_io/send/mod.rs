@@ -126,7 +126,7 @@ pub(super) fn await_shell_prompt_armed(
     loop {
         let (signal, bound) = {
             let ss = screen_state.pty(pty_id);
-            let mut ss = ss.lock();
+            let mut ss = ss.lock_for_update();
             (ss.arm_shell_ready_signal(), ss.has_pty_generation())
         };
         if !bound {

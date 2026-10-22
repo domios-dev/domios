@@ -343,16 +343,25 @@ impl ServiceContext {
                     || trust_prompt_candidate
                     || update_candidate;
                 let (native_prompt_input, mut clean_text) = {
-                    let screen_state = self.screen_state.pty(pty_id);
-                    let screen_state = screen_state.lock();
+                    let screen_state = self.screen_state.existing(pty_id);
+                    let screen_state = screen_state.as_ref().map(|screen| screen.lock());
                     let clean_text = if check_screen {
                         trust_candidate_screen
                             .or_else(|| changed_screen.clone())
-                            .or_else(|| screen_state.get_screen_text())
+                            .or_else(|| {
+                                screen_state
+                                    .as_ref()
+                                    .and_then(|screen| screen.get_screen_text())
+                            })
                     } else {
                         None
                     };
-                    (screen_state.native_prompt_input(), clean_text)
+                    (
+                        screen_state
+                            .as_ref()
+                            .and_then(|screen| screen.native_prompt_input()),
+                        clean_text,
+                    )
                 };
                 let structured = if check_screen {
                     self.structured_pending_prompt(
@@ -605,7 +614,9 @@ impl ServiceContext {
         // screen_state (3): trimmed lines + tail from the existing parser.
         const LIVE_TAIL_ROWS: usize = 60;
         let Some((lines, tail, cursor_hidden, composer_ready, cursor_row)) = ({
-            let screen_state = self.screen_state.pty(pty_id);
+            let Some(screen_state) = self.screen_state.existing(pty_id) else {
+                return;
+            };
             let screen_state = screen_state.lock();
             let Some((lines, tail)) = screen_state.lines_and_tail(LIVE_TAIL_ROWS) else {
                 return;

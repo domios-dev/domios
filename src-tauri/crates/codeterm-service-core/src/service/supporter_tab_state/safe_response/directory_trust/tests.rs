@@ -435,7 +435,7 @@ fn unattended_launch_prompt_fallback_runs_the_deterministic_responder() {
     let pty = pty_of(&fixture, &tab_id);
     {
         let screen_state = fixture.service.screen_state.pty(&pty);
-        let mut screen_state = screen_state.lock();
+        let mut screen_state = screen_state.lock_for_update();
         screen_state.resize(120, 40);
         screen_state.process(NO_FIRST.as_bytes());
     }

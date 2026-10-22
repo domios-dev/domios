@@ -301,7 +301,9 @@ pub fn wait_for_submit_shell(
     let mut generation = signal.generation();
     loop {
         let (tail_opt, hash_now) = {
-            let s = screen_state.pty(pty_id);
+            let s = screen_state
+                .existing(pty_id)
+                .ok_or_else(|| HelperErr::PtyUnknown(pty_id.to_string()))?;
             let mut s = s.lock();
             (s.tail_text(tail_rows), s.get_content_hash(0))
         };
@@ -480,7 +482,7 @@ mod tests {
         let h = handle();
         {
             let state = h.pty("p1");
-            let mut state = state.lock();
+            let mut state = state.lock_for_update();
             state.resize(16, 50);
             state.process(b"status+body; live payloads confirm");
         }

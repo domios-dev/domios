@@ -168,7 +168,10 @@ impl ServiceContext {
                         {
                             return Err("the session changed before command injection".into());
                         }
-                        let screen = self.screen_state.pty(&target.pty_id);
+                        let screen = self
+                            .screen_state
+                            .existing(&target.pty_id)
+                            .ok_or_else(|| "the command screen is unavailable".to_owned())?;
                         let screen = screen.lock();
                         let input = crate::service::pty_io::submit_transaction::live_command_input(
                             &command,
