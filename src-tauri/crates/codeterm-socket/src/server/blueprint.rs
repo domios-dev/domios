@@ -1,7 +1,10 @@
 use serde_json::{json, Value};
 
 use super::{get_string_param, JsonRpcError};
-use codeterm_sentinel_host::{BlueprintExt, BlueprintPortableExt, SentinelDeleteExt, SentinelExt};
+use codeterm_sentinel_host::{
+    BlueprintApplyExt, BlueprintExt, BlueprintMemoryExt, BlueprintPortableExt, SentinelDeleteExt,
+    SentinelExt,
+};
 use codeterm_service_core::service::ServiceState;
 
 fn error(message: impl Into<String>) -> JsonRpcError {
@@ -33,6 +36,17 @@ fn error(message: impl Into<String>) -> JsonRpcError {
     }
 }
 
+fn apply_error(failure: codeterm_blueprint_types::blueprint_contract::ApplyError) -> JsonRpcError {
+    match serde_json::to_value(&failure) {
+        Ok(data) => JsonRpcError {
+            code: -32602,
+            message: failure.to_string(),
+            data: Some(data),
+        },
+        Err(failure) => error(format!("Could not serialize Blueprint error: {failure}")),
+    }
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -45,6 +59,47 @@ pub(super) fn dispatch(
         .and_then(Value::as_str);
     let caller = svc.sentinel_caller(&tab, nonce).map_err(error)?;
     let result = match method {
+        "blueprint.keep" => svc
+            .blueprint_keep(
+                &caller,
+                &get_string_param(params, "id")?,
+                &get_string_param(params, "when")?,
+            )
+            .map_err(error),
+        "blueprint.recall" => svc
+            .blueprint_recall(&caller, &get_string_param(params, "intent")?)
+            .map_err(error),
+        "blueprint.apply_recipe" => {
+            let args = params
+                .as_ref()
+                .ok_or_else(|| error("parameters required"))?;
+            let set = serde_json::from_value::<Vec<String>>(
+                args.get("set").cloned().unwrap_or(json!([])),
+            )
+            .map_err(|e| error(e.to_string()))?;
+            svc.blueprint_apply_recipe(
+                &caller,
+                &get_string_param(params, "id")?,
+                &set,
+                args["note"].as_str(),
+                args["dry_run"].as_bool().unwrap_or(false),
+            )
+            .map_err(error)
+        }
+        "blueprint.apply" => {
+            let definition = params
+                .as_ref()
+                .and_then(|p| p.get("definition"))
+                .cloned()
+                .ok_or_else(|| error("definition required"))?;
+            let dry_run = params
+                .as_ref()
+                .and_then(|p| p.get("dry_run"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            svc.blueprint_apply(&caller, definition, dry_run)
+                .map_err(apply_error)
+        }
         "blueprint.export" => {
             let id = get_string_param(params, "id")?;
             serde_json::to_value(svc.blueprint_export(&caller, &id).map_err(error)?)
@@ -82,8 +137,11 @@ pub(super) fn dispatch(
         "blueprint.pipeline.nodes" => Ok(svc.blueprint_pipeline_nodes()),
         "blueprint.pipeline.validate" => {
             let spec = pipeline_spec_param(params)?;
-            svc.blueprint_pipeline_validate(&caller, spec)
-                .map_err(error)
+            serde_json::to_value(
+                svc.blueprint_pipeline_validate(&caller, spec)
+                    .map_err(error)?,
+            )
+            .map_err(|e| error(e.to_string()))
         }
         "blueprint.pipeline.validate.update" => {
             let id = get_string_param(params, "id")?;
@@ -93,8 +151,11 @@ pub(super) fn dispatch(
                 .and_then(Value::as_u64)
                 .ok_or_else(|| error("expect_version must be an unsigned integer"))?;
             let spec = pipeline_spec_param(params)?;
-            svc.blueprint_pipeline_validate_update(&caller, &id, expect_version, spec)
-                .map_err(error)
+            serde_json::to_value(
+                svc.blueprint_pipeline_validate_update(&caller, &id, expect_version, spec)
+                    .map_err(error)?,
+            )
+            .map_err(|e| error(e.to_string()))
         }
         "blueprint.pipeline.create" => {
             let spec = pipeline_spec_param(params)?;

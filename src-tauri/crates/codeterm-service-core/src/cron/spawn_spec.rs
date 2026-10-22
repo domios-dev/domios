@@ -37,12 +37,19 @@ pub(crate) fn build_cron_spawn_spec(
     chatbackends: &ChatBackendRegistry,
     inputs: CronSpawnInputs,
 ) -> SpawnTabSpec {
+    let policy = crate::service::role_policy::resolve(inputs.role.as_deref());
     let mut params = SpawnAgentParams {
         agent: Some(inputs.agent.clone()),
         model: inputs.model,
         reasoning_effort: inputs.reasoning_effort,
         task: Some(inputs.task_text),
-        role: inputs.role,
+        role: if let Some(policy) = policy {
+            Some(policy.spawn_role().into())
+        } else {
+            inputs.role
+        },
+        role_profile: policy.map(|policy| policy.profile().as_str().into()),
+        parent_tab_id: policy.and_then(|_| inputs.creator_tab_id.clone()),
         // The owner chose this directory when authoring the schedule, so its trust prompt is answered.
         provisioned_cwd: inputs.cwd.clone(),
         cwd: inputs.cwd,

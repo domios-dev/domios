@@ -224,11 +224,7 @@ pub fn init_states() -> AppStates {
             eprintln!("Domios startup refused: isolated verification requires an API token");
             std::process::exit(2);
         }
-        app_config.api.enabled = true;
-        app_config.api.host = "127.0.0.1".to_string();
-        app_config.api.mesh_tailnet_host = None;
-        app_config.api.cors = false;
-        app_config.api.cors_allow_origins.clear();
+        super::listener_policy::apply_isolated_listener_policy(&mut app_config);
     } else {
         app_config.api.port = codeterm_service_core::paths::runtime_api_port(
             app_config.api.port,

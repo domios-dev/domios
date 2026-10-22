@@ -3,6 +3,7 @@
 import "./surfaceDomGlobals.testdata";
 import { resetCaptureOwnershipForTest } from "../Terminal/voice/localRecordingCaptureModel";
 import assert from "node:assert/strict";
+import { connectNoticeToasts, type ToastInput } from "../../lib/notices";
 import { act } from "react";
 import { BROWSER_SURFACE_CHROME, BROWSER_SURFACE_TITLE } from "./browserChrome";
 import { surfaceControlStore } from "../../lib/surfaceControlStore";
@@ -39,8 +40,12 @@ interface MountOptions {
   clipboard?: Pick<Clipboard, "readText" | "writeText">;
 }
 
+let raisedNotices: ToastInput[] = [];
+
 async function mount({ ownerName, surfaceTabId, opened = [], clipboard }: MountOptions = {}) {
   const fake = createFakeStreamTransport();
+  raisedNotices = [];
+  const disconnectNotices = connectNoticeToasts((notice) => raisedNotices.push(notice));
   const view = await render(
     <StreamSurfaceView
       transport={fake.transport}
@@ -54,7 +59,7 @@ async function mount({ ownerName, surfaceTabId, opened = [], clipboard }: MountO
       clipboard={clipboard}
     />,
   );
-  return { ...view, fake, region: () => getByRole(view.host, "region", label) };
+  return { ...view, unmount: async () => { disconnectNotices(); await view.unmount(); }, fake, region: () => getByRole(view.host, "region", label) };
 }
 
 const SURFACE_TAB = "surface-1";
@@ -164,7 +169,7 @@ async function startSnip(options: MountOptions = {}) {
   view.fake.respond(SURFACE_METHOD.snipSend, () => ({ markdown: "", delivered: true }));
   await resizeStages(400, 300);
   await act(async () => view.fake.emitState(state));
-  await act(async () => view.fake.emitFrame({ data: "", metadata: { deviceWidth: 1280, deviceHeight: 960, scrollOffsetX: 0, scrollOffsetY: 640 } }));
+  await act(async () => view.fake.emitFrame({ data: "", metadata: { deviceWidth: 400, deviceHeight: 300, scrollOffsetX: 0, scrollOffsetY: 640 } }));
   await flushAsync();
   const control = watchControl(view.fake);
   await act(async () => getByRole(view.region(), "button", "Snip and ask").click());
@@ -176,7 +181,7 @@ async function dragArea(scope: ParentNode) {
   assert.ok(overlay, "the camera opens the area selection over the stream");
   await act(async () => { overlay.dispatchEvent(pointer("pointerdown", 100, 75)); });
   await act(async () => { overlay.dispatchEvent(pointer("pointermove", 200, 150)); });
-  assert.equal(overlay.querySelector("[data-testid='surface-snip-size']")?.textContent, "320 × 240", "the live size is in page CSS px");
+  assert.equal(overlay.querySelector("[data-testid='surface-snip-size']")?.textContent, "100 × 75", "the live size is in page CSS px");
   await act(async () => { overlay.dispatchEvent(pointer("pointerup", 200, 150)); });
   await flushAsync();
 }
@@ -193,14 +198,14 @@ suite.test("snip and ask works beside the agent: drag, capture in page coords, o
   const { fake, region, host, control, unmount } = await startSnip();
   await dragArea(region());
   assert.equal(snipOverlay(region()), null, "release finishes the selection");
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCapture).map((call) => call.args), [{ x: 320, y: 880, w: 320, h: 240 }], "canvas rect maps to the scrolled page");
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipCapture).map((call) => call.args), [{ x: 100, y: 715, w: 100, h: 75 }], "canvas rect maps to the scrolled page");
   assertFrameAtSelection(region());
   assertNoLargeImage(host);
   const dialog = getByRole(host, "dialog", SNIP_DIALOG_LABEL);
   const chip = dialog.querySelector<HTMLElement>("[data-testid='attachment-chip']");
   assert.equal(chip?.textContent, SNIP_IMAGE_LABEL, "the snip sits in the input as a screenshot chip");
   assert.equal(chip?.querySelector("img")?.getAttribute("src"), capture.thumbnail);
-  assert.ok(dialog.textContent?.includes("Area 320×240 at (320, 880) · Login · https://a.test/"));
+  assert.ok(dialog.textContent?.includes("Area 100×75 at (100, 715) · Login · https://a.test/"));
   await ask(host, "why is this cut off?");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend).map((call) => call.args), [{ id: "s1", comment: "why is this cut off?", image: true }]);
   assert.equal(fake.callsTo(SURFACE_METHOD.snipCancel).length, 0, "a sent capture is not discarded");
@@ -215,7 +220,7 @@ suite.test("a failed send closes the ask UI and restores the live canvas", async
   await dragArea(region());
   await ask(host, "what is this?");
   assertSnipRestored(region());
-  assert.ok(byTestId(region(), "surface-notice"), "the send failure is reported");
+  assert.ok(raisedNotices.some((notice) => notice.body?.includes("send failed")), "the send failure reaches the toast publisher");
   await unmount();
 });
 
@@ -224,7 +229,7 @@ suite.test("a failed capture removes its pending frame and selection state", asy
   fake.respond(SURFACE_METHOD.snipCapture, () => Promise.reject(new Error("capture failed")));
   await dragArea(region());
   assertSnipRestored(region());
-  assert.ok(byTestId(region(), "surface-notice"), "the capture failure is reported");
+  assert.ok(raisedNotices.some((notice) => notice.body?.includes("capture failed")), "the capture failure reaches the toast publisher");
   assert.equal(fake.callsTo(SURFACE_METHOD.snipSend).length, 0);
   await unmount();
 });
@@ -235,7 +240,7 @@ suite.test("removing the screenshot chip sends the question with only the area c
   const dialog = getByRole(host, "dialog", SNIP_DIALOG_LABEL);
   await act(async () => getByRole(dialog, "button", `Remove ${SNIP_IMAGE_LABEL}`).click());
   assert.equal(dialog.querySelector("[data-testid='attachment-chip']"), null, "x removes the chip");
-  assert.ok(dialog.textContent?.includes("Area 320×240 at (320, 880)"), "the context stays");
+  assert.ok(dialog.textContent?.includes("Area 100×75 at (100, 715)"), "the context stays");
   await ask(host, "what is this?");
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.snipSend).map((call) => call.args), [{ id: "s1", comment: "what is this?", image: false }]);
   control.assertUntouched(region());
@@ -340,7 +345,7 @@ suite.test("point and ask works beside the agent: selects, sends the annotation 
   fake.respond(SURFACE_METHOD.grabSelect, () => selection);
   await resizeStages(400, 300);
   await act(async () => fake.emitState(state));
-  await act(async () => fake.emitFrame({ data: "", metadata: { deviceWidth: 1280, deviceHeight: 960 } }));
+  await act(async () => fake.emitFrame({ data: "", metadata: { deviceWidth: 400, deviceHeight: 300 } }));
   await flushAsync();
   const control = watchControl(fake);
   await act(async () => getByRole(region(), "button", "Pick element").click());
@@ -376,7 +381,7 @@ suite.test("+ New profile opens a dialog whose name switches the profile", async
   assert.deepEqual(fake.callsTo("profiles.use").map((call) => call.args), [{ name: "Work" }]);
   assert.deepEqual(fake.callsTo("profiles.create").map((call) => call.args), [{ name: "Work" }]);
   assert.equal(queryByRole(document.body, "dialog", "New profile"), null, "the dialog closes on submit");
-  assert.ok(getByRole(region(), "status", profileSwitchedNotice("Work")));
+  assert.ok(raisedNotices.some((notice) => notice.body === profileSwitchedNotice("Work")));
   await unmount();
 });
 
@@ -413,26 +418,17 @@ suite.test("cancelling the new-profile dialog switches nothing; Clean sends the 
   await unmount();
 });
 
-suite.test("a needs-human state shows a dismissible notice that errors override", async () => {
+suite.test("needs-human transitions publish once and do not create a surface overlay", async () => {
   const { fake, region, unmount } = await mount();
   await resizeStages(640, 480);
-  const consent = needsHumanNotice({ ...state, needsHuman: "consent" })!;
-  const captcha = needsHumanNotice({ ...state, needsHuman: "captcha" })!;
-  const dismiss = async (notice: HTMLElement) => act(async () => getByRole(notice, "button", "Dismiss notice").click());
   await act(async () => fake.emitState({ ...state, needsHuman: "consent" }));
-  assert.equal(getByRole(region(), "status", consent).getAttribute("data-tone"), "warn");
-  await act(async () => fake.emitNotice({ text: "boom", tone: "error" }));
-  assert.equal(queryByRole(region(), "status"), null, "an error notice takes precedence");
-  await dismiss(getByRole(region(), "alert"));
-  await dismiss(getByRole(region(), "status", consent));
-  assert.equal(queryByRole(region(), "status"), null, "dismissing hides the need");
+  assert.equal(raisedNotices[raisedNotices.length - 1]?.body, needsHumanNotice({ ...state, needsHuman: "consent" }));
+  const count = raisedNotices.length;
   await act(async () => fake.emitState({ ...state, needsHuman: "consent" }));
-  assert.equal(queryByRole(region(), "status"), null, "the same need stays dismissed");
+  assert.equal(raisedNotices.length, count);
   await act(async () => fake.emitState({ ...state, needsHuman: "captcha" }));
-  await dismiss(getByRole(region(), "status", captcha));
-  await act(async () => fake.emitState({ ...state, needsHuman: "none" }));
-  await act(async () => fake.emitState({ ...state, needsHuman: "captcha" }));
-  assert.ok(getByRole(region(), "status", captcha), "a need that went away and came back shows again");
+  assert.equal(raisedNotices[raisedNotices.length - 1]?.body, needsHumanNotice({ ...state, needsHuman: "captcha" }));
+  assert.equal(byTestId(region(), "surface-notice"), null);
   await unmount();
 });
 
@@ -481,6 +477,26 @@ suite.test("a viewport mismatch heals once until a matching frame arrives", asyn
   await act(async () => fake.emitFrame(frameAt(640, 480)));
   await act(async () => fake.emitFrame(frameAt(1280, 960)));
   assert.equal(resizes().length, 2, "a new mismatch after recovery heals again");
+  await flushAsync();
+  await unmount();
+});
+
+suite.test("resize acknowledgements drain only the latest measured viewport", async () => {
+  const { fake, unmount } = await mount();
+  const acknowledgements: Array<() => void> = [];
+  fake.respond(SURFACE_METHOD.resize, () => new Promise<void>((resolve) => acknowledgements.push(resolve)));
+  await resizeStages(640, 480);
+  await resizeStages(800, 600);
+  await resizeStages(900, 650);
+  await resizeStages(1000, 700);
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio })]);
+  acknowledgements.shift()!();
+  await flushAsync();
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [
+    resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio }),
+    resizeArgs({ w: 1000, h: 700, dpr: window.devicePixelRatio }),
+  ]);
+  acknowledgements.shift()!();
   await flushAsync();
   await unmount();
 });
@@ -536,7 +552,7 @@ suite.test("a paused preview shows a quiet inline state, never the notice bar, a
   assert.equal(paused.textContent?.startsWith(PREVIEW_PAUSED_TEXT), true);
   assert.equal(byTestId(region(), "surface-notice"), null, "a recurring condition is not a notice bar");
   await act(async () => fake.emitNotice({ text: "boom", tone: "error" }));
-  assert.ok(byTestId(region(), "surface-notice"), "other notices keep the bar");
+  assert.ok(raisedNotices.some((notice) => notice.body === "boom"), "other notices reach the toast publisher");
   assert.ok(byTestId(region(), "surface-preview-paused"), "and do not clear the paused state");
   await act(async () => fake.emitFrame(frameAt(640, 480)));
   assert.equal(byTestId(region(), "surface-preview-paused"), null, "the next frame clears it");

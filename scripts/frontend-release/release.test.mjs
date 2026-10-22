@@ -148,3 +148,12 @@ test('a published retry with mismatched bytes cannot mutate discovery', async ()
   assert.ok(!service.calls.includes('discover'));
   assert.ok(!service.calls.some(call => call.startsWith('upload:')));
 });
+
+
+test('workflow hands the release files to publication through the private store', async () => {
+  const workflow = (await readFile(new URL('../../.github/workflows/frontend-release.yml', import.meta.url), 'utf8')).replaceAll('\r\n', '\n');
+  assert.doesNotMatch(workflow, /actions\/(upload|download)-artifact@/);
+  assert.match(workflow, /files=\(frontend-release-output\/\*\)[\s\S]*?\[ -f "\$file" \] \|\| continue[\s\S]*?ci-artifact\.sh put "\$GITHUB_RUN_ID\/frontend-release\/\$\{file##\*\/\}"/);
+  assert.match(workflow, /uses: \.\/\.github\/actions\/ci-artifact-spool/);
+  assert.match(workflow, /ci-artifact\.sh get-prefix "\$GITHUB_RUN_ID\/frontend-release\/" frontend-release-output/);
+});

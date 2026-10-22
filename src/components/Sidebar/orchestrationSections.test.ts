@@ -12,7 +12,6 @@ import {
   sortTeamManagers,
   sectionForRole,
   summarizeGroupClose,
-  summarizeWorkers,
 } from "./orchestrationSections";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -111,6 +110,5 @@ assert(summarizeGroupClose(counts) === "1 manager, 3 workers", "singular manager
 assert(summarizeGroupClose({ managers: 0, workers: 2 }) === "2 workers", "omits zero managers");
 assert(summarizeGroupClose({ managers: 2, workers: 0 }) === "2 managers", "omits zero workers");
 assert(summarizeGroupClose({ managers: 1, workers: 1 }) === "1 manager, 1 worker", "both singular");
-assert(summarizeWorkers(3, 2) === "3 workers · 2 working", "worker collapse summary");
 
 console.log("✓ orchestrationSections: role→section matrix, badges, partition, group-close summary");

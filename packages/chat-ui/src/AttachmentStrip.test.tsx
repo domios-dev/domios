@@ -73,6 +73,33 @@ describe("user image attachments", () => {
     expect(host.textContent).not.toContain("<image");
   });
 
+  it("touch opens a dismissible preview and Expand opens the shared viewer", async () => {
+    const original = window.matchMedia;
+    window.matchMedia = (query) => ({ matches: query === "(hover: none)", media: query, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => true });
+    try {
+      const host = await render(codexImageTurn("[1 image]"));
+      const trigger = openButton(host)!;
+      await act(async () => trigger.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true })));
+      expect(viewer()).toBeNull();
+      const preview = document.querySelector('[role="region"]')!;
+      expect(preview).not.toBeNull();
+      await act(async () => {
+        trigger.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "touch" }));
+        preview.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "touch" }));
+      });
+      expect(document.querySelector('[role="region"]')).not.toBeNull();
+      await act(async () => preview.querySelector<HTMLButtonElement>(`[aria-label="Close preview ${NAME}"]`)!.click());
+      expect(document.querySelector('[role="region"]')).toBeNull();
+      await act(async () => trigger.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true })));
+      await act(async () => document.querySelector<HTMLButtonElement>(`[aria-label="Expand image ${NAME}"]`)!.click());
+      expect(viewer()?.parentElement).toBe(document.body);
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close image"]')!.click());
+      expect(viewer()).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+      expect(document.querySelector('[role="region"]')).toBeNull();
+    } finally { window.matchMedia = original; }
+  });
+
   it("keeps the caption beside the thumbnail", async () => {
     const host = await render(codexImageTurn("what is wrong here"));
     expect(host.textContent).toContain("what is wrong here");
@@ -129,7 +156,7 @@ describe("attachment markers in the user bubble", () => {
   it("renders marker attachments as inline controls", async () => {
     const host = await render(userTurn(`check these ${formatAttachmentMarker(PATH)} ${formatAttachmentMarker(DOC)}`));
     expect(openButton(host)).toBeTruthy();
-    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Reveal file q3 summary.pdf"]')?.disabled).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Preview file q3 summary.pdf"]')?.disabled).toBe(false);
     expect(host.textContent).toContain("check these");
     expect(host.textContent).not.toContain("<domios");
     expect(host.textContent).not.toContain(PATH);
@@ -181,7 +208,7 @@ it.each([1280, 390])("shows the image preview on hover at viewport width %s", as
   try {
     const host = await render(codexImageTurn("caption"));
     const chip = openButton(host)!;
-    await act(async () => chip.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+    await act(async () => chip.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" })));
     expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe(PNG);
     await act(async () => chip.click());
     expect(viewer()?.querySelector("img")?.getAttribute("src")).toBe(PNG);

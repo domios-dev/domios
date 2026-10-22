@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Caller: CI build-gateway.yml; skill build
+# Caller: build.sh script-guards; CI tests-fast.yml (guards); skill build
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -189,7 +189,8 @@ for (const id of ["qa-child", "release-policy", "worktree-policy"]) {
 JS
 
 # tauri bundles every src/bin entry as a binary, so a module directory there breaks every release bundle.
-bin_dirs="$(find src-tauri/src/bin -mindepth 1 -maxdepth 1 -type d)"
+bin_dirs=""
+[ ! -d src-tauri/src/bin ] || bin_dirs="$(find src-tauri/src/bin -mindepth 1 -maxdepth 1 -type d)"
 if [ -n "$bin_dirs" ]; then
   echo "guard assertion failed: directories under src-tauri/src/bin become bogus bundle binaries: $bin_dirs" >&2
   exit 1

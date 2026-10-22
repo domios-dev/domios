@@ -29,3 +29,19 @@ fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
         "no declared intent is its own shape: {body}"
     );
 }
+
+#[test]
+fn mesh_spawn_forwards_provider_speed() {
+    let command = parse_spawn_command(&[
+        "opaque-provider",
+        "--cwd",
+        "/opaque",
+        "--speed",
+        "opaque-tier",
+    ]);
+    let (method, path, body) = cli_command_to_api(&command);
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/agents/spawn");
+    let body: serde_json::Value = serde_json::from_str(&body.unwrap()).unwrap();
+    assert_eq!(body["speed"], "opaque-tier");
+}

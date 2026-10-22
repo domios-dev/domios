@@ -4,6 +4,8 @@ export interface PipelineViewNode {
   key: string;
   kind: "trigger" | "step" | "result";
   title: string;
+  capability?: string;
+  sourceState?: string | null;
   state: string;
   current: boolean;
   summary: string;
@@ -20,6 +22,8 @@ export interface PipelineViewEdge {
 }
 
 export interface PipelineView {
+  note?: string | null;
+  deletesAt?: number | null;
   runs?: readonly { id: string; at: number; state: string; pipeline: PipelineView }[];
   id: string;
   name: string;
@@ -47,6 +51,14 @@ function targetSummary(blueprint: BlueprintSnapshot): string {
   return target.id ? `${target.kind} · ${target.id}` : target.kind;
 }
 
+function sourceSummary(step: NonNullable<BlueprintSnapshot["steps"]>[number]): string {
+  const source = step.source;
+  if (step.kind === "http" && source?.url) return `${source.url} · expected ${source.expected_status ?? "2xx"}`;
+  if (step.kind !== "github" || !source) return step.name;
+  const scope = source.repo ?? source.org ?? "GitHub";
+  return source.resource === "runners" ? `${scope} · runners · ${source.label ?? "all labels"}` : `${scope} · ${source.resource} ${source.id}`;
+}
+
 export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
   const trigger = blueprint.trigger;
   const steps = blueprint.steps ?? [];
@@ -67,10 +79,12 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
     ...steps.map((step) => ({
       key: `step-${step.index}`,
       kind: "step" as const,
+      capability: step.kind,
+      sourceState: step.source_state,
       title: step.title || step.name,
       state: step.state,
       current: current === step.index,
-      summary: step.name,
+      summary: sourceSummary(step),
       lastEventAtMs: step.ended_at_ms ?? step.started_at_ms ?? blueprint.last_event_at_ms ?? null,
       resultSummary: step.result_summary ?? step.reason ?? null,
       outcome: step.outcome ?? null,
@@ -103,6 +117,8 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
     })),
     id: blueprint.id,
     name: blueprint.name,
+    note: blueprint.note,
+    deletesAt: blueprint.deletes_at,
     owner: normalizedOwner(blueprint.owner),
     state: blueprint.state,
     nodes,

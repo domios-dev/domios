@@ -28,6 +28,7 @@ mod channel;
 mod channel_failure;
 mod config;
 mod install;
+mod install_swap;
 mod list;
 mod provenance;
 use provenance::*;

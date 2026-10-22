@@ -39,6 +39,12 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE blueprint_definitions ADD COLUMN model_classification INTEGER NOT NULL DEFAULT 0 CHECK (model_classification IN (0, 1));",
     tab_todo::SCHEMA,
     tab_todo::LIFECYCLE_SCHEMA,
+    "ALTER TABLE tab_todo_generations ADD COLUMN proposal_json TEXT CHECK (proposal_json IS NULL OR length(CAST(proposal_json AS BLOB)) <= 4096);",
+    "ALTER TABLE blueprint_runtime ADD COLUMN stopped_at INTEGER CHECK (stopped_at IS NULL OR stopped_at >= 0);
+     ALTER TABLE blueprint_runtime ADD COLUMN transition_offset INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE blueprint_runtime ADD COLUMN action_offset INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE blueprint_definitions ADD COLUMN note TEXT CHECK (note IS NULL OR length(note) <= 200);",
+    "ALTER TABLE blueprints ADD COLUMN creation_options TEXT CHECK (creation_options IS NULL OR length(creation_options) <= 256);",
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

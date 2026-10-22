@@ -63,6 +63,34 @@ pub(crate) fn persist_launch_identity(
     };
 }
 
+pub(crate) fn persist_completed_launch_identity(
+    tab: &mut Tab,
+    planned: Option<&str>,
+    requested: Option<&str>,
+) {
+    let authenticated = tab
+        .agent_session_id
+        .as_ref()
+        .is_some_and(|id| !id.is_empty())
+        && tab
+            .session_binding_nonce
+            .as_deref()
+            .is_some_and(|nonce| tab.reported_session_binding_nonce.as_deref() == Some(nonce))
+        && tab.reasoning_effort_identity.actual_source.as_deref() == Some(SESSION_OWNED);
+    let actual = authenticated
+        .then(|| tab.reasoning_effort_identity.actual.clone())
+        .flatten();
+    persist_launch_identity(tab, planned, requested);
+    if let Some(actual) = actual {
+        tab.reasoning_effort_identity.actual = Some(actual);
+        tab.reasoning_effort_identity.actual_source = Some(SESSION_OWNED.into());
+    }
+}
+
+#[cfg(test)]
+#[path = "reasoning_effort/completed_launch_tests.rs"]
+mod completed_launch_tests;
+
 pub(crate) fn clear_runtime_evidence(tab: &mut Tab) {
     tab.reasoning_effort_identity.actual = None;
     if !tab.reasoning_effort_identity.is_empty() {

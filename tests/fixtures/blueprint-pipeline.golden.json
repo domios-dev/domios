@@ -3,9 +3,11 @@
   "blueprints": [
     {
       "current_step": null,
+      "deletes_at": null,
       "id": "blueprint-echo",
       "last_event_at_ms": 1107,
       "name": "Echo pipeline",
+      "note": null,
       "owner": {
         "kind": "tab",
         "tab_id": "creator",
@@ -93,6 +95,7 @@
           "title": "filter: match"
         }
       ],
+      "stopped_at": null,
       "trigger": {
         "summary": "every 20s",
         "type": "schedule"

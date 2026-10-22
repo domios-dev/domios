@@ -321,6 +321,8 @@ export interface EffortLink {
 }
 
 export interface Plan {
+  control_loop?: import("./planControlLoop").PlanControlLoop;
+  pause_operations?: Array<{ paused_at: number; reason: string; resume?: unknown }>;
   id: string;
   title: string;
   sections: Section[];

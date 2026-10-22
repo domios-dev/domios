@@ -1,21 +1,85 @@
 use super::*;
+use crate::domios;
+use crate::message_markers::{provenance, Provenance};
 
 #[derive(Deserialize)]
 struct Fixture {
     name: String,
     raw: String,
+    route: String,
+    #[serde(default)]
+    quoted: bool,
     segments: Vec<MessageSegment>,
+}
+
+const FIXTURES: &str = include_str!("../../../../../tests/fixtures/message-envelope.json");
+const HOST_MARKUP: [&str; 4] = ["<domios", "<tip>", DOMIOS_PASTED_MARKER, "<pasted_content"];
+
+fn fixtures() -> Vec<Fixture> {
+    serde_json::from_str(FIXTURES).unwrap()
+}
+
+fn route(text: &str) -> &'static str {
+    match provenance(text) {
+        Provenance::HostInjected => "host_injected",
+        Provenance::StreamContent => "stream_content",
+    }
+}
+
+fn assert_tiles(text: &str, spans: &[SpannedSegment]) {
+    let mut cursor = 0;
+    for spanned in spans {
+        assert_eq!(spanned.span.start, cursor, "gap or overlap in {text:?}");
+        assert!(
+            spanned.span.end > spanned.span.start,
+            "empty span in {text:?}"
+        );
+        let raw = &text[spanned.span.clone()];
+        match &spanned.segment {
+            MessageSegment::Text { text: shown } => assert_eq!(shown, raw),
+            MessageSegment::UnknownFrame { raw: kept, .. }
+            | MessageSegment::PartialFrame { raw: kept, .. } => assert_eq!(kept, raw),
+            _ => {}
+        }
+        cursor = spanned.span.end;
+    }
+    assert_eq!(cursor, text.len(), "untiled tail in {text:?}");
+}
+
+fn displayed(segments: &[MessageSegment], out: &mut Vec<String>) {
+    for segment in segments {
+        match segment {
+            MessageSegment::Text { text } => out.push(text.clone()),
+            MessageSegment::Paste { body, .. }
+            | MessageSegment::UnknownFrame { body, .. }
+            | MessageSegment::PartialFrame { body, .. } => out.push(body.clone()),
+            MessageSegment::Frame {
+                body,
+                tip,
+                segments,
+                ..
+            } => {
+                if segments.is_empty() {
+                    out.push(body.clone());
+                }
+                out.extend(tip.clone());
+                displayed(segments, out);
+            }
+            MessageSegment::Attachment { body, label, .. } => {
+                out.extend(body.clone());
+                out.extend(label.clone());
+            }
+        }
+    }
 }
 
 #[test]
 fn envelope_shared_fixtures() {
-    let fixtures: Vec<Fixture> = serde_json::from_str(include_str!(
-        "../../../../../tests/fixtures/message-envelope.json"
-    ))
-    .unwrap();
-    for fixture in fixtures {
+    for fixture in fixtures() {
+        let spans = parse_envelope_spans(&fixture.raw);
+        assert_tiles(&fixture.raw, &spans);
         assert_eq!(
-            parse_envelope(&fixture.raw),
+            spans.into_iter().map(|s| s.segment).collect::<Vec<_>>(),
             fixture.segments,
             "{}",
             fixture.name
@@ -24,14 +88,37 @@ fn envelope_shared_fixtures() {
 }
 
 #[test]
+fn envelope_fixtures_never_display_host_markup() {
+    for fixture in fixtures().into_iter().filter(|fixture| !fixture.quoted) {
+        let mut shown = Vec::new();
+        displayed(&fixture.segments, &mut shown);
+        for text in shown {
+            for markup in HOST_MARKUP {
+                assert!(
+                    !text.contains(markup),
+                    "{}: {markup:?} displayed in {text:?}",
+                    fixture.name
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn envelope_arbitrary_unicode_truncations_are_total() {
-    let source = "👋\n<domios from=\"tab\" tab=\"a\">你好 <tip>hint</tip></domios>\n<pasted_content id=\"x\">é</pasted_content>";
-    for end in source
-        .char_indices()
-        .map(|(index, _)| index)
-        .chain([source.len()])
-    {
-        let _ = parse_envelope(&source[..end]);
+    let mut sources = fixtures()
+        .into_iter()
+        .map(|fixture| fixture.raw)
+        .collect::<Vec<_>>();
+    sources.push("👋\n<domios from=\"tab\" tab=\"a\">你好 <tip>hint</tip></domios>\n<pasted_content id=\"x\">é</pasted_content>".into());
+    for source in sources {
+        for end in source
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain([source.len()])
+        {
+            assert_tiles(&source[..end], &parse_envelope_spans(&source[..end]));
+        }
     }
 }
 
@@ -40,19 +127,138 @@ fn envelope_display_segmentation_does_not_change_route_authority() {
     let text = "ordinary user input\n<domios from=\"tab\" tab=\"a\">body</domios>";
     assert_eq!(parse_envelope(text).len(), 2);
     assert!(domios::parse_message(text).is_none());
+    assert_eq!(provenance(text), Provenance::StreamContent);
+    for fixture in fixtures() {
+        assert_eq!(route(&fixture.raw), fixture.route, "{}", fixture.name);
+        let framed = fixture.segments.iter().any(|segment| {
+            matches!(
+                segment,
+                MessageSegment::Frame { .. } | MessageSegment::UnknownFrame { .. }
+            )
+        });
+        if fixture.route == "host_injected" && framed {
+            assert!(
+                domios::parse_message(&fixture.raw).is_some()
+                    || fixture.raw.starts_with(crate::message_markers::OPEN),
+                "{}",
+                fixture.name
+            );
+        }
+    }
+}
+
+#[test]
+fn unknown_frame_keeps_raw_bytes_and_markup_free_body() {
+    let raw = "<domios from=\"opaque-kind\" tab=\"a\">opaque body <tip>opaque hint</tip></domios>";
     assert_eq!(
-        crate::message_markers::provenance(text),
-        crate::message_markers::Provenance::StreamContent
+        parse_envelope(raw),
+        [MessageSegment::UnknownFrame {
+            raw: raw.into(),
+            attrs: [("from", "opaque-kind"), ("tab", "a")]
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .into(),
+            body: "opaque body".into(),
+        }]
     );
+}
+
+#[test]
+fn partial_frame_runs_to_the_end_without_a_cut_tag() {
+    let raw = "<domios from=\"tab\" tab=\"a\">opaque body\n <tip>opaque cut";
+    let segments = parse_envelope(raw);
+    let [MessageSegment::PartialFrame {
+        raw: kept,
+        body,
+        attrs,
+    }] = segments.as_slice()
+    else {
+        panic!("expected one partial frame");
+    };
+    assert_eq!(kept, raw);
+    assert_eq!(body, "opaque body");
+    assert_eq!(attrs.get("from").map(String::as_str), Some("tab"));
+    for folded in [
+        "<pasted_content id=\"p\"><domios from=\"tab\">opaque",
+        "<domios from=\"opaque-kind\">opaque</domios>\npasted by Domios",
+    ] {
+        assert_tiles(folded, &parse_envelope_spans(folded));
+    }
+    for cut in [
+        "<domios",
+        "<domios from=\"tab\"",
+        "<domios from=\"tab\">opaque </dom",
+    ] {
+        let segments = parse_envelope(cut);
+        assert!(
+            matches!(segments.as_slice(), [MessageSegment::PartialFrame { body, .. }] if !body.contains('<')),
+            "{cut:?}: {segments:?}"
+        );
+    }
+}
+
+#[test]
+fn trailing_newline_after_a_frame_stays_outside_its_body() {
+    let raw = "<domios from=\"tab\" tab=\"a\">opaque body\n <tip>opaque hint</tip></domios>\n";
+    assert_eq!(
+        parse_envelope(raw),
+        [
+            MessageSegment::Frame {
+                kind: FrameKind::Tab,
+                from: "tab".into(),
+                attrs: [("from", "tab"), ("tab", "a")]
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .into(),
+                body: "opaque body".into(),
+                tip: Some("opaque hint".into()),
+                segments: Vec::new(),
+            },
+            MessageSegment::Text { text: "\n".into() },
+        ]
+    );
+}
+
+#[test]
+fn glued_frames_split_without_separators() {
+    let one = "<domios from=\"report\" tab=\"a\">opaque one</domios>";
+    let two = "<domios from=\"system\">opaque two</domios>";
+    let three = "<domios from=\"tab\" tab=\"b\">opaque three</domios>";
+    let segments = parse_envelope(&format!("opaque owner{one}{two}{three}"));
+    let kinds = segments
+        .iter()
+        .map(|segment| match segment {
+            MessageSegment::Frame { kind, .. } => Some(*kind),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        [
+            None,
+            Some(FrameKind::Report),
+            Some(FrameKind::System),
+            Some(FrameKind::Tab)
+        ]
+    );
+}
+
+#[test]
+fn every_registered_kind_round_trips_its_wire_name() {
+    for kind in FrameKind::ALL {
+        assert_eq!(FrameKind::from_wire(kind.as_str()), Some(kind));
+        assert_eq!(
+            serde_json::to_value(kind).unwrap(),
+            serde_json::Value::String(kind.as_str().into())
+        );
+    }
+    assert_eq!(FrameKind::from_wire("inbound"), None);
 }
 
 #[test]
 fn envelope_plain_text_keeps_every_byte() {
     for source in [
         "  é 👋\r\n",
-        "<domios from=\"tab\">",
         "a pasted by Domios b",
-        "<pasted_content id=\"x\">unclosed",
+        "<domiosX from=\"tab\">",
     ] {
         assert_eq!(
             parse_envelope(source),
@@ -61,6 +267,13 @@ fn envelope_plain_text_keeps_every_byte() {
             }]
         );
     }
+    assert_eq!(
+        parse_envelope("<pasted_content id=\"x\">opaque unclosed"),
+        [MessageSegment::Paste {
+            id: Some("x".into()),
+            body: "opaque unclosed".into()
+        }]
+    );
 }
 
 #[test]

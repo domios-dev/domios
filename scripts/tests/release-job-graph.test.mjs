@@ -101,7 +101,7 @@ test('direct platform dispatch is scoped and cannot mutate release assets', () =
       }
     }
   }
-  assert.deepEqual(workflow('tests').on.workflow_dispatch.inputs.phase.options, ['fast']);
+  assert.equal(workflow('tests').jobs.rust.if, "github.event_name == 'push'", 'a manual tests dispatch runs the fast tier only');
 });
 test('every platform checks its own built bundle before any upload, with independent Windows retries', () => {
   for (const name of ['release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows']) {
@@ -154,7 +154,7 @@ test('production publications serialize and verify draft bytes before becoming p
   assert.match(steps[verify].run, /gh release download/);
 });
 test('release CI actions are immutable and every executable job has a deadline', () => {
-  for (const name of ['release', 'tests', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows', 'release-manifest-validate', 'frontend-release', 'release-credentials', 'ready-for-release', 'qualification', 'precheck', 'build-gateway']) {
+  for (const name of ['release', 'tests', 'release-macos-build', 'release-linux-arm64', 'release-linux', 'release-windows', 'release-manifest-validate', 'frontend-release', 'release-credentials', 'ready-for-release', 'qualification', 'precheck']) {
     for (const job of Object.values(workflow(name).jobs)) {
       if (job.uses) continue;
       assert.ok(job['timeout-minutes'] > 0, `${name} deadline`);
@@ -202,14 +202,14 @@ test('Mac jobs provision secret material before building and always clean up', (
   assert.match(read('scripts/release-macos-x86_64.sh'), /CODETERM_RELEASE_COMMON_STAGE=1/);
 });
 
-test('builds on machines no fast check uses overlap the fast checks; the rest wait for them', () => {
-  for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'windows-x64', 'windows-arm64']) {
-    assert.deepEqual(release.jobs[build].needs, ['prepare', 'frontend-dist']);
+test('builds wait for the builds tier; tests wait only for the tests tier', () => {
+  for (const build of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']) {
+    assert.deepEqual(release.jobs[build].needs, ['prepare', 'frontend-dist', 'builds-tier']);
   }
-  assert.deepEqual(release.jobs['linux-x86_64'].needs, ['prepare', 'quick-checks', 'frontend-dist']);
-  assert.deepEqual(release.jobs.tests.needs, ['prepare', 'quick-checks']);
+  assert.deepEqual(release.jobs.tests.needs, ['prepare', 'tests-tier']);
+  assert.deepEqual(release.jobs['builds-tier'].needs, ['prepare', 'tests-tier']);
   assert.equal(release.jobs['frontend-dist'].needs, 'prepare');
-  assert.equal(release.jobs.tests.with.phase, 'long');
+  assert.equal(release.jobs.tests.uses, './.github/workflows/tests-rust.yml');
   assert.ok(release.jobs['release-manifest'].needs.includes('quick-checks'));
 });
 
@@ -237,7 +237,7 @@ test('native release processes share a job wrapper and verify before compiling',
 });
 
 test('Windows Rust tests invoke the owning build forwarder without a bash shell', () => {
-  const steps = Object.values(workflow('tests').jobs).flatMap(job => job.steps || []);
+  const steps = Object.values(workflow('tests-rust').jobs).flatMap(job => job.steps || []);
   const archive = steps.find(step => step.run?.includes('build.ps1 ci-tests'));
   assert.ok(archive);
   assert.equal(archive.shell, 'pwsh');
@@ -247,7 +247,7 @@ test('Windows Rust tests invoke the owning build forwarder without a bash shell'
 });
 
 test('compact unwind workaround belongs only to macOS platform tests, preserving release link flags', () => {
-  const tests = workflow('tests');
+  const tests = workflow('tests-rust');
   const step = tests.jobs['rust-platform'].steps.find(step => step.run?.includes('bash build.sh ci-tests'));
   assert.match(step.run, /\[ "\$RUNNER_OS" = macOS \] && \[ "\$\{\{ matrix.suite \}\}" = platform \]/);
   for (const triple of ['AARCH64', 'X86_64']) {

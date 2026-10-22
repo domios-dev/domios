@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescriptor {
+pub(crate) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescriptor {
     let platform = current_platform_tag();
     let runtime = provider.agent_runtime();
     let mut settings = provider.settings_schema();

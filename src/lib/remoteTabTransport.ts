@@ -94,6 +94,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "read_html_preview_file": return call("POST", "/preview/read", { path: args.path, kind: "page" }, (value) => (value as { data: string }).data);
     case "check_local_preview_files": return call("POST", "/preview/check", { paths: args.paths });
     case "tab_todo_list": return call("GET", "/todos");
+    case "tab_todo_review": return call("POST", "/todos/review", args.request);
     case "wake_tab": return call("POST", "/wake");
     case "mux_close_tab": return call("POST", "/close");
     case "mux_rename_tab": return call("POST", "/rename", { title: args.title ?? args.name });
@@ -129,6 +130,7 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
       ...(args.knownWindow != null ? { knownWindow: args.knownWindow } : {}) });
     case "chat_stop": return call("POST", "/chat-raw/stop", { subscriptionId: args.subscriptionId });
     case "chat_backfill": return call("POST", "/chat-raw/backfill", { before_offset: args.beforeOffset, max_bytes: args.maxBytes, offset_kind: args.offsetKind });
+    case "chat_history_page": return call("POST", "/chat-raw/history", { source: args.source, session_id: args.sessionId, before_offset: args.beforeOffset });
     case "chat_send_text": return call("POST", "/chat-send", {
       text: args.text,
       client_token: args.clientToken,
@@ -138,9 +140,10 @@ export function remoteTransportCall(command: string, args: Record<string, unknow
     case "chat_send_status": return call("GET", "/chat-send");
     case "shell_command_snapshot": return call("GET", "/shell-commands");
     case "delayed_send_list": return call("GET", "/delayed-messages");
+    case "system_heartbeat_list": return call("GET", "/system-heartbeats");
     case "delayed_send_create": return call("POST", "/delayed-messages", {
       text: args.text,
-      scheduled_at_ms: args.scheduledAtMs,
+      scheduledAtMs: args.scheduledAtMs,
     });
     case "mux_respond_prompt": return call("POST", "/prompt/respond", args, (value) =>
       isPromptNotOnScreenResponse(value) ? undefined : value,

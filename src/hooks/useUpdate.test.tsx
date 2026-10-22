@@ -126,10 +126,10 @@ async function main() {
     assert.equal(state().status, "checking");
 
     resolveInstall({ status: "already_in_flight", message: "opaque" });
-    assert.equal((await firstApply)?.status, "already_in_flight");
-    assert.equal(state().installing, true);
-    assert.equal(state().toastOpen, false);
-    assert.equal((await state().applyUpdate())?.status, "already_in_flight");
+    await act(async () => { assert.equal(await firstApply, null); });
+    assert.equal(state().installing, false);
+    assert.equal(state().error, "opaque");
+    assert.equal(state().toastOpen, true);
 
     await act(async () => events.get("update-status-changed")?.({
       ...runtimeStatus("downloading"), downloaded_bytes: 25, download_total_bytes: 100,
@@ -180,6 +180,11 @@ async function main() {
   }
 
   assert.equal(normalizeInstallResponse({ status: "already_in_flight" }).status, "already_in_flight");
+  assert.equal(normalizeInstallResponse({ status: "no_update" }).status, "up_to_date");
+  for (const status of ["blocked", "elevation_required", "unknown"]) {
+    assert.throws(() => normalizeInstallResponse({ status, message: "opaque refusal" }), /opaque refusal/);
+  }
+  assert.throws(() => normalizeInstallResponse(null), /Malformed install response/);
   console.log("useUpdate first-poll install contract ok");
 }
 

@@ -5,6 +5,28 @@ use super::tab_todo::TabTodoAction;
 use super::todo::TodoAction;
 
 #[test]
+fn checklist_proposal_commands_expose_review_flags() {
+    assert!(matches!(
+        Cli::try_parse_from(["codeterm", "todo", "submit"])
+            .unwrap()
+            .command,
+        Commands::Todo {
+            action: TodoAction::Submit
+        }
+    ));
+    assert!(
+        matches!(Cli::try_parse_from(["codeterm", "todo", "approve", "--tab", "worker", "--note-from-pad", "note.md"]).unwrap().command,
+        Commands::Todo { action: TodoAction::Approve { tab, note_from_pad: Some(note) } } if tab == "worker" && note == "note.md")
+    );
+    assert!(
+        matches!(Cli::try_parse_from(["codeterm", "todo", "amend", "--tab", "worker", "--from-pad", "todos.json"]).unwrap().command,
+        Commands::Todo { action: TodoAction::Amend { tab, from_pad, .. } } if tab == "worker" && from_pad == "todos.json")
+    );
+    assert!(Cli::try_parse_from(["codeterm", "todo", "approve"]).is_err());
+    assert!(Cli::try_parse_from(["codeterm", "todo", "amend", "--tab", "worker"]).is_err());
+}
+
+#[test]
 fn agent_todo_write_uses_the_provider_native_json_pad_contract() {
     let cli =
         Cli::try_parse_from(["codeterm", "todo", "write", "--from-pad", "todos.json"]).unwrap();

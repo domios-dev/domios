@@ -291,6 +291,36 @@ fn created_member_tab_ids(reserved: &ReservedPairTabs) -> Vec<String> {
     .collect()
 }
 
+/// A pair adds one or two tabs and, unless the claimed Orchestrator already has one, a Team.
+fn admit_pair(
+    gate: &codeterm_service_core::service::billing::LimitGate,
+    mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
+    existing_orchestrator: Option<&str>,
+) -> Result<(), String> {
+    use codeterm_service_core::service::billing::LimitKey;
+    let tabs = mux.all_tabs().count();
+    let new_tabs = if existing_orchestrator.is_some() {
+        1
+    } else {
+        2
+    };
+    gate.admit(LimitKey::AgentTabs, tabs + new_tabs - 1)
+        .map_err(|refusal| {
+            codeterm_service_core::service::billing::LimitRefusal {
+                count: tabs as u64,
+                ..refusal
+            }
+            .to_string()
+        })?;
+    let mints_team = existing_orchestrator
+        .and_then(|tab_id| mux.get_tab(tab_id))
+        .is_none_or(|tab| tab.team_id.is_none());
+    if mints_team {
+        codeterm_service_core::service::billing::admit_new_team(gate)(mux.team_count())?;
+    }
+    Ok(())
+}
+
 fn reserve_pair_tabs(
     mux: &mut codeterm_service_core::multiplexer::state::MultiplexerState,
     workspace_id: &str,
@@ -602,8 +632,10 @@ impl OrchestrationPairExt for ServiceContext {
             Some(&params.orchestrator_agent),
             Some(&params.planner_agent),
         );
+        let gate = self.limit_gate();
         let reserved = {
             let mut mux = self.mux.write();
+            admit_pair(&gate, &mux, params.existing_tab_id.as_deref())?;
             let mut reserved = reserve_pair_tabs(
                 &mut mux,
                 &workspace_id,

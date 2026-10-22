@@ -1162,3 +1162,9 @@ mod reply_relay;
 
 #[path = "parity_test/local_recording_devices.rs"]
 mod local_recording_devices;
+
+#[path = "parity_test/runtime_chat_descriptor.rs"]
+mod runtime_chat_descriptor;
+
+#[path = "parity_test/data_dir.rs"]
+mod data_dir;

@@ -1,0 +1,36 @@
+{
+  "skill_name": "blueprint-reuse",
+  "description": "Recipe-first authoring and built-in versus custom source capabilities.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "reuse-before-graph",
+      "response_mode": "text",
+      "prompt": "I need to watch another release CI run, just like yesterday. Before authoring a new Blueprint, what do you try first? Explain briefly without executing commands.",
+      "expected_output": "Reuses a recipe with new inputs before authoring another graph.",
+      "expectations": [
+        "First looks for or reuses a Blueprint recipe with inputs for the new run before authoring a new graph."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "discover-github-source",
+      "response_mode": "text",
+      "prompt": "I want a Blueprint to inspect GitHub run status, jobs and PR checks. Should I start by writing my own shell source? Briefly explain your first choice without executing commands.",
+      "expected_output": "Discovers the built-in GitHub node before writing a custom source.",
+      "expectations": [
+        "Identifies a built-in GitHub node as the first choice or a capability to discover before writing a custom shell source."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "custom-source-remains-allowed",
+      "response_mode": "text",
+      "prompt": "The built-in Blueprint nodes and available recipes do not fit my custom release service. Is a custom command source still allowed? Explain briefly without executing commands.",
+      "expected_output": "Allows custom nodes after recipes and built-ins do not fit.",
+      "expectations": [
+        "Explicitly allows a custom command or custom node when no recipe or built-in fits."
+      ]
+    }
+  ]
+}

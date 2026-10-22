@@ -1,4 +1,7 @@
+mod gate;
 mod jcs;
+mod lifecycle;
+mod limits;
 mod policy;
 mod purity;
 mod refusals;

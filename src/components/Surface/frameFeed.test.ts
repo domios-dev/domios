@@ -23,3 +23,15 @@ const resumed: StreamFrame[] = [];
 const stopResumed = feed.subscribe((next) => resumed.push(next));
 assert.deepEqual(resumed, [frame("AQ==")], "returning viewers get the current frame without waiting for a repaint");
 stopResumed();
+
+let allowed = true;
+const guarded = createFrameFeed(() => allowed);
+const accepted: StreamFrame[] = [];
+guarded.subscribe((next) => accepted.push(next));
+guarded.publish(first);
+allowed = false;
+guarded.publish(frame("AQ=="));
+const replayed: StreamFrame[] = [];
+guarded.subscribe((next) => replayed.push(next));
+assert.deepEqual(accepted, [first], "rejected frames never replace the last good frame");
+assert.deepEqual(replayed, [], "a cached frame is revalidated when a viewer returns");

@@ -1,7 +1,8 @@
 import { useLocalArtifactTabId } from "./LocalArtifactScope";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code2, Copy, Check, Eye, Maximize2, Minimize2, RefreshCw } from "lucide-react";
-import { CodeBlock, findScrollableContainer } from "./CodeBlock";
+import { CodeBlock } from "./CodeBlock";
+import { FullscreenOverlay } from "./FullscreenOverlay";
 import { loadHtmlFile } from "./htmlFileLoader";
 
 export const HTML_PREVIEW_MIN_HEIGHT = 80;
@@ -27,6 +28,7 @@ const HTML_PREVIEW_CSP = [
 
 const HEIGHT_REPORTER = `<script>(function(){
 var post=function(){var d=document;var h=Math.max(d.documentElement.scrollHeight,d.body?d.body.scrollHeight:0);parent.postMessage({source:${JSON.stringify(HTML_PREVIEW_MESSAGE_SOURCE)},height:h},'*')};
+document.addEventListener('keydown',function(event){if(event.key==='Escape'){event.preventDefault();parent.postMessage({source:'ct-html-preview',action:'close'},'*')}});
 window.addEventListener('load',post);
 document.addEventListener('DOMContentLoaded',post);
 if(window.ResizeObserver){new ResizeObserver(post).observe(document.documentElement)}
@@ -91,7 +93,6 @@ function inlineScript(source: string): string {
 }
 
 type ThemeVars = { bg: string; fg: string; accent: string; muted: string; border: string };
-type RectBounds = { top: number; left: number; width: number; height: number };
 type FileSourceState =
   | { status: "idle" | "loading"; source: ""; error: "" }
   | { status: "ready"; source: string; error: "" }
@@ -101,11 +102,6 @@ export function parseHtmlFileDirective(source: string): string | null {
   const match = /^\s*@file\s+(?:"([^"]+)"|'([^']+)'|(.+?))\s*$/s.exec(source.replace(/\r/g, ""));
   const path = (match?.[1] || match?.[2] || match?.[3] || "").trim();
   return path || null;
-}
-
-function readBounds(element: HTMLElement): RectBounds {
-  const rect = element.getBoundingClientRect();
-  return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
 }
 
 function readThemeVars(): ThemeVars {
@@ -194,8 +190,8 @@ export function HtmlPreviewBlock({ text, fullscreenRequest = 0, renderError }: {
   const [height, setHeight] = useState(HTML_PREVIEW_MIN_HEIGHT);
   const [copied, setCopied] = useState(false);
   const blockRef = useRef<HTMLDivElement>(null);
-  const scrollHostRef = useRef<HTMLElement | null>(null);
-  const [bounds, setBounds] = useState<RectBounds | null>(null);
+  const fullscreenRef = useRef<HTMLDivElement>(null);
+  const dismissFullscreen = useCallback(() => setIsFullscreen(false), []);
   const theme = useMemo(() => readThemeVars(), []);
   const previewSource = useMemo(() => {
     if (!filePath) return normalizedText;
@@ -248,67 +244,14 @@ export function HtmlPreviewBlock({ text, fullscreenRequest = 0, renderError }: {
     setCopied(false);
   }, [normalizedText]);
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !isFullscreen) {
-      return;
-    }
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [isFullscreen]);
-
-  const updateFullscreenBounds = useCallback(() => {
-    const host = scrollHostRef.current;
-    if (!host) {
-      setBounds(null);
-      return;
-    }
-    const next = readBounds(host);
-    setBounds((current) => current
-      && current.top === next.top
-      && current.left === next.left
-      && current.width === next.width
-      && current.height === next.height
-      ? current
-      : next);
-  }, []);
-
-  useEffect(() => {
-    if (!isFullscreen) {
-      return;
-    }
-    const host = scrollHostRef.current;
-    updateFullscreenBounds();
-    window.addEventListener("resize", updateFullscreenBounds);
-    host?.addEventListener("scroll", updateFullscreenBounds, { passive: true });
-    const observer = host && typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(updateFullscreenBounds)
-      : null;
-    if (observer && host) {
-      observer.observe(host);
-    }
-    return () => {
-      window.removeEventListener("resize", updateFullscreenBounds);
-      host?.removeEventListener("scroll", updateFullscreenBounds);
-      observer?.disconnect();
-    };
-  }, [isFullscreen, updateFullscreenBounds]);
-
   const openFullscreen = (event?: React.MouseEvent) => {
     event?.stopPropagation();
-    const host = findScrollableContainer(blockRef.current);
-    scrollHostRef.current = host;
-    setBounds(host ? readBounds(host) : null);
+    if (event?.currentTarget instanceof HTMLElement) event.currentTarget.focus();
     setIsFullscreen(true);
   };
-
   const closeFullscreen = (event?: React.MouseEvent) => {
     event?.stopPropagation();
     setIsFullscreen(false);
-    setBounds(null);
-    scrollHostRef.current = null;
   };
 
   const toolbar = (fullscreen: boolean) => (
@@ -402,21 +345,10 @@ export function HtmlPreviewBlock({ text, fullscreenRequest = 0, renderError }: {
         {toolbar(false)}
         {body(false)}
       </div>
-      {isFullscreen && (
-        <div
-          className="ct-chat-fullscreen fixed z-50 bg-black/85 backdrop-blur-sm"
-          style={bounds ? { top: bounds.top, left: bounds.left, width: bounds.width, height: bounds.height } : { inset: 0 }}
-          onClick={closeFullscreen}
-        >
-          <div
-            className="mx-auto flex h-full w-full flex-col border border-[var(--ct-border)] bg-[var(--ct-bg)] p-2 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            {toolbar(true)}
-            <div className="min-h-0 flex-1 overflow-hidden">{body(true)}</div>
-          </div>
-        </div>
-      )}
+      {isFullscreen && <FullscreenOverlay panelRef={fullscreenRef} closeButton={false} label="Fullscreen HTML page" onClose={dismissFullscreen}>
+        {toolbar(true)}
+        <div className="min-h-0 flex-1 overflow-hidden">{body(true)}</div>
+      </FullscreenOverlay>}
     </div>
   );
 }

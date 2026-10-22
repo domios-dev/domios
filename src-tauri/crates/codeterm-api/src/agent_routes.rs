@@ -84,6 +84,7 @@ pub struct SpawnAgentBody {
     /// rejected structurally if unsupported (no silent downgrade).
     #[serde(alias = "reasoning-effort")]
     reasoning_effort: Option<String>,
+    speed: Option<String>,
     #[serde(alias = "system")]
     system_prompt: Option<String>,
     preset: Option<String>,
@@ -597,6 +598,10 @@ pub async fn set_tab_role(
             let mux = state.svc.mux.read();
             mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)
         };
+        if becomes_anchor {
+            codeterm_orchestration::admit_anchor_promotion(&state.svc, &id)
+                .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+        }
         let plan_binding: Option<String> = None;
         let destination = match parsed_role {
             AgentRole::Manager if becomes_anchor => {
@@ -961,10 +966,18 @@ pub async fn list_agent_providers(
 async fn list_agent_providers_blocking(
     registry: std::sync::Arc<codeterm_service_core::provider::ProviderRegistry>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let started = std::time::Instant::now();
     tokio::task::spawn_blocking(move || {
-        Json(serde_json::Value::Array(list_agent_provider_values(
+        let queue_us = started.elapsed().as_micros();
+        let result = Json(serde_json::Value::Array(list_agent_provider_values(
             &registry,
-        )))
+        )));
+        log::debug!(
+            "[providers.route] queue_us={} total_us={}",
+            queue_us,
+            started.elapsed().as_micros()
+        );
+        result
     })
     .await
     .map_err(|error| {

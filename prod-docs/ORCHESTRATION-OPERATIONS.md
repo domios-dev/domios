@@ -98,6 +98,23 @@ More than five worktrees or direct Workers is cleanup pressure. More than ten is
 
 ## Heartbeat
 
+Curator is the default plan control loop. It reviews a bounded system digest with the Orchestrator's current provider, model and effort. Its chosen next delay is clamped to 45 minutes through two hours; a quiet Team has a four-hour idle floor. It may send one short message containing up to three questions to its Orchestrator, who may answer or skip. Open human questions, paused plans and completed plans suspend rounds.
+
+```bash
+codeterm plan control-loop show <plan>
+codeterm plan control-loop run <plan>
+codeterm plan control-loop set <plan> curator
+codeterm plan control-loop set <plan> heartbeat --interval 30m
+codeterm plan curator grant <plan> <tab> --blueprint <id>
+codeterm plan curator grant <plan> <tab> --plan-skill <slug>
+codeterm plan curator grant <plan> <tab> --save <candidate>
+codeterm curator finish --next 90m --from-pad note.md
+```
+
+Heartbeat intervals are 15, 30, 45, 60, 90 or 120 minutes. Grants expire with the round and session. Blueprint grants cover only daemon-flagged duplicate or stale items; plan skill grants cover one slug. A Curator job belongs to its Team, retains ordinary job runs, and cannot be deleted manually. Its round metadata appears in a `curator_round` stride. The control-loop view exposes suspension and fallback reasons and seven-day counts.
+
+The owner or Orchestrator may request one round now from the command above or Plan settings. It still requires Curator mode, an available mirrored provider, and an eligible plan with no human wait. A turn end keeps the round alive for an Orchestrator reply; explicit finish, the deadline or a hard failure ends it. Jobs reports that round's outcome, and its transcript remains readable after the tab closes.
+
 Heartbeat preserves the control loop across idle time and compaction. The daemon derives it from plan state, live assignments, gates, and durable learnings. Orchestrators do not edit heartbeat fields.
 
 A reminder names actionable task ids and gives one compact count for tasks parked in later groups. Dependency-waiting, later-group, and machine-paused tasks need no dispatch action.
@@ -148,4 +165,14 @@ Every created agent, utility shell, and schedule belongs to its Team. Bind utili
 
 `codeterm team close <team>` is refused (`[TEAM CLOSE REFUSED] busy`, HTTP `409`) while any Team task is `in_progress` or any Worker member is working; the message names each Worker and task and nothing is closed. Finish or park the work first, or pass `--force` (`force_busy: true`; the desktop and web close dialogs send it after confirmation). A forced close reports `killed_workers`, `unfinished_tasks`, and `flagged_plans`. A plan that still has unfinished tasks is never archived: it stays `active`, ownerless and teamless, with an `orphaned` record (`team_id`, `reason`, `unfinished_task_ids`) that `plan list` shows as `[flagged: <reason>]`. Its in-progress tasks return to `pending` with the `team-closed` label, dirty lanes stay as cleanup debt, and `plan next` advises only `codeterm team adopt-plan <team-id> <plan>`, which clears the flag. A workspace close passes its `force` through as `force_busy`. A workspace with no tabs and no Teams closes for any caller, even without tab identity.
 
-<!-- revision: 15 -->
+
+
+Curator memory saves require a round grant for a repeated candidate and at most one save in the round. For a granted plan skill, use the candidate tag `curator:candidate:plan-skill:<slug>` on the normal memory save and provide the generalized skill body. A covering entry requires `--replace`; conflicting or uncertain existing matches refuse the save.
+
+
+
+Each non-quiet Curator finish note includes `MOVE: <one highest-leverage next step> [ids]` immediately after `NEXT`. The round summary and its Orchestrator result carry that move. Movement sections report task ages, review backlog, waits, decisions, open questions, observed agent-state minutes and accepted work without recorded owner notice evidence. These contain ids and numbers; lower-priority sections are trimmed within the shared 8 KiB limit.
+
+Every sixth real Curator round and each newly closed group triggers synthesis. Its digest includes the goal, correctness vector, open acceptance criteria count and the newest prior MOVE, RETRO and LEARN lines, dropping oldest history within the shared 8 KiB cap. A synthesis note may include `READY: yes|no ... [ids]`. READY is advisory: it appears in the round summary and never changes plan or release state.
+
+<!-- revision: 19 -->

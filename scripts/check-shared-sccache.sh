@@ -3,6 +3,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/cache-policy.sh"
+# A machine may pin its own cache choice and a gateway job its identity; the fixtures decide both.
+unset CODETERM_SCCACHE_STORAGE CODETERM_SCCACHE_JOB_LOCAL CT_BUILD_JOB_ID CT_GATEWAY_ACTIVE CT_GATEWAY_OWNER_PID CT_GATEWAY_PROCESS_START
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 export CT_BUILD_GATEWAY_SCOPE=fixture CT_BUILD_GATEWAY_FIXTURE_DIR="$WORK/gateway"
@@ -188,7 +190,7 @@ printf 'PASS CI verification never configures or refuses busy matching S3\n'
   ct_sccache_verify
   [ "$(cat "$WORK/events")" = start ]
 ) > "$WORK/absent.log" 2>&1
-! rg -q 'fixture-access|fixture-secret' "$WORK/absent.log"
+! grep -Eq 'fixture-access|fixture-secret' "$WORK/absent.log"
 printf 'PASS CI verification starts shared S3 only when no server is live\n'
 
 (
@@ -224,13 +226,13 @@ printf 'PASS runner process credentials require both keys and never query vault\
 printf 'PASS a machine pinned to local storage ignores S3 credentials and restarts an S3 server\n'
 
 (
-  repo="$(ct_abs_path "$WORK/repo")"
+  fixture_repo="$(ct_abs_path "$WORK/repo")"
   alias_target="$(ct_abs_path "$WORK/drive-alias/target-check")"
   outside="$(ct_abs_path "$WORK/outside")"
-  ct_repo_root() { printf '%s\n' "$repo"; }
+  ct_repo_root() { printf '%s\n' "$fixture_repo"; }
   git() {
     [ "$1 $3 $4" = "-C rev-parse --show-toplevel" ] || return 128
-    case "$2" in "$alias_target") printf '%s\n' "$repo" ;; *) return 128 ;; esac
+    case "$2" in "$alias_target") printf '%s\n' "$fixture_repo" ;; *) return 128 ;; esac
   }
   cygpath() { printf '%s\n' "$2"; }
   CARGO_TARGET_DIR="$alias_target" ct_verify_target_dir

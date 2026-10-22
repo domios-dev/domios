@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Caller: CI build-gateway.yml
+# Caller: build.sh script-guards; CI tests-fast.yml (guards)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

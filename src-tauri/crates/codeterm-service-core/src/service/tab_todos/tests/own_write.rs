@@ -28,6 +28,7 @@ fn pair() -> Pair {
 
 fn entry(content: &str, state: TabTodoState) -> TabTodoWriteEntry {
     TabTodoWriteEntry {
+        id: None,
         content: content.into(),
         state,
         link: None,

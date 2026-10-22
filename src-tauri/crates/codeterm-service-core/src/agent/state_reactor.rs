@@ -703,21 +703,28 @@ fn schedule_resume(svc: &ServiceState, tab_id: &str, resume: &super::tab_state::
         );
         return;
     };
-    match crate::delayed_send::create_message(
-        svc,
-        tab_id.to_string(),
-        resume.text.clone(),
-        Some(at_ms),
-        None,
-        None,
-    ) {
-        Ok(_) => log::info!(
-            "[state-reactor] scheduled resume for Tab {} at {}",
-            tab_id,
-            resume.at
-        ),
-        Err(e) => log::warn!("[state-reactor] schedule resume failed: {e}"),
-    }
+    let svc = svc.clone();
+    let tab_id = tab_id.to_string();
+    let resume = resume.clone();
+    crate::async_runtime::spawn(async move {
+        match crate::delayed_send::create_message(
+            &svc,
+            tab_id.clone(),
+            resume.text.clone(),
+            Some(at_ms),
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(_) => log::info!(
+                "[state-reactor] scheduled resume for Tab {} at {}",
+                tab_id,
+                resume.at
+            ),
+            Err(e) => log::warn!("[state-reactor] schedule resume failed: {e}"),
+        }
+    });
 }
 
 /// Surface a verdict to the user as a chat-card event.

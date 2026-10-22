@@ -68,37 +68,53 @@ impl Recipe {
         self.validate()?;
         let mut value = self.definition.clone();
         substitute(&mut value, assignments)?;
+        if let Some(spec) = value.get_mut("spec") {
+            normalize_pipeline_inputs(spec)?;
+        }
         Ok(value)
     }
 }
 
-fn valid_key(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= 128
-        && key
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+pub fn normalize_pipeline_inputs(value: &mut Value) -> Result<(), String> {
+    let Some(steps) = value.get_mut("steps").and_then(Value::as_array_mut) else {
+        return Ok(());
+    };
+    for step in steps {
+        let kind = step
+            .pointer("/kind/kind")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if matches!(kind.as_str(), "github" | "http") {
+            for key in ["id", "timeout_ms"] {
+                if let Some(value) = step.pointer_mut(&format!("/kind/probe/{key}")) {
+                    if let Some(text) = value.as_str() {
+                        *value = Value::from(text.parse::<u64>().map_err(|_| {
+                            format!(
+                                "{} {key} must be a positive integer",
+                                if kind == "github" { "GitHub" } else { "HTTP" }
+                            )
+                        })?);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
+
+use crate::blueprint_placeholder::{tokens, valid_key};
 
 pub fn placeholder_names(value: &Value) -> Result<BTreeSet<String>, String> {
     let mut names = BTreeSet::new();
     visit_strings(value, &mut |text| {
-        let mut rest = text;
-        while let Some((prefix, tail)) = rest.split_once("{{") {
-            if prefix.contains("}}") {
+        for token in tokens(text) {
+            if !token.closed {
                 return Err("malformed recipe placeholder".into());
             }
-            let (key, tail) = tail
-                .split_once("}}")
-                .ok_or("malformed recipe placeholder")?;
-            if !valid_key(key) {
-                return Err("invalid recipe placeholder name".into());
+            if let Some(key) = token.key {
+                names.insert(key.into());
             }
-            names.insert(key.into());
-            rest = tail;
-        }
-        if rest.contains("}}") {
-            return Err("malformed recipe placeholder".into());
         }
         Ok(())
     })?;
@@ -118,7 +134,7 @@ fn visit_strings(
         }
         Value::Object(values) => {
             for (key, value) in values {
-                if key.contains("{{") || key.contains("}}") {
+                if !tokens(key).is_empty() {
                     return Err("recipe placeholders are supported only in values".into());
                 }
                 visit_strings(value, visitor)?;
@@ -136,11 +152,7 @@ pub fn substitute(value: &mut Value, assignments: &[String]) -> Result<(), Strin
         let (key, replacement) = assignment
             .split_once('=')
             .ok_or("--set must use key=value")?;
-        if !valid_key(key)
-            || replacement.is_empty()
-            || replacement.contains("{{")
-            || replacement.contains("}}")
-        {
+        if !valid_key(key) || replacement.is_empty() || !tokens(replacement).is_empty() {
             return Err(
                 "--set requires a valid key and a nonempty value without placeholders".into(),
             );
@@ -183,16 +195,17 @@ fn replace(value: &mut Value, replacements: &BTreeMap<String, String>) {
     match value {
         Value::String(text) => {
             let source = std::mem::take(text);
-            let mut rest = source.as_str();
-            while let Some((prefix, tail)) = rest.split_once("{{") {
-                let Some((key, tail)) = tail.split_once("}}") else {
-                    break;
-                };
-                text.push_str(prefix);
-                text.push_str(&replacements[key]);
-                rest = tail;
+            let mut offset = 0;
+            for token in tokens(&source) {
+                text.push_str(&source[offset..token.span.start]);
+                if let Some(replacement) = token.key.and_then(|key| replacements.get(key)) {
+                    text.push_str(replacement);
+                } else {
+                    text.push_str(&source[token.span.clone()]);
+                }
+                offset = token.span.end;
             }
-            text.push_str(rest);
+            text.push_str(&source[offset..]);
         }
         Value::Array(values) => {
             for value in values {
@@ -209,42 +222,4 @@ fn replace(value: &mut Value, replacements: &BTreeMap<String, String>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn blueprint_recipe_refuses_unknown_schema_and_missing_placeholders() {
-        let mut recipe = Recipe {
-            schema_version: 2,
-            placeholders: BTreeMap::from([
-                ("tab".into(), "Destination tab".into()),
-                ("path".into(), "Probe path".into()),
-            ]),
-            definition: json!({"create":{"observe":"{{tab}}", "probe":"{{path}}"}}),
-        };
-        assert!(recipe.bind(&[]).unwrap_err().contains("schema version"));
-        recipe.schema_version = SCHEMA_VERSION;
-        assert_eq!(
-            recipe.bind(&[]).unwrap_err(),
-            "missing recipe placeholders: path, tab"
-        );
-        assert_eq!(
-            recipe
-                .bind(&["tab=other".into(), "path=/scratch".into()])
-                .unwrap(),
-            json!({"create":{"observe":"other", "probe":"/scratch"}})
-        );
-    }
-
-    #[test]
-    fn blueprint_recipe_bind_is_simultaneous_and_refuses_extra_fields() {
-        let mut value = json!({"probe":"{{a}} {{b}}"});
-        substitute(&mut value, &["a=$b".into(), "b=ready".into()]).unwrap();
-        assert_eq!(value["probe"], "$b ready");
-        assert!(Recipe::parse(
-            r#"{"schema_version":1,"placeholders":{},"definition":{},"runtime":{}}"#
-        )
-        .is_err());
-    }
-}
+mod tests;

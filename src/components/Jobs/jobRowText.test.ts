@@ -38,3 +38,8 @@ test("a named Blueprint keeps its purpose as the secondary line", () => {
   const row = job({ purpose: "Watch deploys" }, "Deploy watcher");
   assert.equal(sentinelRowText(row, blueprintTitle(row.scenario, row.root)).meta, "Watch deploys");
 });
+
+test("stopped Blueprint cards show the authored note and cleanup deadline", () => {
+  const row = job({ note: "Watches release failures", state: "stopped", stopped_at: 1_000, deletes_at: 1_801_000 });
+  assert.equal(sentinelRowText(row, "Release watcher", 1_000).meta, "Watches release failures · deletes in 30 min");
+});

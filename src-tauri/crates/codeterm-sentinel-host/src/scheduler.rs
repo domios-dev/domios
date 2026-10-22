@@ -55,6 +55,7 @@ fn journal_refusal_prevented_effect(error: &std::io::Error) -> bool {
 #[derive(Clone)]
 pub struct Handle {
     pub store: Arc<Mutex<Store>>,
+    pub(super) apply_lock: Arc<Mutex<()>>,
     pub(super) inbox: Arc<Mutex<super::terminal::Inbox>>,
     pending_run_bindings: Arc<Mutex<BTreeMap<String, super::run_binding::PendingRunBinding>>>,
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
@@ -168,6 +169,7 @@ pub fn fixture_handle_with_ui(
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         ui: Some(ui),
         _shutdown: None,
+        apply_lock: Arc::new(Mutex::new(())),
     }
 }
 
@@ -198,6 +200,7 @@ pub fn start(
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         ui: Some(svc.ui.clone()),
         _shutdown: None,
+        apply_lock: Arc::new(Mutex::new(())),
     };
     let callback = shutdown_callback(&handle);
     match codeterm_service_core::crash::shutdown::subscribe_sentinel_shutdown(callback) {
@@ -264,6 +267,7 @@ pub fn start(
                     probe_owner: owner.clone(),
                     ui: Some(svc.ui.clone()),
                     _shutdown: None,
+                    apply_lock: Arc::new(Mutex::new(())),
                 };
                 super::run_binding::process_pending(&svc, &run_handle);
                 super::run_binding::reconcile_runs(&svc, &run_handle);
@@ -288,6 +292,7 @@ pub fn start(
                                 probe_owner: owner,
                                 ui: Some(svc.ui.clone()),
                                 _shutdown: None,
+                                apply_lock: Arc::new(Mutex::new(())),
                             };
                             if worker_handle.probe_owner.is_closing() {
                                 return;
@@ -520,20 +525,25 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         });
         return;
     }
-    if lease.job.input().is_some_and(|input| {
-        input.kind != codeterm_blueprint_types::sentinel_input::MediaKind::Text
-            || input.convert_to.is_some()
-    }) {
-        record_input_unavailable(handle, svc, lease);
+    if let Err(reason) = crate::watch_input::validate(svc, &lease.job) {
+        record_input_unavailable(handle, svc, lease, &reason);
         return;
     }
     let remaining = {
         let now = handle.store.lock().clock.now_ms();
-        lease
+        let remaining = lease
             .job
             .expires_at
-            .map(|at| Duration::from_millis(at.saturating_sub(now)))
-            .unwrap_or(probe::PROBE_RUNTIME)
+            .map(|at| Duration::from_millis(at.saturating_sub(now)));
+        if let Some(input) = lease.job.input().filter(|input| input.convert_to.is_some()) {
+            let budget =
+                Duration::from_millis(input.convert_timeout_ms.unwrap_or(
+                    codeterm_blueprint_types::sentinel_input::DEFAULT_CONVERT_TIMEOUT_MS,
+                ));
+            remaining.unwrap_or(budget).min(budget)
+        } else {
+            remaining.unwrap_or(probe::PROBE_RUNTIME)
+        }
     };
     let observed = if lease.job.input().is_some() || lease.job.terminal().is_some() {
         let text = handle.inbox.lock().take(&lease.job.id);
@@ -546,8 +556,24 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                 ..probe::Output::default()
             }),
             None if lease.job.input().is_some() => {
-                super::input::text_output(&lease.job, std::time::Instant::now() + remaining)
-                    .map_err(|_| probe::process::ProbeFailure::new("input_text_unavailable"))
+                match crate::watch_input::output(
+                    svc,
+                    &lease.job,
+                    std::time::Instant::now() + remaining,
+                    &lease.cancelled,
+                ) {
+                    Ok(output) => Ok(output),
+                    Err(reason) => {
+                        record_failure(
+                            handle,
+                            svc,
+                            lease,
+                            &probe::process::ProbeFailure::new("input_processing_failed"),
+                            Some(reason),
+                        );
+                        return;
+                    }
+                }
             }
             None => return,
         }
@@ -711,6 +737,7 @@ pub(super) fn fixture_handle_without_app(store: Store) -> Handle {
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         ui: None,
         _shutdown: None,
+        apply_lock: Arc::new(Mutex::new(())),
     }
 }
 

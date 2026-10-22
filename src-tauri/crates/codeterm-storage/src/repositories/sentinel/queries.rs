@@ -13,6 +13,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 
 struct Header {
+    creation_options: Option<String>,
+    stopped_at: Option<i64>,
+    transition_offset: usize,
+    action_offset: usize,
     runs_since_transition: i64,
     last_probe_at: Option<i64>,
     probe_state: Option<String>,
@@ -46,7 +50,7 @@ fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
         "SELECT s.ordinal, s.creator_tab_id, s.workspace_id, s.team_id, s.cwd, \
          s.agent_authored, s.scenario_id, s.revision, h.version, r.generation, r.next_run, \
          r.expires_at, r.paused, r.stopped, r.last_hash, r.last_bucket, r.last_reason, \
-         r.held, r.run_id, r.run_tab_id, r.run_bound_at, r.run_transitions, r.causal_run_json, r.runs_since_transition, r.last_probe_at, r.probe_state \
+         r.held, r.run_id, r.run_tab_id, r.run_bound_at, r.run_transitions, r.causal_run_json, r.runs_since_transition, r.last_probe_at, r.probe_state, r.stopped_at, r.transition_offset, r.action_offset, s.creation_options \
          FROM blueprints s LEFT JOIN blueprint_heads h ON h.blueprint_id = s.id \
          LEFT JOIN blueprint_runtime r ON r.blueprint_id = s.id WHERE s.id = ?1",
     )
@@ -80,6 +84,10 @@ fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
                     runs_since_transition: row.get(23)?,
                     last_probe_at: row.get(24)?,
                     probe_state: row.get(25)?,
+                    stopped_at: row.get(26)?,
+                    transition_offset: row.get(27)?,
+                    action_offset: row.get(28)?,
+                    creation_options:row.get(29)?,
                 })
             })
             .optional()
@@ -107,6 +115,12 @@ pub(super) fn load_one(
         _ => return Err(corrupt("partial run binding")),
     };
     let runtime = StageRuntime {
+        transition_offset: header.transition_offset,
+        action_offset: header.action_offset,
+        stopped_at: header
+            .stopped_at
+            .map(|at| from_sql_u64("stop time", at))
+            .transpose()?,
         runs_since_transition: from_sql_u64("probe count", header.runs_since_transition)?,
         last_probe_at: header
             .last_probe_at
@@ -134,6 +148,12 @@ pub(super) fn load_one(
         .map_err(|_| corrupt("run transition count exceeds its bound"))?,
     };
     let identity = SentinelIdentity {
+        creation_options: header
+            .creation_options
+            .map(|raw| {
+                serde_json::from_str(&raw).map_err(|_| corrupt("creation options do not decode"))
+            })
+            .transpose()?,
         id: SentinelId::trusted(id.to_string()),
         scope: SentinelScope {
             creator_tab_id: header.creator_tab_id,

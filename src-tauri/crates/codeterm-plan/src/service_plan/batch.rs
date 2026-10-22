@@ -422,6 +422,7 @@ impl PlanStore {
                                     name: name.unwrap_or_else(|| handle.clone()),
                                     kind: kind.unwrap_or_else(|| "implement".into()),
                                     model,
+                                    speed: None,
                                     model_rationale: why,
                                     acceptance_criteria: vec![],
                                     external_refs: vec![],

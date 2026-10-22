@@ -232,6 +232,7 @@ fn command_exclusions_follow_an_opaque_provider_declaration() {
         prefix: "[output]".into(),
         suffix: "[/output]".into(),
         ignored_content_regexes: vec!["^opaque-caveat$".into()],
+        additional_record_sources: Vec::new(),
     };
     for content in ["[output]done[/output]", "opaque-caveat"] {
         let bytes = serde_json::json!({"type":"prompt-record","body":content}).to_string();

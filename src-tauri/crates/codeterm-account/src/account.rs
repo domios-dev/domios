@@ -74,7 +74,14 @@ impl Account {
         browser: &dyn Browser,
         hint: LoginHint,
     ) -> Result<Status> {
-        let _operation = self.operation.try_lock().map_err(|_| Error::Pending)?;
+        log::info!(target: "codeterm_account::sign_in", "sign_in attempt outcome=started stage={} error_kind=none", SignInStage::Preparation.name());
+        let _operation = match self.operation.try_lock() {
+            Ok(operation) => operation,
+            Err(_) => {
+                log::info!(target: "codeterm_account::sign_in", "sign_in attempt outcome=failure stage={} error_kind={}", SignInStage::Preparation.name(), crate::sign_in_diagnostic::error_kind(Error::Pending));
+                return Err(Error::Pending);
+            }
+        };
         let generation = {
             let mut state = self.state.lock().await;
             state.busy = true;
@@ -82,6 +89,7 @@ impl Account {
             state.generation
         };
         let mut attempt = SignInAttempt::default();
+        log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} provider_hint_present={} mode_hint_present={}", SignInStage::Preparation.name(), hint.provider.is_some(), hint.mode.is_some());
         let result = tokio::time::timeout(self.deadline, async {
             let loopback = attempt.run(SignInStage::Preparation, async {
                 if self.provider.needs_browser_callback() { Loopback::bind().await.map(Some) } else { Ok(None) }
@@ -120,6 +128,11 @@ impl Account {
         state.pending = None;
         state.busy = false;
         state.last_sign_in_failure = attempt.failure(result.as_ref().err().copied());
+        if let Some(failure) = state.last_sign_in_failure {
+            log::info!(target: "codeterm_account::sign_in", "sign_in attempt outcome=failure stage={} error_kind={}", failure.stage.name(), crate::sign_in_diagnostic::error_kind(failure.error));
+        } else {
+            log::info!(target: "codeterm_account::sign_in", "sign_in attempt outcome=success stage={} error_kind=none", SignInStage::Publication.name());
+        }
         result
     }
     async fn commit(
@@ -145,6 +158,7 @@ impl Account {
             )
             .await?;
         attempt.enter(SignInStage::Publication);
+        log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} identity_present=true", SignInStage::Publication.name());
         state.session = Some(tokens.session);
         state.last_sign_in_failure = None;
         if let Some(observer) = &self.observer {

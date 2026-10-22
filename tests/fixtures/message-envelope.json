@@ -2,329 +2,776 @@
   {
     "name": "system header with trailing Windows path",
     "raw": "<domios from=\"system\" context=\"sentinel:sentinel_394d9ce12d30\"></domios>C:\\Users\\User\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\utilities\\update.txt",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "frame",
-        "from": "system",
-        "attrs": { "from": "system", "context": "sentinel:sentinel_394d9ce12d30" },
+        "attrs": {
+          "context": "sentinel:sentinel_394d9ce12d30",
+          "from": "system"
+        },
         "body": "",
-        "tip": null
+        "from": "system",
+        "kind": "system",
+        "tip": null,
+        "type": "frame"
       },
       {
-        "type": "text",
-        "text": "C:\\Users\\User\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\utilities\\update.txt"
+        "text": "C:\\Users\\User\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\utilities\\update.txt",
+        "type": "text"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "owner merged screenshot",
     "raw": "какой щас план?\npasted by Domios<domios from=\"tab\" label=\"Probe\" tab=\"41f7661c\" model=\"gpt-6.1-sol\">Harness preflight caught ... Product code untouched.\n\npasted by Domios <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab 41f7661c]</tip></domios>",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "какой щас план?\n"
+        "body": "какой щас план?",
+        "id": null,
+        "type": "paste"
       },
       {
-        "type": "frame",
-        "from": "tab",
         "attrs": {
           "from": "tab",
           "label": "Probe",
-          "tab": "41f7661c",
-          "model": "gpt-6.1-sol"
+          "model": "gpt-6.1-sol",
+          "tab": "41f7661c"
         },
-        "body": "Harness preflight caught ... Product code untouched.\n",
-        "tip": "[to reply, run: codeterm send \"YOUR REPLY\" --tab 41f7661c]"
+        "body": "Harness preflight caught ... Product code untouched.",
+        "from": "tab",
+        "kind": "tab",
+        "tip": "[to reply, run: codeterm send \"YOUR REPLY\" --tab 41f7661c]",
+        "type": "frame"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "voice transcript echo",
     "raw": "<domios type=\"attachment\" kind=\"voice\" path=\"/tmp/voice.webm\" label=\"voice\" />\n<transcript>привет &lt;opaque&gt; &amp; world</transcript>",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "attachment",
-        "kind": "voice",
-        "path": "/tmp/voice.webm",
-        "label": "voice",
         "body": "привет <opaque> & world",
-        "status": null
+        "kind": "voice",
+        "label": "voice",
+        "path": "/tmp/voice.webm",
+        "status": null,
+        "type": "attachment"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "paste",
     "raw": "<pasted_content id=\"p1\">opaque\nbytes</pasted_content>\npasted by Domios",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "paste",
+        "body": "opaque\nbytes",
         "id": "p1",
-        "body": "opaque\nbytes"
-      },
-      {
-        "type": "text",
-        "text": "\n"
+        "type": "paste"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "attachment",
     "raw": "look <domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" label=\"image1\" /> please",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "look "
+        "text": "look ",
+        "type": "text"
       },
       {
-        "type": "attachment",
-        "kind": "image",
-        "path": "/tmp/image.png",
-        "label": "image1",
         "body": null,
-        "status": null
+        "kind": "image",
+        "label": "image1",
+        "path": "/tmp/image.png",
+        "status": null,
+        "type": "attachment"
       },
       {
-        "type": "text",
-        "text": " please"
+        "text": " please",
+        "type": "text"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "two frames in one record",
     "raw": "<domios from=\"tab\" tab=\"a\">first</domios>\n<domios from=\"mesh\" peer=\"b\">second</domios>",
+    "route": "host_injected",
     "segments": [
       {
-        "type": "frame",
-        "from": "tab",
         "attrs": {
           "from": "tab",
           "tab": "a"
         },
         "body": "first",
-        "tip": null
+        "from": "tab",
+        "kind": "tab",
+        "tip": null,
+        "type": "frame"
       },
       {
-        "type": "text",
-        "text": "\n"
+        "text": "\n",
+        "type": "text"
       },
       {
-        "type": "frame",
-        "from": "mesh",
         "attrs": {
           "from": "mesh",
           "peer": "b"
         },
         "body": "second",
-        "tip": null
+        "from": "mesh",
+        "kind": "mesh",
+        "tip": null,
+        "type": "frame"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "fenced example",
+    "quoted": true,
     "raw": "```xml\n<domios from=\"tab\" tab=\"a\">example</domios>\npasted by Domios\n```\n",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "```xml\n<domios from=\"tab\" tab=\"a\">example</domios>\npasted by Domios\n```\n"
+        "text": "```xml\n<domios from=\"tab\" tab=\"a\">example</domios>\npasted by Domios\n```\n",
+        "type": "text"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "unclosed tag",
     "raw": "before\npasted by Domios<domios from=\"tab\" tab=\"a\">never closed",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "before\npasted by Domios<domios from=\"tab\" tab=\"a\">never closed"
+        "body": "before",
+        "id": null,
+        "type": "paste"
+      },
+      {
+        "attrs": {
+          "from": "tab",
+          "tab": "a"
+        },
+        "body": "never closed",
+        "raw": "<domios from=\"tab\" tab=\"a\">never closed",
+        "type": "partial_frame"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
-    "name": "inline frame has no provenance",
+    "name": "inline frame after owner text",
     "raw": "quoted <domios from=\"tab\" tab=\"a\">example</domios>",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "quoted <domios from=\"tab\" tab=\"a\">example</domios>"
+        "text": "quoted ",
+        "type": "text"
+      },
+      {
+        "attrs": {
+          "from": "tab",
+          "tab": "a"
+        },
+        "body": "example",
+        "from": "tab",
+        "kind": "tab",
+        "tip": null,
+        "type": "frame"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "tool result is content",
+    "quoted": true,
     "raw": "<tool_result>\n<domios from=\"tab\" tab=\"a\">example</domios>\n</tool_result>",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "<tool_result>\n<domios from=\"tab\" tab=\"a\">example</domios>\n</tool_result>"
+        "text": "<tool_result>\n<domios from=\"tab\" tab=\"a\">example</domios>\n</tool_result>",
+        "type": "text"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "routed paste wrapper",
     "raw": "<pasted_content id=\"p2\"><domios from=\"tab\" tab=\"a\">body</domios></pasted_content id=\"p2\">",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "frame",
-        "from": "tab",
         "attrs": {
           "from": "tab",
           "tab": "a"
         },
         "body": "body",
-        "tip": null
+        "from": "tab",
+        "kind": "tab",
+        "tip": null,
+        "type": "frame"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "inline code attachment is text",
+    "quoted": true,
     "raw": "`<domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" />`",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "`<domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" />`"
+        "text": "`<domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" />`",
+        "type": "text"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "unicode and crlf markers",
     "raw": "👋\r\npasted by Domios\r\n<domios from=\"tab\" tab=\"a\" label=\"A &amp; B\">текст</domios>\r\nend",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "👋\r\n"
+        "body": "👋",
+        "id": null,
+        "type": "paste"
       },
       {
-        "type": "frame",
-        "from": "tab",
         "attrs": {
           "from": "tab",
-          "tab": "a",
-          "label": "A & B"
+          "label": "A & B",
+          "tab": "a"
         },
         "body": "текст",
-        "tip": null
+        "from": "tab",
+        "kind": "tab",
+        "tip": null,
+        "type": "frame"
       },
       {
-        "type": "text",
-        "text": "\r\nend"
+        "text": "\r\nend",
+        "type": "text"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "empty",
     "raw": "",
-    "segments": []
+    "route": "stream_content",
+    "segments": [],
+    "source": "synthetic"
   },
   {
     "name": "indented tag is content",
+    "quoted": true,
     "raw": "    <domios from=\"tab\" tab=\"a\">example</domios>",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "    <domios from=\"tab\" tab=\"a\">example</domios>"
+        "text": "    <domios from=\"tab\" tab=\"a\">example</domios>",
+        "type": "text"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "malformed attributes",
     "raw": "<domios from=\"tab\" from=\"report\">example</domios>",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "<domios from=\"tab\" from=\"report\">example</domios>"
+        "attrs": {},
+        "body": "example",
+        "raw": "<domios from=\"tab\" from=\"report\">example</domios>",
+        "type": "unknown_frame"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "routed attachment body",
     "raw": "<domios from=\"tab\" tab=\"a\">note <domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" /> done</domios>",
+    "route": "host_injected",
     "segments": [
       {
-        "type": "frame",
-        "from": "tab",
         "attrs": {
           "from": "tab",
           "tab": "a"
         },
         "body": "note <domios type=\"attachment\" kind=\"image\" path=\"/tmp/image.png\" /> done",
-        "tip": null,
+        "from": "tab",
+        "kind": "tab",
         "segments": [
           {
-            "type": "text",
-            "text": "note "
+            "text": "note ",
+            "type": "text"
           },
           {
-            "type": "attachment",
-            "kind": "image",
-            "path": "/tmp/image.png",
-            "label": null,
             "body": null,
-            "status": null
+            "kind": "image",
+            "label": null,
+            "path": "/tmp/image.png",
+            "status": null,
+            "type": "attachment"
           },
           {
-            "type": "text",
-            "text": " done"
+            "text": " done",
+            "type": "text"
           }
-        ]
+        ],
+        "tip": null,
+        "type": "frame"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "frame body quoted example",
+    "quoted": true,
     "raw": "<domios from=\"tab\" tab=\"a\">```xml\n<domios from=\"tab\" tab=\"quoted\">example</domios>\n```</domios>",
+    "route": "host_injected",
     "segments": [
       {
-        "type": "frame",
-        "from": "tab",
         "attrs": {
           "from": "tab",
           "tab": "a"
         },
         "body": "```xml\n<domios from=\"tab\" tab=\"quoted\">example</domios>\n```",
-        "tip": null
+        "from": "tab",
+        "kind": "tab",
+        "tip": null,
+        "type": "frame"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "glued routed then owner",
     "raw": "<domios from=\"tab\" label=\"Sender\" tab=\"abc12345\">opaque routed body <tip>opaque hidden hint</tip></domios>opaque owner body",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "frame",
-        "from": "tab",
         "attrs": {
           "from": "tab",
           "label": "Sender",
           "tab": "abc12345"
         },
         "body": "opaque routed body",
-        "tip": "opaque hidden hint"
+        "from": "tab",
+        "kind": "tab",
+        "tip": "opaque hidden hint",
+        "type": "frame"
       },
       {
-        "type": "text",
-        "text": "opaque owner body"
+        "text": "opaque owner body",
+        "type": "text"
       }
-    ]
+    ],
+    "source": "synthetic"
   },
   {
     "name": "owner newline routed",
     "raw": "opaque owner body\n<domios from=\"tab\" label=\"Sender\" tab=\"abc12345\">opaque routed body <tip>opaque hidden hint</tip></domios>",
+    "route": "stream_content",
     "segments": [
       {
-        "type": "text",
-        "text": "opaque owner body\n"
+        "text": "opaque owner body\n",
+        "type": "text"
       },
       {
-        "type": "frame",
-        "from": "tab",
         "attrs": {
           "from": "tab",
           "label": "Sender",
           "tab": "abc12345"
         },
         "body": "opaque routed body",
-        "tip": "opaque hidden hint"
+        "from": "tab",
+        "kind": "tab",
+        "tip": "opaque hidden hint",
+        "type": "frame"
       }
-    ]
+    ],
+    "source": "synthetic"
+  },
+  {
+    "name": "codex app-server ordinal 527",
+    "raw": "<domios from=\"tab\" label=\"Elgar\" tab=\"4c25e56b\" model=\"opus\">No DEV constraint: DEV (7686, 312a153b0) is yours for read-only use with your own Vite on a free port. Do not rebuild or restart DEV; the owner may be looking at its window. Good catch on git_failure_cause. Report both batches together when the second is done, with the screenshots.\n <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab 4c25e56b]</tip></domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "from": "tab",
+          "label": "Elgar",
+          "model": "opus",
+          "tab": "4c25e56b"
+        },
+        "body": "No DEV constraint: DEV (7686, 312a153b0) is yours for read-only use with your own Vite on a free port. Do not rebuild or restart DEV; the owner may be looking at its window. Good catch on git_failure_cause. Report both batches together when the second is done, with the screenshots.",
+        "from": "tab",
+        "kind": "tab",
+        "tip": "[to reply, run: codeterm send \"YOUR REPLY\" --tab 4c25e56b]",
+        "type": "frame"
+      }
+    ],
+    "source": "~/.codex/sessions/2026/10/21/rollout-2026-10-21T13-03-18-01a15dea-4ba3-7640-bdeb-5898f63494ea.jsonl ordinal 527 input_text"
+  },
+  {
+    "name": "codex ordinal 527 with trailing newline",
+    "raw": "<domios from=\"tab\" label=\"Elgar\" tab=\"4c25e56b\" model=\"opus\">No DEV constraint: DEV (7686, 312a153b0) is yours for read-only use with your own Vite on a free port. Do not rebuild or restart DEV; the owner may be looking at its window. Good catch on git_failure_cause. Report both batches together when the second is done, with the screenshots.\n <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab 4c25e56b]</tip></domios>\n",
+    "route": "stream_content",
+    "segments": [
+      {
+        "attrs": {
+          "from": "tab",
+          "label": "Elgar",
+          "model": "opus",
+          "tab": "4c25e56b"
+        },
+        "body": "No DEV constraint: DEV (7686, 312a153b0) is yours for read-only use with your own Vite on a free port. Do not rebuild or restart DEV; the owner may be looking at its window. Good catch on git_failure_cause. Report both batches together when the second is done, with the screenshots.",
+        "from": "tab",
+        "kind": "tab",
+        "tip": "[to reply, run: codeterm send \"YOUR REPLY\" --tab 4c25e56b]",
+        "type": "frame"
+      },
+      {
+        "text": "\n",
+        "type": "text"
+      }
+    ],
+    "source": "ordinal 527 bytes plus the newline a runtime record appends after </domios>"
+  },
+  {
+    "name": "codex ordinal 527 truncated inside the tip",
+    "raw": "<domios from=\"tab\" label=\"Elgar\" tab=\"4c25e56b\" model=\"opus\">No DEV constraint: DEV (7686, 312a153b0) is yours for read-only use with your own Vite on a free port. Do not rebuild or restart DEV; the owner may be looking at its window. Good catch on git_failure_cause. Report both batches together when the second is done, with the screenshots.\n <tip>[to reply, ru",
+    "route": "stream_content",
+    "segments": [
+      {
+        "attrs": {
+          "from": "tab",
+          "label": "Elgar",
+          "model": "opus",
+          "tab": "4c25e56b"
+        },
+        "body": "No DEV constraint: DEV (7686, 312a153b0) is yours for read-only use with your own Vite on a free port. Do not rebuild or restart DEV; the owner may be looking at its window. Good catch on git_failure_cause. Report both batches together when the second is done, with the screenshots.",
+        "raw": "<domios from=\"tab\" label=\"Elgar\" tab=\"4c25e56b\" model=\"opus\">No DEV constraint: DEV (7686, 312a153b0) is yours for read-only use with your own Vite on a free port. Do not rebuild or restart DEV; the owner may be looking at its window. Good catch on git_failure_cause. Report both batches together when the second is done, with the screenshots.\n <tip>[to reply, ru",
+        "type": "partial_frame"
+      }
+    ],
+    "source": "ordinal 527 bytes cut mid-stream inside <tip>"
+  },
+  {
+    "name": "claude paste queue-operation",
+    "raw": "<domios from=\"tab\" label=\"Elgar\" tab=\"4c25e56b\" model=\"opus\">\n\n<pasted_content id=\"9261\">\nAdd to your investigation (same envelope pipeline): the owner sees, in the Orchestrator tab on BLACKSTAR prod 1.15.0 (my tab 4c25e56b, Claude), something about system notifications flash for a split second inside the composer input area, then disappear, from time to time. That tab receives frequent system frames (orchestrator heartbeat, reports, utility-shell OK lines, notification answers). Find which component renders a transient capsule or notice in the composer for a system message (the composer context header or slot, a pending-delivery bubble, a system-reminder capsule; see also the blocked task COD-1181 'System reminder capsules and readable trigger details'), why it flickers (mount and unmount per frame, a delivery bubble cleared too early, re-keying), and fold the fix into your task set.\n</pasted_content id=\"9261\">\n\npasted by Domios <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab 4c25e56b]</tip></domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "from": "tab",
+          "label": "Elgar",
+          "model": "opus",
+          "tab": "4c25e56b"
+        },
+        "body": "Add to your investigation (same envelope pipeline): the owner sees, in the Orchestrator tab on BLACKSTAR prod 1.15.0 (my tab 4c25e56b, Claude), something about system notifications flash for a split second inside the composer input area, then disappear, from time to time. That tab receives frequent system frames (orchestrator heartbeat, reports, utility-shell OK lines, notification answers). Find which component renders a transient capsule or notice in the composer for a system message (the composer context header or slot, a pending-delivery bubble, a system-reminder capsule; see also the blocked task COD-1181 'System reminder capsules and readable trigger details'), why it flickers (mount and unmount per frame, a delivery bubble cleared too early, re-keying), and fold the fix into your task set.",
+        "from": "tab",
+        "kind": "tab",
+        "tip": "[to reply, run: codeterm send \"YOUR REPLY\" --tab 4c25e56b]",
+        "type": "frame"
+      }
+    ],
+    "source": "~/.claude/projects/C--Developer-codeterm-codeterm/840617e5-3a38-44f7-b27a-b321fea1c1d2.jsonl queue-operation 2026-10-21T10:24:42.603Z"
+  },
+  {
+    "name": "claude paste queue-operation with CRLF",
+    "raw": "<domios from=\"tab\" label=\"Elgar\" tab=\"4c25e56b\" model=\"opus\">\r\n\r\n<pasted_content id=\"9261\">\r\nAdd to your investigation (same envelope pipeline): the owner sees, in the Orchestrator tab on BLACKSTAR prod 1.15.0 (my tab 4c25e56b, Claude), something about system notifications flash for a split second inside the composer input area, then disappear, from time to time. That tab receives frequent system frames (orchestrator heartbeat, reports, utility-shell OK lines, notification answers). Find which component renders a transient capsule or notice in the composer for a system message (the composer context header or slot, a pending-delivery bubble, a system-reminder capsule; see also the blocked task COD-1181 'System reminder capsules and readable trigger details'), why it flickers (mount and unmount per frame, a delivery bubble cleared too early, re-keying), and fold the fix into your task set.\r\n</pasted_content id=\"9261\">\r\n\r\npasted by Domios <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab 4c25e56b]</tip></domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "from": "tab",
+          "label": "Elgar",
+          "model": "opus",
+          "tab": "4c25e56b"
+        },
+        "body": "Add to your investigation (same envelope pipeline): the owner sees, in the Orchestrator tab on BLACKSTAR prod 1.15.0 (my tab 4c25e56b, Claude), something about system notifications flash for a split second inside the composer input area, then disappear, from time to time. That tab receives frequent system frames (orchestrator heartbeat, reports, utility-shell OK lines, notification answers). Find which component renders a transient capsule or notice in the composer for a system message (the composer context header or slot, a pending-delivery bubble, a system-reminder capsule; see also the blocked task COD-1181 'System reminder capsules and readable trigger details'), why it flickers (mount and unmount per frame, a delivery bubble cleared too early, re-keying), and fold the fix into your task set.",
+        "from": "tab",
+        "kind": "tab",
+        "tip": "[to reply, run: codeterm send \"YOUR REPLY\" --tab 4c25e56b]",
+        "type": "frame"
+      }
+    ],
+    "source": "the 10:24:42Z queue-operation with every line break rewritten to CRLF by a PTY"
+  },
+  {
+    "name": "report frame",
+    "raw": "<domios from=\"report\" label=\"Vega\" tab=\"3741e3aa\">task: pl_fyurvn/task_l5mhzl\nAgent Vega (codex) is ready for task task_l5mhzl, attempt attempt_mmq8sm.\npasted by Domios</domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "from": "report",
+          "label": "Vega",
+          "tab": "3741e3aa"
+        },
+        "body": "task: pl_fyurvn/task_l5mhzl\nAgent Vega (codex) is ready for task task_l5mhzl, attempt attempt_mmq8sm.",
+        "from": "report",
+        "kind": "report",
+        "tip": null,
+        "type": "frame"
+      }
+    ],
+    "source": "~/.claude/projects/C--Developer-codeterm-codeterm/382d7baa-d0d9-4002-b0d1-2b4471782ff8.jsonl queue-operation 2026-10-21T07:45:13.308Z"
+  },
+  {
+    "name": "system frame with context",
+    "raw": "<domios from=\"system\" context=\"startup-handshake\">Before any other action, run `codeterm agent startup-ack`. Then continue with the assigned role or task.</domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "context": "startup-handshake",
+          "from": "system"
+        },
+        "body": "Before any other action, run `codeterm agent startup-ack`. Then continue with the assigned role or task.",
+        "from": "system",
+        "kind": "system",
+        "tip": null,
+        "type": "frame"
+      }
+    ],
+    "source": "~/.claude/projects/C--Developer-codeterm-codeterm/0c2835fb-68da-48b8-a8e8-18f681a0b0c3.jsonl user 2026-10-14T17:47:37.034Z"
+  },
+  {
+    "name": "notification answer",
+    "raw": "<domios from=\"system\" context=\"notification-answer\">Answer to your question \"Квота артефактов GitHub забита\" (notification 32f12b23-e0ab-4735-a71e-1850bac1955e): Сделать upload в dry run не фатальным\npasted by Domios</domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "context": "notification-answer",
+          "from": "system"
+        },
+        "body": "Answer to your question \"Квота артефактов GitHub забита\" (notification 32f12b23-e0ab-4735-a71e-1850bac1955e): Сделать upload в dry run не фатальным",
+        "from": "system",
+        "kind": "system",
+        "tip": null,
+        "type": "frame"
+      }
+    ],
+    "source": "~/.claude/projects/C--Developer-codeterm-codeterm/1e687a39-7eb8-4b58-9c06-598f4ca36c47.jsonl line 21905 api-request-blob"
+  },
+  {
+    "name": "recurring reminder frame",
+    "raw": "<domios from=\"reminder\" label=\"Elgar\" tab=\"4c25e56b\" model=\"opus\" set_at=\"1792577000000\" fire_at=\"1792577600000\" id=\"dl_opaque\" every_ms=\"600000\" next_at=\"1792578200000\" skipped=\"2\">opaque recurring body</domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "every_ms": "600000",
+          "fire_at": "1792577600000",
+          "from": "reminder",
+          "id": "dl_opaque",
+          "label": "Elgar",
+          "model": "opus",
+          "next_at": "1792578200000",
+          "set_at": "1792577000000",
+          "skipped": "2",
+          "tab": "4c25e56b"
+        },
+        "body": "opaque recurring body",
+        "from": "reminder",
+        "kind": "reminder",
+        "tip": null,
+        "type": "frame"
+      }
+    ],
+    "source": "Messenger::build_reminder attribute order (messenger.rs); no delivered recurring reminder exists in local transcripts"
+  },
+  {
+    "name": "mesh frame with peer",
+    "raw": "<domios from=\"mesh\" peer=\"blackstar\" tab=\"5a1b2c3d\">opaque mesh body</domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "from": "mesh",
+          "peer": "blackstar",
+          "tab": "5a1b2c3d"
+        },
+        "body": "opaque mesh body",
+        "from": "mesh",
+        "kind": "mesh",
+        "tip": null,
+        "type": "frame"
+      }
+    ],
+    "source": "message_markers::mesh builder; no delivered mesh frame exists in local transcripts"
+  },
+  {
+    "name": "three glued frames",
+    "raw": "<domios from=\"report\" label=\"Vega\" tab=\"3741e3aa\">task: pl_fyurvn/task_l5mhzl\nAgent Vega (codex) is ready for task task_l5mhzl, attempt attempt_mmq8sm.\npasted by Domios</domios><domios from=\"system\" context=\"startup-handshake\">Before any other action, run `codeterm agent startup-ack`. Then continue with the assigned role or task.</domios><domios from=\"tab\" label=\"Elgar\" tab=\"4c25e56b\" model=\"opus\">No DEV constraint: DEV (7686, 312a153b0) is yours for read-only use with your own Vite on a free port. Do not rebuild or restart DEV; the owner may be looking at its window. Good catch on git_failure_cause. Report both batches together when the second is done, with the screenshots.\n <tip>[to reply, run: codeterm send \"YOUR REPLY\" --tab 4c25e56b]</tip></domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "from": "report",
+          "label": "Vega",
+          "tab": "3741e3aa"
+        },
+        "body": "task: pl_fyurvn/task_l5mhzl\nAgent Vega (codex) is ready for task task_l5mhzl, attempt attempt_mmq8sm.",
+        "from": "report",
+        "kind": "report",
+        "tip": null,
+        "type": "frame"
+      },
+      {
+        "attrs": {
+          "context": "startup-handshake",
+          "from": "system"
+        },
+        "body": "Before any other action, run `codeterm agent startup-ack`. Then continue with the assigned role or task.",
+        "from": "system",
+        "kind": "system",
+        "tip": null,
+        "type": "frame"
+      },
+      {
+        "attrs": {
+          "from": "tab",
+          "label": "Elgar",
+          "model": "opus",
+          "tab": "4c25e56b"
+        },
+        "body": "No DEV constraint: DEV (7686, 312a153b0) is yours for read-only use with your own Vite on a free port. Do not rebuild or restart DEV; the owner may be looking at its window. Good catch on git_failure_cause. Report both batches together when the second is done, with the screenshots.",
+        "from": "tab",
+        "kind": "tab",
+        "tip": "[to reply, run: codeterm send \"YOUR REPLY\" --tab 4c25e56b]",
+        "type": "frame"
+      }
+    ],
+    "source": "report, system and Codex ordinal-527 frames delivered back to back in one record"
+  },
+  {
+    "name": "owner text glued to a report frame",
+    "raw": "в линуксе сам решай окей как сделать верно там ты лучше знаель, ты за главного решай автономро я пошел спать окей<domios from=\"report\" label=\"Iris\" tab=\"8fa0e552\" model=\"gpt-6-luna\">\n\n<pasted_content id=\"6ed1\">\ntask: pl_7lsisa/task_15kdjv\nstatus: Partial\nbranch: lane/pl-7lsisa-task-15kdjv-76fc5f9d\nsha: 88d6a59faf316668e4bbbae7d951043a1ed19d35\nSTATUS: partial\nCHANGES: Lane is clean. Latest Iris source commit is 88d6a59faf316668e4bbbae7d951043a1ed19d35 on lane/pl-7lsisa-task-15kdjv-76fc5f9d; local develop at be2b67d0aadfb0a3207f69217e384964c7c44a03 contains this tip. This is source integration, not task acceptance. Own source batches in this lane include native update DTO/coordinator and observation fixes (76e77d7d5579f3e0c18ebad9c83560a836e1285f, bebc86d1660f6e13a70f0c619bcdce2df03ae669, df9cde9639321a11e09452f789c85e0f4327c322, 768b46cbb5dd685d823d051e99c78f8fd5ba4626, 25c780030a0dd01d2096a925c129d1a917a30214, 010c9dcd692d08fa1657fb1250c5207523a4e09d); checkpoint-copy path correction (3e666dcfa25709b39c51bfa674bbb8de2a0664d9); native client exit/macOS quit/protocol corrections (7aa2b826ab262b8f01bb18e10ea3136cebc499b8, 42308ce8dabb4475e2315b135fb8a2bd227d91da, 0e4561df7be950f6c5dd923795aca34d581d58a4, 88d6a59faf316668e4bbbae7d951043a1ed19d35). The read-only Fluent review was sent separately and is not Iris source work.\nTESTS RUN: No Rust compilation/tests, process probe, or native execution on the coherent current tip. The 010c9dcd source-only batch recorded targeted rustfmt, git diff --check, and scripts/check-file-sizes.sh --fail all exit 0; these do not establish compilation or runtime behavior. Earlier frontend tests were on the initial model batch, before later checkpoint/lifecycle edits, and do not prove the current tip.\nTESTS COVERING CHANGES: Focused model tests exist for native update validation/coordinator, client Quit, and frontend checkpoint behavior. No current-tip test result is recorded here.\nGATES REQUESTED: Parent canonical: .\\build.ps1 test-one types native_update::tests; .\\build.ps1 test-one domios-server native_update::tests; .\\build.ps1 test-one shell process_split_contract; .\\build.ps1 test-one app crash::exit; .\\build.ps1 test-one codeterm-shutdown tests; .\\build.ps1 process-probe --case client-crash --instance split-oracle; --case server-loss; --case quit; --case update-matrix (same instance). No old/new process IDs, epochs, continuation proof, rollback proof, or platform runtime result were collected by this lane.\nFOLLOWUP: Safe explicit Quit has a concrete protocol-2 API: NativeHostClientSlot::request_exact_server_shutdown -> ExactServerShutdownResult::Confirmed requires server cleanup/persistence acknowledgement and observed exact process exit. The ServerOnly/Pair updater still refuses DurableHandoffUnavailable. A read-only git grep on develop found no production NativeUpdateCoordinator::start caller; only its test calls exist, so the existing update command/API mapping is also not wired. I sent Crate (93132a36) the exact Quit sequence, the fact that it must not be reused as an update handoff, and the component manifest producer requirements. Remaining owner handoff: assign/define the production update API mapping and a durable ServerOnly/Pair continuation contract that proves requested-exit completion, exact predecessor exit, and exact session restoration; Porter supplies the staged installed component manifest/artifacts and installer mechanics, Crate incorporates the resulting semantics in the package pair smoke. Until that exists, keep ServerOnly/Pair fail-closed. Parent owns all canonical compilation and process/native proof.\nNext: codeterm plan review accept|bounce pl_7lsisa task_15kdjv --note \"...\" (reported at 22:25 UTC)\n</pasted_content id=\"6ed1\">\n\npasted by Domios</domios>",
+    "route": "stream_content",
+    "segments": [
+      {
+        "text": "в линуксе сам решай окей как сделать верно там ты лучше знаель, ты за главного решай автономро я пошел спать окей",
+        "type": "text"
+      },
+      {
+        "attrs": {
+          "from": "report",
+          "label": "Iris",
+          "model": "gpt-6-luna",
+          "tab": "8fa0e552"
+        },
+        "body": "task: pl_7lsisa/task_15kdjv\nstatus: Partial\nbranch: lane/pl-7lsisa-task-15kdjv-76fc5f9d\nsha: 88d6a59faf316668e4bbbae7d951043a1ed19d35\nSTATUS: partial\nCHANGES: Lane is clean. Latest Iris source commit is 88d6a59faf316668e4bbbae7d951043a1ed19d35 on lane/pl-7lsisa-task-15kdjv-76fc5f9d; local develop at be2b67d0aadfb0a3207f69217e384964c7c44a03 contains this tip. This is source integration, not task acceptance. Own source batches in this lane include native update DTO/coordinator and observation fixes (76e77d7d5579f3e0c18ebad9c83560a836e1285f, bebc86d1660f6e13a70f0c619bcdce2df03ae669, df9cde9639321a11e09452f789c85e0f4327c322, 768b46cbb5dd685d823d051e99c78f8fd5ba4626, 25c780030a0dd01d2096a925c129d1a917a30214, 010c9dcd692d08fa1657fb1250c5207523a4e09d); checkpoint-copy path correction (3e666dcfa25709b39c51bfa674bbb8de2a0664d9); native client exit/macOS quit/protocol corrections (7aa2b826ab262b8f01bb18e10ea3136cebc499b8, 42308ce8dabb4475e2315b135fb8a2bd227d91da, 0e4561df7be950f6c5dd923795aca34d581d58a4, 88d6a59faf316668e4bbbae7d951043a1ed19d35). The read-only Fluent review was sent separately and is not Iris source work.\nTESTS RUN: No Rust compilation/tests, process probe, or native execution on the coherent current tip. The 010c9dcd source-only batch recorded targeted rustfmt, git diff --check, and scripts/check-file-sizes.sh --fail all exit 0; these do not establish compilation or runtime behavior. Earlier frontend tests were on the initial model batch, before later checkpoint/lifecycle edits, and do not prove the current tip.\nTESTS COVERING CHANGES: Focused model tests exist for native update validation/coordinator, client Quit, and frontend checkpoint behavior. No current-tip test result is recorded here.\nGATES REQUESTED: Parent canonical: .\\build.ps1 test-one types native_update::tests; .\\build.ps1 test-one domios-server native_update::tests; .\\build.ps1 test-one shell process_split_contract; .\\build.ps1 test-one app crash::exit; .\\build.ps1 test-one codeterm-shutdown tests; .\\build.ps1 process-probe --case client-crash --instance split-oracle; --case server-loss; --case quit; --case update-matrix (same instance). No old/new process IDs, epochs, continuation proof, rollback proof, or platform runtime result were collected by this lane.\nFOLLOWUP: Safe explicit Quit has a concrete protocol-2 API: NativeHostClientSlot::request_exact_server_shutdown -> ExactServerShutdownResult::Confirmed requires server cleanup/persistence acknowledgement and observed exact process exit. The ServerOnly/Pair updater still refuses DurableHandoffUnavailable. A read-only git grep on develop found no production NativeUpdateCoordinator::start caller; only its test calls exist, so the existing update command/API mapping is also not wired. I sent Crate (93132a36) the exact Quit sequence, the fact that it must not be reused as an update handoff, and the component manifest producer requirements. Remaining owner handoff: assign/define the production update API mapping and a durable ServerOnly/Pair continuation contract that proves requested-exit completion, exact predecessor exit, and exact session restoration; Porter supplies the staged installed component manifest/artifacts and installer mechanics, Crate incorporates the resulting semantics in the package pair smoke. Until that exists, keep ServerOnly/Pair fail-closed. Parent owns all canonical compilation and process/native proof.\nNext: codeterm plan review accept|bounce pl_7lsisa task_15kdjv --note \"...\" (reported at 22:25 UTC)",
+        "from": "report",
+        "kind": "report",
+        "tip": null,
+        "type": "frame"
+      }
+    ],
+    "source": "~/.claude/projects/C--Developer-codeterm-codeterm/497b1c20-716b-4d0c-8e6e-b01b4325949b.jsonl queue-operation 2026-10-18T22:25:08.223Z"
+  },
+  {
+    "name": "pad-substituted body",
+    "raw": "<domios from=\"system\" context=\"system\">Read and follow the message in C:\\Users\\User\\.codeterm\\runtime\\agent-pads\\7d3be81b\\inbox\\1792320244212-323c5531-a385-43ff-9544-61b0da7d89f5.md</domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "context": "system",
+          "from": "system"
+        },
+        "body": "Read and follow the message in C:\\Users\\User\\.codeterm\\runtime\\agent-pads\\7d3be81b\\inbox\\1792320244212-323c5531-a385-43ff-9544-61b0da7d89f5.md",
+        "from": "system",
+        "kind": "system",
+        "tip": null,
+        "type": "frame"
+      }
+    ],
+    "source": "~/.claude/projects/C--Developer-codeterm-codeterm/382d7baa-d0d9-4002-b0d1-2b4471782ff8.jsonl line 27 (substitute_paste_limited_body pointer)"
+  },
+  {
+    "name": "owner text with trailing pasted marker",
+    "raw": "ну на восьмом проверь , пофикси что хочешь доведи до релиза в чем проблема\npasted by Domios",
+    "route": "stream_content",
+    "segments": [
+      {
+        "body": "ну на восьмом проверь , пофикси что хочешь доведи до релиза в чем проблема",
+        "id": null,
+        "type": "paste"
+      }
+    ],
+    "source": "~/.claude/projects/C--Developer-codeterm-codeterm/1e687a39-7eb8-4b58-9c06-598f4ca36c47.jsonl user 2026-10-14T21:16:45.338Z"
+  },
+  {
+    "name": "pasted voice note",
+    "raw": "\n\n<pasted_content id=\"5b0a\">\n\n\n<domios type=\"attachment\" kind=\"voice\" path=\"C:\\Users\\User\\AppData\\Local\\Temp\\codeterm-chat\\4d7ff179-voice-note-1792076118368.webm\" label=\"voice\" />\n<transcript>Ну спроси у Fable, что можно достать из этого крейта, как можно сделать.</transcript>\n</pasted_content id=\"5b0a\">\n\npasted by Domios",
+    "route": "stream_content",
+    "segments": [
+      {
+        "text": "\n\n",
+        "type": "text"
+      },
+      {
+        "body": "Ну спроси у Fable, что можно достать из этого крейта, как можно сделать.",
+        "kind": "voice",
+        "label": "voice",
+        "path": "C:\\Users\\User\\AppData\\Local\\Temp\\codeterm-chat\\4d7ff179-voice-note-1792076118368.webm",
+        "status": null,
+        "type": "attachment"
+      }
+    ],
+    "source": "~/.claude/projects/C--Developer-codeterm-codeterm/1e687a39-7eb8-4b58-9c06-598f4ca36c47.jsonl user 2026-10-15T14:55:25.968Z"
+  },
+  {
+    "name": "unknown sender kind",
+    "raw": "<domios from=\"hologram\" tab=\"a\">opaque body <tip>opaque hint</tip></domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "from": "hologram",
+          "tab": "a"
+        },
+        "body": "opaque body",
+        "raw": "<domios from=\"hologram\" tab=\"a\">opaque body <tip>opaque hint</tip></domios>",
+        "type": "unknown_frame"
+      }
+    ],
+    "source": "synthetic: a well-formed frame from an unregistered kind"
+  },
+  {
+    "name": "opening tag cut before its close",
+    "raw": "opaque owner body\n<domios from=\"tab\" lab",
+    "route": "stream_content",
+    "segments": [
+      {
+        "text": "opaque owner body\n",
+        "type": "text"
+      },
+      {
+        "attrs": {},
+        "body": "",
+        "raw": "<domios from=\"tab\" lab",
+        "type": "partial_frame"
+      }
+    ],
+    "source": "synthetic: a stream cut inside the opening tag"
   }
 ]

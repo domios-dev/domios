@@ -1,10 +1,6 @@
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SystemSend {
-    pub content: String,
-    pub sent_at_ms: u64,
-}
+pub use codeterm_types::agent::chat_types::SystemSend;
 
 impl ChatSendLedger {
     pub(crate) fn attach_system_send(
@@ -18,10 +14,7 @@ impl ChatSendLedger {
             .token_by_id
             .insert(send_id.to_string(), send_id.to_string());
         let status = state.by_id.get_mut(send_id)?;
-        status.system_send = Some(SystemSend {
-            content: content.to_string(),
-            sent_at_ms,
-        });
+        status.system_send = Some(SystemSend::new(content, sent_at_ms));
         let status = status.clone();
         Some(Self::with_retention_window(&state, status))
     }
@@ -60,6 +53,62 @@ impl crate::service::ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codeterm_wire::envelope::{FrameKind, MessageSegment, ENVELOPE_GRAMMAR_VERSION};
+
+    fn attached(content: &str) -> SystemSend {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start_scoped("tab", content, None, None).unwrap();
+        let status = ledger
+            .attach_system_send(&pending.send_id, content, 1000)
+            .unwrap();
+        let system_send = status.system_send.unwrap();
+        assert_eq!(system_send.content, content);
+        assert_eq!(system_send.segments_version, ENVELOPE_GRAMMAR_VERSION);
+        system_send
+    }
+
+    #[test]
+    fn runtime_envelope_with_trailing_newlines_is_a_frame_not_text() {
+        let frame = crate::service::messenger::Messenger::message("Sender", "abc12345")
+            .routed_frame("opaque body\n");
+        let wire = format!("{}\n", frame.to_message());
+        let system_send = attached(&wire);
+        let [MessageSegment::Frame {
+            kind, body, tip, ..
+        }, MessageSegment::Text { text }] = system_send.segments.as_slice()
+        else {
+            panic!(
+                "expected a frame then its newline: {:?}",
+                system_send.segments
+            );
+        };
+        assert_eq!(text, "\n");
+        assert_eq!(*kind, FrameKind::Tab);
+        assert_eq!(body, "opaque body");
+        assert!(tip.is_some());
+    }
+
+    #[test]
+    fn turn_resume_pad_pointer_and_plain_bodies_carry_segments() {
+        let pointer = crate::service::messenger::Messenger::from(
+            crate::service::messenger::MessageEnvelope::from_codeterm(),
+        )
+        .routed_frame("opaque pointer C:/opaque/inbox/body.md")
+        .to_message();
+        let framed = attached(&pointer);
+        assert!(matches!(
+            framed.segments.as_slice(),
+            [MessageSegment::Frame { kind: FrameKind::System, body, .. }]
+                if body == "opaque pointer C:/opaque/inbox/body.md"
+        ));
+        let plain = attached("opaque plain body");
+        assert_eq!(
+            plain.segments,
+            [MessageSegment::Text {
+                text: "opaque plain body".into()
+            }]
+        );
+    }
 
     #[test]
     fn continuation_uncertainty_keeps_one_bubble() {

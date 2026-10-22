@@ -1,4 +1,4 @@
-// Caller: CI tests.yml
+// Caller: CI tests-rust.yml
 import fs from 'node:fs';
 import path from 'node:path';
 

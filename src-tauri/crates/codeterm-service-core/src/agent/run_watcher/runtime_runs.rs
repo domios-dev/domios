@@ -188,6 +188,11 @@ impl RunWatcherRegistry {
             match &run.completion {
                 Some(completion) if !completion.barrier.ready(&messages) => return,
                 Some(completion) => completion.summary.clone(),
+                None if svc.run_completion_for_tab(&context.tab_id)
+                    == crate::service::role_policy::RunCompletion::ExplicitFinish =>
+                {
+                    return
+                }
                 None => "(agent returned to idle)".into(),
             }
         };

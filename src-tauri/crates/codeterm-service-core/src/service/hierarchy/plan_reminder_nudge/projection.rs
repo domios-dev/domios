@@ -24,12 +24,13 @@ pub(crate) struct ProjectedHeartbeat {
 }
 
 pub(crate) fn heartbeat_reason(plan_id: &str, task_ids: &[String]) -> String {
-    let tasks = if task_ids.is_empty() {
-        "none".to_string()
-    } else {
+    if task_ids.is_empty() {
+        return format!("sent because plan {plan_id} still has open work");
+    }
+    format!(
+        "sent because tasks {} are still in progress in plan {plan_id}",
         task_ids.join(", ")
-    };
-    format!("sent because tasks {tasks} are still in progress in plan {plan_id}")
+    )
 }
 
 /// Read-only view of the reminder targets the scheduler already owns.
@@ -46,15 +47,16 @@ pub(crate) fn project_for_tab(
     if !reminders_enabled || interval_secs == 0 || tab_id.is_empty() {
         return Vec::new();
     }
-    let cadence_ms = interval_secs.saturating_mul(1000);
-    let next_due_ms = deadline_secs
-        .unwrap_or(now_secs)
-        .saturating_add(interval_secs)
-        .saturating_mul(1000);
     timed_plan_reminder_targets(plans)
         .into_iter()
         .filter(|target| target.tab_id == tab_id)
         .filter_map(|target| {
+            let interval = super::effective_interval(plans, &target.target, interval_secs);
+            let cadence_ms = interval.saturating_mul(1000);
+            let next_due_ms = deadline_secs
+                .unwrap_or(now_secs)
+                .saturating_add(interval)
+                .saturating_mul(1000);
             project_target(
                 plans,
                 &target.target,

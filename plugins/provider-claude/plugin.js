@@ -741,16 +741,63 @@ function fetchClaudeUsage(host2) {
   const status = numberAt(response, "status");
   if (status !== 200) throw new Error(`usage request failed: HTTP ${status ?? "unknown"}`);
   const body = safeJson(stringAt(response, "body"));
-  const session = objectAt(body, "five_hour");
-  const weekly = objectAt(body, "seven_day");
-  if (!session && !weekly) throw new Error("usage response missing quota windows");
-  return JSON.stringify({
-    kind: CLAUDE_USAGE_KIND,
-    session_pct: numberAt(session, "utilization"),
-    session_resets_at_ms: isoToMs(stringAt(session, "resets_at")),
-    weekly_pct: numberAt(weekly, "utilization"),
-    weekly_resets_at_ms: isoToMs(stringAt(weekly, "resets_at"))
-  });
+  const normalized = normalizeClaudeUsage(body);
+  if (!normalized) throw new Error("usage response missing quota windows");
+  return JSON.stringify({ kind: CLAUDE_USAGE_KIND, ...normalized });
+}
+function normalizeClaudeUsage(body) {
+  if (!body) return null;
+  const limits = Array.isArray(body.limits) ? body.limits.slice(0, 64) : [];
+  const session = limits.find((value) => stringAt(value, "kind") === "session");
+  const weekly = limits.find((value) => stringAt(value, "kind") === "weekly_all");
+  const oldSession = objectAt(body, "five_hour");
+  const oldWeekly = objectAt(body, "seven_day");
+  const scoped = limits.filter((value) => stringAt(value, "kind") === "weekly_scoped");
+  if (!session && !weekly && !oldSession && !oldWeekly && !scoped.length) return null;
+  const extra = objectAt(body, "extra_usage");
+  const details = {
+    limits: limits.flatMap((value) => {
+      const kind = stringAt(value, "kind");
+      const percent = numberAt(value, "percent");
+      if (!["session", "weekly_all", "weekly_scoped"].includes(kind ?? "") || percent === null) return [];
+      const model = objectAt(objectAt(value, "scope"), "model");
+      return [{
+        kind,
+        label: kind === "session" ? "Session" : kind === "weekly_all" ? "Weekly" : `Weekly \xB7 ${stringAt(model, "display_name") ?? "Scoped"}`,
+        percent,
+        resets_at: isoToMs(stringAt(value, "resets_at")),
+        is_active: objectAtValue(value, "is_active") === true,
+        critical: stringAt(value, "severity") === "critical"
+      }];
+    }),
+    dollar_credits: Object.values(body).flatMap((value) => {
+      const limit = numberAt(value, "limit_dollars");
+      const remaining = numberAt(value, "remaining_dollars");
+      if (limit === null || limit <= 0 || remaining === null || remaining < 0) return [];
+      return [{ remaining_dollars: remaining, resets_at: isoToMs(stringAt(value, "resets_at")) }];
+    }),
+    extra_usage: extra ? {
+      enabled: objectAtValue(extra, "user_disabled") !== true,
+      effective_enabled: objectAtValue(extra, "is_enabled") === true,
+      disabled_reason: stringAt(extra, "disabled_reason"),
+      decimal_places: numberAt(extra, "decimal_places") ?? 2,
+      spend_limit_reached: objectAtValue(extra, "spend_limit_reached") === true,
+      used: numberAt(extra, "used_credits"),
+      limit: numberAt(extra, "monthly_limit"),
+      currency: stringAt(extra, "currency") ?? "USD",
+      settings_url: "https://claude.ai/settings/usage"
+    } : null
+  };
+  return {
+    session_pct: numberAt(session, "percent") ?? numberAt(oldSession, "utilization"),
+    session_resets_at_ms: isoToMs(stringAt(session, "resets_at") ?? stringAt(oldSession, "resets_at")),
+    weekly_pct: numberAt(weekly, "percent") ?? numberAt(oldWeekly, "utilization"),
+    weekly_resets_at_ms: isoToMs(stringAt(weekly, "resets_at") ?? stringAt(oldWeekly, "resets_at")),
+    usage_details: details
+  };
+}
+function objectAtValue(value, key) {
+  return value && typeof value === "object" ? value[key] : void 0;
 }
 function readMacOsCredentials(host2) {
   if (host2.platform() !== "macos") return null;
@@ -767,6 +814,9 @@ function parseFetchedClaudeUsage(raw, nowMs) {
   if (stringAt(fetched, "kind") !== CLAUDE_USAGE_KIND) return void 0;
   return {
     provider: "claude",
+    billing_mode: "subscription",
+    limits_reported: numberAt(fetched, "session_pct") !== null || numberAt(fetched, "weekly_pct") !== null || !!objectAt(fetched, "usage_details"),
+    usage_details: objectAt(fetched, "usage_details"),
     account_id: null,
     captured_at_ms: nowMs,
     session_pct: numberAt(fetched, "session_pct"),

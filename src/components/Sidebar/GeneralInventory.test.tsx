@@ -46,7 +46,7 @@ test("General sidebar disclosures persist, navigate to original shells and open 
     await act(async () => view.root.render(<GeneralInventorySections {...props} jobsFailed inventory={{ ...props.inventory, error: "transient" }} />));
     assert.equal(view.host.querySelector('[role="alert"]'), null);
     assert.ok(named(view.host, `Open job ${teamCron.name}`));
-    assert.equal(toggle("Jobs").getAttribute("aria-label"), "Jobs, 1");
+    assert.equal(toggle("Jobs").getAttribute("aria-label"), "JOBS 1, 1 working");
     await act(async () => named(view.host, `Open job ${teamCron.name}`)!.click());
     assert.equal(opened, 1);
     assert.deepEqual(cronSelectionStore.get(), { workspaceId: workspaces[0].id, cronId: teamCron.id });

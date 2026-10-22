@@ -1173,4 +1173,5 @@ fn session_binding_deferral_is_event_driven_and_newest_is_bounded() {
         .expect("filesystem event drives completion");
 }
 
+mod curator_rounds;
 mod planner_binding;

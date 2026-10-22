@@ -5,6 +5,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { classifyInventory } from './ci-rust-classification.mjs';
 import { archiveTargets, loadReleaseRust, overlayExclusions } from './ci-rust-archives.mjs';
+import { classifyTarget } from './ci-classifier-cache.mjs';
 import { renderedCompilerErrors } from './collect-rust-warnings.mjs';
 
 // The catalogue's release tier names every package and target, including path dependencies outside the workspace.
@@ -70,6 +71,50 @@ export function compile(lane, { execute = execFileSync, writeError = text => pro
   }
 }
 
+const LIB_KINDS = ['lib', 'rlib', 'cdylib', 'staticlib'];
+
+// A platform lane compiles only the packages whose sources hold cfg-gated tests; the classifier reads sources without a build.
+export function platformLane(lane, packages, hasPlatformTests) {
+  const args = lane.targets;
+  const wanted = args.filter((arg, index) => args[index - 1] === '-p');
+  const named = args.filter((arg, index) => args[index - 1] === '--test');
+  const allTargets = args.includes('--all-targets');
+  const kept = packages.filter((pkg) => wanted.includes(pkg.name) && pkg.targets.some((target) =>
+    (allTargets || LIB_KINDS.some((kind) => target.kind.includes(kind)) || (target.kind.includes('test') && named.includes(target.name)))
+    && hasPlatformTests(target.src_path)));
+  if (!kept.length) return null;
+  const keptNames = new Set(kept.map((pkg) => pkg.name));
+  const testTargets = new Set(kept.flatMap((pkg) => pkg.targets.filter((target) => target.kind.includes('test')).map((target) => target.name)));
+  const targets = [];
+  for (let index = 0; index < args.length; index++) {
+    const [flag, value] = [args[index], args[index + 1]];
+    if (flag === '-p' || flag === '--test') {
+      if (flag === '-p' ? keptNames.has(value) : testTargets.has(value)) targets.push(flag, value);
+      index++;
+    } else targets.push(flag);
+  }
+  return { ...lane, targets };
+}
+
+function narrowToPlatformPackages(lane) {
+  const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--locked', '--no-deps', '--manifest-path', lane.manifest, '--format-version', '1'],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
+  const stats = { local: 0, store: 0, classified: 0 };
+  const started = performance.now();
+  // A source that needs its build script's OUT_DIR cannot be read before compiling, so it stays in the lane.
+  const hasPlatformTests = (source) => {
+    try {
+      return classifyTarget(source, undefined, { stats }).some((entry) => entry.platform);
+    } catch {
+      console.log(`[platform] ${source} needs build output to classify; kept`);
+      return true;
+    }
+  };
+  const narrowed = platformLane(lane, metadata.packages, hasPlatformTests);
+  console.log(`[platform] ${lane.lane} pre-pass ${((performance.now() - started) / 1000).toFixed(1)} s: ${stats.local} cached here, ${stats.store} from the store, ${stats.classified} classified`);
+  return narrowed;
+}
+
 function classify(lane, messages, config) {
   const cargoJson = (args) => JSON.parse(execFileSync('cargo', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
   const metadata = cargoJson(['metadata', '--locked', '--manifest-path', lane.manifest, '--format-version', '1']);
@@ -80,7 +125,7 @@ function classify(lane, messages, config) {
     const pkg = metadata.packages.find((p) => p.id === suite['package-id']);
     const target = pkg?.targets.find((t) => t.name === suite['binary-name'] && (suite.kind === 'lib' ? t.kind.some((k) => ['lib', 'rlib', 'cdylib', 'staticlib'].includes(k)) : t.kind.includes(suite.kind)));
     if (!target) throw new Error('No source root for ' + suite['binary-id']);
-    sources[suite['binary-id']] = cargoJson(['run', '--quiet', '--locked', '--manifest-path', 'scripts/ci-test-classifier/Cargo.toml', '--', target.src_path, ...(generated[pkg.id] ? [generated[pkg.id]] : [])]);
+    sources[suite['binary-id']] = classifyTarget(target.src_path, generated[pkg.id]);
   }
   return classifyInventory(inventory, sources);
 }
@@ -194,7 +239,10 @@ async function run(mode) {
   const directory = path.resolve('ci-rust-receipts');
   fs.mkdirSync(directory, { recursive: true });
   try {
-    for (const lane of lanes) {
+    for (const planned of lanes) {
+      const lane = mode === 'platform' && !planned.whole ? narrowToPlatformPackages(planned) : planned;
+      if (!lane) { console.log(`[platform] ${planned.lane}: no package holds cfg-gated tests; nothing to compile`); continue; }
+      if (lane !== planned) console.log(`[platform] ${lane.lane}: compiling ${lane.targets.filter((arg, index) => lane.targets[index - 1] === '-p').join(', ')}`);
       const targetDir = laneTargetDir(lane.manifest, process.env.CI_TARGET_ROOT);
       if (targetDir) process.env.CARGO_TARGET_DIR = env.CARGO_TARGET_DIR = targetDir;
       const messages = compile(lane);

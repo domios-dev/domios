@@ -1,4 +1,4 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { AppConfig } from "../../lib/types";
@@ -30,6 +30,33 @@ vi.mock("../Canvas/useCanvasViewport", () => ({
   formatLayerTransform: () => "",
   useCanvasViewport: () => ({ containerRef: { current: null }, layerRef: { current: null }, transform: { x: 0, y: 0, scale: 1 }, handlers: {}, fitToView: () => {}, zoomBy: () => {} }),
 }));
+
+it("dismisses the peer drawer before closing Mesh on the next Escape", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
+  function Harness() {
+    const [open, setOpen] = useState(true);
+    return open ? <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => setOpen(false)} /> : null;
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(async () => host.querySelector<HTMLElement>('[role="button"][aria-label="Open Remote machine"]')!.click());
+    const drawer = host.querySelector('[role="dialog"]');
+    expect(drawer).not.toBeNull();
+    expect(drawer!.contains(document.activeElement)).toBe(true);
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true, cancelable: true })));
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.querySelector('[role="tablist"][aria-label="Mesh sections"]')).not.toBeNull();
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true, cancelable: true })));
+    expect(host.childElementCount).toBe(0);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 it("shows the access card directly in the graph without a duplicate details dialog", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

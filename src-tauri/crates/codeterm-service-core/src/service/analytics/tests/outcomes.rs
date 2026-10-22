@@ -101,11 +101,11 @@ async fn product_checkout_started_records_browser_open_with_closed_plan_only() {
         },
         id_token: codeterm_account::Secret::new("private-token"),
     };
-    billing.checkout_url(&session, "pro").await.unwrap();
-    assert!(billing
-        .checkout_url(&session, "private-plan")
+    billing
+        .checkout_url(&session, codeterm_billing::CheckoutKey::ProMonthly)
         .await
-        .is_err());
+        .unwrap();
+    assert!(codeterm_billing::CheckoutKey::parse("private-plan").is_err());
     billing.browser_opened(&session);
     assert!(sink.events().await.is_empty());
     billing.checkout_browser_opened(&session, codeterm_billing::Plan::Pro);

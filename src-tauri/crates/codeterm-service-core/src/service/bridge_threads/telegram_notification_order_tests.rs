@@ -272,6 +272,7 @@ fn notification(tab_id: &str, markdown: &str, buttons: Option<InlineKeyboard>) -
         append: false,
         buttons,
         edit: None,
+        completion: None,
         receipt: Some(PlacementReceipt {
             service: "telegram".to_string(),
             tag: "record-1".to_string(),

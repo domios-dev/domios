@@ -4,6 +4,7 @@ mod attachment_upload;
 pub mod auth;
 pub mod automation_graph_routes;
 pub mod blueprint_portable_routes;
+pub mod blueprint_solution_routes;
 #[cfg(debug_assertions)]
 mod cors_diagnostics;
 pub mod events;
@@ -22,6 +23,7 @@ pub(crate) mod agent_restart_routes;
 pub mod agent_routes;
 pub mod ai_helper_routes;
 pub mod bridge_routes;
+pub mod chat_history_routes;
 pub(crate) mod cli_rpc_routes;
 pub mod clipboard_routes;
 pub mod config_routes;

@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import type { Milestone, Task, TaskExecutionAttempt } from "../types";
 import { TaskActivityTimeline } from "./TaskActivityTimeline.tsx";
+import { PlanRecentActivityRail } from "./PlanRecentActivityRail";
 import { milestoneTimestampLabel } from "./taskActivityModel";
 
 type TestFn = () => void | Promise<void>;
@@ -148,6 +149,25 @@ test("renders per-turn lane stats and a cleanup offer without removing the lane"
   const { host } = await render(<TaskActivityTimeline task={task} plan={FIXTURE_PLAN} />);
   assert(host.querySelector('[data-testid="plan-task-activity-turn-stats"]')?.getAttribute("data-turn") === "2", "turn ordinal is visible");
   assert(host.querySelector('[data-testid="plan-task-lane-cleanup-offer"] code')?.textContent === "codeterm plan lane-remove lane-path", "cleanup remains an explicit command");
+});
+
+test("plan Curator rounds expand their stored summary without opening a task", async () => {
+  const opened: string[] = [];
+  const round = milestone("round-plan", "curator_round", 1000, "Round complete\nStored round detail");
+  const { host, root } = await render(<PlanRecentActivityRail plan={{ ...FIXTURE_PLAN, tasks: [], strides: [round] }} onOpenTask={(id) => opened.push(id)} now={2000} />);
+  try {
+    const rows = host.querySelectorAll('[data-testid="plan-recent-activity-item"]');
+    assert(rows.length === 1, "one plan-level round row");
+    const button = rows[0].querySelector<HTMLButtonElement>("button");
+    assert(button, "round can be expanded");
+    assert(button.textContent?.includes("Curator round"), "round is identified accessibly");
+    await act(async () => button.click());
+    assert(button.getAttribute("aria-expanded") === "true", "round expands");
+    assert(opened.length === 0, "plan round never opens an unrelated task");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });
 
 let passed = 0;

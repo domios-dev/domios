@@ -11,6 +11,9 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TabTodoWriteEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default)]
     pub content: String,
     pub state: TabTodoState,
     /// Existing items: must match the current label, URL or task id. New items: a URL or task reference.
@@ -22,10 +25,17 @@ pub struct TabTodoWriteEntry {
 
 impl TabTodoWriteEntry {
     pub fn validate(&self) -> Result<(), String> {
-        if !bounded_text(&self.content, MAX_TAB_TODO_TITLE_CHARS) {
+        if !(self.id.is_some() && self.content.is_empty())
+            && !bounded_text(&self.content, MAX_TAB_TODO_TITLE_CHARS)
+        {
             return Err(format!(
                 "todo content must contain 1..={MAX_TAB_TODO_TITLE_CHARS} characters without controls"
             ));
+        }
+        if let Some(id) = &self.id {
+            if !bounded_text(id, 256) {
+                return Err("todo id must contain 1..=256 characters without controls".into());
+            }
         }
         if let Some(link) = &self.link {
             if link.trim().is_empty()
@@ -134,7 +144,7 @@ pub fn plan_tab_todo_write(
     let mut contents = HashSet::with_capacity(entries.len());
     for entry in entries {
         entry.validate()?;
-        if !contents.insert(entry.content.as_str()) {
+        if !contents.insert(entry.id.as_deref().unwrap_or(&entry.content)) {
             return Err(format!("todo write repeats content: {}", entry.content));
         }
     }
@@ -154,6 +164,9 @@ pub fn plan_tab_todo_write(
         if entries.is_empty() {
             return Err("todo write needs at least one item to create a checklist".into());
         }
+        if entries.iter().any(|entry| entry.id.is_some()) {
+            return Err("todo write id does not match an existing item".into());
+        }
         return Ok(fresh_plan(entries));
     };
 
@@ -164,9 +177,18 @@ pub fn plan_tab_todo_write(
         let matches: Vec<&TabTodoItem> = checklist
             .items
             .iter()
-            .filter(|item| item.title == entry.content)
+            .filter(|item| match entry.id.as_deref() {
+                Some(id) => item.id == id,
+                None => item.title == entry.content,
+            })
             .collect();
         match matches.as_slice() {
+            [] if entry.id.is_some() => {
+                return Err(format!(
+                    "todo item not found: {}",
+                    entry.id.as_deref().unwrap_or_default()
+                ));
+            }
             [] => {
                 if entry.state != TabTodoState::Open {
                     state_changes.push(change(TabTodoWriteTarget::Appended(appends.len()), entry));
@@ -174,6 +196,12 @@ pub fn plan_tab_todo_write(
                 appends.push(entry.clone());
             }
             [item] => {
+                if !entry.content.is_empty() && entry.content != item.title {
+                    return Err(format!("todo write cannot retitle {}", item.id));
+                }
+                if !matched.insert(item.id.as_str()) {
+                    return Err(format!("todo write repeats item: {}", item.id));
+                }
                 if entry
                     .link
                     .as_deref()
@@ -184,7 +212,6 @@ pub fn plan_tab_todo_write(
                         item.title
                     ));
                 }
-                matched.insert(item.id.as_str());
                 let reason_changed = entry.state.requires_reason() && item.reason != entry.reason;
                 if item.state != entry.state || reason_changed {
                     state_changes.push(change(

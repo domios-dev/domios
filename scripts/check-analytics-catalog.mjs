@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 
 const rootFlag = process.argv.indexOf("--root");
 const root = rootFlag >= 0 ? resolve(process.argv[rootFlag + 1]) : fileURLToPath(new URL("../", import.meta.url));
-const read = (path) => readFileSync(resolve(root, path), "utf8");
+const read = (path) => readFileSync(resolve(root, path), "utf8").replaceAll("\r\n", "\n");
 const schema = JSON.parse(read("src-tauri/crates/codeterm-analytics/catalog.schema.json"));
 const providers = readdirSync(resolve(root, "plugins")).filter((id) => id.startsWith("provider-") && existsSync(resolve(root, `plugins/${id}/plugin.json`))).map((id) => JSON.parse(read(`plugins/${id}/plugin.json`))).sort((a,b) => a.id.localeCompare(b.id));
 schema.enums.ProviderId = [...providers.map((p) => p.id), "other"];

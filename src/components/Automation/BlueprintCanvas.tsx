@@ -43,6 +43,7 @@ export function BlueprintCanvas({ layout, selected, camera, onSelect, replay, pa
   const outcome = frame?.done ? replay?.outcome : null;
   const types = new Set(layout.nodes.map((entry) => entry.node.type));
   return <div className="bp-scope flex min-h-0 min-w-0 flex-1 flex-col">
+    {[...new Map(layout.nodes.map(({ node }) => [node.stageKey, node.stage.note])).entries()].filter(([, note]) => note).map(([key, note]) => <p key={key} className="ct-meta-muted px-4 pt-2">{note}</p>)}
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2">
       <ul aria-label="Node types" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--ct-muted-fg)]">
         {blueprintLegend.filter((type) => types.has(type)).map((type) => <li key={type} className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: `var(--bp-${type}, var(--ct-muted))` }} aria-hidden="true" />{blueprintNodeKinds[type].label}</li>)}

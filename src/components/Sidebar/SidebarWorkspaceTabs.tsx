@@ -247,7 +247,7 @@ export function SidebarWorkspaceTabs({
 
   // One element shape whether or not a checklist exists, so its first todo never remounts the row.
   const renderMemberRow = (member: TeamTabMember, section: TeamSection, shell = false): ReactNode => (
-    <AgentChecklistDisclosure key={member.tab.id} tabId={member.tab.id} title={member.tab.title}>
+    <AgentChecklistDisclosure plans={plans} key={member.tab.id} tabId={member.tab.id} title={member.tab.title}>
       {(toggle, detail) => renderMemberShellRow(member, section, shell, showsChecklist(member.tab) ? { toggle, detail } : undefined)}
     </AgentChecklistDisclosure>
   );
@@ -296,7 +296,7 @@ export function SidebarWorkspaceTabs({
     return (
       <SidebarSortableBlock key={tab.id} tab={tab} group={group} groupKey={groupKey} pinnedIds={pinnedIds}
         toWorkspaceOrder={toWorkspaceOrder} className="sidebar-tab-tree-row">
-        <AgentChecklistDisclosure tabId={tab.id} title={tab.title}>
+        <AgentChecklistDisclosure plans={plans} tabId={tab.id} title={tab.title}>
           {(toggle, detail) => <>{renderOwner(showsChecklist(tab) ? toggle : undefined)}{showsChecklist(tab) && detail}</>}
         </AgentChecklistDisclosure>
         {children.length > 0 && (
@@ -352,6 +352,10 @@ export function SidebarWorkspaceTabs({
         team={team}
         plan={plan}
         tabs={tabs}
+        workingManagerCount={managers.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
+        workingAgentCount={agents.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
+        workingTerminalCount={terminals.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
+        workingCronCount={teamCrons.filter(job => job.last_run?.status === "Running" || job.last_run?.status === "AwaitingOwnerPrompt").length}
         managerCount={managers.length}
         managers={
           <SortableContext items={managerItems} strategy={verticalListSortingStrategy}>

@@ -1,5 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { UpdatePanelContents } from "../UpdatePanel";
+import { UpdatePanel } from "../UpdatePanel";
 import { useOptionalUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useEffect } from "react";
 import { CheckCircle2, Download, ExternalLink, RefreshCw } from "lucide-react";
@@ -23,7 +23,6 @@ export function UpdateSection({ config, onUpdate }: {
     refresh,
     applyUpdate,
     installing,
-    progress,
     downloadedBytes,
     downloadTotalBytes,
     error,
@@ -36,6 +35,14 @@ export function UpdateSection({ config, onUpdate }: {
 
   const checking = status === "checking" && !installing;
   const updateAvailable = status === "available" && latestVersion && latestVersion !== currentVersion;
+  const providerToggle = <Toggle label="Update provider CLIs automatically"
+    checked={config.updater?.auto_update_provider_clis ?? true}
+    onChange={(enabled) => onUpdate("updater", { auto_update_provider_clis: enabled })}
+  />;
+  const notes = updateAvailable && releaseNotes?.trim() ? <ReleaseNotes notes={releaseNotes} url={releaseUrl} /> : null;
+
+  if (unified) return <UpdatePanel waves={false}>{providerToggle}{notes}</UpdatePanel>;
+
   const statusTone: "red" | "accent" | "green" | "muted" = error
     ? "red"
     : updateAvailable
@@ -55,18 +62,17 @@ export function UpdateSection({ config, onUpdate }: {
             ? "up to date"
             : "idle";
 
+  const measuredProgress = status === "downloading" && downloadTotalBytes && downloadTotalBytes > 0
+    ? Math.min(100, Math.max(0, downloadedBytes / downloadTotalBytes * 100)) : null;
+
   return (
     <SettingsCard
       icon={<Download size={16} />}
       title="Updates"
-      headerRight={<SettingsPill tone={unified?.error ? "red" : unified?.items.length ? "accent" : statusTone}>{unified?.error ? "failed" : unified?.items.length ? "updates available" : statusText}</SettingsPill>}
+      headerRight={<SettingsPill tone={statusTone}>{statusText}</SettingsPill>}
     >
       <div className="flex flex-col gap-3">
-        {unified && <UpdatePanelContents />}
-        <Toggle label="Update provider CLIs automatically"
-          checked={config.updater?.auto_update_provider_clis ?? true}
-          onChange={(enabled) => onUpdate("updater", { auto_update_provider_clis: enabled })}
-        />
+        {providerToggle}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="text-sm font-medium text-[var(--ct-fg)]">
@@ -78,7 +84,7 @@ export function UpdateSection({ config, onUpdate }: {
           </div>
 
           <div className="flex shrink-0 flex-wrap gap-2">
-            {updateAvailable && !unified && (
+            {updateAvailable && (
               <button
                 type="button"
                 onClick={() => void applyUpdate({ failureSurface: "inline" })}
@@ -89,7 +95,7 @@ export function UpdateSection({ config, onUpdate }: {
                 <span>{installing ? "Updating..." : "Update now"}</span>
               </button>
             )}
-            {!unified && <button
+            <button
               type="button"
               onClick={() => void refresh(true)}
               disabled={installing || checking}
@@ -97,7 +103,7 @@ export function UpdateSection({ config, onUpdate }: {
             >
               <BusySpinner icon={RefreshCw} size={13} spinning={checking} />
               <span>{checking ? "Checking..." : "Check again"}</span>
-            </button>}
+            </button>
           </div>
         </div>
 
@@ -105,14 +111,10 @@ export function UpdateSection({ config, onUpdate }: {
           <div className="rounded-md border border-[var(--ct-accent)]/30 bg-[var(--ct-accent)]/10 px-3 py-2">
             <div className="flex items-center justify-between gap-2 text-xs text-[var(--ct-accent)]">
               <span>{installLabel(status)}</span>
-              <span>{Math.max(1, Math.round(progress))}%</span>
+              {measuredProgress !== null && <span>{Math.round(measuredProgress)}%</span>}
             </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--ct-border)]">
-              <div
-                className="h-full rounded-full bg-[var(--ct-accent)] transition-[width] duration-300"
-                style={{ width: `${Math.max(1, Math.min(100, Math.round(progress)))}%` }}
-              />
-            </div>
+            <progress aria-label="Domios update progress" max={100} value={measuredProgress ?? undefined}
+              className="ct-progress mt-2" />
             {downloadTotalBytes && downloadTotalBytes > 0 && (
               <div className="mt-1.5 text-[10px] text-[var(--ct-muted-fg)]">
                 {formatBytes(downloadedBytes)} / {formatBytes(downloadTotalBytes)}
@@ -128,33 +130,37 @@ export function UpdateSection({ config, onUpdate }: {
           </div>
         )}
 
-        {!unified && error && (
-          <InlineErrorNotice error={error} operation="checking for updates" blocking />
+        {error && (
+          <InlineErrorNotice description={{ title: "Update could not complete", cause: error, actions: ["retry"], raw: error }} blocking />
         )}
 
-        {updateAvailable && releaseNotes && releaseNotes.trim().length > 0 && (
-          <div>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <div className="text-[10px] uppercase text-[var(--ct-muted)]">Release notes</div>
-              {releaseUrl && (
-                <a
-                  href={releaseUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-[10px] text-[var(--ct-accent)] hover:underline"
-                >
-                  <ExternalLink size={11} />
-                  <span>GitHub</span>
-                </a>
-              )}
-            </div>
-            <div className="max-h-[200px] overflow-y-auto rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 font-mono text-[11px] leading-relaxed text-[var(--ct-fg)] whitespace-pre-wrap">
-              {releaseNotes}
-            </div>
-          </div>
-        )}
+        {notes}
       </div>
     </SettingsCard>
+  );
+}
+
+function ReleaseNotes({ notes, url }: { notes: string; url: string | null | undefined }) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <div className="text-[10px] uppercase text-[var(--ct-muted)]">Release notes</div>
+        {url && (
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-[10px] text-[var(--ct-accent)] hover:underline"
+          >
+            <ExternalLink size={11} />
+            <span>GitHub</span>
+          </a>
+        )}
+      </div>
+      <div className="max-h-[200px] overflow-y-auto rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 font-mono text-[11px] leading-relaxed text-[var(--ct-fg)] whitespace-pre-wrap">
+        {notes}
+      </div>
+    </div>
   );
 }
 

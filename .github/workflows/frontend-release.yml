@@ -1,30 +1,5 @@
 name: frontend-release
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/frontend-release.yml'
-      - 'scripts/frontend-release/**'
-      - 'frontend-release-contract.json'
-      - 'src/**'
-      - 'packages/**'
-      - 'public/**'
-      - 'index.html'
-      - 'vite.config.ts'
-      - 'tsconfig*.json'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'build.sh'
-      - 'gen/**'
-      - 'vitest.config.ts'
-      - 'biome.json'
-      - 'knip.json'
-      - 'scripts/vitest-owned-tests.json'
-      - 'scripts/run-ts-unit-tests.mjs'
-      - 'scripts/run-ts-unit-tests.test.mjs'
-      - 'scripts/ts-unit-tests.sh'
-      - 'scripts/ts-test-assets.mjs'
-      - 'scripts/ts-test-asset-hook.mjs'
   # The release run calls this for a frontend-only release/X.Y.Z, after the frontend tests pass.
   workflow_call:
     inputs:
@@ -52,6 +27,9 @@ permissions:
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('frontend-release-pr-{0}', github.event.pull_request.number) || 'frontend-release' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
+  CODETERM_BUILD_GATEWAY_MODE: queue
 jobs:
   build:
     runs-on: [self-hosted, Linux, light]
@@ -112,12 +90,24 @@ jobs:
         env:
           FRONTEND_SIGNING_PRIVATE_KEY: ${{ secrets.FRONTEND_SIGNING_PRIVATE_KEY }}
         run: node scripts/frontend-release/release.mjs prepare "$FRONTEND_TAG"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          overwrite: true
-          name: frontend-${{ env.FRONTEND_TAG }}
-          path: frontend-release-output/
-          if-no-files-found: error
+      - name: Store the frontend release for publication
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          shopt -s nullglob
+          files=(frontend-release-output/*)
+          stored=0
+          for file in "${files[@]}"; do
+            [ -f "$file" ] || continue
+            bash scripts/ci-artifact.sh put "$GITHUB_RUN_ID/frontend-release/${file##*/}" "$file"
+            stored=$((stored + 1))
+          done
+          [ "$stored" -gt 0 ] || { echo "no frontend release files to store" >&2; exit 1; }
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
   publish:
     needs: build
     if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
@@ -134,10 +124,12 @@ jobs:
         with:
           node-version: '22.22.0'
           package-manager-cache: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: frontend-${{ env.FRONTEND_TAG }}
-          path: frontend-release-output/
+      - name: Fetch the frontend release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+        run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/frontend-release/" frontend-release-output
       - name: Install GitHub CLI
         env:
           GH_CLI_SHA256: bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386

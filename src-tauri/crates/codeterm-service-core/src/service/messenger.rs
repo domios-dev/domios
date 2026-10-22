@@ -986,11 +986,10 @@ fn build_chatbackend_inbound(
 ) -> (crate::agent::chat_types::ChatMsg, String) {
     let marked = inbound_model_context(envelope, body);
     let inbound_kind = envelope_inbound_kind(envelope);
-    let msg = crate::agent::chat_types::ChatMsg {
+    let mut msg = crate::agent::chat_types::ChatMsg {
         id: message_id,
         kind: "user".into(),
         content: body.to_string(),
-        segments: Some(codeterm_wire::envelope::parse_envelope(&marked)),
         timestamp: Some(chrono::Utc::now().to_rfc3339()),
         from_label: Some(clean_name(&envelope.from_label)).filter(|s| !s.is_empty()),
         from_tab: Some(short_id(&envelope.from_tab).to_string()).filter(|s| !s.is_empty()),
@@ -1003,6 +1002,7 @@ fn build_chatbackend_inbound(
         inbound_kind: Some(inbound_kind.to_string()),
         ..Default::default()
     };
+    msg.refresh_segments_from(&marked);
     (msg, marked)
 }
 

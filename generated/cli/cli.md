@@ -257,6 +257,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--report-to` — Where this worker's `agent report` should land. A tab id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own tab
 - `--role` — Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
+- `--speed` — Provider-declared service tier for this launch
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
@@ -355,41 +356,22 @@ Quit the exact local application after successful server cleanup and observed ex
 
 Cheap hash-gated watchers with closed-set routes
 
-#### `codeterm blueprint create`
+#### `codeterm blueprint apply`
 
-Classify a bounded probe or same-Team agent observation
+Create or update a YAML file or recipe by name in the caller's Team
 
-- `--buckets`
-- `--convert-timeout` — Bound the one-time conversion, in the --every duration syntax
-- `--convert-to` — Convert the input to another kind once: text|audio
-- `--dry-run` — Validate and print the resulting graph without creating it
-- `--escalation-timeout-ms` — Bound how long an `other` escalation may hold this stage, in milliseconds
-- `--every` — Owner-requested cadence (minimum 10s, default 20s)
-- `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
-- `--input` — Watch data instead of a probe or observation: text|audio|video|image
-- `--input-file` — Absolute or caller-cwd-relative path of the input data file
-- `--input-text` — Inline input text (only for --input text)
-- `--input-url` — http or https URL of the input data
-- `--match` — Deterministic classification: unmatched output never calls the model; bucket=regex
-- `--max-actions` — Finite action-attempt budget (maximum 1024)
-- `--max-transitions` — Finite accepted transition budget (maximum 256)
-- `--model-classification` — Opt in to Supporter model classification when no patterns are declared
-- `--name` — Short meaningful name describing what is watched and what happens
-- `--observe` — Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
-- `--output-settled` — Fire when terminal output settles for this many milliseconds (10..60000)
-- `--owner` — Assign the pipeline to its creator tab or Team
-- `--paused` — Create a dormant downstream stage; its lifetime starts now
-- `--probe`
-- `--question`
-- `--rearm-on-change` — Route again when this bucket's output changes without changing buckets
-- `--recipe` — Create from a named pipeline recipe
-- `--route` — Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
-- `--session` — Keep exchanges outside transition/action budgets; stop at 16384 exchanges or 120/minute
-- `--set` — Replace recipe placeholders with key=value pairs
-- `--spec` — JSON or YAML pipeline specification, or `-` to read standard input
-- `--terminal-pattern` — Fire with the new terminal output delta when this regex matches
-- `--timeout` — End the blueprint after this duration
-- `--until` — Stop after this bucket's first confident transition
+- `--dry-run`
+- `--like` — Offer proven graphs matching this intent before authoring
+- `--note`
+- `--set`
+- `<source>`
+
+#### `codeterm blueprint check`
+
+Validate a YAML file or built-in recipe without a daemon
+
+- `--set`
+- `<source>`
 
 #### `codeterm blueprint delete`
 
@@ -440,6 +422,13 @@ Deliver a text body to a running text input stage
 - `<id>`
 - `--text-file` — Read a UTF-8 body from a file
 
+#### `codeterm blueprint keep`
+
+Keep a generalised solution (Team Orchestrator only)
+
+- `<id>`
+- `--when`
+
 #### `codeterm blueprint list`
 
 List blueprints scoped to the calling tab and its Team
@@ -451,6 +440,13 @@ List bounded run journal entries, newest first
 - `<id>`
 - `--limit`
 
+#### `codeterm blueprint new`
+
+Print a commented YAML scaffold from a recipe or node kind
+
+- `<kind>`
+- `--like` — Offer proven graphs matching this intent before authoring
+
 #### `codeterm blueprint nodes`
 
 List trigger, step, converter and event-source capabilities
@@ -460,6 +456,10 @@ List trigger, step, converter and event-source capabilities
 List built-in graph skeletons or print one ready-to-edit recipe
 
 - `<name>`
+
+#### `codeterm blueprint schema`
+
+Print the authoring JSON Schema for editors and agents
 
 #### `codeterm blueprint show`
 
@@ -482,6 +482,7 @@ Replace one definition at the expected version
 - `--expect-version`
 - `--from-file`
 - `<id>`
+- `--note` — Replace the Blueprint note (at most 200 plain-text characters)
 
 #### `codeterm bridge`
 
@@ -677,6 +678,17 @@ List cron jobs
 Manually trigger a cron job now
 
 - `<id>` — Cron job ID
+
+#### `codeterm curator`
+
+Finish the current Team Curator round
+
+#### `codeterm curator finish`
+
+Validate the retro, record this round and choose the next cadence
+
+- `--from-pad`
+- `--next`
 
 #### `codeterm delayed`
 
@@ -1872,6 +1884,30 @@ Claim an unowned plan
 
 - `<plan_id>`
 
+#### `codeterm plan control-loop`
+
+Inspect or set a plan's control loop
+
+#### `codeterm plan control-loop run`
+
+Request one Curator round now, subject to the plan and human-wait gates
+
+- `<plan_id>`
+
+#### `codeterm plan control-loop set`
+
+Switch the plan between Curator rounds and the plain heartbeat
+
+- `--interval`
+- `<mode>`
+- `<plan_id>`
+
+#### `codeterm plan control-loop show`
+
+Show the plan's control-loop mode and heartbeat interval
+
+- `<plan_id>`
+
 #### `codeterm plan coverage`
 
 Show section coverage (% + gaps)
@@ -1888,6 +1924,20 @@ Create a new plan
 - `--spec`
 - `--spec-file`
 - `--title`
+
+#### `codeterm plan curator`
+
+Grant bounded authority to the active Curator round
+
+#### `codeterm plan curator grant`
+
+Grant the Curator tab the blueprints, plan skills and saves it may use
+
+- `--blueprint`
+- `<curator_tab>`
+- `--plan-skill`
+- `<plan_id>`
+- `--save`
 
 #### `codeterm plan decision`
 
@@ -2780,6 +2830,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
+- `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--workspace`
 
@@ -2855,6 +2906,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--parent`
 - `<plan_id>`
 - `--provider`
+- `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--title`
 - `--workspace`
@@ -2933,6 +2985,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--role-guidance` — Replace initial worker conditioning. Cannot be emptied; presence alone is the machine contract
 - `--role-guidance-file`
 - `--sections`
+- `--speed` — Provider-declared service tier for this launch
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 - `--status-label`
 - `--tab`
@@ -3842,9 +3895,28 @@ Save a custom theme from a TOML file
 
 Read or update the current agent tab's bounded checklist
 
+#### `codeterm todo amend`
+
+Review and amend a child's checklist; seeded criteria stay locked
+
+- `--from-pad`
+- `--note-from-pad`
+- `--tab`
+
+#### `codeterm todo approve`
+
+Mark a child's shared checklist reviewed
+
+- `--note-from-pad`
+- `--tab`
+
 #### `codeterm todo list`
 
 Read this agent tab's current bounded checklist
+
+#### `codeterm todo submit`
+
+Share this tab's checklist with its parent; work may continue immediately
 
 #### `codeterm todo write`
 

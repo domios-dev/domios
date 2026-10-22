@@ -36,6 +36,7 @@ pub(crate) fn load(
     drop(statement);
     attach_events(conn, tab_id, generation, &mut items)?;
     Ok(Some(TabTodoChecklistRecord {
+        proposal_json: conn.query_row("SELECT proposal_json FROM tab_todo_generations WHERE tab_id = ?1 AND generation = ?2", params![tab_id, generation], |row| row.get(0)).map_err(|error| sqlite_error("read checklist proposal", error))?,
         tab_id: tab_id.to_owned(),
         generation: from_sql_u64("todo generation", generation)?,
         workspace_id: header.0,

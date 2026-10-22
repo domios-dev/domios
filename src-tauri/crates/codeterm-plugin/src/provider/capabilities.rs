@@ -208,6 +208,8 @@ pub enum ModelSwitchMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSwitchCommands {
+    #[serde(default)]
+    pub during_turn: bool,
     pub model: ModelSwitchCommand,
     pub effort: Option<ModelSwitchCommand>,
     #[serde(default)]
@@ -270,6 +272,15 @@ pub struct ModelSwitchTranscript {
     pub suffix: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ignored_content_regexes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_record_sources: Vec<ModelSwitchTranscriptRecordSource>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelSwitchTranscriptRecordSource {
+    pub record_type: String,
+    pub content_path: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

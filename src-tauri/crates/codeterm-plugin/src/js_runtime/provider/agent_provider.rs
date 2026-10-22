@@ -1101,6 +1101,10 @@ impl AgentProvider for JsProvider {
         crate::model_catalog::resolve_models(&self.manifest.id)
     }
 
+    fn describe(&self) -> provider::ProviderDescriptor {
+        self.cached_descriptor()
+    }
+
     fn model_catalogue_capability(&self) -> provider::ModelCatalogueCapability {
         self.manifest.model_catalogue.clone()
     }

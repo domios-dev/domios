@@ -1,0 +1,131 @@
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #101216;
+  color: var(--ct-fg);
+  font: 13px/1.35 system-ui, sans-serif;
+}
+
+.sidebar-hover-fixture {
+  box-sizing: border-box;
+  width: 340px;
+  min-height: 100vh;
+  padding: 10px 12px 18px;
+  background: var(--ct-bg);
+}
+
+.sidebar-workspace-card-grid {
+  grid-template-columns: repeat(5, 42px);
+  gap: 5px;
+}
+
+.sidebar-workspace-card-grid .sidebar-workspace-card-create {
+  font-size: 20px;
+}
+
+.fixture-team {
+  margin-top: 8px;
+}
+
+.fixture-team-title {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  color: var(--ct-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fixture-section {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 7px;
+}
+
+.sidebar-tab {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 3px 10px 3px 12px;
+  color: var(--ct-muted-fg);
+  transition: background-color 140ms ease;
+}
+
+.sidebar-tab:hover {
+  background: rgb(255 255 255 / 4%);
+}
+
+.sidebar-tab-activation {
+  display: flex;
+  min-width: 0;
+  min-height: 24px;
+  flex: 1;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.sidebar-tab-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.sidebar-tab-body__title,
+.sidebar-tab-body__sub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-tab-body__sub {
+  color: var(--ct-muted);
+  font-size: 10px;
+}
+
+.sidebar-tab-kebab {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: var(--ct-muted-fg);
+}
+
+.sidebar-tab-tree-row {
+  margin-left: 8px;
+}
+
+.fixture-general-title {
+  margin: 0;
+  padding: 5px 10px 2px 8px;
+  color: var(--ct-muted-fg);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.fixture-general-rows {
+  display: grid;
+  gap: 2px;
+}
+
+.sidebar-new-session {
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  text-align: left;
+}

@@ -54,6 +54,29 @@ fn active_turns_resume_without_a_plan() {
     assert_eq!(decision(tab, false, Start), Freeze);
 }
 
+#[test]
+fn snapshot_turn_mark_keeps_interrupted_agent_awake_until_settled() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("fixture".into());
+    tab.agent_session_id = Some("own-session".into());
+    crate::multiplexer::types::observe_turn(
+        &mut tab.turn_resume,
+        Some("own-session"),
+        "previous-start",
+    );
+    let mut restored = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
+    let tab = restored.get_tab_mut(&id).unwrap();
+    assert!(tab.agent_state.is_none());
+    assert_eq!(decision(tab, false, Freeze), Start);
+    crate::multiplexer::types::settle_turn_resume(
+        &mut tab.turn_resume,
+        "current-start",
+        crate::multiplexer::types::TurnResumeOutcome::Sent,
+    );
+    assert_eq!(decision(tab, false, Start), Freeze);
+}
+
 fn plan() -> Plan {
     let mut plan = Plan::new(
         "fixture".into(),

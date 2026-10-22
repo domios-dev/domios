@@ -6,7 +6,12 @@ use codeterm_types::agent::chat_types::ChatMsg;
 
 pub(super) fn path_key(path: &Path) -> String {
     let value = path.to_string_lossy().replace('\\', "/");
-    value.strip_prefix("//?/").unwrap_or(&value).to_string()
+    let key = value.strip_prefix("//?/").unwrap_or(&value).to_string();
+    if cfg!(windows) {
+        key.to_ascii_lowercase()
+    } else {
+        key
+    }
 }
 
 fn insert(paths: &mut HashSet<String>, raw: &str, cwd: Option<&str>) {

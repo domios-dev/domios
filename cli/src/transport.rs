@@ -127,6 +127,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Orchestrator { .. } => {
             socket_unsupported("orchestrator handoff is local-only — run it on the target machine")
         }
+        Commands::Curator { .. } => socket_unsupported("Curator rounds are local to the owning Team"),
         Commands::Persona { .. } => socket_unsupported(
             "persona inspection is socket-only and answers for that daemon's own overlay directory — run it on the target machine",
         ),

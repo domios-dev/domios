@@ -1,8 +1,7 @@
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Image as ImageIcon, RefreshCw, Maximize2, FolderOpen, X } from "lucide-react";
-import { createPortal } from "react-dom";
-import { FullscreenOverlay, useFullscreenHostBounds, useFullscreenKeyboard } from "./FullscreenOverlay";
+import { FullscreenOverlay } from "./FullscreenOverlay";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import {
   loadLocalArtifact,
@@ -32,7 +31,6 @@ interface LocalArtifactProps {
   renderError?: (error: string) => React.ReactNode;
   renderText?: (source: string) => React.ReactNode;
   fullscreenRequest?: number;
-  fullscreenHostSelector?: string;
   /** Renders only the content, for a host that supplies its own header and actions. */
   bare?: boolean;
   onLoaded?: (file: LocalPreviewFile | null) => void;
@@ -44,7 +42,6 @@ export function LocalArtifactBlock({
   renderText,
   renderError,
   fullscreenRequest = 0,
-  fullscreenHostSelector,
   bare = false,
   onLoaded,
 }: LocalArtifactProps) {
@@ -52,7 +49,7 @@ export function LocalArtifactBlock({
     return <HtmlPreviewBlock text={`@file ${directive.path}`} renderError={renderError} fullscreenRequest={fullscreenRequest} />;
   }
   return (
-    <LoadedLocalArtifact directive={directive.kind === "page" ? { ...directive, kind: "document" } : directive} renderMarkdown={renderMarkdown} renderText={renderText} renderError={renderError} fullscreenRequest={fullscreenRequest} fullscreenHostSelector={fullscreenHostSelector} bare={bare} onLoaded={onLoaded} />
+    <LoadedLocalArtifact directive={directive.kind === "page" ? { ...directive, kind: "document" } : directive} renderMarkdown={renderMarkdown} renderText={renderText} renderError={renderError} fullscreenRequest={fullscreenRequest} bare={bare} onLoaded={onLoaded} />
   );
 }
 
@@ -62,7 +59,6 @@ function LoadedLocalArtifact({
   renderText,
   renderError,
   fullscreenRequest = 0,
-  fullscreenHostSelector,
   bare = false,
   onLoaded,
 }: LocalArtifactProps) {
@@ -72,9 +68,7 @@ function LoadedLocalArtifact({
   const [fullscreen, setFullscreen] = useState(false);
   const fullscreenRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setFullscreen(false), []);
-  useFullscreenKeyboard(fullscreen, fullscreenRef, close);
   const sectionRef = useRef<HTMLElement>(null);
-  const { bounds } = useFullscreenHostBounds(fullscreen, sectionRef, fullscreenHostSelector);
   useEffect(() => { if (fullscreenRequest) setFullscreen(true); }, [fullscreenRequest]);
   const generation = useRef(0);
   const onLoadedRef = useRef(onLoaded);
@@ -146,13 +140,13 @@ function LoadedLocalArtifact({
         </button>
       </div>}
       {bare ? <div className="text-sm">{content}</div> : <BoundedMessageContent collapsedHeight="720px" className="px-3 py-2 text-sm">{content}</BoundedMessageContent>}
-      {fullscreen && createPortal(<FullscreenOverlay panelRef={fullscreenRef} label={`Fullscreen ${name}`} onClose={close} style={bounds}>
+      {fullscreen && <FullscreenOverlay panelRef={fullscreenRef} label={`Fullscreen ${name}`} onClose={close}>
         <header className="flex items-center gap-2 p-2 text-sm"><span className="min-w-0 flex-1 break-words" title={directive.path}>{directive.path}</span>
           <button type="button" onClick={reveal} aria-label={`Reveal ${name}`}><FolderOpen size={15} /></button>
           <button type="button" onClick={close} aria-label="Close fullscreen"><X size={15} /></button>
         </header>
         <div className="min-h-0 flex-1 overflow-auto p-4 text-sm">{content}</div>
-      </FullscreenOverlay>, document.body)}
+      </FullscreenOverlay>}
     </section>
   );
 }

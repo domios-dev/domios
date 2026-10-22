@@ -45,8 +45,21 @@ fn runtime_adapter() -> codeterm_plugin::js_runtime::JsProvider {
 }
 
 fn register_runtime(svc: &ServiceContext) {
-    svc.agent_registry
-        .register_provider(Box::new(runtime_adapter()));
+    let adapter = runtime_adapter();
+    let provider = adapter.id().to_string();
+    svc.agent_registry.register_provider(Box::new(adapter));
+    let launched: Vec<_> = svc
+        .mux
+        .read()
+        .all_tabs()
+        .filter(|tab| tab.agent_type.as_deref() == Some(provider.as_str()))
+        .filter_map(|tab| Some((tab.id.clone(), tab.session_binding_nonce.clone()?)))
+        .collect();
+    for (tab, nonce) in launched {
+        crate::service::agent_runtime::authority::record_spawn_for_test(
+            svc, &tab, &provider, &nonce,
+        );
+    }
 }
 fn message() -> InboundMessage {
     InboundMessage {
@@ -186,12 +199,90 @@ fn bridge_removed_provider_is_typed_and_never_uses_a_pty() {
         .service
         .agent_registry
         .unregister_provider(&provider));
-    let port = ServiceBridgeTabPort(fixture.service.clone());
-    let error = port
-        .deliver_inbound(&id, "opaque-body", Some(&provider))
-        .unwrap_err();
+    let port: Arc<dyn BridgeTabPort> = Arc::new(ServiceBridgeTabPort(fixture.service.clone()));
+    let error = crate::async_runtime::block_on(codeterm_bridge::bridge::manager::inject_message(
+        &port,
+        &message(),
+        &VoiceTranscribeConfig::default(),
+        &TextHooksConfig::default(),
+    ))
+    .unwrap_err();
     let error: Value = serde_json::from_str(&error).unwrap();
     assert_eq!(error["code"], "chat_backend_plugin_removed");
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&id)
+        .unwrap()
+        .pty_id
+        .is_none());
+}
+
+#[test]
+fn bridge_runtime_rpc_failure_retains_uncertainty_without_replay_or_pty() {
+    use std::future::Future;
+    use std::task::Poll;
+
+    let (fixture, id) = fixture();
+    register_runtime(&fixture.service);
+    let tab = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+    let adapter = fixture
+        .service
+        .agent_registry
+        .provider_arc(tab.agent_type.as_deref().unwrap())
+        .unwrap();
+    let mut runtime = loaded_runtime(&tab, Some(adapter));
+    let port: Arc<dyn BridgeTabPort> = Arc::new(ServiceBridgeTabPort(fixture.service.clone()));
+    crate::async_runtime::block_on(async {
+        let mut peer = BufReader::new(&mut runtime.peer);
+        let receive = async {
+            let mut line = String::new();
+            tokio::time::timeout(std::time::Duration::from_secs(5), peer.read_line(&mut line))
+                .await
+                .unwrap()
+                .unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], "turn/start");
+            assert_eq!(request["params"]["threadId"], "exact-session");
+            let send_id = request["params"]["clientUserMessageId"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let response =
+                json!({"id":request["id"],"error":{"code":-32603,"message":"opaque-failure"}});
+            peer.get_mut()
+                .write_all(format!("{response}\n").as_bytes())
+                .await
+                .unwrap();
+            send_id
+        };
+        let voice = VoiceTranscribeConfig::default();
+        let hooks = TextHooksConfig::default();
+        let inbound = message();
+        let inject =
+            codeterm_bridge::bridge::manager::inject_message(&port, &inbound, &voice, &hooks);
+        let (send_id, result) = tokio::join!(receive, inject);
+        let error =
+            crate::service::delivery_error::DeliveryError::from_opaque(&id, result.unwrap_err());
+        assert_eq!(error.code(), "submit_unconfirmed");
+        assert!(error.bytes_written());
+        let ledger = &fixture.service.chat_send_ledger;
+        assert_eq!(
+            ledger.status(&send_id).unwrap().state,
+            ChatSendState::Unknown
+        );
+        assert!(ledger.has_rpc_handoff(&send_id));
+        assert_eq!(ledger.reconcile(&id).len(), 1);
+        assert!(codeterm_bridge::bridge::inbound_buffer::drain(&id).is_empty());
+        let mut extra = String::new();
+        let mut read = std::pin::pin!(peer.read_line(&mut extra));
+        let additional_rpc = std::future::poll_fn(|cx| {
+            Poll::Ready(matches!(read.as_mut().poll(cx), Poll::Ready(_)))
+        })
+        .await;
+        assert!(!additional_rpc);
+    });
     assert!(fixture
         .service
         .mux

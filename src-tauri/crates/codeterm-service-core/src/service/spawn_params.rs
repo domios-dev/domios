@@ -295,6 +295,10 @@ impl SpawnTabSpec {
             creator_tab_id: self.creator_tab_id.clone(),
             ownership: None,
             model: agent.model.clone(),
+            speed: self
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|metadata| metadata.params.speed.clone()),
             planned_model: agent.planned_model.clone(),
             planned_reasoning_effort: agent.planned_reasoning_effort.clone(),
             reasoning_effort: agent.reasoning_effort.clone(),

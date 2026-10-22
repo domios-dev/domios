@@ -345,6 +345,7 @@ pub(super) fn run_dispatch(
         canonical_writer,
         worker_kind,
         model,
+        speed,
         description,
         reasoning_effort,
         parent,
@@ -381,6 +382,9 @@ pub(super) fn run_dispatch(
     }
     if let Some(model) = model {
         params["model"] = json!(model);
+    }
+    if let Some(speed) = speed {
+        params["speed"] = json!(speed);
     }
     if let Some(description) = crate::cmd::agent::join_cli_words(description) {
         params["description"] = json!(description);
@@ -753,6 +757,7 @@ pub(super) fn run_task(
             name,
             kind,
             model,
+            speed,
             why,
             why_file,
             status,
@@ -807,6 +812,7 @@ pub(super) fn run_task(
                 name,
                 kind,
                 model,
+                speed,
                 why,
                 why_file,
                 status,
@@ -1017,6 +1023,7 @@ pub(super) fn run_task(
             attempt,
             provider,
             model,
+            speed,
             parent,
             workspace,
             title,
@@ -1028,6 +1035,9 @@ pub(super) fn run_task(
             });
             if let Some(provider) = provider {
                 params["provider"] = json!(provider);
+            }
+            if let Some(speed) = speed {
+                params["speed"] = json!(speed);
             }
             if let Some(model) = model {
                 params["model"] = json!(model);

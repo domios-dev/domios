@@ -1,5 +1,8 @@
+import { createNoticePublisher } from "../../lib/notices";
 import { useTeamClose } from "./useTeamClose";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
+import { precheckFreeLimit } from "../billing/freeLimitGate";
+import { isFreeLimitRefusal } from "../billing/freeLimitModel";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { nativeFolderDialog as open } from "../../lib/nativeBridge";
@@ -129,7 +132,6 @@ export const Sidebar = memo(function Sidebar({
     spawnAgentTab,
     createOrchestrationPair,
     selectTabByTab,
-    addNotification,
     upsertToast,
   } = useMultiplexer();
   const state = useMuxSelector(selectSidebarState, sidebarStateEqual);
@@ -180,12 +182,15 @@ export const Sidebar = memo(function Sidebar({
     workspaceCwd: string | null,
   ) => {
     if (state.workspaces.find((workspace) => workspace.id === workspaceId)?.cwd_missing) return;
+    if (precheckFreeLimit(["agent.tabs"])) return;
     const reportFailure = (error: unknown) => {
-      if (isWorkspaceCwdRefusal(error)) return;
-      upsertToast({
-        id: `spawn:${workspaceId}`, tab_id: null, workspace_id: workspaceId,
-        title: "Session start failed", body: spawnErrorMessage(error), severity: "Error", level: "failure", sticky: true,
-      });
+      if (isWorkspaceCwdRefusal(error) || isFreeLimitRefusal(error)) return;
+      createNoticePublisher({ upsertToast })({ kind: "toast", id: `spawn:${workspaceId}`,
+        tabId: null,
+        workspaceId: workspaceId,
+        title: "Session start failed",
+        detail: spawnErrorMessage(error),
+        severity: "Error" });
     };
     if (config?.agent.full_access === undefined) {
       setSessionPicker({ workspaceId, workspaceCwd, initialProviderId: agentId });
@@ -227,17 +232,14 @@ export const Sidebar = memo(function Sidebar({
     createOrchestrationPair({ ...result, workspaceId }).then((created) => {
       void selectTabByTab(workspaceId, created.orchestrator_tab_id);
     }).catch((e) => {
-      addNotification({
-        tab_id: null,
-        workspace_id: workspaceId,
+      if (isFreeLimitRefusal(e)) return;
+      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
+        workspaceId: workspaceId,
         title: "Orchestration pair failed",
-        body: e instanceof Error ? e.message : String(e),
-        severity: "Error",
-        level: "failure",
-        sticky: true,
-      });
+        detail: e instanceof Error ? e.message : String(e),
+        severity: "Error" });
     });
-  }, [addNotification, createOrchestrationPair, orchestrationModal, selectTabByTab]);
+  }, [upsertToast, createOrchestrationPair, orchestrationModal, selectTabByTab]);
 
   const firstRunActive = useMemo(
     () => Object.values(state.tabs).some(isFirstRunGeneralTab),
@@ -256,21 +258,21 @@ export const Sidebar = memo(function Sidebar({
     try {
       crons = await invoke<CronJob[]>("cron_list", {});
     } catch (error) {
-      addNotification({
-        tab_id: null,
-        workspace_id: workspaceId,
+      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
+        workspaceId: workspaceId,
         title: "Close inventory unavailable",
-        body: error instanceof Error ? error.message : String(error),
-        severity: "Error",
-        level: "failure",
-        sticky: true,
-      });
+        detail: error instanceof Error ? error.message : String(error),
+        severity: "Error" });
     }
     let blueprintSnapshots: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
     try {
       blueprintSnapshots = await readWorkspaceBlueprints(workspaceId);
     } catch (error) {
-      addNotification({ tab_id: null, workspace_id: workspaceId, title: "Close inventory unavailable", body: error instanceof Error ? error.message : String(error), severity: "Error", level: "failure", sticky: true });
+      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
+        workspaceId: workspaceId,
+        title: "Close inventory unavailable",
+        detail: error instanceof Error ? error.message : String(error),
+        severity: "Error" });
       return;
     }
     const teams = teamCloseResourcesForWorkspace(
@@ -289,7 +291,7 @@ export const Sidebar = memo(function Sidebar({
     const workspaceTabIds = new Set(workspaceTabs.map((tab) => tab.id));
     const blueprints = blueprintSnapshots.filter((blueprint) => blueprint.state === "running" && blueprint.owner?.kind === "tab" && blueprint.owner.tab_id !== null && workspaceTabIds.has(blueprint.owner.tab_id) && !teamMemberIds.has(blueprint.owner.tab_id)).map((blueprint) => blueprint.name);
     setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles, blueprints, teams });
-  }, [addNotification, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
+  }, [upsertToast, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
 
   useEffect(() => {
     const openRequestedSession = (event: Event) => {
@@ -325,6 +327,7 @@ export const Sidebar = memo(function Sidebar({
   }, [expandedWorkspaces, state.workspaces]);
 
   const handleNewWorkspace = useCallback(async () => {
+    if (precheckFreeLimit(["workspaces"])) return;
     let folder: string | null;
     if (IS_WEB) {
       setFolderPicker({
@@ -548,7 +551,11 @@ export const Sidebar = memo(function Sidebar({
       try {
         blueprints = await readWorkspaceBlueprints(wsId);
       } catch (error) {
-        addNotification({ tab_id: tabId, workspace_id: wsId, title: "Close inventory unavailable", body: error instanceof Error ? error.message : String(error), severity: "Error", level: "failure", sticky: true });
+        createNoticePublisher({ upsertToast })({ kind: "toast", tabId: tabId,
+          workspaceId: wsId,
+          title: "Close inventory unavailable",
+          detail: error instanceof Error ? error.message : String(error),
+          severity: "Error" });
         return;
       }
       const running = runningBlueprintNamesForOwner(blueprints, "tab", tabId);
@@ -558,7 +565,7 @@ export const Sidebar = memo(function Sidebar({
       }
       performCloseTab(wsId, tabId);
     })();
-  }, [addNotification, performCloseTab, state.tabs]);
+  }, [upsertToast, performCloseTab, state.tabs]);
 
   const requestTeamClose = useCallback(async (wsId: string, teamId: string) => {
     const ws = state.workspaces.find((workspace) => workspace.id === wsId);
@@ -567,21 +574,21 @@ export const Sidebar = memo(function Sidebar({
     try {
       crons = await invoke<CronJob[]>("cron_list", {});
     } catch (error) {
-      addNotification({
-        tab_id: null,
-        workspace_id: wsId,
+      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
+        workspaceId: wsId,
         title: "Close inventory unavailable",
-        body: error instanceof Error ? error.message : String(error),
-        severity: "Error",
-        level: "failure",
-        sticky: true,
-      });
+        detail: error instanceof Error ? error.message : String(error),
+        severity: "Error" });
     }
     let blueprintSnapshots: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
     try {
       blueprintSnapshots = await readWorkspaceBlueprints(wsId);
     } catch (error) {
-      addNotification({ tab_id: null, workspace_id: wsId, title: "Close inventory unavailable", body: error instanceof Error ? error.message : String(error), severity: "Error", level: "failure", sticky: true });
+      createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
+        workspaceId: wsId,
+        title: "Close inventory unavailable",
+        detail: error instanceof Error ? error.message : String(error),
+        severity: "Error" });
       return;
     }
     const resources = teamCloseResourcesForId(
@@ -606,9 +613,9 @@ export const Sidebar = memo(function Sidebar({
       blueprints: resources?.blueprints ?? runningBlueprintNamesForOwner(blueprintSnapshots, "team", teamId),
       lanes: resources?.lanes ?? [],
     });
-  }, [addNotification, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
+  }, [upsertToast, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
 
-  const { closingTeamIds, closeTeam: finishTeamClose } = useTeamClose(teamActions?.onCloseTeam, addNotification);
+  const { closingTeamIds, closeTeam: finishTeamClose } = useTeamClose(teamActions?.onCloseTeam, createNoticePublisher({ upsertToast }));
   const confirmTeamClose = useCallback(() => {
     const pending = pendingTeamClose;
     if (!pending) return;

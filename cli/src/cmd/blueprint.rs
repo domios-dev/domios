@@ -1,26 +1,19 @@
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 
 use crate::args::blueprint::{BlueprintAction, BlueprintEscalationAction};
 use crate::client::SocketClient;
 use crate::cmd::print::{fail, print_json};
+mod apply_output;
+mod authoring;
 mod handlers;
+mod memory;
 mod pipeline_spec;
+mod recipe_files;
 mod recipes;
+pub use authoring::handle_local;
 
 pub fn handle_recipe(json_mode: bool, name: Option<&str>) {
     recipes::print(json_mode, name);
-}
-
-fn assignments(values: Vec<String>) -> Result<BTreeMap<String, String>, String> {
-    let mut pairs = BTreeMap::new();
-    for value in values {
-        let (key, value) = value.split_once('=').ok_or("use bucket=value")?;
-        if pairs.insert(key.into(), value.into()).is_some() {
-            return Err(format!("duplicate assignment for bucket {key}"));
-        }
-    }
-    Ok(pairs)
 }
 
 fn read_text_input_file(path: &std::path::Path) -> Result<String, String> {
@@ -43,6 +36,9 @@ fn read_text_input_file(path: &std::path::Path) -> Result<String, String> {
 }
 
 fn render(job: &Value) {
+    if let Some(note) = job["note"].as_str().filter(|note| !note.is_empty()) {
+        println!("Note: {note}");
+    }
     if let Some(pipeline) = job.get("pipeline") {
         let current_step = job["current_step"]
             .as_u64()
@@ -256,16 +252,17 @@ fn pipeline_preview_summary(value: &Value) -> String {
     if let Some(checks) = value["checks"].as_array() {
         lines.push("Checks:".into());
         for check in checks {
+            let check: codeterm_blueprint_types::blueprint_contract::FieldCheck =
+                match serde_json::from_value(check.clone()) {
+                    Ok(check) => check,
+                    Err(error) => return format!("Invalid Blueprint preview: {error}"),
+                };
             lines.push(format!(
                 "  {} {}{}",
-                if check["passed"].as_bool().unwrap_or(false) {
-                    "PASS"
-                } else {
-                    "FAIL"
-                },
-                check["field"].as_str().unwrap_or("validation"),
-                check["reason"]
-                    .as_str()
+                if check.passed { "PASS" } else { "FAIL" },
+                check.field,
+                check
+                    .reason
                     .map(|reason| format!(": {reason}"))
                     .unwrap_or_default()
             ));
@@ -304,6 +301,11 @@ fn input_ref_summary(value: &Value) -> String {
 }
 
 pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: BlueprintAction) {
+    let recipe_list = matches!(&action, BlueprintAction::Recipe { name: None });
+    let apply_source = match &action {
+        BlueprintAction::Apply { source, .. } => Some(source.clone()),
+        _ => None,
+    };
     let export_out = match &action {
         BlueprintAction::Export { out, .. } => out.clone(),
         _ => None,
@@ -315,17 +317,81 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     )
     .unwrap_or_else(|error| fail(2, error));
     let transition_id = params["transition_id"].as_str().map(str::to_owned);
-    let result = client
-        .call(method, Some(params))
-        .unwrap_or_else(|error| fail(1, error.to_string()));
+    let intent = params["intent"].as_str().unwrap_or("").to_owned();
+    let mut result = client
+        .call_detailed(method, Some(params))
+        .unwrap_or_else(|error| {
+            if let Some(source) = apply_source.as_deref() {
+                authoring::fail_apply_error(source, &error, json_mode)
+            }
+            fail(1, error.to_string())
+        });
+    if method == "blueprint.recall" {
+        if !recipe_list {
+            result = memory::offers(result, &intent);
+        }
+        if recipe_list {
+            let builtins = recipe_files::FILES
+                .iter()
+                .map(|(name, _)| *name)
+                .collect::<Vec<_>>();
+            if json_mode {
+                print_json(&json!({"built_in":builtins,"stored":result}));
+            } else {
+                for name in builtins {
+                    println!("{name}");
+                }
+                for entry in result.as_array().into_iter().flatten() {
+                    println!(
+                        "memory:{} {} (uses={} successes={})",
+                        entry["id"].as_str().unwrap_or("?"),
+                        entry["when_to_use"].as_str().unwrap_or("?"),
+                        entry["uses"],
+                        entry["successes"]
+                    );
+                }
+            }
+        } else if json_mode {
+            print_json(&json!({"offers":result}));
+        } else if let Some(offer) = result.as_array().and_then(|offers| offers.first()) {
+            print!("{}", offer["yaml"].as_str().unwrap_or(""));
+        } else {
+            println!(
+                "No proven graph matches this intent. Choose a built-in with blueprint recipe."
+            );
+        }
+        return;
+    }
+    if method == "blueprint.keep" {
+        if json_mode {
+            print_json(&result)
+        } else {
+            println!(
+                "Queued {} for Blueprint memory.",
+                result["id"].as_str().unwrap_or("?")
+            );
+        }
+        return;
+    }
     if method == "blueprint.export" {
-        let raw = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|error| fail(1, error.to_string()));
+        let recipe = serde_json::from_value(result)
+            .unwrap_or_else(|error| fail(1, format!("invalid exported recipe: {error}")));
+        let raw = codeterm_blueprint_types::blueprint_document::Document::from_recipe(&recipe)
+            .and_then(|document| document.yaml())
+            .unwrap_or_else(|error| fail(1, error));
         if let Some(path) = export_out {
             std::fs::write(&path, format!("{raw}\n"))
                 .unwrap_or_else(|error| fail(1, error.to_string()));
         } else {
             println!("{raw}");
+        }
+        return;
+    }
+    if method == "blueprint.apply" || method == "blueprint.apply_recipe" {
+        if json_mode {
+            print_json(&result)
+        } else {
+            println!("{}", apply_output::summary(&result))
         }
         return;
     }
@@ -455,148 +521,69 @@ fn request(
             stopped: _,
             start,
         } => {
-            let raw = pipeline_spec::read_spec(&file)?;
-            let recipe = codeterm_blueprint_types::blueprint_recipe::Recipe::parse(&raw)?;
-            recipe.bind(&set)?;
-            params["recipe"] = serde_json::to_value(recipe).map_err(|error| error.to_string())?;
-            params["set"] = json!(set);
+            let definition = authoring::load_checked(&file.to_string_lossy(), &set)?;
+            params["recipe"] =
+                json!({"schema_version":1,"placeholders":{},"definition":definition});
+            params["set"] = json!([]);
             params["stopped"] = json!(!start);
             "blueprint.import"
         }
-        BlueprintAction::Recipe { .. } => return Err("blueprint recipe is handled locally".into()),
-        BlueprintAction::Create {
-            spec,
-            recipe,
+        BlueprintAction::Recipe { name: None } => {
+            params["intent"] = json!("");
+            "blueprint.recall"
+        }
+        BlueprintAction::Recipe { .. } => {
+            return Err("named blueprint recipe is handled locally".into())
+        }
+        BlueprintAction::New {
+            like: Some(intent), ..
+        }
+        | BlueprintAction::Apply {
+            like: Some(intent), ..
+        } => {
+            params["intent"] = json!(intent);
+            "blueprint.recall"
+        }
+        BlueprintAction::Keep { id, when } => {
+            params["id"] = json!(id);
+            params["when"] = json!(when);
+            "blueprint.keep"
+        }
+        BlueprintAction::Apply {
+            source,
+            like: None,
             set,
-            owner,
-            name,
-            probe,
-            observe,
-            terminal_pattern,
-            output_settled,
-            session,
-            input,
-            input_file,
-            input_url,
-            input_text,
-            convert_to,
-            convert_timeout,
-            question,
-            buckets,
-            every,
-            routes,
-            rearm_on_change,
-            handlers_file,
-            escalation_timeout_ms,
-            paused,
-            max_transitions,
-            max_actions,
-            until,
-            timeout,
-            matches,
-            model_classification,
+            note,
+            dry_run,
+        } if source.starts_with("memory:") => {
+            params["id"] = json!(source.trim_start_matches("memory:"));
+            params["set"] = json!(set);
+            params["note"] = json!(note);
+            params["dry_run"] = json!(dry_run);
+            "blueprint.apply_recipe"
+        }
+        BlueprintAction::Apply {
+            source,
+            like: None,
+            set,
+            note,
             dry_run,
         } => {
-            if spec.is_some() || recipe.is_some() {
-                if name.is_some()
-                    || terminal_pattern.is_some()
-                    || output_settled.is_some()
-                    || session
-                    || model_classification
-                    || probe.is_some()
-                    || observe.is_some()
-                    || input.is_some()
-                    || input_file.is_some()
-                    || input_url.is_some()
-                    || input_text.is_some()
-                    || question.is_some()
-                    || buckets.is_some()
-                    || every.is_some()
-                    || !routes.is_empty()
-                    || !rearm_on_change.is_empty()
-                    || handlers_file.is_some()
-                    || escalation_timeout_ms.is_some()
-                    || paused
-                    || max_transitions.is_some()
-                    || max_actions.is_some()
-                    || until.is_some()
-                    || timeout.is_some()
-                    || !matches.is_empty()
-                {
-                    return Err("pipeline and legacy stage create options cannot be mixed".into());
-                }
-                if let Some(path) = recipe
-                    .as_deref()
-                    .filter(|name| std::path::Path::new(name).is_file())
-                {
-                    if owner.is_some() {
-                        return Err("portable recipes use their declared owner".into());
-                    }
-                    let raw = pipeline_spec::read_spec(std::path::Path::new(path))?;
-                    let recipe = codeterm_blueprint_types::blueprint_recipe::Recipe::parse(&raw)?;
-                    let bound = recipe.bind(&set)?;
-                    if dry_run {
-                        if let Some(create) = bound.get("create") {
-                            params["create"] = create.clone();
-                            return Ok(("blueprint.validate.create", params));
-                        }
-                        params["spec"] = bound
-                            .get("spec")
-                            .cloned()
-                            .ok_or("recipe definition must contain create or spec")?;
-                        return Ok(("blueprint.pipeline.validate", params));
-                    }
-                    params["recipe"] =
-                        serde_json::to_value(recipe).map_err(|error| error.to_string())?;
-                    params["set"] = json!(set);
-                    params["stopped"] = json!(true);
-                    return Ok(("blueprint.import", params));
-                }
-                params["spec"] = pipeline_spec::load(
-                    spec.as_deref(),
-                    recipe.as_deref(),
-                    &set,
-                    owner.as_deref(),
-                )?;
-                return Ok((
-                    if dry_run {
-                        "blueprint.pipeline.validate"
-                    } else {
-                        "blueprint.pipeline.create"
-                    },
-                    params,
-                ));
+            let mut definition = authoring::load_checked(&source, &set)?;
+            if let Some(note) = note {
+                let key = if definition.get("spec").is_some() {
+                    "spec"
+                } else {
+                    "create"
+                };
+                definition[key]["note"] = json!(note);
             }
-            if !set.is_empty() || owner.is_some() {
-                return Err("--set and --owner require --spec or --recipe".into());
-            }
-            let (routes, handlers) = handlers::declared_outputs(
-                routes,
-                handlers_file.as_deref(),
-                buckets.as_deref().ok_or("--buckets is required")?,
-            )?;
-            let observe = observe
-                .map(|source| observation_binding(&source))
-                .transpose()?;
-            let input = input_payload(
-                input,
-                input_file,
-                input_url,
-                input_text,
-                convert_to,
-                convert_timeout,
-            )?;
-            let terminal = (terminal_pattern.is_some() || output_settled.is_some())
-                .then(|| json!({"pattern": terminal_pattern, "idle_ms": output_settled}));
-            params["create"] = json!({ "name": name.ok_or("--name is required")?, "probe": probe, "observe": observe, "input": input, "question": question.ok_or("--question is required")?, "buckets": buckets.ok_or("--buckets is required")?, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
-            params["create"]["terminal"] = json!(terminal);
-            params["create"]["session"] = json!(session);
-            params["create"]["model_classification"] = json!(model_classification);
-            if dry_run {
-                "blueprint.validate.create"
-            } else {
-                "blueprint.create"
-            }
+            params["definition"] = definition;
+            params["dry_run"] = json!(dry_run);
+            "blueprint.apply"
+        }
+        BlueprintAction::Check { .. } | BlueprintAction::New { .. } | BlueprintAction::Schema => {
+            return Err("Blueprint command is handled offline".into())
         }
         BlueprintAction::List => "blueprint.list",
         BlueprintAction::Input {
@@ -635,6 +622,7 @@ fn request(
             "blueprint.delete"
         }
         BlueprintAction::Update {
+            note,
             id,
             expect_version,
             from_file,
@@ -643,8 +631,14 @@ fn request(
         } => {
             params["id"] = json!(id);
             params["expect_version"] = json!(expect_version);
-            let update = read_update(&from_file, cause.as_deref())?;
-            if let Some(spec) = pipeline_update_spec(&update)? {
+            let mut update = read_update(&from_file, cause.as_deref())?;
+            if let Some(note) = &note {
+                update["note"] = json!(note);
+            }
+            if let Some(mut spec) = pipeline_update_spec(&update)? {
+                if let Some(note) = note {
+                    spec["note"] = json!(note);
+                }
                 params["spec"] = spec;
                 if let Some(cause) = cause {
                     params["cause"] = json!(cause);
@@ -683,21 +677,6 @@ fn request(
     Ok((method, params))
 }
 
-fn observation_binding(source: &str) -> Result<Value, String> {
-    let (kind, target) = if let Some(tab_id) = source.strip_prefix("tab:") {
-        ("tab", tab_id)
-    } else if let Some(cron_id) = source.strip_prefix("cron-run:") {
-        ("cron_run", cron_id)
-    } else {
-        return Err("use tab:<id> or cron-run:<id>".into());
-    };
-    if target.trim().is_empty() || target.len() > 256 || target.chars().any(char::is_control) {
-        return Err("--observe target must be nonempty and bounded".into());
-    }
-    Ok(json!({"kind":kind, "id":target}))
-}
-
-/// `Input: audio file quick-brown-fox.wav → text`; inline text is never rendered.
 fn input_source_line(value: &Value) -> Option<String> {
     use codeterm_blueprint_types::sentinel_input::{display_name, DataRef, InputSpec};
     let spec: InputSpec = serde_json::from_value(value.get("input")?.clone()).ok()?;
@@ -732,61 +711,6 @@ fn pipeline_input_source_line(value: &Value) -> Option<String> {
             .and_then(Value::as_str)
             .unwrap_or("-")
     ))
-}
-
-fn absolute_path(path: std::path::PathBuf) -> Result<std::path::PathBuf, String> {
-    if path.is_absolute() {
-        return Ok(path);
-    }
-    let cwd = std::env::current_dir().map_err(|error| format!("caller cwd: {error}"))?;
-    Ok(cwd.join(path))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn input_payload(
-    kind: Option<String>,
-    file: Option<std::path::PathBuf>,
-    url: Option<String>,
-    text: Option<String>,
-    convert_to: Option<String>,
-    convert_timeout: Option<u64>,
-) -> Result<Value, String> {
-    use codeterm_blueprint_types::sentinel_input::{DataRef, InputSpec, MediaKind};
-    let Some(kind) = kind else {
-        if file.is_some()
-            || url.is_some()
-            || text.is_some()
-            || convert_to.is_some()
-            || convert_timeout.is_some()
-        {
-            return Err("input data and conversion flags require --input".into());
-        }
-        return Ok(Value::Null);
-    };
-    let kind = MediaKind::parse(&kind).ok_or("--input: use text, audio, video or image")?;
-    let data = match (file, url, text) {
-        (Some(file), None, None) => DataRef::File(absolute_path(file)?),
-        (None, Some(url), None) => DataRef::Url(url),
-        (None, None, Some(text)) => DataRef::Text(text),
-        _ => {
-            return Err(
-                "--input requires exactly one of --input-file, --input-url, --input-text".into(),
-            )
-        }
-    };
-    let convert_to = match convert_to.as_deref() {
-        Some(target) => Some(MediaKind::parse(target).ok_or("--convert-to: use text or audio")?),
-        None => None,
-    };
-    let spec = InputSpec {
-        kind,
-        data,
-        convert_to,
-        convert_timeout_ms: convert_timeout,
-    };
-    codeterm_blueprint_types::sentinel_input::validate(&spec)
-        .map_err(|error| format!("--input: {error}"))?;
-    serde_json::to_value(&spec).map_err(|error| error.to_string())
 }
 
 fn read_update(path: &std::path::Path, cause: Option<&str>) -> Result<Value, String> {
@@ -918,27 +842,6 @@ fn normalize_update_handlers(object: &mut serde_json::Map<String, Value>) -> Res
         object.insert("on_other".into(), on_other);
     }
     Ok(())
-}
-
-fn map_none_route(
-    bucket: &str,
-    action: &str,
-    grouped: &mut BTreeMap<String, Vec<Value>>,
-    silent: &mut std::collections::BTreeSet<String>,
-) -> Result<bool, String> {
-    let handlers = grouped.entry(bucket.into()).or_default();
-    if action == "none" {
-        if !handlers.is_empty() || !silent.insert(bucket.into()) {
-            return Err(
-                "route none cannot be combined with another route for the same bucket".into(),
-            );
-        }
-        return Ok(true);
-    }
-    if silent.contains(bucket) {
-        return Err("route none cannot be combined with another route for the same bucket".into());
-    }
-    Ok(false)
 }
 
 #[cfg(test)]

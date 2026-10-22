@@ -14,8 +14,10 @@ fn owner() -> Owner {
 }
 
 fn definition() -> Value {
+    static NEXT_NAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let index = NEXT_NAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     json!({
-        "name": "handler-result-watch",
+        "name": format!("handler-result-watch-{index}"),
         "probe": "status", "question": "state?", "buckets": ["done"],
         "every": "10s", "matches": {"done": "^done$"}, "timeout": "1h"
     })
@@ -291,6 +293,7 @@ fn sentinel_handlers_activation_refuses_exact_scope_and_terminal_targets() {
             ..owner()
         },
     ] {
+        paused["name"] = json!(format!("foreign-target-{}", store.list().len()));
         let foreign = store
             .create(
                 serde_json::from_value(paused.clone()).unwrap(),
@@ -302,6 +305,7 @@ fn sentinel_handlers_activation_refuses_exact_scope_and_terminal_targets() {
     }
     store.stop(&target.id, "explicit").unwrap();
     assert!(store.validate_target(&source, &target.id).is_err());
+    paused["name"] = json!("expired-target");
     paused["timeout"] = json!("10s");
     let expired = store
         .create(serde_json::from_value(paused).unwrap(), owner(), false)

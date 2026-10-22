@@ -15,6 +15,16 @@ pub use task::PlanTaskAction;
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum PlanAction {
+    /// Inspect or set a plan's control loop
+    ControlLoop {
+        #[command(subcommand)]
+        action: PlanControlLoopAction,
+    },
+    /// Grant bounded authority to the active Curator round
+    Curator {
+        #[command(subcommand)]
+        action: PlanCuratorAction,
+    },
     /// Create a new plan
     Create {
         #[arg(long, allow_hyphen_values = true)]
@@ -429,6 +439,37 @@ pub enum PlanAction {
     Skill {
         #[command(subcommand)]
         action: PlanSkillAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PlanControlLoopAction {
+    /// Request one Curator round now, subject to the plan and human-wait gates.
+    Run { plan_id: String },
+    /// Show the plan's control-loop mode and heartbeat interval.
+    Show { plan_id: String },
+    /// Switch the plan between Curator rounds and the plain heartbeat.
+    Set {
+        plan_id: String,
+        #[arg(value_parser = ["curator", "heartbeat"])]
+        mode: String,
+        #[arg(long)]
+        interval: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PlanCuratorAction {
+    /// Grant the Curator tab the blueprints, plan skills and saves it may use.
+    Grant {
+        plan_id: String,
+        curator_tab: String,
+        #[arg(long)]
+        blueprint: Vec<String>,
+        #[arg(long)]
+        plan_skill: Vec<String>,
+        #[arg(long)]
+        save: Vec<String>,
     },
 }
 

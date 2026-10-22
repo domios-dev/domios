@@ -1,4 +1,4 @@
-use crate::client::SocketClient;
+use crate::client::{RpcClient, SocketClient};
 use crate::cmd::mem::item::{self, SaveMemItem};
 use crate::MemAction;
 
@@ -14,7 +14,12 @@ pub(super) fn try_dispatch(
     client: &mut SocketClient,
     action: &MemAction,
 ) -> Option<Result<serde_json::Value, String>> {
-    let (method, params) = socket_request(action)?;
+    let (method, mut params) = socket_request(action)?;
+    if method == "mem.save" && !client.is_remote() {
+        if let Some(params) = &mut params {
+            crate::cmd::plan::inject_trusted_session(params);
+        }
+    }
     Some(client.call(method, params))
 }
 

@@ -93,9 +93,9 @@ pub(super) async fn send_outbound(
                 std::mem::discriminant(media_content),
                 chat_id
             );
-            if let Err(error) =
-                send_media(client, api_base, token, chat_id, None, media_content).await
-            {
+            let result = send_media(client, api_base, token, chat_id, None, media_content).await;
+            complete_media(message, &result);
+            if let Err(error) = result {
                 log::error!("[bridge-outbound] media send failed: {}", error);
             } else {
                 tab.telegram_used();
@@ -181,7 +181,7 @@ pub(super) async fn send_for_tab(
         .media_destination(tab.thread_tabs(), tab_id, chat_id)
         .await;
     let attributed = attribute(&message.content, destination.header.as_deref());
-    if let Err(error) = send_media(
+    let result = send_media(
         client,
         api_base,
         token,
@@ -189,8 +189,9 @@ pub(super) async fn send_for_tab(
         destination.thread_id,
         &attributed,
     )
-    .await
-    {
+    .await;
+    complete_media(message, &result);
+    if let Err(error) = result {
         log::error!("[bridge-outbound] tab media send failed: {}", error);
         if let Some(thread_id) = destination.thread_id {
             threads.note_thread_send_failure(chat_id, thread_id, &error.to_string());
@@ -198,9 +199,6 @@ pub(super) async fn send_for_tab(
         return;
     }
     tab.telegram_used();
-    threads
-        .after_media(tab_id, chat_id, &destination, caption(&message.content))
-        .await;
 }
 
 pub async fn send_notification(
@@ -255,17 +253,6 @@ fn notification_text(message: &OutboundMessage) -> Option<(&str, &str)> {
     }
 }
 
-fn caption(content: &OutboundContent) -> &str {
-    match content {
-        OutboundContent::Photo { caption, .. }
-        | OutboundContent::Document { caption, .. }
-        | OutboundContent::Voice { caption, .. }
-        | OutboundContent::Animation { caption, .. }
-        | OutboundContent::Video { caption, .. } => caption.as_deref().unwrap_or_default(),
-        OutboundContent::Sticker { .. } | OutboundContent::Text { .. } => "",
-    }
-}
-
 fn attribute(content: &OutboundContent, header: Option<&str>) -> OutboundContent {
     let Some(header) = header else {
         return content.clone();
@@ -305,5 +292,11 @@ fn attribute(content: &OutboundContent, header: Option<&str>) -> OutboundContent
             caption: headed(caption),
         },
         other => other.clone(),
+    }
+}
+
+fn complete_media(message: &OutboundMessage, result: &Result<(), String>) {
+    if let Some(completion) = &message.completion {
+        let _ = completion.send(result.clone());
     }
 }

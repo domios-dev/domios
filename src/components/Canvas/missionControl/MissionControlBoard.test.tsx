@@ -313,6 +313,35 @@ beforeEach(() => {
 });
 
 describe("mission control board panels", () => {
+  it("shows skeletons until each card has its own reading", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const spend = { team_id: "team-a", metric: "tokens", units: "tokens", scope: "team_plan", model: "all", from: "2026-10-14", to: "2026-10-21", state: "recording", not_recording_reason: null, plans: [], attribution: { team_plan_count: 0, unknown_plan_rows: 0, unassigned_plan_rows: 0, foreign_plan_rows_excluded: 0 }, daily: [], weekly_limit_points: [], weekly_limit_days: [] } as const;
+    await act(async () => root.render(<MissionControlBoard plan={PLAN} state={null} loading spendLoading />));
+    for (const title of ["Spend", "Models", "Plan", "Event log"]) {
+      expect(host.querySelector(`[role="status"][aria-label="Loading ${title}"]`)).not.toBeNull();
+    }
+    await act(async () => root.render(<MissionControlBoard plan={PLAN} state={null} loading teamSpend={{ ...spend, plans: [], daily: [], weekly_limit_points: [], weekly_limit_days: [] }} />));
+    expect(host.querySelector('[aria-label="Loading Spend"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Loading Models"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Loading Plan"]')).not.toBeNull();
+    await act(async () => root.render(<MissionControlBoard plan={PLAN} state={boardState(recordingState())} />));
+    expect(host.querySelector('[aria-label="Loading Plan"]')).toBeNull();
+    expect(text(host, "mc-board-plan-heading")).toBe(PLAN.title);
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("ends the team skeletons when the read fails while retaining independent spend", async () => {
+    const { host, unmount } = await render(<MissionControlTeamBoard team={null} error="Board read failed" />);
+    expect(host.querySelector('[aria-label="Loading Plan"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Loading Event log"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="mc-board-spend"]')).not.toBeNull();
+    await unmount();
+  });
+
   it("opens on the spend, models and plan row with the log under it when nothing needs the owner", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
@@ -321,6 +350,7 @@ describe("mission control board panels", () => {
     expect(host.querySelector('[data-testid="mission-control-board-actions"]')).toBeNull();
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(Array.from(root.children).map((child) => child.getAttribute("data-testid"))).toEqual([
+      "mc-plan-settings",
       "mc-board-row",
       "mc-board-event-log",
     ]);
@@ -344,6 +374,7 @@ describe("mission control board panels", () => {
     expect(host.querySelector('[data-testid="mc-board-needs-you"]')).toBeNull();
     const root = host.querySelector('[data-testid="mission-control-board"]') as HTMLElement;
     expect(Array.from(root.children).map((child) => child.getAttribute("data-testid"))).toEqual([
+      "mc-plan-settings",
       "mc-board-row",
       "mc-board-event-log",
     ]);
@@ -360,9 +391,10 @@ describe("mission control board panels", () => {
     const goalLine = host.querySelector('[data-testid="mc-board-plan-goal"]') as HTMLElement;
     expect(goalLine.textContent).toBe("Ship a readable Snake game");
     expect(goalLine.getAttribute("title")).toBe("Ship a readable Snake game");
-    expect(text(host, "mc-board-plan-meta")).toBe("16 tasks");
+    expect(host.querySelector('[data-testid="mc-plan-settings"] [data-testid="plan-park-button"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="mc-board-plan"] [data-testid="plan-mode-controls"]')).toBeNull();
     expect(text(host, "mc-board-bounces-amount")).toBe("1");
-    expect(text(host, "mc-board-quality")).toBe("bounced1first try10 of 12");
+    expect(text(host, "mc-board-progress-stats")).toBe("done67%10 of 15blocked1of 5 openfirst try83%1 bounced");
     const plan = text(host, "mc-board-plan");
     for (const banned of ["5.3M", "1.4B", "65M", "output", "total", "bytes", "·", "Quality", "new input"]) {
       expect(plan).not.toContain(banned);
@@ -396,11 +428,9 @@ describe("mission control board panels", () => {
     expect(host.querySelector('[data-testid="mc-board-plan-goal"]')?.getAttribute("title")).toBe(goal);
     await act(async () => heading.click());
     expect(onOpenView).toHaveBeenLastCalledWith("plan");
-
-    const tasks = host.querySelector('[data-testid="mc-board-plan-tasks-link"]') as HTMLButtonElement;
-    expect(tasks.textContent).toBe("16 tasks");
-    await act(async () => tasks.click());
-    expect(onOpenView).toHaveBeenLastCalledWith("tasks");
+    onOpenView.mockClear();
+    await act(async () => (host.querySelector('[data-testid="mc-board-plan-goal"]') as HTMLButtonElement).click());
+    expect(onOpenView).toHaveBeenLastCalledWith("plan");
     await unmount();
   });
 
@@ -470,9 +500,8 @@ describe("mission control board panels", () => {
   it("shows only the statuses holding tasks and says nothing about the empty ones", async () => {
     const { host, unmount } = await render(board(recordingState()));
 
-    expect(statusItems(host)).toEqual(["1pending", "2in review", "1blocked", "1paused", "10done", "1cancelled"]);
+    expect(statusItems(host)).toEqual(["10done", "2in review", "1blocked", "1paused", "1pending", "1cancelled"]);
     expect(text(host, "mc-board-task-statuses")).not.toContain("nothing");
-    expect(text(host, "mc-board-plan-meta")).toBe("16 tasks");
     await unmount();
 
     const paused = await render(board(recordingState(), { ...NO_TASKS, paused: 4, total: 4 }));
@@ -626,7 +655,7 @@ describe("mission control board panels", () => {
       "mc-board-plan",
     ]);
     expect(text(host, "mc-board-plan-empty")).toBe("No active plan");
-    for (const absent of ["mc-board-task-statuses", "mc-board-quality", "mc-board-tasks-amount", "mc-board-spend-gauge"]) {
+    for (const absent of ["mc-board-task-statuses", "mc-board-progress-stats", "mc-board-tasks-amount", "mc-board-spend-gauge"]) {
       expect(host.querySelector(`[data-testid="${absent}"]`)).toBeNull();
     }
     expect(text(host, "mc-board-spend-empty")).toBe("no data");
@@ -1009,4 +1038,17 @@ describe("mission control board layout", () => {
     expect(boardRoot.querySelector("input, select, textarea")).toBeNull();
     await unmount();
   });
+});
+
+it("announces each board load failure once without nested live regions", async () => {
+  for (const ui of [
+    <MissionControlBoard plan={FIXTURE_PLAN} state={null} spendError="opaque-spend-error" />,
+    <MissionControlTeamBoard team={null} error="opaque-board-error" spendError="opaque-spend-error" />,
+  ]) {
+    const view = await render(ui);
+    const alerts = view.host.querySelectorAll('[role="alert"]');
+    expect(alerts.length).toBe(ui.type === MissionControlBoard ? 1 : 2);
+    for (const alert of alerts) expect(alert.querySelector('[role]')).toBeNull();
+    await view.unmount();
+  }
 });

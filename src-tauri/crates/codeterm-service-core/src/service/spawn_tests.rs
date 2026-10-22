@@ -332,8 +332,10 @@ fn unresolvable_launch_binary_is_refused_before_a_tab_exists() {
         "install missing-cli",
     ));
 
-    let refused = provider_launch_preflight(&registry, "missing-cli", false)
-        .map(|clearance| create_cleared_agent_tab(&mut mux, &workspace_id, &clearance));
+    let refused = provider_launch_preflight(&registry, "missing-cli", false).map(|clearance| {
+        let gate = crate::service::billing::LimitGate::dormant();
+        create_cleared_agent_tab(&mut mux, &workspace_id, &clearance, &gate)
+    });
 
     let err = refused.expect_err("an unresolvable binary must not launch");
     assert_eq!(err.code(), "provider_binary_unavailable");
@@ -739,6 +741,7 @@ fn from_agent_params_carries_model_into_spec() {
         creator_tab_id: None,
         ownership: None,
         model: Some("gpt-5.4-mini".into()),
+        speed: None,
         planned_model: None,
         planned_reasoning_effort: None,
         reasoning_effort: None,
@@ -903,6 +906,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         creator_tab_id: None,
         ownership: None,
         model: None,
+        speed: None,
         planned_model: None,
         planned_reasoning_effort: None,
         reasoning_effort: None,
@@ -980,6 +984,7 @@ fn from_agent_params_carries_activate_into_spec() {
         creator_tab_id: None,
         ownership: None,
         model: None,
+        speed: None,
         planned_model: None,
         planned_reasoning_effort: None,
         reasoning_effort: None,

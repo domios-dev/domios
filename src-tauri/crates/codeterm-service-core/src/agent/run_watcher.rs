@@ -12,6 +12,8 @@ use crate::service::ServiceContext;
 mod blocking_prompt;
 pub mod cron_completion;
 mod cron_end;
+#[cfg(test)]
+mod explicit_finish_tests;
 pub mod runtime_runs;
 use blocking_prompt::{
     claim_run_end, end_on_blocking_prompt, should_end_on_blocking_prompt, tab_pending_prompt_kind,
@@ -280,6 +282,11 @@ impl RunWatcherRegistry {
         {
             return;
         }
+        if svc.run_completion_for_tab(tab_id)
+            == crate::service::role_policy::RunCompletion::ExplicitFinish
+        {
+            return;
+        }
         let Some(state) = self.claim_stop_report_run(&svc.mux, tab_id, report_nonce) else {
             return;
         };
@@ -318,6 +325,11 @@ impl RunWatcherRegistry {
     /// (no registered run) and for runs already completed via report.
     pub fn complete_via_stop_hook(&self, svc: &ServiceContext, tab_id: &str) {
         if self.stop_pending_cron(svc, tab_id) {
+            return;
+        }
+        if svc.run_completion_for_tab(tab_id)
+            == crate::service::role_policy::RunCompletion::ExplicitFinish
+        {
             return;
         }
         let state = self
@@ -378,6 +390,12 @@ impl RunWatcherRegistry {
         let signal = state.scanner.lock().feed(&chunk);
         if let Some(signal) = signal {
             if !signal.is_error && self.stop_pending_cron(svc, &state.tab_id) {
+                return;
+            }
+            if !signal.is_error
+                && svc.run_completion_for_tab(&state.tab_id)
+                    == crate::service::role_policy::RunCompletion::ExplicitFinish
+            {
                 return;
             }
             if !state.completed.swap(true, Ordering::AcqRel) {
@@ -535,7 +553,10 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             continue;
         }
 
-        if idle_secs >= IDLE_COMPLETE_SECS {
+        if idle_secs >= IDLE_COMPLETE_SECS
+            && svc.run_completion_for_tab(&state.tab_id)
+                == crate::service::role_policy::RunCompletion::TurnEnd
+        {
             let session_bound = tab_completion_state(&svc, &state.tab_id).1;
             let ready_for_success = can_complete_on_semantic_idle(
                 state.armed.load(Ordering::Acquire),

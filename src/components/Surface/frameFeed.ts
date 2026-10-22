@@ -5,22 +5,25 @@ export type FrameListener = (frame: StreamFrame) => void;
 
 export interface FrameFeed {
   subscribe(listener: FrameListener): () => void;
+  accepts?(frame: StreamFrame): boolean;
 }
 
 export interface FramePublisher extends FrameFeed {
   publish(frame: StreamFrame): void;
 }
 
-export function createFrameFeed(): FramePublisher {
+export function createFrameFeed(accepts: (frame: StreamFrame) => boolean = () => true): FramePublisher {
   const listeners = new Set<FrameListener>();
   let latest: StreamFrame | null = null;
   return {
+    accepts,
     subscribe(listener) {
       listeners.add(listener);
-      if (latest) listener(latest);
+      if (latest && accepts(latest)) listener(latest);
       return () => { listeners.delete(listener); };
     },
     publish(frame) {
+      if (!accepts(frame)) return;
       latest = frame;
       for (const listener of listeners) listener(frame);
     },

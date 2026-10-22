@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS usage_snapshots (
   failure_reason TEXT,
   probe_command TEXT,
   raw_excerpt TEXT,
+  usage_details TEXT,
   debug_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_usage_provider_ts ON usage_snapshots(provider, captured_at DESC);

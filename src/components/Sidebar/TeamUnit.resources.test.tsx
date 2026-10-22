@@ -44,14 +44,14 @@ async function main() {
   assert(host.querySelector('[data-testid="crons-section"]'), "cron section appears when populated");
   assert(!host.querySelector('[data-testid="terminal-entry"]'), "terminal section starts collapsed");
   assert(!host.querySelector('[data-testid="cron-entry"]'), "cron section starts collapsed");
-  assert(host.querySelector('[data-testid="terminals-collapse-toggle"]')?.textContent?.includes("1 utility shell"), "collapsed terminal disclosure carries its count inline");
-  assert(host.querySelector('[data-testid="crons-collapse-toggle"]')?.textContent?.includes("1 job"), "collapsed cron disclosure carries its count inline");
+  assert(host.querySelector('[data-testid="terminals-collapse-toggle"]')?.textContent?.includes("UTILITIES 1"), "collapsed terminal disclosure carries its count inline");
+  assert(host.querySelector('[data-testid="crons-collapse-toggle"]')?.textContent?.includes("JOBS 1"), "collapsed cron disclosure carries its count inline");
 
   await act(async () => (host.querySelector('[data-testid="terminals-collapse-toggle"]') as HTMLButtonElement).click());
   await act(async () => (host.querySelector('[data-testid="crons-collapse-toggle"]') as HTMLButtonElement).click());
   assert(host.querySelector('[data-testid="terminal-entry"]'), "terminal section expands on demand");
   assert(host.querySelector('[data-testid="cron-entry"]'), "cron section expands on demand");
-  assert(host.querySelector('[data-testid="terminals-collapse-toggle"]')?.textContent?.includes("UTILITY SHELLS"), "expanded terminal disclosure becomes a category label");
+  assert(host.querySelector('[data-testid="terminals-collapse-toggle"]')?.textContent?.includes("UTILITIES 1"), "expanded terminal disclosure becomes a category label");
   assert(host.querySelector('[data-testid="crons-collapse-toggle"]')?.textContent?.includes("JOBS"), "expanded cron disclosure becomes a category label");
   await act(async () => root.unmount());
 

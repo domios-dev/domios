@@ -107,6 +107,7 @@ async function main() {
       tabId={tabId}
       workspaceId="workspace-a"
       delayed={messages}
+      heartbeats={messages.filter(message => message.origin === "system")}
       onEditDelayed={(message) => edited.push(message.id)}
       onDeleteDelayed={() => undefined}
       onScheduleDelayed={() => undefined}
@@ -114,6 +115,22 @@ async function main() {
       adapter={adapter}
     /></MuxStateStoreContext.Provider>,
   );
+  await act(async () => { render("tab-a", [stashed, delayed, system]); });
+  assert.equal(host.querySelector('[data-kind="delayed"]')?.getAttribute("aria-label"), "3 delayed messages, plan heartbeat", "the heartbeat counts as a delayed message");
+  assert.equal(host.querySelectorAll('button[title="Heartbeat"]').length, 0);
+  const delayedChip = requireControl<HTMLButtonElement>('button[title="Delayed messages"]');
+  await act(async () => { delayedChip.click(); });
+  const heartbeatRow = requireControl<HTMLButtonElement>('[aria-label="Plan heartbeat: Plan reminder"]');
+  assert.match(heartbeatRow.textContent ?? "", /Plan heartbeat.*every 1m.*next/);
+  assert.equal(heartbeatRow.parentElement?.querySelectorAll("button").length, 1, "heartbeat cannot be cancelled or disabled");
+  assert.equal(document.querySelectorAll('[aria-label="Cancel delayed message"]').length, 2);
+  await act(async () => { heartbeatRow.click(); });
+  assert.equal(document.querySelector('[role="dialog"][aria-labelledby="system-heartbeat-title"]')?.textContent?.includes("Plan reminder"), true);
+  await act(async () => { document.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click(); });
+  await act(async () => { render("tab-a", [system, { ...delayed, id: "due", scheduledAtMs: 0 }, { ...delayed, id: "sending", state: "sending" }]); });
+  assert.equal(delayedChip.getAttribute("aria-label"), "1 delayed messages, plan heartbeat");
+  assert.equal(requireControl('[aria-label="Plan heartbeat: Plan reminder"]'), heartbeatRow, "queue transitions preserve the heartbeat row");
+  assert.equal(document.querySelectorAll('[aria-label="Cancel delayed message"]').length, 0);
   await act(async () => { render("tab-a", [stashed, delayed, system]); });
 
   const crons = requireControl<HTMLButtonElement>('.ct-ctx-kind[data-kind="crons"]');
@@ -142,8 +159,7 @@ async function main() {
   assert.equal(lastDelayed?.getAttribute("data-tone"), "stashed", "stashed messages sort after scheduled ones");
   assert.ok(lastDelayed?.querySelector(".ct-ctx-bubble__stash"), "a stashed message shows the stash mark instead of a time");
   assert.equal(lastDelayed?.querySelector(".ct-ctx-bubble__meta"), null, "a stashed message shows no send time");
-  const systemOpen = host.querySelector('[aria-label^="System heartbeat"]');
-  assert.equal(systemOpen?.parentElement?.querySelector(".ct-ctx-bubble__dismiss"), null, "a system heartbeat has no cancel");
+  assert.ok(host.querySelector('[role="group"][aria-label="Delayed messages"] [aria-label^="Plan heartbeat:"]'), "heartbeat appears inside the delayed list");
   assert.ok(host.querySelector('[aria-label^="Edit delayed message"]')?.parentElement?.querySelector(".ct-ctx-bubble__dismiss"), "a user delayed message stays cancellable");
   await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Edit delayed message"]')!.click(); });
   assert.deepEqual(edited, ["later-1"], "a delayed bubble opens its editor");

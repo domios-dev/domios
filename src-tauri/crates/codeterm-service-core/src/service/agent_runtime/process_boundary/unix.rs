@@ -115,7 +115,22 @@ impl Member {
             return Err(error.to_string());
         }
         let event = unsafe { OwnedFd::from_raw_fd(fd) };
-        let born = born(pid)?;
+        let born = match born(pid) {
+            Ok(born) => born,
+            Err(reason) => {
+                let member = Self {
+                    pid,
+                    born: 0,
+                    event,
+                    observed_exit: std::sync::atomic::AtomicBool::new(false),
+                };
+                return if member.exited()? {
+                    Ok(None)
+                } else {
+                    Err(reason)
+                };
+            }
+        };
         #[cfg(target_os = "macos")]
         log::debug!(
             "[agent-runtime] retained identity captured pid={} born={} owned_group={}",
@@ -236,12 +251,18 @@ impl Member {
 
         #[cfg(not(target_os = "macos"))]
         {
-            if born(self.pid)? != self.born
-                || unsafe { libc::getpgid(self.pid as i32) } != boundary.pid as i32
-            {
-                return Err("Retained process identity or owned group changed".into());
-            }
-            Ok(())
+            validate_retained_identity(
+                || {
+                    if born(self.pid)? == self.born
+                        && unsafe { libc::getpgid(self.pid as i32) } == boundary.pid as i32
+                    {
+                        Ok(())
+                    } else {
+                        Err("Retained process identity or owned group changed".into())
+                    }
+                },
+                || self.exited(),
+            )
         }
     }
     pub(super) fn terminate(&self, boundary: &Boundary) -> Result<(), String> {
@@ -370,3 +391,24 @@ fn validate_identity_fields(
 
 #[cfg(all(test, target_os = "macos"))]
 mod tests;
+
+#[cfg(not(target_os = "macos"))]
+fn validate_retained_identity(
+    identity: impl FnOnce() -> Result<(), String>,
+    exited: impl FnOnce() -> Result<bool, String>,
+) -> Result<(), String> {
+    match identity() {
+        Ok(()) => Ok(()),
+        Err(reason) => {
+            if exited()? {
+                Ok(())
+            } else {
+                Err(reason)
+            }
+        }
+    }
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+#[path = "unix/retained_tests.rs"]
+mod retained_tests;

@@ -369,8 +369,19 @@ The default `confirmationSource: {kind: "transcript"}` preserves the existing
 `transcript` declaration and fresh wrapped-stdout confirmation.
 No new sandbox host function or filesystem grant is exposed.
 
-Busy model changes require authenticated own-turn completion; Idle alone never
-releases a staged change. Providers without hooks may declare
+`commands.modelSwitchCommands.duringTurn: true` promises that the harness accepts
+model and effort commands during an active turn. The host bypasses busy staging
+and idle admission for those commands, without replay or automatic fallback.
+Declare each follow-up picker and `prompt` screen regex with its response key;
+the screen authorizes keys, never success. Fresh own-session output confirms.
+A proven refusal or unrecognized confirmation emits `during_turn_switch_incident`
+with its stage and screen. Already written commands whose own-session stdout is
+buffered stay visibly pending until that output lands; they never replay or fail
+merely because confirmation is delayed. This pure declaration adds no host API or sandbox access;
+cover native/JS parity and recorded busy, picker and confirmation frames.
+
+Other busy model changes require authenticated own-turn completion; Idle alone
+never releases a staged change. Providers without hooks may declare
 `commands.modelSwitchCommands.turnCompletion` with `eventPointer`, `eventValue`,
 `sessionPointer`, `startEventValue`, `turnPointer`, `activeTurnPointer` and `source`.
 Pointers use JSON Pointer syntax against records in the exact bound session's
@@ -409,7 +420,7 @@ All fields optional.
 | `stopKeys` | string[]? | Ordered raw key values for a multi-key interrupt sequence. |
 | `stopKeyWaitForOutput` | bool | Wait for a PTY screen change between sequence keys. Default `false`. |
 | `modelSwitch` | `"restart_resume"` \| `"live"` \| `"live_command"` \| `"next_turn"` \| `"unsupported"` | `next_turn` keeps the session running: an RPC endpoint receives per-turn controls; a provider hook consumes the authenticated tab's resolved controls before persisting its user message. Hook providers require `sessionModelTranscriptBoundary` and `detectSessionModelAfterBoundary`; the shared core stages busy requests and confirms only a new assistant record. Unavailable boundaries refuse without restart. `live` uses the tab's advertised model route. `restart_resume` resumes the same verified session with new launch args and waits for post-boundary assistant evidence. `live_command` runs a declared idle command and confirms fresh bound-session output; failures never restart automatically. Default `unsupported` refuses without writing. |
-| `modelSwitchCommands` | `{model: {command, confirmation}, effort?: {command, confirmation}, transcript: {recordType, contentPath, prefix, suffix, ignoredContentRegexes?}}` | Required for `live_command`. Commands substitute `{model}` or `{effort}`; confirmation regexes also accept `{display_name}`, with selection values regex-escaped. Transcript declarations select the JSONL record type, string content path, and exact output wrapper. Optional `ignoredContentRegexes` identify complete non-turn command records such as caveats and exact command echoes; the inter-command guard excludes only whole-content matches or the exact stdout wrapper, retaining mixed prompt content. Only fresh output in the tab's own bound session confirms a switch. Busy tabs refuse before writing; a timeout fails without replay or restart. The picker offers a separate, confirmed `restart_resume` fallback. |
+| `modelSwitchCommands` | `{model: {command, confirmation}, effort?: {command, confirmation}, transcript: {recordType, contentPath, prefix, suffix, ignoredContentRegexes?}}` | Required for `live_command`. Commands substitute `{model}` or `{effort}`; confirmation regexes also accept `{display_name}`, with selection values regex-escaped. Transcript declarations select the JSONL record type, string content path, and exact output wrapper. Optional `ignoredContentRegexes` identify complete non-turn command records such as caveats and exact command echoes; the inter-command guard excludes only whole-content matches or the exact stdout wrapper, retaining mixed prompt content. Only fresh output in the tab's own bound session confirms a switch. Busy tabs stage unless `duringTurn` is declared; a timeout fails without replay or restart. The picker offers a separate, confirmed `restart_resume` fallback. |
 
 A live command can declare `confirmationPromptKind: "switch_confirmation"` and export
 `parseSwitchConfirmationPrompt(screen, selection)`. This pure structural classifier
@@ -423,7 +434,7 @@ Chat writes. A bare picker command supplies the requested selection from the swi
 operation. A later payload cancels the observer. One response is permitted, and only
 fresh declared output from the same session confirms the switch; no prompt means no
 keys. Screen and own-file events drive observation within a failure deadline.
-This declaration supersedes the legacy regex prompt response for that command.
+A declared `prompt` regex owns service model-switch responses; otherwise this classifier owns the response. Chat slash commands use the structural classifier.
 Native and JS implementations owe shared classifier parity fixtures.
 
 Each live command may declare `prompt: {screenRegex, responseKeys, cancelKeys?}`. The screen
@@ -700,3 +711,10 @@ four typed outcomes. Confirmation creates a UUID once; retries preserve it.
 An optional `creditId` selects an actual reported available credit; omission lets
 the provider choose. Adapters must preserve it through consume and retries.
 Never invoke a live redemption during testing: credits are irreversible.
+
+Live command transcript declarations may add `additionalRecordSources` entries
+with `recordType` and `contentPath` when one harness emits different record shapes
+while busy and idle. All sources share the exact stdout wrapper and own-session
+append boundary. They parse only supplied JSON and add no host filesystem,
+network or subprocess access. Native/JS parity must cover every declared shape;
+additional system records never become foreign user turns.
