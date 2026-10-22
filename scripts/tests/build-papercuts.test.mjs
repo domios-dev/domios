@@ -8,6 +8,8 @@ import readline from 'node:readline';
 import test from 'node:test';
 import { compilerInputs } from '../build-compiler-inputs.mjs';
 
+const python = process.platform === 'win32' ? 'python' : 'python3';
+
 test('compiler diagnostics record effective directories and only allowed environment inputs', () => {
   const calls = [];
   const snapshot = compilerInputs(['--manifest-path', 'fixture/Cargo.toml', '-p', 'fixture'], {
@@ -33,7 +35,7 @@ test('lane checks refuse concurrent shared-intermediate ownership and release on
   fs.writeFileSync(path.join(shared, 'CACHEDIR.TAG'), 'fixture');
   fs.writeFileSync(path.join(directory, 'paths.json'), '[]');
   const helper = path.resolve(import.meta.dirname, '../lane-check-run.py');
-  const holder = spawn('python', ['-u', helper, shared, process.execPath, '-e',
+  const holder = spawn(python, ['-u', helper, shared, process.execPath, '-e',
     'process.stdout.write("READY\\n"); require("node:fs").readSync(0, Buffer.alloc(1), 0, 1, null);'], { stdio: ['pipe', 'pipe', 'pipe'] });
   let error = '';
   holder.stderr.on('data', chunk => error += chunk);
@@ -42,17 +44,17 @@ test('lane checks refuse concurrent shared-intermediate ownership and release on
   try {
     const ready = await Promise.race([once(lines, 'line').then(([line]) => line), exit.then(() => { throw new Error(error); })]);
     assert.equal(ready, 'READY');
-    const refused = spawnSync('python', [helper, shared, process.execPath, '-e', 'process.exit(99)'], { encoding: 'utf8' });
+    const refused = spawnSync(python, [helper, shared, process.execPath, '-e', 'process.exit(99)'], { encoding: 'utf8' });
     assert.equal(refused.status, 75, refused.stderr);
     assert.match(refused.stderr, /lane-check busy/);
-    const trim = spawnSync('python', [path.resolve(import.meta.dirname, '../cargo-build-gc.py'), '--trim', directory, shared, path.join(directory, 'paths.json')], { encoding: 'utf8' });
+    const trim = spawnSync(python, [path.resolve(import.meta.dirname, '../cargo-build-gc.py'), '--trim', directory, shared, path.join(directory, 'paths.json')], { encoding: 'utf8' });
     assert.equal(trim.status, 0, trim.stderr);
     assert.equal(JSON.parse(trim.stdout).status, 'protected');
-    const independent = spawnSync('python', [helper, path.join(directory, 'other'), process.execPath, '-e', 'process.exit(37)'], { encoding: 'utf8' });
+    const independent = spawnSync(python, [helper, path.join(directory, 'other'), process.execPath, '-e', 'process.exit(37)'], { encoding: 'utf8' });
     assert.equal(independent.status, 37, independent.stderr);
     holder.stdin.end('x');
     assert.equal((await exit)[0], 0, error);
-    const released = spawnSync('python', [helper, shared, process.execPath, '-e', 'process.exit(41)'], { encoding: 'utf8' });
+    const released = spawnSync(python, [helper, shared, process.execPath, '-e', 'process.exit(41)'], { encoding: 'utf8' });
     assert.equal(released.status, 41, released.stderr);
   } finally {
     holder.stdin.end('x');
