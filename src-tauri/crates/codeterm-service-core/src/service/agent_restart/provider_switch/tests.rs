@@ -276,6 +276,10 @@ fn provider_switch_restores_plan_attempt_for_acknowledgement_and_report() {
         tab.session_binding_nonce = Some("target-nonce".into());
         tab.reported_session_binding_nonce = Some("target-nonce".into());
     }
+    fixture
+        .service
+        .finalize_runtime_worker_session(&tab_id, "target-thread", "target-nonce")
+        .unwrap();
     assert!(fixture
         .service
         .finalize_authorized_runtime_restart_binding(&tab_id, "target-thread", "target-nonce")

@@ -28,6 +28,12 @@
         "src-tauri/crates/codeterm-plugin/src/provider/agent_provider/prompt_detection.rs",
         "src-tauri/crates/codeterm-plugin/src/provider/agent_provider/provider_identity.rs"
       ]
+    },
+    {
+      "from": "src-tauri/crates/codeterm-service-core/src/service/tab_repair.rs",
+      "to": [
+        "src-tauri/crates/codeterm-service-core/src/service/tab_repair/tests.rs"
+      ]
     }
   ],
   "entries": [
@@ -13612,14 +13618,14 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/tab_repair.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/tab_repair/tests.rs",
       "token": "claude",
       "count": 15,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/tab_repair.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/tab_repair/tests.rs",
       "token": "codex",
       "count": 22,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",

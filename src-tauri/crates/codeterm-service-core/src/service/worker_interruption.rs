@@ -250,6 +250,11 @@ impl super::ServiceContext {
     }
 
     pub fn signal_worker_interruption(&self, tab_id: &str, event: WorkerInterruptionEvent) -> bool {
+        if event != WorkerInterruptionEvent::ProviderExhausted
+            && self.restart_carries_worker_interruption(tab_id)
+        {
+            return false;
+        }
         if pending_interruptions()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -507,6 +512,13 @@ impl super::ServiceContext {
         checkpoint: InterruptionCheckpoint,
         now_ms: u64,
     ) -> Result<(u64, String), String> {
+        let binding = self
+            .mux
+            .read()
+            .get_tab(new_tab_id)
+            .and_then(crate::service::task_assignment::authenticated_tab_binding)
+            .filter(|binding| binding.session_id == new_session_id)
+            .ok_or("adoption session binding changed")?;
         let adopted = self
             .plan_store
             .adopt_interrupted_task(
@@ -515,10 +527,19 @@ impl super::ServiceContext {
                 &checkpoint.diff_sha256,
                 &checkpoint.base_head,
                 new_tab_id,
-                new_session_id,
+                &binding,
                 now_ms,
             )
             .map_err(|error| error.to_string())?;
+        if let Some(tab) = self.mux.write().get_tab_mut(new_tab_id) {
+            tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
+                plan_id: Some(plan_id.into()),
+                task_id: Some(task_id.into()),
+                attempt_id: Some(adopted.1.clone()),
+                bound_at: now_ms,
+                ..Default::default()
+            });
+        }
         self.persist_current_attempt_session_model(new_tab_id);
         Ok(adopted)
     }

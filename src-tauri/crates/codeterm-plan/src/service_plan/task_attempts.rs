@@ -26,6 +26,7 @@ mod compete_lane_tests;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TaskRespawnRequest {
+    pub reasoning_effort: Option<String>,
     pub attempt_id: String,
     pub provider: Option<String>,
     pub model: Option<String>,
@@ -978,7 +979,7 @@ impl PlanStore {
             .or(source.provider_resolved_model.clone())
             .or(source.requested_model.clone())
             .or_else(|| source_provider.is_none().then_some(task_model).flatten());
-        let reasoning_effort = source.reasoning_effort.clone();
+        let reasoning_effort = request.reasoning_effort.or(source.reasoning_effort.clone());
         let report_command = task_report_command(plan_id, &task.id);
         let manifest = super::plan_skills::plan_skill_manifest(self, plan_id)?;
         let explicit_title = request.title.is_some();
