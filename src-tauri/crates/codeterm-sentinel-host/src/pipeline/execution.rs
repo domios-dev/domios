@@ -112,6 +112,27 @@ impl<'a> RunCtx<'a> {
         Ok(())
     }
 
+    pub(super) fn record_skipped(
+        &mut self,
+        name: &str,
+        reason: String,
+    ) -> Result<(), JournalReason> {
+        let marker = self.allocate_marker()?;
+        required_journal(write_journal(
+            self.handle,
+            &self.lease.job,
+            BlueprintJournalWrite::Decision {
+                run_id: self.run_id.into(),
+                marker,
+                step_name: name.into(),
+                outcome: reason.clone().into(),
+                at_ms: now(self.handle),
+                result_summary: None,
+                reason: Some(reason.into()),
+            },
+        ))
+    }
+
     fn allocate_marker(&mut self) -> Result<JournalMarker, JournalReason> {
         if self.next_marker >= 64 {
             return Err(JournalReason::BudgetExhausted);
@@ -122,6 +143,7 @@ impl<'a> RunCtx<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct StepExecution {
     pub output: ExecutionEnvelope,
     pub outcome: StepOutcome,
@@ -162,43 +184,78 @@ pub fn execute_step(
             input.clone()
         };
         contract.validate(&input, false)?;
+        if matches!(
+            step.kind,
+            StepKind::Command { .. } | StepKind::Github { .. }
+        ) && contract
+            .limits
+            .as_ref()
+            .is_some_and(|limits| limits.mem_mb.is_some())
+        {
+            return Err(JournalReason::BudgetExhausted);
+        }
+        let operation_limit = ctx.remaining().min(Duration::from_millis(
+            contract
+                .limits
+                .as_ref()
+                .and_then(|limits| limits.wall_ms)
+                .unwrap_or(u64::MAX),
+        ));
+        if operation_limit.is_zero() {
+            return Err(JournalReason::Deadline);
+        }
         let result = match &step.kind {
-            StepKind::Call { call, grants } => {
-                crate::blueprint_calls::execute(ctx, &step.name, call, grants, &input)?
-            }
+            StepKind::Call { call, grants } => crate::blueprint_calls::execute(ctx, &step.name, call, grants, &input)?,
             StepKind::Effect { node } => crate::blueprint_calls::effect(ctx, node, &input)?,
             _ => dispatch::run_step(
-                ctx.handle,
-                ctx.service,
-                ctx.lease,
-                step,
-                &input,
-                ctx.input_kind,
-                ctx.input_source.as_deref(),
-                ctx.input_failure.as_deref(),
-                &ctx.input_display,
-                ctx.cleanup.clone(),
-                ctx.remaining().min(Duration::from_millis(
-                    contract
-                        .limits
-                        .as_ref()
-                        .and_then(|limits| limits.wall_ms)
-                        .unwrap_or(u64::MAX),
-                )),
-            ),
+            ctx.handle,
+            ctx.service,
+            ctx.lease,
+            step,
+            &input,
+            ctx.input_kind,
+            ctx.input_source.as_deref(),
+            ctx.input_failure.as_deref(),
+            &ctx.input_display,
+            ctx.cleanup.clone(),
+            operation_limit,
+        ),
         };
-
         if result.uncertain {
             return Err(JournalReason::UncertainEffect);
         }
         if ctx.lease.cancelled.load(Ordering::SeqCst) {
-            return Err(JournalReason::Other("skip:lease_cancelled".into()));
+            let reason = match step.kind {
+                StepKind::Agent { .. } => "agent_cancelled",
+                StepKind::Convert { .. } => "conversion_cancelled",
+                _ => "skip:lease_cancelled",
+            };
+            return Err(JournalReason::Other(reason.into()));
         }
         let mut output = if matches!(step.kind, StepKind::Filter { .. } | StepKind::Ask { .. }) {
             input.clone()
         } else {
-            ExecutionEnvelope::decode(result.next_text.as_bytes())
-                .unwrap_or_else(|_| ExecutionEnvelope::from_text(&result.next_text))
+            ExecutionEnvelope::decode(result.next_text.as_bytes()).unwrap_or_else(
+                |_| match contract
+                    .output
+                    .as_ref()
+                    .and_then(|port| port.media.as_deref())
+                {
+                    Some("text") => ExecutionEnvelope {
+                        media: "text".into(),
+                        schema_id: None,
+                        value: serde_json::Value::String(result.next_text.clone()),
+                        text: result.next_text.clone(),
+                    },
+                    Some(media @ ("file" | "audio" | "video" | "image")) => ExecutionEnvelope {
+                        media: media.into(),
+                        schema_id: None,
+                        value: serde_json::Value::String(result.next_text.clone()),
+                        text: String::new(),
+                    },
+                    _ => ExecutionEnvelope::from_text(&result.next_text),
+                },
+            )
         };
         if output.schema_id.is_none() {
             output.schema_id = contract
@@ -235,6 +292,21 @@ pub fn execute_step(
                 body_ref,
                 result.reason.clone(),
             )?;
+            if matches!(step.kind, StepKind::Command { .. }) && output == input {
+                required_journal(write_journal(
+                    ctx.handle,
+                    &ctx.lease.job,
+                    BlueprintJournalWrite::Decision {
+                        run_id: ctx.run_id.into(),
+                        marker,
+                        step_name: step.name.clone(),
+                        outcome: JournalOutcome::Unchanged,
+                        at_ms: now(ctx.handle),
+                        result_summary: Some("step output was unchanged".into()),
+                        reason: None,
+                    },
+                ))?;
+            }
             if let Some((outcome, reason)) = result.decision {
                 required_journal(write_journal(
                     ctx.handle,
@@ -270,6 +342,8 @@ pub fn execute_step(
                 marker,
                 if uncertain {
                     JournalState::Held
+                } else if reason.as_str().starts_with("skip:") {
+                    JournalState::Skipped
                 } else {
                     JournalState::Failed
                 },
