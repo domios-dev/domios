@@ -56,7 +56,9 @@ fn register_runtime(svc: &ServiceContext) {
         .filter_map(|tab| Some((tab.id.clone(), tab.session_binding_nonce.clone()?)))
         .collect();
     for (tab, nonce) in launched {
-        crate::service::agent_runtime::authority::record_spawn_for_test(svc, &tab, &provider, &nonce);
+        crate::service::agent_runtime::authority::record_spawn_for_test(
+            svc, &tab, &provider, &nonce,
+        );
     }
 }
 fn message() -> InboundMessage {
