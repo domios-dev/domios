@@ -63,3 +63,9 @@ fn parse_maps_unknown_themes_to_none() {
         assert_eq!(CheckoutTheme::parse(value), None, "{value}");
     }
 }
+
+#[test]
+fn replacing_keeps_the_other_query_bytes() {
+    let url = checkout_url_with_theme(checkout("sig=a%20b&theme=light&flag"), CheckoutTheme::Dark);
+    assert_eq!(url.query(), Some("sig=a%20b&flag&theme=dark"));
+}

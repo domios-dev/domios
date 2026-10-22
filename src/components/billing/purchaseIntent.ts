@@ -34,6 +34,8 @@ export function purchaseIntent(state: PurchaseIntent, event: PurchaseEvent): Pur
     case "choose":
       if (state.kind === "signing_in" || state.kind === "opening") return state;
       if (event.account !== "signed_in") return { kind: "signing_in", planKey: event.planKey, attached: event.account === "pending" };
+      // Without a known plan ownership is unproven, so checkout never opens; the caller reports it.
+      if (!event.plan) return state;
       return decide(event.planKey, event.plan, event.catalog);
     case "signedIn":
       if (state.kind !== "signing_in") return state;

@@ -25,6 +25,9 @@ function purchaseAccount(model: AccountModel): PurchaseAccount {
 
 const failureKey = (failure: SignInFailure) => `${failure.stage}:${failure.error}`;
 
+const planUnknownToast = (retry: () => void) =>
+  billingFailureToast(new Error("Domios could not check your current plan."), CHECKOUT_OPERATION, undefined, retry);
+
 /** The chosen plan's journey through sign-in to checkout; it lives and dies with the surface that owns the cards. */
 export function usePurchaseIntent(ports: PurchaseIntentPorts) {
   const latest = useRef(ports);
@@ -54,8 +57,12 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
   function choose(planKey: string) {
     const { account, billing, catalog } = latest.current;
     const before = current.current;
+    const signedIn = purchaseAccount(account.model) === "signed_in";
     const next = dispatch({ type: "choose", planKey, account: purchaseAccount(account.model), plan: billing.plan, catalog });
-    if (next === before) return;
+    if (next === before) {
+      if (signedIn && !billing.plan && before.kind === "idle") latest.current.notify(planUnknownToast(() => choose(planKey)));
+      return;
+    }
     abandonedSignIn.current = false;
     if (next.kind === "opening") void openCheckout(planKey);
     else if (next.kind === "signing_in" && !next.attached) void account.signIn();
@@ -82,7 +89,7 @@ export function usePurchaseIntent(ports: PurchaseIntentPorts) {
       if (planLoad === "loading") return;
       const next = dispatch({ type: "signedIn", plan, catalog });
       if (next.kind === "opening") void openCheckout(next.planKey);
-      else if (next.kind === "idle") notify(billingFailureToast(new Error("Domios could not check your current plan."), CHECKOUT_OPERATION, undefined, retry));
+      else if (next.kind === "idle") notify(planUnknownToast(retry));
       return;
     }
     dispatch({ type: "signInFailed" });

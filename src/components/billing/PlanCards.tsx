@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { Check } from "lucide-react";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { siteLinks } from "../../../shared/siteLinks";
@@ -45,9 +45,9 @@ const STATUS_TONES = {
   green: "bg-[color-mix(in_srgb,var(--ct-green)_10%,transparent)] text-[var(--ct-green)]",
 } as const;
 
-function IntentStatus({ tone, icon, title, detail }: { tone: keyof typeof STATUS_TONES; icon: ReactNode; title: string; detail: string | null }) {
+function IntentStatus({ tone, icon, title, detail, focusRef }: { tone: keyof typeof STATUS_TONES; icon: ReactNode; title: string; detail: string | null; focusRef?: Ref<HTMLDivElement> }) {
   return (
-    <div role="status" aria-live="polite" className={`flex items-start gap-2 rounded-[var(--ct-radius-sm)] px-2.5 py-2 ${STATUS_TONES[tone]}`}>
+    <div ref={focusRef} tabIndex={focusRef ? -1 : undefined} role="status" aria-live="polite" className={`flex items-start gap-2 rounded-[var(--ct-radius-sm)] px-2.5 py-2 ${STATUS_TONES[tone]}`}>
       {icon}
       <div className="flex min-w-0 flex-col">
         <strong className="text-xs font-medium text-[var(--ct-fg)]">{title}</strong>
@@ -60,14 +60,17 @@ function IntentStatus({ tone, icon, title, detail }: { tone: keyof typeof STATUS
 function useIntentFocus(kind: PurchaseIntentView["kind"] | undefined) {
   const choose = useRef<HTMLButtonElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
+  const status = useRef<HTMLDivElement>(null);
   const previous = useRef(kind);
   useEffect(() => {
     const was = previous.current;
     previous.current = kind;
+    // The control that held focus unmounts on every transition, so focus moves to what replaces it.
     if (kind === "signing_in") cancel.current?.focus();
+    else if (kind === "opening" || kind === "owned") status.current?.focus();
     else if (was === "signing_in" || was === "opening") choose.current?.focus();
   }, [kind]);
-  return { choose, cancel };
+  return { choose, cancel, status };
 }
 
 export interface PlanCardProps {
@@ -119,9 +122,11 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
           </div>
         </div>
       ) : intent?.kind === "opening" ? (
-        <Button ref={focus.choose} size="sm" variant={buttonVariant} className="text-xs" loading>Opening checkout…</Button>
+        <div ref={focus.status} tabIndex={-1} className="flex flex-col outline-none">
+          <Button size="sm" variant={buttonVariant} className="text-xs" loading>Opening checkout…</Button>
+        </div>
       ) : intent?.kind === "owned" ? (
-        <IntentStatus tone="green" icon={<Check size={14} className="mt-px shrink-0" aria-hidden="true" />}
+        <IntentStatus tone="green" focusRef={focus.status} icon={<Check size={14} className="mt-px shrink-0" aria-hidden="true" />}
           title={`You already have ${offer.name}.`}
           detail={intent.staff ? "Included with your Domios team access." : intent.signedInAs && `Signed in as ${intent.signedInAs}.`} />
       ) : price.planKey && !current && onChoose && (

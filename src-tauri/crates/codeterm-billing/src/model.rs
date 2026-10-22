@@ -75,20 +75,16 @@ impl CheckoutTheme {
 
 /// Sets `theme` on a checkout URL, keeping every other parameter (`_ptxn` included) and the fragment.
 pub fn checkout_url_with_theme(mut url: url::Url, theme: CheckoutTheme) -> url::Url {
-    // Appending leaves the existing query bytes untouched; a rebuild would re-encode them.
-    if !url.query_pairs().any(|(key, _)| key == "theme") {
-        url.query_pairs_mut().append_pair("theme", theme.as_str());
-        return url;
-    }
-    let kept: Vec<(String, String)> = url
-        .query_pairs()
-        .filter(|(key, _)| key != "theme")
-        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+    // Works on the raw segments so every other parameter keeps its exact bytes.
+    let mut segments: Vec<String> = url
+        .query()
+        .unwrap_or_default()
+        .split('&')
+        .filter(|segment| !segment.is_empty() && segment.split('=').next() != Some("theme"))
+        .map(str::to_owned)
         .collect();
-    url.query_pairs_mut()
-        .clear()
-        .extend_pairs(kept)
-        .append_pair("theme", theme.as_str());
+    segments.push(format!("theme={}", theme.as_str()));
+    url.set_query(Some(&segments.join("&")));
     url
 }
 
