@@ -9,6 +9,7 @@ import { parseAttachmentMarkers } from "@codeterm/chat-core";
 import { capsuleSpans } from "./composerCapsules";
 import { ChatComposer } from "./ChatComposer";
 import { useAttachments } from "./useAttachments";
+import { nativeBridge } from "../../lib/nativeBridge";
 
 const fixture = vi.hoisted(() => ({ web: true, stored: [] as Blob[] }));
 vi.mock("../../lib/webApi", async (original) => ({
@@ -84,5 +85,40 @@ it.each([[true, true, true], [true, true, false], [true, false, true], [false, t
     __setInvokeForTest(null); __setListenForTest(null);
     fixture.web = true;
     Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
+
+it("surfaces a native attachment refusal without adding the source path", async () => {
+  fixture.web = false;
+  const errors: string[] = [];
+  const originalMaterialize = nativeBridge.materializeDroppedFiles;
+  nativeBridge.materializeDroppedFiles = async () => { throw new Error("Empty file"); };
+  __setInvokeForTest(async <T,>(command: string): Promise<T> =>
+    (command === "read_clipboard_files" ? ["/temporary/recording.mov"] : []) as T);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  let paths: string[] = [];
+  function Harness() {
+    const chatRootRef = useRef<HTMLDivElement>(null);
+    const paste = useAttachments({ chatRootRef, enabled: true, onError: message => errors.push(message) });
+    paths = paste.attachments;
+    return <div ref={chatRootRef}><textarea onPaste={event => { void paste.handlePasteEvent(event.nativeEvent); }} /></div>;
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const editor = host.querySelector("textarea")!;
+    editor.focus();
+    const event = Object.assign(new Event("paste", { bubbles: true, cancelable: true }), {
+      clipboardData: { items: [], files: [], types: [], getData: () => "" },
+    });
+    await act(async () => editor.dispatchEvent(event));
+    expect(errors).toEqual(["Empty file"]);
+    expect(paths).toEqual([]);
+    expect(event.defaultPrevented).toBe(true);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    nativeBridge.materializeDroppedFiles = originalMaterialize;
+    __setInvokeForTest(null);
+    fixture.web = true;
   }
 });

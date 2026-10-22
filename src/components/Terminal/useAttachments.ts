@@ -110,7 +110,11 @@ export function useAttachments({
       const paths = await invoke<string[]>("read_clipboard_files");
       if (paths && paths.length > 0) {
         e.preventDefault();
-        await deliverPaths(await materializeDroppedPaths(paths));
+        try {
+          await deliverPaths(await materializeDroppedPaths(paths));
+        } catch (error) {
+          onError(error instanceof Error ? error.message : String(error));
+        }
         return;
       }
     } catch {
@@ -148,6 +152,7 @@ export function useAttachments({
   useTauriFileDrop({
     containerRef: chatRootRef as React.RefObject<HTMLElement | null>,
     enabled,
+    onError,
     onPaths: (paths) => void deliverPaths(paths),
   });
 
