@@ -30,6 +30,12 @@ impl RolePolicy for CuratorPolicy {
     fn run_completion(&self) -> crate::service::role_policy::RunCompletion {
         crate::service::role_policy::RunCompletion::ExplicitFinish
     }
+    fn session_claimed(&self, service: &ServiceContext, tab: &str) -> Result<(), String> {
+        service.bind_curator_session(tab)
+    }
+    fn tab_closed(&self, service: &ServiceContext, tab: &str) -> Result<(), String> {
+        service.settle_closed_curator_tab(tab)
+    }
     fn settle_cron(
         &self,
         service: &ServiceContext,

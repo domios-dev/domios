@@ -72,6 +72,8 @@ pub trait RolePolicy: Send + Sync {
     fn retarget_only(&self) -> bool;
     fn conservative_save(&self) -> bool;
     fn run_completion(&self) -> RunCompletion;
+    fn session_claimed(&self, service: &ServiceContext, tab: &str) -> Result<(), String>;
+    fn tab_closed(&self, service: &ServiceContext, tab: &str) -> Result<(), String>;
     fn settle_cron(
         &self,
         service: &ServiceContext,
@@ -137,6 +139,12 @@ pub fn resolve(value: Option<&str>) -> Option<&'static dyn RolePolicy> {
 }
 
 impl ServiceContext {
+    pub fn bind_role_session(&self, tab: &str) -> Result<(), String> {
+        if let Some(policy) = self.role_policy_for_tab(tab) {
+            policy.session_claimed(self, tab)?;
+        }
+        Ok(())
+    }
     pub fn run_completion_for_tab(&self, tab: &str) -> RunCompletion {
         self.role_policy_for_tab(tab)
             .map_or(RunCompletion::TurnEnd, |policy| policy.run_completion())
