@@ -71,4 +71,6 @@ The local `eval/embedder-on-recall` scratch branch contains the real BLU-12 merg
 
 The four-model Transformers oracle (280 cases), eight b3/Russian harness invocations and single b4 invocation all exited 0. Raw commands and source identities are in `oracle-receipts.json`, `recall-receipts.json` and `b4-summary.json`. An ordinary mem-bench build was canceled when the owner dropped that workload; it produced no benchmark result.
 
-Canonical Clippy/check-queue and the final repository receipts are recorded in the delivery report after this evidence batch. No broad suite was run.
+`./build.sh check-queue --lane` was attempted once on `d5cc0cd54759f90334fd6ef7de8780b5b7be22b5`, job `20261022T153237-69926-3742`, exit 75 before Cargo/Clippy: the shared check worktree could not publish because its path is not a working tree. This matches the inherited check-queue risk. No retry or shared-worktree repair was performed. Clippy is **not verified** by this lane. Canonical QA selectors requested: `./build.sh check-queue --lane` and `./build.sh fmt-check` after the owning tooling/environment is ready.
+
+Final changed-file formatting: `./build.sh fmt`, exit 0 (`rust=6 biome=23 changed=no`). `bash scripts/check-file-sizes.sh --fail` and `git diff --check` passed, exit 0. The source diff adds no sleeps or timer-driven coordination. Ancestry checks printed `separate`. The final readiness report records the clean delivery tree and final SHA. No broad suite was run.
