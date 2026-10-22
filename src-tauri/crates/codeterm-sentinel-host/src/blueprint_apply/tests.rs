@@ -28,3 +28,118 @@ fn curator_native_retarget_changes_only_declared_target_slots() {
     after["steps"][0]["with"]["pattern"]["lit"]["target"] = json!("new");
     assert!(!retarget_only(&before, &after));
 }
+
+#[test]
+fn blueprint_v2_check_host_rejects_same_graph_on_apply_import_update_then_admits_fixed() {
+    use crate::{BlueprintApplyExt, BlueprintPortableExt};
+    use codeterm_blueprint_types::{
+        blueprint_document::{self, checker},
+        blueprint_recipe::Recipe,
+    };
+    use codeterm_service_core::{
+        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+    };
+    let (mut mux, tab) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    let team = codeterm_types::team::Team::new(&workspace, 1);
+    mux.upsert_team(team.clone());
+    mux.get_tab_mut(&tab).unwrap().team_id = Some(team.id.clone());
+    let fixture = ServiceFixture::new(mux);
+    let store = crate::store::Store::new(
+        fixture.temp.path().join("checker.json"),
+        codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+    );
+    let handle = crate::scheduler::fixture_handle_with_ui(store, fixture.service.ui.clone());
+    crate::manage_fixture_ports(&fixture.service, &handle);
+    let caller = crate::service_adapter::SentinelCaller {
+        tab,
+        team: Some(team.id),
+        workspace,
+        cwd: fixture.temp.path().to_string_lossy().into(),
+        nonce: None,
+    };
+    let source = include_str!("../../../../../tests/fixtures/blueprint-v2-check.yaml");
+    let parsed = blueprint_document::parse("host.yaml", source).unwrap();
+    let invalid = serde_json::to_value(&parsed.document).unwrap();
+    let offline = blueprint_document::check("host.yaml", source, &[]);
+    assert!(!offline.ok);
+    assert_eq!(
+        offline
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == "error")
+            .count(),
+        1
+    );
+    for result in [
+        fixture
+            .service
+            .blueprint_apply(&caller, invalid.clone(), false)
+            .map_err(|e| e.to_string()),
+        fixture.service.blueprint_import(
+            &caller,
+            Recipe {
+                schema_version: 2,
+                definition: invalid.clone(),
+            },
+            &[],
+            true,
+        ),
+        fixture
+            .service
+            .blueprint_apply_document(
+                &caller,
+                invalid.clone(),
+                false,
+                None,
+                Some(("missing".into(), 1, None)),
+            )
+            .map_err(|e| e.to_string()),
+    ] {
+        let error = result.unwrap_err();
+        use std::io::Write;
+        writeln!(
+            std::io::stdout().lock(),
+            "host admission refused; rows={}\n{}",
+            handle.store.lock().jobs.len(),
+            error
+        )
+        .unwrap();
+        assert!(
+            error.contains("S2") && error.contains("duration("),
+            "{error}"
+        );
+        assert!(handle.store.lock().jobs.is_empty());
+    }
+    let repair = checker::fix::fix(&parsed, source, &checker::CheckContext::default());
+    let checked = blueprint_document::check("host.yaml", repair.text.as_ref().unwrap(), &[]);
+    assert!(checked.ok, "{:?}", checked.diagnostics);
+    let result = fixture
+        .service
+        .blueprint_apply_with_state(&caller, checked.definition.unwrap(), false, Some(true))
+        .unwrap();
+    assert_eq!(result["action"], "create");
+    assert_eq!(handle.store.lock().jobs.len(), 1);
+    assert_eq!(
+        handle.store.lock().jobs[0].document.as_ref().unwrap()["trigger"]["every"]["lit"],
+        "10s"
+    );
+    let reopened = crate::store::Store::new(
+        fixture.temp.path().join("checker.json"),
+        codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+    );
+    assert_eq!(reopened.jobs.len(), 1);
+    assert_eq!(
+        reopened.jobs[0].document.as_ref().unwrap()["trigger"]["every"]["lit"],
+        "10s"
+    );
+    use std::io::Write;
+    writeln!(
+        std::io::stdout().lock(),
+        "host admitted: {}\nreopened rows={} document={}",
+        result,
+        reopened.jobs.len(),
+        reopened.jobs[0].document.as_ref().unwrap()
+    )
+    .unwrap();
+}
