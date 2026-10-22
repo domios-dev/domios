@@ -13,8 +13,9 @@ export function cloudExports(hostRef: () => Host): Pick<PluginModule, "discoverR
     if (backend) return backend;
     const host = hostRef();
     const manifest = JSON.parse(host.manifestJson() ?? "{}") as {id: string; capabilities: {remoteTask: RemoteTaskCapability}};
-    const root = `${host.dataDir().replace(/[\\/]$/, "")}/codex/tasks`;
-    if (!root) throw new Error("Cloud task storage is unavailable");
+    const dataRoot = host.dataDir();
+    if (!dataRoot) throw new Error("Cloud task storage is unavailable");
+    const root = `${dataRoot.replace(/[\\/]$/, "")}/codex/tasks`;
     capability = manifest.capabilities.remoteTask;
     transport = createCodexCloudTransport(host);
     backend = remoteChatBackend(new RemoteTaskFileStorage(host.fs, root), cloudTaskBackend(capability, transport), manifest.id);

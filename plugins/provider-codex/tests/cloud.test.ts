@@ -277,3 +277,13 @@ test("Cloud task storage uses the supplied instance data root", () => {
     assert.equal(readPath, `${root.replace(/[\\/]$/, "")}/codex/tasks/tab-fixture.json`);
   }
 });
+
+test("Cloud task storage reports an unavailable instance root", () => {
+  for (const root of [null, undefined, ""]) {
+    const host = {
+      dataDir: () => root,
+      manifestJson: () => JSON.stringify({id: "codex", capabilities: {remoteTask: capability}}),
+    } as unknown as Host;
+    assert.throws(() => cloudExports(() => host).viewCall("read", {sessionId: "tab-fixture"}), /Cloud task storage is unavailable/);
+  }
+});

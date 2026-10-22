@@ -127,6 +127,15 @@ fn scan_file(
     legacy: &Path,
     data: &Path,
 ) {
+    if matches!(
+        kind,
+        ReferenceKind::LaunchAgent | ReferenceKind::SystemdUnit
+    ) && !file.file_name().is_some_and(|name| {
+        let name = name.to_string_lossy().to_lowercase();
+        name.contains("codeterm") || name.contains("domios")
+    }) {
+        return;
+    }
     match read_document(file) {
         Ok(text) => {
             let missing = missing_service_executable(&text, kind, |path| Path::new(path).is_file());

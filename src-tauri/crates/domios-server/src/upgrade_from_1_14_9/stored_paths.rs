@@ -107,6 +107,7 @@ pub(super) struct PathRebase {
     name_offset: usize,
     replacement: String,
     windows: bool,
+    home_root: bool,
 }
 
 impl PathRebase {
@@ -125,6 +126,12 @@ impl PathRebase {
             name_offset,
             replacement,
             windows,
+            home_root: dirs::home_dir().is_some_and(|home| {
+                legacy
+                    .parent()
+                    .and_then(|parent| normalized_spelling(parent, windows))
+                    == normalized_spelling(&home, windows)
+            }),
         })
     }
 
@@ -216,6 +223,9 @@ impl PathRebase {
         let mut name_start = at;
         let home_pattern: Vec<char>;
         let (pattern, name_offset) = if text[start..].starts_with("~/") {
+            if !self.home_root {
+                return None;
+            }
             home_pattern = [vec!['~', '/'], self.pattern[self.name_offset..].to_vec()].concat();
             (home_pattern.as_slice(), 2)
         } else {

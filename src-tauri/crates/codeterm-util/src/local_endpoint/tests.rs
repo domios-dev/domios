@@ -46,3 +46,29 @@ fn stale_unix_socket_is_reclaimed_but_live_socket_and_regular_file_survive() {
     assert!(prepare_path(&path).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), b"keep");
 }
+
+#[cfg(unix)]
+#[test]
+fn prefix_sweep_reclaims_only_refused_owned_pid_sockets() {
+    use std::os::unix::net::UnixListener;
+    let root = tempfile::tempdir().unwrap();
+    let stale = root.path().join("fixture-100.sock");
+    drop(UnixListener::bind(&stale).unwrap());
+    let live = root.path().join("fixture-101.sock");
+    let _listener = UnixListener::bind(&live).unwrap();
+    let other = root.path().join("fixture-other-102.sock");
+    drop(UnixListener::bind(&other).unwrap());
+    let regular = root.path().join("fixture-103.sock");
+    std::fs::write(&regular, b"keep").unwrap();
+    reap_stale_sockets(root.path(), "fixture").unwrap();
+    assert!(!stale.exists());
+    assert!(live.exists());
+    assert!(other.exists());
+    assert_eq!(std::fs::read(&regular).unwrap(), b"keep");
+}
+
+#[test]
+fn socket_display_names_share_the_paths_contract() {
+    let name = codeterm_paths::socket_path();
+    assert_eq!(display_name(&name), codeterm_paths::socket_display_path());
+}

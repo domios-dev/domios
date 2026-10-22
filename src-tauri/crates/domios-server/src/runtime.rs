@@ -83,11 +83,6 @@ pub fn run(
         codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
     );
     let ownership_registry = ownership_registry_for(&options, &identity)?;
-    let mut legacy_references = if isolated {
-        Vec::new()
-    } else {
-        crate::upgrade_from_1_14_9::legacy_references::scan_legacy_writes(identity.data())
-    };
     let (owner, relocation_notices) = if isolated {
         (
             PathOwnership::try_acquire(identity.clone(), &ownership_registry)?,
@@ -96,7 +91,11 @@ pub fn run(
     } else {
         crate::upgrade_from_1_14_9::run(identity.clone(), &ownership_registry)?
     };
+    let mut legacy_references = Vec::new();
     if !isolated {
+        legacy_references.extend(
+            crate::upgrade_from_1_14_9::legacy_references::scan_legacy_writes(identity.data()),
+        );
         legacy_references.extend(crate::upgrade_from_1_14_9::legacy_references::scan(
             identity.data(),
             identity.config(),

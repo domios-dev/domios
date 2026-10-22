@@ -1,13 +1,7 @@
 use std::io;
 
 pub fn display_name(name: &str) -> String {
-    if cfg!(windows) {
-        format!(r"\\.\pipe\{name}")
-    } else if cfg!(any(target_os = "linux", target_os = "android")) {
-        format!("@{name}")
-    } else {
-        format!("/tmp/{name}")
-    }
+    codeterm_paths::namespaced_socket_display_path(name)
 }
 
 pub fn bind_error(target: impl std::fmt::Display, error: io::Error) -> io::Error {
@@ -25,12 +19,43 @@ fn stale_socket(owned_socket: bool, connect: Result<(), io::ErrorKind>) -> bool 
 
 pub fn prepare_namespaced(name: &str) -> io::Result<()> {
     #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
-    return prepare_path(std::path::Path::new("/tmp").join(name).as_path());
+    {
+        let path = std::path::PathBuf::from(display_name(name));
+        if let Some(prefix) = name.strip_suffix(".sock").and_then(|stem| {
+            let (prefix, pid) = stem.rsplit_once('-')?;
+            pid.parse::<u32>().ok().map(|_| prefix)
+        }) {
+            reap_stale_sockets(
+                path.parent().unwrap_or(std::path::Path::new("/tmp")),
+                prefix,
+            )?;
+        }
+        prepare_path(&path)
+    }
     #[cfg(any(windows, target_os = "linux", target_os = "android"))]
     {
         let _ = name;
         Ok(())
     }
+}
+
+#[cfg(all(unix, any(test, not(any(target_os = "linux", target_os = "android")))))]
+fn reap_stale_sockets(directory: &std::path::Path, prefix: &str) -> io::Result<()> {
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(pid) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(&format!("{prefix}-")))
+            .and_then(|name| name.strip_suffix(".sock"))
+        else {
+            continue;
+        };
+        if pid.parse::<u32>().is_ok() {
+            let _ = prepare_path(&entry.path());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
