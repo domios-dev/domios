@@ -355,6 +355,7 @@ impl SentinelExt for ServiceContext {
         }
         crate::handlers::validate(&prepared.job.buckets, &prepared.job.routes)?;
         crate::source::validate(&prepared.job)?;
+        crate::watch_input::validate(self, &prepared.job)?;
         crate::escalation::validate(&prepared.job)?;
         let resolution_source = prepared.job.clone();
         for handler in prepared
@@ -455,6 +456,7 @@ impl SentinelExt for ServiceContext {
             },
             connected,
         )?;
+        crate::watch_input::validate(self, &job)?;
         if let Some(binding) = job.observe().cloned() {
             job.set_observe(Some(source::resolve_binding(self, &job, &binding)?));
         }
@@ -592,6 +594,7 @@ impl SentinelExt for ServiceContext {
             && update.matches.is_empty()
             && classify::connected_model(self).is_some();
         let mut update = update.prepare(&current, &caller.tab, connected)?;
+        crate::watch_input::validate(self, &update.job)?;
         let resolution_source = update.job.clone();
         for handler in update
             .job
