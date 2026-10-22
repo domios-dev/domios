@@ -40,6 +40,12 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 
 ### Endpoints
 
+#### Startup readiness
+
+`GET /api/health` answers as soon as the API listener is live. During initialization, its `startup.state` is `starting` and `startup.phases` reports subsystem readiness. Liveness does not establish service readiness. Dependent requests receive HTTP 503 with `error.code: "starting"`; refused mutations are never queued or replayed.
+
+`GET /api/startup/events` emits an initial `startup-state` snapshot followed by readiness changes. Wait for `state: "ready"` before loading application state. `state: "failed"` is terminal, and dependent requests then return `error.code: "startup_failed"`. The stream closes after a terminal snapshot, including for late subscribers. Local callers may observe readiness directly; remote callers need the Bearer token. Native attachment still requires integrity verification before acknowledgement.
+
 #### Local previews
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -174,4 +180,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 213 -->
+<!-- revision: 214 -->
