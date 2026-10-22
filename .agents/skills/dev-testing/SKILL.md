@@ -9,21 +9,18 @@ For an owner-requested integrated all-tab round, follow `evals/startup-matrix/RE
 
 Test Domios dev instance (port 7686) by interacting with agents via REST API and verifying mem state.
 
-## ⚠ Hard rule: never `domios` CLI for dev work
+## DEV connection
 
-The `domios` CLI **does not** read `CODETERM_API_URL` / `CODETERM_API_TOKEN`. It picks dev vs prod by:
-1. `CODETERM_SOCKET_PATH` env var — if it contains `codeterm-dev`, use dev (`~/.codeterm-dev/config.toml` → port 7686).
-2. Otherwise → **prod** (`~/.codeterm/config.toml` → port 7685).
+Source `evals/_lib/lib.sh` and use `dc`, `dev_get`, `dev_post`, or `dev_run`.
+The library resolves the selected DEV instance, its installed CLI and credential;
+it scrubs inherited production connection variables. Never use a raw CLI command
+or parse configuration for a credential in a bench.
 
-Plain `domios cron create / trigger / mem save` from a regular shell will hit your **prod Domios** desktop daemon and spawn tabs inside the user's running app. **This is destructive — visible to the user, mutates their prod state, may burn API quota under their account.**
-
-**Always do dev testing via raw `curl` to `http://127.0.0.1:7686` with the dev token from `~/.codeterm-dev/config.toml`.** Use the `$API` / `$H` setup below — every command in this skill assumes them.
-
-If you absolutely need the CLI for a specific subcommand, prefix with both env vars:
-```bash
-CODETERM_SOCKET_PATH=/fake/codeterm-dev/sock CODETERM_API_PORT=7686 domios <cmd>
-```
-The fake socket path just has to contain the substring `codeterm-dev` so the CLI picks the dev config dir; the actual socket connection is only used by a few subcommands.
+The instance credential lives in `<data_dir>/.secrets`, key
+`domios.instance:api_token`. The local-only `system api-token` CLI command is the
+storage boundary used by the library; it refuses `--mesh` and prints only the
+credential. Tabs and child processes keep the `CODETERM_API_TOKEN` environment
+contract. The `$API` / `$H` setup below derives both values through the library.
 
 | Measurement | Command and observable output |
 |---|---|
@@ -32,9 +29,10 @@ The fake socket path just has to contain the substring `codeterm-dev` so the CLI
 ## Setup
 
 ```bash
-# Token from config
-TOKEN=$(grep -A1 '^\[api\]' ~/.codeterm-dev/config.toml | grep token | sed 's/.*= *"\(.*\)"/\1/')
-API="http://127.0.0.1:7686"
+# Credential from the selected DEV instance
+source evals/_lib/lib.sh
+TOKEN="$(dev_token)"
+API="$(dev_api_url)"
 H="Authorization: Bearer $TOKEN"
 ```
 
@@ -330,7 +328,7 @@ Note: `bash build.sh build` runs the production frontend bundle and currently fa
 ## Tips
 
 - GA tab ID stays the same across restarts (5a6a64dc in dev)
-- Token is in `~/.codeterm-dev/config.toml` under `[api] token = "..."`
+- The DEV credential is in `<dev_data_dir>/.secrets`, key `domios.instance:api_token`; resolve it with `dev_token` from the bench library.
 - After sending message to GA, wait 20-60s for claude to process + extraction workers
 - After spawning agent, wait 30-60s for it to start + execute task
 - `/new` resets claude context but keeps mem — tests recall from fresh context

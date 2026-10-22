@@ -2,6 +2,9 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum SystemAction {
+    /// Print only the selected local instance API credential, without contacting the daemon.
+    #[clap(name = "api-token")]
+    ApiToken,
     /// Install an OS login trigger for the external crash-aware supervisor.
     /// The supervisor alone applies clean-exit, backoff, and loop policy;
     /// platform wrappers never restart the app independently.

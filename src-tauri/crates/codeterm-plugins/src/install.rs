@@ -349,6 +349,8 @@ pub(super) fn install_from_dir(
         fs::write(tmp.join(".codeterm-install.json"), body).map_err(|e| e.to_string())?;
     }
     carry_user_config(&dest, &tmp)?;
+    codeterm_util::private_file::tighten_tree(&tmp)
+        .map_err(|error| format!("protect staged plugin: {error}"))?;
     super::install_swap::activate(&tmp, &dest)
 }
 

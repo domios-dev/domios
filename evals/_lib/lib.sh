@@ -144,10 +144,6 @@ dev_shell_path() {
   fi
 }
 
-config_token() {
-  grep -E '^token = ' "$1" | head -1 | sed 's/.*"\(.*\)"/\1/'
-}
-
 dev_resolve_identity() {
   local cli output parsed data_dir expected_data_dir expected_socket expected_instance expected_port
   if [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ] &&
@@ -246,14 +242,12 @@ dev_data_dir() {
 # The data dir comes from resolution, never from an inherited variable: a
 # parent naming prod's dir would otherwise hand back prod's token.
 dev_token() {
-  local cfg data_dir
+  local data_dir cli
   data_dir="$(dev_data_dir)" || return 7
-  cfg="$data_dir/config.toml"
-  if [ ! -f "$cfg" ]; then
-    dev_resolution_error "$cfg" "$data_dir"
-    return 7
-  fi
-  config_token "$cfg"
+  cli="$(dev_bootstrap_cli)" || return 7
+  env -u CODETERM_API_TOKEN -u CODETERM_API_URL \
+    CODETERM_DATA_DIR="$data_dir" CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
+    "$cli" system api-token || { dev_resolution_error "$data_dir/.secrets" "$data_dir"; return 7; }
 }
 
 # Socket path differs across OS. Windows uses a named pipe; Unix uses

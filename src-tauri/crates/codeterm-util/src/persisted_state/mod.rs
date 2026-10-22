@@ -83,6 +83,17 @@ impl StateFile {
         incidents::hold_for_repair(&self.path, self.corrupt_copies().last().cloned());
     }
 
+    pub fn hold_after_error(&self, error: &str) {
+        incidents::report(Incident {
+            path: self.path.clone(),
+            error: error.to_owned(),
+            preserved: None,
+            preserve_error: None,
+            recovered_from: None,
+            held: true,
+        });
+    }
+
     fn file_name(&self) -> String {
         self.path
             .file_name()
@@ -146,7 +157,7 @@ impl StateFile {
         }
         self.preserve_invalid_existing()?;
         if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
+            crate::private_file::create_dir_all(parent)
                 .map_err(|error| format!("create {}: {error}", parent.display()))?;
         }
         write_atomic(&self.path, contents.as_bytes())
@@ -184,7 +195,7 @@ impl StateFile {
     fn write_held_recovery(&self, contents: &str) -> Result<(), String> {
         self.validate_contents(contents)?;
         if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
+            crate::private_file::create_dir_all(parent)
                 .map_err(|error| format!("create {}: {error}", parent.display()))?;
         }
         write_atomic(&self.path, contents.as_bytes())
@@ -304,7 +315,7 @@ impl StateFile {
 
     fn write_backup(&self, bytes: &[u8]) -> std::io::Result<()> {
         let dir = self.backup_dir();
-        std::fs::create_dir_all(&dir)?;
+        crate::private_file::create_dir_all(&dir)?;
         let existing = self.backups();
         if let Some(newest) = existing.last() {
             if std::fs::read(newest).is_ok_and(|previous| previous == bytes) {
@@ -350,15 +361,5 @@ fn sorted_entries(dir: &Path, keep: impl Fn(&str) -> bool) -> Vec<PathBuf> {
 /// Crash-safe write: a sibling temp file renamed over the target, so a reader
 /// sees the old or the new file whole, never a torn write.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| "state".to_string());
-    let tmp = path.with_file_name(format!("{name}.tmp.{}.{}", std::process::id(), next_seq()));
-    std::fs::write(&tmp, bytes)?;
-    if let Err(error) = std::fs::rename(&tmp, path) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(error);
-    }
-    Ok(())
+    crate::private_file::write_atomic(path, bytes)
 }

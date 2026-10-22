@@ -61,7 +61,9 @@ impl SecretFile {
 
     pub fn new_at(data_root: impl AsRef<Path>, service: &str) -> Self {
         let dir = data_root.as_ref();
-        if let Err(e) = std::fs::create_dir_all(dir) {
+        if let Err(e) = crate::private_file::create_dir_all(dir)
+            .and_then(|()| crate::private_file::restrict_dir(dir))
+        {
             log::warn!(
                 "[secrets/keychain] failed to create file backend dir {}: {} — falling back to in-memory",
                 dir.display(),
@@ -76,6 +78,11 @@ impl SecretFile {
             };
         }
         let path = dir.join(".secrets");
+        if path.exists() {
+            if let Err(error) = crate::private_file::restrict(&path) {
+                return Self::in_memory(format!("restrict secret store: {error}"));
+            }
+        }
         migrate_legacy_file_backend(dir, service, &path);
         Self {
             backend: Backend::File {
@@ -250,40 +257,8 @@ fn write_file_entry(
     }
     let body = serde_json::to_string(&map)
         .map_err(|e| SecretFileError::Other(format!("encode keychain file: {}", e)))?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, body)
-        .map_err(|e| SecretFileError::Other(format!("write {}: {}", tmp.display(), e)))?;
-    restrict_file_permissions(&tmp);
-    std::fs::rename(&tmp, path)
-        .map_err(|e| SecretFileError::Other(format!("rename {}: {}", path.display(), e)))?;
-    Ok(())
-}
-
-/// Restrict file permissions so only the current user can read the file.
-/// On Unix: chmod 0600. On Windows: remove inherited ACEs via icacls and
-/// grant full control to the current user only.
-fn restrict_file_permissions(path: &std::path::Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    #[cfg(windows)]
-    {
-        let path_str = path.to_string_lossy();
-        let username = std::env::var("USERNAME").unwrap_or_default();
-        if !username.is_empty() {
-            let mut command = std::process::Command::new("icacls");
-            command.args([
-                path_str.as_ref(),
-                "/inheritance:r",
-                "/grant",
-                &format!("{}:(F)", username),
-            ]);
-            crate::process_util::no_window_std(&mut command);
-            let _ = command.output();
-        }
-    }
+    crate::private_file::write_atomic(path, body.as_bytes())
+        .map_err(|e| SecretFileError::Other(format!("write secret store: {e}")))
 }
 
 fn storage_account(service: &str, account: &str) -> String {
@@ -332,68 +307,4 @@ fn sanitize_service(s: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn in_memory_round_trip() {
-        let kc = SecretFile::in_memory("test");
-        assert!(!kc.is_available());
-        assert_eq!(kc.availability_reason(), Some("test"));
-        assert!(!kc.has("foo").unwrap());
-
-        kc.set("foo", "bar").unwrap();
-        assert_eq!(kc.get("foo").unwrap(), "bar");
-        assert!(kc.has("foo").unwrap());
-
-        kc.delete("foo").unwrap();
-        assert!(matches!(kc.get("foo"), Err(SecretFileError::NotFound)));
-        assert!(!kc.has("foo").unwrap());
-
-        // Delete is idempotent.
-        kc.delete("foo").unwrap();
-    }
-
-    #[test]
-    fn in_memory_overwrite_is_last_write_wins() {
-        let kc = SecretFile::in_memory("test");
-        kc.set("k", "v1").unwrap();
-        kc.set("k", "v2").unwrap();
-        assert_eq!(kc.get("k").unwrap(), "v2");
-    }
-
-    #[test]
-    fn unreadable_secrets_file_is_never_replaced_by_a_single_entry() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".secrets");
-        let unreadable = vec![0xff, 0xfe, b'{', 0x80];
-        std::fs::write(&path, &unreadable).unwrap();
-
-        assert!(write_file_entry(&path, "k", Some("v")).is_err());
-        assert!(write_file_entry(&path, "k", None).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), unreadable);
-    }
-
-    #[test]
-    fn unparseable_secrets_file_is_never_replaced() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".secrets");
-        std::fs::write(&path, "{\"a\": \"trunc").unwrap();
-
-        assert!(write_file_entry(&path, "k", Some("v")).is_err());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"a\": \"trunc");
-    }
-
-    #[test]
-    fn explicit_data_root_uses_host_plugin_bucket_format() {
-        let dir = tempfile::tempdir().unwrap();
-        let cli = plugin_secret_bucket(dir.path(), "demo");
-        cli.set("API_TOKEN", "opaque-value").unwrap();
-        let host = plugin_secret_bucket(dir.path(), "demo");
-        assert!(host.has("API_TOKEN").unwrap());
-        assert!(host.get("API_TOKEN").unwrap() == "opaque-value");
-        cli.set("API_TOKEN", "replacement").unwrap();
-        let host = plugin_secret_bucket(dir.path(), "demo");
-        assert!(host.get("API_TOKEN").unwrap() == "replacement");
-    }
-}
+mod tests;

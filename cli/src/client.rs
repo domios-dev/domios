@@ -105,10 +105,17 @@ fn select_transport<T>(
 }
 
 fn http_fallback_config() -> Result<HttpFallbackConfig, String> {
+    let resolved = crate::resolve_api_config();
+    let base = format!("http://{}:{}", resolved.host, resolved.port);
     http_fallback_config_from(
-        std::env::var("CODETERM_API_URL").ok().as_deref(),
-        std::env::var("CODETERM_API_PORT").ok().as_deref(),
-        std::env::var("CODETERM_API_TOKEN").ok().as_deref(),
+        Some(
+            std::env::var("CODETERM_API_URL")
+                .ok()
+                .as_deref()
+                .unwrap_or(&base),
+        ),
+        None,
+        resolved.token.as_deref(),
     )
 }
 
@@ -119,7 +126,7 @@ fn http_fallback_config_from(
 ) -> Result<HttpFallbackConfig, String> {
     let token = token
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "CODETERM_API_TOKEN is not set".to_owned())?;
+        .ok_or_else(|| "No instance API credential is available".to_owned())?;
     let base_url = if let Some(value) = api_url {
         let url =
             reqwest::Url::parse(&value).map_err(|_| "CODETERM_API_URL is invalid".to_owned())?;
