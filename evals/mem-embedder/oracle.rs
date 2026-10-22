@@ -10,7 +10,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let active = ActiveEmbedder::global();
     active.replace(Arc::new(local::LocalProvider::new(row)));
     let mut stdout = std::io::stdout().lock();
-    writeln!(stdout, "{}", serde_json::json!({"ready": true, "identity": active.identity()}))?;
+    writeln!(
+        stdout,
+        "{}",
+        serde_json::json!({"ready": true, "identity": active.identity()})
+    )?;
     stdout.flush()?;
     for line in std::io::stdin().lock().lines() {
         let request: serde_json::Value = serde_json::from_str(&line?)?;
@@ -22,7 +26,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             active.passage(text).map_err(|error| error.to_string())
         };
         let response = match result {
-            Ok(stamped) => serde_json::json!({"embedding": stamped.vector, "elapsed_ms": started.elapsed().as_secs_f64() * 1000.0}),
+            Ok(stamped) => {
+                serde_json::json!({"embedding": stamped.vector, "elapsed_ms": started.elapsed().as_secs_f64() * 1000.0})
+            }
             Err(error) => serde_json::json!({"error": error}),
         };
         writeln!(stdout, "{response}")?;
