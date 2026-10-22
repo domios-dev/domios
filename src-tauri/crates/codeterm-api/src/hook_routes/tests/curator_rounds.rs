@@ -138,6 +138,7 @@ async fn journey(finish: bool, deadline: bool) {
             mux.get_tab_mut(&tab_id).unwrap().team_id = Some(team.clone());
             (owner, team)
         };
+        let mut job = state.cron.lock().get(&job.id).unwrap().clone();
         job.team_id = Some(team.clone());
         job.protected = true;
         job.oneshot = true;
