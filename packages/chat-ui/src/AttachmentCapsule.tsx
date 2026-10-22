@@ -110,10 +110,10 @@ interface AttachmentCapsuleProps {
 function CapsuleContent({ attachment, labelContent, decoration, spanProps }: AttachmentCapsuleProps) {
   const label = attachment.label ?? fileName(attachment.path);
   const { name, detail } = capsuleLabelParts(label);
-  const kindLabel = ["image", "video", "file"].includes(attachment.kind) ? attachment.kind : null;
-  return <span {...spanProps} className={labelContent ? "ct-capsule" : "ct-capsule ct-capsule--padded"}>
+  const tailAt = Math.max(0, name.length - 12);
+  return <span title={attachment.path} aria-label={`${KIND_NAMES[attachment.kind]}: ${label}`} {...spanProps} className={labelContent ? "ct-capsule" : "ct-capsule ct-capsule--padded"}>
     {decoration ?? <CapsuleDecor kind={attachment.kind} />}
-    {labelContent ?? <>{kindLabel ?? name}{!kindLabel && detail && <span className="ct-capsule__detail">{detail}</span>}</>}
+    {labelContent ?? <><span className="ct-capsule__name"><span>{name.slice(0, tailAt)}</span><span>{name.slice(tailAt)}</span></span>{detail && <span className="ct-capsule__detail">{detail}</span>}</>}
   </span>;
 }
 
