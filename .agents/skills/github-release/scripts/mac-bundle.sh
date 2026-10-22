@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Full macOS-per-arch pipeline: build → notarize+staple DMG → pack .app.tar.gz
 # updater bundle → minisign-sign. Emits the final base64 signature to stdout
-# so the caller can substitute it into latest.json directly.
+# so the caller can substitute it into domios-latest.json directly.
 #
 # This replaces ~5 sequential helper invocations and the manual sig-extract
 # step. Hard-coded conventions (paths, identity, work dir) are documented
@@ -24,14 +24,14 @@ case "$ARCH" in
   arm64|aarch64)
     BUILD_ARG=arm64
     DMG_ARCH=aarch64
-    DMG=src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg
-    APP=src-tauri/target/release/bundle/macos/CodeTerm.app
+    DMG=src-tauri/target/release/bundle/dmg/Domios_${VER}_aarch64.dmg
+    APP=src-tauri/target/release/bundle/macos/Domios.app
     ;;
   x86_64|x64)
     BUILD_ARG=x86_64
     DMG_ARCH=x64
-    DMG=src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_${VER}_x64.dmg
-    APP=src-tauri/target/x86_64-apple-darwin/release/bundle/macos/CodeTerm.app
+    DMG=src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/Domios_${VER}_x64.dmg
+    APP=src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Domios.app
     ;;
   *) echo "unknown arch: $ARCH (expected arm64 or x86_64)" >&2; exit 2 ;;
 esac

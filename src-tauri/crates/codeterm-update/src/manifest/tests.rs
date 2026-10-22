@@ -232,3 +232,18 @@ async fn file_url_loads_when_feature_enabled() {
     let m = fetch(&url).await.expect("manifest should load");
     assert_eq!(m.version, "1.0.2");
 }
+
+#[test]
+fn manual_install_release_has_notes_but_never_offers_an_artifact() {
+    let refusal: Manifest = serde_json::from_str(
+        r#"{"version":"1.15.2","notes":"Quit the old application and install Domios manually.","platforms":{}}"#,
+    )
+    .unwrap();
+    for platform in ["windows-x86_64", "darwin-aarch64", "linux-x86_64"] {
+        assert_eq!(
+            offered_version("1.15.1", &refusal, Some(platform)).unwrap(),
+            None
+        );
+    }
+    assert!(refusal.notes.unwrap().contains("manually"));
+}

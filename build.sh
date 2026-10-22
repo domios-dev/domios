@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CodeTerm build script — works on macOS, Linux, and Windows.
+# Domios build script — works on macOS, Linux, and Windows.
 # Usage:
 #   ./build.sh dev       — dev mode (hot reload, incremental)
 #   ./build.sh dev --wait — same, but backgrounds and blocks until /api/health
@@ -295,7 +295,7 @@ initialize_build_identity
 # No global pgrep on target/debug/codeterm — that would take down every worktree.
 kill_dev() {
   if [ "$CT_PORT" = "7685" ]; then
-    echo "ERROR: refusing to kill prod CodeTerm port 7685" >&2
+    echo "ERROR: refusing to kill prod Domios port 7685" >&2
     exit 1
   fi
   if [ "${CODETERM_TEST_KILL_DRY_RUN:-0}" = "1" ]; then
@@ -603,7 +603,7 @@ if [ -n "$CT_INSTANCE" ]; then
     CT_INSTANCE_KEY="$CT_SLUG-x$CT_INSTANCE_HASH"
   fi
   CT_SUFFIX="-$CT_INSTANCE_KEY"
-  CT_IDENTIFIER="com.codeterm.dev.$(printf '%s' "$CT_SLUG" | tr '-' '.')"
+  CT_IDENTIFIER="com.domios.dev.$(printf '%s' "$CT_SLUG" | tr '-' '.')"
   if [ -n "$CT_INSTANCE_HASH" ]; then
     CT_IDENTIFIER="$CT_IDENTIFIER.x$CT_INSTANCE_HASH"
   fi
@@ -614,7 +614,7 @@ if [ -n "$CT_INSTANCE" ]; then
 else
   CT_SLUG=""
   CT_SUFFIX=""
-  CT_IDENTIFIER="com.codeterm.dev"
+  CT_IDENTIFIER="com.domios.dev"
   CT_VITE_PORT="${CT_VITE_PORT:-1420}"
   CT_CDP_PORT="${CT_CDP_PORT:-9223}"
 fi
@@ -1162,7 +1162,7 @@ parse_local_install_continuation() {
   if [ -z "$LOCAL_INSTALL_CONTINUE_PROMPT" ]; then
     local source_sha
     source_sha="$(git rev-parse HEAD)"
-    LOCAL_INSTALL_CONTINUE_PROMPT="Local CodeTerm install completed for build $source_sha. Verify the production health endpoint reports this SHA, then continue the work that requested the reinstall."
+    LOCAL_INSTALL_CONTINUE_PROMPT="Local Domios install completed for build $source_sha. Verify the production health endpoint reports this SHA, then continue the work that requested the reinstall."
   fi
 }
 
@@ -1318,9 +1318,9 @@ dev_built_app_path() {
 
 dev_app_path() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/codeterm"
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/domios-dev-app"
   else
-    dev_built_app_path
+    printf '%s\n' "$(tauri_debug_dir)/domios-dev-app.exe"
   fi
 }
 
@@ -1995,7 +1995,7 @@ dev_live_window_exe() {
   local target_win
   target_win="$(cat "$(dev_target_record)" 2>/dev/null || true)"
   [ -n "$target_win" ] || return 1
-  powershell.exe -NoProfile -Command "\$dir = [IO.Path]::GetFullPath('$target_win').TrimEnd('\\'); Get-Process codeterm -ErrorAction SilentlyContinue | Where-Object { \$_.Path -and [IO.Path]::GetDirectoryName(\$_.Path) -ieq \$dir } | Select-Object -First 1 -ExpandProperty Path" 2>/dev/null | tr -d '\r' | grep -m1 .
+  powershell.exe -NoProfile -Command "\$dir = [IO.Path]::GetFullPath('$target_win').TrimEnd('\\'); Get-Process domios-dev-app -ErrorAction SilentlyContinue | Where-Object { \$_.Path -and [IO.Path]::GetDirectoryName(\$_.Path) -ieq \$dir } | Select-Object -First 1 -ExpandProperty Path" 2>/dev/null | tr -d '\r' | grep -m1 .
 }
 
 # Only the split dev-back owns a window it can keep; Windows proves an unchanged client through its exe lock.
@@ -2069,7 +2069,7 @@ build_and_launch_dev() {
   build_sha="$CODETERM_BUILD_SHA"
   build_dev_frontend
   if [ "${CT_DEV_RETAIN_WINDOW:-0}" = 1 ]; then
-    if dev_live_window_exe >/dev/null; then
+    if dev_live_window_exe >/dev/null && cmp -s "$(dev_built_app_path)" "$(dev_app_path)"; then
       swap_dev_server_keep_window "$split_logs" "$build_sha"
       return
     fi
@@ -2472,7 +2472,7 @@ package_platform() {
 # Arguments, when given, prefix each Tauri command (local builds add their build config).
 bundle_common_stage() {
   local target="${CARGO_BUILD_TARGET:-$(ct_host_triple)}" client_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
-  local platform client=domios target_args=() compile_config=() run=("$@")
+  local platform client=domios-app target_args=() compile_config=() run=("$@")
   platform="$(package_platform "$target")" || return
   if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
     target_args=(--target "$CARGO_BUILD_TARGET")
@@ -2480,7 +2480,7 @@ bundle_common_stage() {
   fi
   # The raw Cargo server and sidecar stub would occupy the staged pair paths during compilation.
   case "$platform" in
-    windows) client=domios.exe ;;
+    windows) client=domios-app.exe ;;
     macos) compile_config=(--config '{"bundle":{"externalBin":[]}}') ;;
     linux) compile_config=(--config '{"bundle":{"resources":[],"externalBin":[]}}') ;;
   esac
@@ -2542,8 +2542,8 @@ notarize_local_macos_package() {
     return 1
   fi
   bash .agents/skills/github-release/scripts/notarize-dmg.sh "${dmgs[0]}"
-  xcrun stapler staple "$bundle_root/macos/CodeTerm.app"
-  spctl --assess --type execute "$bundle_root/macos/CodeTerm.app"
+  xcrun stapler staple "$bundle_root/macos/Domios.app"
+  spctl --assess --type execute "$bundle_root/macos/Domios.app"
 }
 
 case "$CMD" in
@@ -2578,7 +2578,7 @@ esac
 case "$CMD" in
   help)
     cat <<'EOF'
-CodeTerm build commands
+Domios build commands
 
   dev                         Start the visible shared dev instance
   dev-prebuilt                Restart a validated dev build without Cargo
@@ -3227,7 +3227,7 @@ EOF
     ct_check_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     VERSION="$(node -p "require('./package.json').version")"
-    INSTALLER="$CARGO_TARGET_DIR/release/bundle/nsis/CodeTerm_${VERSION}_x64-setup.exe"
+    INSTALLER="$CARGO_TARGET_DIR/release/bundle/nsis/Domios_${VERSION}_x64-setup.exe"
     if [ ! -f "$INSTALLER" ]; then
       echo "ERROR: local installer missing after build: $INSTALLER" >&2
       exit 1
@@ -3246,7 +3246,7 @@ EOF
       INSTALL_ARGS+=(--continue-prompt "$LOCAL_INSTALL_CONTINUE_PROMPT" --continue-tab "$LOCAL_INSTALL_CONTINUE_TAB")
       echo "Post-install continuation: Tab $LOCAL_INSTALL_CONTINUE_TAB"
     else
-      echo "Post-install continuation: disabled (no calling CodeTerm Tab)"
+      echo "Post-install continuation: disabled (no calling Domios Tab)"
       INSTALL_ARGS+=(--no-continue)
     fi
     complete_build_gateway_before_handoff

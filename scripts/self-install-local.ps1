@@ -4,7 +4,7 @@
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\self-install-local.ps1 -Installer <path>
 #
-# -Installer  Absolute path to CodeTerm_X.Y.Z_x64-setup.exe.
+# -Installer  Absolute path to Domios_X.Y.Z_x64-setup.exe.
 # The installed application always relaunches after a successful install.
 
 param(
@@ -42,12 +42,12 @@ if (-not $Worker) {
     )
     Write-Host "[self-install] Spawning detached installer helper..."
     Start-Process -FilePath 'powershell.exe' -ArgumentList $args -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog | Out-Null
-    Write-Host "[self-install] Helper started. This CodeTerm instance will restart."
+    Write-Host "[self-install] Helper started. This Domios instance will restart."
     Write-Host "[self-install] Logs: $outLog / $errLog"
     exit 0
 }
 
-$expectedExe = Join-Path $env:LocalAppData 'codeterm\codeterm.exe'
+$expectedExe = Join-Path $env:LocalAppData 'Domios\domios-app.exe'
 
 Write-Host "[self-install] Installer: $Installer"
 Write-Host "[self-install] Target:    $expectedExe"
@@ -55,7 +55,7 @@ Write-Host "[self-install] Target:    $expectedExe"
 # 1. Stop any running codeterm daemon — NSIS in /S mode does NOT kill the
 #    in-use binary on Windows, leading to "in-use" rename failures or, worse,
 #    a silent half-install where files are out-of-sync with the running PID.
-Get-Process codeterm -ErrorAction SilentlyContinue | ForEach-Object {
+Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.Equals($expectedExe, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object {
     Write-Host "[self-install] Stopping codeterm PID $($_.Id) ..."
     $_.Kill()
     $_.WaitForExit(5000) | Out-Null

@@ -1,7 +1,7 @@
 {
-  "identifier": "com.codeterm.dev",
-  "productName": "CodeTerm Dev",
-  "mainBinaryName": "codeterm",
+  "identifier": "com.domios.dev",
+  "productName": "Domios Dev",
+  "mainBinaryName": "domios-dev-app",
   "build": {
     "devUrl": "http://127.0.0.1:1420",
     "beforeDevCommand": "node scripts/dev-prep.mjs --no-server"
@@ -15,7 +15,7 @@
     "windows": [
       {
         "create": false,
-        "title": "CodeTerm",
+        "title": "Domios Dev",
         "width": 1200,
         "height": 800,
         "decorations": false,

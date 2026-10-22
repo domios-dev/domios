@@ -270,7 +270,7 @@ mod delivery_tests {
         assert!(windows_toast_reaches_the_shell(Some(&native(&[
             "C:",
             "Program Files",
-            "CodeTerm"
+            "Domios"
         ]))));
     }
 

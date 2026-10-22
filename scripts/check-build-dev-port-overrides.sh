@@ -23,7 +23,7 @@ explicit_output="$(
     ./build.sh kill
 )"
 assert_output \
-  $'Dry-run dev kill instance=\'playwright-harness\' api=7776 vite=1736 cdp=9736 identifier=com.codeterm.dev.playwright.harness\nDone.' \
+  $'Dry-run dev kill instance=\'playwright-harness\' api=7776 vite=1736 cdp=9736 identifier=com.domios.dev.playwright.harness\nDone.' \
   "$explicit_output"
 
 default_output="$(
@@ -47,7 +47,7 @@ EOF
     ./build.sh kill
 )"
 assert_output \
-  $'Dry-run dev kill instance=\'default\' api=7778 vite=1737 cdp=9737 identifier=com.codeterm.dev\nDone.' \
+  $'Dry-run dev kill instance=\'default\' api=7778 vite=1737 cdp=9737 identifier=com.domios.dev\nDone.' \
   "$default_output"
 
 fallback_output="$(
@@ -58,7 +58,7 @@ fallback_output="$(
     ./build.sh kill
 )"
 assert_output \
-  $'Dry-run dev kill instance=\'port-check\' api=7777 vite=1429 cdp=9232 identifier=com.codeterm.dev.port.check\nDone.' \
+  $'Dry-run dev kill instance=\'port-check\' api=7777 vite=1429 cdp=9232 identifier=com.domios.dev.port.check\nDone.' \
   "$fallback_output"
 
 set +e

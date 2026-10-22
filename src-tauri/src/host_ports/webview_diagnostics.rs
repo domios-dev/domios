@@ -604,7 +604,7 @@ mod tests {
             ProcessIdentity {
                 pid: 10,
                 parent_pid: 1,
-                image: "domios.exe".into(),
+                image: "domios-app.exe".into(),
             },
             ProcessIdentity {
                 pid: 11,

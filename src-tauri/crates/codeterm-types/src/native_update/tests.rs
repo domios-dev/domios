@@ -26,9 +26,9 @@ fn components(server_build: &str, client_digest: &str) -> ServerComponentManifes
         server_sha256: "a".repeat(64),
         client_identity: if cfg!(target_os = "macos") {
             ClientIdentity::MacosDesignatedRequirement {
-                requirement: "anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"JMMWQ9LWF7\"".into(),
+                requirement: "anchor apple generic and identifier \"com.domios.app\" and certificate leaf[subject.OU] = \"JMMWQ9LWF7\"".into(),
                 team_id: "JMMWQ9LWF7".into(),
-                identifier: "com.codeterm.app".into(),
+                identifier: "com.domios.app".into(),
             }
         } else {
             ClientIdentity::Sha256 {
@@ -103,7 +103,7 @@ fn resource_root() -> PathBuf {
     #[cfg(not(windows))]
     {
         if cfg!(target_os = "macos") {
-            PathBuf::from("/Applications/CodeTerm.app/Contents/Resources")
+            PathBuf::from("/Applications/Domios.app/Contents/Resources")
         } else {
             PathBuf::from("/opt/domios/resources")
         }
@@ -130,9 +130,9 @@ fn manifest_client_identity_and_server_location_are_platform_bound() {
         assert!(super::validate_manifest(&manifest).is_err());
         manifest.server_executable = PathBuf::from("bin/domios-server.exe");
         manifest.client_identity = ClientIdentity::MacosDesignatedRequirement {
-            requirement: "anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"JMMWQ9LWF7\"".into(),
+            requirement: "anchor apple generic and identifier \"com.domios.app\" and certificate leaf[subject.OU] = \"JMMWQ9LWF7\"".into(),
             team_id: "JMMWQ9LWF7".into(),
-            identifier: "com.codeterm.app".into(),
+            identifier: "com.domios.app".into(),
         };
         assert!(super::validate_manifest(&manifest).is_err());
     }
@@ -203,7 +203,7 @@ impl NativeUpdateExecutor for Port {
             client_process: ProcessProvenance {
                 pid: 72,
                 created: "start-72".into(),
-                executable: PathBuf::from("C:/Domios/domios.exe"),
+                executable: PathBuf::from("C:/Domios/domios-app.exe"),
             },
         })
     }
@@ -292,9 +292,9 @@ fn server_only_update_preserves_client_artifact_and_protocol_pair() {
     let mut request = request(NativeUpdateAction::Server, true);
     request.staged_components.client_identity = if cfg!(target_os = "macos") {
         ClientIdentity::MacosDesignatedRequirement {
-            requirement: "anchor apple generic and identifier \"com.codeterm.app\" and certificate leaf[subject.OU] = \"ABCDEFGHIJ\"".into(),
+            requirement: "anchor apple generic and identifier \"com.domios.app\" and certificate leaf[subject.OU] = \"ABCDEFGHIJ\"".into(),
             team_id: "ABCDEFGHIJ".into(),
-            identifier: "com.codeterm.app".into(),
+            identifier: "com.domios.app".into(),
         }
     } else {
         ClientIdentity::Sha256 {
@@ -387,7 +387,7 @@ fn replacement_verification_resolves_relative_executable_against_ready_root() {
         client_process: ProcessProvenance {
             pid: 72,
             created: "start-72".into(),
-            executable: PathBuf::from("/opt/domios/domios.exe"),
+            executable: PathBuf::from("/opt/domios/domios-app.exe"),
         },
     };
     let result_for = |server: ServerReady| NativeUpdateResult {
@@ -475,7 +475,7 @@ fn result_fences_operation_and_completed_artifact_identity() {
     let client_process = ProcessProvenance {
         pid: 72,
         created: "start-72".into(),
-        executable: PathBuf::from("C:/Domios/domios.exe"),
+        executable: PathBuf::from("C:/Domios/domios-app.exe"),
     };
     let completed = NativeUpdateResult {
         operation_id: request.operation_id,
@@ -508,7 +508,7 @@ fn verified_client_reconnect_requires_monotonic_generation_and_same_server_epoch
         client_process: ProcessProvenance {
             pid: 72,
             created: "start-72".into(),
-            executable: PathBuf::from("C:/Domios/domios.exe"),
+            executable: PathBuf::from("C:/Domios/domios-app.exe"),
         },
     };
     let previous = NativeUpdateResult {

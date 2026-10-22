@@ -39,9 +39,9 @@ fi
 
 step "drafts"
 gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1 || gh release create "$TAG" --repo "$SOURCE_REPO" --target "$SHA" \
-  --draft --title "CodeTerm $TAG" --notes "See the assets to download this version and install."
+  --draft --title "Domios $TAG" --notes "See the assets to download this version and install."
 GH_TOKEN="$MIRROR_TOKEN" gh release view "$TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1 || GH_TOKEN="$MIRROR_TOKEN" gh release create "$TAG" \
-  --repo "$MIRROR_REPO" --draft --title "CodeTerm $TAG" --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
+  --repo "$MIRROR_REPO" --draft --title "Domios $TAG" --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
 
 step "retained bytes to both drafts, read back against their receipts"
 PUBLISH_MIRROR=true node scripts/release-promote.mjs publish "$TAG" "$SHA" "$RUN_ID" "$work/promote"
@@ -52,15 +52,16 @@ gh release download "$TAG" --repo "$SOURCE_REPO" --pattern 'updater-*.json' --di
 for fragment in "$work"/frag/raw/updater-*.json; do
   name="$(basename "$fragment" .json)"; destination="$work/frag/main/$name"
   [[ "$name" == *-deb ]] && destination="$work/frag/deb/$name"
-  mkdir -p "$destination"; cp "$fragment" "$destination/latest.json"
+  mkdir -p "$destination"; cp "$fragment" "$destination/domios-latest.json"
 done
-node scripts/merge-latest-json.js --in "$work/frag/main" --out "$work/man/latest.json"
-node scripts/merge-latest-json.js --in "$work/frag/deb" --out "$work/man/latest-deb.json"
-gh release upload "$TAG" "$work/man/latest.json" "$work/man/latest-deb.json" --repo "$SOURCE_REPO" --clobber
-GH_TOKEN="$MIRROR_TOKEN" gh release upload "$TAG" "$work/man/latest.json" "$work/man/latest-deb.json" --repo "$MIRROR_REPO" --clobber
+node scripts/merge-latest-json.js --in "$work/frag/main" --out "$work/man/domios-latest.json"
+node scripts/merge-latest-json.js --in "$work/frag/deb" --out "$work/man/domios-latest-deb.json"
+node scripts/legacy-updater-refusal.mjs "$work/man"
+gh release upload "$TAG" "$work/man/"*.json --repo "$SOURCE_REPO" --clobber
+GH_TOKEN="$MIRROR_TOKEN" gh release upload "$TAG" "$work/man/"*.json --repo "$MIRROR_REPO" --clobber
 
 step "draft signatures against the mirror bytes"
-for manifest in latest.json latest-deb.json; do
+for manifest in domios-latest.json domios-latest-deb.json; do
   node -e 'for (const p of Object.values(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).platforms)) console.log(p.url.split("/").pop())' \
     "$work/man/$manifest" | tr -d '\r' | while IFS= read -r asset; do
       GH_TOKEN="$MIRROR_TOKEN" gh release download "$TAG" --repo "$MIRROR_REPO" --pattern "$asset" --dir "$work/draft" --clobber
@@ -78,14 +79,15 @@ else
 fi
 
 step "publish"
+GH_TOKEN="$MIRROR_TOKEN" node scripts/sync-release-notes.mjs --tag "$TAG"
 gh release edit "$TAG" --repo "$SOURCE_REPO" --draft=false
 GH_TOKEN="$MIRROR_TOKEN" gh release edit "$TAG" --repo "$MIRROR_REPO" --draft=false --latest
-GH_TOKEN="$MIRROR_TOKEN" node scripts/sync-release-notes.mjs --tag "$TAG" || echo "::warning::release notes sync failed; the release is published"
 
 step "published manifests"
-node scripts/verify-updater-manifest.mjs --manifest "https://github.com/$MIRROR_REPO/releases/download/$TAG/latest.json?cb=$(date +%s)" \
+node scripts/legacy-updater-refusal.mjs verify "https://github.com/$MIRROR_REPO/releases/download/$TAG/latest.json?cb=$(date +%s)" "$VER"
+node scripts/verify-updater-manifest.mjs --manifest "https://github.com/$MIRROR_REPO/releases/download/$TAG/domios-latest.json?cb=$(date +%s)" \
   --require-version "$VER" --require-platform darwin-aarch64 --require-platform darwin-x86_64 --require-platform windows-x86_64 \
   --require-platform windows-aarch64 --require-platform linux-x86_64 --require-platform linux-aarch64
-node scripts/verify-updater-manifest.mjs --manifest "https://github.com/$MIRROR_REPO/releases/download/$TAG/latest-deb.json?cb=$(date +%s)" \
+node scripts/verify-updater-manifest.mjs --manifest "https://github.com/$MIRROR_REPO/releases/download/$TAG/domios-latest-deb.json?cb=$(date +%s)" \
   --require-version "$VER" --require-platform linux-x86_64
 echo "published $TAG from run $RUN_ID ($SHA)"

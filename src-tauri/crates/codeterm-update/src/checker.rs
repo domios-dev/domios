@@ -16,11 +16,11 @@ fn latest_release_request(client: &reqwest::Client) -> reqwest::RequestBuilder {
 
 pub async fn latest_release_tag() -> Result<String, String> {
     if codeterm_plugins::update_source::fixture_root().is_some() {
-        let manifest = super::manifest::fetch("https://fixtures.invalid/latest.json").await?;
+        let manifest = super::manifest::fetch("https://fixtures.invalid/domios-latest.json").await?;
         return Ok(format!("v{}", manifest.version));
     }
     let client = reqwest::Client::builder()
-        .user_agent("CodeTerm-Updater")
+        .user_agent("Domios-Updater")
         .build()
         .map_err(|e| e.to_string())?;
     let release = latest_release_request(&client)
@@ -108,7 +108,7 @@ fn build_update_command(
         InstallMethod::Scoop => Some("scoop update codeterm".to_string()),
         InstallMethod::Deb => None,
         InstallMethod::Rpm => Some(format!(
-            "curl -sLO https://github.com/{}/releases/download/v{}/CodeTerm-{}-1.x86_64.rpm && sudo rpm -U CodeTerm-{}-1.x86_64.rpm",
+            "curl -sLO https://github.com/{}/releases/download/v{}/Domios-{}-1.x86_64.rpm && sudo rpm -U Domios-{}-1.x86_64.rpm",
             GITHUB_REPO, version, version, version
         )),
         _ => None,

@@ -71,8 +71,8 @@ function validateClientIdentity(identity) {
   if (identity.kind === 'sha256' && JSON.stringify(fields) === JSON.stringify(['kind', 'sha256']) && SHA256_PATTERN.test(identity.sha256)) return identity;
   if (identity.kind === 'macos_designated_requirement' &&
       JSON.stringify(fields) === JSON.stringify(['identifier', 'kind', 'requirement', 'team_id']) &&
-      /^[A-Z0-9]{10}$/.test(identity.team_id) && identity.identifier === 'com.codeterm.app' &&
-      identity.requirement === `anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "${identity.team_id}"`) return identity;
+      /^[A-Z0-9]{10}$/.test(identity.team_id) && identity.identifier === 'com.domios.app' &&
+      identity.requirement === `anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "${identity.team_id}"`) return identity;
   fail('client identity does not match a supported ServerComponentManifest v2 variant');
 }
 

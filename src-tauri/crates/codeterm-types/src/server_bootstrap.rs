@@ -220,7 +220,7 @@ fn validate_isolated_verification(
         || is_user_codeterm_directory(&config_dir, &home)
     {
         return Err(std::io::Error::other(
-            "Isolated verification refuses user CodeTerm directories",
+            "Isolated verification refuses user Domios directories",
         ));
     }
     Ok(())

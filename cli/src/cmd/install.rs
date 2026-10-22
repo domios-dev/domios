@@ -44,7 +44,7 @@ fn windows_install_script(
         .map(|dir| dir.display().to_string())
         .unwrap_or_default()
         .replace('\'', "''");
-    // Match by install path: dev builds share the domios/domios-server image names.
+    // Match by install path: release builds share the domios-app/domios-server image names.
     format!(
         "@echo off\r\n\
         set \"LOG={log}\"\r\n\
@@ -77,12 +77,16 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
 
     let local_app_data = std::env::var("LocalAppData").unwrap_or_default();
     let target_exe = std::path::PathBuf::from(&local_app_data)
-        .join("codeterm")
-        .join("domios.exe");
+        .join("Domios")
+        .join("domios-app.exe");
 
     let log_path = std::path::PathBuf::from(&local_app_data)
-        .join("codeterm")
+        .join("Domios")
         .join("self-install.log");
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create install directory: {error}"))?;
+    }
     let bat_path =
         std::env::temp_dir().join(format!("codeterm-self-install-{}.bat", std::process::id()));
 
@@ -160,7 +164,7 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
              hdiutil attach -nobrowse -readonly -mountpoint \"$MP\" \"{dmg}\"\n\
              APP=$(ls -d \"$MP\"/*.app | head -1)\n\
              echo \"[self-install] installing $APP\"\n\
-             ditto \"$APP\" /Applications/CodeTerm.app\n\
+             ditto \"$APP\" /Applications/Domios.app\n\
              hdiutil detach \"$MP\" >/dev/null 2>&1 || true\n\
              rmdir \"$MP\" 2>/dev/null || true\n",
             dmg = installer_path,
@@ -168,7 +172,7 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
     } else {
         format!(
             "echo '[self-install] installing {app}'\n\
-             ditto \"{app}\" /Applications/CodeTerm.app\n",
+             ditto \"{app}\" /Applications/Domios.app\n",
             app = installer_path,
         )
     };
@@ -178,11 +182,11 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
          exec >> \"{log}\" 2>&1\n\
          echo \"[self-install] start $(date)\"\n\
          sleep 2\n\
-         echo '[self-install] quitting CodeTerm'\n\
-         osascript -e 'tell application \"CodeTerm\" to quit' >/dev/null 2>&1 || true\n\
+         echo '[self-install] quitting Domios'\n\
+         osascript -e 'tell application \"Domios\" to quit' >/dev/null 2>&1 || true\n\
          sleep 1\n\
          echo '[self-install] terminating any surviving process'\n\
-         P='/Applications/CodeTerm.app/Contents/MacOS/codeterm'\n\
+         P='/Applications/Domios.app/Contents/MacOS/domios-app'\n\
          for i in $(seq 1 20); do\n\
          \x20 pgrep -f \"$P\" >/dev/null 2>&1 || break\n\
          \x20 pkill -TERM -f \"$P\" 2>/dev/null || true\n\
@@ -191,10 +195,10 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
          pkill -9 -f \"$P\" 2>/dev/null || true\n\
          sleep 1\n\
          echo '[self-install] removing old app (unlink dodges ETXTBSY)'\n\
-         rm -rf /Applications/CodeTerm.app\n\
+         rm -rf /Applications/Domios.app\n\
          {install_block}\
          echo '[self-install] relaunching'\n\
-         open -a /Applications/CodeTerm.app\n\
+         open -a /Applications/Domios.app\n\
          echo '[self-install] done'\n\
          rm -f \"{script}\"\n",
         log = log.display(),
