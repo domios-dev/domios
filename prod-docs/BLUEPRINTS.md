@@ -84,6 +84,8 @@ Ordinary exceptions and non-zero code exits produce routable `failed`, reason `c
 
 The stdin envelope remains bounded to 32 KiB. Plain text of 20 KiB passes intact. Oversized serialized payloads become an explicit JSON truncation value with `type: truncated`, `truncated: true`, `total_bytes`, `limit_bytes` and a bounded UTF-8 `prefix`. Typed contracts validate that delivered value and may refuse a truncation marker that violates their schema.
 
+Command steps and watcher probes preserve the daemon's inherited PATH order, remove the explicitly configured Domios CLI directories, and append missing default tool directories. Other inherited variables are excluded; children receive `LANG` and, on Windows, `SystemRoot`. PATH filtering is not a confinement boundary.
+
 Current hardening limitations: metadata/readlink access and root-directory listing remain broader than data reads, and `sysctl-read` remains unrestricted. These can disclose host metadata. Inherited descriptors rely on host `O_CLOEXEC`; no `closefrom` hardening is claimed. The profile has not been widened to support additional interpreters or dylib roots.
 
 ## Watches and effects
@@ -146,4 +148,4 @@ Only the Team Orchestrator keeps solutions. Supply one to five intents, preferab
 
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 48 -->
+<!-- revision: 49 -->
