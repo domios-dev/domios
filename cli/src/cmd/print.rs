@@ -54,6 +54,8 @@ impl CliError {
             })
             .unwrap_or(trimmed)
             .to_string();
+        let refusal = parsed.as_ref().and_then(|value| value.get("failure"));
+        let typed_refusal = refusal.and_then(render_account_mesh_refusal);
         let mut data = parsed.unwrap_or_else(|| {
             if trimmed.is_empty() {
                 serde_json::json!({})
@@ -66,7 +68,10 @@ impl CliError {
             Some(code) => format!("{code}: {detail}"),
             None => detail,
         };
-        let message = if detail.is_empty() {
+        let message = if let Some((message, hint)) = typed_refusal {
+            data["hint"] = serde_json::json!(hint);
+            format!("✗ {message}\nfix: {hint}")
+        } else if detail.is_empty() {
             format!("HTTP {status}")
         } else {
             format!("HTTP {status}: {detail}")
@@ -90,6 +95,45 @@ impl CliError {
             data: Some(serde_json::json!({ "code": ErrorCode::InvalidArgument.as_str() })),
         }
     }
+}
+
+fn render_account_mesh_refusal(value: &serde_json::Value) -> Option<(&'static str, &'static str)> {
+    let reason = value.get("reason")?.as_str()?;
+    Some(match reason {
+        "unauthenticated" | "signed-out" => (
+            "Your Domios account session could not be verified.",
+            "sign in again, then retry domios mesh link <installation-id>",
+        ),
+        "offline" => (
+            "The other machine is offline.",
+            "bring both machines online, then retry domios mesh link <installation-id>",
+        ),
+        "peer-unreachable" => (
+            "The other machine could not be reached.",
+            "bring both machines online, then retry domios mesh link <installation-id>",
+        ),
+        "handshake-failed" => (
+            "The machines could not complete the link handshake.",
+            "make sure both machines are online, then retry domios mesh link <installation-id>",
+        ),
+        "revoked" => (
+            "This machine was removed from your account.",
+            "refresh the account machine list before retrying",
+        ),
+        "cancelled" | "conflict" => (
+            "The account changed before the machine could be linked.",
+            "refresh the account machine list, then retry domios mesh link <installation-id>",
+        ),
+        "rate-limited" => (
+            "The account service is receiving too many requests.",
+            "wait briefly, then retry domios mesh link <installation-id>",
+        ),
+        "mesh.machines" => (
+            "Your account has reached its machine limit.",
+            "review your Domios plan before linking another machine",
+        ),
+        _ => return None,
+    })
 }
 
 impl From<SocketCallError> for CliError {
@@ -261,6 +305,31 @@ pub(crate) fn write_cli_error(
     }
     let _ = out.flush();
     let _ = writeln!(err, "Error: {}", error.message);
+}
+
+#[cfg(test)]
+mod http_refusal_tests {
+    use super::{write_cli_error, CliError};
+
+    #[test]
+    fn account_mesh_refusal_uses_a_repair_hint_without_echoing_http_json() {
+        let body =
+            r#"{"ok":false,"request_id":"request-1","failure":{"reason":"unauthenticated"}}"#;
+        let error = CliError::http(401, body);
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        write_cli_error(false, &error, &mut out, &mut err);
+        let rendered = String::from_utf8(err).unwrap();
+
+        assert!(
+            rendered.contains("account session could not be verified"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("sign in again"), "{rendered}");
+        assert!(!rendered.contains("request-1"), "{rendered}");
+        assert!(!rendered.contains("HTTP 401"), "{rendered}");
+        assert!(!rendered.contains("failure"), "{rendered}");
+    }
 }
 
 const ENTITY_ID_FIELDS: &[&str] = &[
