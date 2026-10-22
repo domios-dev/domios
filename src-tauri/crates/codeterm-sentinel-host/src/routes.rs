@@ -218,6 +218,7 @@ pub(super) fn deliver_body(
     target: &str,
     job: &Sentinel,
     output: &str,
+    run_id: &str,
 ) -> Result<(), String> {
     let agent = svc
         .mux
@@ -231,13 +232,15 @@ pub(super) fn deliver_body(
         output,
         |body| svc.send_text(target, &svc.programmatic_input(target, body)),
         |body| {
-            svc.gateway_deliver(
-                target,
-                MessageEnvelope::codeterm_reminder(format!("blueprint:{}", job.id)),
-                body,
-                DeliveryClass::SystemNotice,
-            )
-            .map(|_| ())
+            let mut envelope = MessageEnvelope::codeterm_reminder(format!("blueprint:{}", job.id));
+            let delivery = svc.durable_delivery(run_id, &job.creator_tab_id);
+            let body = format!(
+                "Original run: {run_id}; timestamp: {}\n{body}",
+                delivery.created_at_ms
+            );
+            envelope.durable_delivery = Some(delivery);
+            svc.gateway_deliver(target, envelope, &body, DeliveryClass::SystemNotice)
+                .map(|_| ())
         },
     )
 }
@@ -263,22 +266,26 @@ fn send_file(
     output: &str,
     transition_id: &str,
 ) -> Result<(), String> {
+    let delivery = svc.durable_delivery(transition_id, &job.creator_tab_id);
     let body = format!(
-        "Blueprint {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
-        job.id, verdict.bucket, verdict.confidence, output
+        "Original run: {transition_id}; timestamp: {}\nBlueprint {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
+        delivery.created_at_ms, job.id, verdict.bucket, verdict.confidence, output
     );
     let path = svc
         .ensure_agent_pad(target)?
         .write_inbox_body(body.as_bytes())?;
     let mut envelope = MessageEnvelope::codeterm_reminder(format!("blueprint:{}", job.id));
-    if codeterm_service_core::paths::is_dev_instance() {
-        envelope.id = Some(transition_id.into());
-    }
+    envelope.durable_delivery = Some(delivery.clone());
+    envelope.id = Some(format!(
+        "{transition_id}:{}",
+        path.file_name().unwrap().to_string_lossy()
+    ));
     svc.gateway_deliver(
         target,
         envelope,
         &format!(
-            "Blueprint {}: {}. Read the result in {}",
+            "Original run: {transition_id}; timestamp: {}\nBlueprint {}: {}. Read the result in {}",
+            delivery.created_at_ms,
             job.id,
             verdict.bucket,
             path.display()
@@ -363,7 +370,9 @@ pub fn run(
                 Ok(None)
             }
         }
-        Route::Send(target) => deliver_body(svc, &target, job, output).map(|()| None),
+        Route::Send(target) => {
+            deliver_body(svc, &target, job, output, transition_id).map(|()| None)
+        }
         Route::Cron(id) => {
             let cron = svc
                 .try_ext::<codeterm_service_core::CronState>()
@@ -465,20 +474,20 @@ pub(super) fn deliver_pipeline_result(
     verdict: &Verdict,
     path: &std::path::Path,
     body_ref: String,
+    run_id: &str,
 ) -> PipelineResultDelivery {
+    let delivery = svc.durable_delivery(run_id, &job.creator_tab_id);
+    let mut envelope = MessageEnvelope::codeterm_reminder(format!("blueprint:{}:result", job.id));
+    envelope.durable_delivery = Some(delivery.clone());
     let packet = format!(
-        "Blueprint {}: {}. Read the durable result in {}",
+        "Original run: {run_id}; timestamp: {}\nBlueprint {}: {}. Read the durable result in {}",
+        delivery.created_at_ms,
         job.id,
         verdict.bucket,
         path.display()
     );
     deliver_pipeline_result_with(target, &packet, body_ref, |target, packet| {
-        svc.gateway_deliver(
-            target,
-            MessageEnvelope::codeterm_reminder(format!("blueprint:{}:result", job.id)),
-            packet,
-            DeliveryClass::SystemNotice,
-        )
+        svc.gateway_deliver(target, envelope, packet, DeliveryClass::SystemNotice)
     })
 }
 

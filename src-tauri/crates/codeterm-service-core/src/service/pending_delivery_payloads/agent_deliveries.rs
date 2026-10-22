@@ -29,6 +29,10 @@ pub(crate) struct AgentDeliveryRecord {
     pub(crate) sequence: u64,
     pub(crate) state: AgentDeliveryState,
     pub(crate) idempotency_key: Option<String>,
+    #[serde(default)]
+    pub(crate) saved_launch: Option<super::super::durable_delivery::SavedLaunch>,
+    #[serde(default)]
+    pub(crate) terminal_failure: Option<String>,
     owner_epoch: String,
     digest: String,
     bytes: usize,
@@ -146,6 +150,8 @@ impl AgentDeliveryStore {
             sequence: index.next_sequence,
             state: AgentDeliveryState::Pending,
             idempotency_key,
+            saved_launch: None,
+            terminal_failure: None,
             owner_epoch: self.epoch.clone(),
             digest: digest(payload.as_bytes()),
             bytes: payload.len(),
@@ -162,6 +168,39 @@ impl AgentDeliveryStore {
         }
         *index = next;
         Ok(id)
+    }
+
+    pub(crate) fn bind_saved_launch(
+        &self,
+        tab_id: &str,
+        id: &str,
+        launch: super::super::durable_delivery::SavedLaunch,
+    ) -> Result<super::super::durable_delivery::SavedLaunch, String> {
+        let mut result = None;
+        self.update(tab_id, id, |record| {
+            if record.state != AgentDeliveryState::Pending || record.terminal_failure.is_some() {
+                return Err("durable delivery cannot bind a claimed or failed record".into());
+            }
+            result = Some(record.saved_launch.get_or_insert(launch.clone()).clone());
+            Ok(true)
+        })?;
+        result.ok_or_else(|| "durable delivery record disappeared".into())
+    }
+
+    pub(crate) fn mark_terminal_failure(
+        &self,
+        tab_id: &str,
+        id: &str,
+        reason: &str,
+    ) -> Result<(), String> {
+        self.update(tab_id, id, |record| {
+            if record.state != AgentDeliveryState::Pending {
+                return Err("claimed delivery cannot be failed as never written".into());
+            }
+            record.terminal_failure.get_or_insert_with(|| reason.into());
+            Ok(true)
+        })?;
+        Ok(())
     }
 
     pub(crate) fn has_pending(&self, tab_id: &str) -> Result<bool, String> {
@@ -227,7 +266,10 @@ impl AgentDeliveryStore {
             return Ok(false);
         };
         let record = &index.records[position];
-        if record.state != AgentDeliveryState::Pending || record.owner_epoch != self.epoch {
+        if record.state != AgentDeliveryState::Pending
+            || record.owner_epoch != self.epoch
+            || record.terminal_failure.is_some()
+        {
             return Ok(false);
         }
         let mut next = index.clone();
@@ -417,7 +459,7 @@ impl AgentDeliveryStore {
         tab.blocked_on_refusal.store(false, Ordering::Release);
     }
 
-    fn records(&self, tab_id: &str) -> Result<Vec<AgentDeliveryRecord>, String> {
+    pub(crate) fn records(&self, tab_id: &str) -> Result<Vec<AgentDeliveryRecord>, String> {
         let tab = self.tab(tab_id);
         let mut index = tab.index.lock();
         Ok(self.load(&tab, &mut index)?.records.clone())

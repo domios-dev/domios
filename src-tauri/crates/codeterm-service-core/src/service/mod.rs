@@ -271,6 +271,7 @@ pub use worker_lane::{
     ProvisionedWorkerLane, WorkerLaneProvenance,
 };
 pub use worker_loss::BUSY_WORKER_CLOSE_REFUSAL_PREFIX;
+pub mod durable_delivery;
 mod worker_persona;
 mod workspace;
 pub(crate) mod workspace_cwd;

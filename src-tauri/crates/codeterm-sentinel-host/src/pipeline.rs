@@ -472,6 +472,7 @@ fn run_pipeline(
                 &verdict,
                 &body_path,
                 body_ref.clone(),
+                &run_id,
             ),
             _ => super::routes::PipelineResultDelivery {
                 state: "failed",
