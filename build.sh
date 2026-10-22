@@ -1307,10 +1307,20 @@ record_dev_target() {
 }
 
 dev_resource_dir() {
-  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/Domios.app/Contents/Resources"
+  elif [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/lib/codeterm"
   else
     tauri_debug_dir
+  fi
+}
+
+dev_frontend_dir() {
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    printf '%s\n' "$(pwd -P)/dist"
+  else
+    printf '%s\n' "$(dev_resource_dir)/dist"
   fi
 }
 
@@ -1323,7 +1333,9 @@ dev_built_app_path() {
 }
 
 dev_app_path() {
-  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/Domios.app/Contents/MacOS/domios-dev-app"
+  elif [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     printf '%s\n' "$(tauri_debug_dir)/.domios-dev-runtime/bin/domios-dev-app"
   else
     printf '%s\n' "$(tauri_debug_dir)/domios-dev-app.exe"
@@ -1424,7 +1436,7 @@ write_dev_provenance() {
     --build-sha "$build_sha" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --frontend "$(dev_resource_dir)/dist" \
+    --frontend "$(dev_frontend_dir)" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
     --vite-port "$CT_VITE_PORT" \
@@ -1442,7 +1454,7 @@ validate_dev_provenance() {
     --record "$(dev_provenance_record)" \
     --app "$(dev_app_path)" \
     --cli "$(dev_cli_path)" \
-    --frontend "$(dev_resource_dir)/dist" \
+    --frontend "$(dev_frontend_dir)" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
     --vite-port "$CT_VITE_PORT" \
@@ -1451,6 +1463,10 @@ validate_dev_provenance() {
 }
 
 reload_dev_server() {
+  if [[ "$OSTYPE" == darwin* ]] && [ -n "${CODETERM_DEV_INSTANCE:-}" ]; then
+    echo 'Named macOS DEV uses a sealed app pair; run ./build.sh dev instead.' >&2
+    return 2
+  fi
   local plan split_logs receipt build_sha started
   started="$(date +%s)"
   CT_SPLIT_DEV=1
@@ -2089,6 +2105,7 @@ build_and_launch_dev() {
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   build_dev_client "$conf" "${build_args[@]}"
   build_sha="$CODETERM_BUILD_SHA"
+  if [[ "$OSTYPE" == darwin* ]] && named_dev_isolated; then prepare_local_macos_signing 0; fi
   build_dev_frontend
   if [ "${CT_DEV_RETAIN_WINDOW:-0}" = 1 ]; then
     if dev_live_window_exe >/dev/null && cmp -s "$(dev_built_app_path)" "$(dev_app_path)"; then
@@ -2244,10 +2261,10 @@ start_web_watch() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_resource_dir)/dist" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_resource_dir)/dist" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
@@ -2272,10 +2289,10 @@ start_dev_static_server() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_DEV_STATIC_DIST="$(dev_resource_dir)/dist" node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_DEV_STATIC_DIST="$(dev_resource_dir)/dist" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!
