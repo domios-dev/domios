@@ -98,6 +98,7 @@ impl ServiceContext {
         let result = crate::async_runtime::block_on(agent_runtime::restart::restart(
             self, tab_id, &provider, &nonce, fresh,
         ));
+        self.clear_runtime_restart_binding(tab_id);
         match result {
             Ok(session) => {
                 let context = session.context.lock().clone();
@@ -139,7 +140,6 @@ impl ServiceContext {
                 } else {
                     outcome.binding_restored = true;
                 }
-                self.clear_runtime_restart_binding(tab_id);
                 self.schedule_session_persist_debounced();
                 self.emit_state_changed(MuxEmitCause::AgentRestart);
                 Ok(outcome)
