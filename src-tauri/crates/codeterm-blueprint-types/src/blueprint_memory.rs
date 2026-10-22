@@ -7,6 +7,7 @@ pub mod curator;
 mod generalize;
 pub use credentials::contains_credentials;
 mod quality;
+pub mod semantic_canon;
 pub use generalize::{abstract_document, safe_template};
 pub use quality::{decide, CuratorEvidence, Evidence, Qualification};
 

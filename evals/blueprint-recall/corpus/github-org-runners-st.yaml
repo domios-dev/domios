@@ -1,0 +1,39 @@
+schema_version: 1
+name: Org fleet {{organization}}
+note: Track whether an organization's tagged build machines are reachable and how many are connected.
+owner: team
+inputs:
+  organization:
+    type: string
+    description: GitHub organization
+  tag:
+    type: string
+    default: linux-build
+    description: Runner label to match
+  every:
+    type: string
+    default: 5m
+    description: Probe interval, at least 10s
+  deadline_ms:
+    type: integer
+    default: 30000
+    description: Probe timeout in milliseconds
+pipeline:
+  trigger:
+    type: schedule
+    every: '{{every}}'
+  steps:
+  - name: Fleet status
+    input: text
+    uses: github
+    with:
+      resource: runners
+      org: '{{organization}}'
+      timeout_ms: '{{deadline_ms}}'
+      label: '{{tag}}'
+    'on':
+      offline: next
+      online: next
+      failed: stop
+  result:
+    to: owner

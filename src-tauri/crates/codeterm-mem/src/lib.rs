@@ -3,6 +3,7 @@
 pub mod activity;
 pub mod auto_extract;
 pub mod blueprint_library;
+pub mod blueprint_wl;
 #[cfg_attr(not(feature = "embeddings"), allow(dead_code))]
 mod chunking;
 pub mod curation;

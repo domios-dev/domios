@@ -1,0 +1,33 @@
+schema_version: 1
+name: Audio transcript pipeline
+note: Take an audio recording as input, convert it to text, then let a model label the transcript.
+owner: team
+inputs:
+  recording:
+    type: string
+    description: Absolute path to the audio recording
+pipeline:
+  trigger:
+    type: input
+    kind: audio
+    source:
+      file: '{{recording}}'
+  steps:
+  - name: transcribe
+    input: audio
+    uses: convert
+    with:
+      from: audio
+      to: text
+  - name: label
+    input: text
+    uses: ask
+    with:
+      question: What is this recording about?
+      buckets: [task, note]
+    'on':
+      task: stop
+      note: stop
+      other: stop
+  result:
+    to: owner

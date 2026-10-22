@@ -1,0 +1,26 @@
+schema_version: 1
+name: Curl status {{name}}
+note: Curl a URL for its status code without following redirects and notify on up or down.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  curl_probe:
+    type: string
+    description: Read-only curl command printing up or down with the status code
+watch:
+  probe: '{{curl_probe}}'
+  question: is-the-url-up
+  buckets:
+  - up
+  - down
+  matches:
+    up: (?m)^up \d{3}\r?$
+    down: (?m)^down \d{3}\r?$
+  every: 30s
+  rearm_on_change:
+  - down
+  timeout: 30d
+  routes:
+    up: none
+    down: notify

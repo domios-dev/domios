@@ -1,0 +1,16 @@
+schema_version: 1
+name: Meeting reminder
+note: Post a fixed reminder into one tab before the weekly planning meeting.
+owner: team
+inputs:
+  tab:
+    type: string
+    description: Tab that receives the reminder
+pipeline:
+  trigger: {type: schedule, every: 168h}
+  steps:
+    - name: remind
+      input: text
+      run: echo planning-meeting-in-15-minutes
+      on: {done: stop, failed: stop}
+  result: {to: 'tab:{{tab}}'}

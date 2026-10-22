@@ -1,0 +1,46 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: GitHub {{resource}} {{repo}}#{{id}}
+note: Watch run, jobs or PR checks; report failed jobs early while CI is in progress.
+owner: team
+inputs:
+  id:
+    type: integer
+    description: Positive run or pull request ID
+  interval:
+    type: string
+    default: 60s
+    description: Probe interval, at least 10s
+  repo:
+    type: string
+    description: GitHub owner/repository
+  resource:
+    type: string
+    default: run
+    description: Resource
+    enum:
+    - run
+    - jobs
+  timeout_ms:
+    type: integer
+    default: 60000
+    description: Probe timeout in milliseconds
+pipeline:
+  trigger:
+    type: schedule
+    every: '{{interval}}'
+  steps:
+  - name: Check source
+    input: text
+    uses: github
+    with:
+      repo: '{{repo}}'
+      resource: '{{resource}}'
+      id: '{{id}}'
+      timeout_ms: '{{timeout_ms}}'
+    'on':
+      done: next
+      failed: stop
+      failing: next
+  result:
+    to: owner
