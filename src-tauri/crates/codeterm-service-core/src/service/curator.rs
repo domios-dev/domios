@@ -33,6 +33,10 @@ mod tests;
 pub use authority::CuratorIdentity;
 pub(crate) use events::CuratorTabs;
 
+fn curator_envelope() -> crate::service::messenger::MessageEnvelope {
+    crate::service::messenger::MessageEnvelope::codeterm_reminder("curator")
+}
+
 impl ServiceContext {
     pub fn curator_now(&self) -> Result<u64, String> {
         self.extensions
@@ -235,7 +239,7 @@ impl ServiceContext {
             result_delivery_error = self
                 .deliver_cron_report(
                     &owner,
-                    crate::service::messenger::MessageEnvelope::default(),
+                    curator_envelope(),
                     &body,
                 )
                 .err();

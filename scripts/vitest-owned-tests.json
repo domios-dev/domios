@@ -279,5 +279,6 @@
   "src/components/billing/scenarios/grace.test.tsx",
   "src/components/billing/scenarios/expired.test.tsx",
   "src/components/billing/scenarios/admin.test.tsx",
-  "src/components/billing/scenarios/free.test.tsx"
+  "src/components/billing/scenarios/free.test.tsx",
+  "src/components/Canvas/missionControl/BoardEventLog.curator.test.tsx"
 ]

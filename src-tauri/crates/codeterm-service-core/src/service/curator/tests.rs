@@ -205,3 +205,10 @@ fn curator_notify_refuses_before_creating_an_owner_question() {
     assert!(!run.asked);
     assert!(!run.question_pending);
 }
+
+#[test]
+fn curator_delivery_carries_system_provenance() {
+    let body = "opaque delivery body";
+    let wire = crate::service::messenger::Messenger::from(curator_envelope()).wrap(body);
+    assert_eq!(wire, format!("<domios from=\"system\" context=\"curator\">{body}</domios>"));
+}
