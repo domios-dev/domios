@@ -77,7 +77,11 @@ async fn check_and_apply_plugin(
         .map_err(|e| format!("failed to set updater endpoint: {}", e))?;
     #[cfg(windows)]
     {
-        builder = builder.on_before_exit(codeterm_paths::relaunch_env::scrub_before_installer_exit);
+        let app_handle = app.clone();
+        builder = builder.on_before_exit(move || {
+            app_handle.cleanup_before_exit();
+            codeterm_paths::relaunch_env::scrub_before_installer_exit();
+        });
     }
     if let Some(target) = platform_key {
         builder = builder.target(target);
