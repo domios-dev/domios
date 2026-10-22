@@ -22,6 +22,7 @@ pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::V
         Ok(r) => {
             let mut json = r.into_json();
             if let Some(obj) = json.as_object_mut() {
+                obj.insert("startup".into(), serde_json::json!({ "state": "ready" }));
                 obj.insert(
                     "version".into(),
                     serde_json::json!(codeterm_build_info::version()),
@@ -78,16 +79,4 @@ pub async fn identify(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::IDENTIFY_FEATURES;
-
-    #[test]
-    fn identify_advertises_remote_task_dispatch_capability() {
-        assert!(IDENTIFY_FEATURES.contains(&super::REMOTE_TASK_DISPATCH_FEATURE));
-    }
-
-    #[test]
-    fn identify_advertises_delayed_recurrence_capability() {
-        assert!(IDENTIFY_FEATURES.contains(&"delayed_recurrence"));
-    }
-}
+mod tests;
