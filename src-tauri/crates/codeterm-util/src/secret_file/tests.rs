@@ -61,3 +61,81 @@ fn explicit_data_root_uses_host_plugin_bucket_format() {
     let host = plugin_secret_bucket(dir.path(), "demo");
     assert!(host.get("API_TOKEN").unwrap() == "replacement");
 }
+
+#[test]
+fn failed_persistence_does_not_update_the_shadow_value() {
+    let root = tempfile::tempdir().unwrap();
+    let store = SecretFile::new_at(root.path(), "test");
+    store.set("key", "committed").unwrap();
+    std::fs::write(root.path().join(".secrets"), "damaged").unwrap();
+    assert!(store.set("key", "uncommitted").is_err());
+    assert_eq!(store.get("key").unwrap(), "committed");
+    assert!(store.delete("key").is_err());
+    assert_eq!(store.get("key").unwrap(), "committed");
+}
+
+#[test]
+fn cross_process_secret_writer_child() {
+    use std::io::{BufRead, Write};
+    let Some(root) = std::env::var_os("CODETERM_SECRET_LOCK_TEST_ROOT") else {
+        return;
+    };
+    let path = std::path::Path::new(&root).join(".secrets");
+    let lock = open_store_lock(&path).unwrap();
+    assert!(matches!(
+        lock.try_lock(),
+        Err(std::fs::TryLockError::WouldBlock)
+    ));
+    println!("\nSECRET_LOCK_BLOCKED");
+    std::io::stdout().flush().unwrap();
+    let mut command = String::new();
+    assert!(std::io::stdin().lock().read_line(&mut command).unwrap() > 0);
+    assert_eq!(command.trim(), "WRITE");
+    write_file_entry(&path, "codeterm.plugin.fixture:key", Some("plugin-value")).unwrap();
+}
+
+#[test]
+fn concurrent_plugin_write_cannot_drop_the_instance_entry() {
+    use std::io::{BufRead, Write};
+    use std::process::{Command, Stdio};
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join(".secrets");
+    let lock = open_store_lock(&path).unwrap();
+    lock.lock().unwrap();
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "secret_file::tests::cross_process_secret_writer_child",
+            "--nocapture",
+        ])
+        .env("CODETERM_SECRET_LOCK_TEST_ROOT", root.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let mut output = std::io::BufReader::new(child.stdout.take().unwrap());
+    loop {
+        let mut line = String::new();
+        assert!(
+            output.read_line(&mut line).unwrap() > 0,
+            "child exited before confirming exclusion"
+        );
+        if line.trim() == "SECRET_LOCK_BLOCKED" {
+            break;
+        }
+    }
+    child.stdin.as_mut().unwrap().write_all(b"WRITE\n").unwrap();
+    child.stdin.as_mut().unwrap().flush().unwrap();
+    write_locked_file_entry(&path, "domios.instance:api_token", Some("instance-value")).unwrap();
+    drop(lock);
+    assert!(child.wait().unwrap().success());
+    let fresh = SecretFile::new_at(root.path(), "domios.instance");
+    assert_eq!(fresh.get("api_token").unwrap(), "instance-value");
+    assert_eq!(
+        SecretFile::new_at(root.path(), "codeterm.plugin.fixture")
+            .get("key")
+            .unwrap(),
+        "plugin-value"
+    );
+}

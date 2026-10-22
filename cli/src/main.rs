@@ -122,7 +122,6 @@ pub use args::usage::UsageAction;
 mod plugin_bundle;
 
 fn main() {
-    codeterm_util::private_file::set_process_creation_mask();
     codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
     plugin_bundle::install();
     stdout::run(main_impl);

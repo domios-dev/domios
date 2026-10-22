@@ -1,16 +1,11 @@
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::Path;
 
 #[cfg(windows)]
 mod windows;
-
-pub fn set_process_creation_mask() {
-    #[cfg(unix)]
-    unsafe {
-        libc::umask(0o077);
-    }
-}
+#[cfg(windows)]
+mod windows_policy;
 
 pub fn restrict(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
@@ -20,7 +15,7 @@ pub fn restrict(path: &Path) -> io::Result<()> {
     }
     #[cfg(windows)]
     {
-        windows::restrict(path)
+        windows_policy::tighten(path)
     }
 }
 
@@ -68,64 +63,52 @@ pub fn create_dir_all(path: &Path) -> io::Result<()> {
     #[cfg(windows)]
     let created = fs::create_dir(path);
     match created {
-        Ok(()) => restrict_dir(path),
+        Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
         Err(error) => Err(error),
     }
 }
 
-pub fn tighten_tree(root: &Path) -> io::Result<()> {
-    create_dir_all(root)?;
-    restrict_dir(root)?;
-    for entry in fs::read_dir(root)? {
-        let entry = entry?;
-        let kind = entry.file_type()?;
-        let path = entry.path();
-        if kind.is_dir() {
-            tighten_tree(&path)?;
-        } else if kind.is_file() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let executable = entry.metadata()?.permissions().mode() & 0o111 != 0;
-                let state = matches!(
-                    path.extension().and_then(|extension| extension.to_str()),
-                    Some("toml" | "yaml" | "yml" | "json" | "db" | "sqlite" | "bak" | "log")
-                ) || path.file_name().is_some_and(|name| name == ".secrets");
-                let mode = if executable && !state { 0o700 } else { 0o600 };
-                fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
-            }
-            #[cfg(windows)]
-            restrict(&path)?;
-        }
+pub fn restrict_if_present(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => restrict(path),
+        Ok(_) => Err(io::Error::other("sensitive state must be a regular file")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
     }
-    Ok(())
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        create_dir_all(parent)?;
+    crate::atomic_write::write_private_atomic(path, bytes)
+}
+
+pub(crate) fn prepare_replacement(target: &Path, temporary: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let _ = target;
+        restrict(temporary)
     }
-    let tmp = crate::atomic_write::unique_tmp_path(path);
-    let result = (|| {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&tmp)?;
-        restrict(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
+    #[cfg(windows)]
+    match fs::symlink_metadata(target) {
+        Ok(_) => windows_policy::copy_tightened(target, temporary),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => windows::restrict(temporary),
+        Err(error) => Err(error),
     }
-    result
+}
+
+pub(crate) fn preserve_permissions(target: &Path, temporary: &Path) -> io::Result<()> {
+    let metadata = match fs::metadata(target) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    #[cfg(windows)]
+    windows_policy::copy_permissions(target, temporary)?;
+    fs::set_permissions(temporary, metadata.permissions())
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, windows))]
+mod windows_tests;

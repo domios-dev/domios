@@ -23,7 +23,7 @@ see [`.agents/skills/testing/SKILL.md`](../../.agents/skills/testing/SKILL.md).
 - The old Tauri WebDriver/WDIO harness was removed. Desktop UI automation
   uses this Playwright/CDP path only.
 - Backend coverage uses plain `fetch` against `/api/*` with the token from
-  `~/.domios-dev-playwright/config.toml`.
+  the selected instance through the bench library and the local-only `system api-token` command.
 
 ## Run
 

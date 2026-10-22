@@ -14,8 +14,9 @@
 set -uo pipefail
 export PATH="/usr/bin:/bin:$PATH"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
-TOK=$(python3 -c "import re;print(re.search(r'token\s*=\s*\"([^\"]+)\"',open('$HOME/.codeterm-dev/config.toml').read()).group(1))" 2>/dev/null)
-B=http://127.0.0.1:7686
+source evals/_lib/lib.sh
+TOK="$(dev_token)" || exit 7
+B="$(dev_api_url)" || exit 7
 post(){ /usr/bin/curl -s -X POST -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' --data "$2" "$B$1"; }
 get(){  /usr/bin/curl -s -H "Authorization: Bearer $TOK" "$B$1"; }
 jqp(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }

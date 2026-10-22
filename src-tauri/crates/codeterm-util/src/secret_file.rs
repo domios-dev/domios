@@ -61,9 +61,7 @@ impl SecretFile {
 
     pub fn new_at(data_root: impl AsRef<Path>, service: &str) -> Self {
         let dir = data_root.as_ref();
-        if let Err(e) = crate::private_file::create_dir_all(dir)
-            .and_then(|()| crate::private_file::restrict_dir(dir))
-        {
+        if let Err(e) = std::fs::create_dir_all(dir) {
             log::warn!(
                 "[secrets/keychain] failed to create file backend dir {}: {} — falling back to in-memory",
                 dir.display(),
@@ -78,11 +76,6 @@ impl SecretFile {
             };
         }
         let path = dir.join(".secrets");
-        if path.exists() {
-            if let Err(error) = crate::private_file::restrict(&path) {
-                return Self::in_memory(format!("restrict secret store: {error}"));
-            }
-        }
         migrate_legacy_file_backend(dir, service, &path);
         Self {
             backend: Backend::File {
@@ -118,15 +111,12 @@ impl SecretFile {
     }
 
     pub fn set(&self, account: &str, value: &str) -> Result<(), SecretFileError> {
-        self.shadow
-            .lock()
-            .insert(account.to_string(), value.to_string());
-        match &self.backend {
-            Backend::File { path, service } => {
-                write_file_entry(path, &storage_account(service, account), Some(value))
-            }
-            Backend::InMemory { .. } => Ok(()),
+        let mut shadow = self.shadow.lock();
+        if let Backend::File { path, service } = &self.backend {
+            write_file_entry(path, &storage_account(service, account), Some(value))?;
         }
+        shadow.insert(account.to_string(), value.to_string());
+        Ok(())
     }
 
     pub fn get(&self, account: &str) -> Result<String, SecretFileError> {
@@ -163,16 +153,12 @@ impl SecretFile {
     }
 
     pub fn delete(&self, account: &str) -> Result<(), SecretFileError> {
-        self.shadow.lock().remove(account);
-        match &self.backend {
-            Backend::File { path, service } => {
-                write_file_entry(path, &storage_account(service, account), None)
-            }
-            Backend::InMemory { .. } => {
-                self.shadow.lock().remove(account);
-                Ok(())
-            }
+        let mut shadow = self.shadow.lock();
+        if let Backend::File { path, service } = &self.backend {
+            write_file_entry(path, &storage_account(service, account), None)?;
         }
+        shadow.remove(account);
+        Ok(())
     }
 }
 
@@ -229,6 +215,31 @@ fn has_file_entry(path: &std::path::Path, account: &str) -> Result<bool, SecretF
 /// Unix so other users cannot read the secret material.
 fn write_file_entry(
     path: &std::path::Path,
+    account: &str,
+    value: Option<&str>,
+) -> Result<(), SecretFileError> {
+    let lock = open_store_lock(path)?;
+    lock.lock()
+        .map_err(|error| SecretFileError::Other(format!("lock secret store: {error}")))?;
+    write_locked_file_entry(path, account, value)
+}
+
+fn open_store_lock(path: &Path) -> Result<std::fs::File, SecretFileError> {
+    let lock_path = path.with_file_name(".secrets.lock");
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+        .open(lock_path)
+        .map_err(|error| SecretFileError::Other(format!("open secret store lock: {error}")))
+}
+
+fn write_locked_file_entry(
+    path: &Path,
     account: &str,
     value: Option<&str>,
 ) -> Result<(), SecretFileError> {

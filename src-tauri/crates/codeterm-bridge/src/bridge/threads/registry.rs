@@ -254,7 +254,9 @@ impl ThreadRegistry {
 }
 
 fn state_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(validate_snapshot)
+    StateFile::new(path)
+        .with_private_permissions()
+        .with_validator(validate_snapshot)
 }
 
 fn parse_snapshot(raw: &str) -> Result<Snapshot, String> {

@@ -181,3 +181,40 @@ fn default_dev_reports_absent_instance() {
     restore_env("CODETERM_API_PORT", previous_port);
     restore_env("CODETERM_SOCKET_PATH", previous_socket);
 }
+
+#[test]
+fn dev_tab_environment_is_usable_without_reading_the_secret_store() {
+    assert!(!requires_stored_token(
+        true,
+        Some("http://127.0.0.1:7686"),
+        "127.0.0.1",
+        7686
+    ));
+    assert!(!requires_stored_token(
+        true,
+        Some("http://127.0.0.1:7686"),
+        "localhost",
+        7686
+    ));
+    assert!(requires_stored_token(
+        true,
+        Some("http://127.0.0.1:7685"),
+        "127.0.0.1",
+        7686
+    ));
+    assert!(requires_stored_token(true, None, "127.0.0.1", 7686));
+    assert!(requires_stored_token(
+        true,
+        Some("http://other.example:7686"),
+        "127.0.0.1",
+        7686
+    ));
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join(".secrets"), "unreadable").unwrap();
+    assert_eq!(
+        codeterm_util::instance_token::resolve_at(root.path(), Some("tab-scoped"), false)
+            .unwrap()
+            .as_deref(),
+        Some("tab-scoped")
+    );
+}

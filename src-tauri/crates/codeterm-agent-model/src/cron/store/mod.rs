@@ -253,7 +253,9 @@ impl CronStore {
 
 #[cfg(any(test, feature = "test-support"))]
 fn state_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(validate_cron_file)
+    StateFile::new(path)
+        .with_private_permissions()
+        .with_validator(validate_cron_file)
 }
 
 #[cfg(any(test, feature = "test-support"))]

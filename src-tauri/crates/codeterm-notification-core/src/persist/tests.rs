@@ -63,6 +63,7 @@ fn sticky_unread_survives_restart() {
         (waiting, read_sticky)
     };
 
+    assert!(codeterm_util::private_file::owner_only(&path).unwrap());
     let mut restarted = NotificationStore::open_persisted(path.clone(), 10);
 
     let survivors = restarted.list(false);

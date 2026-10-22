@@ -120,9 +120,18 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
         || std::env::var("CODETERM_API_PORT")
             .map(|value| !value.trim().is_empty() && value.trim() != "7685")
             .unwrap_or(false);
-    let token =
-        codeterm_util::instance_token::resolve_at(&config_dir, env_token.as_deref(), targets_dev)
-            .unwrap_or_else(|error| crate::cmd::print::fail(1, error));
+    let require_stored = requires_stored_token(
+        targets_dev,
+        std::env::var("CODETERM_API_URL").ok().as_deref(),
+        &host,
+        port,
+    );
+    let token = codeterm_util::instance_token::resolve_at(
+        &config_dir,
+        env_token.as_deref(),
+        require_stored,
+    )
+    .unwrap_or_else(|error| crate::cmd::print::fail(1, error));
 
     ResolvedApiConfig {
         data_dir: config_dir,
@@ -133,6 +142,38 @@ pub fn resolve_api_config() -> ResolvedApiConfig {
         port_source,
         token,
     }
+}
+
+fn requires_stored_token(
+    explicit_dev: bool,
+    callback: Option<&str>,
+    host: &str,
+    port: i64,
+) -> bool {
+    if !explicit_dev {
+        return false;
+    }
+    let loopback = |host: &str| {
+        host == "localhost"
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    };
+    let matches = callback
+        .and_then(|callback| reqwest::Url::parse(callback).ok())
+        .is_some_and(|url| {
+            url.scheme() == "http"
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.path() == "/"
+                && url.query().is_none()
+                && url.fragment().is_none()
+                && url.port_or_known_default().map(i64::from) == Some(port)
+                && url.host_str().is_some_and(|callback_host| {
+                    callback_host == host || (loopback(callback_host) && loopback(host))
+                })
+        });
+    !matches
 }
 
 #[derive(Serialize)]

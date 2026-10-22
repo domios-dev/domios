@@ -6,6 +6,7 @@
  * Measurement lane only — drives the real dev UI, patches nothing.
  */
 const { chromium } = require("@playwright/test");
+const { devConnection } = require("../../../evals/_lib/connection.cjs");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -17,10 +18,7 @@ const DURATION_MS = Number(process.env.SOAK_DURATION_MS || 300000);
 const DATADIR = process.env.SOAK_DATADIR || path.join(os.homedir(), ".domios-dev-soak");
 
 function readToken() {
-  const cfg = fs.readFileSync(path.join(DATADIR, "config.toml"), "utf8");
-  const m = cfg.match(/^token\s*=\s*"([^"]+)"/m);
-  if (!m) throw new Error("no token in config.toml");
-  return m[1];
+  return devConnection({ dataDir: DATADIR, apiPort: Number(PORT) }).token;
 }
 
 async function main() {

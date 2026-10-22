@@ -37,7 +37,9 @@ pub fn load_config() -> AppConfig {
 }
 
 pub(super) fn config_file(path: &Path) -> StateFile {
-    StateFile::new(path).with_validator(validate_config)
+    StateFile::new(path)
+        .with_private_permissions()
+        .with_validator(validate_config)
 }
 
 fn validate_config(text: &str) -> Result<(), String> {
@@ -68,18 +70,11 @@ fn load_config_cached_at(path: &Path, data_root: &Path, cache: &ConfigCache) -> 
     }
     let last_known = guard.as_ref().map(|(_, cfg)| cfg.clone());
     if last_known.is_none() {
-        let root = path.parent().unwrap_or_else(|| Path::new("."));
-        codeterm_util::private_file::tighten_tree(data_root)
-            .unwrap_or_else(|error| panic!("Cannot protect instance data: {error}"));
-        if root != data_root {
-            codeterm_util::private_file::tighten_tree(root)
-                .unwrap_or_else(|error| panic!("Cannot protect instance config: {error}"));
-        }
+        codeterm_util::private_file::restrict_if_present(&data_root.join(".secrets"))
+            .unwrap_or_else(|error| panic!("Cannot protect instance credential: {error}"));
     }
-    if path.exists() {
-        codeterm_util::private_file::restrict(path)
-            .unwrap_or_else(|error| panic!("Cannot protect instance config: {error}"));
-    }
+    codeterm_util::private_file::restrict_if_present(path)
+        .unwrap_or_else(|error| panic!("Cannot protect instance config: {error}"));
     let cfg = load_config_uncached_at(path, data_root, last_known);
     // Re-read after the fill: a generated token or a restored backup rewrites the file.
     let post_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
@@ -169,16 +164,30 @@ fn finish_loaded(
             }
         };
     if migrated_token || migrated_agent_access || migrated_kpi_default {
-        let toml_str = toml::to_string_pretty(&config)
-            .unwrap_or_else(|error| panic!("Cannot serialize migrated config: {error}"));
-        let result = if file.held().is_some() {
-            file.replace_held_recovery(&mark_salvaged_config(&toml_str))
-        } else {
-            file.save(&toml_str)
-        };
-        result.unwrap_or_else(|error| panic!("Cannot persist migrated config: {error}"));
+        persist_migrated_config(file, &config, |contents| {
+            if file.held().is_some() {
+                file.replace_held_recovery(&mark_salvaged_config(contents))
+            } else {
+                file.save(contents)
+            }
+        });
     }
     config
+}
+
+fn persist_migrated_config(
+    file: &StateFile,
+    config: &AppConfig,
+    write: impl FnOnce(&str) -> Result<(), String>,
+) {
+    let result = toml::to_string_pretty(config)
+        .map_err(|error| error.to_string())
+        .and_then(|contents| write(&contents));
+    if let Err(error) = result {
+        file.hold_after_error(&format!(
+            "Cannot persist migrated config: {error}; runtime credential retained and writes held"
+        ));
+    }
 }
 
 fn create_default(
@@ -199,7 +208,9 @@ fn create_default(
     let toml_str = toml::to_string_pretty(&config).unwrap_or_else(|_| super::default_config_toml());
     match file.save(&toml_str) {
         Ok(()) => log::info!("Default config created at {}", file.path().display()),
-        Err(e) => log::warn!("Failed to write default config: {}", e),
+        Err(error) => file.hold_after_error(&format!(
+            "Cannot persist default config: {error}; runtime credential retained and writes held"
+        )),
     }
     config
 }

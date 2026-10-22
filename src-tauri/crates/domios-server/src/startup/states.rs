@@ -201,7 +201,6 @@ pub fn scrub_inherited_api_env(config_state: &ConfigState) {
 }
 
 pub(crate) fn init_config() -> ConfigState {
-    codeterm_util::private_file::set_process_creation_mask();
     let mut app_config = config::load_config();
     if std::env::var_os("CODETERM_VERIFY_ISOLATED").as_deref() == Some(std::ffi::OsStr::new("1")) {
         app_config.api.port = std::env::var("CODETERM_API_PORT")

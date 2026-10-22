@@ -51,9 +51,9 @@ pub fn migrate_at(data_root: &Path, legacy_token: &str) -> Result<String, String
 pub fn resolve_at(
     data_root: &Path,
     environment: Option<&str>,
-    explicit_instance: bool,
+    require_stored: bool,
 ) -> Result<Option<String>, String> {
-    if !explicit_instance {
+    if !require_stored {
         if let Some(token) = environment.filter(|token| !token.trim().is_empty()) {
             return Ok(Some(token.to_owned()));
         }
