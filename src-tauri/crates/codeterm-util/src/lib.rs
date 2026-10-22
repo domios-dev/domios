@@ -1,6 +1,7 @@
 pub mod atomic_write;
 pub mod attachments;
 pub mod headless_cli;
+pub mod local_endpoint;
 pub mod lock_hold;
 pub mod named_thread;
 pub mod network_host;
