@@ -74,7 +74,7 @@ fn evaluate_set(
     let queries: Vec<Query> = fixtures::queries(queries_path, label)?;
     let starved = manifest
         .as_ref()
-        .map(|(value, _)| guard::starved(value))
+        .map(|(value, _)| guard::starved(value, label))
         .unwrap_or_default();
     let library = fixture_library()?;
     let gate_rows = evaluate::run(&library, &queries, &gold, &frozen.config)?;
@@ -141,7 +141,7 @@ pub fn confirm(set: &str, queries: &Path, manifest_path: &Path) -> Result<(), St
     let out = eval_dir().join(format!("results-{set}.json"));
     guard::never_produced(&out)?;
     let manifest: Value = fixtures::read_json(manifest_path)?;
-    guard::manifest_matches(queries, &manifest)?;
+    guard::manifest_matches(queries, &manifest, set)?;
     let manifest_hash = guard::sha256_file(manifest_path)?;
     let results = evaluate_set(set, false, queries, Some((&manifest, manifest_hash)))?;
     fixtures::write_json(&out, &results)?;

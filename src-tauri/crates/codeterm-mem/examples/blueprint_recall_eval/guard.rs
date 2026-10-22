@@ -71,52 +71,30 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
         .collect())
 }
 
-fn strings(value: &Value, out: &mut Vec<String>) {
-    match value {
-        Value::String(text) => out.push(text.to_lowercase()),
-        Value::Array(items) => items.iter().for_each(|item| strings(item, out)),
-        Value::Object(fields) => fields.values().for_each(|item| strings(item, out)),
-        _ => {}
-    }
-}
-
-pub fn manifest_matches(queries: &Path, manifest: &Value) -> Result<String, String> {
+pub fn manifest_matches(queries: &Path, manifest: &Value, set: &str) -> Result<String, String> {
     let hash = sha256_file(queries)?;
-    let mut values = Vec::new();
-    strings(manifest, &mut values);
-    if values
-        .iter()
-        .any(|value| value.trim_start_matches("sha256:") == hash)
-    {
+    let recorded = manifest["sets"][set]["sha256"].as_str().unwrap_or_default();
+    if recorded.trim_start_matches("sha256:") == hash {
         Ok(hash)
     } else {
         Err(format!(
-            "refused: sha256 {hash} of {} is not recorded in the manifest",
+            "refused: sha256 {hash} of {} does not match manifest sets.{set}.sha256 {recorded:?}",
             queries.display()
         ))
     }
 }
 
-pub fn starved(manifest: &Value) -> Vec<String> {
-    fn walk(value: &Value, out: &mut Vec<String>) {
-        if let Value::Object(fields) = value {
-            for (key, item) in fields {
-                if key.to_lowercase().contains("starved") {
-                    if let Value::Array(items) = item {
-                        out.extend(items.iter().filter_map(|item| {
-                            item.as_str()
-                                .map(str::to_owned)
-                                .or_else(|| item["original"].as_str().map(str::to_owned))
-                        }));
-                    }
-                } else {
-                    walk(item, out);
-                }
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(manifest, &mut out);
+pub fn starved(manifest: &Value, set: &str) -> Vec<String> {
+    let mut out = manifest["sets"][set]["starved"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            item.as_str()
+                .map(str::to_owned)
+                .or_else(|| item["original"].as_str().map(str::to_owned))
+        })
+        .collect::<Vec<_>>();
     out.sort();
     out.dedup();
     out
