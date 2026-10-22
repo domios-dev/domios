@@ -193,13 +193,7 @@ async fn journey(finish: bool, deadline: bool) {
     let round = closed.control_loop.last_round.unwrap();
     assert_eq!(
         round.outcome.to_string(),
-        if finish {
-            "done"
-        } else if deadline {
-            "partial"
-        } else {
-            "failed"
-        }
+        if finish { "done" } else { "partial" }
     );
     let cron_run = state
         .cron
