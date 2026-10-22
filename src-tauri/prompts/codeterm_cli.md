@@ -94,6 +94,8 @@ The Domios memory protocol is in your provider rules. Commands: `domios mem --he
 
 Use `domios mem taxonomy` for area counts and `domios mem area merge <from> --into <to> --dry-run` to preview a reversible area move; omit `--dry-run` to apply. Undo per item with `domios mem restore <id> --version <history-row>`.
 
+One embedder serves all of mem: `domios mem embedder status` shows it and its re-embed progress; `domios mem embedder use <provider> --model <m>` switches it in the background. A remote embedder needs the owner's stored key and opt-in (`domios docs MEMORY`).
+
 ## Platform notes
 
 Paths: use forward slashes; the CLI normalizes them on every OS.
