@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 8988,
+  "stop_reason": "end_turn",
+  "session_id": "1c43e5f3-8169-4bcc-9fd9-64b3543c42d8",
+  "total_cost_usd": 0.027833,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11587,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 930,
+    "output_tokens_details": {
+      "thinking_tokens": 790
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11587,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 930,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11587,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11587
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 930,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11587,
+      "webSearchRequests": 0,
+      "costUSD": 0.027833,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 790,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: This Blueprint continuously monitors a development REST listener health by checking every 30 seconds whether it is running or stopped. When the listener goes down, it automatically captures recent transaction flows for debugging, sends a notification, and escalates the incident to a specified target. The watch runs for up to 8 hours, helping teams quickly identify and investigate service interruptions. || INTENT: Monitor dev REST service and capture logs when it crashes || INTENT: Alert me if development listener stops and collect debug traces || INTENT: Watch development REST endpoint and escalate when service goes down || INTENT: Detect REST listener failures and automatically gather recent transaction data",
+  "ttft_ms": 8208,
+  "type": "result",
+  "duration_ms": 9116,
+  "uuid": "955f7daa-13ee-428e-bba1-ba2f726786dc",
+  "ttft_stream_ms": 722,
+  "time_to_request_ms": 91,
+  "first_content_frame_ms": 723,
+  "queued_turn_count": 0,
+  "result_index": 0
+}
