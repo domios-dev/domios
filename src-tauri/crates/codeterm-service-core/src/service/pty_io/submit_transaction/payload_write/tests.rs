@@ -269,3 +269,81 @@ fn payload_only_message_construction_is_not_part_of_the_write_door() {
     let _: fn(Vec<u8>, SubmitCycleClaim, SyncSender<SubmitCycleSignal>) -> MessagePayload =
         MessagePayload::new;
 }
+
+#[test]
+fn long_report_and_following_sender_keep_frames_atomic_on_the_same_queue() {
+    use crate::agent::provider::PasteCapability;
+    use crate::service::pty_io::submit_transaction::paste_encoding::{
+        encode_paste_frame, PasteEncodingCapability,
+    };
+    let opaque: String = (0..1800).map(|n| format!("{n:04x}b3f9λ72\n")).collect();
+    let capability: PasteCapability = serde_json::from_value(serde_json::json!({
+        "supportsBracketedPaste": true,
+        "requiresTypedInstructionForRoutedMessages": true
+    }))
+    .unwrap();
+    let frames = [
+        crate::service::messenger::Messenger::report("opaque-a", "c1a9b27e").routed_frame(&opaque),
+        crate::service::messenger::Messenger::message("opaque-b", "d3f8a16c")
+            .routed_frame("7e1b8a2d"),
+    ];
+    let expected: Vec<Vec<u8>> = frames
+        .iter()
+        .map(|frame| {
+            let input =
+                crate::service::pty_io::send::prepare_routed_input(frame, Some(&capability));
+            encode_paste_frame(
+                &input.body,
+                input.typed_prefix.as_deref(),
+                input.typed_suffix.as_deref(),
+                Some(true),
+                PasteEncodingCapability::MultilineTui,
+            )
+        })
+        .collect();
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let (occupied_tx, occupied_rx) = sync_channel(1);
+    let (release_tx, release_rx) = sync_channel(1);
+    let queue = Arc::new(WriteQueue::new(Box::new(OccupiedWriter {
+        writes: writes.clone(),
+        occupied: occupied_tx,
+        release: release_rx,
+    })));
+    let first_queue = queue.clone();
+    let first_bytes = expected[0].clone();
+    let first = std::thread::spawn(move || {
+        first_queue
+            .send_and_wait(first_bytes, Duration::from_secs(2))
+            .unwrap();
+    });
+    occupied_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    queue.send(expected[1].clone()).unwrap();
+    release_tx.send(()).unwrap();
+    first.join().unwrap();
+    queue
+        .send_and_wait(b"\r".to_vec(), Duration::from_secs(2))
+        .unwrap();
+    let recorded = writes.lock().unwrap();
+    assert_eq!(&recorded[..2], expected.as_slice());
+    assert_eq!(recorded.len(), 3);
+    for (bytes, frame) in recorded[..2].iter().zip(&frames) {
+        let encoded = std::str::from_utf8(bytes).unwrap();
+        let payload = encoded
+            .strip_prefix("\x1b[200~")
+            .unwrap()
+            .strip_suffix("\x1b[201~")
+            .unwrap();
+        assert!(!payload.contains("\x1b"));
+        let parsed = codeterm_wire::domios::parse_message(payload).unwrap();
+        assert_eq!(parsed.body, frame.body);
+        assert_eq!(
+            parsed.content,
+            format!(
+                "{}{}{}",
+                frame.body,
+                codeterm_wire::domios::pasted_marker_tail(),
+                frame.suffix
+            )
+        );
+    }
+}
