@@ -18,45 +18,18 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn cached_snapshot_returns_without_waiting_for_fetch() {
-        let (send, receive) = tokio::sync::oneshot::channel::<u32>();
-        let job = std::sync::Mutex::new(None);
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            serve(
-                7,
-                false,
-                || async { Ok(receive.await.unwrap()) },
-                |refresh| {
-                    *job.lock().unwrap() = Some(refresh);
-                },
-            ),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert_eq!(result, 7);
-        send.send(9).unwrap();
-        assert_eq!(job.into_inner().unwrap().unwrap().await.unwrap(), 9);
-    }
-
-    #[tokio::test]
-    async fn forced_refresh_returns_the_fetched_snapshot() {
-        assert_eq!(
-            serve(
-                7,
-                true,
-                || async { Ok(9) },
-                |_| panic!("forced refresh queued")
-            )
-            .await
-            .unwrap(),
-            9
-        );
-    }
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
+
+pub fn fresh(checked_at_ms: Option<u64>, now_ms: u64) -> bool {
+    checked_at_ms
+        .and_then(|checked| now_ms.checked_sub(checked))
+        .is_some_and(|age| age < 30_000)
+}
+
+#[cfg(test)]
+mod tests;

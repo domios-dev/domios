@@ -276,3 +276,62 @@ fn failed_final_install_rename_is_not_an_installed_update_offer() {
         assert!(update_one("demo").unwrap_err().contains("not installed"));
     });
 }
+
+#[test]
+fn forced_inventory_refresh_never_replaces_installed_provider_files() {
+    with_data_root(|root| {
+        let source = root.join("system-source");
+        write_channel(&source, SYSTEM_CHANNEL_NAME, &[("demo", "demo")]);
+        std::env::set_var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", &source);
+        update_system_command(None).unwrap();
+        let installed = plugin_dir(&PluginId::validated("demo"));
+        let before_manifest = fs::read(installed.join("plugin.json")).unwrap();
+        let before_entry = fs::read(installed.join("plugin.js")).unwrap();
+        let before_record = fs::read(installed.join(".codeterm-install.json")).unwrap();
+        let payload = source.join("demo/plugin.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&payload).unwrap()).unwrap();
+        manifest["version"] = "1.1.0".into();
+        fs::write(payload, manifest.to_string()).unwrap();
+        fs::write(
+            source.join("demo/plugin.js"),
+            "module.exports = { changed: true };",
+        )
+        .unwrap();
+        let channel = source.join("channel.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&channel).unwrap()).unwrap();
+        manifest["plugins"][0]["version"] = "1.1.0".into();
+        fs::write(channel, manifest.to_string()).unwrap();
+        let default_source = root.join("default-source");
+        write_channel(&default_source, DEFAULT_PLUGIN_CHANNEL_NAME, &[]);
+        let previous_default = std::env::var("CODETERM_PLUGIN_CHANNEL_URL").ok();
+        std::env::set_var("CODETERM_PLUGIN_CHANNEL_URL", &default_source);
+        let inventory = update_inventory(
+            PluginCtx {
+                data_root: root,
+                version: Some("99.0.0".into()),
+            },
+            true,
+        );
+        restore_env("CODETERM_PLUGIN_CHANNEL_URL", previous_default);
+        let inventory = inventory.unwrap();
+        assert!(inventory["errors"].get(SYSTEM_CHANNEL_NAME).is_none());
+        let item = inventory["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == "demo")
+            .unwrap();
+        assert_eq!(item["latest"], "1.1.0");
+        assert_eq!(
+            fs::read(installed.join("plugin.json")).unwrap(),
+            before_manifest
+        );
+        assert_eq!(fs::read(installed.join("plugin.js")).unwrap(), before_entry);
+        assert_eq!(
+            fs::read(installed.join(".codeterm-install.json")).unwrap(),
+            before_record
+        );
+    });
+}

@@ -25,24 +25,16 @@ pub async fn check(
             replace_frontend(&mut cached, local);
         }
     }
-    if !cached.items.iter().any(|item| item.kind == UpdateKind::App) {
-        cached.items.push(AvailabilityItem::release(
-            "app",
-            UpdateKind::App,
-            codeterm_build_info::version(),
-            codeterm_build_info::version(),
-            true,
-        ));
-    }
     let plugins = tokio::task::spawn_blocking(local_plugins)
         .await
         .map_err(|error| error.to_string())??;
     replace_plugins(&mut cached, plugins);
     let ui = ui.clone();
     let state = state.clone();
+    let refresh_required = force || !cache::fresh(cached.checked_at_ms, cache::now_ms());
     cache::serve(
         cached,
-        force,
+        refresh_required,
         move || async move { refresh(&ui, &state, bundles, force).await },
         |job| {
             if REFRESHING
@@ -75,6 +67,7 @@ async fn refresh(
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
     force: bool,
 ) -> Result<AvailabilitySnapshot, String> {
+    let checked_at_ms = cache::now_ms();
     let method = state.lock().install_method.clone();
     let app_result = codeterm_update::checker::check_for_update(&method).await;
     if let Ok(info) = &app_result {
@@ -124,6 +117,7 @@ async fn refresh(
         .await
         .map_err(|error| error.to_string())??;
     replace_plugins(&mut result, plugins);
+    result.checked_at_ms = Some(checked_at_ms);
     publish(ui, &result);
     if let Some(bundles) = stage_bundles {
         if let Some(item) = result
@@ -246,54 +240,7 @@ pub fn publish_plugin_snapshot(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn action_completion_replaces_installed_states_and_preserves_other_updates() {
-        let mut snapshot = AvailabilitySnapshot::default();
-        snapshot.items.push(AvailabilityItem::release(
-            "app",
-            UpdateKind::App,
-            "1.0.0",
-            "2.0.0",
-            true,
-        ));
-        replace_plugins(
-            &mut snapshot,
-            vec![AvailabilityItem::release(
-                "lark",
-                UpdateKind::Plugin,
-                "0.1.2",
-                "0.1.3",
-                true,
-            )],
-        );
-        assert_eq!(
-            snapshot.items[1].state,
-            codeterm_plugins::AvailabilityState::UpdateAvailable
-        );
-        replace_plugins(
-            &mut snapshot,
-            vec![AvailabilityItem::release(
-                "lark",
-                UpdateKind::Plugin,
-                "0.1.3",
-                "0.1.3",
-                true,
-            )],
-        );
-        assert_eq!(
-            snapshot.items[1].state,
-            codeterm_plugins::AvailabilityState::UpToDate
-        );
-        assert_eq!(
-            snapshot.items[0].state,
-            codeterm_plugins::AvailabilityState::UpdateAvailable
-        );
-        replace_plugins(&mut snapshot, vec![]);
-        assert_eq!(snapshot.items.len(), 1);
-    }
-}
+mod tests;
 
 pub fn frontend_installed(
     ui: &Arc<dyn codeterm_service_core::ports::host::UiEvents>,
