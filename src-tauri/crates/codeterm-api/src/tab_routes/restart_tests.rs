@@ -69,7 +69,7 @@ fn restart_route_refuses_missing_timeout_owner_before_restart() {
 #[test]
 fn restart_route_renews_requested_timeout_before_submission() {
     let calls = std::cell::RefCell::new(Vec::new());
-    restart_shell_request(
+    let _ = restart_shell_request(
         serde_json::from_value(json!({"cmd": "opaque", "timeout": "30m"})).unwrap(),
         Some("owner"),
         |owner, timeout| {
