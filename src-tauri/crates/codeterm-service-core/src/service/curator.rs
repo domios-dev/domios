@@ -57,7 +57,7 @@ impl ServiceContext {
         }
         let service = self.clone();
         let tab_id = tab_id.to_string();
-        let _ = crate::async_runtime::spawn_blocking(move || {
+        drop(crate::async_runtime::spawn_blocking(move || {
             let plan_id = service
                 .extensions
                 .try_get::<events::CuratorTabs>()
@@ -134,7 +134,7 @@ impl ServiceContext {
                 Ok(None) => {}
                 Err(error) => log::debug!("[curator] settle {tab_id}: {error}"),
             }
-        });
+        }));
     }
 
     pub fn control_loop_show(&self, plan_id: &str) -> Result<ControlLoop, String> {
@@ -166,7 +166,7 @@ impl ServiceContext {
     }
 
     fn curator_suspended_reason(&self, plan: &Plan) -> Option<CuratorSuspension> {
-        let reason = if !self.configuration().orchestration.plan_reminders {
+        if !self.configuration().orchestration.plan_reminders {
             Some(CuratorSuspension::RemindersDisabled)
         } else if plan.mode == PlanMode::Paused {
             Some(CuratorSuspension::Paused)
@@ -179,8 +179,7 @@ impl ServiceContext {
             Some(CuratorSuspension::WaitingOnHuman)
         } else {
             None
-        };
-        reason
+        }
     }
 
     fn curator_human_wait(&self, plan: &Plan) -> bool {
