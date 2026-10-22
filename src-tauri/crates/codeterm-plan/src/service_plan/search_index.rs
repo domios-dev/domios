@@ -95,7 +95,6 @@ enum IndexJob {
     DeletePlan(Plan),
     PurgePlan(Plan, Vec<Spec>),
     Spec(Spec),
-    DeleteSpec(Spec),
 }
 
 impl IndexJob {
@@ -106,7 +105,7 @@ impl IndexJob {
             Self::Plan(plan, _) | Self::DeletePlan(plan) => {
                 format!("{}:plan:{}", self.project_key(), plan.id)
             }
-            Self::Spec(spec) | Self::DeleteSpec(spec) => {
+            Self::Spec(spec) => {
                 format!("{}:spec:{}", self.project_key(), spec.id)
             }
             Self::PurgePlan(plan, _) => format!("{}:purge:{}", self.project_key(), plan.id),
@@ -119,7 +118,7 @@ impl IndexJob {
             Self::Plan(plan, _) | Self::DeletePlan(plan) | Self::PurgePlan(plan, _) => {
                 project_scope(plan_project_root(plan))
             }
-            Self::Spec(spec) | Self::DeleteSpec(spec) => project_scope(spec_project_root(spec)),
+            Self::Spec(spec) => project_scope(spec_project_root(spec)),
         }
     }
 
@@ -270,10 +269,6 @@ fn index_queue() -> &'static Arc<IndexQueue> {
                         IndexJob::Spec(spec) => embedding::queue_changed(
                             spec_project_root(spec),
                             mirror_spec(spec, false),
-                        ),
-                        IndexJob::DeleteSpec(spec) => delete_units(
-                            spec_project_root(spec),
-                            &format!("planunit_{}_%", spec.id),
                         ),
                     };
                     if let Err(error) = &result {
