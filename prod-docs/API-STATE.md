@@ -206,15 +206,15 @@ the change instead — `codeterm notify send --offer <surface> --offer-accept <l
 | POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). `after_update` (optional) stashes a message to `~/.codeterm/post-update-message.txt`; the new daemon delivers it to the General tab after restart. Update application is single flight process-wide: a request arriving while another is applying is refused with `{"status":"already_in_flight"}`, which is distinct from `no_update`. |
 | GET | `/api/update/channel` | — | Returns the active diagnostic channel, currently `{"channel":"stable"}` on normal installs. |
 | POST | `/api/update/channel` | `{channel}` | Disabled while Domios ships only the default update channel; returns `409 update channel switching is disabled`. |
-| GET | `/api/update/status` | — | Current updater state and last update result |
+| GET | `/api/update/status` | — | Current updater state; `native_update` retains the durable operation ID, sequence and outcome across a pair restart. |
 
 **Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — a wrong-key signature aborts the install before any binary is touched.
 
 **Auto install flow (`method=auto`).** Auto-install returns `updating` immediately, then:
 1. Discovers the stable release with a no-cache GitHub request, then pins the install to that tag's immutable manifest. A `manifest_url` query override still takes precedence; non-HTTPS overrides require `dev-updater-allowlocal`.
 2. Downloads the selected platform artifact and verifies its signature before installing it.
-3. Shuts down gracefully and restarts the app.
-4. After restart, tabs with valid recorded provider sessions resume; stale or missing sessions launch fresh.
+3. On self-managed installs, forwards execution to the attached native client. That client uses the Settings updater and durably records the verified installer target before stopping the exact attached server and relaunching the pair.
+4. After restart, tabs with valid recorded provider sessions resume; stale or missing sessions launch fresh. `continue_tab` must match the authenticated caller and is saved through its existing continuation owner. `after_update` retains its requester identity for the General Agent continuation. The replacement native client records `verified` only after enrollment with the expected instance and a matching installed target version and client/server build. Interrupted work is never automatically replayed.
 
 The HTTP response returns immediately (`{"status": "updating", "version": "..."}`); the app reports progress.
 
@@ -223,7 +223,7 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 - `{"status": "browser_opened", "url": "..."}` — for raw archive/installer downloads.
 - `{"status": "up_to_date"}` — when no update is available.
 
-**Errors:** `502 Failed to check for updates` when GitHub is unreachable; `400 Run check first` when `install` is called before `check` populated the cache; `400 invalid channel` on a malformed `channel` body.
+**Errors:** `500 update_handoff_write_failed` refuses installation if the continuation message cannot be persisted; `500 update_handoff_read_failed` means the durable operation record cannot be read. `502 Failed to check for updates` when GitHub is unreachable; `400 Run check first` when `install` is called before `check` populated the cache; `400 invalid channel` on a malformed `channel` body.
 
 ### Tab-scoped local previews
 
@@ -237,4 +237,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

@@ -17,7 +17,10 @@ fn path() -> PathBuf {
 }
 
 pub fn stash(text: &str, sender: Option<TurnResumeSender>) -> std::io::Result<()> {
-    let p = path();
+    stash_at(&path(), text, sender)
+}
+
+fn stash_at(p: &Path, text: &str, sender: Option<TurnResumeSender>) -> std::io::Result<()> {
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -26,7 +29,7 @@ pub fn stash(text: &str, sender: Option<TurnResumeSender>) -> std::io::Result<()
         sender,
     };
     let serialized = serde_json::to_vec(&message).map_err(std::io::Error::other)?;
-    std::fs::write(p, serialized)
+    codeterm_util::atomic_write::write_atomic(p, serialized)
 }
 
 pub(crate) fn pending() -> Option<PendingMessage> {
@@ -57,45 +60,4 @@ pub(crate) fn consume() -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pending_message_round_trips_requester_identity() {
-        let message = PendingMessage {
-            text: "opaque update request".into(),
-            sender: Some(TurnResumeSender {
-                tab_id: "tab-a".into(),
-                label: "Agent A".into(),
-                from_agent: Some(true),
-                from_model: Some("model-a".into()),
-            }),
-        };
-
-        let serialized = serde_json::to_string(&message).unwrap();
-        let restored: PendingMessage = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(restored, message);
-    }
-
-    #[test]
-    fn prior_plain_text_stashes_remain_readable() {
-        let restored = parse_pending("opaque legacy text").unwrap();
-
-        assert_eq!(restored.text, "opaque legacy text");
-        assert!(restored.sender.is_none());
-    }
-
-    #[test]
-    fn pending_reads_the_stashed_message_from_its_owned_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(FILENAME);
-        let message = PendingMessage {
-            text: "opaque update prompt".into(),
-            sender: None,
-        };
-        std::fs::write(&path, serde_json::to_vec(&message).unwrap()).unwrap();
-
-        assert_eq!(pending_at(&path), Some(message));
-    }
-}
+mod tests;

@@ -14,3 +14,4 @@ pub(crate) mod upgrade_from_1_14_9;
 mod worker_observer;
 
 mod exact_quit;
+mod native_application_host;
