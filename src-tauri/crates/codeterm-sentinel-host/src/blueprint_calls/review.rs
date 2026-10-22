@@ -196,3 +196,35 @@ fn blueprint_v2_call_review_import_export_update_preserves_pins_and_version_hist
     drop(handle);
     close(instance);
 }
+
+#[test]
+fn blueprint_v2_call_retained_show_never_borrows_current_pins_for_unknown_history() {
+    let entries = vec![serde_json::from_value(json!({"entry_id":1,"run_id":"old-run","step_index":0,"step_name":"invoke","state":"done","outcome":"done","started_at_ms":1,"ended_at_ms":2,"result_summary":null,"reason":null,"body_ref":null})).unwrap()];
+    let view = project_retained(None, &entries, None).unwrap();
+    assert_eq!(view["historical_graph_available"], false);
+    assert_eq!(view["expanded_calls"], json!([]));
+    assert_eq!(view["call_graph"], Value::Null);
+    assert_eq!(view["nested_run"]["nodes"][0]["step_name"], "invoke");
+    assert_eq!(view["graph_definition_version"], Value::Null);
+}
+
+#[test]
+fn blueprint_v2_call_retained_show_preserves_exact_historical_body_and_version() {
+    let historical = source(false);
+    let pin = historical.steps[0]
+        .call
+        .as_ref()
+        .unwrap()
+        .pin
+        .as_ref()
+        .unwrap();
+    let entries = vec![serde_json::from_value(json!({"entry_id":1,"run_id":"old-run","step_index":0,"step_name":"invoke","state":"done","outcome":"done","started_at_ms":1,"ended_at_ms":2,"result_summary":null,"reason":null,"body_ref":null,"definition_version":1})).unwrap()];
+    let view = project_retained(Some(&historical), &entries, Some(1)).unwrap();
+    assert_eq!(view["historical_graph_available"], true);
+    assert_eq!(view["graph_definition_version"], 1);
+    assert_eq!(view["expanded_calls"][0]["pin"], json!(pin));
+    assert_eq!(
+        view["expanded_calls"][0]["graph"]["steps"][0]["run"],
+        json!(historical.dependencies[&pin.key()].document.steps[0].run)
+    );
+}

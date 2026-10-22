@@ -20,3 +20,14 @@ fn blueprint_v2_call_check_drift_names_pin_head_and_semantic_fields() {
         assert!(rendered.contains(required), "{rendered}");
     }
 }
+
+#[test]
+fn blueprint_v2_call_retained_show_names_missing_history_without_inventing_a_graph() {
+    let output = text(
+        &json!({"historical_graph_available":false,"graph_definition_version":null,"expanded_calls":[],"nested_run":{"nodes":[{"step_name":"invoke","state":"done"}]}}),
+    );
+    assert!(output.contains("Historical call graph unavailable"));
+    assert!(output.contains("unknown"));
+    assert!(output.contains("Nested invoke [done]"));
+    assert!(!output.contains("Call invoke ->"));
+}

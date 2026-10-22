@@ -1,6 +1,14 @@
 use serde_json::Value;
 pub(super) fn text(value: &Value) -> String {
     let mut lines = Vec::new();
+    if value["historical_graph_available"] == false {
+        lines.push(format!(
+            "Historical call graph unavailable (definition version {})",
+            value["graph_definition_version"]
+                .as_u64()
+                .map_or_else(|| "unknown".into(), |version| version.to_string())
+        ));
+    }
     let mut pending = value["expanded_calls"]
         .as_array()
         .into_iter()

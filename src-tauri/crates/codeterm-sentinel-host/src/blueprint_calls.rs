@@ -481,8 +481,14 @@ pub fn project(
     document: &Document,
     entries: &[codeterm_storage::BlueprintJournalEntry],
 ) -> Result<Value, String> {
-    let closure = FrozenClosure::from_document(document.clone())?;
-    let graph = calls::projection::graph(&closure)?;
+    project_retained(Some(document), entries, None)
+}
+
+pub fn project_retained(
+    document: Option<&Document>,
+    entries: &[codeterm_storage::BlueprintJournalEntry],
+    definition_version: Option<u64>,
+) -> Result<Value, String> {
     let latest = entries.first().map(|entry| entry.run_id.as_str());
     let mut seen = BTreeSet::new();
     let nodes = entries
@@ -492,9 +498,14 @@ pub fn project(
         .take(66)
         .map(|entry| calls::projection::bounded(&json!(entry), 0))
         .collect::<Vec<_>>();
-    Ok(
-        json!({"expanded_calls":graph.calls,"call_graph":graph.root,"nested_run":{"id":latest,"nodes":nodes}}),
-    )
+    let mut value = json!({"expanded_calls":[],"call_graph":null,"historical_graph_available":document.is_some(),"graph_definition_version":definition_version,"nested_run":{"id":latest,"definition_version":definition_version,"nodes":nodes}});
+    if let Some(document) = document {
+        let closure = FrozenClosure::from_document(document.clone())?;
+        let graph = calls::projection::graph(&closure)?;
+        value["expanded_calls"] = json!(graph.calls);
+        value["call_graph"] = graph.root;
+    }
+    Ok(value)
 }
 
 pub fn pin_bundle(

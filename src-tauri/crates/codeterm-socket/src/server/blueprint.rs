@@ -199,25 +199,38 @@ pub(super) fn dispatch(
             if let Some(spec) = &job.pipeline().cloned() {
                 let entries = svc.blueprint_log(&caller, &id, 200).map_err(error)?;
                 add_pipeline_show(&mut value, spec, &entries);
-                if let Some(document) = job
-                    .document
-                    .as_ref()
-                    .and_then(|raw| {
-                        serde_json::from_value::<
+                let recorded_version = entries.first().and_then(|row| row.definition_version);
+                let document =
+                    if entries.is_empty() || recorded_version == Some(job.definition_version) {
+                        job.document.clone()
+                    } else if let Some(version) = recorded_version {
+                        svc.sentinel_history(&caller, &id)
+                            .ok()
+                            .and_then(|history| {
+                                history
+                                    .versions
+                                    .into_iter()
+                                    .find(|row| row.version == version)
+                            })
+                            .and_then(|row| row.definition.document)
+                    } else {
+                        None
+                    };
+                let document = document.and_then(|raw| {
+                    serde_json::from_value::<
                             codeterm_blueprint_types::blueprint_document::Document,
-                        >(raw.clone())
+                        >(raw)
                         .ok()
-                    })
-                    .filter(|doc| doc.nodes().any(|node| node.call.is_some()))
+                });
+                let projection = codeterm_sentinel_host::blueprint_calls::project_retained(
+                    document.as_ref(),
+                    &entries,
+                    recorded_version,
+                )
+                .map_err(error)?;
+                if let (Some(value), Some(fields)) = (value.as_object_mut(), projection.as_object())
                 {
-                    let projection =
-                        codeterm_sentinel_host::blueprint_calls::project(&document, &entries)
-                            .map_err(error)?;
-                    if let (Some(value), Some(fields)) =
-                        (value.as_object_mut(), projection.as_object())
-                    {
-                        value.extend(fields.clone());
-                    }
+                    value.extend(fields.clone());
                 }
             }
             Ok(value)
