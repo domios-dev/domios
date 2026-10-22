@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Caller: CI tests.yml; scripts tests/check-archive-portable-test-paths.test.mjs; skill gates, github-release
+// Caller: CI tests-fast.yml; scripts tests/check-archive-portable-test-paths.test.mjs; skill gates, github-release
 // Fails when Rust test code reads a compile-time manifest or binary path at runtime outside its support helper.
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, relative, resolve, basename, sep } from 'node:path';

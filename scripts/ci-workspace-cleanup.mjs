@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Caller: CI tests.yml, release-macos-build.yml, release-linux.yml, release-linux-arm64.yml, release-windows.yml; scripts tests/ci-workspace-cleanup.test.mjs; skill github-release
+// Caller: CI tests-fast.yml, tests-rust.yml, release-macos-build.yml, release-linux.yml, release-linux-arm64.yml, release-windows.yml; scripts tests/ci-workspace-cleanup.test.mjs; skill github-release
 // Removes a finished job's archives and sweeps its Rust targets by age, so the next job starts warm
 // while unused artifacts never accumulate; the git checkout stays.
 import { spawnSync } from 'node:child_process';

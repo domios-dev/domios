@@ -1,4 +1,4 @@
-// Caller: CI release.yml, tests.yml; scripts tests/ci-scope.test.mjs; skill github-release
+// Caller: CI release.yml, tests-fast.yml, tests-rust.yml; scripts tests/ci-scope.test.mjs; skill github-release
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,7 +11,7 @@ const pluginTooling = new Set([
   "scripts/tests/plugin-releases.test.mjs", "scripts/tests/ci-scope.test.mjs",
   "scripts/tests/sync-plugin-versions-min-codeterm.test.mjs",
   ".github/workflows/plugin-release.yml", ".github/workflows/tests.yml",
-  ".github/workflows/cli-source-of-truth.yml",
+  ".github/workflows/tests-fast.yml", ".github/workflows/cli-source-of-truth.yml",
   ".github/workflows/ready-for-release.yml",
 ]);
 

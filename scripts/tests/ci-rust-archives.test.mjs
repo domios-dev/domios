@@ -69,10 +69,10 @@ test('the release Rust set comes from the catalogue release tier and leaves pty-
   assert.deepEqual(archiveTargets('cli', runners), ['-p', 'codeterm-cli', '--all-targets']);
 });
 
-const runner = (id, extra = {}) => ({ id, lang: 'rust', kind: 'unit', package: id, manifest: 'src-tauri/Cargo.toml', runner: './build.sh nextest ' + id, budget_secs: 600, ci: ['tests.yml:rust-tests'], ...extra });
+const runner = (id, extra = {}) => ({ id, lang: 'rust', kind: 'unit', package: id, manifest: 'src-tauri/Cargo.toml', runner: './build.sh nextest ' + id, budget_secs: 600, ci: ['tests-rust.yml:rust-tests'], ...extra });
 
 test('native recording packages keep their own CI job outside the shared archive', () => {
-  const runners = [runner('codeterm-a'), runner('codeterm-input-macos', { ci: ['tests.yml:rust-input-platform'] })];
+  const runners = [runner('codeterm-a'), runner('codeterm-input-macos', { ci: ['tests-rust.yml:rust-input-platform'] })];
   assert.deepEqual(archiveTargets('workspace', runners), ['-p', 'codeterm-a', '--lib']);
 });
 

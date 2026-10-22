@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Caller: build.sh release-preflight; CI ready-for-release.yml, release-manifest-validate.yml, tests.yml; scripts tests/test_release_issue_contract.py; skill github-release
+# Caller: build.sh release-preflight; CI ready-for-release.yml, release-manifest-validate.yml, tests-fast.yml; scripts tests/test_release_issue_contract.py; skill github-release
 import argparse
 import json
 import re
