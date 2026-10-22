@@ -57,7 +57,7 @@ CODETERM_RELEASE_COMMON_STAGE=1 ./build.sh release-inputs --for-bundle
 pnpm tauri build --no-bundle ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"} \
   ${CODETERM_RELEASE_FEATURES:+--features "$CODETERM_RELEASE_FEATURES"} \
   --config '{"bundle":{"createUpdaterArtifacts":false,"resources":[],"externalBin":[]}}'
-CLIENT="src-tauri/target/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release/domios"
+CLIENT="src-tauri/target/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release/domios-app"
 node scripts/release-stage.mjs stage-full --target "$TARGET" --source-sha "$(git rev-parse HEAD)" \
   --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
   --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" --client-file "$CLIENT"

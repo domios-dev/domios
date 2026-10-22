@@ -9,13 +9,13 @@ from pathlib import Path
 
 PUBLIC_REPOSITORY = "rollacode/codeterm-releases"
 SOURCE_REPOSITORY = "rollacode/codeterm"
-# A declaration may close a prose line: commit messages are immutable, so a
-# trailing marker must resolve instead of failing every range that contains it.
+# A declaration may sit inside a prose line: commit messages are immutable, so a
+# well-formed marker must resolve instead of failing every range that contains it.
 PUBLIC_REFERENCE = re.compile(
-    r"(?:^|(?<=[\s(]))Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)[).,;]*$"
+    r"(?:^|(?<=[\s(]))Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)(?![0-9A-Za-z_])"
 )
 REPOSITORY_REFERENCE = re.compile(
-    r"(?:^|(?<=[\s(]))Repository-Issue: rollacode/codeterm#([1-9][0-9]*)[).,;]*$"
+    r"(?:^|(?<=[\s(]))Repository-Issue: rollacode/codeterm#([1-9][0-9]*)(?![0-9A-Za-z_])"
 )
 INLINE_CODE_SPAN = re.compile(r"`[^`]*`")
 PUBLIC_REFERENCE_MARKER = re.compile(r"Public-Issue:", re.IGNORECASE)
@@ -73,8 +73,8 @@ def parse_metadata(
                 seen.add(reference)
                 target = public_references if public_match else repository_references
                 target.append(reference)
-        # Text before a trailing declaration is still prose, held to the same rules.
-        remainder = line[: declaration.start()] if declaration else line
+        # Text around a declaration is still prose, held to the same rules.
+        remainder = f"{line[: declaration.start()]} {line[declaration.end():]}" if declaration else line
         # A backticked span quotes the syntax rather than using it. Without this a
         # commit that documents the contract fails the contract, permanently: a
         # message on master cannot be edited, so every later release re-reads it.

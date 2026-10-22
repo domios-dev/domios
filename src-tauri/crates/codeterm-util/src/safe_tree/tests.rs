@@ -45,7 +45,7 @@ fn safe_tree_refuses_junction_in_lane_ancestors() {
     let outside = fixture.path().join("outside");
     fs::create_dir_all(outside.join("lane")).unwrap();
     directory_link(&outside, &fixture.path().join("alias"));
-    assert!(remove(&fixture.path().join("alias/lane"))
+    assert!(refuse_linked_ancestors(&fixture.path().join("alias/lane"))
         .unwrap_err()
         .contains("reparse point or symlink"));
     assert!(outside.join("lane").is_dir());
@@ -53,6 +53,53 @@ fn safe_tree_refuses_junction_in_lane_ancestors() {
     fs::remove_dir(fixture.path().join("alias")).unwrap();
     #[cfg(unix)]
     fs::remove_file(fixture.path().join("alias")).unwrap();
+}
+
+#[test]
+fn safe_tree_removes_root_through_symlinked_ancestor_without_entering_inner_links() {
+    let fixture = tempfile::tempdir().unwrap();
+    let actual = fixture.path().join("actual");
+    let lane = actual.join("lane");
+    let outside = fixture.path().join("outside");
+    fs::create_dir_all(lane.join("target")).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("proof"), "preserved").unwrap();
+    fs::write(lane.join("target/artifact"), "removed").unwrap();
+    directory_link(&outside, &lane.join("node_modules"));
+    let alias = fixture.path().join("alias");
+    directory_link(&actual, &alias);
+    remove(&alias.join("lane")).unwrap();
+    assert!(!lane.exists());
+    assert!(alias.is_dir());
+    assert_eq!(
+        fs::read_to_string(outside.join("proof")).unwrap(),
+        "preserved"
+    );
+    #[cfg(windows)]
+    fs::remove_dir(&alias).unwrap();
+    #[cfg(unix)]
+    fs::remove_file(&alias).unwrap();
+}
+
+#[test]
+fn safe_tree_refuses_linked_root_without_removing_target() {
+    let fixture = tempfile::tempdir().unwrap();
+    let outside = fixture.path().join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("proof"), "preserved").unwrap();
+    let alias = fixture.path().join("alias");
+    directory_link(&outside, &alias);
+    assert!(remove(&alias)
+        .unwrap_err()
+        .contains("reparse point or symlink"));
+    assert_eq!(
+        fs::read_to_string(outside.join("proof")).unwrap(),
+        "preserved"
+    );
+    #[cfg(windows)]
+    fs::remove_dir(&alias).unwrap();
+    #[cfg(unix)]
+    fs::remove_file(&alias).unwrap();
 }
 
 #[cfg(windows)]
