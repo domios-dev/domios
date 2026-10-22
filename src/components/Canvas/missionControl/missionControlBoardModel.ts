@@ -1,3 +1,4 @@
+import { collapseChecklistEvents, curatorPresentation } from "./missionControlEventPresentation";
 import { formatDuration } from "../../../lib/timeLabels";
 // Pure reading of the stored Mission Control projection. Nothing here opens a
 // session log, parses note prose, or invents a figure the contract does not carry.
@@ -59,7 +60,8 @@ export function formatHourBand(ts: number): string {
 }
 
 const KIND_LABELS: Record<string, string> = {
-  curator_round: "Curator round",
+  curator_round: "Curator",
+  tab_todo_linked: "Checklist",
   curator: "Curator",
   planning: "Planning",
   task_created: "Task added",
@@ -91,7 +93,7 @@ const STRONG_KINDS = new Set(["planning", "review", "decision", "gate", "inciden
 export function eventKindLabel(kind: string, declared: readonly MilestoneKind[] = []): string {
   const declaredLabel = declared.find((entry) => entry.key === kind)?.label?.trim();
   if (declaredLabel) return declaredLabel;
-  return KIND_LABELS[kind] ?? `Note (${kind})`;
+  return KIND_LABELS[kind] ?? kind.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export interface EventRow {
@@ -102,6 +104,7 @@ export interface EventRow {
   author: string;
   /** The event's task, so the row can name it by its key and open it. */
   taskId: string | null;
+  linkedTasks: Array<{ id: string; name: string }>;
   taskName: string | null;
   /** Bounded single-line reading of `body`; never the only copy of the text. */
   preview: string;
@@ -165,7 +168,9 @@ export function eventPreview(body: string): string {
 }
 
 function eventRow(event: PlanEvent, index: number, declared: readonly MilestoneKind[]): EventRow {
-  const preview = eventPreview(event.text);
+  const curator = event.kind === "curator_round" ? curatorPresentation(event.text) : null;
+  const body = curator?.body ?? event.text;
+  const preview = curator?.preview ?? eventPreview(body);
   return {
     key: `event-${event.ts}-${event.kind}-${index}`,
     time: formatClock(event.ts),
@@ -173,10 +178,11 @@ function eventRow(event: PlanEvent, index: number, declared: readonly MilestoneK
     strong: STRONG_KINDS.has(event.kind),
     author: event.author,
     taskId: event.task_id,
+    linkedTasks: [],
     taskName: event.task_name === event.text ? null : clipTaskName(event.task_name),
     preview,
-    body: event.text,
-    expandable: preview !== event.text,
+    body,
+    expandable: preview !== body,
     runLabel:
       event.count > 1
         ? `×${event.count}, ${formatClock(event.ts)} to ${formatClock(event.last_ts)}`
@@ -195,7 +201,7 @@ export function eventLogRows(
   const rows: EventLogRow[] = [];
   let day = startOfLocalDay(now);
   let band: string | null = null;
-  log.entries.forEach((entry, position) => {
+  collapseChecklistEvents(log.entries).forEach(({ event: entry, tasks }, position) => {
     const index = indexOffset + position;
     const entryDay = startOfLocalDay(entry.ts);
     if (entryDay !== day) {
@@ -208,7 +214,13 @@ export function eventLogRows(
       band = hour;
       rows.push({ key: `band-${index}-${hour}`, kind: "hour", label: hour });
     }
-    rows.push({ key: `row-${index}`, kind: "event", event: eventRow(entry, index, declared) });
+    const event = eventRow(entry, index, declared);
+    if (entry.kind === "tab_todo_linked") {
+      event.linkedTasks = tasks;
+      event.taskName = null;
+      event.author = "";
+    }
+    rows.push({ key: `row-${index}`, kind: "event", event });
   });
   return rows;
 }

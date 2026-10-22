@@ -55,6 +55,7 @@ function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
           open ? " mc-board-log-message-open" : ""
         }`}
       >
+        {event.linkedTasks.map((task) => <RefLabel key={task.id} id={task.id} refs={refs} fallback={task.name} />)}
         {event.taskName && (
           <>
             <span data-testid="mc-board-event-task" className="mc-board-log-task">
@@ -73,7 +74,7 @@ function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
           data-expanded={open ? "true" : "false"}
           className="mc-board-log-body"
         >
-          <RefText text={open ? event.body : event.preview} refs={refs} />
+          <span style={open ? { whiteSpace: "pre-wrap" } : undefined}><RefText text={open ? event.body : event.preview} refs={refs} /></span>
         </span>
         {event.runLabel && (
           <span data-testid="mc-board-event-run" className="mc-board-log-run">
