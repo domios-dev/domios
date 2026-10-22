@@ -73,7 +73,7 @@ test('a successful bundle with a new warning fails the shared ratchet and saves 
     const run = async (_program, _args, log) => { if (++calls === 2) fs.appendFileSync(log, 'Warning: fixture\n'); return 0; };
     assert.equal(await buildFrontend({ root, platform: 'win32', run }), 1);
     assert.equal(calls, 2);
-    const workflow = parseYaml(fs.readFileSync(new URL('../../.github/workflows/tests.yml', import.meta.url), 'utf8'));
+    const workflow = parseYaml(fs.readFileSync(new URL('../../.github/workflows/tests-fast.yml', import.meta.url), 'utf8'));
     const upload = workflow.jobs['frontend-windows'].steps.find(step => /ci-artifact\.sh put \S*rust-warnings-win32-frontend\.json/.test(step.run ?? ''));
     assert.equal(upload.if, 'always()');
     assert.ok(upload.run.startsWith('test ! -f ci-rust-warnings/rust-warnings-win32-frontend.json || '));
