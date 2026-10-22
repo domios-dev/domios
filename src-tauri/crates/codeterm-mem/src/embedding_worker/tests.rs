@@ -1,5 +1,7 @@
 use super::*;
 
+static L12: &LocalModel = &crate::embedder::local::MODELS[0];
+
 #[test]
 fn cold_query_waits_for_model_readiness_and_returns_the_vector() {
     let (worker, receivers) = channels();
@@ -9,7 +11,7 @@ fn cold_query_waits_for_model_readiness_and_returns_the_vector() {
         run(
             receivers,
             Duration::ZERO,
-            || {
+            |_| {
                 load_started.send(()).unwrap();
                 readiness.recv().unwrap();
                 Ok(())
@@ -19,7 +21,7 @@ fn cold_query_waits_for_model_readiness_and_returns_the_vector() {
     });
     let (reply, result) = mpsc::channel();
     let query = std::thread::spawn(move || {
-        reply.send(worker.query_embed("cold query")).unwrap();
+        reply.send(worker.embed(L12, "cold query", true)).unwrap();
     });
     started.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(matches!(result.try_recv(), Err(mpsc::TryRecvError::Empty)));
@@ -42,6 +44,7 @@ fn queries_run_before_queued_bulk_work() {
     worker
         .bulk
         .try_send(Request {
+            model: L12,
             text: "bulk".into(),
             reply: reply.clone(),
         })
@@ -49,6 +52,7 @@ fn queries_run_before_queued_bulk_work() {
     worker
         .query
         .try_send(Request {
+            model: L12,
             text: "query".into(),
             reply,
         })
@@ -66,13 +70,14 @@ fn full_bulk_queue_refuses_without_waiting_for_the_model() {
         worker
             .bulk
             .try_send(Request {
+                model: L12,
                 text: String::new(),
                 reply,
             })
             .unwrap();
     }
     assert!(worker
-        .embed("overflow", false)
+        .embed(L12, "overflow", false)
         .unwrap_err()
         .starts_with("embedding busy:"));
 }
@@ -94,17 +99,17 @@ fn idle_deadline_drops_the_model_and_next_job_loads_again() {
         run(
             receivers,
             Duration::ZERO,
-            || {
+            |_| {
                 loaded.send(()).unwrap();
                 Ok(Loaded(dropped.clone()))
             },
             |_, _| Ok(vec![1.0]),
         )
     });
-    assert_eq!(worker.embed("one", false).unwrap(), vec![1.0]);
+    assert_eq!(worker.embed(L12, "one", false).unwrap(), vec![1.0]);
     load_events.recv_timeout(Duration::from_secs(1)).unwrap();
     drop_events.recv_timeout(Duration::from_secs(1)).unwrap();
-    assert_eq!(worker.embed("two", false).unwrap(), vec![1.0]);
+    assert_eq!(worker.embed(L12, "two", false).unwrap(), vec![1.0]);
     load_events.recv_timeout(Duration::from_secs(1)).unwrap();
     drop_events.recv_timeout(Duration::from_secs(1)).unwrap();
     drop(worker);
@@ -118,12 +123,12 @@ fn failed_load_answers_the_waiter_and_allows_explicit_retry() {
         run(
             receivers,
             Duration::ZERO,
-            || Err::<(), _>("offline".into()),
+            |_| Err::<(), _>("offline".into()),
             |_, _| unreachable!(),
         )
     });
-    assert_eq!(worker.embed("one", false).unwrap_err(), "offline");
-    assert_eq!(worker.embed("two", false).unwrap_err(), "offline");
+    assert_eq!(worker.embed(L12, "one", false).unwrap_err(), "offline");
+    assert_eq!(worker.embed(L12, "two", false).unwrap_err(), "offline");
     drop(worker);
     thread.join().unwrap();
 }

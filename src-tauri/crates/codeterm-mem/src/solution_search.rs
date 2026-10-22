@@ -12,14 +12,14 @@ impl MemManager {
         source: Option<&str>,
     ) -> Result<Vec<SearchHit>, String> {
         let embedding = query_embedding(&query.query);
-        self.recall_solutions_with_embedding(query, source, embedding.as_deref())
+        self.recall_solutions_with_embedding(query, source, embedding.as_ref())
     }
 
     pub(crate) fn recall_solutions_with_embedding(
         &self,
         query: &SearchQuery,
         source: Option<&str>,
-        embedding: Option<&[f32]>,
+        embedding: Option<&crate::embedder::StampedVector>,
     ) -> Result<Vec<SearchHit>, String> {
         let cfg = search::SearchConfig {
             source_filter: Some(source.map(str::to_owned)),
@@ -93,7 +93,10 @@ pub(crate) fn intent_similarity(left: &str, right: &str) -> f64 {
         return lexical;
     }
     #[cfg(feature = "embeddings")]
-    if let (Some(left), Some(right)) = (query_embedding(left), query_embedding(right)) {
+    if let (Some(left), Some(right)) = (
+        query_embedding(left).map(|stamped| stamped.vector),
+        query_embedding(right).map(|stamped| stamped.vector),
+    ) {
         let dot: f64 = left
             .iter()
             .zip(&right)
@@ -114,7 +117,7 @@ pub(crate) fn intent_similarity(left: &str, right: &str) -> f64 {
     lexical
 }
 
-pub(crate) fn query_embedding(query: &str) -> Option<Vec<f32>> {
+pub(crate) fn query_embedding(query: &str) -> Option<crate::embedder::StampedVector> {
     #[cfg(not(test))]
     {
         search::query_embedding(query)

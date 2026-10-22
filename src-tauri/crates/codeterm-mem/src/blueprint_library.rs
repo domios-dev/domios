@@ -291,7 +291,7 @@ impl MemManager {
             crate::solution_search::query_embedding(intent)
         };
         let result =
-            self.recall_blueprints_with_embedding(area, intent, limit, embedding.as_deref())?;
+            self.recall_blueprints_with_embedding(area, intent, limit, embedding.as_ref())?;
         let total = RECALLS.fetch_add(1, Ordering::Relaxed) + 1;
         if !result.is_empty() {
             HITS.fetch_add(1, Ordering::Relaxed);
@@ -314,7 +314,7 @@ impl MemManager {
         area: &str,
         intent: &str,
         limit: usize,
-        embedding: Option<&[f32]>,
+        embedding: Option<&crate::embedder::StampedVector>,
     ) -> Result<Vec<Entry>, String> {
         let now = chrono::Utc::now().timestamp();
         if intent.trim().is_empty() {

@@ -97,8 +97,8 @@ pub use args::effort::EffortAction;
 pub use args::essence_map::EssenceMapAction;
 pub use args::inbox::InboxAction;
 pub use args::mem::{
-    MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
-    MemSkillAction, MemWorkerAction,
+    MemAction, MemCalibrationAction, MemDreamAction, MemEmbedderAction, MemGraphAction,
+    MemSecretAction, MemSkillAction, MemWorkerAction,
 };
 pub use args::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
