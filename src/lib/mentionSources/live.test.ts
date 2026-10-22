@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import { watchMentionState } from "./live";
+import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../store/multiplexer/tree";
+let state = { tabs: { t: { id: "t", title: "One", description: "Work" } }, workspaces: [] } as unknown as ExtendedState;
+const store = createMuxStateStore(() => state);
+let changed = 0;
+const off = watchMentionState(store, () => changed++);
+state = { ...state, tabs: { t: { ...state.tabs.t, agent_state: { state: "working" } as never } } }; store.notify();
+assert.equal(changed, 0, "activity updates do not re-search");
+state = { ...state, tabs: { t: { ...state.tabs.t, title: "Two" } } }; store.notify();
+assert.equal(changed, 1, "searchable title updates refresh results");
+off();
+state = { ...state, tabs: { t: { ...state.tabs.t, title: "Three" } } }; store.notify();
+assert.equal(changed, 1, "closed picker has no mux listener");
+console.log("3 event-driven mention subscription checks passed");

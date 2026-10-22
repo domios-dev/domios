@@ -55,10 +55,11 @@ export function anchoredPopoverPosition(
   const preferred = placement.startsWith("top") ? "top" : "bottom";
   const preferredRoom = preferred === "top" ? aboveRoom : belowRoom;
   const otherRoom = preferred === "top" ? belowRoom : aboveRoom;
-  const side = keepSide || preferredRoom >= size.height || preferredRoom >= otherRoom
+  const constrainSide = keepSide && preferredRoom >= MIN_USEFUL_HEIGHT;
+  const side = constrainSide || preferredRoom >= size.height || preferredRoom >= otherRoom
     ? preferred
     : preferred === "top" ? "bottom" : "top";
-  const room = keepSide ? Math.max(0, preferredRoom) : Math.max(side === preferred ? preferredRoom : otherRoom, Math.min(size.height, MIN_USEFUL_HEIGHT));
+  const room = constrainSide ? preferredRoom : Math.max(side === preferred ? preferredRoom : otherRoom, Math.min(size.height, MIN_USEFUL_HEIGHT));
   const maxHeight = Math.max(0, Math.min(size.height, room, screenHeight));
   const anchoredTop = side === "top" ? anchor.top - gap - maxHeight : anchor.bottom + gap;
   const top = Math.max(topEdge, Math.min(anchoredTop, bottomEdge - maxHeight));

@@ -60,11 +60,5 @@ export function createTasksBlockHost(plans: ValueFeed<PlansSnapshot>, navigate: 
     },
     openPlan: (planId) => navigate({ planId, teamId: teamOf(planId) }),
     openTask: (planId, taskId) => navigate({ planId, taskId, teamId: teamOf(planId) }),
-    openTaskKey: (key) => {
-      for (const plan of plans.get().plans) {
-        const task = plan.tasks.find((candidate) => candidate.key?.toLowerCase() === key.toLowerCase());
-        if (task) { navigate({ planId: plan.id, taskId: task.id, teamId: plan.team_id ?? undefined }); return; }
-      }
-    },
   };
 }

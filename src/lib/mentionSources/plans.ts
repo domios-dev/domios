@@ -1,3 +1,4 @@
+import { canonicalMentionText } from "../../../packages/chat-ui/src/codeterm/canonicalMentions";
 import type { Plan } from "../../components/Canvas/types";
 import { mentionMatch, type MentionSource } from "../composerMentions";
 import { planInMentionScope } from "./scope";
@@ -10,7 +11,7 @@ export function planMentionSource(read: () => readonly Plan[]): MentionSource {
       return read().filter((plan) => planInMentionScope(plan, scope)).map((plan) => ({
         id: `plans:${plan.id}`, label: plan.title, group: "Plans",
         description: `${plan.id} · ${plan.mode ?? plan.status}`,
-        insertText: `@${plan.title} (plan ${plan.id})`,
+        insertText: canonicalMentionText("plan", plan.title, plan.id),
         match: mentionMatch(query, [plan.id, plan.title]),
       }));
     },
