@@ -21,7 +21,7 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 | `service` | `string` | Service identifier (`"telegram"` today). |
 | `active` | `bool` | Supervisor is running and the poller task is alive. |
 | `config_enabled` | `bool` | `integrations.telegram_enabled` from `config.toml`. |
-| `token_present` | `bool` | `~/.codeterm/secrets/telegram.token` exists on disk. |
+| `token_present` | `bool` | `~/.domios/secrets/telegram.token` exists on disk. |
 | `bot_id` | `int?` | The bot's public user id, read from the token's prefix; `null` without a token. Never the secret half. |
 | `has_secret_in_vault` | `bool` | The local secret store reports an entry named `secret_name`. Metadata only — value never decrypted. |
 | `secret_name` | `string` | Vault key the bridge would resolve to (`"telegram_bot_token"`). |
@@ -36,7 +36,7 @@ REST endpoints for bridges, setup hooks, cron, and external integrations.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `service` | `string` | `"telegram"` | Service to start. `400` if unsupported. |
-| `ensure_token` | `bool` | `false` | If `true` and the local token file is missing, the daemon pulls `telegram_bot_token` from the local secret vault and writes it to `~/.codeterm/secrets/telegram.token` (mode `0600` on Unix). Returns `412` if the secret is not in the vault. |
+| `ensure_token` | `bool` | `false` | If `true` and the local token file is missing, the daemon pulls `telegram_bot_token` from the local secret vault and writes it to `~/.domios/secrets/telegram.token` (mode `0600` on Unix). Returns `412` if the secret is not in the vault. |
 | `replace_token` | `bool` | `false` | Pull the vault token even when the token file exists, so a token just saved to the vault replaces the old file. Returns `412` if the secret is not in the vault. |
 | `wait_for_lock_ms` | `u64` | `10000` | How long to wait (ms) for the supervisor's `last_poll_ok` to advance past `started_at`, confirming the Telegram long-poll lock was claimed (no other poller fighting for it). |
 
@@ -178,9 +178,9 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 **`CronRunStatus` enum:** `Running`, `AwaitingOwnerPrompt`, `Success`, `Failed`, `Cancelled`. A cron waiting on an owner prompt uses `AwaitingOwnerPrompt`; `POST /api/crons/:id/cancel` cancels both running states.
 
-**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab**; observe progress via the cron tabl / `cron_read_log`, not as a regular tab. A prompt that blocks the run reaches its creator tab when one is recorded, otherwise it notifies the user. Completed oneshot jobs are removed while their run history remains available by job ID. When done, the agent calls `domios cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections.
+**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab**; observe progress via the cron tabl / `cron_read_log`, not as a regular tab. A prompt that blocks the run reaches its creator tab when one is recorded, otherwise it notifies the user. Completed oneshot jobs are removed while their run history remains available by job ID. When done, the agent calls `domios cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.domios/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections.
 
-**Workspace and Team resolution:** The CLI `cron create` command resolves the workspace the same way `domios workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. A live Team caller's job inherits that Team unless `--no-team` is explicit. Override placement with `--workspace ID` or the membership-checked `--team ID`. Closing a workspace deletes its cron jobs, run history, and log directories. **Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `domios cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID. **Deleting a cron job** cascades: kills all running tabs/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
+**Workspace and Team resolution:** The CLI `cron create` command resolves the workspace the same way `domios workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. A live Team caller's job inherits that Team unless `--no-team` is explicit. Override placement with `--workspace ID` or the membership-checked `--team ID`. Closing a workspace deletes its cron jobs, run history, and log directories. **Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `domios cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID. **Deleting a cron job** cascades: kills all running tabs/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.domios/crons/<job_id>/`).
 
 **CLI.** Use Domios cron, never a provider's built-in scheduler: `domios cron create <meaningful-name> --schedule S --task T [--cwd P] [--once]`, then `cron list|edit|enable|disable|trigger|cancel|history|delete ID`. Name a cron by what it does, such as `review-todos`. Every run prompt gets the `domios cron complete --run-id UUID --summary "..."` instruction appended; completing the run closes its ephemeral run tab. Successful runs notify nobody; a spawn failure, the second consecutive failed run and an auto-disable do. The sidebar cron tree shows runs and the next fire time; clicking a finished run opens its log viewer.
 
@@ -208,4 +208,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `domios docs API-SERVICES`. Notifications and webhooks: `domios docs API-TABS`. Secret storage and updates: `domios docs API-STATE`.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->

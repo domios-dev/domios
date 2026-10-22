@@ -222,7 +222,7 @@ owning loader module (pub const &str)
 2. **Rebuild** — `./build.sh dev` picks up changes on next start; nothing reloads live because `include_str!()` runs at compile time.
 3. **Verify** — check the running `AGENT.md` actually reflects your change:
    ```bash
-   cat ~/.codeterm/general/AGENT.md  # for general_agent.md edits
+   cat ~/.domios/general/AGENT.md  # for general_agent.md edits
    cat ~/.claude/rules/codeterm.md   # for codeterm_rule.md edits
    ```
 4. **Run the prompt-evaluator** before committing any prompt change: A/B compare `HEAD~1` against `HEAD` for the edited file. If any eval reports `Δ < 0`, fix or revert; if the file has no eval set, have the evaluator bootstrap one first. Harness: `.claude/skills/prompt-evaluator/SKILL.md` and `evals/`.
