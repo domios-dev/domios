@@ -16,7 +16,7 @@ pub mod recall;
 pub mod services;
 use qualification::PreparedBlueprint;
 pub use recall::{BlueprintHit, Fusion, RecallConfig, Weights};
-pub use services::{BlueprintEmbedder, BlueprintEnricher, EnrichmentJob, GlobalEmbedder};
+pub use services::{BlueprintEnricher, EnrichmentJob};
 
 pub(crate) const SOURCE: &str = "blueprint-library";
 static RECALLS: AtomicU64 = AtomicU64::new(0);

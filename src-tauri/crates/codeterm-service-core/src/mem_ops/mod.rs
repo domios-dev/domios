@@ -3,6 +3,7 @@
 pub mod area_merge;
 pub mod calibration;
 pub mod dream;
+pub mod embedder;
 pub mod graph;
 pub mod items;
 pub mod mem_merge;

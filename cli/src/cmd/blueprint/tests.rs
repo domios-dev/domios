@@ -88,7 +88,10 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     assert_eq!(offers[0]["id"], "memory:skill_vector");
     assert_eq!(offers[0]["why"], "intent 0.81");
     assert_eq!(offers[0]["intents"], json!(["Detect stalled deployments"]));
-    assert_eq!(memory::offers(json!([]), "unmatched opaque zebra"), json!([]));
+    assert_eq!(
+        memory::offers(json!([]), "unmatched opaque zebra"),
+        json!([])
+    );
 }
 
 #[test]

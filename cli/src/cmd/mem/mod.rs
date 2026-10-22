@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod area_tests;
 mod calibration;
+mod embedder;
 mod graph;
 pub(crate) mod item;
 #[cfg(test)]
@@ -96,6 +97,7 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
         MemAction::Secret { action } => {
             crate::cmd::mem_secret::handle_mem_secret(json_mode, action);
         }
+        MemAction::Embedder { action } => embedder::handle(client, json_mode, action),
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
         MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
         _ => unreachable!("all other mem actions have socket transport parity"),

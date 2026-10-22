@@ -1,5 +1,5 @@
 use super::index::{self, Enrichment, Provenance, Slot, VectorKey};
-use super::services::{BlueprintEmbedder, BlueprintEnricher, EnrichmentJob};
+use super::services::{BlueprintEnricher, EnrichmentJob};
 use crate::{solution_metadata as metadata, store, MemManager};
 use codeterm_blueprint_types::blueprint_memory::{contains_credentials, validate_intents};
 use std::sync::Arc;
@@ -64,8 +64,12 @@ struct Desired {
 }
 
 impl MemManager {
-    pub fn set_blueprint_embedder(&self, embedder: Arc<dyn BlueprintEmbedder>) {
-        *self.blueprint.embedder.write() = embedder;
+    #[cfg(test)]
+    pub(crate) fn set_blueprint_embedder(
+        &self,
+        provider: crate::embedder::provider::SharedProvider,
+    ) {
+        self.embedder.replace(provider);
     }
 
     pub fn set_blueprint_enricher(&self, enricher: Option<Arc<dyn BlueprintEnricher>>) {
@@ -190,8 +194,8 @@ impl MemManager {
         let Some(desired) = self.desired_vectors(id)? else {
             return Ok((0, 0));
         };
-        let existing = index::read_vectors(&self.conn.lock(), id)?;
-        let embedder = self.blueprint.embedder();
+        let identity = self.embedder.identity();
+        let existing = index::read_vectors(&self.conn.lock(), id, &identity)?;
         let mut written = Vec::new();
         let mut keep = Vec::new();
         let mut missing = 0;
@@ -204,10 +208,13 @@ impl MemManager {
                 keep.push(*key);
                 continue;
             }
-            match embedder.passage(text) {
-                Ok(vector) if index::valid_dimension(&vector) => {
+            match self.embedder.passage(text) {
+                Ok(vector)
+                    if vector.identity == identity
+                        && index::valid_dimension(&vector.vector, identity.dimension) =>
+                {
                     keep.push(*key);
-                    written.push((*key, text.clone(), vector));
+                    written.push((*key, text.clone(), vector.vector));
                 }
                 Ok(_) => missing += 1,
                 Err(error) => {
@@ -216,7 +223,11 @@ impl MemManager {
                 }
             }
         }
-        index::replace_vectors(&self.conn.lock(), id, &keep, &written)?;
+        let conn = self.conn.lock();
+        if self.embedder.identity() != identity {
+            return Err("Blueprint embedder changed during indexing".into());
+        }
+        index::replace_vectors(&conn, id, &self.embedder, &identity, &keep, &written)?;
         Ok((keep.len(), missing))
     }
 }
