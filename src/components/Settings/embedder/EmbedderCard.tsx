@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Cpu } from "lucide-react";
 import { Button } from "../../shared/Button";
+import { BusyState } from "../../shared/BusyState";
+import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { SettingsCard, SettingsPill } from "../shared";
 import {
   activeOption,
@@ -29,7 +31,9 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
   if (!listing || !status) {
     return (
       <SettingsCard icon={<Cpu size={16} />} title="Memory embedder">
-        <p className="text-xs text-[var(--ct-muted)]">{error ?? "Loading…"}</p>
+        {error
+          ? <InlineErrorNotice error={error} operation="loading the memory embedder" blocking />
+          : <BusyState label="Loading memory embedder" inline />}
       </SettingsCard>
     );
   }
@@ -140,8 +144,8 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
       )}
 
       {refusal && (
-        <div role="alert" className="text-xs text-[var(--ct-red)]">
-          <p>{refusal.message}</p>
+        <div className="text-xs">
+          <InlineErrorNotice error={refusal.message} operation="switching the memory embedder" />
           {refusal.hints.map((hint) => (
             <code key={hint} className="ct-detail__mono block">{hint}</code>
           ))}
