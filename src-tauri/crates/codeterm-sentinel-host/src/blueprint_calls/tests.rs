@@ -181,6 +181,23 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
             }
         }
     }
+    let (instance, handle) = if matches!(saved_case, Some(SavedCase::Drift)) {
+        drop(handle);
+        let restarted = instance.restart(root.path());
+        let service = &restarted.fixture.service;
+        let handle = crate::scheduler::fixture_handle_with_ui(
+            Store::with_storage(
+                &restarted.storage,
+                codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+            ),
+            service.ui.clone(),
+        );
+        crate::manage_fixture_ports(service, &handle);
+        (restarted, handle)
+    } else {
+        (instance, handle)
+    };
+    let service = &instance.fixture.service;
     let owner = Owner {
         creator_tab_id: creator,
         team_id: Some(team),
@@ -453,4 +470,20 @@ fn blueprint_v2_call_scheduler_owned_effects_refuse_at_runtime_before_any_nested
             .iter()
             .any(|row| row.step_name == "increment" || row.step_name == "fixed-sink"));
     }
+}
+
+#[test]
+fn blueprint_v2_call_default_arguments_feed_the_typed_callee_input() {
+    let mut document = source(false);
+    let key = document.dependencies.keys().next().unwrap().clone();
+    let mut callee = document.dependencies.remove(&key).unwrap();
+    callee.document.inputs.get_mut("p").unwrap().default = Some(json!({"n":7}));
+    callee.hash = blueprint_document::projection::identity(&callee.document).unwrap();
+    let call = document.steps[0].call.as_mut().unwrap();
+    call.arguments.clear();
+    call.pin = Some(callee.pin());
+    document.dependencies.insert(callee.pin().key(), callee);
+    let receipt = run(document, false);
+    assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
+    assert_eq!(receipt.notices, vec!["8"]);
 }

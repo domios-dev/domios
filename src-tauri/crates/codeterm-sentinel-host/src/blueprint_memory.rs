@@ -178,6 +178,9 @@ impl BlueprintMemoryExt for ServiceContext {
         {
             return Err("keep --file requires a triggerless typed callable Blueprint".into());
         }
+        if calls::has_unsealed_code_files(&document) {
+            return Err("Callable code files must be frozen by the CLI before saving".into());
+        }
         let document = self.mem.pin_blueprint_bundle(
             &area(&caller.workspace),
             team,

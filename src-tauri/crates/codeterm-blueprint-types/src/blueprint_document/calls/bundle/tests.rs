@@ -125,3 +125,58 @@ fn blueprint_v2_call_single_checker_checks_callee_before_verification() {
         &crate::blueprint_document::checker::check_ir(&closure.root.ir(), &context)
     ));
 }
+
+#[test]
+fn blueprint_v2_call_local_code_file_is_frozen_relative_to_exact_callee_author() {
+    let dir = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(dir.join("nested")).unwrap();
+    std::fs::write(dir.join("nested/body.py"), "def main(n): return n+1").unwrap();
+    std::fs::write(dir.join("body.py"), "def main(n): return 99").unwrap();
+    let mut callee = leaf();
+    let code = callee.steps[0].code.as_mut().unwrap();
+    code.src = None;
+    code.file = Some("body.py".into());
+    std::fs::write(dir.join("nested/callee.yaml"), callee.yaml().unwrap()).unwrap();
+    let mut root = branch("local");
+    root.imports
+        .insert("local".into(), "nested/callee.yaml".into());
+    let bundle = collect_local(
+        dir.join("root.yaml").to_str().unwrap(),
+        &root.yaml().unwrap(),
+    )
+    .unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    let closure = resolve_bundle(bundle.document, &bundle.local_callees, &Memory(leaf())).unwrap();
+    let code = closure.callees.values().next().unwrap().document.steps[0]
+        .code
+        .as_ref()
+        .unwrap();
+    assert_eq!(code.src.as_deref(), Some("def main(n): return n+1"));
+    assert!(code.file.is_none());
+    let sealed = closure.document();
+    let bundle = collect_local("no-local-files-left.yaml", &sealed.yaml().unwrap()).unwrap();
+    assert!(bundle.local_callees.is_empty());
+    assert_eq!(bundle.document, sealed);
+}
+#[test]
+fn blueprint_v2_call_host_bundle_refuses_unsealed_code_files_without_opening_labels() {
+    let mut root = branch("local");
+    root.imports.insert("local".into(), "local:body".into());
+    let mut callee = leaf();
+    let code = callee.steps[0].code.as_mut().unwrap();
+    code.src = None;
+    code.file = Some("sensitive.py".into());
+    let failure = resolve_bundle(
+        root,
+        &[LocalCallee {
+            id: "local:body".into(),
+            source_label: "/private/label/is/not/authority.yaml".into(),
+            document: callee,
+        }],
+        &Memory(leaf()),
+    )
+    .unwrap_err();
+    assert!(failure
+        .iter()
+        .any(|d| d.message.contains("frozen into inline source")));
+}

@@ -58,6 +58,9 @@ impl FrozenCallee {
         {
             return Err(format!("{} is not a typed callable Blueprint", self.id));
         }
+        if has_unsealed_code_files(&self.document) {
+            return Err("Callable code files must be frozen into inline source bytes".into());
+        }
         let errors = self.document.template_errors();
         if !errors.is_empty() {
             return Err(format!("Invalid callable: {errors:?}"));
@@ -157,7 +160,7 @@ impl FrozenClosure {
     }
     pub fn drift(&self, resolver: &dyn MemoryResolver) -> Result<Vec<Drift>, String> {
         let mut result = Vec::new();
-        for callee in self.callees.values().filter(|c| c.id.starts_with("mem:")) {
+        for callee in self.callees.values().filter(|c| saved_reference(&c.id)) {
             let pinned = resolver.revision(&callee.pin())?;
             if document_projection::identity(&pinned)? != callee.hash {
                 return Err("Missing or corrupted pinned revision".into());
@@ -178,7 +181,14 @@ impl FrozenClosure {
     }
 }
 
+pub fn saved_reference(id: &str) -> bool {
+    id.starts_with("mem:") || id.starts_with("catalog:")
+}
+
 pub trait MemoryResolver {
+    fn retain(&self, _callee: &FrozenCallee) -> Result<(), String> {
+        Ok(())
+    }
     fn head(&self, id: &str) -> Result<Document, String>;
     fn revision(&self, pin: &CallPin) -> Result<Document, String>;
 }
@@ -212,3 +222,6 @@ pub use bundle::{collect_local, resolve_bundle, LocalBundle, LocalCallee};
 
 mod admission;
 pub use admission::check_context;
+
+mod source;
+pub use source::has_files as has_unsealed_code_files;

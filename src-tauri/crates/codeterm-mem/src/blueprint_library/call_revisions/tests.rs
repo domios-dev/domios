@@ -288,3 +288,60 @@ fn blueprint_v2_call_dream_never_merges_across_team_scope() {
             .is_ok());
     }
 }
+
+fn catalog_caller() -> Document {
+    Document::from_definition(&json!({"schema_version":2,"kind":"pipeline","name":"catalog-reuse","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"invoke","call":{"ref":"catalog:command-lines","with":{"command":{"lit":"printf fixed"}}},"out":{"$ref":"Lines"}}],"types":{"Lines":{"type":"object","properties":{"count":{"type":"integer"},"lines":{"type":"array","items":{"type":"string"}}},"required":["count","lines"],"additionalProperties":false}},"result":{"to":"notify"}})).unwrap()
+}
+#[test]
+fn blueprint_v2_call_catalog_uses_shared_scoped_immutable_pin_store() {
+    let directory = tempfile::tempdir().unwrap();
+    let frozen = {
+        let mem = MemManager::open_offline(directory.path()).unwrap();
+        let frozen = mem
+            .pin_blueprint_calls("blueprints:workspace", "team", catalog_caller())
+            .unwrap();
+        let pin = pin(&frozen);
+        assert_eq!(pin.id, "catalog:command-lines");
+        assert_eq!(
+            pin.hash,
+            projection::identity(&super::super::catalog::document(&pin.id).unwrap()).unwrap()
+        );
+        let count:i64=mem.conn.lock().query_row("SELECT count(*) FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND team='team'",params![pin.id,pin.hash],|r|r.get(0)).unwrap();
+        assert_eq!(count, 1);
+        frozen
+    };
+    let mem = MemManager::open_offline(directory.path()).unwrap();
+    let pinned = pin(&frozen);
+    let retained = mem
+        .blueprint_call_revision("blueprints:workspace", "team", &pinned)
+        .unwrap();
+    assert_eq!(projection::identity(&retained).unwrap(), pinned.hash);
+    assert!(mem
+        .blueprint_call_revision("blueprints:workspace", "other-team", &pinned)
+        .is_err());
+    assert_eq!(
+        pin(&mem
+            .pin_blueprint_calls("blueprints:workspace", "team", frozen)
+            .unwrap()),
+        pinned
+    );
+}
+#[test]
+fn blueprint_v2_call_missing_catalog_hash_never_rebinds_to_embedded_head() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let frozen = mem
+        .pin_blueprint_calls("blueprints:workspace", "team", catalog_caller())
+        .unwrap();
+    let pin = pin(&frozen);
+    mem.conn
+        .lock()
+        .execute(
+            "DELETE FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2",
+            params![pin.id, pin.hash],
+        )
+        .unwrap();
+    let failure = mem
+        .pin_blueprint_calls("blueprints:workspace", "team", frozen)
+        .unwrap_err();
+    assert!(failure.contains("Missing pinned hash"), "{failure}");
+}

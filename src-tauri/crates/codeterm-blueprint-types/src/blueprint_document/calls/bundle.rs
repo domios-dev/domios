@@ -16,6 +16,20 @@ pub struct LocalBundle {
 }
 pub fn collect_local(file: &str, source: &str) -> Result<LocalBundle, Vec<Diagnostic>> {
     let mut root = crate::blueprint_document::parse(file, source)?;
+    if !root.document.dependencies.is_empty()
+        && root
+            .document
+            .nodes()
+            .filter_map(|node| node.call.as_ref())
+            .all(|call| call.pin.is_some())
+    {
+        FrozenClosure::from_document(root.document.clone())
+            .map_err(|e| vec![finding(&root, "dependencies", e)])?;
+        return Ok(LocalBundle {
+            document: root.document,
+            local_callees: Vec::new(),
+        });
+    }
     let path = std::fs::canonicalize(file).unwrap_or_else(|_| PathBuf::from(file));
     let mut collector = Collector {
         seen: BTreeSet::from([path.clone()]),
@@ -37,6 +51,16 @@ struct Collector {
 }
 impl Collector {
     fn graph(&mut self, parsed: &mut Parsed, author: &Path) -> Result<(), Vec<Diagnostic>> {
+        self.bytes = self
+            .bytes
+            .saturating_add(super::source::freeze(parsed, author)?);
+        if self.bytes > MAX_CLOSURE_BYTES {
+            return Err(vec![finding(
+                parsed,
+                "steps",
+                "budget_exhausted: code source closure",
+            )]);
+        }
         for (alias, target) in parsed.document.imports.clone() {
             let field = format!("imports.{alias}");
             if parsed.document.blueprints.contains_key(&alias) {
@@ -46,7 +70,7 @@ impl Collector {
                     "Duplicate inline/import name",
                 )]);
             }
-            if target.starts_with("mem:") {
+            if saved_reference(&target) {
                 continue;
             }
             if target.contains(':') || Path::new(&target).is_absolute() {
