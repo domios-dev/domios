@@ -73,7 +73,31 @@ pub async fn update_status(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let status = state.update_state.lock().runtime_status();
+    let mut status = state.update_state.lock().runtime_status();
+    let handoff = tokio::task::spawn_blocking(|| {
+        codeterm_update::native_handoff::read(&codeterm_service_core::paths::data_dir())
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "update_handoff_read_failed",
+        )
+    })?
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "update_handoff_read_failed",
+        )
+    })?;
+    if let Some(handoff) = handoff {
+        status["native_update"] = serde_json::to_value(handoff.result).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "update_handoff_read_failed",
+            )
+        })?;
+    }
     Ok(Json(status))
 }
 
@@ -204,6 +228,20 @@ async fn install_update_inner(
         None
     };
 
+    let lease = if application_host.is_some() {
+        match single_flight::global().try_acquire() {
+            Some(lease) => Some(lease),
+            None => {
+                return Ok(Json(serde_json::json!({
+                    "status": single_flight::ALREADY_IN_FLIGHT,
+                    "message": "An update is already being applied."
+                })))
+            }
+        }
+    } else {
+        None
+    };
+
     // Persist before restart — the next boot folds it into the General Agent's resume claim.
     if let Some(text) = q.after_update.as_deref() {
         let tab_id = caller_tab_id.ok_or((
@@ -211,39 +249,39 @@ async fn install_update_inner(
             codeterm_service_core::service::turn_resume::CALLER_TAB_REQUIRED,
         ))?;
         let owner = state.clone();
-        let sender = tokio::task::spawn_blocking(move || {
+        let text = text.to_owned();
+        tokio::task::spawn_blocking(move || {
             let state = owner;
-            {
+            let sender = {
                 let mux = state.svc.mux.read();
                 let tab = mux
                     .get_tab(&tab_id)
                     .ok_or((StatusCode::BAD_REQUEST, "caller_tab_not_found"))?;
-                Ok::<_, (StatusCode, &'static str)>(
-                    codeterm_service_core::multiplexer::types::TurnResumeSender {
-                        tab_id,
-                        label: tab.title.clone(),
-                        from_agent: Some(tab.agent_type.is_some()),
-                        from_model: tab.agent_session_model.clone(),
-                    },
+                codeterm_service_core::multiplexer::types::TurnResumeSender {
+                    tab_id,
+                    label: tab.title.clone(),
+                    from_agent: Some(tab.agent_type.is_some()),
+                    from_model: tab.agent_session_model.clone(),
+                }
+            };
+            codeterm_service_core::service::post_update::stash(&text, Some(sender)).map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "update_handoff_write_failed",
                 )
-            }
+            })
         })
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))??;
-        if let Err(e) = codeterm_service_core::service::post_update::stash(text, Some(sender)) {
-            log::warn!("[updater] failed to stash after_update message: {}", e);
-        }
     }
 
     // Auto update checks bypass the daemon's short-check cache to avoid stale "up_to_date" right after release.
     // Keep cache useful for polling badge and manual browser fallback paths.
     if let Some(app) = application_host {
-        let Some(lease) = single_flight::global().try_acquire() else {
-            return Ok(Json(serde_json::json!({
-                "status": single_flight::ALREADY_IN_FLIGHT,
-                "message": "An update is already being applied."
-            })));
-        };
+        let lease = lease.ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "update lease unavailable",
+        ))?;
         let (channel, install_method) = {
             let us = state.update_state.lock();
             (us.channel, us.install_method.clone())
