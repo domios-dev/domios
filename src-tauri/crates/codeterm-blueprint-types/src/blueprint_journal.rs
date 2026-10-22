@@ -174,6 +174,12 @@ impl PartialEq<&str> for JournalOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "String", into = "String")]
 pub enum JournalReason {
+    ContractViolation,
+    SandboxDenied,
+    Deadline,
+    BudgetExhausted,
+    UnsupportedPlatform,
+    RuntimeUnavailable,
     UncertainClaim,
     UncertainEffect,
     UncertainResult,
@@ -184,6 +190,12 @@ pub enum JournalReason {
 impl JournalReason {
     pub fn as_str(&self) -> &str {
         match self {
+            Self::ContractViolation => "contract_violation",
+            Self::SandboxDenied => "sandbox_denied",
+            Self::Deadline => "deadline",
+            Self::BudgetExhausted => "budget_exhausted",
+            Self::UnsupportedPlatform => "unsupported_platform",
+            Self::RuntimeUnavailable => "runtime_unavailable",
             Self::UncertainClaim => "uncertain_pipeline_claim",
             Self::UncertainEffect => "uncertain_pipeline_effect",
             Self::UncertainResult => "uncertain_pipeline_result",
@@ -196,6 +208,12 @@ impl JournalReason {
 impl From<String> for JournalReason {
     fn from(value: String) -> Self {
         match value.as_str() {
+            "contract_violation" => Self::ContractViolation,
+            "sandbox_denied" => Self::SandboxDenied,
+            "deadline" => Self::Deadline,
+            "budget_exhausted" => Self::BudgetExhausted,
+            "unsupported_platform" => Self::UnsupportedPlatform,
+            "runtime_unavailable" => Self::RuntimeUnavailable,
             "uncertain_pipeline_claim" => Self::UncertainClaim,
             "uncertain_pipeline_effect" => Self::UncertainEffect,
             "uncertain_pipeline_result" => Self::UncertainResult,

@@ -2,7 +2,14 @@ use super::*;
 use codeterm_blueprint_types::blueprint_github::GithubResource;
 use codeterm_blueprint_types::blueprint_source::SourceReading;
 
-pub(super) fn run(handle: &Handle, lease: &Lease, step: &Step, previous: &str) -> StepResult {
+pub(super) fn run(
+    handle: &Handle,
+    lease: &Lease,
+    step: &Step,
+    input: &ExecutionEnvelope,
+    limit: Duration,
+) -> StepResult {
+    let previous = input.payload_text();
     if let StepKind::Http { probe } = &step.kind {
         if let Err(reason) = probe.validate() {
             return failed_input_step(&reason);
@@ -15,7 +22,7 @@ pub(super) fn run(handle: &Handle, lease: &Lease, step: &Step, previous: &str) -
         if remaining == 0 {
             return failed_input_step("HTTP deadline expired");
         }
-        let timeout = Duration::from_millis(remaining.min(probe.timeout_ms));
+        let timeout = Duration::from_millis(remaining.min(probe.timeout_ms)).min(limit);
         let client = match reqwest::blocking::Client::builder()
             .timeout(timeout)
             .redirect(reqwest::redirect::Policy::none())
@@ -43,17 +50,18 @@ pub(super) fn run(handle: &Handle, lease: &Lease, step: &Step, previous: &str) -
         .job
         .expires_at
         .map(|at| Duration::from_millis(at.saturating_sub(now(handle))))
-        .unwrap_or(runtime);
+        .unwrap_or(runtime)
+        .min(limit);
     let environment = crate::probe_env::command();
     let result = if matches!(step.kind, StepKind::Command { .. }) {
-        probe::run_with_budget_input(
+        probe::run_enveloped(
             &command,
             Path::new(&lease.job.cwd),
-            remaining,
-            runtime,
+            remaining.min(runtime),
             &handle.probe_owner,
             &environment,
-            previous,
+            input,
+            &lease.cancelled,
         )
     } else {
         probe::run_with_budget(
@@ -67,6 +75,23 @@ pub(super) fn run(handle: &Handle, lease: &Lease, step: &Step, previous: &str) -
     };
     match result {
         Ok(output) => {
+            let output_limit = step
+                .execution
+                .as_ref()
+                .and_then(|contract| contract.limits.as_ref())
+                .and_then(|limits| limits.output_bytes)
+                .unwrap_or(32768)
+                .min(32768);
+            if output.stdout.truncated
+                || output.stderr.truncated
+                || output
+                    .stdout
+                    .total_bytes
+                    .saturating_add(output.stderr.total_bytes)
+                    > output_limit
+            {
+                return failed_input_step("budget_exhausted");
+            }
             if output.success {
                 if let StepKind::Github { probe } = &step.kind {
                     if probe.resource != GithubResource::PrChecks {
@@ -113,7 +138,7 @@ pub(super) fn run(handle: &Handle, lease: &Lease, step: &Step, previous: &str) -
                 uncertain: false,
             }
         }
-        Err(failure) => command_failure(failure, previous),
+        Err(failure) => command_failure(failure, &previous),
     }
 }
 
