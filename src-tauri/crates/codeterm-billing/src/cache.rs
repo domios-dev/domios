@@ -1,7 +1,5 @@
 use crate::*;
-use codeterm_entitlements::{
-    LimitGate, Phase, Policy, Refusal, TimeState, Verdict, VerifiedGrant, ACTIVATION,
-};
+use codeterm_entitlements::{LimitGate, Phase, Policy, Refusal, TimeState, Verdict, VerifiedGrant};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
@@ -70,7 +68,7 @@ impl Billing {
         installation_id: &codeterm_account::InstallationId,
         store: Arc<dyn GrantStore>,
     ) -> Result<Self> {
-        if let Some(activation) = ACTIVATION {
+        if let Some(activation) = crate::grant_activation::current() {
             self.grants = Some(Grants {
                 phase: activation.phase,
                 enforcing: codeterm_entitlements::enforcing(Some(&activation)),

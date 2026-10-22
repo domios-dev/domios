@@ -4,6 +4,8 @@ pub mod local;
 use crate::{Config, Error, IdentityProvider, Result};
 use std::sync::Arc;
 pub fn configured(config: &Config) -> Result<Arc<dyn IdentityProvider>> {
+    let config = crate::firebase_endpoints::account_config(config.clone());
+    let config = &config;
     match config.provider.as_str() {
         "local" => Ok(Arc::new(local::Local)),
         "fake" => Ok(Arc::new(fake::Fake::default())),

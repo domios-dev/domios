@@ -2,6 +2,7 @@ pub mod adapters;
 mod build_config;
 mod cache;
 mod envelope;
+mod grant_activation;
 mod grant_store;
 pub use grant_store::{FileGrantStore, GrantStore};
 mod model;
