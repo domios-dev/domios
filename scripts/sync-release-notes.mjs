@@ -70,8 +70,13 @@ function ghText(args) {
   return runGh(args, { capture: true }).trim();
 }
 
+// The by-tag endpoint never returns drafts, and publication syncs notes before un-drafting.
 function release(repo, tag) {
-  return ghJson(["api", `repos/${repo}/releases/tags/${tag}`]);
+  const found = ghJson(["api", "--paginate", "--slurp", `repos/${repo}/releases?per_page=100`])
+    .flat()
+    .find((item) => item.tag_name === tag);
+  if (!found) throw new Error(`no release ${tag} in ${repo}`);
+  return found;
 }
 
 function generate(repo, tag) {
