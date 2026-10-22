@@ -285,6 +285,7 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
             &plan.id,
             &task_id,
             codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest {
+                reasoning_effort: None,
                 attempt_id: source_attempt_id,
                 provider: None,
                 model: None,

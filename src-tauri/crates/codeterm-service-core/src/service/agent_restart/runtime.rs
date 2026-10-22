@@ -139,6 +139,7 @@ impl ServiceContext {
                 } else {
                     outcome.binding_restored = true;
                 }
+                self.clear_runtime_restart_binding(tab_id);
                 self.schedule_session_persist_debounced();
                 self.emit_state_changed(MuxEmitCause::AgentRestart);
                 Ok(outcome)
