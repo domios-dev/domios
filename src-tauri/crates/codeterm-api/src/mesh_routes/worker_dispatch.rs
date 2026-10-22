@@ -270,26 +270,23 @@ mod tests {
     fn app_state(fixture: &ServiceFixture) -> crate::routes::AppState {
         let config = codeterm_service_core::config::schema::AppConfig::default();
         let mut mesh = codeterm_service_core::mesh::MeshManager::new("bundle-origin".into(), 0);
-        mesh.paired_peers.insert(
-            "peer-origin".into(),
-            codeterm_service_core::mesh::types::PairedPeer {
-                instance_id: "peer-origin".into(),
-                instance_name: "Origin".into(),
-                addresses: vec![],
-                api_port: 0,
-                public_key: String::new(),
-                paired_at: "now".into(),
-                last_seen: None,
-                online: true,
-                is_primary: false,
-                access_level: AccessLevel::Full,
-                version: None,
-                web_ui: None,
-                relay_protocol_version: 0,
-                consecutive_misses: 0,
-                last_active_ms: None,
-            },
-        );
+        mesh.insert_legacy_pair_for_test(codeterm_service_core::mesh::types::PairedPeer {
+            instance_id: "peer-origin".into(),
+            instance_name: "Origin".into(),
+            addresses: vec![],
+            api_port: 0,
+            public_key: String::new(),
+            paired_at: "now".into(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: AccessLevel::Full,
+            version: None,
+            web_ui: None,
+            relay_protocol_version: 0,
+            consecutive_misses: 0,
+            last_active_ms: None,
+        });
         crate::routes::AppState {
             frontend_dev_url: None,
             svc: std::sync::Arc::new(fixture.service.clone()),

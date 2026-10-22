@@ -1,6 +1,9 @@
 use crate::*;
 use serde_json::{json, Value};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 pub enum Body {
     Json(Value),
@@ -206,7 +209,12 @@ impl Firebase {
             .append_pair("key", &self.config.api_key);
         Ok(url.into())
     }
-    async fn session(&self, id_token: Secret, refresh_token: Secret) -> Result<Tokens> {
+    async fn session(
+        &self,
+        id_token: Secret,
+        refresh_token: Secret,
+        expires_at: u64,
+    ) -> Result<Tokens> {
         let profile = self
             .transport
             .post(
@@ -227,12 +235,39 @@ impl Firebase {
             email: optional("email"),
             display_name: optional("displayName"),
             provider: self.id().into(),
+            photo_url: photo_url(user),
         };
         Ok(Tokens {
-            session: Session { identity, id_token },
+            session: Session {
+                identity,
+                id_token,
+                expires_at: Some(expires_at),
+            },
             refresh_token,
         })
     }
+}
+fn token_expiry(response: &Value, key: &str) -> Result<u64> {
+    let seconds = required(response, key)?
+        .parse::<u64>()
+        .map_err(|_| Error::Provider)?;
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| Error::Provider)?
+        .as_secs()
+        .checked_add(seconds)
+        .ok_or(Error::Provider)
+}
+fn photo_url(user: &Value) -> Option<String> {
+    let linked = user
+        .get("providerUserInfo")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten();
+    std::iter::once(user)
+        .chain(linked)
+        .filter_map(|entry| entry.get("photoUrl").and_then(Value::as_str))
+        .find_map(accepted_photo_url)
 }
 fn required(value: &Value, key: &str) -> Result<String> {
     value
@@ -272,9 +307,11 @@ impl IdentityProvider for Firebase {
                 Some(RequestDiagnostic::FirebaseCustomTokenExchange),
             )
             .await?;
+        let expires_at = token_expiry(&response, "expiresIn")?;
         self.session(
             Secret::new(required(&response, "idToken")?),
             Secret::new(required(&response, "refreshToken")?),
+            expires_at,
         )
         .await
     }
@@ -290,9 +327,11 @@ impl IdentityProvider for Firebase {
                 None,
             )
             .await?;
+        let expires_at = token_expiry(&response, "expires_in")?;
         self.session(
             Secret::new(required(&response, "id_token")?),
             Secret::new(required(&response, "refresh_token")?),
+            expires_at,
         )
         .await
     }

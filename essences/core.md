@@ -148,7 +148,7 @@ The routing spine. Every message that enters a tab from anywhere other than its 
 One flat, trusted fabric of the owner's machines, and the relay that carries commands, agents, payloads and reports between them.
 
 - Part of: core:service-layer.
-- Invariants: paired is trusted and unpaired does not exist; unpair is a ban; each machine decides locally what a peer may do; a machine belongs to one mesh; hard rules bind on every peer; secrets never cross the mesh.
+- Invariants: the account is the only authority for a new link and the backend never carries Mesh traffic; a paired edge carries traffic only while its admission is open (legacy provenance from before the gate, or adopted account membership that never downgrades); explicit sign-out blocks every edge before cleanup and never deletes it; unpair is a ban; each machine decides locally what a peer may do; a machine belongs to one mesh; hard rules bind on every peer; secrets never cross the mesh.
 
 ### Plugin host {#core:plugin-host}
 

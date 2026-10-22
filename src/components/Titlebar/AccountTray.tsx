@@ -11,6 +11,7 @@ import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { UI_TRAY_BTN } from "../shared/design";
 import { communityMenu } from "../shared/CommunityLinks";
 import { accountTrayModel } from "./accountTrayModel";
+import { AccountAvatar } from "./AccountAvatar";
 import { useMultiplexer } from "../../store/multiplexer/context";
 
 export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
@@ -34,7 +35,8 @@ export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
   const signInEntry = (option: SignInOption): DropdownMenuEntry =>
     ({ label: option.label, icon: option.icon, disabled: pending, onClick: () => void startSignIn(option.hint) });
   const items: DropdownMenuEntry[] = model.kind === "signed_in" ? [
-    { label: model.identity, description: model.email ?? undefined, disabled: true },
+    { label: model.identity, description: model.email ?? undefined, disabled: true,
+      icon: <AccountAvatar url={model.avatarUrl} initial={model.initial} label="" size="menu" /> },
     { label: model.plan, disabled: true },
     { label: billing.pending ? "Opening subscription…" : "Manage subscription", disabled: billing.pending, onClick: () => void manageSubscription() },
     { label: "Sign out", onClick: () => void account.signOut() },
@@ -58,9 +60,7 @@ export function AccountTray({ onOpenPlans }: { onOpenPlans: () => void }) {
           : billing.pending
             ? <BusyState inline hideLabel dotSize="small" label="Opening subscription" />
           : model.kind === "signed_in"
-            ? <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--ct-accent)_22%,transparent)] text-[11px] font-semibold text-[var(--ct-accent)]" aria-hidden="true">
-              {model.initial}
-            </span>
+            ? <AccountAvatar url={model.avatarUrl} initial={model.initial} label={`${model.identity} avatar`} size="tray" />
             : <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--ct-fg)_10%,transparent)] text-[var(--ct-fg)]" aria-hidden="true">
               <UserRound size={13} />
             </span>}

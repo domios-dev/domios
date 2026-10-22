@@ -21,7 +21,7 @@ fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
         consecutive_misses: 0,
         last_active_ms: None,
     };
-    m.paired_peers.insert(peer_id.into(), peer);
+    m.insert_legacy_pair_for_test(peer);
     m
 }
 
@@ -325,7 +325,7 @@ fn client_for_picks_tailscale_via_tier_ranking() {
         consecutive_misses: 0,
         last_active_ms: None,
     };
-    m.paired_peers.insert("peer-A".into(), peer);
+    m.insert_legacy_pair_for_test(peer);
 
     let picked = m.paired_peers["peer-A"]
         .addresses

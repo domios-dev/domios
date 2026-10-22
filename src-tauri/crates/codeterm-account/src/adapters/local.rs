@@ -8,8 +8,10 @@ fn tokens() -> Tokens {
                 email: Some("dev@localhost".into()),
                 display_name: Some("Dev user".into()),
                 provider: "local".into(),
+                photo_url: None,
             },
             id_token: Secret::new("local-memory-session"),
+            expires_at: None,
         },
         refresh_token: Secret::new("local-dev-credential"),
     }

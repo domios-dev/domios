@@ -3,10 +3,8 @@
 //! A peer that re-mints its `instance_id` (fresh identity after a reinstall,
 //! a wiped `~/.domios/mesh/identity.json`, etc.) re-pairs under the SAME
 //! `instance_name` while the OLD record — now permanently offline — can be
-//! left behind under its old id. `MeshManager::complete_explicit_pairing`
-//! supersedes that old record when it can (same name, same host), but a
-//! duplicate that predates this fix, or one whose host changed too, can
-//! still exist on disk. Name-based routing must give ONE deterministic
+//! left behind under its old id. A duplicate can still exist on disk.
+//! Name-based routing must give ONE deterministic
 //! answer over such a store, never a `HashMap`-iteration-order coin flip
 //! (codeterm#434).
 

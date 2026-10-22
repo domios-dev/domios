@@ -5,7 +5,6 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-aes-gcm = "0.10"
 base64 = "0.22"
 codeterm-paths = { path = "../codeterm-paths" }
 codeterm-build-info = { path = "../codeterm-build-info" }
@@ -13,16 +12,14 @@ codeterm-types = { path = "../codeterm-types" }
 codeterm-util = { path = "../codeterm-util" }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 log = "0.4"
-mdns-sd = "0.11"
 parking_lot = "0.12"
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-tokio = { version = "1", features = ["rt", "sync"] }
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-x25519-dalek = { version = "2", features = ["static_secrets"] }
 dirs = "6"
 hostname = "0.4.2"
 if-addrs = "0.13"
@@ -33,6 +30,9 @@ semver = "1"
 codeterm-paths = { path = "../codeterm-paths", features = ["isolated-data-root"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
+
+[features]
+test-support = []
 
 [lints]
 workspace = true

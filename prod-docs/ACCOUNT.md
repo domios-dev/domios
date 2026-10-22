@@ -81,10 +81,18 @@ Local callers only.
 |--------|------|------|-------------|
 | GET | `/api/account/status` | — | Account identity, effective provider and pending flag |
 | POST | `/api/account/login` | — | Browser sign-in; optional provider=google/facebook/email and mode=signin/signup query hints |
-| POST | `/api/account/logout` | — | Clear credentials and cached entitlements |
+| POST | `/api/account/logout` | — | Block Mesh traffic, withdraw this machine's endpoint once, then clear credentials and cached entitlements; saved pairs and the machine slot stay |
 | GET | `/api/account/plan` | — | Cached entitlement and stale marker |
 | POST | `/api/account/plan/refresh` | — | Explicit focus refresh, throttled to once per minute |
 | POST | `/api/account/upgrade` | `{plan, theme?}` | Open checkout in the system browser; `theme` (`light` or `dark`) sets the checkout page's theme |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
+| GET | `/api/account/mesh` | — | Account Mesh snapshot: `binding`, `traffic`, `cleanup`, `self`, last `registry` observation, pending `limit_notice` |
+| POST | `/api/account/mesh/enroll` | — | Retry enrollment; a refusal returns `{ok:false, request_id, failure}` |
+| POST | `/api/account/mesh/list` | — | Read the account's machines online into the snapshot |
+| POST | `/api/account/mesh/rename` | `{expected_metadata_revision, display_name}` | Rename this machine |
+| POST | `/api/account/mesh/revoke` | `{target}` | Release a machine's account slot; local unpair stays `/api/mesh/peers/disconnect` |
+| POST | `/api/account/mesh/limit-notice/ack` | `{request_id}` | Mark a `mesh.machines` notice as shown |
 
-<!-- revision: 12 -->
+Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not.
+
+<!-- revision: 13 -->

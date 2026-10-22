@@ -39,50 +39,31 @@ fn remote_close_tab_id(command: &Commands) -> Option<&str> {
 
 #[derive(Subcommand)]
 pub enum MeshAction {
-    /// Show mesh status (identity, discovery, peers)
+    /// Show mesh status (identity, peers)
     Status,
-    /// List all peers (paired + discovered)
+    /// List paired peers
     Peers,
     /// List tabs on a remote mesh peer
     Tabs {
         /// Target peer name or instance ID
         target: String,
     },
-    /// Initiate owner-approved pairing with a discovered peer or explicit address
-    Connect {
-        /// Instance ID or advertised name; --addr also accepts a hexadecimal ID prefix
-        instance_id: String,
-        /// Read the peer identity directly at this IP:port before pairing
-        #[arg(long)]
-        addr: Option<std::net::SocketAddr>,
-    },
-    /// Accept an incoming pairing request
-    Approve {
-        /// Request ID of the pending pairing request
-        request_id: String,
-    },
-    /// Reject and block an incoming pairing request
-    Reject {
-        /// Request ID of the pending pairing request
-        request_id: String,
+    /// Link a machine enrolled in this account. Both machines must be signed in,
+    /// online to the registry and directly reachable; no approval on the other side.
+    Link {
+        /// Installation ID from the account's machine list
+        installation_id: String,
     },
     /// Disconnect (unpair) from a paired peer
     Disconnect {
         /// Instance ID of the paired peer
         instance_id: String,
     },
-    /// Explicitly lift a peer identity revocation so it can pair again
+    /// Explicitly lift a local peer identity revocation
     Unrevoke {
         /// Instance ID of the revoked peer
         instance_id: String,
     },
-    /// Trigger mesh discovery scan (list discovered peers)
-    Discover,
-    /// Start broadcasting for the configured duration
-    Broadcast,
-    /// Stop broadcasting immediately
-    #[clap(name = "stop-broadcast")]
-    StopBroadcast,
     /// Re-detect local addresses (Tailscale + LAN) and announce them to all
     /// paired peers. Use after a network swap so peers update their cache
     /// without restarting Domios.
@@ -182,14 +163,9 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
     // Mesh management commands are local-only — cannot be relayed.
     if let super::Commands::Mesh {
         action:
-            MeshAction::Connect { .. }
-            | MeshAction::Approve { .. }
-            | MeshAction::Reject { .. }
+            MeshAction::Link { .. }
             | MeshAction::Disconnect { .. }
             | MeshAction::Unrevoke { .. }
-            | MeshAction::Discover
-            | MeshAction::Broadcast
-            | MeshAction::StopBroadcast
             | MeshAction::Peer { .. }
             | MeshAction::Offline
             | MeshAction::Online,

@@ -1,0 +1,64 @@
+{
+  "schema": "domios.account-mesh.packet.v1",
+  "status": "source-ready; callable registration, keys, settings and deployment owner-held",
+  "routes": {"challenge": "accountMeshChallenge", "enrollKey": "accountMeshEnrollKey", "admission": "accountMeshAdmission"},
+  "callableEnvelope": {
+    "transport": "Firebase callable SDK; AppCheck token and Firebase ID token required; account scope from verified Auth only",
+    "challenge": {"endpoint": "meshAdmission", "key_id": "1111111111111111111111111111111111111111111111111111111111111111",
+      "body": {"schema_version": 1, "installation_id": "desk-7f3a", "request_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "operation": "publish", "expected_metadata_revision": 0, "endpoint": {"tailnet_ip": "100.64.0.7", "api_port": 7685}}},
+    "challengeResult": {"nonce": "<issued_at>.<43 base64url>.<43 base64url>"},
+    "admission": {"request": "<MeshAdmissionBody>", "installation_proof": {"schema_version": 1, "key_id": "<64 hex installation key id>",
+      "generation": 1, "timestamp": 1700000000, "nonce": "<challenge nonce>", "signature": "<86 base64url Ed25519 over domios.online-installation-proof.v1>"}}
+  },
+  "requests": {
+    "publish": {"schema_version": 1, "installation_id": "desk-7f3a", "request_id": "0000000000000000000000000000000000000000000000000000000000000001",
+      "operation": "publish", "expected_metadata_revision": 0, "endpoint": {"tailnet_ip": "100.64.0.7", "api_port": 7685}},
+    "publishIpv6": {"schema_version": 1, "installation_id": "desk-7f3a", "request_id": "0000000000000000000000000000000000000000000000000000000000000002",
+      "operation": "publish", "expected_metadata_revision": 1, "endpoint": {"tailnet_ip": "fd7a:115c:a1e0::7", "api_port": 7685}},
+    "withdraw": {"schema_version": 1, "installation_id": "desk-7f3a", "request_id": "0000000000000000000000000000000000000000000000000000000000000003",
+      "operation": "withdraw", "expected_metadata_revision": 2},
+    "link": {"schema_version": 1, "installation_id": "desk-7f3a", "request_id": "0000000000000000000000000000000000000000000000000000000000000004",
+      "operation": "link", "expected_slot_revision": 2,
+      "peer": {"installation_id": "laptop-91c0", "key_id": "2222222222222222222222222222222222222222222222222222222222222222", "key_generation": 1, "slot_revision": 3},
+      "transcript_sha256": "3333333333333333333333333333333333333333333333333333333333333333"},
+    "list": {"schema_version": 1, "installation_id": "desk-7f3a", "request_id": "0000000000000000000000000000000000000000000000000000000000000005",
+      "operation": "list", "cursor": null}
+  },
+  "results": {
+    "published": {"kind": "published", "installation_id": "desk-7f3a", "endpoint": {"tailnet_ip": "100.64.0.7", "api_port": 7685, "expires_at": 1700003600},
+      "previous_metadata_revision": 0, "metadata_revision": 1, "slot_revision": 2, "registry_revision": 5},
+    "withdrawn": {"kind": "withdrawn", "installation_id": "desk-7f3a", "previous_metadata_revision": 2, "metadata_revision": 3, "slot_revision": 2, "registry_revision": 7},
+    "page": {"kind": "page", "registry_revision": 7, "cursor": null, "rows": [
+      {"installation_id": "desk-7f3a", "key_id": "1111111111111111111111111111111111111111111111111111111111111111", "key_generation": 1, "slot_revision": 2,
+        "active": true, "admitted_at": 1699990000, "authenticated_at": 1699990000, "display_name": "Desk", "metadata_revision": 1,
+        "publication": "complete", "membership_expires_at": 1700003600, "eligibility": "eligible",
+        "endpoint": {"tailnet_ip": "100.64.0.7", "api_port": 7685, "expires_at": 1700003600}},
+      {"installation_id": "laptop-91c0", "key_id": "2222222222222222222222222222222222222222222222222222222222222222", "key_generation": 1, "slot_revision": 3,
+        "active": true, "admitted_at": 1699990100, "authenticated_at": 1699990100, "display_name": null, "metadata_revision": 0,
+        "publication": "complete", "membership_expires_at": 1700003000, "eligibility": "eligible", "endpoint": null}]},
+    "permit": {"kind": "permit", "installation_id": "desk-7f3a", "peer_installation_id": "laptop-91c0", "slot_revision": 2, "registry_revision": 7,
+      "permit": {"payload": "<base64url JCS MeshLinkPermitPayload>", "signature": "<86 base64url Ed25519>", "key_id": "<Mesh trust key id>", "alg": "Ed25519"}}
+  },
+  "permitPayload": {"schema_version": 1, "iss": "domios-mesh-link", "aud": {"project": "demo-domios", "env": "test"}, "sub": "fixture-user",
+    "holder": {"installation_id": "desk-7f3a", "key_id": "1111111111111111111111111111111111111111111111111111111111111111", "key_generation": 1, "slot_revision": 2},
+    "peer": {"installation_id": "laptop-91c0", "key_id": "2222222222222222222222222222222222222222222222222222222222222222", "key_generation": 1, "slot_revision": 3},
+    "transcript_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "authority_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "policy_epoch": "mesh-fixture-v1",
+    "issued_at": 1700000000, "expires_at": 1700000120},
+  "permitVerifier": "holder = counterpart whose installation key signed the shared transcript; peer = verifier's own current slot; same sub/aud/epoch/transcript; issued_at <= now < expires_at; Mesh trust key signature",
+  "refusals": {
+    "invalid": {"code": "invalid-argument", "details": {"reason": "invalid"}},
+    "unauthenticated": {"code": "unauthenticated", "details": {"reason": "unauthenticated"}},
+    "app-check": {"code": "unauthenticated", "details": {"reason": "app-check"}},
+    "forbidden": {"code": "permission-denied", "details": {"reason": "forbidden"}},
+    "conflict": {"code": "aborted", "details": {"reason": "conflict"}},
+    "rate-limited": {"code": "resource-exhausted", "details": {"reason": "rate-limited", "retry_after_seconds": 300}},
+    "mesh.machines": {"code": "failed-precondition", "details": {"reason": "mesh.machines", "limit": 2, "active_count": 2}},
+    "authority-unavailable": {"code": "unavailable", "details": {"reason": "authority-unavailable"}},
+    "unavailable": {"code": "unavailable", "details": {"reason": "unavailable"}}
+  },
+  "plansModal": "only mesh.machines opens the existing plans modal; every other refusal (auth, rate, verification, revoked/invalid membership) must not",
+  "rejectedEndpoints": ["http://100.64.0.1", "100.64.0.1:7685", "100.64.0.1/mesh", "user:pass@100.64.0.1", "100.064.0.1", "100.128.0.1", "10.0.0.1",
+    "desk.tailnet.ts.net", "FD7A:115C:A1E0::1", "fd7a:115c:a1e0:0:0:0:0:1", "::ffff:100.64.0.1"]
+}

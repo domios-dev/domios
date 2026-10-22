@@ -1,8 +1,24 @@
-import type { TransportClient } from "../transportClient";
+import { TransportError, type TransportClient } from "../transportClient";
 export type CapabilityArgs = Record<string, unknown>;
 export type CapabilityMapper = (args: CapabilityArgs) => Promise<unknown>;
 export type CapabilitiesClient = Pick<TransportClient, "json" | "localJson" | "currentToken">;
 const enc = encodeURIComponent;
+/** A refused link answers with a typed outcome body; only that body is turned back into a result. */
+async function linkOutcome(request: Promise<unknown>): Promise<unknown> {
+  try {
+    return await request;
+  } catch (error) {
+    if (!(error instanceof TransportError)) throw error;
+    let body: unknown = null;
+    try {
+      body = JSON.parse(error.body);
+    } catch {
+      throw error;
+    }
+    if (typeof body === "object" && body !== null && (body as { ok?: unknown }).ok === false) return body;
+    throw error;
+  }
+}
 const s = (args: CapabilityArgs, key: string): string => String(args[key] ?? "");
 function previewTab(args: CapabilityArgs): string {
   const tabId = s(args, "tabId");
@@ -14,6 +30,17 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
   const localJson = client.localJson.bind(client);
   const currentToken = client.currentToken.bind(client);
   return {
+    account_mesh_state: () => localJson("GET", "/api/account/mesh"),
+    account_mesh_enroll: () => localJson("POST", "/api/account/mesh/enroll"),
+    account_mesh_list: () => localJson("POST", "/api/account/mesh/list"),
+    account_mesh_rename_self: (a) =>
+      localJson("POST", "/api/account/mesh/rename", {
+        expected_metadata_revision: a.expectedMetadataRevision,
+        display_name: a.displayName,
+      }),
+    account_mesh_revoke: (a) => localJson("POST", "/api/account/mesh/revoke", { target: a.target }),
+    account_mesh_acknowledge_limit: (a) =>
+      localJson("POST", "/api/account/mesh/limit-notice/ack", { request_id: s(a, "requestId") }),
     answer_notification: (a) =>
       webJson("POST", `/api/notifications/${enc(s(a, "id"))}/answer`, { label: s(a, "label") }),
     restore_provider_integration: (a) =>
@@ -99,11 +126,13 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     },
     mark_notification_read: (a) =>
       webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
-    mesh_add_manual: (a) => webJson("POST", "/api/mesh/peers/add-manual", a),
-    mesh_approve_pairing: (a) =>
-      webJson("POST", "/api/mesh/approve", { request_id: a.requestId }),
-    mesh_connect: (a) =>
-      webJson("POST", "/api/mesh/connect", { instance_id: a.instanceId }),
+    account_mesh_link: (a) =>
+      linkOutcome(
+        localJson("POST", "/api/mesh/link", {
+          installation_id: s(a, "installationId"),
+          request_id: a.requestId,
+        }),
+      ),
     mesh_disconnect: (a) =>
       webJson("POST", `/api/mesh/peers/disconnect/${enc(s(a, "instanceId"))}`),
     mesh_exit: () => webJson("POST", "/api/mesh/exit"),
@@ -143,16 +172,11 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
       ),
     mesh_peer_services_list: (a) =>
       webJson("GET", `/api/mesh/peers/${enc(s(a, "instanceId"))}/services`),
-    mesh_reject_pairing: (a) =>
-      webJson("POST", "/api/mesh/reject", { request_id: a.requestId }),
-    mesh_scan_peers: () => webJson("POST", "/api/mesh/discover"),
     mesh_set_access: (a) =>
       webJson("POST", `/api/mesh/peers/${enc(s(a, "instanceId"))}/access`, {
         access_level: a.accessLevel,
       }),
     mesh_set_enabled: (a) => webJson("POST", "/api/mesh/enabled", { enabled: a.enabled }),
-    mesh_start_broadcast: () => webJson("POST", "/api/mesh/broadcast/start"),
-    mesh_stop_broadcast: () => webJson("POST", "/api/mesh/broadcast/stop"),
     mesh_transfer_attachment: (a) =>
       localJson("POST", "/api/mesh/attachments/transfer", {
         ordinary_tab_id: s(a, "ordinaryTabId"),

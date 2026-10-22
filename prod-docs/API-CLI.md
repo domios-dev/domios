@@ -87,7 +87,7 @@ The CLI uses the local named pipe or Unix socket first. If that transport cannot
 
 ### Mesh CLI failures
 
-`domios mesh discover`, `domios mesh broadcast`, and `domios mesh stop-broadcast` check the HTTP result before printing success. When the listener is not remotely ready, the daemon returns HTTP 409 and the CLI exits non-zero with that refusal. Run these commands again after the mesh listener is ready.
+`domios mesh link <installation-id>` checks the HTTP result before printing success. A refusal exits non-zero and carries the typed `failure.reason`; `mesh.machines` means the account's free machine slots are used.
 
 `domios tab list --mesh <peer>` exits non-zero when the peer has no online mesh route; `(no tabs)` is reserved for a successful response from an online peer. `domios tab get-text --mesh <peer>` requires a PTY-backed remote tab. If the tab has no PTY, the CLI reports that condition and suggests choosing a PTY-backed tab.
 

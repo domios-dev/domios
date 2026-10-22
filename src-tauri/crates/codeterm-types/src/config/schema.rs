@@ -1076,7 +1076,6 @@ impl Default for TextHooksConfig {
 pub struct MeshConfig {
     pub enabled: bool,
     pub instance_name: String,
-    pub broadcast_duration_secs: u64,
 }
 
 impl Default for MeshConfig {
@@ -1084,7 +1083,6 @@ impl Default for MeshConfig {
         Self {
             enabled: true,
             instance_name: String::new(),
-            broadcast_duration_secs: 180,
         }
     }
 }
