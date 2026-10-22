@@ -37,23 +37,7 @@ pub(super) fn mirror_plan_tasks(
     sync_embed: bool,
 ) -> Result<Vec<Unit>, String> {
     let root = plan_project_root(plan);
-    let scope = project_scope(root);
-    let plan_status = plan_status_text(&plan.status);
-    let mut units = plan_header_units(plan, &scope);
-    let mut live_ids = HashSet::new();
-    for task in &plan.tasks {
-        let rebuild = changed.contains(&task.id);
-        live_ids.insert(stable_id(&plan.id, "task", &task.id));
-        if rebuild {
-            units.push(task_unit(plan, task, &scope, &plan_status));
-        }
-        for stride in &task.milestones {
-            live_ids.insert(stable_id(&plan.id, "stride", &stride.id));
-            if rebuild {
-                units.push(stride_unit(plan, task, stride, &scope, &plan_status));
-            }
-        }
-    }
+    let (units, live_ids) = task_scope_units(plan, changed);
     let conn = open_index(root)?;
     let mut existing = indexed_units_like(&conn, &format!("planunit_{}_plan%", plan.id))?;
     let rebuilt = units
@@ -70,6 +54,27 @@ pub(super) fn mirror_plan_tasks(
     }
     existing.extend(indexed_units_by_id(&conn, &candidates)?);
     apply_unit_changes(root, conn, existing, &units, sync_embed)
+}
+
+fn task_scope_units(plan: &Plan, changed: &HashSet<String>) -> (Vec<Unit>, HashSet<String>) {
+    let scope = project_scope(plan_project_root(plan));
+    let plan_status = plan_status_text(&plan.status);
+    let mut units = plan_header_units(plan, &scope);
+    let mut live_ids = HashSet::new();
+    for task in &plan.tasks {
+        let rebuild = changed.contains(&task.id);
+        live_ids.insert(stable_id(&plan.id, "task", &task.id));
+        if rebuild {
+            units.push(task_unit(plan, task, &scope, &plan_status));
+        }
+        for stride in &task.milestones {
+            live_ids.insert(stable_id(&plan.id, "stride", &stride.id));
+            if rebuild {
+                units.push(stride_unit(plan, task, stride, &scope, &plan_status));
+            }
+        }
+    }
+    (units, live_ids)
 }
 
 fn indexed_units_by_id(

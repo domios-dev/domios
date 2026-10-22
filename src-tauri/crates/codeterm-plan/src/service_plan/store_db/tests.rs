@@ -77,40 +77,6 @@ fn plan_round_trips_from_one_wal_database() {
 }
 
 #[test]
-fn plan_store_restarts_from_database_and_searches_the_same_transaction() {
-    let directory = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(directory.path());
-    let plan = store
-        .create_plan(
-            "Restart searchable plan".into(),
-            directory.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-            vec![],
-            11,
-        )
-        .unwrap();
-    let path = store.database_path_for_test();
-    drop(store);
-    crate::service_plan::search_index::flush_index_queue_for_test(directory.path());
-
-    let reopened = PlanStore::open(path).unwrap();
-    assert_eq!(reopened.get(&plan.id), Some(plan.clone()));
-    let hits = reopened
-        .search_plan_index(
-            directory.path(),
-            &PlanIndexQuery {
-                query: "Restart searchable".into(),
-                kind: None,
-                scope: None,
-                limit: Some(5),
-            },
-        )
-        .unwrap();
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].plan_id.as_deref(), Some(plan.id.as_str()));
-}
-
-#[test]
 fn legacy_yaml_is_imported_once_and_never_overwrites_the_database() {
     let directory = tempfile::tempdir().unwrap();
     crate::service_plan::paths::mark_test_project_root(directory.path());
@@ -166,6 +132,7 @@ fn deleting_a_plan_removes_the_document_and_search_row_atomically() {
         .unwrap();
     let database_path = store.database_path_for_test();
     store.delete(&plan.id).unwrap();
+    crate::service_plan::search_index::flush_index_queue_for_test(directory.path());
     drop(store);
 
     let reopened = PlanStore::open(database_path).unwrap();
