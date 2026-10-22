@@ -110,7 +110,7 @@ dev_notify_send() {
   # An older parent CLI rejects the flag as a usage error before sending; resend once without it.
   refusal="$(dev_notify_parent_cli send "${target_args[@]}" --from-file "$body_file" --system-context build 2>&1 >/dev/null)" && return 0
   status=$?
-  if [ "$status" -eq 2 ] && grep -q -- "unexpected argument '--system-context'" <<< "$refusal"; then
+  if [ "$status" -eq 2 ] && grep -q -- "unexpected argument" <<< "$refusal"; then
     dev_notify_parent_cli send "${target_args[@]}" --from-file "$body_file"
     return
   fi
