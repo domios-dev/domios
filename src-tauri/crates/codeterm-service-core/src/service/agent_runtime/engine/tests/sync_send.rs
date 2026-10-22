@@ -654,7 +654,10 @@ fn consecutive_distinct_runtime_envelopes_keep_independent_write_once_receipts()
             let request: Value = serde_json::from_str(&line).unwrap();
             assert_eq!(request["method"], "fixture/submit");
             assert_eq!(request["params"]["threadId"], "own-thread");
-            assert_eq!(request["params"]["input"]["text"], expected);
+            assert_eq!(
+                request["params"]["input"]["text"],
+                format!("<domios from=\"system\">{expected}</domios>")
+            );
             ids.push(request["params"]["sendId"].as_str().unwrap().to_owned());
             let response = json!({"id":request["id"],"result":{"turnId":"accepted-turn"}});
             peer.get_mut()
