@@ -5,7 +5,7 @@ const OLD_NONCE: &str = "nonce-before-restore";
 const CURRENT_NONCE: &str = "nonce-after-restore";
 const TAB_ID: &str = "restore-worker";
 const SESSION_ID: &str = "restore-session";
-const PROVIDER: &str = "codex";
+const PROVIDER: &str = "opaque-provider";
 const TEAM_ID: &str = "restore-team";
 
 fn fixture() -> Plan {

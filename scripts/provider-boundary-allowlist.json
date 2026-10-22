@@ -656,13 +656,6 @@
     },
     {
       "file": "src-tauri/crates/codeterm-plan/src/service_plan/task_attempts/restore_binding/tests.rs",
-      "token": "claude",
-      "count": 5,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plan/src/service_plan/task_attempts/restore_binding/tests.rs",
       "token": "codex",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
