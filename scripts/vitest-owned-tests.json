@@ -290,5 +290,6 @@
   "src/components/billing/purchaseIntent.test.ts",
   "src/components/Settings/AccountTab.purchase.test.tsx",
   "src/components/Settings/embedder/EmbedderCard.test.tsx",
-  "src/components/Settings/embedder/embedderModel.test.ts"
+  "src/components/Settings/embedder/embedderModel.test.ts",
+  "src/lib/serverReadiness.test.ts"
 ]

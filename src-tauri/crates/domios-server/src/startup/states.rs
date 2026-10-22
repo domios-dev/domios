@@ -200,9 +200,7 @@ pub fn scrub_inherited_api_env(config_state: &ConfigState) {
     log::info!("[startup] scrubbed inherited CODETERM_API_* env -> {}", url);
 }
 
-/// Create and initialize all application states.
-pub fn init_states() -> AppStates {
-    let mut storage = codeterm_service_core::startup::open_instance_storage();
+pub(crate) fn init_config() -> ConfigState {
     let mut app_config = config::load_config();
     if std::env::var_os("CODETERM_VERIFY_ISOLATED").as_deref() == Some(std::ffi::OsStr::new("1")) {
         app_config.api.port = std::env::var("CODETERM_API_PORT")
@@ -240,6 +238,14 @@ pub fn init_states() -> AppStates {
     log::info!("Config loaded: theme={}", app_config.theme.name);
     let config_state: ConfigState = Arc::new(Mutex::new(app_config));
     scrub_inherited_api_env(&config_state);
+    config_state
+}
+
+pub(crate) fn init_states(
+    config_state: ConfigState,
+    rest_api: codeterm_service_core::startup::RestApiControlState,
+) -> AppStates {
+    let mut storage = codeterm_service_core::startup::open_instance_storage();
 
     let pty_state: PtyState = Arc::new(TimedMutex::new("pty", PtyManager::new()));
     let notif_state: NotifState = Arc::new(Mutex::new(NotificationStore::open_persisted(
@@ -273,7 +279,6 @@ pub fn init_states() -> AppStates {
     let resize_owner: ResizeOwnerState = Arc::new(Mutex::new(
         codeterm_service_core::resize_owner::ResizeOwnerRegistry::default(),
     ));
-    let rest_api = Arc::new(codeterm_service_core::startup::RestApiControl::new());
 
     let mesh_config = config_state.lock().mesh.clone();
     let api_port = config_state.lock().api.port;
