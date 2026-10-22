@@ -294,7 +294,7 @@ for `dc config set api.mesh_tailnet_host '"<tailnet-ip>"'`; never a bare CLI
 inheriting production routing. Confirm identity before changing that instance.
 Restart only that named instance through the documented launcher. Verify both
 loopback health and tailnet health, the build identity, and
-`dc config get api_listener.ready_addresses` before `dc mesh broadcast`.
+`dc config get api_listener.ready_addresses` before `dc mesh link`.
 Removing the opt-in uses JSON `null` and another scoped restart.
 
 To join two DEV consoles on different machines over the mesh (pairing,
@@ -303,13 +303,13 @@ managed-by tabs, web UI peer picker, leak and sync checks), follow
 
 A failed secondary bind starts neither listener; no wildcard or LAN fallback
 is allowed. A later secondary listener exit keeps local HTTP serving but clears
-remote readiness and stops broadcast. Recovery is an explicit scoped restart,
+remote readiness. Recovery is an explicit scoped restart,
 not a retry loop. Preserve a failed trial's state and distinguish a new trial.
 
 Troubleshooting: `mesh_listener_not_remotely_ready` means no health-proven remote
 listener can serve the announcement. A configured host is not live evidence.
-Do not widen the default bind or repeatedly connect to a stale discovered
-address; verify the named instance's live listener set first.
+Do not widen the default bind or repeatedly link to a stale endpoint;
+verify the named instance's live listener set first.
 
 - `~/.domios-dev/` — config, mem DB, sessions, logs, mesh identity
 - `~/.domios-dev/config.toml` — themes, keybindings, api section

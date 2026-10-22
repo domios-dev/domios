@@ -3,6 +3,7 @@ export interface AccountIdentity {
   email: string | null;
   display_name: string | null;
   provider: string;
+  photo_url?: string | null;
 }
 export type SignInStage = "preparation" | "browser" | "callback" | "redemption" | "credential_save" | "publication";
 export type SignInError = "configuration" | "invalid_callback" | "wrong_state" | "consumed" | "timeout" | "cancelled" | "pending" | "transport" | "provider" | "credentials" | "browser";

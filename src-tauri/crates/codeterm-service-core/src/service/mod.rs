@@ -15,6 +15,7 @@
 mod construct;
 pub use construct::build_service_context;
 pub mod account;
+pub mod account_mesh;
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;
 pub(crate) mod agent_fork;

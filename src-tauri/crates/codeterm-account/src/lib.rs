@@ -1,4 +1,5 @@
 mod account;
+pub mod account_mesh;
 pub mod adapters;
 mod build_config;
 pub mod firebase_endpoints;
@@ -33,17 +34,47 @@ impl std::fmt::Debug for Secret {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Identity {
     pub uid: String,
     pub email: Option<String>,
     pub display_name: Option<String>,
     pub provider: String,
+    #[serde(default)]
+    pub photo_url: Option<String>,
+}
+impl std::fmt::Debug for Identity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Identity")
+            .field("uid", &self.uid)
+            .field("email", &self.email)
+            .field("display_name", &self.display_name)
+            .field("provider", &self.provider)
+            .field("photo_url", &self.photo_url.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+pub const MAX_PHOTO_URL_LEN: usize = 2048;
+pub fn accepted_photo_url(value: &str) -> Option<String> {
+    if value.len() > MAX_PHOTO_URL_LEN {
+        return None;
+    }
+    let url = url::Url::parse(value).ok()?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    let url: String = url.into();
+    (url.len() <= MAX_PHOTO_URL_LEN).then_some(url)
 }
 #[derive(Debug, Clone)]
 pub struct Session {
     pub identity: Identity,
     pub id_token: Secret,
+    pub expires_at: Option<u64>,
 }
 pub struct Tokens {
     pub session: Session,

@@ -27,6 +27,25 @@ describe("capabilities HTTP transport", () => {
     expect(calls).toEqual([]);
   });
 
+  it("keeps Account Mesh commands on local-only account routes", async () => {
+    const { transport, calls } = fixture({ ok: true });
+    const target = { installation_id: "laptop", key_id: "k".repeat(64), key_generation: 1, slot_revision: 3 };
+    await transport.account_mesh_state();
+    await transport.account_mesh_enroll();
+    await transport.account_mesh_list();
+    await transport.account_mesh_rename_self({ expectedMetadataRevision: 2, displayName: "Desk" });
+    await transport.account_mesh_revoke({ target });
+    await transport.account_mesh_acknowledge_limit({ requestId: "r1" });
+    expect(calls).toEqual([
+      ["local", "GET", "/api/account/mesh", undefined],
+      ["local", "POST", "/api/account/mesh/enroll", undefined],
+      ["local", "POST", "/api/account/mesh/list", undefined],
+      ["local", "POST", "/api/account/mesh/rename", { expected_metadata_revision: 2, display_name: "Desk" }],
+      ["local", "POST", "/api/account/mesh/revoke", { target }],
+      ["local", "POST", "/api/account/mesh/limit-notice/ack", { request_id: "r1" }],
+    ]);
+  });
+
   it("reads heartbeat projections separately from queued messages", async () => {
     const { transport, calls } = fixture([]);
     await transport.delayed_send_list({ tabId: "tab/a" });

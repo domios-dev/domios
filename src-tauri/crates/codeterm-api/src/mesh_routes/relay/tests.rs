@@ -258,24 +258,18 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     // `MeshManager::new` loads real disk state — start from empty so this
     // test is never polluted by the running machine's own paired peers.
     mesh.paired_peers.clear();
-    mesh.paired_peers.insert(
-        "a4db6f3d-dead".into(),
-        paired_peer_fixture(
-            "a4db6f3d-dead",
-            "BLACKSTAR",
-            false,
-            codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1,
-        ),
-    );
-    mesh.paired_peers.insert(
-        "2556b3f9-live".into(),
-        paired_peer_fixture(
-            "2556b3f9-live",
-            "BLACKSTAR",
-            true,
-            codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
-        ),
-    );
+    mesh.insert_legacy_pair_for_test(paired_peer_fixture(
+        "a4db6f3d-dead",
+        "BLACKSTAR",
+        false,
+        codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1,
+    ));
+    mesh.insert_legacy_pair_for_test(paired_peer_fixture(
+        "2556b3f9-live",
+        "BLACKSTAR",
+        true,
+        codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
+    ));
 
     for _ in 0..50 {
         let (_, _, name, _) =
@@ -303,14 +297,13 @@ fn peer_relay_refusal_names_both_dead_records_and_the_id_route() {
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("test-host".into(), 7685);
     mesh.disk_persist = false;
     mesh.paired_peers.clear();
-    mesh.paired_peers.insert(
-        "a4db6f3d-dead".into(),
-        paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0),
-    );
-    mesh.paired_peers.insert(
-        "c9112abc-alsodead".into(),
-        paired_peer_fixture("c9112abc-alsodead", "BLACKSTAR", false, 1),
-    );
+    mesh.insert_legacy_pair_for_test(paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0));
+    mesh.insert_legacy_pair_for_test(paired_peer_fixture(
+        "c9112abc-alsodead",
+        "BLACKSTAR",
+        false,
+        1,
+    ));
 
     let (status, body) = match resolve_relay_peer(&mesh, "BLACKSTAR") {
         Ok(_) => panic!("no online record exists for this name — must not resolve"),
@@ -799,7 +792,7 @@ fn relay_refusal_distinguishes_unroutable_from_unpaired() {
         consecutive_misses: 0,
         last_active_ms: None,
     };
-    mesh.paired_peers.insert("peer-a".into(), peer.clone());
+    mesh.insert_legacy_pair_for_test(peer.clone());
 
     // Genuinely unknown peer: no paired record at all.
     let unpaired = match resolve_relay_peer(&mesh, "no-such-peer") {
@@ -839,7 +832,7 @@ fn relay_refusal_distinguishes_unroutable_from_unpaired() {
         .push(codeterm_service_core::mesh::types::PeerAddress::from_ip(
             "100.65.0.30",
         ));
-    mesh.paired_peers.insert("peer-a".into(), peer);
+    mesh.insert_legacy_pair_for_test(peer);
     assert!(resolve_relay_peer(&mesh, "peer-a").is_ok());
 }
 

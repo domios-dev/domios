@@ -709,21 +709,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Mesh { action } => match action {
             MeshAction::Status => ("GET".into(), "/api/mesh/status".into(), None),
             MeshAction::Peers => ("GET".into(), "/api/mesh/peers".into(), None),
-            MeshAction::Discover => ("POST".into(), "/api/mesh/discover".into(), None),
-            MeshAction::Connect { instance_id, addr } => (
+            MeshAction::Link { installation_id } => (
                 "POST".into(),
-                "/api/mesh/connect".into(),
-                Some(crate::cmd::mesh::connect_body(instance_id, addr.as_ref()).to_string()),
-            ),
-            MeshAction::Approve { request_id } => (
-                "POST".into(),
-                "/api/mesh/approve".into(),
-                Some(serde_json::json!({"request_id": request_id}).to_string()),
-            ),
-            MeshAction::Reject { request_id } => (
-                "POST".into(),
-                "/api/mesh/reject".into(),
-                Some(serde_json::json!({"request_id": request_id}).to_string()),
+                "/api/mesh/link".into(),
+                Some(serde_json::json!({"installation_id": installation_id}).to_string()),
             ),
             MeshAction::Disconnect { instance_id } => (
                 "POST".into(),
@@ -735,8 +724,6 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 "/api/mesh/unrevoke".into(),
                 Some(serde_json::json!({"instance_id": instance_id}).to_string()),
             ),
-            MeshAction::Broadcast => ("POST".into(), "/api/mesh/broadcast/start".into(), None),
-            MeshAction::StopBroadcast => ("POST".into(), "/api/mesh/broadcast/stop".into(), None),
             MeshAction::Refresh => ("POST".into(), "/api/mesh/refresh".into(), None),
             MeshAction::Announce { to } => {
                 let path = match to {

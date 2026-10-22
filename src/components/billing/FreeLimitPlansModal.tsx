@@ -7,15 +7,16 @@ import { Button } from "../shared/Button";
 import { FormDialog } from "../shared/FormDialog";
 import { PlanCards } from "./PlanCards";
 import { freeLimitGate, upgradePlan, UPGRADE_PLAN_KEY, useFreeLimitPrompt } from "./freeLimitGate";
-import { limitHeadline, type FreeLimitKey } from "./freeLimitModel";
+import { limitHeadline, meshMachinesDetail, type FreeLimitKey } from "./freeLimitModel";
 import { offerIdForPlan, type PlanCatalog } from "./planCatalog";
 import { usePlanCatalog } from "./planCatalogContext";
 import { displayedPlan } from "./purchaseIntent";
 import { usePurchaseIntent } from "./usePurchaseIntent";
 
-function PlansModal({ limit, max, onClose, onUpgrade, catalog }: {
+function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
   limit: FreeLimitKey;
   max?: number | null;
+  detail?: string;
   onClose: () => void;
   onUpgrade: (planKey: string) => Promise<void>;
   catalog?: PlanCatalog;
@@ -63,7 +64,7 @@ function PlansModal({ limit, max, onClose, onUpgrade, catalog }: {
       onSubmit={(event) => { event.preventDefault(); if (!blocked) purchase.choose(UPGRADE_PLAN_KEY); }}>
       <h2 id={titleId} className="m-0 text-base font-semibold">{limitHeadline(limit, max)}</h2>
       <p id={descriptionId} className="m-0 text-xs text-[var(--ct-muted-fg)]">
-        Upgrade to remove this limit. Everything you already have stays as it is.
+        {detail && <>{detail} </>}Upgrade to remove this limit. Everything you already have stays as it is.
       </p>
       <PlanCards viewRequested catalog={offers} currentPlan={displayedPlan(billing.plan)} canPurchase={!blocked} initialInterval="month"
         onChoose={purchase.choose} intent={intent} onCancel={purchase.cancel}
@@ -78,7 +79,11 @@ function PlansModal({ limit, max, onClose, onUpgrade, catalog }: {
 
 /** Mounted once; any creation trigger opens it through `freeLimitGate`. */
 export function FreeLimitPlansModal({ upgrade = upgradePlan }: { upgrade?: (planKey: string) => Promise<void> }) {
-  const limit = useFreeLimitPrompt();
-  if (!limit) return null;
-  return <PlansModal key={limit} limit={limit} max={freeLimitGate.limits()?.max[limit]} onClose={freeLimitGate.close} onUpgrade={upgrade} />;
+  const prompt = useFreeLimitPrompt();
+  if (!prompt) return null;
+  if (prompt.key === "mesh.machines") {
+    return <PlansModal key={`mesh:${prompt.requestId}`} limit={prompt.key} max={prompt.limit} detail={meshMachinesDetail(prompt)}
+      onClose={freeLimitGate.close} onUpgrade={upgrade} />;
+  }
+  return <PlansModal key={prompt.key} limit={prompt.key} max={freeLimitGate.limits()?.max[prompt.key]} onClose={freeLimitGate.close} onUpgrade={upgrade} />;
 }

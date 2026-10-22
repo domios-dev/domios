@@ -8,7 +8,7 @@ let pendingNames: Promise<Map<string, string>> | null = null;
 
 function peerNames(response: MeshPeersResponse): Map<string, string> {
   const names = new Map<string, string>();
-  for (const peer of [...response.paired, ...response.discovered]) {
+  for (const peer of response.paired) {
     names.set(peer.instance_id, peer.instance_name);
     names.set(peer.instance_name.toLowerCase(), peer.instance_name);
   }
