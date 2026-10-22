@@ -1,5 +1,4 @@
 mod embedder_background;
-mod embedder_default_switch;
 mod embedder_provider;
 mod embedder_remote_gate;
 mod embedder_switch;

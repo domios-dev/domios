@@ -1,0 +1,28 @@
+{
+  "retained": 606,
+  "excluded_credentials": 5,
+  "excluded_short": 2,
+  "kinds": {
+    "conversation": 6,
+    "daily": 94,
+    "fact": 343,
+    "learning": 1,
+    "note": 12,
+    "peer": 5,
+    "preference": 41,
+    "rule": 43,
+    "skill": 61
+  },
+  "blueprint_solutions": 0,
+  "source_files_detached": 25,
+  "source_read_only": true,
+  "sample": {
+    "n": 150,
+    "ru": 30,
+    "en": 120,
+    "seed": 20261022,
+    "query_writers": "dropped by owner; no subject sessions run"
+  },
+  "worker_private_copies_deleted": true,
+  "chair_custody_source": "untouched; Chair owns deletion"
+}

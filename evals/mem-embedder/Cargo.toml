@@ -10,14 +10,6 @@ publish = false
 name = "mem-embedder-oracle"
 path = "oracle.rs"
 
-[[bin]]
-name = "mem-embedder-snapshot"
-path = "snapshot.rs"
-
 [dependencies]
 codeterm-mem = { path = "../../src-tauri/crates/codeterm-mem" }
-codeterm-blueprint-types = { path = "../../src-tauri/crates/codeterm-blueprint-types" }
-rusqlite = { version = "0.32", features = ["bundled"] }
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tempfile = "3"
