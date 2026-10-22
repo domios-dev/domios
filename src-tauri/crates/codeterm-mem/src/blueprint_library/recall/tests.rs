@@ -21,7 +21,7 @@ fn keep(mem: &MemManager, area: &str, yaml: &str, intents: &[&str]) -> String {
         .map(|intent| (*intent).to_owned())
         .collect::<Vec<_>>();
     mem.save_blueprint_without_merge(area, parse_document(yaml).unwrap(), &intents, evidence())
-        .and_then(|id| mem.index_blueprint(&id).map(|_| id))
+        .and_then(|saved| mem.index_blueprint(&saved.id).map(|_| saved.id))
         .unwrap()
 }
 

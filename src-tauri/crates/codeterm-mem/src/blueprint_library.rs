@@ -23,10 +23,17 @@ static RECALLS: AtomicU64 = AtomicU64::new(0);
 static HITS: AtomicU64 = AtomicU64::new(0);
 static DREAM_AREA: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct SaveResult {
+    pub id: String,
+    pub evicted_ids: Vec<String>,
+}
+
 pub(crate) enum Pending {
     Keep {
         area: String,
         prepared: PreparedBlueprint,
+        reply: std::sync::mpsc::SyncSender<Result<SaveResult, String>>,
     },
     Reuse(Vec<String>),
     Backfill,
@@ -51,7 +58,7 @@ pub(crate) fn load_entries_in(
     area: &str,
     validate: bool,
 ) -> Result<Vec<Entry>, String> {
-    let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND (?1='' OR m.area=?1) AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id LIMIT CASE WHEN ?1='' THEN -1 ELSE 51 END").map_err(|error|error.to_string())?;
+    let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND (?1='' OR m.area=?1) AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id").map_err(|error|error.to_string())?;
     let ids = stmt
         .query_map(params![area, SOURCE], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?
@@ -139,9 +146,16 @@ impl MemManager {
                     while let Ok(pending) = receiver.recv() {
                         let Some(mem) = weak.upgrade() else { break };
                         let result = match pending {
-                            Pending::Keep { area, prepared } => mem
-                                .persist_blueprint(&area, prepared, true)
-                                .and_then(|id| mem.index_blueprint(&id).map(|_| ())),
+                            Pending::Keep {
+                                area,
+                                prepared,
+                                reply,
+                            } => {
+                                let saved = mem.persist_blueprint(&area, prepared, true, AREA_CAP);
+                                let id = saved.as_ref().ok().map(|saved| saved.id.clone());
+                                let _ = reply.send(saved);
+                                id.map_or(Ok(()), |id| mem.index_blueprint(&id).map(|_| ()))
+                            }
                             Pending::Reuse(ids) => mem.reuse_blueprints(&ids),
                             Pending::Backfill => mem.backfill_blueprints().map(|_| ()),
                         };
@@ -166,7 +180,7 @@ impl MemManager {
         definition: serde_json::Value,
         intents: Vec<String>,
         evidence: Evidence,
-    ) -> Result<(), String> {
+    ) -> Result<SaveResult, String> {
         self.guard_commit()?;
         let prepared = self.qualify_blueprint(
             &area,
@@ -174,7 +188,15 @@ impl MemManager {
             &intents,
             evidence,
         )?;
-        self.queue_blueprint(Pending::Keep { area, prepared })
+        let (reply, completion) = std::sync::mpsc::sync_channel(1);
+        self.queue_blueprint(Pending::Keep {
+            area,
+            prepared,
+            reply,
+        })?;
+        completion
+            .recv()
+            .map_err(|_| "Blueprint memory worker stopped before save completion")?
     }
 
     pub fn save_blueprint(
@@ -183,11 +205,11 @@ impl MemManager {
         document: Document,
         intents: &[String],
         evidence: Evidence,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<SaveResult, String> {
         let prepared = self.qualify_blueprint(area, document, intents, evidence)?;
-        let id = self.persist_blueprint(area, prepared, true)?;
-        self.index_after_save(&id);
-        Ok(Some(id))
+        let saved = self.persist_blueprint(area, prepared, true, AREA_CAP)?;
+        self.index_after_save(&saved.id);
+        Ok(saved)
     }
 
     pub fn save_blueprint_without_merge(
@@ -196,9 +218,9 @@ impl MemManager {
         document: Document,
         intents: &[String],
         evidence: Evidence,
-    ) -> Result<String, String> {
+    ) -> Result<SaveResult, String> {
         let prepared = self.qualify_blueprint(area, document, intents, evidence)?;
-        self.persist_blueprint(area, prepared, false)
+        self.persist_blueprint(area, prepared, false, AREA_CAP)
     }
 
     fn index_after_save(&self, id: &str) {
@@ -212,7 +234,8 @@ impl MemManager {
         area: &str,
         prepared: PreparedBlueprint,
         merge: bool,
-    ) -> Result<String, String> {
+        area_cap: usize,
+    ) -> Result<SaveResult, String> {
         self.guard_commit()?;
         let PreparedBlueprint {
             document,
@@ -296,8 +319,9 @@ impl MemManager {
             library.push(next);
             id
         };
-        for evicted in model::evictions(&library, AREA_CAP, now.timestamp()) {
-            archive(&tx, &evicted, "blueprint solution area cap")?;
+        let evicted_ids = model::evictions(&library, area_cap, now.timestamp(), &id);
+        for evicted in &evicted_ids {
+            archive(&tx, evicted, "blueprint solution area cap")?;
         }
         tx.commit().map_err(|e| e.to_string())?;
         let added: i64 = conn
@@ -310,7 +334,7 @@ impl MemManager {
         drop(conn);
         self.refresh_embedding(&id);
         log::debug!("[blueprint-memory] added_today={added}");
-        Ok(id)
+        Ok(SaveResult { id, evicted_ids })
     }
 
     fn reuse_blueprints(&self, ids: &[String]) -> Result<(), String> {
@@ -347,7 +371,7 @@ impl MemManager {
                     .total_cmp(&model::score(a, now))
                     .then(a.id.cmp(&b.id))
             });
-            library.truncate(limit.min(AREA_CAP));
+            library.truncate(limit);
             library
                 .into_iter()
                 .map(|entry| BlueprintHit {

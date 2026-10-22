@@ -58,7 +58,7 @@ fn reindex_existing_blueprint_uses_saved_intent_in_canonical_description() {
             },
         )
         .unwrap()
-        .unwrap();
+        .id;
     let conn = mem.conn.lock();
     crate::embeddings::init_extension(&conn).unwrap();
     let accesses = |conn: &rusqlite::Connection| {

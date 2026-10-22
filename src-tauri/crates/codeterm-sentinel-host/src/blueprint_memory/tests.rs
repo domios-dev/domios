@@ -42,7 +42,7 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
             },
         )
         .unwrap()
-        .unwrap();
+        .id;
     assert!(service
         .blueprint_apply_recipe(&caller, &id, &[], None, false)
         .is_err());

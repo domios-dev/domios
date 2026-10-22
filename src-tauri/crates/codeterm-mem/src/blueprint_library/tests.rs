@@ -35,7 +35,7 @@ fn curator_save_preserves_uid_and_bumps_confidence_in_later_round() {
             proof(1),
         )
         .unwrap()
-        .unwrap();
+        .id;
     let first = mem.get(&id).unwrap().unwrap();
     assert_eq!(
         mem.solution_metadata(&id)
@@ -63,7 +63,7 @@ fn curator_save_preserves_uid_and_bumps_confidence_in_later_round() {
             proof(2),
         )
         .unwrap()
-        .unwrap();
+        .id;
     assert_eq!(again, id);
     assert_eq!(
         mem.solution_metadata(&id)
@@ -87,7 +87,7 @@ fn curator_conflicting_graph_refuses_without_writing() {
             evidence(),
         )
         .unwrap()
-        .unwrap();
+        .id;
     let proof = Evidence {
         curator: Some(model::CuratorEvidence {
             plan: "pl_test".into(),
@@ -126,7 +126,7 @@ fn repeated_keep_counts_new_evidence_only() {
             proof.clone(),
         )
         .unwrap()
-        .unwrap();
+        .id;
     mem.save_blueprint(
         "project",
         document("done"),
@@ -183,13 +183,13 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
             evidence(),
         )
         .unwrap()
-        .unwrap();
+        .id;
     let mut changed = document("done");
     changed.watch.as_mut().unwrap()["probe"] = json!("echo different-instance");
     let again = mem
         .save_blueprint("project-a", changed, &when("Watch CI failure"), evidence())
         .unwrap()
-        .unwrap();
+        .id;
     assert_eq!(id, again);
     let item = mem.get(&id).unwrap().unwrap();
     assert_eq!(item.kind, "skill");
@@ -239,46 +239,63 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
 }
 
 #[test]
-fn blueprint_library_archives_lowest_score_and_preserves_yaml() {
+fn blueprint_library_save_protects_current_entry_and_reports_evicted_ids() {
     let mem = MemManager::open_in_memory().unwrap();
-    let popular = mem
-        .save_blueprint(
-            "project",
-            document("popular"),
-            &when("Watch CI failure"),
-            evidence(),
-        )
-        .unwrap()
-        .unwrap();
-    mem.reuse_blueprints(std::slice::from_ref(&popular))
-        .unwrap();
-    for index in 0..50 {
-        mem.save_blueprint(
-            "project",
-            document(&format!("bucket{index}")),
-            &when("Watch CI failure"),
-            evidence(),
-        )
-        .unwrap();
+    let save = |bucket: &str, successes| {
+        let prepared = mem
+            .qualify_blueprint(
+                "project",
+                document(bucket),
+                &when("Watch CI failure"),
+                Evidence {
+                    successes,
+                    ..evidence()
+                },
+            )
+            .unwrap();
+        mem.persist_blueprint("project", prepared, true, 2).unwrap()
+    };
+    let first = save("first", 10);
+    let popular = save("popular", 20);
+    assert!(first.evicted_ids.is_empty());
+    assert!(popular.evicted_ids.is_empty());
+    let saved = save("new", 1);
+    assert_eq!(saved.evicted_ids, vec![first.id.clone()]);
+    assert_archived(&mem, &first.id);
+    assert_eq!(mem.get(&saved.id).unwrap().unwrap().kind, "skill");
+    assert_eq!(mem.get(&popular.id).unwrap().unwrap().kind, "skill");
+    assert_eq!(mem.list_blueprint_solutions("project").unwrap().len(), 2);
+    assert!(model::parse_document(&mem.get(&first.id).unwrap().unwrap().body).is_ok());
+}
+
+#[test]
+fn blueprint_library_storage_and_both_recall_paths_retain_more_than_fifty() {
+    let mem = MemManager::open_in_memory().unwrap();
+    mem.set_blueprint_embedder(fakes::WordEmbedder::new(true));
+    let mut ids = std::collections::BTreeSet::new();
+    for index in 0..60 {
+        let saved = mem
+            .save_blueprint(
+                "project",
+                document(&format!("bucket{index}")),
+                &when("Watch CI failure"),
+                evidence(),
+            )
+            .unwrap();
+        assert!(saved.evicted_ids.is_empty());
+        ids.insert(saved.id);
     }
-    let conn = mem.conn.lock();
-    let active: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM mem_items WHERE kind='skill' AND source=?1",
-            [SOURCE],
-            |row| row.get(0),
-        )
-        .unwrap();
-    let archived:i64=conn.query_row("SELECT COUNT(*) FROM mem_items WHERE kind='archived' AND (body_inline IS NOT NULL OR body_blob_path IS NOT NULL)",[],|row|row.get(0)).unwrap();
-    assert_eq!(active, 50);
-    assert_eq!(archived, 1);
-    assert_eq!(
-        store::get(&conn, &popular, &mem.blobs_dir)
-            .unwrap()
-            .unwrap()
-            .kind,
-        "skill"
-    );
+    assert_eq!(ids.len(), 60);
+    assert_eq!(mem.list_blueprint_solutions("project").unwrap().len(), 60);
+    for intent in ["", "Watch CI failure"] {
+        let hits = mem.recall_blueprints("project", intent, 60).unwrap();
+        assert_eq!(
+            hits.iter()
+                .map(|hit| hit.entry.id.clone())
+                .collect::<std::collections::BTreeSet<_>>(),
+            ids
+        );
+    }
 }
 
 #[test]
@@ -292,7 +309,7 @@ fn blueprint_dreamer_only_merges_existing_solutions_and_preserves_stats() {
             evidence(),
         )
         .unwrap()
-        .unwrap();
+        .id;
     let existing = mem.get(&id).unwrap().unwrap();
     let other = mem
         .insert_raw(&NewMemItem {
@@ -327,7 +344,7 @@ fn owner_list_does_not_count_recall_and_archive_is_project_scoped() {
     let id = mem
         .save_blueprint("project-a", document("done"), &when("Watch CI"), evidence())
         .unwrap()
-        .unwrap();
+        .id;
     let before = mem.list_blueprint_solutions("project-a").unwrap();
     assert_eq!(before.len(), 1);
     assert_eq!(
@@ -375,7 +392,7 @@ fn memory_access_counters_do_not_change_blueprint_statistics() {
     let id = mem
         .save_blueprint("project", document("done"), &when("Watch CI"), evidence())
         .unwrap()
-        .unwrap();
+        .id;
     mem.conn.lock().execute("UPDATE mem_items SET access_count=999,recurrence_count=888,title='Search title' WHERE id=?1",[&id]).unwrap();
     let entries = mem.list_blueprint_solutions("project").unwrap();
     assert_eq!(entries[0].uses, 0);
@@ -403,7 +420,7 @@ fn kept_solution_round_trips_through_recall_and_memory_recipe() {
         let id = mem
             .save_blueprint(area, original, &when("echo-test readiness"), evidence())
             .unwrap()
-            .unwrap();
+            .id;
         let offered = mem.recall_blueprints(area, "echo-test", 3).unwrap();
         assert_eq!(offered[0].entry.id, id);
         let recipe = mem.blueprint_recipe(area, &id).unwrap();
@@ -470,7 +487,7 @@ fn explicit_keep_replaces_broken_equivalent_recipe_preserving_id_and_statistics(
     let id = mem
         .save_blueprint("project", echo_document(), &when("Old phrase"), evidence())
         .unwrap()
-        .unwrap();
+        .id;
     corrupt_saved_echo(&mem, &id);
     let again = mem
         .save_blueprint(
@@ -480,7 +497,7 @@ fn explicit_keep_replaces_broken_equivalent_recipe_preserving_id_and_statistics(
             evidence(),
         )
         .unwrap()
-        .unwrap();
+        .id;
     assert_eq!(again, id);
     let recipe = mem.blueprint_recipe("project", &id).unwrap();
     assert_eq!(recipe.inputs.len(), 1);
@@ -511,7 +528,7 @@ fn recall_archives_invalid_recipes_without_hiding_valid_ones() {
             evidence(),
         )
         .unwrap()
-        .unwrap();
+        .id;
     corrupt_saved_echo(&mem, &id);
     let valid = mem
         .save_blueprint(
@@ -521,7 +538,7 @@ fn recall_archives_invalid_recipes_without_hiding_valid_ones() {
             evidence(),
         )
         .unwrap()
-        .unwrap();
+        .id;
     let recalled = mem.recall_blueprints("project", "Echo", 3).unwrap();
     assert_eq!(recalled.len(), 1);
     assert_eq!(recalled[0].entry.id, valid);
@@ -606,7 +623,7 @@ fn curator_saves_blueprint_among_unrelated_facts_and_other_scopes() {
             },
         )
         .unwrap()
-        .unwrap();
+        .id;
     assert_eq!(
         mem.get(&id).unwrap().unwrap().source.as_deref(),
         Some(SOURCE)

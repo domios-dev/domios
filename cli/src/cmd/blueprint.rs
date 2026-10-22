@@ -366,10 +366,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         if json_mode {
             print_json(&result)
         } else {
-            println!(
-                "Queued {} for Blueprint memory.",
-                result["id"].as_str().unwrap_or("?")
-            );
+            println!("{}", memory::save_receipt(&result));
         }
         return;
     }

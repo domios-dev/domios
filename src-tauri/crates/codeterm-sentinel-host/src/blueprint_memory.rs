@@ -71,12 +71,11 @@ impl BlueprintMemoryExt for ServiceContext {
         let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
             &crate::portable::definition(&job),
         )?;
-        let saved_id = self
-            .mem
-            .save_blueprint(&area(workspace), document, &[when.to_owned()], evidence)?
-            .ok_or("Blueprint solution was not saved")?;
-        self.mem.blueprint_recipe(&area(workspace), &saved_id)?;
-        Ok(json!({"id":saved_id,"status":"saved"}))
+        let saved =
+            self.mem
+                .save_blueprint(&area(workspace), document, &[when.to_owned()], evidence)?;
+        self.mem.blueprint_recipe(&area(workspace), &saved.id)?;
+        Ok(json!({"id":saved.id,"evicted_ids":saved.evicted_ids,"status":"saved"}))
     }
     fn blueprint_solutions_host(&self, workspace: &str) -> Result<Value, String> {
         crate::graph::validate_scope(&self.mux.read(), workspace, None)?;
@@ -124,13 +123,13 @@ impl BlueprintMemoryExt for ServiceContext {
                 .ok_or("Blueprint not found in this Team")?
         };
         let evidence = evidence(&handle, &job)?;
-        self.mem.enqueue_blueprint(
+        let saved = self.mem.enqueue_blueprint(
             area(&caller.workspace),
             crate::portable::definition(&job),
             when.clone(),
             evidence,
         )?;
-        Ok(json!({"id":id,"status":"queued"}))
+        Ok(json!({"id":saved.id,"evicted_ids":saved.evicted_ids,"status":"saved"}))
     }
     fn blueprint_recall(&self, caller: &SentinelCaller, intent: &str) -> Result<Value, String> {
         if intent.len() > 4096 {
