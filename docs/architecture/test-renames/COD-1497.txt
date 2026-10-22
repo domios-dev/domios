@@ -2,3 +2,4 @@ mesh_cli::tests::send_text_is_fire_and_forget_on_mesh -> mesh_cli::tests::send_n
 service::messenger::tests::should_prefix_message_keeps_self_send_guard -> service::messenger::tests::should_prefix_message_includes_self_and_anonymous_sends
 service::reply_relay::restart::tests::restored_routed_frame_preserves_brief_and_strips_both_typed_tails -> service::reply_relay::restart::tests::restored_routed_frame_preserves_brief_and_typed_tails
 server::tab::tests::user_submissions_hold_only_before_first_readiness -> server::tab::tests::socket_send_notice_keeps_build_provenance
+service::pty_io::submit_transaction::paste_encoding_tests::nonrouted_marker_is_a_second_paste_in_the_same_write_only_after_a_bracketed_body -> service::pty_io::submit_transaction::paste_encoding_tests::nonrouted_marker_shares_the_body_paste_only_when_bracketed

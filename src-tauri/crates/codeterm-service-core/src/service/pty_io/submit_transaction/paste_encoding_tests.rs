@@ -78,7 +78,7 @@ fn complete_routed_frame_is_one_bracketed_insertion_with_both_tags() {
 }
 
 #[test]
-fn nonrouted_marker_is_a_second_paste_in_the_same_write_only_after_a_bracketed_body() {
+fn nonrouted_marker_shares_the_body_paste_only_when_bracketed() {
     let marker = "\n::tail::";
     assert_eq!(
         encode_paste_payload(
@@ -88,7 +88,7 @@ fn nonrouted_marker_is_a_second_paste_in_the_same_write_only_after_a_bracketed_b
             Some(true),
             PasteEncodingCapability::MultilineTui
         ),
-        b"\x1b[200~one\ntwo\x1b[201~\x1b[200~\n::tail::\x1b[201~"
+        b"\x1b[200~one\ntwo\n::tail::\x1b[201~"
     );
     for (mode, capability) in [
         (Some(false), PasteEncodingCapability::LiveModeOnly),
@@ -97,6 +97,47 @@ fn nonrouted_marker_is_a_second_paste_in_the_same_write_only_after_a_bracketed_b
     ] {
         let bytes = encode_paste_payload("one\ntwo", false, Some(marker), mode, capability);
         assert!(!String::from_utf8(bytes).unwrap().contains("::tail::"));
+    }
+}
+
+#[test]
+fn large_38_line_paste_keeps_body_and_marker_in_one_provider_event() {
+    // DEV's failed input had 4984 bytes and 38 lines; the second paste committed only its marker.
+    let text = format!(
+        "{}\n\n{}\n\n{}",
+        "a".repeat(171),
+        "b".repeat(15),
+        format!("{}\n", "c".repeat(140)).repeat(34)
+    );
+    assert_eq!(text.len(), 4984);
+    assert_eq!(text.lines().count(), 38);
+    let marker = codeterm_wire::domios::pasted_marker_tail();
+    assert_eq!(marker.len(), 17);
+    let expected = format!("{text}{marker}");
+    for mode in [Some(true), Some(false), None] {
+        let encoded = encode_paste_payload(
+            &text,
+            false,
+            Some(&marker),
+            mode,
+            PasteEncodingCapability::MultilineTui,
+        );
+        let wire = std::str::from_utf8(&encoded).unwrap();
+        assert_eq!(wire.matches(BRACKETED_PASTE_START).count(), 1);
+        assert_eq!(wire.matches(BRACKETED_PASTE_END).count(), 1);
+        assert_eq!(encoded.len(), expected.len() + 12);
+        assert_eq!(
+            wire.strip_prefix(BRACKETED_PASTE_START)
+                .unwrap()
+                .strip_suffix(BRACKETED_PASTE_END)
+                .unwrap(),
+            expected
+        );
+        let semantics = model_submit_semantics(&[encoded, b"\r".to_vec()]);
+        assert_eq!(semantics.payload_writes, 1);
+        assert_eq!(semantics.bracketed_insertions, 1);
+        assert_eq!(semantics.submit_boundaries, 1);
+        assert_eq!(semantics.provider_rows, vec![expected.clone()]);
     }
 }
 

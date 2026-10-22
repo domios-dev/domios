@@ -85,16 +85,12 @@ pub(super) fn encode_paste_payload(
         }
         return normalized.into_bytes();
     }
-    let paste = xterm_paste(
-        text,
-        force_bracketed_paste.then_some(true).or(live_mode),
-        capability,
-    );
-    let mut input = paste.as_bytes().to_vec();
-    if let Some(marker) = paste_marker.filter(|_| paste.starts_with(BRACKETED_PASTE_START)) {
-        input.extend_from_slice(xterm_paste(marker, Some(true), capability).as_bytes());
+    let live_mode = force_bracketed_paste.then_some(true).or(live_mode);
+    if let Some(marker) = paste_marker.filter(|_| capability.bracketed(text, live_mode)) {
+        // Separate paste events can commit out of order when a TUI expands a large paste.
+        return xterm_paste(&format!("{text}{marker}"), live_mode, capability).into_bytes();
     }
-    input
+    xterm_paste(text, live_mode, capability).into_bytes()
 }
 
 pub(super) fn resolve_pty_paste_capability(
