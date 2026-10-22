@@ -1272,7 +1272,10 @@ this operation. Do not put these values in repository files.
 
 Account, billing and analytics own one build_config module each, using option_env!.
 Only vendor adapters consume it. Runtime account and billing config overrides
-the compiled defaults; Amplitude prefers the compiled key over the secret store.
+the compiled defaults; Amplitude uses a public ingestion key embedded at build time; the secret store
+`domios.amplitude.prod.api_key` overrides it for local builds
+(`domios.amplitude.test.api_key` for test projects). Availability is cached
+once per process, so changing the override requires restarting the daemon.
 Without Firebase values account uses local; without a billing endpoint billing
 returns free locally and reports subscription actions unavailable. Missing
 Amplitude credentials leave queued events undelivered with unavailable status.

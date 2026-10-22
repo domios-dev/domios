@@ -153,7 +153,8 @@ function intentView(intent: PurchaseIntent, signedInAs: string | null): Purchase
 }
 
 /** Interval switch plus one card per offer; defaults to yearly billing and the catalog in context. */
-export function PlanCards({ currentPlan = null, canPurchase = true, onChoose, catalog, initialInterval = "year", intent = IDLE_INTENT, signedInAs = null, onCancel }: {
+export function PlanCards({ currentPlan = null, canPurchase = true, onChoose, catalog, initialInterval = "year", intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
+  viewRequested?: boolean;
   currentPlan?: string | null;
   canPurchase?: boolean;
   onChoose?: (planKey: string) => void;
@@ -164,14 +165,14 @@ export function PlanCards({ currentPlan = null, canPurchase = true, onChoose, ca
   onCancel?: () => void;
 }) {
   const contextCatalog = usePlanCatalog();
-  usePlanViewed();
+  const viewTarget = usePlanViewed(viewRequested);
   const offers = catalog ?? contextCatalog;
   const [interval, setInterval] = useState<BillingInterval>(initialInterval);
   const currentOffer = offerIdForPlan(offers, currentPlan);
   const intentOffer = intent.kind === "idle" ? null : offerIdForPlan(offers, intent.planKey);
   const view = intentView(intent, signedInAs);
   return (
-    <div className="flex flex-col gap-3">
+    <div ref={viewTarget} className="flex flex-col gap-3">
       <BillingIntervalToggle interval={interval} onChange={setInterval} savings={bestYearlySavings(offers)} />
       <div role="group" aria-label="Subscription plans" className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         {offers.offers.map((offer) => (

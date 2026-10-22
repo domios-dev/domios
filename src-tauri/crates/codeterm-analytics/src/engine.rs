@@ -135,12 +135,16 @@ impl Engine {
             version, platform, ..
         } = &event
         {
-            if !next.first_run_recorded {
+            if !next.first_run_recorded
+                && !next
+                    .queue
+                    .iter()
+                    .any(|queued| matches!(queued.event, Event::AppFirstRun { .. }))
+            {
                 events.push(Event::AppFirstRun {
                     version: *version,
                     platform: *platform,
                 });
-                next.first_run_recorded = true;
             }
             events.push(Event::AppOpened {});
         }
@@ -210,6 +214,12 @@ impl Engine {
             }
             if result == DeliveryResult::Delivered {
                 next.counters.delivered += batch.len() as u64;
+                if batch
+                    .iter()
+                    .any(|queued| matches!(queued.event, Event::AppFirstRun { .. }))
+                {
+                    next.first_run_recorded = true;
+                }
             } else {
                 next.counters.dropped_payload += batch.len() as u64;
             }

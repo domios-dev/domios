@@ -9,11 +9,26 @@ async function recordPlanViewed() {
   } catch {}
 }
 
-export function usePlanViewed() {
+export function usePlanViewed(requested: boolean) {
   const recorded = useRef(false);
+  const target = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (recorded.current) return;
-    recorded.current = true;
-    void recordPlanViewed();
-  }, []);
+    const record = () => {
+      if (recorded.current) return;
+      recorded.current = true;
+      void recordPlanViewed();
+    };
+    if (requested) record();
+    const element = target.current;
+    if (!element || typeof IntersectionObserver === "undefined" || recorded.current) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        record();
+        observer.disconnect();
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [requested]);
+  return target;
 }

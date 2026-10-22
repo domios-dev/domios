@@ -65,7 +65,7 @@ function PlansModal({ limit, max, onClose, onUpgrade, catalog }: {
       <p id={descriptionId} className="m-0 text-xs text-[var(--ct-muted-fg)]">
         Upgrade to remove this limit. Everything you already have stays as it is.
       </p>
-      <PlanCards catalog={offers} currentPlan={displayedPlan(billing.plan)} canPurchase={!blocked} initialInterval="month"
+      <PlanCards viewRequested catalog={offers} currentPlan={displayedPlan(billing.plan)} canPurchase={!blocked} initialInterval="month"
         onChoose={purchase.choose} intent={intent} onCancel={purchase.cancel}
         signedInAs={identity ? identity.email ?? identity.display_name : null} />
       <div className="flex justify-end gap-2">
