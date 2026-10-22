@@ -6,6 +6,63 @@ use crate::service::{
 };
 
 #[test]
+fn restart_spawn_metadata_without_a_plan_is_unbound() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("provider".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    tab.task_binding = Some(TaskBinding {
+        spawn_handle: Some("opaque-spawn".into()),
+        ..Default::default()
+    });
+    let fixture = ServiceFixture::new(mux);
+    assert!(fixture
+        .service
+        .try_authorize_runtime_restart_binding(
+            &tab_id,
+            "provider",
+            "nonce",
+            super::RuntimeRestartMode::Resume,
+        )
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn restart_partial_plan_binding_is_still_refused() {
+    for binding in [
+        TaskBinding {
+            plan_id: Some("plan".into()),
+            ..Default::default()
+        },
+        TaskBinding {
+            task_id: Some("task".into()),
+            ..Default::default()
+        },
+        TaskBinding {
+            attempt_id: Some("attempt".into()),
+            ..Default::default()
+        },
+    ] {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("provider".into());
+        tab.session_binding_nonce = Some("nonce".into());
+        tab.task_binding = Some(binding);
+        let fixture = ServiceFixture::new(mux);
+        assert!(fixture
+            .service
+            .try_authorize_runtime_restart_binding(
+                &tab_id,
+                "provider",
+                "nonce",
+                super::RuntimeRestartMode::Resume,
+            )
+            .is_err());
+    }
+}
+
+#[test]
 fn restarted_worker_attempt_is_carried_before_ack() {
     worker_attempt_carry(None, false, CarryCase::Open);
 }
