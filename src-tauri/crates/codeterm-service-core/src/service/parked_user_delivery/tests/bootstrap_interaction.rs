@@ -56,13 +56,22 @@ fn zero_write_owner_refusal_retains_head_and_disarms_turn_confirmation() {
 #[test]
 fn user_admissions_leave_existing_interactive_bootstrap_record_and_bytes_unchanged() {
     let (fixture, tab) = queue_fixture(true, None);
-    let digest = fixture
+    let _digest = fixture
         .service
         .create_pending_delivery(
             &tab,
             PendingDeliveryChannel::InteractiveInput,
             "opaque-bootstrap",
         )
+        .unwrap();
+    let pending = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .pending_delivery
+        .clone()
         .unwrap();
     let before = fixture
         .service
@@ -94,7 +103,7 @@ fn user_admissions_leave_existing_interactive_bootstrap_record_and_bytes_unchang
         fixture
             .service
             .pending_delivery_payloads
-            .resolve(&digest)
+            .resolve(&pending)
             .unwrap(),
         "opaque-bootstrap"
     );
@@ -104,13 +113,22 @@ fn user_admissions_leave_existing_interactive_bootstrap_record_and_bytes_unchang
 #[test]
 fn ready_user_send_does_not_wait_for_bootstrap_submit_completion() {
     let (fixture, tab) = queue_fixture(true, None);
-    let digest = fixture
+    let _digest = fixture
         .service
         .create_pending_delivery(
             &tab,
             PendingDeliveryChannel::InteractiveInput,
             "opaque-bootstrap",
         )
+        .unwrap();
+    let pending = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .pending_delivery
+        .clone()
         .unwrap();
     let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
     let (bootstrap_tx, bootstrap_rx) = mpsc::channel();
@@ -177,20 +195,29 @@ fn ready_user_send_does_not_wait_for_bootstrap_submit_completion() {
     assert!(fixture
         .service
         .pending_delivery_payloads
-        .resolve(&digest)
+        .resolve(&pending)
         .is_err());
 }
 
 #[test]
 fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
     let (fixture, tab) = queue_fixture(true, None);
-    let digest = fixture
+    let _digest = fixture
         .service
         .create_pending_delivery(
             &tab,
             PendingDeliveryChannel::InteractiveInput,
             "opaque-bootstrap",
         )
+        .unwrap();
+    let pending = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .pending_delivery
+        .clone()
         .unwrap();
     mark_ready(&fixture, &tab);
     fixture
@@ -227,7 +254,7 @@ fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
     assert!(fixture
         .service
         .pending_delivery_payloads
-        .resolve(&digest)
+        .resolve(&pending)
         .is_err());
     assert!(fixture
         .service
@@ -241,13 +268,22 @@ fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
 #[test]
 fn legacy_user_slot_is_held_without_replay_adoption_or_payload_cleanup() {
     let (fixture, tab) = queue_fixture(true, None);
-    let digest = fixture
+    let _digest = fixture
         .service
         .create_pending_delivery(
             &tab,
             PendingDeliveryChannel::InteractiveInput,
             "opaque-legacy-original",
         )
+        .unwrap();
+    let pending = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .pending_delivery
+        .clone()
         .unwrap();
     {
         let mut mux = fixture.service.mux.write();
@@ -292,7 +328,7 @@ fn legacy_user_slot_is_held_without_replay_adoption_or_payload_cleanup() {
         fixture
             .service
             .pending_delivery_payloads
-            .resolve(&digest)
+            .resolve(&pending)
             .unwrap(),
         "opaque-legacy-original"
     );
@@ -303,4 +339,84 @@ fn legacy_user_slot_is_held_without_replay_adoption_or_payload_cleanup() {
         .records(&tab)
         .unwrap()
         .is_empty());
+}
+
+#[test]
+fn confirmed_identical_bootstrap_sibling_restores_and_hands_off_once() {
+    let (fixture, tab) = queue_fixture(true, None);
+    let payload = "\topaque-identical-bootstrap-\u{03bb}\r\n";
+    fixture
+        .service
+        .create_pending_delivery(&tab, PendingDeliveryChannel::InteractiveInput, payload)
+        .unwrap();
+    let second = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .pending_delivery
+        .clone()
+        .unwrap();
+    let sibling = fixture.service.mux.write().create_tab_record();
+    fixture
+        .service
+        .create_pending_delivery(&sibling, PendingDeliveryChannel::InteractiveInput, payload)
+        .unwrap();
+    fixture
+        .service
+        .reconcile_pending_delivery(&sibling, Ok(true))
+        .unwrap();
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&sibling)
+        .unwrap()
+        .pending_delivery
+        .is_none());
+    let serialized = serde_json::to_string(&second).unwrap();
+    let restored: PendingDeliveryRecord = serde_json::from_str(&serialized).unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .pending_delivery = Some(restored.clone());
+    assert_eq!(
+        fixture
+            .service
+            .pending_delivery_payloads
+            .resolve(&restored)
+            .unwrap(),
+        payload
+    );
+    let writes = Arc::new(AtomicUsize::new(0));
+    let count = writes.clone();
+    let _bootstrap = BootstrapSubmitBoundary::install(
+        &tab,
+        Arc::new(move |text| {
+            assert_eq!(text, "\topaque-identical-bootstrap-\u{03bb}\r\n");
+            count.fetch_add(1, Ordering::AcqRel);
+            Ok(())
+        }),
+    );
+    mark_ready(&fixture, &tab);
+    fixture.service.drain_user_owner(&tab).unwrap();
+    fixture.service.drain_user_owner(&tab).unwrap();
+    assert_eq!(writes.load(Ordering::Acquire), 1);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .pending_delivery
+        .is_none());
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .resolve(&restored)
+        .is_err());
 }
