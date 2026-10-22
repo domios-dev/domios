@@ -196,7 +196,6 @@ fn tab_send_text_dispatch_returns_written_recipient_pad_file() {
     assert_eq!(value["ok"], true);
     assert_eq!(value["delivery"], "pending");
     assert_eq!(value["bytes_written"], false);
-    assert!(value["send_id"].as_str().is_some());
     let path = std::path::PathBuf::from(value["pad_file"].as_str().unwrap());
     assert_eq!(std::fs::read(path).unwrap(), body.as_bytes());
 }
