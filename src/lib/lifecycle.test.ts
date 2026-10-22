@@ -1,6 +1,4 @@
-// A test file with no top-level `import`/`export` is a global SCRIPT to TS,
-// so its helpers collide with every sibling script's helpers. Keep this.
-export {};
+import { mock } from "node:test";
 
 function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -108,6 +106,7 @@ void (async () => {
   setWakeResyncForTests(() => {
     window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
   });
+  mock.timers.enable({ apis: ["setTimeout"] });
   let passed = 0;
   let failed = 0;
 
@@ -129,7 +128,9 @@ void (async () => {
       env.setHidden(true);
       env.setHidden(false);
       check(env.muxRefreshCount() === 0, "resync should be debounced immediately");
-      await new Promise((r) => setTimeout(r, 300));
+      mock.timers.tick(249);
+      check(env.muxRefreshCount() === 0, "resync waits for the debounce boundary");
+      mock.timers.tick(1);
       check(env.muxRefreshCount() === 1, "wake resync dispatches mux refresh once");
     } finally {
       stop();
@@ -141,7 +142,7 @@ void (async () => {
     const stop = mountWebLifecycle();
     try {
       env.setHidden(false);
-      await new Promise((r) => setTimeout(r, 300));
+      mock.timers.tick(300);
       check(env.muxRefreshCount() === 0, "no resync without a hidden period");
     } finally {
       stop();
@@ -153,7 +154,7 @@ void (async () => {
     const stop = mountWebLifecycle();
     try {
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
-      await new Promise((r) => setTimeout(r, 300));
+      mock.timers.tick(300);
       check(env.muxRefreshCount() === 1, "bfcache pageshow triggers resync");
     } finally {
       stop();
@@ -165,7 +166,7 @@ void (async () => {
     const stop = mountWebLifecycle();
     try {
       window.dispatchEvent(new Event("online"));
-      await new Promise((r) => setTimeout(r, 300));
+      mock.timers.tick(300);
       check(env.muxRefreshCount() === 1, "online triggers resync");
     } finally {
       stop();
@@ -178,13 +179,15 @@ void (async () => {
     try {
       window.dispatchEvent(new Event("online"));
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
-      await new Promise((r) => setTimeout(r, 300));
+      mock.timers.tick(300);
       check(env.muxRefreshCount() === 1, "debounce coalesces multiple wake signals");
     } finally {
       stop();
     }
   });
 
+  mock.timers.reset();
+  setWakeResyncForTests(null);
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) throw new Error(`${failed} test(s) failed`);
 })();
