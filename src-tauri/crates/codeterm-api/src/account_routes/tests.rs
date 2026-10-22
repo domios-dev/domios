@@ -336,3 +336,21 @@ async fn account_callback_http_rejects_before_initializing_account() {
             .is_none());
     }
 }
+
+#[test]
+fn account_upgrade_opens_the_plain_checkout_for_an_unknown_theme() {
+    for body in [
+        r#"{"plan":"pro_monthly","theme":"system"}"#,
+        r#"{"plan":"pro_monthly","theme":"Dark"}"#,
+        r#"{"plan":"pro_monthly"}"#,
+    ] {
+        let upgrade: Upgrade = serde_json::from_str(body).unwrap();
+        assert_eq!(upgrade.checkout_theme(), None, "{body}");
+    }
+    let upgrade: Upgrade =
+        serde_json::from_str(r#"{"plan":"pro_monthly","theme":"light"}"#).unwrap();
+    assert_eq!(
+        upgrade.checkout_theme(),
+        Some(codeterm_billing::CheckoutTheme::Light)
+    );
+}

@@ -280,5 +280,7 @@
   "src/components/billing/scenarios/expired.test.tsx",
   "src/components/billing/scenarios/admin.test.tsx",
   "src/components/billing/scenarios/free.test.tsx",
-  "src/components/Canvas/missionControl/BoardEventLog.curator.test.tsx"
+  "src/components/Canvas/missionControl/BoardEventLog.curator.test.tsx",
+  "src/components/billing/purchaseIntent.test.ts",
+  "src/components/Settings/AccountTab.purchase.test.tsx"
 ]
