@@ -97,12 +97,28 @@ impl CliError {
     }
 }
 
-fn render_account_mesh_refusal(value: &serde_json::Value) -> Option<(&'static str, &'static str)> {
+fn render_account_mesh_refusal(value: &serde_json::Value) -> Option<(String, String)> {
     let reason = value.get("reason")?.as_str()?;
-    Some(match reason {
+    let (message, hint) = match reason {
         "unauthenticated" | "signed-out" => (
             "Your Domios account session could not be verified.",
             "sign in again, then retry domios mesh link <installation-id>",
+        ),
+        "verification-unavailable" => (
+            "Your Domios account membership could not be verified.",
+            "sign in again, then retry domios mesh link <installation-id>",
+        ),
+        "app-check" | "forbidden" => (
+            "The account service refused this machine link.",
+            "sign in again and confirm this machine is allowed, then retry domios mesh link <installation-id>",
+        ),
+        "invalid" => (
+            "The account service rejected the machine link details.",
+            "refresh the account machine list, then retry domios mesh link <installation-id>",
+        ),
+        "authority-unavailable" | "unavailable" => (
+            "The account service is temporarily unavailable.",
+            "retry domios mesh link <installation-id> in a moment",
         ),
         "offline" => (
             "The other machine is offline.",
@@ -132,8 +148,23 @@ fn render_account_mesh_refusal(value: &serde_json::Value) -> Option<(&'static st
             "Your account has reached its machine limit.",
             "review your Domios plan before linking another machine",
         ),
-        _ => return None,
-    })
+        "mesh-allowance" => (
+            "Your account does not have an available mesh link.",
+            "review your Domios plan, then retry domios mesh link <installation-id>",
+        ),
+        "expired" => (
+            "The machine link authorization expired.",
+            "refresh the account machine list, then retry domios mesh link <installation-id>",
+        ),
+        _ => {
+            return Some((
+                format!("Account Mesh refused the link ({reason})."),
+                "refresh the account machine list, then retry domios mesh link <installation-id>"
+                    .to_string(),
+            ));
+        }
+    };
+    Some((message.to_string(), hint.to_string()))
 }
 
 impl From<SocketCallError> for CliError {
@@ -313,22 +344,38 @@ mod http_refusal_tests {
 
     #[test]
     fn account_mesh_refusal_uses_a_repair_hint_without_echoing_http_json() {
-        let body =
-            r#"{"ok":false,"request_id":"request-1","failure":{"reason":"unauthenticated"}}"#;
-        let error = CliError::http(401, body);
-        let mut out = Vec::new();
-        let mut err = Vec::new();
-        write_cli_error(false, &error, &mut out, &mut err);
-        let rendered = String::from_utf8(err).unwrap();
+        for (reason, expected, hint) in [
+            (
+                "unauthenticated",
+                "account session could not be verified",
+                "sign in again",
+            ),
+            (
+                "verification-unavailable",
+                "membership could not be verified",
+                "sign in again",
+            ),
+            (
+                "future-refusal",
+                "Account Mesh refused the link (future-refusal).",
+                "refresh the account machine list",
+            ),
+        ] {
+            let body = format!(
+                r#"{{"ok":false,"request_id":"request-1","failure":{{"reason":"{reason}"}}}}"#
+            );
+            let error = CliError::http(401, &body);
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            write_cli_error(false, &error, &mut out, &mut err);
+            let rendered = String::from_utf8(err).unwrap();
 
-        assert!(
-            rendered.contains("account session could not be verified"),
-            "{rendered}"
-        );
-        assert!(rendered.contains("sign in again"), "{rendered}");
-        assert!(!rendered.contains("request-1"), "{rendered}");
-        assert!(!rendered.contains("HTTP 401"), "{rendered}");
-        assert!(!rendered.contains("failure"), "{rendered}");
+            assert!(rendered.contains(expected), "{rendered}");
+            assert!(rendered.contains(hint), "{rendered}");
+            assert!(!rendered.contains("request-1"), "{rendered}");
+            assert!(!rendered.contains("HTTP 401"), "{rendered}");
+            assert!(!rendered.contains("failure"), "{rendered}");
+        }
     }
 }
 
