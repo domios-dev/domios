@@ -93,12 +93,12 @@ test('every active release compiler, Rust test and clippy job uploads through th
     assert.equal(artifact['continue-on-error'], true);
     assert.ok(steps.some(s => s.run?.includes('collect-rust-warnings.mjs run')));
   }
-  for (const id of ['rust-tests', 'rust-platform', 'clippy-linux']) {
-    assert.ok(workflow('tests').jobs[id].steps.some(s => s.uses === './.github/actions/rust-warnings'));
+  for (const [tier, id] of [['tests-rust', 'rust-tests'], ['tests-rust', 'rust-platform'], ['tests-fast', 'clippy-linux']]) {
+    assert.ok(workflow(tier).jobs[id].steps.some(s => s.uses === './.github/actions/rust-warnings'), id);
   }
   assert.deepEqual(workflow('release').jobs['rust-warnings'].needs, ['prepare', 'quick-checks', 'tests', 'macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64']);
   assert.equal(workflow('release').jobs['rust-warnings'].if, "always() && needs.prepare.outputs.promote_run_id == ''");
-  assert.equal(workflow('tests').jobs['rust-warnings'].if, "${{ always() && inputs.source_ref == '' && needs.changed.result == 'success' }}");
+  assert.equal(workflow('tests').jobs['rust-warnings'].if, "${{ always() && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}");
 });
 
 test('summary CLI persists a complete seed, preserves unbuilt targets, reports a new warning before failing', () => {
