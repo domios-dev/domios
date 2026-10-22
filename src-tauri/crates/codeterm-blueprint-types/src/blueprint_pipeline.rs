@@ -116,6 +116,8 @@ pub struct Step {
     pub name: String,
     pub input: IoType,
     pub kind: StepKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<crate::blueprint_execution::ExecutionContract>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub on: BTreeMap<String, String>,
 }
@@ -130,6 +132,9 @@ pub fn route_target<'a>(routes: &'a BTreeMap<String, String>, outcome: &str) -> 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepKind {
+    Code {
+        code: crate::blueprint_document::Code,
+    },
     Http {
         probe: crate::blueprint_http::HttpProbe,
     },
@@ -165,7 +170,11 @@ impl StepKind {
     pub const DESCRIPTORS: &'static [crate::blueprint_catalog::NodeDescriptor] =
         crate::blueprint_catalog::STEPS;
     pub fn name(&self) -> &'static str {
+        if matches!(self, Self::Code { .. }) {
+            return "code";
+        }
         Self::DESCRIPTORS[match self {
+            Self::Code { .. } => unreachable!(),
             Self::Command { .. } => 0,
             Self::Ask { .. } => 1,
             Self::Filter { .. } => 2,
@@ -183,6 +192,7 @@ impl StepKind {
             Self::Http { .. }
             | Self::Github { .. }
             | Self::Command { .. }
+            | Self::Code { .. }
             | Self::Ask { .. }
             | Self::Filter { .. }
             | Self::Agent { .. } => IoType::Text,
@@ -204,6 +214,7 @@ impl StepKind {
             }
             Self::Github { .. }
             | Self::Command { .. }
+            | Self::Code { .. }
             | Self::Convert { .. }
             | Self::Agent { .. } => Ok(["done".into(), "failed".into()].into()),
             Self::Ask { buckets, .. } => {
