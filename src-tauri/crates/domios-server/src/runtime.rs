@@ -76,31 +76,15 @@ pub fn run(
     } else {
         Some(crate::launch::ensure_detached()?)
     };
+    #[cfg(windows)]
+    codeterm_service_core::pty::manager::configure_windows_pty_child_launcher(
+        std::env::current_exe()?,
+    )
+    .map_err(io::Error::other)?;
     crate::launch::install_selectors(&options)?;
     let identity = crate::launch::verify_identity(&options, ResolvedInstancePaths::current()?)?;
-    let isolated = matches!(
-        &options.instance,
-        codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
-    );
     let ownership_registry = ownership_registry_for(&options, &identity)?;
-    let (owner, relocation_notices) = if isolated {
-        (
-            PathOwnership::try_acquire(identity.clone(), &ownership_registry)?,
-            Vec::new(),
-        )
-    } else {
-        crate::upgrade_from_1_14_9::run(identity.clone(), &ownership_registry)?
-    };
-    let mut legacy_references = Vec::new();
-    if !isolated {
-        legacy_references.extend(
-            crate::upgrade_from_1_14_9::legacy_references::scan_legacy_writes(identity.data()),
-        );
-        legacy_references.extend(crate::upgrade_from_1_14_9::legacy_references::scan(
-            identity.data(),
-            identity.config(),
-        ));
-    }
+    let owner = PathOwnership::try_acquire(identity.clone(), &ownership_registry)?;
     let owner = Box::leak(Box::new(owner));
     let process = process::own()?;
     let provenance = process.provenance()?;
@@ -198,37 +182,6 @@ pub fn run(
             )),
         ))
         .map_err(|_| io::Error::other("native application host already registered"))?;
-    for notice in relocation_notices {
-        log::warn!("[upgrade] {notice}");
-        running.service.log_system_notice(
-            "Project directory needs attention".into(),
-            Some(notice),
-            Some("warning"),
-        );
-    }
-    crate::upgrade_from_1_14_9::legacy_references::report_once(
-        identity.data(),
-        legacy_references,
-        |notice| {
-            log::warn!(
-                "[legacy-reference] {:?}: {}: {}",
-                notice.kind,
-                notice.file.display(),
-                notice.fix
-            );
-            running.service.log_system_notice(
-                "Legacy startup reference needs attention".into(),
-                Some(format!(
-                    "Type: {:?}\nFile: {}\nModified (Unix ms): {:?}\nFix: {}",
-                    notice.kind,
-                    notice.file.display(),
-                    notice.modified_ms,
-                    notice.fix
-                )),
-                Some("warning"),
-            );
-        },
-    );
     let ready = runtime.block_on(async {
         let mut statuses = running.states.rest_api.subscribe_status();
         tokio::time::timeout(FAILURE_DEADLINE, async {

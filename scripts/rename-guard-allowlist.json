@@ -27,11 +27,6 @@
       "reason": "This is the verified Firebase project endpoint retained in a historical QA recipe."
     },
     {
-      "path": "src-tauri/crates/**/upgrade_from_1_14_9.rs",
-      "literal": "code\u0074erm",
-      "reason": "The N-1 data relocation module keeps its versioned source path as part of the upgrade contract."
-    },
-    {
       "path": "captures/**",
       "literal": "code\u0074erm",
       "reason": "Captured historical sessions are evidence and must preserve the original product text."

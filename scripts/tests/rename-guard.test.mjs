@@ -81,7 +81,7 @@ test('scope rules map identity, CLI, crate, native and remaining files separatel
 
 test('each checked-in allowlist exception has a reason and Firebase values match the tracked recipe', () => {
   const parsed = JSON.parse(readFileSync(allowlistPath, 'utf8'));
-  assert.ok(parsed.rules.length >= 10);
+  assert.ok(parsed.rules.length >= 9);
   for (const rule of parsed.rules) {
     assert.ok(rule.path, 'allowlist path is required');
     assert.ok(rule.literal, 'allowlist literal is required');
@@ -96,8 +96,6 @@ test('each checked-in allowlist exception has a reason and Firebase values match
   for (const repository of ['rollacode/', 'releases', 'plugins']) {
     assert.ok(literals.some((literal) => literal.includes(repository)), `missing allowlist literal for ${repository}`);
   }
-  const relocation = parsed.rules.find((rule) => rule.path === 'src-tauri/crates/**/upgrade_from_1_14_9.rs');
-  assert.equal(relocation.literal.toLowerCase(), marker);
   for (const historyPath of ['captures/**', 'evals/**/evidence/**', 'docs/release/**', '.research/**']) {
     assert.ok(parsed.rules.some((rule) => rule.path === historyPath && rule.literal.toLowerCase() === marker), `missing historical path ${historyPath}`);
   }

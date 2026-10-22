@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { archiveRuntimeFiles } from "./plugin-runtime-files.mjs";
 
 export const CORE_CHANNEL_RELEASE = "codeterm-core-latest";
 export const CORE_CHANNEL_ARCHIVE = "codeterm-core.tar.gz";
@@ -25,7 +26,7 @@ export function checksumLine(bytes, name) {
 
 export function packageChannel(sourceSha, directory, run = execFileSync) {
   const archive = path.join(directory, CORE_CHANNEL_ARCHIVE);
-  run("git", ["archive", "--format=tar.gz", `--output=${archive}`, `${sourceSha}:plugins`]);
+  archiveRuntimeFiles(sourceSha, "plugins", archive, run);
   fs.writeFileSync(`${archive}.sha256`, checksumLine(fs.readFileSync(archive), CORE_CHANNEL_ARCHIVE));
   fs.writeFileSync(path.join(directory, SOURCE_COMMIT), `${sourceSha}\n`);
   return [archive, `${archive}.sha256`, path.join(directory, SOURCE_COMMIT)];

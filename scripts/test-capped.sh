@@ -141,6 +141,9 @@ if [ "$EXEC_MODE" -eq 0 ]; then
     fi
     configure_embed_cache
     isolate_conpty_test_dir
+    if [ "${CODETERM_BUILD_FINGERPRINTS:-0}" = 1 ] && [ -n "${CT_BUILD_ARTIFACT_DIR:-}" ]; then
+        node "$ROOT/scripts/build-compiler-inputs.mjs" "$@"
+    fi
 fi
 
 if [ "$TEST_CAP_SECS" -eq 0 ]; then

@@ -117,10 +117,10 @@ pub enum Commands {
 
     /// Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
     CliManifest {
-        /// Regenerate committed artifacts (generated/cli/cli-manifest.json + generated/cli/cli.md)
+        /// Write the CLI manifest, Markdown reference and command-path exports
         #[arg(long)]
         write: bool,
-        /// Emit the generated/cli/cli.md auto-block markdown instead of JSON
+        /// Emit the Markdown command reference instead of JSON
         #[arg(long, conflicts_with = "write")]
         markdown: bool,
     },

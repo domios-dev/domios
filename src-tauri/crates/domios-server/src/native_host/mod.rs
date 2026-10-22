@@ -1,4 +1,5 @@
 mod enrollment;
+mod peer;
 mod transport;
 mod wire_io;
 
