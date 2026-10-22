@@ -15,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT
 SHA=abc123456789abc123456789abc123456789abcd
-printf '%s\n' "{\"status\":\"ok\",\"build\":\"abc1234\",\"build_sha\":\"$SHA\",\"instance\":{\"name\":\"fixture\",\"api_port\":\"7787\",\"vite_port\":\"1500\",\"cdp_port\":\"9363\",\"identifier\":\"com.domios.dev.fixture\"}}" > "$FIXTURE"
+printf '%s\n' "{\"status\":\"ok\",\"startup\":{\"state\":\"ready\"},\"build\":\"abc1234\",\"build_sha\":\"$SHA\",\"instance\":{\"name\":\"fixture\",\"api_port\":\"7787\",\"vite_port\":\"1500\",\"cdp_port\":\"9363\",\"identifier\":\"com.domios.dev.fixture\"}}" > "$FIXTURE"
 
 ./build.sh gateway-health-check "$SHA" fixture 7787 1500 9363 com.domios.dev.fixture "$FIXTURE" > "$TEST_ROOT/pass.log"
 grep -q "^$SHA$" "$TEST_ROOT/pass.log"
@@ -33,13 +33,13 @@ assert_rejected short-sha "stale or wrong-lane" abc123456789 fixture 7787 1500 9
 assert_rejected wrong-sha "stale or wrong-lane" fbc123456789abc123456789abc123456789abcd fixture 7787 1500 9363 com.domios.dev.fixture
 printf '%s\n' "{\"status\":\"stale\",\"build_sha\":\"$SHA\",\"instance\":{\"name\":\"fixture\",\"api_port\":\"7787\",\"vite_port\":\"1500\",\"cdp_port\":\"9363\",\"identifier\":\"com.domios.dev.fixture\"}}" > "$FIXTURE"
 assert_rejected status "status=ok" "$SHA" fixture 7787 1500 9363 com.domios.dev.fixture
-printf '%s\n' "{\"status\":\"ok\",\"build_sha\":\"$SHA\",\"instance\":{\"name\":\"fixture\",\"api_port\":\"7787\",\"vite_port\":\"1500\",\"cdp_port\":\"9363\",\"identifier\":\"com.domios.dev.fixture\"}}" > "$FIXTURE"
+printf '%s\n' "{\"status\":\"ok\",\"startup\":{\"state\":\"ready\"},\"build_sha\":\"$SHA\",\"instance\":{\"name\":\"fixture\",\"api_port\":\"7787\",\"vite_port\":\"1500\",\"cdp_port\":\"9363\",\"identifier\":\"com.domios.dev.fixture\"}}" > "$FIXTURE"
 assert_rejected name "wrong instance" "$SHA" other 7787 1500 9363 com.domios.dev.fixture
 assert_rejected api "wrong instance" "$SHA" fixture 7788 1500 9363 com.domios.dev.fixture
 assert_rejected vite "wrong instance" "$SHA" fixture 7787 1501 9363 com.domios.dev.fixture
 assert_rejected cdp "wrong instance" "$SHA" fixture 7787 1500 9364 com.domios.dev.fixture
 assert_rejected identifier "wrong instance" "$SHA" fixture 7787 1500 9363 com.domios.dev.other
-printf '%s\n' "{\"status\":\"ok\",\"build_sha\":\"$SHA\",\"instance\":{\"name\":\"\",\"api_port\":\"7686\",\"vite_port\":\"1420\",\"cdp_port\":\"9223\",\"identifier\":\"com.domios.dev\"}}" > "$FIXTURE"
+printf '%s\n' "{\"status\":\"ok\",\"startup\":{\"state\":\"ready\"},\"build_sha\":\"$SHA\",\"instance\":{\"name\":\"\",\"api_port\":\"7686\",\"vite_port\":\"1420\",\"cdp_port\":\"9223\",\"identifier\":\"com.domios.dev\"}}" > "$FIXTURE"
 ./build.sh gateway-health-check "$SHA" "" 7686 1420 9223 com.domios.dev "$FIXTURE" > "$TEST_ROOT/empty-name.log"
 grep -q "^$SHA$" "$TEST_ROOT/empty-name.log"
 echo "PASS health build SHA and instance mismatch validation"

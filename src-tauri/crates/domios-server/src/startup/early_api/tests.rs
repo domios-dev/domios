@@ -169,3 +169,63 @@ async fn startup_events_refuse_foreign_unauthenticated_callers() {
         StatusCode::OK
     );
 }
+
+#[tokio::test]
+async fn early_health_only_exempts_loopback_from_authentication() {
+    let api = EarlyApi::new(Some("fixture-token".into()));
+    for address in ["192.0.2.1:40000", "[2001:db8::1]:40000"] {
+        for token in [None, Some("wrong-token"), Some("fixture-token")] {
+            let mut request = Request::builder()
+                .uri("/api/health")
+                .extension(ConnectInfo(address.parse::<SocketAddr>().unwrap()));
+            if let Some(token) = token {
+                request = request.header("authorization", format!("Bearer {token}"));
+            }
+            let response = api
+                .router()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                if token == Some("fixture-token") {
+                    StatusCode::OK
+                } else {
+                    StatusCode::FORBIDDEN
+                }
+            );
+        }
+    }
+    assert_eq!(
+        api.router()
+            .oneshot(request(Method::GET, "/api/health"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn ready_health_delegates_authentication_to_the_active_router() {
+    let api = EarlyApi::new(Some("startup-token".into()));
+    complete_service(&api);
+    api.complete("integrity");
+    api.activate(Router::new().route(
+        "/api/health",
+        axum::routing::get(|| async { StatusCode::ACCEPTED }),
+    ))
+    .unwrap();
+    let request = Request::builder()
+        .uri("/api/health")
+        .header("authorization", "Bearer replacement-token")
+        .extension(ConnectInfo(
+            "192.0.2.1:40000".parse::<SocketAddr>().unwrap(),
+        ))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        api.router().oneshot(request).await.unwrap().status(),
+        StatusCode::ACCEPTED
+    );
+}
