@@ -222,3 +222,55 @@ fn curator_started_delivery_carries_round_metadata_independently_of_body() {
         crate::service::messenger::Messenger::from(curator_started_envelope(7)).wrap("opaque body");
     assert!(wire.starts_with("<domios from=\"system\" context=\"curator:round_started:7\">"));
 }
+
+#[test]
+fn curator_round_notices_reach_agent_payload_once_with_system_frames() {
+    use crate::service::messenger::QueuedAgentPayload;
+    use crate::service::test_fixture::ServiceFixture;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+
+    for (envelope, context) in [
+        (curator_started_envelope(7), "curator:round_started:7"),
+        (curator_envelope(), "curator"),
+    ] {
+        let (mux, target) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        drop(fixture.bind_recorded_agent_recipient(&target, "own-session", "own-nonce"));
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&writes);
+        let _boundary = crate::service::agent_delivery_outbox::test_boundary::Boundary::install(
+            &target,
+            Arc::new(move |payload| {
+                captured.lock().push(payload.transport.clone());
+                Ok(())
+            }),
+            Arc::new(|| {}),
+        );
+        let body = "opaque round payload";
+        fixture
+            .service
+            .deliver_cron_report(&target, envelope, body)
+            .unwrap();
+        let writes = writes.lock();
+        assert_eq!(writes.len(), 1);
+        let QueuedAgentPayload::RoutedFrame {
+            opening_tag,
+            body: delivered_body,
+            suffix,
+        } = &writes[0]
+        else {
+            panic!("system notice must retain its routed frame");
+        };
+        let text = codeterm_wire::domios::DomiosFrame {
+            opening_tag: opening_tag.clone(),
+            body: delivered_body.clone(),
+            suffix: suffix.clone(),
+        }
+        .to_message();
+        let parsed = codeterm_wire::domios::parse_message(&text).unwrap();
+        assert_eq!(parsed.attr("from"), Some("system"));
+        assert_eq!(parsed.attr("context"), Some(context));
+        assert_eq!(parsed.body, body);
+    }
+}
