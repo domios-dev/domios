@@ -40,6 +40,50 @@ the window. A rerun with a live window builds beside it: the window locks its ex
 client link that succeeds proves the client unchanged and only the server swaps; a lock failure
 replaces the window. Hosts older than the Team DEV breakaway report that the window stays tied to the tab.
 
+## Firebase emulator DEV
+
+Start and seed the Firebase Emulator Suite using the sibling repository's
+[LOCAL-DEV.md](../../../../codeterm-firebase/docs/LOCAL-DEV.md) (published source:
+[codeterm-firebase/docs/LOCAL-DEV.md](https://github.com/rollacode/codeterm-firebase/blob/master/docs/LOCAL-DEV.md)).
+It uses the synthetic `demo-domios` project, Auth `19099`, Firestore `18080`,
+Functions `15001` and Hosting `15000`, all on `127.0.0.1`.
+
+Set the explicit runtime opt-in in the DEV utility shell before launching the
+debug server. Keep the normal named-instance selectors for a noncanonical lane:
+
+```powershell
+$env:DOMIOS_FIREBASE_EMULATOR = '1'
+$env:CODETERM_DEV_INSTANCE = 'firebase'
+$env:CODETERM_DEV_API_PORT = '17686'
+bash ./build.sh dev
+```
+
+For Bash, export those same three variables before `./build.sh dev`. The opt-in
+selects Firebase even with a saved local account provider and uses a fake API
+key; no production credentials are needed. Start sign-in from the desktop so
+the browser receives its state and PKCE challenge. Hosting serves
+`http://127.0.0.1:15000/signin/`; redemption and billing call
+`http://127.0.0.1:15001/demo-domios/us-central1/`. Identity Toolkit and securetoken
+use their respective API paths beneath `http://127.0.0.1:19099/`.
+
+Use the seeded identities/passwords from LOCAL-DEV.md. Log out before switching
+between emulator and production targets; saved refresh credentials belong to
+their Auth service. Unset the opt-in and restart DEV to restore its ordinary
+configuration. Emulator HTTP is admitted only for these exact service paths
+and ports with the opt-in enabled.
+
+Release builds compile in production Auth, `auth.domios.dev` sign-in and
+`us-central1-domios-d9357.cloudfunctions.net` functions. Runtime config and
+endpoint environment variables cannot redirect release builds. The emulator
+endpoint table and DEV grant activation are excluded from shipped release
+builds by `cfg(debug_assertions)`. DEV with the opt-in can verify the existing
+public RFC 8032 fixture key for `demo-domios`, test mode and epoch
+`fixture-online-v1`; Phase A keeps the existing envelope access behavior.
+The emulator backend currently returns the existing envelope without a signed
+grant, so local sign-in/entitlements do not establish a signed-grant round trip.
+Production `ACTIVATION` remains dormant (`None`) until an owner-reviewed epoch
+and production public key are pinned in source. Release never selects DEV trust.
+
 ## Measuring the live window
 
 `scripts/dev-perf/` attaches to the DEV webview over CDP (`CODETERM_DEV_CDP_PORT`, default
