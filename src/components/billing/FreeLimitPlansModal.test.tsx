@@ -98,6 +98,7 @@ describe("plans modal", () => {
   it("checkout theme is light or dark, never system", () => {
     expect(checkoutTheme({ dataset: { ctTheme: "light" } })).toBe("light");
     expect(checkoutTheme({ dataset: { ctTheme: "dark" } })).toBe("dark");
-    expect(checkoutTheme({ dataset: {} })).toBe("dark");
+    expect(checkoutTheme({ dataset: {} })).toBeNull();
+    expect(checkoutTheme({ dataset: { ctTheme: "system" } })).toBeNull();
   });
 });

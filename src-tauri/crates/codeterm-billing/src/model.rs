@@ -56,6 +56,15 @@ pub enum CheckoutTheme {
     Dark,
 }
 impl CheckoutTheme {
+    /// Unknown values (`system`, other casings, future themes) open the plain checkout rather than failing.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "light" => Some(Self::Light),
+            "dark" => Some(Self::Dark),
+            _ => None,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Light => "light",
@@ -66,6 +75,11 @@ impl CheckoutTheme {
 
 /// Sets `theme` on a checkout URL, keeping every other parameter (`_ptxn` included) and the fragment.
 pub fn checkout_url_with_theme(mut url: url::Url, theme: CheckoutTheme) -> url::Url {
+    // Appending leaves the existing query bytes untouched; a rebuild would re-encode them.
+    if !url.query_pairs().any(|(key, _)| key == "theme") {
+        url.query_pairs_mut().append_pair("theme", theme.as_str());
+        return url;
+    }
     let kept: Vec<(String, String)> = url
         .query_pairs()
         .filter(|(key, _)| key != "theme")

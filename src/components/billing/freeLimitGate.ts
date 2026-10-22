@@ -73,7 +73,7 @@ export async function upgradePlan(planKey: string = UPGRADE_PLAN_KEY): Promise<v
   const response = await localFetch("/api/account/upgrade", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ plan: planKey, theme: checkoutTheme() }),
+    body: JSON.stringify({ plan: planKey, theme: checkoutTheme() ?? undefined }),
   });
   if (!response.ok) throw new Error(await response.text());
 }
