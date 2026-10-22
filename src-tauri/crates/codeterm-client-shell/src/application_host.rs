@@ -9,6 +9,9 @@ use crate::app_runtime::AppHandle;
 /// The native client stops its attached server before an installer replaces the pair.
 #[async_trait::async_trait]
 pub trait ServerStop: Send + Sync {
+    async fn prepare_update(&self, _version: &str) -> Result<(), String> {
+        Ok(())
+    }
     fn install_identity(&self) -> Result<AttachedServerIdentity, String> {
         Err("the exact attached server identity is unavailable".into())
     }

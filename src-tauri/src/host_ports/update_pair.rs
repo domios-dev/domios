@@ -23,6 +23,9 @@ pub(crate) fn install(app: &codeterm_client_shell::app_runtime::AppHandle) {
             download_total_bytes: None,
         }));
     app.manage(update_state);
+    app.manage(Arc::new(
+        super::native_client::update::UpdateOperation::default(),
+    ));
     app.manage(ServerStopState(Arc::new(AttachedServerStop {
         app: app.clone(),
     })));

@@ -170,6 +170,7 @@ impl AttachedNativeUpdateExecutor {
                 NativeHostScope::Client,
                 NativeHostOperation::NativeUpdate {
                     request: request.clone(),
+                    apply: None,
                 },
             )
             .await;

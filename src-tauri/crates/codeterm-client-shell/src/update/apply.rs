@@ -144,6 +144,7 @@ async fn check_and_apply_plugin(
         update_state: update_state.clone(),
     };
 
+    server_stop.prepare_update(&update.version).await?;
     let server_identity = server_stop.install_identity()?;
     let server_stopped = std::sync::atomic::AtomicBool::new(false);
     let outcome = super::orchestrate::install_after_shutdown(

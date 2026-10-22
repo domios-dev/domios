@@ -5,6 +5,7 @@ pub mod apply;
 pub mod channel;
 pub mod checker;
 pub mod manifest;
+pub mod native_handoff;
 pub mod receipt;
 pub mod single_flight;
 pub mod update_state;

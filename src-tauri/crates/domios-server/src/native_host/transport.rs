@@ -218,6 +218,44 @@ fn create_listener(ready: &ServerReady) -> io::Result<Listener> {
 }
 
 impl NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult> {
+    pub(crate) async fn request_update_on_connection(
+        &self,
+        connection: &codeterm_types::native_host::NativeHostConnection,
+        operation: NativeHostOperation<NativeUpdateRequest>,
+    ) -> Completion<NativeUpdateResult> {
+        let session = self
+            .active
+            .read()
+            .as_ref()
+            .filter(|session| &session.connection == connection)
+            .cloned();
+        let Some(session) = session else {
+            return NativeHostCompletion::Rejected(NativeHostRejection::NotAttached);
+        };
+        self.request_captured(&session, NativeHostScope::Client, operation)
+            .await
+    }
+
+    pub(crate) fn update_request(&self) -> NativeUpdateRequest {
+        NativeUpdateRequest {
+            operation_id: codeterm_types::native_update::NativeUpdateOperationId::new(
+                uuid::Uuid::new_v4(),
+            )
+            .expect("new UUID is nonzero"),
+            action: codeterm_types::native_update::NativeUpdateAction::Pair,
+            expected_server: codeterm_types::native_update::ExpectedServer {
+                components: self.manifest.clone(),
+                identity: self.ready.identity.clone(),
+                incarnation: codeterm_types::server_bootstrap::ServerExpectation {
+                    epoch: self.ready.epoch.clone(),
+                    process: self.ready.process.clone(),
+                },
+            },
+            staged_components: self.manifest.clone(),
+            restart_authorized: true,
+        }
+    }
+
     pub fn active_native_update_executor(
         &self,
     ) -> Result<Arc<dyn NativeUpdateExecutor>, NativeUpdateRefusal> {
@@ -594,6 +632,11 @@ where
                 },
             );
         }
+        let deadline = if matches!(&operation, NativeHostOperation::ObserveNativeUpdate { .. }) {
+            codeterm_types::native_host::NATIVE_UPDATE_OBSERVATION_DEADLINE
+        } else {
+            NATIVE_HOST_REQUEST_DEADLINE
+        };
         let request = NativeHostRequest {
             request_id,
             connection: self.connection.clone(),
@@ -620,7 +663,7 @@ where
             armed: true,
         };
         let mut reply_rx = reply_rx;
-        match timeout(NATIVE_HOST_REQUEST_DEADLINE, &mut reply_rx).await {
+        match timeout(deadline, &mut reply_rx).await {
             Ok(Ok(reply)) => {
                 guard.disarm();
                 reply.completion
