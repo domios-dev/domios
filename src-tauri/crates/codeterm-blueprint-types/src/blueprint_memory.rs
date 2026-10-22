@@ -13,6 +13,8 @@ pub use quality::{decide, CuratorEvidence, Evidence, Qualification};
 
 pub const AREA_CAP: usize = 50;
 pub const MERGE_BUDGET: usize = 8;
+pub const MAX_INTENTS: usize = 5;
+pub const MAX_INTENT_CHARS: usize = 200;
 
 pub fn parse_document(source: &str) -> Result<Document, String> {
     if source.len() > crate::blueprint_recipe::MAX_RECIPE_BYTES {
@@ -27,10 +29,48 @@ pub struct Entry {
     pub document: Document,
     pub uses: u64,
     pub last_used: i64,
-    pub when_to_use: String,
+    pub intents: Vec<String>,
     pub successes: u64,
     pub failures: u64,
     pub kept: bool,
+}
+
+impl Entry {
+    pub fn when_to_use(&self) -> String {
+        self.intents.join("; ")
+    }
+}
+
+pub fn validate_intents(intents: &[String]) -> Result<Vec<String>, String> {
+    let intents = intents
+        .iter()
+        .map(|intent| intent.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>();
+    if intents.is_empty()
+        || intents.len() > MAX_INTENTS
+        || intents.iter().any(|intent| {
+            intent.is_empty()
+                || intent.chars().count() > MAX_INTENT_CHARS
+                || intent.chars().any(char::is_control)
+        })
+    {
+        return Err(format!(
+            "Give 1..{MAX_INTENTS} intents of 1..{MAX_INTENT_CHARS} plain-text characters each"
+        ));
+    }
+    Ok(intents)
+}
+
+pub fn merge_intents(first: &[String], second: &[String]) -> Vec<String> {
+    let mut merged: Vec<String> = Vec::new();
+    for intent in first.iter().chain(second) {
+        if merged.len() < MAX_INTENTS
+            && !merged.iter().any(|kept| kept.eq_ignore_ascii_case(intent))
+        {
+            merged.push(intent.clone());
+        }
+    }
+    merged
 }
 
 pub fn score(entry: &Entry, now: i64) -> f64 {
@@ -142,7 +182,7 @@ pub fn recall(entries: &[Entry], intent: &str, limit: usize, now: i64) -> Vec<En
     let mut ranked = entries
         .iter()
         .filter_map(|entry| {
-            let terms = words(&entry.when_to_use);
+            let terms = words(&entry.intents.join(" "));
             let hits = query.intersection(&terms).count();
             (query.is_empty() || hits > 0).then_some((hits, entry))
         })
@@ -201,9 +241,7 @@ pub fn merge_pair(a: &Entry, b: &Entry) -> Option<Merge> {
     keeper.successes = a.successes.saturating_add(b.successes);
     keeper.failures = a.failures.saturating_add(b.failures);
     keeper.kept = a.kept || b.kept;
-    if lesser.when_to_use.len() > keeper.when_to_use.len() {
-        keeper.when_to_use = lesser.when_to_use.clone();
-    }
+    keeper.intents = merge_intents(&keeper.intents, &lesser.intents);
     keeper.last_used = a.last_used.max(b.last_used);
     Some(Merge {
         keeper,

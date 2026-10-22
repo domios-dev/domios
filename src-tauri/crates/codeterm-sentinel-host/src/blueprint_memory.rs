@@ -27,7 +27,7 @@ pub trait BlueprintMemoryExt {
         &self,
         caller: &SentinelCaller,
         id: &str,
-        when: &str,
+        when: &[String],
     ) -> Result<Value, String>;
     fn blueprint_recall(&self, caller: &SentinelCaller, intent: &str) -> Result<Value, String>;
     fn blueprint_apply_recipe(
@@ -73,7 +73,7 @@ impl BlueprintMemoryExt for ServiceContext {
         )?;
         let saved_id = self
             .mem
-            .save_blueprint(&area(workspace), document, when, evidence)?
+            .save_blueprint(&area(workspace), document, &[when.to_owned()], evidence)?
             .ok_or("Blueprint solution was not saved")?;
         self.mem.blueprint_recipe(&area(workspace), &saved_id)?;
         Ok(json!({"id":saved_id,"status":"saved"}))
@@ -81,7 +81,7 @@ impl BlueprintMemoryExt for ServiceContext {
     fn blueprint_solutions_host(&self, workspace: &str) -> Result<Value, String> {
         crate::graph::validate_scope(&self.mux.read(), workspace, None)?;
         let entries = self.mem.list_blueprint_solutions(&area(workspace))?;
-        Ok(json!(entries.into_iter().map(|entry| json!({"id":entry.id,"when_to_use":entry.when_to_use,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used})).collect::<Vec<_>>()))
+        Ok(json!(entries.into_iter().map(|entry| json!({"id":entry.id,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used})).collect::<Vec<_>>()))
     }
     fn blueprint_archive_solution_host(&self, workspace: &str, id: &str) -> Result<Value, String> {
         crate::graph::validate_scope(&self.mux.read(), workspace, None)?;
@@ -93,14 +93,9 @@ impl BlueprintMemoryExt for ServiceContext {
         &self,
         caller: &SentinelCaller,
         id: &str,
-        when: &str,
+        when: &[String],
     ) -> Result<Value, String> {
-        if when.trim().is_empty()
-            || when.chars().count() > 200
-            || when.chars().any(char::is_control)
-        {
-            return Err("When to use must contain 1..200 plain-text characters".into());
-        }
+        let when = &codeterm_blueprint_types::blueprint_memory::validate_intents(when)?;
         if self
             .role_policy_for_tab(&caller.tab)
             .is_some_and(|policy| policy.conservative_save())
@@ -132,7 +127,7 @@ impl BlueprintMemoryExt for ServiceContext {
         self.mem.enqueue_blueprint(
             area(&caller.workspace),
             crate::portable::definition(&job),
-            when.into(),
+            when.clone(),
             evidence,
         )?;
         Ok(json!({"id":id,"status":"queued"}))
@@ -144,9 +139,10 @@ impl BlueprintMemoryExt for ServiceContext {
         let entries = self
             .mem
             .recall_blueprints(&area(&caller.workspace), intent, 5)?;
-        let offers=entries.into_iter().map(|entry| {
+        let offers=entries.into_iter().map(|hit| {
+            let entry=hit.entry;
             let yaml=entry.document.yaml()?;
-            Ok(json!({"id":entry.id,"name":entry.document.name,"when_to_use":entry.when_to_use,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used,"yaml":yaml}))
+            Ok(json!({"id":entry.id,"name":entry.document.name,"when_to_use":entry.when_to_use(),"intents":entry.intents,"how":entry.document.note,"uses":entry.uses,"successes":entry.successes,"last_used":entry.last_used,"yaml":yaml,"why":hit.why,"enrichment_pending":hit.enrichment_pending}))
         }).collect::<Result<Vec<_>,String>>()?;
         Ok(json!(offers))
     }

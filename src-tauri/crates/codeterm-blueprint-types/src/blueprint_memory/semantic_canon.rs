@@ -330,25 +330,58 @@ fn template(text: &str) -> String {
 
 fn words(text: &str) -> String {
     static TOKEN: OnceLock<Regex> = OnceLock::new();
-    let text = template(text);
+    let text = scrub(&template(text)).join(" ");
     TOKEN
         .get_or_init(|| {
             Regex::new(r"\{[A-Za-z0-9_]+\}|[A-Za-z][A-Za-z0-9]*").expect("static regex")
         })
         .find_iter(&text)
         .map(|token| token.as_str())
-        .filter(|token| token.starts_with('{') || !super::contains_credentials(token))
         .map(str::to_lowercase)
         .collect::<Vec<_>>()
         .join(" ")
 }
 
+fn scrub(text: &str) -> Vec<&str> {
+    let tokens = text.split_whitespace().collect::<Vec<_>>();
+    let sensitive = |token: &str| {
+        let key = token
+            .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+            .to_ascii_lowercase()
+            .replace(['-', '_'], "");
+        matches!(
+            key.as_str(),
+            "password"
+                | "passwd"
+                | "token"
+                | "secret"
+                | "apikey"
+                | "key"
+                | "authorization"
+                | "bearer"
+                | "basic"
+                | "auth"
+                | "pat"
+        )
+    };
+    tokens
+        .iter()
+        .enumerate()
+        .filter(|(index, token)| {
+            let previous = index.checked_sub(1).map(|index| tokens[index]);
+            !super::contains_credentials(token)
+                && !previous.is_some_and(|previous| {
+                    sensitive(previous)
+                        || super::contains_credentials(&format!("{previous} {token}"))
+                })
+        })
+        .map(|(_, token)| *token)
+        .collect()
+}
+
 fn shell_token(token: &str) -> String {
     let token = token.trim_matches(|c| c == '\'' || c == '"');
-    if token.is_empty()
-        || matches!(token, "|" | "&&" | "||" | ";" | ">" | "<" | "2>&1")
-        || super::contains_credentials(token)
-    {
+    if token.is_empty() || matches!(token, "|" | "&&" | "||" | ";" | ">" | "<" | "2>&1") {
         return String::new();
     }
     if token.starts_with('{')
@@ -378,8 +411,9 @@ fn shell_token(token: &str) -> String {
 }
 
 fn command_gist(command: &str) -> String {
-    let tokens = template(command)
-        .split_whitespace()
+    let command = template(command);
+    let tokens = scrub(&command)
+        .into_iter()
         .map(shell_token)
         .filter(|token| !token.is_empty())
         .collect::<Vec<_>>();

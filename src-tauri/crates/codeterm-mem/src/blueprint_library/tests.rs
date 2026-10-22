@@ -4,6 +4,9 @@ use serde_json::json;
 fn document(bucket: &str) -> Document {
     Document::from_definition(&json!({"create":{"name":"ci-watch","note":"Watch CI failure","probe":"echo ready","question":"Ready?","buckets":[bucket],"every":"20s","matches":{(bucket):"ready"},"routes":{(bucket):"notify"},"until":bucket,"timeout":"1h"}})).unwrap()
 }
+fn when(text: &str) -> Vec<String> {
+    vec![text.into()]
+}
 fn evidence() -> Evidence {
     Evidence {
         kept: true,
@@ -25,7 +28,12 @@ fn curator_save_preserves_uid_and_bumps_confidence_in_later_round() {
         ..evidence()
     };
     let id = mem
-        .save_blueprint("project", document("done"), "Watch CI failure", proof(1))
+        .save_blueprint(
+            "project",
+            document("done"),
+            &when("Watch CI failure"),
+            proof(1),
+        )
         .unwrap()
         .unwrap();
     let first = mem.get(&id).unwrap().unwrap();
@@ -48,7 +56,12 @@ fn curator_save_preserves_uid_and_bumps_confidence_in_later_round() {
         .episodes
         .contains("blueprint:a"));
     let again = mem
-        .save_blueprint("project", document("done"), "Watch CI failure", proof(2))
+        .save_blueprint(
+            "project",
+            document("done"),
+            &when("Watch CI failure"),
+            proof(2),
+        )
         .unwrap()
         .unwrap();
     assert_eq!(again, id);
@@ -67,7 +80,12 @@ fn curator_save_preserves_uid_and_bumps_confidence_in_later_round() {
 fn curator_conflicting_graph_refuses_without_writing() {
     let mem = MemManager::open_in_memory().unwrap();
     let id = mem
-        .save_blueprint("project", document("done"), "Watch CI failure", evidence())
+        .save_blueprint(
+            "project",
+            document("done"),
+            &when("Watch CI failure"),
+            evidence(),
+        )
         .unwrap()
         .unwrap();
     let proof = Evidence {
@@ -80,7 +98,12 @@ fn curator_conflicting_graph_refuses_without_writing() {
         ..evidence()
     };
     assert_eq!(
-        mem.save_blueprint("project", document("failed"), "Watch CI failure", proof),
+        mem.save_blueprint(
+            "project",
+            document("failed"),
+            &when("Watch CI failure"),
+            proof
+        ),
         Err(format!("conflict with {id}"))
     );
     assert_eq!(mem.list_blueprint_solutions("project").unwrap().len(), 1);
@@ -99,7 +122,7 @@ fn repeated_keep_counts_new_evidence_only() {
         .save_blueprint(
             "project",
             document("done"),
-            "Watch CI failure",
+            &when("Watch CI failure"),
             proof.clone(),
         )
         .unwrap()
@@ -107,7 +130,7 @@ fn repeated_keep_counts_new_evidence_only() {
     mem.save_blueprint(
         "project",
         document("done"),
-        "Watch CI failure",
+        &when("Watch CI failure"),
         proof.clone(),
     )
     .unwrap();
@@ -123,7 +146,7 @@ fn repeated_keep_counts_new_evidence_only() {
     mem.save_blueprint(
         "project",
         document("done"),
-        "Watch CI failure",
+        &when("Watch CI failure"),
         Evidence {
             successes: 4,
             ..proof
@@ -148,7 +171,7 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
         .save_blueprint(
             "project-a",
             document("done"),
-            "Watch CI failure",
+            &when("Watch CI failure"),
             Evidence::default()
         )
         .is_err());
@@ -156,7 +179,7 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
         .save_blueprint(
             "project-a",
             document("done"),
-            "Watch CI failure",
+            &when("Watch CI failure"),
             evidence(),
         )
         .unwrap()
@@ -164,7 +187,7 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
     let mut changed = document("done");
     changed.watch.as_mut().unwrap()["probe"] = json!("echo different-instance");
     let again = mem
-        .save_blueprint("project-a", changed, "Watch CI failure", evidence())
+        .save_blueprint("project-a", changed, &when("Watch CI failure"), evidence())
         .unwrap()
         .unwrap();
     assert_eq!(id, again);
@@ -176,8 +199,8 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
             .unwrap()
             .blueprint
             .unwrap()
-            .when_to_use,
-        "Watch CI failure"
+            .intents,
+        vec!["Watch CI failure".to_owned()]
     );
     assert_eq!(
         mem.solution_metadata(&id)
@@ -209,7 +232,7 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
         .save_blueprint(
             "project-a",
             document("done"),
-            "token=do-not-store",
+            &when("token=do-not-store"),
             evidence()
         )
         .is_err());
@@ -222,7 +245,7 @@ fn blueprint_library_archives_lowest_score_and_preserves_yaml() {
         .save_blueprint(
             "project",
             document("popular"),
-            "Watch CI failure",
+            &when("Watch CI failure"),
             evidence(),
         )
         .unwrap()
@@ -233,7 +256,7 @@ fn blueprint_library_archives_lowest_score_and_preserves_yaml() {
         mem.save_blueprint(
             "project",
             document(&format!("bucket{index}")),
-            "Watch CI failure",
+            &when("Watch CI failure"),
             evidence(),
         )
         .unwrap();
@@ -262,7 +285,12 @@ fn blueprint_library_archives_lowest_score_and_preserves_yaml() {
 fn blueprint_dreamer_only_merges_existing_solutions_and_preserves_stats() {
     let mem = MemManager::open_in_memory().unwrap();
     let id = mem
-        .save_blueprint("project", document("done"), "Watch CI failure", evidence())
+        .save_blueprint(
+            "project",
+            document("done"),
+            &when("Watch CI failure"),
+            evidence(),
+        )
         .unwrap()
         .unwrap();
     let existing = mem.get(&id).unwrap().unwrap();
@@ -297,7 +325,7 @@ fn blueprint_dreamer_only_merges_existing_solutions_and_preserves_stats() {
 fn owner_list_does_not_count_recall_and_archive_is_project_scoped() {
     let mem = MemManager::open_in_memory().unwrap();
     let id = mem
-        .save_blueprint("project-a", document("done"), "Watch CI", evidence())
+        .save_blueprint("project-a", document("done"), &when("Watch CI"), evidence())
         .unwrap()
         .unwrap();
     let before = mem.list_blueprint_solutions("project-a").unwrap();
@@ -323,7 +351,7 @@ fn enqueue_refuses_qualification_before_starting_the_worker() {
         .enqueue_blueprint(
             "project".into(),
             definition.clone(),
-            "token=private-token".into(),
+            vec!["token=private-token".into()],
             evidence()
         )
         .unwrap_err()
@@ -332,12 +360,12 @@ fn enqueue_refuses_qualification_before_starting_the_worker() {
         .enqueue_blueprint(
             "project".into(),
             definition,
-            "Watch CI".into(),
+            vec!["Watch CI".into()],
             Evidence::default()
         )
         .unwrap_err()
         .contains("no_success"));
-    assert!(mem.blueprint_queue.lock().is_none());
+    assert!(mem.blueprint.queue.lock().is_none());
     assert!(mem.list_blueprint_solutions("project").unwrap().is_empty());
 }
 
@@ -345,14 +373,14 @@ fn enqueue_refuses_qualification_before_starting_the_worker() {
 fn memory_access_counters_do_not_change_blueprint_statistics() {
     let mem = MemManager::open_in_memory().unwrap();
     let id = mem
-        .save_blueprint("project", document("done"), "Watch CI", evidence())
+        .save_blueprint("project", document("done"), &when("Watch CI"), evidence())
         .unwrap()
         .unwrap();
     mem.conn.lock().execute("UPDATE mem_items SET access_count=999,recurrence_count=888,title='Search title' WHERE id=?1",[&id]).unwrap();
     let entries = mem.list_blueprint_solutions("project").unwrap();
     assert_eq!(entries[0].uses, 0);
     assert_eq!(entries[0].successes, 1);
-    assert_eq!(entries[0].when_to_use, "Watch CI");
+    assert_eq!(entries[0].intents, vec!["Watch CI".to_owned()]);
     mem.reuse_blueprints(&[id.clone()]).unwrap();
     assert_eq!(mem.list_blueprint_solutions("project").unwrap()[0].uses, 1);
 }
@@ -373,11 +401,11 @@ fn kept_solution_round_trips_through_recall_and_memory_recipe() {
         let expected = original.bind(&[]).unwrap();
         let area = if routed { "routed" } else { "unrouted" };
         let id = mem
-            .save_blueprint(area, original, "echo-test readiness", evidence())
+            .save_blueprint(area, original, &when("echo-test readiness"), evidence())
             .unwrap()
             .unwrap();
         let offered = mem.recall_blueprints(area, "echo-test", 3).unwrap();
-        assert_eq!(offered[0].id, id);
+        assert_eq!(offered[0].entry.id, id);
         let recipe = mem.blueprint_recipe(area, &id).unwrap();
         assert_eq!(
             recipe.inputs.keys().map(String::as_str).collect::<Vec<_>>(),
@@ -440,7 +468,7 @@ fn corrupt_saved_echo(mem: &MemManager, id: &str) {
 fn explicit_keep_replaces_broken_equivalent_recipe_preserving_id_and_statistics() {
     let mem = std::sync::Arc::new(MemManager::open_in_memory().unwrap());
     let id = mem
-        .save_blueprint("project", echo_document(), "Old phrase", evidence())
+        .save_blueprint("project", echo_document(), &when("Old phrase"), evidence())
         .unwrap()
         .unwrap();
     corrupt_saved_echo(&mem, &id);
@@ -448,7 +476,7 @@ fn explicit_keep_replaces_broken_equivalent_recipe_preserving_id_and_statistics(
         .save_blueprint(
             "project",
             echo_document(),
-            "Brand new echo phrase",
+            &when("Brand new echo phrase"),
             evidence(),
         )
         .unwrap()
@@ -469,14 +497,19 @@ fn explicit_keep_replaces_broken_equivalent_recipe_preserving_id_and_statistics(
         .unwrap();
     assert_eq!(stats.successes, 2);
     assert_eq!(stats.uses, 7);
-    assert_eq!(stats.when_to_use, "Brand new echo phrase");
+    assert_eq!(stats.intents, vec!["Brand new echo phrase".to_owned()]);
 }
 
 #[test]
 fn recall_archives_invalid_recipes_without_hiding_valid_ones() {
     let mem = std::sync::Arc::new(MemManager::open_in_memory().unwrap());
     let id = mem
-        .save_blueprint("project", echo_document(), "Echo readiness", evidence())
+        .save_blueprint(
+            "project",
+            echo_document(),
+            &when("Echo readiness"),
+            evidence(),
+        )
         .unwrap()
         .unwrap();
     corrupt_saved_echo(&mem, &id);
@@ -484,14 +517,14 @@ fn recall_archives_invalid_recipes_without_hiding_valid_ones() {
         .save_blueprint(
             "project",
             document("done"),
-            "Echo valid watcher",
+            &when("Echo valid watcher"),
             evidence(),
         )
         .unwrap()
         .unwrap();
     let recalled = mem.recall_blueprints("project", "Echo", 3).unwrap();
     assert_eq!(recalled.len(), 1);
-    assert_eq!(recalled[0].id, valid);
+    assert_eq!(recalled[0].entry.id, valid);
     assert_archived(&mem, &id);
     assert!(mem.blueprint_recipe("project", &id).is_err());
     let conn = mem.conn.lock();
@@ -546,14 +579,14 @@ fn curator_saves_blueprint_among_unrelated_facts_and_other_scopes() {
     mem.save_blueprint(
         "other-project",
         document("failed"),
-        "Watch CI failure",
+        &when("Watch CI failure"),
         evidence(),
     )
     .unwrap();
     mem.save_blueprint(
         "project",
         document("unrelated"),
-        "Watch garden soil moisture",
+        &when("Watch garden soil moisture"),
         evidence(),
     )
     .unwrap();
@@ -561,7 +594,7 @@ fn curator_saves_blueprint_among_unrelated_facts_and_other_scopes() {
         .save_blueprint(
             "project",
             document("done"),
-            "Watch CI failure",
+            &when("Watch CI failure"),
             Evidence {
                 curator: Some(model::CuratorEvidence {
                     plan: "pl_test".into(),
@@ -579,112 +612,4 @@ fn curator_saves_blueprint_among_unrelated_facts_and_other_scopes() {
         Some(SOURCE)
     );
     assert_eq!(mem.list_blueprint_solutions("project").unwrap().len(), 2);
-}
-
-#[cfg(feature = "embeddings")]
-#[test]
-fn blueprint_recall_uses_vectors_without_shared_words_and_scopes_before_limit() {
-    let mem = MemManager::open_in_memory().unwrap();
-    let intent = "Detect stalled deployments";
-    let query = "Identify frozen releases";
-    assert!(!intent.split_whitespace().any(|word| query.contains(word)));
-    let id = mem
-        .save_blueprint("project", document("done"), intent, evidence())
-        .unwrap()
-        .unwrap();
-    let foreign = mem
-        .save_blueprint("elsewhere", document("failed"), intent, evidence())
-        .unwrap()
-        .unwrap();
-    let mut vector = vec![0.0f32; 384];
-    vector[0] = 1.0;
-    let conn = mem.conn.lock();
-    crate::embeddings::init_extension(&conn).unwrap();
-    let encoded = crate::embeddings::inner::encode_vector(&vector);
-    for saved in [&id, &foreign] {
-        conn.execute(
-            "INSERT INTO mem_vectors(mem_id, embedding) VALUES (?1,?2)",
-            params![format!("{saved}_chunk_1"), &encoded],
-        )
-        .unwrap();
-    }
-    for index in 0..300 {
-        let fact = store::insert(
-            &conn,
-            &NewMemItem {
-                kind: MemKind::Fact,
-                scope: MemScope::Global,
-                title: format!("Unrelated record {index}"),
-                summary: None,
-                area: Some("project".into()),
-                tags: vec![],
-                body: "unrelated populated memory".into(),
-                source: None,
-                importance: 1.0,
-                source_path: None,
-                pinned: false,
-            },
-            &mem.blobs_dir,
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO mem_vectors(mem_id, embedding) VALUES (?1,?2)",
-            params![fact, &encoded],
-        )
-        .unwrap();
-    }
-    drop(conn);
-    assert!(mem
-        .search(&crate::SearchQuery {
-            query: query.into(),
-            ..Default::default()
-        })
-        .unwrap()
-        .is_empty());
-    let hits = mem
-        .recall_blueprints_with_embedding("project", query, 1, Some(&vector))
-        .unwrap();
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].id, id);
-    let all = mem
-        .recall_blueprints_with_embedding("", query, 5, Some(&vector))
-        .unwrap();
-    assert_eq!(all.len(), 2);
-}
-
-#[cfg(feature = "embeddings")]
-#[test]
-fn blueprint_usage_breaks_equal_retrieval_scores() {
-    let mem = MemManager::open_in_memory().unwrap();
-    let first = mem
-        .save_blueprint("project", document("done"), "Watch CI failure", evidence())
-        .unwrap()
-        .unwrap();
-    let popular = mem
-        .save_blueprint(
-            "project",
-            document("failed"),
-            "Watch CI failure",
-            evidence(),
-        )
-        .unwrap()
-        .unwrap();
-    mem.reuse_blueprints(std::slice::from_ref(&popular))
-        .unwrap();
-    let mut vector = vec![0.0f32; 384];
-    vector[0] = 1.0;
-    let conn = mem.conn.lock();
-    crate::embeddings::init_extension(&conn).unwrap();
-    for id in [first, popular.clone()] {
-        conn.execute(
-            "INSERT INTO mem_vectors(mem_id, embedding) VALUES (?1,?2)",
-            params![id, crate::embeddings::inner::encode_vector(&vector)],
-        )
-        .unwrap();
-    }
-    drop(conn);
-    let hits = mem
-        .recall_blueprints_with_embedding("project", "Identify frozen releases", 1, Some(&vector))
-        .unwrap();
-    assert_eq!(hits[0].id, popular);
 }

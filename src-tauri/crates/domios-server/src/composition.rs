@@ -532,6 +532,7 @@ pub(crate) fn compose_observed(
             }
         });
     }
+    codeterm_service_core::mem::blueprint_enrichment::install(&service_state);
     if codeterm_service_core::config::memory_config().auto_extract {
         let svc_for_extract = service_state.clone();
         let queued =

@@ -7,7 +7,7 @@ pub const ITERATIONS: usize = 3;
 const FAILURE_OUTCOMES: [&str; 4] = ["failed", "down", "failing", "offline"];
 const SOURCE_KINDS: [&str; 5] = ["schedule", "event", "input", "probe", "observe"];
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Signature {
     pub hash: String,
     pub features: BTreeMap<String, u32>,
