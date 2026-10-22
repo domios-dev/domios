@@ -207,33 +207,27 @@ fn delete_and_retention_purge_plan_and_owned_spec_from_every_index_and_vectors()
 }
 
 #[test]
-fn vector_cleanup_failure_refuses_plan_deletion_with_a_reason() {
+fn vector_cleanup_failure_never_blocks_plan_deletion_and_a_later_purge_removes_units() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let (plan_id, _) = create_task(&store, root.path(), "Deletion refusal");
     flush_index_queue_for_test(root.path());
+    let plan = store.get(&plan_id).unwrap();
+    let vector = format!("planunit_{plan_id}_plan_{plan_id}");
     let conn = open_index(root.path()).unwrap();
-    conn.execute(
-        "INSERT INTO mem_vectors(mem_id) VALUES (?1)",
-        [format!("planunit_{plan_id}_plan_{plan_id}")],
-    )
-    .unwrap();
+    conn.execute("INSERT INTO mem_vectors(mem_id) VALUES (?1)", [&vector])
+        .unwrap();
     conn.execute_batch(
         "CREATE TRIGGER refuse_vector_delete BEFORE DELETE ON mem_vectors
         BEGIN SELECT RAISE(ABORT, 'vector cleanup refused'); END;",
     )
     .unwrap();
-    let error = store.delete(&plan_id).unwrap_err().to_string();
-    assert!(error.contains(&plan_id));
-    assert!(error.contains("vector cleanup refused"));
-    assert!(store.get(&plan_id).is_some());
-    let db = Connection::open(store.database_path_for_test()).unwrap();
-    let rows: i64 = db
-        .query_row(
-            "SELECT COUNT(*) FROM plans WHERE id = ?1",
-            [&plan_id],
-            |row| row.get(0),
-        )
+    store.delete(&plan_id).unwrap();
+    flush_index_queue_for_test(root.path());
+    assert!(store.get(&plan_id).is_none());
+    assert_eq!(count(&conn, "mem_vectors", "mem_id", &plan_id), 1);
+    conn.execute_batch("DROP TRIGGER refuse_vector_delete")
         .unwrap();
-    assert_eq!(rows, 1);
+    purge_plan_indexes(&plan, &[]).unwrap();
+    assert_eq!(count(&conn, "mem_vectors", "mem_id", &plan_id), 0);
 }
