@@ -504,7 +504,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
 
 ### REST listener bind recovery
 
@@ -836,6 +836,11 @@ bundle. The nested server is signed before inventory hashing, then the outer
 app is sealed without `--deep` signing. Strict nested verification tests the
 exact Apple-anchored team and `com.domios.app` requirement before provenance is
 recorded; native verification still runs at launch.
+
+Apple Silicon macOS enables the SHA crate's supported hardware backend for the
+native client and server, including release builds. Full-file validation and
+all bootstrap deadlines remain unchanged; Windows/Linux and Intel macOS keep
+their existing SHA feature selection.
 
 The production-mode frontend watcher and static server use the checkout's
 `dist/`, outside the sealed app. The app's resource snapshot stays immutable.

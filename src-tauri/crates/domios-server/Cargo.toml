@@ -41,6 +41,9 @@ interprocess = { version = "2", features = ["tokio"] }
 sha2 = "0.10"
 tempfile = "3"
 
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
