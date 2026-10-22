@@ -1,0 +1,17 @@
+# COD-1522: redundant tests consolidated into surviving behavioural proofs.
+# Both curator envelopes are parsed after delivery in the retained wiring test.
+service::curator::tests::curator_delivery_carries_system_provenance -> service::curator::tests::curator_round_notices_reach_agent_payload_once_with_system_frames
+service::curator::tests::curator_started_delivery_carries_round_metadata_independently_of_body -> service::curator::tests::curator_round_notices_reach_agent_payload_once_with_system_frames
+# The first-plan proof already checks owner == orchestrator; planner is a distinct tab.
+service::hierarchy::team_plan_creation::tests::planner_plan_creation_does_not_grant_execution_authority -> service::hierarchy::team_plan_creation::tests::own_team_planner_can_create_plan_without_orchestrator_placeholder
+# Before/after write authorization now shares the first-binding fixture.
+service::plan_authority::tests::a_tab_attested_binding_authorizes_plan_writes -> service::plan_authority::tests::rebind_establishes_a_first_binding_from_the_tabs_own_nonce
+# Diagnostic type and retryability now follow the actual classification result.
+service::plan_authority::tests::the_unregistered_diagnosis_points_away_from_rebind -> service::plan_authority::tests::an_unregistered_session_is_named_apart_from_a_foreign_caller
+# Restart persistence and a new launch key share one journal fixture.
+service::supporter_notify::tests::notify_new_launch_notifies_again -> service::supporter_notify::tests::notify_dedupe_key_survives_restart
+# Clean-index preservation and dirty stats share one real repository.
+service::lane_stats::tests::lane_turn_stats_never_rewrite_the_lane_index -> service::lane_stats::tests::lane_turn_stats_capture_unstaged_staged_and_untracked_files
+# Unchanged identity, rewritten: telegram_notification_render_preserves_body_and_tab_name
+# inspects the outbound queue; push_delivery_reaches_the_send_endpoint_end_to_end
+# retains the single HTTP wiring proof for this seam.
