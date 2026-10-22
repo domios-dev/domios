@@ -29,7 +29,8 @@ module.exports = {
     return {action:{kind:'request',call:{method:op.kind,params:op}},state:null};
   },
   runtimeResponse(ctx, op, state, reply) {
-    if (op.kind === 'resumeThread' && op.instructions.includes('opaque refused identity'))
+    if ((op.kind === 'resumeThread' && op.instructions.includes('opaque refused identity')) ||
+        (op.kind === 'openThread' && op.settings.model === 'refused-model'))
       return {kind:'refused',reason:{code:'provider_refused',message:'fixture load refused'}};
     let result = {kind:'done'};
     if (op.kind === 'initialize') result = {kind:'initialized',binaryVersion:'fixture-runtime'};

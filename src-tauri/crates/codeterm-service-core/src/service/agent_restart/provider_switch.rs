@@ -32,12 +32,25 @@ pub struct ProviderSwitchOutcome {
 struct SwitchBindingCleanup<'a> {
     service: &'a ServiceContext,
     tab_id: &'a str,
+    interrupt_on_failure: bool,
 }
 
 impl Drop for SwitchBindingCleanup<'_> {
     fn drop(&mut self) {
         self.service.clear_runtime_restart_binding(self.tab_id);
+        if self.interrupt_on_failure {
+            self.service.signal_worker_interruption(
+                self.tab_id,
+                crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset,
+            );
+        }
     }
+}
+
+fn prepare_handoff(handoff: &str) -> Result<crate::service::messenger::AgentInput, String> {
+    crate::service::messenger::Messenger::restore_framed_delivery(handoff)
+        .map(crate::service::messenger::AgentInput::Framed)
+        .map_err(|error| format!("provider_switch_handoff_invalid: {error}"))
 }
 
 impl ServiceContext {
@@ -132,6 +145,7 @@ impl ServiceContext {
         );
         let archive = pad.write_inbox_body(archive.as_bytes())?;
         let handoff = self.provider_switch_input(&tab, &messages, &archive)?;
+        let handoff = prepare_handoff(&handoff)?;
         let full_access = permission.is_some();
         let params = SpawnAgentParams {
             agent: Some(target.into()),
@@ -199,9 +213,10 @@ impl ServiceContext {
         crate::service::orchestrator::supersede_tab_launch(&tab.id);
         let carry_required = carry.is_some();
         self.stage_runtime_restart_binding(&tab.id, carry);
-        let _binding_cleanup = SwitchBindingCleanup {
+        let mut binding_cleanup = SwitchBindingCleanup {
             service: self,
             tab_id: &tab.id,
+            interrupt_on_failure: carry_required,
         };
         match route.source {
             TargetRoute::Runtime => {
@@ -275,8 +290,9 @@ impl ServiceContext {
             self.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);
         }
         let session_id = result?;
-        self.send_text(&tab.id, &crate::service::messenger::AgentInput::Framed(crate::service::messenger::Messenger::restore_framed_delivery(&handoff)?)).map_err(|error| format!("provider_switch_handoff_unconfirmed: target session {session_id} is running; input will not be replayed: {error}"))?;
+        binding_cleanup.interrupt_on_failure = false;
         self.persist_general_provider_switch(&tab, target, &input.launch_parameters, &session_id)?;
+        self.send_text(&tab.id, &handoff).map_err(|error| format!("provider_switch_handoff_unconfirmed: target session {session_id} is running; input will not be replayed: {error}"))?;
         self.schedule_session_persist_debounced();
         self.emit_state_changed(crate::service::MuxEmitCause::AgentRestart);
         Ok(ProviderSwitchOutcome {
