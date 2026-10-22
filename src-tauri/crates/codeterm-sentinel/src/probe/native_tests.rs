@@ -533,6 +533,7 @@ fn run_ready(
         signal,
         false,
         &Environment::default(),
+        None,
     );
     let receipt = receipts.try_recv().ok();
     result
