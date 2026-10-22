@@ -1,10 +1,9 @@
 use crate::embedder::local::LocalModel;
 use crate::embedding_model::EmbeddingModel;
 use std::sync::{mpsc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const QUEUE_CAPACITY: usize = 64;
-const IDLE_TIMEOUT: Duration = Duration::from_secs(1800);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 type Reply = mpsc::SyncSender<Result<Vec<f32>, String>>;
 
@@ -24,6 +23,8 @@ struct Receivers {
     bulk: mpsc::Receiver<Request>,
     query: mpsc::Receiver<Request>,
     wake: mpsc::Receiver<()>,
+    #[cfg(test)]
+    waiting: Option<mpsc::Sender<()>>,
 }
 
 fn channels() -> (Worker, Receivers) {
@@ -36,6 +37,8 @@ fn channels() -> (Worker, Receivers) {
             bulk: bulk_rx,
             query: query_rx,
             wake: wake_rx,
+            #[cfg(test)]
+            waiting: None,
         },
     )
 }
@@ -43,19 +46,14 @@ fn channels() -> (Worker, Receivers) {
 impl Worker {
     fn start() -> Result<Self, String> {
         let (worker, receivers) = channels();
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(4)
-            .thread_name(|index| format!("mem-embed-cpu-{index}"))
-            .build()
-            .map_err(|e| format!("start embedding CPU pool: {e}"))?;
         std::thread::Builder::new()
             .name("mem-embed".into())
             .spawn(move || {
                 run(
                     receivers,
-                    IDLE_TIMEOUT,
+                    cpu_pool,
                     EmbeddingModel::load,
-                    |model, text| pool.install(|| model.embed(text)),
+                    EmbeddingModel::embed,
                 )
             })
             .map_err(|e| format!("start embedding worker: {e}"))?;
@@ -91,20 +89,21 @@ impl Worker {
 }
 
 impl Receivers {
-    fn next(&self, deadline: Option<Instant>) -> Result<Request, mpsc::RecvTimeoutError> {
+    fn try_next(&self) -> Option<Request> {
+        self.query.try_recv().or_else(|_| self.bulk.try_recv()).ok()
+    }
+
+    fn next(&self) -> Result<Request, mpsc::RecvError> {
         loop {
-            if let Ok(request) = self.query.try_recv().or_else(|_| self.bulk.try_recv()) {
+            let _ = self.wake.try_recv();
+            if let Some(request) = self.try_next() {
                 return Ok(request);
             }
-            match deadline {
-                Some(deadline) => self
-                    .wake
-                    .recv_timeout(deadline.saturating_duration_since(Instant::now()))?,
-                None => self
-                    .wake
-                    .recv()
-                    .map_err(|_| mpsc::RecvTimeoutError::Disconnected)?,
+            #[cfg(test)]
+            if let Some(waiting) = &self.waiting {
+                let _ = waiting.send(());
             }
+            self.wake.recv()?;
         }
     }
 }
@@ -125,49 +124,71 @@ pub(crate) fn embed(
     worker()?.embed(model, text, query)
 }
 
-fn run<M>(
+fn cpu_pool() -> rayon::ThreadPoolBuilder {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .thread_name(|index| format!("mem-embed-cpu-{index}"))
+}
+
+fn run<M: Sync>(
     receivers: Receivers,
-    idle: Duration,
+    pool: impl Fn() -> rayon::ThreadPoolBuilder,
     load: impl Fn(&'static LocalModel) -> Result<M, String>,
-    forward: impl Fn(&M, &str) -> Result<Vec<f32>, String>,
+    forward: impl Fn(&M, &str) -> Result<Vec<f32>, String> + Sync,
 ) {
     let mut model: Option<(&'static LocalModel, M)> = None;
-    let mut deadline = None;
-    loop {
-        let request = match receivers.next(deadline) {
-            Ok(request) => request,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                model = None;
-                deadline = None;
-                log::debug!("[embed] unloaded idle candle model");
-                continue;
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => return,
-        };
-        if model
-            .as_ref()
-            .is_none_or(|(loaded, _)| *loaded != request.model)
-        {
-            model = None;
-            match load(request.model) {
-                Ok(loaded) => {
-                    model = Some((request.model, loaded));
-                    log::debug!("[embed] loaded candle model");
+    while let Ok(request) = receivers.next() {
+        let mut pending = Some(request);
+        // Scoped workers are joined before the coordinator can block on its channel.
+        let result = pool().build_scoped(
+            |thread| thread.run(),
+            |pool| {
+                while let Some(request) = pending.take() {
+                    process(&mut model, request, &load, |model, text| {
+                        pool.install(|| forward(model, text))
+                    });
+                    pending = receivers.try_next();
                 }
-                Err(error) => {
-                    log::warn!("[embed] model unavailable: {error}");
-                    let _ = request.reply.send(Err(error));
-                    continue;
-                }
+            },
+        );
+        if let Err(error) = result {
+            if let Some(request) = pending {
+                let _ = request
+                    .reply
+                    .send(Err(format!("start embedding CPU pool: {error}")));
             }
         }
-        let result = model
-            .as_ref()
-            .ok_or_else(|| "embedding model unavailable".into())
-            .and_then(|(_, model)| forward(model, &request.text));
-        let _ = request.reply.send(result);
-        deadline = Some(Instant::now() + idle);
     }
+}
+
+fn process<M>(
+    model: &mut Option<(&'static LocalModel, M)>,
+    request: Request,
+    load: &impl Fn(&'static LocalModel) -> Result<M, String>,
+    forward: impl FnOnce(&M, &str) -> Result<Vec<f32>, String>,
+) {
+    if model
+        .as_ref()
+        .is_none_or(|(loaded, _)| *loaded != request.model)
+    {
+        *model = None;
+        match load(request.model) {
+            Ok(loaded) => {
+                *model = Some((request.model, loaded));
+                log::debug!("[embed] loaded candle model {}", request.model.model);
+            }
+            Err(error) => {
+                log::warn!("[embed] model unavailable: {error}");
+                let _ = request.reply.send(Err(error));
+                return;
+            }
+        }
+    }
+    let result = model
+        .as_ref()
+        .ok_or_else(|| "embedding model unavailable".into())
+        .and_then(|(_, model)| forward(model, &request.text));
+    let _ = request.reply.send(result);
 }
 
 #[cfg(test)]
