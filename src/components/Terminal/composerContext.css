@@ -85,7 +85,8 @@ button.ct-ctx__title:hover .ct-ctx__primary {
 .ct-ctx__kinds {
   position: relative;
   display: flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
+  max-width: 100%;
   min-width: 0;
   flex-wrap: wrap;
   gap: 6px;
@@ -102,6 +103,7 @@ button.ct-ctx__title:hover .ct-ctx__primary {
   justify-content: center;
   gap: 4px;
   min-width: 28px;
+  flex-shrink: 0;
   height: 28px;
   padding: 0 8px;
   border: 1px solid var(--ct-border-subtle);
@@ -116,6 +118,7 @@ button.ct-ctx__title:hover .ct-ctx__primary {
     transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
 }
 
+.ct-ctx-kind > svg { flex-shrink: 0; }
 .ct-ctx-kind[data-kind="crons"] { --ct-ctx-kind: var(--ct-ctx-crons); }
 .ct-ctx-kind[data-kind="scheduled"] { --ct-ctx-kind: var(--ct-accent); }
 .ct-ctx-kind[data-kind="waiting"] { --ct-ctx-kind: var(--ct-warn); }
