@@ -4227,6 +4227,32 @@
           "args": [],
           "subcommands": [
             {
+              "name": "key",
+              "about": "Store an embedder API key locally from stdin, with owner-only permissions",
+              "aliases": [],
+              "args": [],
+              "subcommands": [
+                {
+                  "name": "set",
+                  "about": "Atomically write <data_dir>/secrets/<provider>-embedder.key. Pipe the key on stdin; terminal input and argv keys are refused",
+                  "aliases": [],
+                  "args": [
+                    {
+                      "name": "provider",
+                      "positional": true,
+                      "required": true,
+                      "value_name": "PROVIDER",
+                      "possible_values": [],
+                      "default": null,
+                      "help": "Provider id from `mem embedder list`",
+                      "aliases": []
+                    }
+                  ],
+                  "subcommands": []
+                }
+              ]
+            },
+            {
               "name": "list",
               "about": "List embedder providers, their models, and whether a remote one can be activated",
               "aliases": [],
