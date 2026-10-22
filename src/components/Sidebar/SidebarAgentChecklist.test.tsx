@@ -229,6 +229,8 @@ test("shared checklist review marker clears on the approval event without changi
   const { host, root } = await renderSidebar({ tabs: checklistTeam() });
   await open(toggleFor(host, "Mica")!);
   assert(regionFor(host, "Mica")?.querySelector('[role="status"]'), "unreviewed marker is visible");
+  assert(JSON.stringify(checklistRows(regionFor(host, "Mica")!)) === JSON.stringify(["Working stepIn progress"]), "the proposed checklist remains visible on the Worker row");
+  assert(!regionFor(host, "Mica")?.querySelector("button"), "the Worker checklist offers no human review controls");
   store.set({ ...initial, revision: 2, proposal: { state: "approved" } });
   await store.emit({ tab_id: "worker", generation: 1, revision: 2 });
   assert(!regionFor(host, "Mica")?.querySelector('[role="status"]'), "approval removes the marker");
