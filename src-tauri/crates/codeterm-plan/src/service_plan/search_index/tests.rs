@@ -1144,3 +1144,5 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
 
 #[path = "readback_lock_tests.rs"]
 mod readback_lock_tests;
+
+mod deletion;

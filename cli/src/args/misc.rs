@@ -118,7 +118,8 @@ pub enum TabAction {
     /// Plain shell tab, inheriting the calling tab's workspace and Team. For an
     /// AI tab use `domios agent spawn`.
     New {
-        /// Shell lifetime: positive duration (30s, 10m, 2h), or none.
+        /// Agent-owned shell lifetime: positive duration (30s, 10m, 2h), or none.
+        /// Requires a live creating agent (CODETERM_TAB_ID); omit for human shells.
         #[arg(long, conflicts_with_all = ["chat_backend", "list_shells"])]
         timeout: Option<String>,
         /// Shell profile id (discover with --list-shells).
