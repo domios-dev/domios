@@ -549,7 +549,6 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
     fixture
         .service
         .screen_state
-        .lock()
         .process("pty-user-dir-no-change", screen.as_bytes());
     let status_rows = crate::agent::classify_input::StatusBarRows::resolve(
         &**fixture.service.agent_registry,
@@ -559,7 +558,6 @@ fn provider_ready_idle_user_dir_trust_prompt_appears_without_provenance_on_uncha
     let screen_hash = fixture
         .service
         .screen_state
-        .lock()
         .get_content_hash("pty-user-dir-no-change", status_rows.get())
         .expect("trust frame hash");
     fixture

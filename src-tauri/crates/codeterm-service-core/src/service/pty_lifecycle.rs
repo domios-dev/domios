@@ -70,11 +70,7 @@ pub fn prepare_backend_reader(
         .ok_or_else(|| format!("Failed to set up backend channel for PTY: {}", pty_id))?;
     let generation = session.generation;
     drop(manager);
-    if !svc
-        .screen_state
-        .lock()
-        .bind_pty_generation(pty_id, generation)
-    {
+    if !svc.screen_state.bind_pty_generation(pty_id, generation) {
         return Err(format!("PTY {} was replaced before reader start", pty_id));
     }
     session.mark_backend_reader_started();
@@ -574,7 +570,7 @@ fn handle_pty_screen_death_after_validation(
         return false;
     }
     after_validation();
-    let removed = screen_state.lock().remove_if_generation(pty_id, generation);
+    let removed = screen_state.remove_if_generation(pty_id, generation);
     if removed {
         crate::service::stream_preview::remove(pty_id);
     }
@@ -695,7 +691,7 @@ mod tests {
     }
 
     fn bind_generation(screen_state: &crate::ScreenStateHandle, pty_id: &str, generation: u64) {
-        assert!(screen_state.lock().bind_pty_generation(pty_id, generation));
+        assert!(screen_state.bind_pty_generation(pty_id, generation));
     }
 
     #[test]
@@ -726,9 +722,9 @@ mod tests {
     fn pty_death_screen_teardown_closes_armed_waiter() {
         let pty = pty_state();
         let pty_generation = spawn_generation(&pty, "pty-1");
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        let screen_state = Arc::new(ScreenState::new());
         bind_generation(&screen_state, "pty-1", pty_generation);
-        let signal = screen_state.lock().subscribe_screen_changes("pty-1");
+        let signal = screen_state.subscribe_screen_changes("pty-1");
         let generation = signal.generation();
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let waiter_signal = signal.clone();
@@ -754,11 +750,9 @@ mod tests {
     fn reused_current_pty_eof_tears_down_through_global_seam() {
         let pty = pty_state();
         let generation = spawn_generation(&pty, "pty-1");
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        let screen_state = Arc::new(ScreenState::new());
         bind_generation(&screen_state, "pty-1", generation);
-        screen_state
-            .lock()
-            .process("pty-1", b"current session output");
+        screen_state.process("pty-1", b"current session output");
 
         assert!(super::handle_pty_screen_death(
             &pty,
@@ -766,7 +760,7 @@ mod tests {
             "pty-1",
             generation,
         ));
-        assert!(screen_state.lock().get_screen_text("pty-1").is_none());
+        assert!(screen_state.get_screen_text("pty-1").is_none());
         pty.lock().kill("pty-1").expect("cleanup PTY");
     }
 
@@ -774,13 +768,11 @@ mod tests {
     fn replaced_old_pty_eof_does_not_teardown_replacement_through_global_seam() {
         let pty = pty_state();
         let old_generation = spawn_generation(&pty, "pty-1");
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        let screen_state = Arc::new(ScreenState::new());
         bind_generation(&screen_state, "pty-1", old_generation);
         let replacement_generation = replace_generation(&pty, "pty-1");
         bind_generation(&screen_state, "pty-1", replacement_generation);
-        screen_state
-            .lock()
-            .process("pty-1", b"replacement session output");
+        screen_state.process("pty-1", b"replacement session output");
 
         assert!(!super::handle_pty_screen_death(
             &pty,
@@ -791,7 +783,7 @@ mod tests {
         assert!(pty
             .lock()
             .session_generation_matches("pty-1", replacement_generation));
-        assert!(screen_state.lock().get_screen_text("pty-1").is_some());
+        assert!(screen_state.get_screen_text("pty-1").is_some());
         pty.lock().kill("pty-1").expect("cleanup PTY");
     }
 
@@ -799,7 +791,7 @@ mod tests {
     fn reader_termination_after_replacement_preserves_new_screen_state() {
         let pty = pty_state();
         let old_generation = spawn_generation(&pty, "pty-1");
-        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        let screen_state = Arc::new(ScreenState::new());
         bind_generation(&screen_state, "pty-1", old_generation);
         let teardown_pty = pty.clone();
         let teardown_screen = screen_state.clone();
@@ -824,9 +816,7 @@ mod tests {
         validated_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         let replacement_generation = replace_generation(&pty, "pty-1");
         bind_generation(&screen_state, "pty-1", replacement_generation);
-        screen_state
-            .lock()
-            .process("pty-1", b"replacement session output");
+        screen_state.process("pty-1", b"replacement session output");
         resume_tx.send(()).unwrap();
 
         assert!(!result_rx.recv_timeout(Duration::from_secs(1)).unwrap());
@@ -834,7 +824,7 @@ mod tests {
         assert!(pty
             .lock()
             .session_generation_matches("pty-1", replacement_generation));
-        assert!(screen_state.lock().get_screen_text("pty-1").is_some());
+        assert!(screen_state.get_screen_text("pty-1").is_some());
         pty.lock().kill("pty-1").expect("cleanup PTY");
     }
 
@@ -880,7 +870,6 @@ mod tests {
         assert!(fixture
             .service
             .screen_state
-            .lock()
             .bind_pty_generation(ROLE_PTY, generation));
         (fixture, tab, generation)
     }

@@ -280,7 +280,6 @@ fn owner_prompt_cleared_on_lazy_session_launch_stays_unconfirmed_without_first_t
     let signal = harness
         .service
         .screen_state
-        .lock()
         .arm_screen_change_signal(pty_id);
     let _wake = register_input_wake(&attempt, signal.clone());
     let generation = signal.generation();

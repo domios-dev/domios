@@ -9,7 +9,6 @@ use std::sync::Arc;
 impl ServiceContext {
     fn startup_provider_output(&self, attempt_id: &str) -> Option<String> {
         self.screen_state
-            .lock()
             .get_screen_text(attempt_id)
             .map(|output| {
                 crate::service::launch_diagnostics::redact_secrets(
@@ -41,7 +40,7 @@ impl ServiceContext {
                 };
             (agent_type, tab.cwd.clone(), trust_provenance)
         };
-        let screen_text = self.screen_state.lock().get_screen_text(attempt_id)?;
+        let screen_text = self.screen_state.get_screen_text(attempt_id)?;
         let snapshot = crate::agent::tab_state::TabStateSnapshot {
             tab_id: tab_id.to_string(),
             agent_type: agent_type.clone(),

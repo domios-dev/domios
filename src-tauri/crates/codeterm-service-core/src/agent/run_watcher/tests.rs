@@ -336,7 +336,6 @@ fn owner_prompt_fixture() -> (crate::service::test_fixture::ServiceFixture, Stri
     fixture
             .service
             .screen_state
-            .lock()
             .process(
                 &pty_id,
                 "opaque-question-62\r\n❯ 1. opaque-choice-62\r\n  2. opaque-choice-63\r\nPress Enter to confirm"
@@ -931,7 +930,7 @@ fn run_watcher_mem_worker_ends_on_unanswered_folder_trust() {
         "system:dreaming".into(),
         "hsl(0,0%,0%)".into(),
     ));
-    svc.screen_state.lock().process(
+    svc.screen_state.process(
         &pty_id,
         b"opaque-question-62\r\n\xe2\x9d\xaf 1. opaque-choice-62\r\n  2. opaque-choice-63\r\nPress Enter to confirm",
     );
