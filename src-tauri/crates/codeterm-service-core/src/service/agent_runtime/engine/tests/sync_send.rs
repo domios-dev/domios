@@ -277,6 +277,161 @@ fn sync_send_from_plain_thread_writes_one_rpc_turn_and_never_replays_it() {
 }
 
 #[test]
+fn restart_continuation_reaches_runtime_once_as_a_framed_system_turn() {
+    use crate::multiplexer::types::request_continue;
+    use crate::service::{
+        messenger::Messenger,
+        turn_resume::{self, Step},
+    };
+    let (fixture, tab_id, peer, _cleanup) = runtime_fixture();
+    let nonce = for_tab(&tab_id)
+        .unwrap()
+        .context
+        .lock()
+        .binding_nonce
+        .clone();
+    {
+        let mut mux = fixture.service.mux.write();
+        request_continue(
+            &mut mux.get_tab_mut(&tab_id).unwrap().turn_resume,
+            "own-thread",
+            "before-restart",
+            "opaque continuation body".into(),
+        );
+        *mux = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.session_binding_nonce = Some(nonce.clone());
+        tab.reported_session_binding_nonce = Some(nonce.clone());
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+        assert!(tab.pty_id.is_none());
+    }
+    let claim = match turn_resume::step(&fixture.service.mux, &tab_id, "after-restart") {
+        Step::Claimed(claim) => claim,
+        other => panic!("expected continuation claim, got {other:?}"),
+    };
+    let peer = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["method"], "fixture/submit");
+        assert_eq!(request["params"]["threadId"], "own-thread");
+        let text = request["params"]["input"]["text"].as_str().unwrap();
+        assert_eq!(
+            text,
+            Messenger::from(
+                crate::service::messenger::MessageEnvelope::codeterm_reminder("turn-resume")
+            )
+            .framed_delivery("opaque continuation body")
+            .to_message()
+        );
+        let response = json!({"id":request["id"],"result":{"turnId":"accepted-turn"}});
+        peer.get_mut()
+            .write_all(format!("{response}\n").as_bytes())
+            .await
+            .unwrap();
+        (
+            peer,
+            request["params"]["sendId"].as_str().unwrap().to_string(),
+        )
+    });
+    Messenger::deliver_turn_resume(
+        &fixture.service,
+        &tab_id,
+        claim.pty_id.as_deref(),
+        &claim.session_id,
+        &claim.binding_nonce,
+        None,
+        claim.prompt.as_deref().unwrap(),
+    )
+    .unwrap();
+    let (mut peer, send_id) = crate::async_runtime::block_on(peer).unwrap();
+    let ledger = &fixture.service.chat_send_ledger;
+    assert_eq!(
+        ledger.status(&send_id).unwrap().state,
+        ChatSendState::Written
+    );
+    assert!(ledger
+        .confirm_rpc_send(&tab_id, "foreign-thread", &nonce, &send_id, Some("item"))
+        .is_none());
+    assert!(ledger
+        .confirm_rpc_send(
+            &tab_id,
+            "own-thread",
+            "foreign-nonce",
+            &send_id,
+            Some("item")
+        )
+        .is_none());
+    assert!(ledger
+        .confirm_rpc_send(&tab_id, "own-thread", &nonce, &send_id, Some("item"))
+        .is_some());
+    assert_eq!(ledger.status(&send_id).unwrap().state, ChatSendState::Sent);
+    assert_eq!(
+        turn_resume::step(&fixture.service.mux, &tab_id, "after-restart"),
+        Step::Settled
+    );
+    {
+        let mut mux = fixture.service.mux.write();
+        *mux = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
+    }
+    assert_eq!(
+        turn_resume::step(&fixture.service.mux, &tab_id, "third-start"),
+        Step::Settled
+    );
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::AsyncBufRead;
+    assert!(matches!(
+        Pin::new(&mut peer).poll_fill_buf(&mut Context::from_waker(Waker::noop())),
+        Poll::Pending
+    ));
+}
+
+#[test]
+fn runtime_continuation_refuses_a_changed_session_or_nonce_before_write() {
+    use crate::service::messenger::Messenger;
+    let (fixture, tab_id, mut peer, _cleanup) = runtime_fixture();
+    let nonce = for_tab(&tab_id)
+        .unwrap()
+        .context
+        .lock()
+        .binding_nonce
+        .clone();
+    for (thread, nonce) in [
+        ("foreign-thread", nonce.as_str()),
+        ("own-thread", "foreign-nonce"),
+    ] {
+        let result = Messenger::deliver_turn_resume(
+            &fixture.service,
+            &tab_id,
+            None,
+            thread,
+            nonce,
+            None,
+            "opaque",
+        );
+        assert!(result.is_err());
+        assert!(!crate::service::pty_io::delivery_is_unknown(
+            &result.unwrap_err()
+        ));
+    }
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
+    use tokio::io::AsyncRead;
+    let mut bytes = [0; 1];
+    let mut buffer = tokio::io::ReadBuf::new(&mut bytes);
+    assert!(matches!(
+        Pin::new(&mut peer).poll_read(&mut Context::from_waker(Waker::noop()), &mut buffer),
+        Poll::Pending
+    ));
+}
+
+#[test]
 fn bookkeeping_failure_records_typed_warning_and_runtime_remains_ready_and_sendable() {
     assert_sync_send(true, false, false);
 }

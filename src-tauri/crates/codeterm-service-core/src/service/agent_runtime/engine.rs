@@ -699,6 +699,7 @@ async fn ensure_locked(
         backfill::continue_in_background(port, replay, reopen);
     }
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
+    svc.on_turn_resume_binding_changed(tab);
     Ok(())
 }
 
