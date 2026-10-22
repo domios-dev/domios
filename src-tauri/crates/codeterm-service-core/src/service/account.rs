@@ -213,7 +213,11 @@ impl super::ServiceContext {
         let account = self.account().await?;
         let logout = account.logout();
         let status = match self.account_mesh().await {
-            Ok(mesh) => mesh.mesh.sign_out(logout).await.1,
+            Ok(mesh) => {
+                let (_, persisted, status) = mesh.mesh.sign_out(logout).await;
+                persisted?;
+                status
+            }
             Err(_) => {
                 let block = self.sign_out_without_account_mesh().await;
                 let status = logout.await;

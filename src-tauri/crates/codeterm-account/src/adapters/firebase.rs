@@ -105,7 +105,7 @@ impl Transport for HttpTransport {
                     app_check_header_present,
                     auth_header_present,
                 );
-                return Err(Error::Provider);
+                return Err(Error::Transport);
             }
         };
         let body = serde_json::from_slice::<Value>(&bytes).ok();
@@ -122,9 +122,29 @@ impl Transport for HttpTransport {
             auth_header_present,
         );
         if !successful {
-            return Err(Error::Provider);
+            return Err(classify_http_error(status_code, body.as_ref()));
         }
         body.ok_or(Error::Provider)
+    }
+}
+
+fn classify_http_error(status: u16, body: Option<&Value>) -> Error {
+    let credential_rejections = [
+        "INVALID_REFRESH_TOKEN",
+        "TOKEN_EXPIRED",
+        "USER_DISABLED",
+        "USER_NOT_FOUND",
+    ];
+    if status == 400
+        && body
+            .and_then(|body| body.get("error"))
+            .and_then(|error| error.get("message").or(Some(error)))
+            .and_then(Value::as_str)
+            .is_some_and(|code| credential_rejections.contains(&code))
+    {
+        Error::Credentials
+    } else {
+        Error::Transport
     }
 }
 
