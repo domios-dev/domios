@@ -1,25 +1,33 @@
 use super::*;
 
 impl WindowsRun {
-    pub fn prepare_capture(&mut self) -> Result<(), String> {
+    pub fn prepare_capture(&mut self, input: Option<std::fs::File>) -> Result<(), String> {
         let nul = "NUL".encode_utf16().chain([0]).collect::<Vec<_>>();
         let mut inherit = SECURITY_ATTRIBUTES {
             nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
             lpSecurityDescriptor: null_mut(),
             bInheritHandle: 1,
         };
-        let stdin = unsafe {
-            CreateFileW(
-                nul.as_ptr(),
-                windows_sys::Win32::Foundation::GENERIC_READ,
-                0,
-                &inherit,
-                OPEN_EXISTING,
-                FILE_ATTRIBUTE_NORMAL,
-                null_mut(),
-            )
+        let stdin = if let Some(input) = input {
+            use std::os::windows::io::IntoRawHandle;
+            input.into_raw_handle()
+        } else {
+            unsafe {
+                CreateFileW(
+                    nul.as_ptr(),
+                    windows_sys::Win32::Foundation::GENERIC_READ,
+                    0,
+                    &inherit,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    null_mut(),
+                )
+            }
         };
         self.stdin = OwnedHandle::new(stdin).ok_or_else(last_error)?;
+        if unsafe { SetHandleInformation(stdin, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) } == 0 {
+            return Err(last_error());
+        }
         self.stdin_registered = self.register(ResourceKind::Capture);
         if !self.stdin_registered {
             return Err("probe stdin ownership registration failed".into());

@@ -39,6 +39,7 @@ pub fn run(
     cancellation: &Cancellation,
     cancellation_required: bool,
     environment: &Environment,
+    stdin: Option<std::fs::File>,
 ) -> Result<Output, ProbeFailure> {
     let mut process = UnixRun::new(deadlines, reservation, owner);
     if cancellation_required {
@@ -83,7 +84,7 @@ pub fn run(
     child_command
         .args(["-c", command])
         .current_dir(cwd)
-        .stdin(Stdio::null())
+        .stdin(stdin.map(Stdio::from).unwrap_or_else(Stdio::null))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
