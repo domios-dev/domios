@@ -255,7 +255,21 @@ fn run_pipeline(
         input_display,
         mut input_run,
     } = prepare_input(handle, lease, spec, run_id);
-    let mut envelope = ExecutionEnvelope::from_text(&text);
+    let mut envelope = if let Some(kind) = input_kind.filter(|kind| *kind != MediaKind::Text) {
+        ExecutionEnvelope {
+            media: kind.as_str().into(),
+            schema_id: None,
+            value: serde_json::Value::String(
+                input_source
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+            ),
+            text: String::new(),
+        }
+    } else {
+        ExecutionEnvelope::from_text(&text)
+    };
     if let Some(port) = spec
         .steps
         .first()
@@ -273,20 +287,7 @@ fn run_pipeline(
     let mut terminal_failure = None;
     while let Some(index) = state.current_step {
         if lease.cancelled.load(Ordering::SeqCst) {
-            let now = now(handle);
-            let _ = write_journal(
-                handle,
-                &lease.job,
-                BlueprintJournalWrite::Decision {
-                    run_id: run_id.to_string(),
-                    marker: JournalMarker::Step(index as u16),
-                    step_name: spec.steps[index].name.clone(),
-                    outcome: "skip:lease_cancelled".into(),
-                    at_ms: now,
-                    result_summary: None,
-                    reason: Some("skip:lease_cancelled".into()),
-                },
-            );
+            ctx.record_skipped(&spec.steps[index].name, "skip:lease_cancelled".into())?;
             return Ok(RunCompletion::new("skipped".into(), "skip:lease_cancelled"));
         }
         let step = &spec.steps[index];
@@ -307,6 +308,8 @@ fn run_pipeline(
                 return Ok(RunCompletion::new(
                     if held {
                         JournalState::Held
+                    } else if reason.as_str().starts_with("skip:") {
+                        JournalState::Skipped
                     } else {
                         JournalState::Failed
                     },
@@ -314,7 +317,6 @@ fn run_pipeline(
                 ));
             }
         };
-        let ended = now(handle);
         if result.state == JournalState::Failed {
             if let (Some(run), Some(reason)) = (input_run.as_mut(), result.reason.as_ref()) {
                 let _ = run.advance(InputRun::Failed(reason.as_str().into()));
@@ -341,16 +343,10 @@ fn run_pipeline(
         };
         if let Some(target) = next.current_step.filter(|target| *target > prior_index + 1) {
             for skipped in prior_index + 1..target {
-                let decision = BlueprintJournalWrite::Decision {
-                    run_id: run_id.to_string(),
-                    marker: JournalMarker::Step(skipped as u16),
-                    step_name: spec.steps[skipped].name.clone(),
-                    outcome: "skip:branch".into(),
-                    at_ms: ended,
-                    result_summary: None,
-                    reason: Some(format!("skip:branch to {}", spec.steps[target].name).into()),
-                };
-                required_journal(write_journal(handle, &lease.job, decision))?;
+                ctx.record_skipped(
+                    &spec.steps[skipped].name,
+                    format!("skip:branch to {}", spec.steps[target].name),
+                )?;
             }
         }
         if next.status == RunStatus::Failed {
@@ -541,6 +537,11 @@ fn run_pipeline(
 
 fn command_failure(failure: probe::process::ProbeFailure, previous: &str) -> StepResult {
     let uncertain = failure.is_unconfirmed();
+    let reason = if failure.is_deadline() {
+        JournalReason::Deadline
+    } else {
+        failure.reason().into()
+    };
     StepResult {
         outcome: StepOutcome::Failed,
         stored_outcome: "failed".into(),
@@ -551,9 +552,9 @@ fn command_failure(failure: probe::process::ProbeFailure, previous: &str) -> Ste
             "command probe failed"
         }
         .into(),
-        reason: Some(failure.reason().into()),
+        reason: Some(reason.clone()),
         next_text: previous.into(),
-        decision: (!uncertain).then(|| ("probe_error".into(), Some(failure.reason().into()))),
+        decision: (!uncertain).then(|| ("probe_error".into(), Some(reason))),
         uncertain,
     }
 }
