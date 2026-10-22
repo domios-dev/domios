@@ -8,6 +8,7 @@ import {
   activeOption,
   embedderOptions,
   isReembedding,
+  normalizeRefusal,
   progressLabel,
   switchSummary,
   type Refusal,
@@ -50,10 +51,10 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
     if (value === current) return;
     try {
       const next = await preview(value);
-      if (next.refusal) setRefusal(next.refusal);
+      if (next.refusal) setRefusal(normalizeRefusal(next.refusal));
       else setPending(next);
     } catch (reason) {
-      setRefusal(reason as Refusal);
+      setRefusal(normalizeRefusal(reason));
     }
   };
 
@@ -64,7 +65,7 @@ export function EmbedderCard({ config }: { config: AppConfig }) {
       setPending(null);
       setChoice(null);
     } catch (reason) {
-      setRefusal(reason as Refusal);
+      setRefusal(normalizeRefusal(reason));
     } finally {
       setBusy(false);
     }
