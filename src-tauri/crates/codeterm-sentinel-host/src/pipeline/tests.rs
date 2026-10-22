@@ -389,7 +389,8 @@ fn every_shipped_recipe_command_runs_in_the_runtime_probe_shell() {
             _ => {}
         }
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../resources/blueprints");
+    let root = codeterm_service_core::test_support::fixture_manifest_dir()
+        .join("../../../resources/blueprints");
     let directory = tempfile::tempdir().unwrap();
     let owner = std::sync::Arc::new(probe::owner::ProbeResourceOwner::new());
     let mut executed = 0;
