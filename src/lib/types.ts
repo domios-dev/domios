@@ -746,7 +746,7 @@ export interface PairedPeer {
   relay_protocol_version: number;
 }
 
-export const RELAY_PROTOCOL_VERSION = 1;
+export const RELAY_PROTOCOL_VERSION = 2;
 
 export type WebUiEndpoint =
   | { transport: "tailscale_https"; host: string; port: number }

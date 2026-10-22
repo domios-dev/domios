@@ -12,7 +12,7 @@ import { ServiceDrawer } from "./ServiceDrawer";
 const inventory: MeshDataResult = {
   thisMachine: { name: "Local", ip: "127.0.0.1" },
   services: [daemon, schedule],
-  peers: [{ instance_id: "remote", name: "Remote machine", ip: "100.64.0.1", api_port: 7686, online: false, access_level: "full", last_seen: null, relay_protocol_version: 1 }],
+  peers: [{ instance_id: "remote", name: "Remote machine", ip: "100.64.0.1", api_port: 7686, online: false, access_level: "full", last_seen: null, relay_protocol_version: 2 }],
   loading: false, error: "inventory request failed", refresh: () => {},
 };
 
