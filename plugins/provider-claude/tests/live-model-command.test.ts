@@ -51,7 +51,15 @@ for (const screen of [modelScreen.replaceAll("\r\n", "\n"), modelScreen.replaceA
 
 assert.equal(commands.effort.command.replace("{effort}", "high"), "/effort high");
 assert.equal(commands.effort.picker, undefined);
-assert.equal(commands.effort.prompt, undefined);
+assert.deepEqual(commands.effort.prompt.responseKeys, ["\r"]);
+const effortPrompt = fixture("busy-high-effort-confirmation.txt");
+for (const screen of [effortPrompt, `prefix\n${effortPrompt}\nseparator\nstatus\n❯ `]) {
+  assert.ok(pattern(commands.effort.prompt.screenRegex, "sonnet", "high").test(screen));
+  assert.equal(pattern(commands.effort.prompt.screenRegex, "sonnet", "low").test(screen), false);
+}
+assert.equal(pattern(commands.effort.prompt.screenRegex, "sonnet", "high").test(busy), false);
+assert.equal(pattern(commands.effort.prompt.screenRegex, "sonnet", "high").test(fixture("busy-effort-screen.txt")), false);
+assert.equal(pattern(commands.effort.prompt.screenRegex, "sonnet", "high").test(effortPrompt.replace(/─{3,}/g, "")), false);
 for (const output of [
   fixture("effort-direct-confirmation.txt").split("\n").find(line => line.startsWith("Set effort level to high"))!,
   "Set effort level to high (this session only): details",
