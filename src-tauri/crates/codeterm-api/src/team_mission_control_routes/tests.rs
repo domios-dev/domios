@@ -295,3 +295,38 @@ fn team_board_summary_carries_only_the_displayed_goal() {
         serde_json::json!({ "vector": "Visible goal" })
     );
 }
+
+#[test]
+fn team_board_preserves_folded_checklist_tasks_in_paged_projection() {
+    let mut plan = plan("fixture", "team-a", PlanStatus::Active, 100, vec![], None);
+    for index in 0..60 {
+        let mut task: codeterm_types::plan::Task = serde_json::from_value(serde_json::json!({
+            "id": format!("task_{index}"), "name": format!("opaque {index}"), "type": "code", "status": "in_progress"
+        })).unwrap();
+        task.created_at = 1;
+        task.milestones.push(codeterm_types::plan::Milestone {
+            id: format!("link_{index}"),
+            kind: "tab_todo_linked".into(),
+            text: "opaque checklist".into(),
+            ts: 200 + index,
+            from: Default::default(),
+            links: vec![],
+            loop_id: None,
+            iteration: None,
+            canvas: Default::default(),
+            attachments: vec![],
+        });
+        plan.tasks.push(task);
+    }
+    let page = project_team_state(team("team-a"), vec![plan], 50, None).unwrap();
+    let linked: Vec<_> = page
+        .events
+        .iter()
+        .filter(|event| event.kind == "tab_todo_linked")
+        .collect();
+    assert_eq!(linked.len(), 1);
+    assert_eq!(linked[0].count, 60);
+    assert_eq!(linked[0].linked_tasks.len(), 60);
+    let wire = serde_json::to_value(linked[0]).unwrap();
+    assert_eq!(wire["linked_tasks"].as_array().unwrap().len(), 60);
+}

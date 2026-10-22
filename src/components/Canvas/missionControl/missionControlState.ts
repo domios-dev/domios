@@ -60,6 +60,7 @@ export interface PlanEvent {
   author_tab_id: string | null;
   task_id: string | null;
   task_name: string | null;
+  linked_tasks?: Array<{ id: string; name: string }>;
   text: string;
 }
 

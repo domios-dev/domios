@@ -231,13 +231,15 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
     if (effectiveOrigin?.kind === "system_prompt" || effectiveOrigin?.kind === "system") {
       const prompt = effectiveOrigin.kind === "system_prompt";
+      const curatorStarted = !prompt && effectiveOrigin.context
+        ? /^curator:round_started:(\d+)$/.exec(effectiveOrigin.context) : null;
       return (
         <ChatNoticeCard
           testId={prompt ? "chat-system-prompt-card" : "chat-system-event"}
           role={prompt ? undefined : "status"}
           tone={prompt ? "var(--ct-green)" : undefined}
           icon={<Info size={14} strokeWidth={2} aria-hidden="true" />}
-          title={prompt ? "System prompt" : systemOriginLabel(effectiveOrigin.context)}
+          title={curatorStarted ? `Curator round ${curatorStarted[1]} started` : prompt ? "System prompt" : systemOriginLabel(effectiveOrigin.context)}
           subtitle={prompt ? "This is the shell system prompt." : undefined}
           expanded={expanded}
           onToggle={() => setExpandedPersistent(!expanded)}
