@@ -601,3 +601,60 @@ fn upgrade_from_1_14_9_refuses_locked_provider_update_lock() {
     drop(lock);
     let _ = std::fs::remove_dir_all(&fixture.registry);
 }
+
+#[test]
+fn completed_relocation_moves_recreated_scratch_and_keeps_destination() {
+    let fixture = fixture(STORAGE_SCHEMA_VERSION);
+    std::fs::rename(&fixture.old, &fixture.new).unwrap();
+    Connection::open(fixture.new.join("storage/state.db"))
+        .unwrap()
+        .pragma_update(None, "user_version", 20)
+        .unwrap();
+    std::fs::create_dir_all(fixture.old.join("logs")).unwrap();
+    std::fs::create_dir_all(fixture.old.join("runtime")).unwrap();
+    std::fs::write(fixture.old.join("logs/stale.log"), b"late writer").unwrap();
+    let (owner, notices) = migrate(
+        fixture.identity.clone(),
+        &fixture.registry,
+        false,
+        &MockSecretItems::default(),
+    )
+    .unwrap();
+    assert!(!fixture.old.exists());
+    assert!(fixture.new.join("sentinel.bin").exists());
+    assert!(notices
+        .iter()
+        .any(|notice| notice.contains("logs (11 bytes")));
+    let aside = std::fs::read_dir(fixture.new.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".codeterm-aside-")
+        })
+        .unwrap();
+    assert_eq!(
+        std::fs::read(aside.join("logs/stale.log")).unwrap(),
+        b"late writer"
+    );
+    drop(owner);
+    let _ = std::fs::remove_dir_all(&fixture.registry);
+}
+
+#[test]
+fn scratch_cannot_hide_an_incomplete_destination_or_legacy_data() {
+    let root = tempfile::tempdir().unwrap();
+    let old = root.path().join(".codeterm");
+    let new = root.path().join(".domios");
+    std::fs::create_dir_all(old.join("logs")).unwrap();
+    std::fs::create_dir_all(&new).unwrap();
+    assert!(legacy_scratch::move_aside(&old, &new).is_err());
+    std::fs::write(old.join("config.toml"), b"data").unwrap();
+    let error = legacy_scratch::move_aside(&old, &new)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("config.toml (4 bytes"));
+    assert!(old.join("config.toml").exists());
+}
