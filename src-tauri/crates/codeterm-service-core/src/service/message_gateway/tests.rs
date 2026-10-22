@@ -497,6 +497,44 @@ fn system_notice_to_agentless_target_is_refused_without_writing() {
 }
 
 #[test]
+fn curator_system_notices_are_framed_once_or_refused_without_plain_fallback() {
+    for context in ["curator:round_started:7", "curator"] {
+        for accepts in [false, true] {
+            let gateway = MessageGateway::new();
+            let seam = FakeSeam::default();
+            seam.refuse_system_notice.set(!accepts);
+            let body = "opaque notice payload";
+            let result = gateway.submit(
+                &seam,
+                OutboundMessage {
+                    target: "orchestrator".into(),
+                    body: MessageBody::Text { body: body.into() },
+                    envelope: Some(MessageEnvelope::codeterm_reminder(context)),
+                    class: DeliveryClass::SystemNotice,
+                    origin: MessageOrigin::System,
+                    idempotency_key: None,
+                },
+            );
+            assert!(seam.texts.borrow().is_empty());
+            assert!(seam.batches.borrow().is_empty());
+            assert!(seam.keys.borrow().is_empty());
+            let writes = seam.enveloped.borrow();
+            if accepts {
+                assert!(result.is_ok());
+                assert_eq!(writes.len(), 1);
+                let parsed = codeterm_wire::domios::parse_message(&writes[0].1).unwrap();
+                assert_eq!(parsed.attr("from"), Some("system"));
+                assert_eq!(parsed.attr("context"), Some(context));
+                assert_eq!(parsed.body, body);
+            } else {
+                assert!(result.unwrap_err().is_agent_unavailable());
+                assert!(writes.is_empty());
+            }
+        }
+    }
+}
+
+#[test]
 fn agent_traffic_to_agentless_target_still_delivers() {
     let gateway = MessageGateway::new();
     let fake = FakeSeam::default();
