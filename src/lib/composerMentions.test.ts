@@ -43,6 +43,14 @@ test("insertion preserves both sides of the draft", () => {
 test("match quality is exact then prefix then subsequence", () => {
   assert.deepEqual([mentionMatch("cod", ["COD"]), mentionMatch("cod", ["Coding"]), mentionMatch("cd", ["Coding"]), mentionMatch("zz", ["Coding"])], [0, 1, 2, Infinity]);
 });
+test("file suggestion paths hide Windows extended prefixes", async () => {
+  const source = fileMentionSource(async () => [
+    { name: "a.ts", path: "\\\\?\\C:\\repo\\a.ts" },
+    { name: "b.ts", path: "\\\\?\\UNC\\host\\share\\b.ts" },
+  ]);
+  const rows = await source.search("", ctx);
+  assert.deepEqual(rows.map(row => row.description), ["C:\\repo\\a.ts", "\\\\host\\share\\b.ts"]);
+});
 test("extended Windows paths expose scoped Tasks and Plans alongside cwd Files", async () => {
   const bound = { ...plans[0], project_path: "\\\\?\\C:\\Project\\Repo", tasks: [task("COD-1", "done", "Water the basil"), task("COD-2", "pending", "Water the basil")] };
   const windows = { ...ctx, scope: { ...ctx.scope, projectPath: "c:/project/repo", cwd: "c:/project/repo/lane" } };

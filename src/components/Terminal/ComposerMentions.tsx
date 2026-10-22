@@ -17,6 +17,6 @@ export function ComposerMentions({ tabId, input, setInput, onPicked, textareaRef
   const sources = useComposerMentionSources(tabId);
   const picker = useComposerMentions(input, setInput, onPicked, textareaRef, sources.registry, sources.scope);
   useImperativeHandle(ref, () => ({ handleKey: picker.handleKey, syncSelection: picker.syncSelection }));
-  return <ComposerMentionPicker mentions={picker.mentions} highlighted={picker.highlighted} onHighlight={picker.setHighlighted}
+  return <ComposerMentionPicker mentions={picker.mentions} loading={picker.loading} highlighted={picker.highlighted} onHighlight={picker.setHighlighted}
     onPick={picker.pick} onClose={picker.close} triggerRef={anchorRef} />;
 }

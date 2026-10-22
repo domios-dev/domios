@@ -10,7 +10,7 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
   const [selection, setSelection] = useState({ start: input.length, end: input.length });
   const [highlighted, setHighlighted] = useState(0);
   const [dismissed, setDismissed] = useState<MentionDismissal | null>(null);
-  const [result, setResult] = useState<{ key: string; rows: ComposerMention[] }>({ key: "", rows: [] });
+  const [result, setResult] = useState<{ key: string; rows: ComposerMention[]; loading?: boolean }>({ key: "", rows: [] });
   const pendingCaret = useRef<number | null>(null);
   const query = activeMentionQuery(input, selection.start, selection.end);
   const partial = query ? input.slice(query.start + 1, query.end) : undefined;
@@ -38,6 +38,7 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
   useEffect(() => {
     if (!key || partial === undefined) return;
     const controller = new AbortController();
+    setResult({ key, rows: [], loading: true });
     void registry.search(partial, { scope: scopeRef.current, signal: controller.signal }).then((rows) => {
       if (!controller.signal.aborted) setResult({ key, rows });
     }).catch(() => { if (!controller.signal.aborted) setResult({ key, rows: [] }); });
@@ -59,6 +60,7 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
   const handleKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
     const code = event.code || event.key;
     if (code === "Backspace" && dismissed) setDismissed(null);
+    if (active && code === "Escape") { event.preventDefault(); close(); return true; }
     if (!mentions.length) return false;
     if (code === "ArrowDown" || code === "ArrowUp") {
       event.preventDefault();
@@ -74,5 +76,5 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
     if (code === "Escape") { event.preventDefault(); close(); return true; }
     return false;
   };
-  return { mentions, highlighted: Math.min(highlighted, Math.max(0, mentions.length - 1)), setHighlighted, pick, handleKey, syncSelection, close };
+  return { mentions, loading: active && (result.key !== key || result.loading === true), highlighted: Math.min(highlighted, Math.max(0, mentions.length - 1)), setHighlighted, pick, handleKey, syncSelection, close };
 }

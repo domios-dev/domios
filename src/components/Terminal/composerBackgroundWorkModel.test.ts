@@ -28,6 +28,14 @@ const agent = (id: string, ageMs: number, toolInput: Record<string, unknown>, pa
 
 const process = {threadId:"root",processId:"process-1",itemId:"terminal-item",command:"node build.mjs",cwd:"C:/work",osPid:42};
 
+test("agent descriptions survive later activity and take priority over opaque paths", () => {
+  const items = composerBackgroundWorkItems([
+    agent("start", 30_000, { agent_call_id: "call", agent_state: "started", agent_description: "Inspect source" }),
+    agent("running", 20_000, { agent_call_id: "call", agent_id: "a743f86e11053a44a", agent_path: "a743f86e11053a44a", agent_state: "running" }),
+  ], [], now, { subagentsVisible: true, rootThreadId: "root" });
+  assert.equal(items[0].name, "Inspect source");
+});
+
 test("maps running terminals and capable-provider subagents into one counted bubble", () => {
   const items = composerBackgroundWorkItems([
     agent("agent-item", LONG_RUNNING_WORK_MS + 1, {
