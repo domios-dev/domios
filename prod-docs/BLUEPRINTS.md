@@ -93,7 +93,9 @@ Effects are nodes: `notify`, `send`, `cron`, `blueprint`, `respond_prompt`, `esc
 
 ```bash
 domios blueprint schema > blueprint.schema.json
-domios blueprint check health.yaml --set url=https://example.com/health --json
+domios blueprint check health.yaml --set url=https://example.com/health --json --explain
+domios blueprint check health.yaml --fix
+domios blueprint check health.yaml --fix --write
 domios blueprint export <id> --out shared.yaml
 domios blueprint import shared.yaml --set command="echo ready"
 domios blueprint update <id> --expect-version 3 --from-file health-bound.yaml --dry-run
@@ -102,7 +104,9 @@ domios blueprint history <id>
 domios blueprint log <id>
 ```
 
-The editor schema is generated from the same serde model as parsing. Diagnostics carry file, line, column, field, severity, message and hint. Duplicate keys, invalid shapes, undeclared inputs, backward routes and invalid binding slots refuse. Invalid files exit 2. Offline checking does not prove execution support or live authority; use apply with `--dry-run` to validate that boundary.
+The editor schema is generated from the same serde model as parsing. One checker governs offline check and live apply/import/update. Diagnostics include stable rule and atom ids, file/line/column/field, severity, message, hint, passing/failing premises and a proof tree; dependent findings are folded under the erroneous root. `--explain` renders those proofs; `--json` retains them structurally. Invalid files exit 2. Unsupported runtime constructs refuse with an explicit diagnostic; apply with `--dry-run` also checks live Team scope and installed capabilities.
+
+`--fix` previews the actual text and semantic diff. `--fix --write` writes a file; a second fix makes no change. Repairs declare missing inputs only when every use determines one type, route unknown `other` cases to creator escalation, normalize literal durations below 10s with a timing warning, and canonicalize mapping keys. Ambiguous types and executable/authority repairs refuse without changing the file. The checker never grants capabilities; `domios-cli` remains unavailable. Cross-Blueprint duplicate findings use existing scoped vector/WL comparison when an indexed identity is available, otherwise diagnostics explicitly report the unavailable comparison without a lexical substitute.
 
 An exact name identifies a graph in its Team/workspace. Built-in names stay stable when bindings change; apply retargets that name. Use an explicit whole `name` input in custom recipes when distinct identities are required. Applying unchanged running definitions returns `unchanged`; applying a stopped graph reactivates the same ID. Watch lifetime and initial pause settings cannot change through apply. A watch and pipeline cannot replace one another under the same name.
 
@@ -119,4 +123,4 @@ Only the Team Orchestrator keeps solutions. Supply one to five intents, preferab
 
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->

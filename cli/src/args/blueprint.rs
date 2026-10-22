@@ -9,6 +9,15 @@ pub enum BlueprintAction {
         source: String,
         #[arg(long = "set")]
         set: Vec<String>,
+        /// Include positioned atoms and proof trees in human-readable diagnostics
+        #[arg(long)]
+        explain: bool,
+        /// Print deterministic safe repairs and the semantic diff
+        #[arg(long)]
+        fix: bool,
+        /// With --fix, write the repaired YAML file in place
+        #[arg(long, requires = "fix")]
+        write: bool,
     },
     /// Create or update a YAML file or recipe by name in the caller's Team
     #[command(alias = "create")]

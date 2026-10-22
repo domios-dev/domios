@@ -45,24 +45,71 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
                 print!("{raw}");
             }
         }
-        BlueprintAction::Check { source: name, set } => {
+        BlueprintAction::Check {
+            source: name,
+            set,
+            explain,
+            fix,
+            write,
+        } => {
             let raw = source(name).unwrap_or_else(|error| crate::cmd::print::fail(2, error));
-            let checked = blueprint_document::check(name, &raw, set);
+            let context = blueprint_document::checker::CheckContext::default();
+            let repair = if *fix {
+                blueprint_document::parse(name, &raw)
+                    .ok()
+                    .map(|parsed| blueprint_document::checker::fix::fix(&parsed, &raw, &context))
+            } else {
+                None
+            };
+            if *write {
+                if let Some(text) = repair.as_ref().and_then(|r| r.text.as_ref()) {
+                    if name == "-" || recipe_files::FILES.iter().any(|(key, _)| key == name) {
+                        crate::cmd::print::fail(2, "Write a file path to use --fix --write");
+                    }
+                    if repair.as_ref().is_some_and(|r| r.changed) {
+                        std::fs::write(name, text)
+                            .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
+                    }
+                }
+            }
+            let effective = repair
+                .as_ref()
+                .and_then(|r| r.text.as_deref())
+                .unwrap_or(&raw);
+            let mut checked =
+                blueprint_document::check_with_context(name, effective, set, &context);
+            if repair.as_ref().is_some_and(|r| !r.refusals.is_empty()) {
+                checked.ok = false;
+                checked.definition = None;
+            }
             if json_mode {
-                let value = serde_json::to_value(&checked).unwrap_or_else(|error| {
-                    crate::cmd::print::fail(
-                        2,
-                        format!("Could not serialize Blueprint diagnostics: {error}"),
-                    )
-                });
+                let mut value = serde_json::to_value(&checked)
+                    .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
+                if let Some(repair) = &repair {
+                    value["fix"] = serde_json::to_value(repair)
+                        .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
+                }
                 crate::cmd::print::print_json(&value);
             } else {
-                for d in &checked.diagnostics {
-                    println!(
-                        "{}:{}:{}: {}: {}: {}\n  fix: {}",
-                        d.file, d.line, d.column, d.severity, d.field, d.message, d.hint
-                    );
+                if let Some(repair) = &repair {
+                    for note in &repair.notes {
+                        println!("fix: {note}");
+                    }
+                    for refusal in &repair.refusals {
+                        println!("fix refused: {refusal}");
+                    }
+                    print!("{}", repair.diff);
+                    if let Some(diff) = &repair.semantic_diff {
+                        println!(
+                            "semantic diff: {}",
+                            serde_json::to_string(diff).unwrap_or_default()
+                        );
+                    }
                 }
+                print!(
+                    "{}",
+                    blueprint_document::checker::render(&checked.diagnostics, *explain)
+                );
                 if checked.ok {
                     println!("Valid Blueprint: {name}");
                 }

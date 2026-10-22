@@ -24,8 +24,8 @@ impl ProofAtom {
         field: &str,
         location: Location,
     ) -> Self {
-        let bytes =
-            serde_json::to_vec(&(predicate, &arguments, present, field)).unwrap_or_default();
+        let bytes = serde_json::to_vec(&(predicate, &arguments, present, field, &location.file))
+            .unwrap_or_default();
         Self {
             id: format!("atom:{:x}", Sha256::digest(bytes)),
             predicate: predicate.into(),
