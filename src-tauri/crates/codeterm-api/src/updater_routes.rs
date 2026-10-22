@@ -6,9 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_update::apply::{
-    gate_staged_deb_async, ApplyOptions, ApplyResult, DebianElevationStatus, DebianStageGate,
-};
+use codeterm_update::apply::{ApplyOptions, ApplyResult};
 use codeterm_update::single_flight;
 use codeterm_update::InstallMethod;
 use codeterm_update::UpdatePhase;
@@ -124,15 +122,36 @@ pub async fn install_update(
     use axum::response::IntoResponse;
 
     match install_update_inner(state, headers, query).await {
-        Ok(value) => value.into_response(),
-        Err((status, "native_capability_unavailable")) => (
+        Ok(value) => {
+            if matches!(
+                value.0["status"].as_str(),
+                Some("blocked" | "elevation_required")
+            ) {
+                log::warn!(
+                    "[updater] POST /api/update/install status=200 outcome={}",
+                    value.0
+                );
+            }
+            value.into_response()
+        }
+        Err((status, reason)) => {
+            log::error!(
+                "[updater] POST /api/update/install status={} reason={}",
+                status.as_u16(),
+                reason
+            );
+            if reason == "native_capability_unavailable" {
+                (
             status,
             Json(serde_json::json!({
                 "code": "native_capability_unavailable",
-                "message": "Automatic installation requires a native application host attached to this server. This server cannot perform automatic installation. On macOS or Windows, download the official installer and run codeterm update install --from-file <installer-path> on the machine being updated. On Linux, update with the package manager or install the official package."
+                "message": "Automatic installation requires a native application host attached to this server. The server has no application-host updater registered; a running desktop client alone does not provide this capability. Use Settings > Updates in the desktop client, or download the official installer from https://github.com/rollacode/codeterm-releases/releases/latest and run codeterm update install --from-file <installer-path> locally on macOS or Windows. On Linux, install the official package with the package manager."
             })),
-        ).into_response(),
-        Err(error) => error.into_response(),
+        ).into_response()
+            } else {
+                (status, reason).into_response()
+            }
+        }
     }
 }
 
@@ -150,6 +169,27 @@ async fn install_update_inner(
     if q.method.as_deref() == Some("auto") {
         validate_initiating_tab(caller_tab_id.as_deref(), q.continue_tab.as_deref())
             .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
+    }
+    let install_method = state.update_state.lock().install_method.clone();
+    if q.method.as_deref() == Some("auto") && install_method == InstallMethod::Deb {
+        let info = codeterm_update::checker::check_for_update_at(
+            &install_method,
+            q.manifest_url.as_deref(),
+        )
+        .await
+        .map_err(|error| {
+            log::error!("[updater] POST /api/update/install status=502 reason={error}");
+            state.update_state.lock().set_error(error);
+            (
+                StatusCode::BAD_GATEWAY,
+                "Debian update discovery failed; see daemon log for URL and status",
+            )
+        })?;
+        let response = debian_install_response(&info)?;
+        if let Some(message) = response.0["message"].as_str() {
+            state.update_state.lock().set_error(message.to_string());
+        }
+        return Ok(response);
     }
     let application_host = if q.method.as_deref() == Some("auto") {
         Some(
@@ -212,121 +252,6 @@ async fn install_update_inner(
         let continue_tab = q.continue_tab.clone();
         let update_state = state.update_state.clone();
         codeterm_update::apply::begin_apply(&update_state);
-        if install_method == InstallMethod::Deb {
-            let opts = ApplyOptions {
-                channel,
-                manifest_url,
-                install_method,
-                initiating_tab_id: continue_tab.clone(),
-            };
-            let plan = match app.check_stage_deb_update(&opts).await {
-                Ok(plan) => plan,
-                Err(e) => {
-                    update_state.lock().set_error(e.clone());
-                    return Ok(Json(serde_json::json!({
-                        "status": "blocked",
-                        "message": e,
-                        "install_method": "deb"
-                    })));
-                }
-            };
-
-            let preflight_host = app.clone();
-            let gate = match gate_staged_deb_async(plan, move || preflight_host.debian_preflight())
-                .await
-            {
-                Ok(gate) => gate,
-                Err(e) => {
-                    update_state.lock().set_error(e.clone());
-                    return Ok(Json(serde_json::json!({
-                        "status": "blocked",
-                        "message": e,
-                        "install_method": "deb"
-                    })));
-                }
-            };
-            let (version, path) = match gate {
-                DebianStageGate::NoUpdate => {
-                    update_state.lock().set_phase(UpdatePhase::Idle);
-                    return Ok(Json(serde_json::json!({
-                        "status": "no_update",
-                        "message": "No update available."
-                    })));
-                }
-                DebianStageGate::Ready { version, path } => (version, path),
-                DebianStageGate::NotReady(preflight) => match preflight.status {
-                    DebianElevationStatus::Ready => unreachable!(),
-                    DebianElevationStatus::ElevationRequired => {
-                        let reason = preflight.reason.unwrap_or_else(|| {
-                            "Debian update requires authorized elevation".to_string()
-                        });
-                        update_state.lock().set_error(reason.clone());
-                        return Ok(Json(serde_json::json!({
-                            "status": "elevation_required",
-                            "message": reason,
-                            "install_method": "deb"
-                        })));
-                    }
-                    DebianElevationStatus::Blocked => {
-                        let reason = preflight.reason.unwrap_or_else(|| {
-                            "Debian update cannot obtain GUI/session elevation".to_string()
-                        });
-                        update_state.lock().set_error(reason.clone());
-                        return Ok(Json(serde_json::json!({
-                            "status": "blocked",
-                            "message": reason,
-                            "install_method": "deb"
-                        })));
-                    }
-                },
-            };
-            {
-                let mut us = update_state.lock();
-                us.set_phase(UpdatePhase::Applying);
-                us.clear_error();
-            }
-            std::thread::spawn(move || {
-                let rt = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(rt) => rt,
-                    Err(e) => {
-                        let msg = format!("tokio runtime build failed: {}", e);
-                        log::error!("[updater] {}", msg);
-                        update_state.lock().set_error(msg);
-                        return;
-                    }
-                };
-                rt.block_on(async move {
-                    match single_flight::install_staged_deb_with_lease(
-                        lease,
-                        app.as_ref(),
-                        version.clone(),
-                        path,
-                        continue_tab.as_deref(),
-                    )
-                    .await
-                    {
-                        Ok(()) => {
-                            update_state.lock().set_phase(UpdatePhase::Success);
-                            log::info!(
-                                "[updater] Debian v{} installed — restart imminent",
-                                version
-                            );
-                        }
-                        Err(e) => {
-                            log::error!("[updater] Debian install failed: {}", e);
-                            update_state.lock().set_error(e);
-                        }
-                    }
-                });
-            });
-            return Ok(Json(serde_json::json!({
-                "status": "updating",
-                "message": "Verified Debian package staged. Authorized installer is applying it."
-            })));
-        }
         std::thread::spawn(move || {
             let rt = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -361,7 +286,10 @@ async fn install_update_inner(
                         }
                     },
                     Err(e) => {
-                        log::error!("[updater] check_and_apply failed: {}", e);
+                        log::error!(
+                            "[updater] POST /api/update/install status=200 phase=error: {}",
+                            e
+                        );
                         update_state.lock().set_error(e);
                     }
                 }
@@ -401,6 +329,22 @@ async fn install_update_inner(
                 "message": "Opened download page in browser"
             })))
         }
+    }
+}
+
+fn debian_install_response(
+    info: &codeterm_update::update_state::UpdateInfo,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    match codeterm_update::checker::debian_install_guidance(info) {
+        Ok(Some((command, message))) => Ok(Json(serde_json::json!({
+            "status": "elevation_required", "command": command, "message": message,
+            "install_method": "deb"
+        }))),
+        Ok(None) => Ok(Json(serde_json::json!({"status": "up_to_date"}))),
+        Err(_) => Err((
+            StatusCode::BAD_GATEWAY,
+            "Debian manifest has no package URL",
+        )),
     }
 }
 

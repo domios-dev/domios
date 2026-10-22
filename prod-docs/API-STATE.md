@@ -203,14 +203,18 @@ the change instead — `codeterm notify send --offer <surface> --offer-accept <l
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/update/check` | `?force=true` | Check for available updates on the active channel. Cached for 1 hour unless `force=true`. |
-| POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). `after_update` (optional) stashes a message to `~/.codeterm/post-update-message.txt`; the new daemon delivers it to the General tab after restart. Update application is single flight process-wide: a request arriving while another is applying is refused with `{"status":"already_in_flight"}`, which is distinct from `no_update`. |
+| POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, Debian installs return `elevation_required` with the manifest-selected download command and `sudo dpkg -i ./domios-update.deb`. Other installs require an application-host updater registered with the server before starting the native updater. `after_update` (optional) stashes a message to `~/.codeterm/post-update-message.txt`; the new daemon delivers it to the General tab after restart. Update application is single flight process-wide: a request arriving while another is applying is refused with `{"status":"already_in_flight"}`, which is distinct from `no_update`. |
 | GET | `/api/update/channel` | — | Returns the active diagnostic channel, currently `{"channel":"stable"}` on normal installs. |
 | POST | `/api/update/channel` | `{channel}` | Disabled while Domios ships only the default update channel; returns `409 update channel switching is disabled`. |
 | GET | `/api/update/status` | — | Current updater state and last update result |
 
 **Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — a wrong-key signature aborts the install before any binary is touched.
 
-**Auto install flow (`method=auto`).** Auto-install returns `updating` immediately, then:
+**Install responses.** HTTP 200 carries `updating`, `up_to_date`/`no_update`, `command`, `browser_opened`, `already_in_flight`, `blocked`, or `elevation_required`; the last two require user action and include a reason. HTTP 400 rejects invalid continuation ownership, disabled continuation, a missing caller, or a missing prior check for a manual request. HTTP 500 reports a failed blocking worker. HTTP 502 reports failed Debian manifest discovery or a missing package URL. HTTP 503 carries `code: native_capability_unavailable` when this server has no registered application-host updater; a running desktop client alone does not provide it. Refusals log `/api/update/install`, HTTP status and reason. Authentication and protocol middleware may also reject requests before the route runs.
+
+**Current recovery.** On macOS or Windows, try Settings > Updates in the desktop client, which uses native IPC directly. Alternatively download the official installer from https://github.com/rollacode/codeterm-releases/releases/latest and run `codeterm update install --from-file <installer-path>` locally. On Debian, the returned command downloads the exact manifest asset into `./domios-update.deb` and explicitly hands installation to `sudo dpkg -i ./domios-update.deb`; the daemon does not invoke sudo.
+
+**Native auto install flow (`method=auto`).** When an application-host updater is available, auto-install returns `updating`, then:
 1. Discovers the stable release with a no-cache GitHub request, then pins the install to that tag's immutable manifest. A `manifest_url` query override still takes precedence; non-HTTPS overrides require `dev-updater-allowlocal`.
 2. Downloads the selected platform artifact and verifies its signature before installing it.
 3. Shuts down gracefully and restarts the app.
@@ -237,4 +241,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

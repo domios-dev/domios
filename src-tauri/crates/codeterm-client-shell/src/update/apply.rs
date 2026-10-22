@@ -131,7 +131,7 @@ async fn check_and_apply_plugin(
     {
         Ok(bytes) => bytes,
         Err(e) => {
-            let msg = format!("download/verify failed: {}", e);
+            let msg = format!("GET {} download/verify failed: {}", update.download_url, e);
             log::error!("[updater] {}", msg);
             return Err(msg);
         }
@@ -305,7 +305,11 @@ pub async fn check_stage_deb_update(
             || {},
         )
         .await
-        .map_err(|e| format!("download/verify failed: {}", e))?;
+        .map_err(|e| {
+            let message = format!("GET {} download/verify failed: {}", update.download_url, e);
+            log::error!("[updater] {message}");
+            message
+        })?;
 
     let staged = stage_deb_atomically_async(bytes, update.version.clone()).await?;
     Ok(DebianUpdatePlan::Staged {
