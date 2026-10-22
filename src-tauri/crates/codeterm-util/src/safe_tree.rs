@@ -90,6 +90,8 @@ pub fn remove(path: &Path) -> Result<(), String> {
             #[cfg(windows)]
             if metadata.permissions().readonly() {
                 let mut permissions = metadata.permissions();
+                // Windows-only: clears the read-only attribute; the Unix world-writable hazard does not apply.
+                #[allow(clippy::permissions_set_readonly_false)]
                 permissions.set_readonly(false);
                 fs::set_permissions(&path, permissions)
                     .map_err(|error| failure("clear read-only", &path, error))?;
