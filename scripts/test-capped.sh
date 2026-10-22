@@ -184,6 +184,7 @@ detect_requested_filter() {
 # all-ignored or unmatched selection sums to zero.
 passed_test_count() {
     awk '
+        { gsub(/\033\[[0-9;]*m/, "") }
         /^[[:space:]]*test result: [A-Za-z]+\. [0-9]+ passed;/ {
             line = $0; sub(/.*test result: [A-Za-z]+\. /, "", line); total += line + 0
         }

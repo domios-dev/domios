@@ -121,7 +121,7 @@ fn close_case(cancelled: bool, unmerged: bool, dirty: bool) {
             .lane
             .cleanup_hints
             .iter()
-            .any(|hint| hint.contains("codeterm plan lane-remove")));
+            .any(|hint| hint.contains("domios plan lane-remove")));
     }
     let branch = Command::new("git")
         .current_dir(&canonical)

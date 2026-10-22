@@ -36,14 +36,19 @@ describe("terminal input ownership", () => {
       onNonTabKey() {},
       onInputData() {},
     };
-    function Harness({ active }: { active: boolean }) {
-      useTerminalInput({ ...options, terminalActive: active });
+    function Harness({ active, readOnly = false }: { active: boolean; readOnly?: boolean }) {
+      useTerminalInput({ ...options, terminalActive: active, readOnly });
       return null;
     }
     try {
       await act(async () => root.render(<Harness active={false} />));
       await act(async () => emit("a"));
       await act(async () => emit("\x1b[0n"));
+      expect(calls).toEqual([]);
+      await act(async () => root.render(<Harness active readOnly />));
+      await act(async () => emit("blocked"));
+      await act(async () => emit("\x1b"));
+      host.dispatchEvent(new Event("paste", { bubbles: true, cancelable: true }));
       expect(calls).toEqual([]);
       await act(async () => root.render(<Harness active />));
       await act(async () => emit("b"));

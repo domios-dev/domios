@@ -264,6 +264,12 @@ pub(crate) struct TaskShowOpts {
     pub include_done_siblings: bool,
 }
 
+fn empty_task_list_message(val: &Value) -> String {
+    val.get("empty_reason")
+        .and_then(crate::cmd::plan::render_empty_reason)
+        .unwrap_or_else(|| "(no tasks)".into())
+}
+
 pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
     if json {
         println!("{}", serde_json::to_string_pretty(val).unwrap());
@@ -274,7 +280,7 @@ pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskS
 
     if let Some(tasks) = val.get("tasks").and_then(|v| v.as_array()) {
         if tasks.is_empty() {
-            println!("(no tasks)");
+            println!("{}", empty_task_list_message(val));
             return;
         }
         print!(

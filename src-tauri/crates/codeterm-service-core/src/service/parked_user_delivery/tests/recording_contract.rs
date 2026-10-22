@@ -192,7 +192,11 @@ fn lark_recording_contract_identity_only_baseline_allows_cancelled_capture() {
         .unwrap();
     fixture
         .service
-        .prepare_and_admit_user_send(reservation, "ordinary text".into(), false)
+        .prepare_and_admit_user_send(
+            reservation,
+            crate::service::messenger::HumanInput::composer("ordinary text"),
+            false,
+        )
         .unwrap();
     at_guard_rx.recv_timeout(TEST_DEADLINE).unwrap();
     cancelled.store(false, Ordering::Release);

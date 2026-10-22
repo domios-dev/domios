@@ -55,10 +55,7 @@ fn routed_messages_wake_restored_tabs_and_write_once_after_own_session_authentic
                     Some("saved-session")
                 );
                 assert_eq!(payload.expected_binding_nonce.as_deref(), Some("new-nonce"));
-                let QueuedAgentPayload::RoutedFrame { body, .. } = &payload.transport else {
-                    panic!("expected routed frame")
-                };
-                captured.lock().push(body.clone());
+                captured.lock().push(payload.transport.body().to_string());
                 Ok(())
             }),
             Arc::new(move || {

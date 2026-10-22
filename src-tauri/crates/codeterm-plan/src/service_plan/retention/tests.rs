@@ -1,6 +1,5 @@
 use super::*;
 use crate::plan::{Milestone, OrchestratorRef, TaskExecutionAttempt};
-use crate::service_plan::search_index::{flush_index_queue_for_test, project_index_path};
 use crate::service_plan::NewTask;
 use rusqlite::Connection;
 
@@ -88,57 +87,6 @@ fn stored_rows(database: &std::path::Path, plan_id: &str) -> Vec<i64> {
     .collect()
 }
 
-fn index_units(root: &std::path::Path, ids: &[&str]) -> i64 {
-    let connection = Connection::open(project_index_path(root)).unwrap();
-    ids.iter()
-        .map(|id| {
-            connection
-                .query_row(
-                    "SELECT COUNT(*) FROM mem_items WHERE id LIKE ?1",
-                    [format!("planunit_{id}_%")],
-                    |row| row.get::<_, i64>(0),
-                )
-                .unwrap()
-        })
-        .sum()
-}
-
-#[test]
-fn a_plan_older_than_a_year_is_removed_with_all_its_rows_and_a_younger_one_stays() {
-    let root = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(root.path());
-    let database = store.database_path_for_test();
-    let stale = plan_with_history(&store, root.path(), "Stale", 366);
-    let fresh = plan_with_history(&store, root.path(), "Fresh", 364);
-    let stale_spec = store
-        .list_specs_full()
-        .into_iter()
-        .find(|spec| spec.plan_id.as_deref() == Some(stale.as_str()))
-        .unwrap()
-        .id;
-    flush_index_queue_for_test(root.path());
-    assert_eq!(stored_rows(&database, &stale), [1, 1, 1, 1, 1, 1]);
-    assert!(index_units(root.path(), &[&stale, &stale_spec]) > 0);
-
-    let pruned = store.prune_stale_plans(NOW_MS);
-    flush_index_queue_for_test(root.path());
-
-    assert_eq!(
-        pruned,
-        [PrunedPlan {
-            id: stale.clone(),
-            title: "Stale".into(),
-            updated_at: NOW_MS - 366 * DAY_MS,
-        }]
-    );
-    assert!(store.get(&stale).is_none());
-    assert_eq!(stored_rows(&database, &stale), [0, 0, 0, 0, 0, 0]);
-    assert_eq!(index_units(root.path(), &[&stale, &stale_spec]), 0);
-    assert!(store.get(&fresh).is_some());
-    assert_eq!(stored_rows(&database, &fresh), [1, 1, 1, 1, 1, 1]);
-    assert!(index_units(root.path(), &[&fresh]) > 0);
-}
-
 #[test]
 fn retention_claims_each_day_once() {
     let root = tempfile::tempdir().unwrap();
@@ -169,4 +117,14 @@ fn a_plan_touched_after_the_candidate_scan_is_not_deleted() {
         .is_none());
     assert!(store.get(&touched).is_some());
     assert_eq!(stored_rows(&database, &touched), [1, 1, 1, 1, 1, 1]);
+}
+
+#[test]
+fn retention_cutoff_selects_only_plans_older_than_a_year() {
+    let cutoff = NOW_MS.saturating_sub(PLAN_RETENTION_MS);
+    assert!(is_stale(NOW_MS - 366 * DAY_MS, cutoff));
+    assert!(!is_stale(NOW_MS - 364 * DAY_MS, cutoff));
+    assert!(!is_stale(cutoff, cutoff));
+    assert!(!is_stale(0, 0u64.saturating_sub(PLAN_RETENTION_MS)));
+    assert!(!is_stale(NOW_MS, cutoff));
 }

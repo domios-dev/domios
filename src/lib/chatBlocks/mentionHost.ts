@@ -46,12 +46,13 @@ export function createMentionHost(ports: {
       let index = indexes.get(scopeKey);
       if (!index) {
         index = new Map();
-        for (const plan of plans.filter((item) => planInMentionScope(item, scope))) {
-          index.set(`plan:${plan.id}`, { title: plan.title, kind: "plan", id: plan.id, planId: plan.id });
+        for (const plan of plans) {
+          const inScope = planInMentionScope(plan, scope);
+          if (inScope) index.set(`plan:${plan.id}`, { title: plan.title, kind: "plan", id: plan.id, planId: plan.id });
           for (const task of plan.tasks) {
-            for (const ref of new Set([task.id.toLowerCase(), task.key?.toLowerCase()].filter((key): key is string => !!key))) {
+            for (const ref of new Set([task.id.toLowerCase(), inScope ? task.key?.toLowerCase() : undefined].filter((key): key is string => !!key))) {
               const key = `task:${ref}`;
-              index.set(key, index.has(key) ? null : { title: `${task.key ?? task.id} ${task.name}`, kind: "task", id: ref, planId: plan.id, targetId: task.id });
+              index.set(key, index.has(key) ? null : { title: `${task.key ?? task.id} ${task.name}`, kind: "task", id: ref, planId: plan.id, targetId: task.id, teamId: plan.team_id ?? null });
             }
           }
         }
@@ -119,7 +120,7 @@ export function createMentionHost(ports: {
         const workspace = state.workspaces.find((item) => item.id === tab?.workspace_id || item.tabs.includes(value.id));
         if (workspace) ports.openTab(workspace.id, value.id);
       } else if (value.kind === "blueprint" && scope.workspaceId) ports.openBlueprint(scope.workspaceId, value.teamId ?? null, value.id);
-      else if (value.planId) ports.openPlan({ planId: value.planId, taskId: value.targetId, teamId: scope.teamId ?? undefined });
+      else if (value.planId) ports.openPlan({ planId: value.planId, taskId: value.targetId, teamId: (value.teamId === undefined ? scope.teamId : value.teamId) ?? undefined });
     },
   };
   return host;

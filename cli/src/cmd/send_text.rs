@@ -395,6 +395,7 @@ fn send_text_to_targets(
     actions: Option<Vec<SendActionSpec>>,
     require_agent: bool,
     to_shell: bool,
+    system_context: Option<String>,
 ) {
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut delivered: Vec<String> = Vec::new();
@@ -422,10 +423,9 @@ fn send_text_to_targets(
                     "text": resolved_text,
                 });
                 if let Some(ref my_tab) = source_tab {
-                    if my_tab != tab_id {
-                        params["source_tab"] = serde_json::json!(my_tab);
-                    }
+                    params["source_tab"] = serde_json::json!(my_tab);
                 }
+                params["system_context"] = serde_json::json!(system_context);
                 client.call("tab.send_text", Some(params))
             }
         };
@@ -523,6 +523,7 @@ pub fn handle_send_text(
     count: Option<u32>,
     require_agent: bool,
     to_shell: bool,
+    system_context: Option<String>,
 ) {
     if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
         if require_agent {
@@ -545,6 +546,7 @@ pub fn handle_send_text(
             every,
             until,
             count,
+            system_context,
         );
         return;
     }
@@ -587,6 +589,7 @@ pub fn handle_send_text(
             parsed_actions,
             require_agent,
             to_shell,
+            system_context,
         );
         return;
     }
@@ -608,12 +611,13 @@ pub fn handle_send_text(
         "tab_id": tab_id,
         "text": resolved_text,
     });
-    // recipient side. Skip when target is self (chatting with own tab — no point self-tagging).
+
     if let Ok(my_tab) = std::env::var("CODETERM_TAB_ID") {
-        if !my_tab.is_empty() && my_tab != tab_id {
+        if !my_tab.is_empty() {
             params["source_tab"] = serde_json::json!(my_tab);
         }
     }
+    params["system_context"] = serde_json::json!(system_context);
     let result = client.call("tab.send_text", Some(params));
     handle_send_text_result(json, result, Some(&resolved_text));
 }
@@ -704,6 +708,7 @@ fn send_composite_over_mesh(
     every: Option<String>,
     until: Option<String>,
     count: Option<u32>,
+    system_context: Option<String>,
 ) {
     let mut stdin = std::io::stdin();
     let (resolved_text, parsed_actions) =
@@ -726,11 +731,12 @@ fn send_composite_over_mesh(
         return;
     }
     let source_tab = std::env::var("CODETERM_TAB_ID").ok();
-    let body = remote_send_body(
+    let mut body = remote_send_body(
         &resolved_text,
         parsed_actions.as_deref(),
         source_tab.as_deref(),
     );
+    body["system_context"] = serde_json::json!(system_context);
     let path = format!("/api/tabs/{}/send", urlencoding::encode(remote_tab));
     let data = crate::mesh_cli::mesh_relay_fetch_json(peer, "POST", &path, Some(&body.to_string()));
     handle_send_text_result(json, Ok(data), Some(&resolved_text));
@@ -875,7 +881,7 @@ fn canonical_key_name(key: &str) -> Result<String, String> {
             return Err(format!(
                 "unknown action key '{}'; use a literal character, enter, esc, tab, backspace, delete, arrows, home/end, pageup/pagedown, space, ctrl-c",
                 key
-            ))
+            ));
         }
     };
     Ok(mapped.to_string())
@@ -939,7 +945,7 @@ fn send_actions_via_socket(
         body["text"] = serde_json::json!(text);
     }
     if let Ok(my_tab) = std::env::var("CODETERM_TAB_ID") {
-        if !my_tab.is_empty() && my_tab != tab_id {
+        if !my_tab.is_empty() {
             body["source_tab"] = serde_json::json!(my_tab);
         }
     }

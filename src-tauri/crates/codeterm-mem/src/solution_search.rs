@@ -25,13 +25,26 @@ impl MemManager {
             source_filter: Some(source.map(str::to_owned)),
             ..Default::default()
         };
-        search::hybrid_rrf_with_embedding(
-            &self.conn.lock(),
-            query,
-            &self.blobs_dir,
-            &cfg,
-            embedding,
-        )
+        let conn = self.conn.lock();
+        let hits =
+            search::hybrid_rrf_with_embedding(&conn, query, &self.blobs_dir, &cfg, embedding)?;
+        #[cfg(feature = "embeddings")]
+        let relevant_vectors = embedding
+            .and_then(|vector| search::scoped_vectors(&conn, vector, 250, query, &cfg).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, distance)| distance.is_finite() && 1.0 - distance >= RELEVANCE_FLOOR)
+            .map(|(id, _)| id)
+            .collect::<BTreeSet<_>>();
+        #[cfg(not(feature = "embeddings"))]
+        let relevant_vectors = BTreeSet::<String>::new();
+        Ok(hits
+            .into_iter()
+            .filter(|hit| {
+                relevant_vectors.contains(&hit.item.id)
+                    || lexical_relevance(&query.query, &hit.item) >= RELEVANCE_FLOOR
+            })
+            .collect())
     }
 
     pub fn curator_skill_relations(
@@ -60,6 +73,27 @@ impl MemManager {
         })
         .collect()
     }
+}
+
+fn lexical_relevance(query: &str, item: &crate::MemItem) -> f64 {
+    let keywords = search::extract_keywords(query);
+    if keywords.is_empty() {
+        return 0.0;
+    }
+    let text = format!(
+        "{} {}",
+        item.title,
+        item.summary.as_deref().unwrap_or_default()
+    )
+    .to_lowercase();
+    let words = text
+        .split(|c: char| !c.is_alphanumeric())
+        .collect::<BTreeSet<_>>();
+    keywords
+        .iter()
+        .filter(|keyword| words.contains(keyword.as_str()))
+        .count() as f64
+        / keywords.len() as f64
 }
 
 pub(crate) fn relation(id: String, similarity: f64, covers: bool) -> Relation {

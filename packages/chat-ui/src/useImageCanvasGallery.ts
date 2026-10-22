@@ -5,7 +5,9 @@ import type { FullscreenImage } from "./ImageFullscreen";
 export function useImageCanvasGallery(image: FullscreenImage, images?: FullscreenImage[]) {
   const gallery = useMemo(() => images?.length ? images : [image], [images, image]);
   const [active, setActive] = useState(Math.max(0, gallery.indexOf(image)));
-  const [focused, setFocused] = useState<{ index: number; request: number } | null>(null);
+  const [focused, setFocused] = useState<{ index: number; request: number } | null>(() =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 600px)").matches
+      ? { index: Math.max(0, gallery.indexOf(image)), request: 1 } : null);
   const [sizes, setSizes] = useState<Record<number, { width: number; height: number }>>({});
   const layout = useMemo(() => layoutGallery(gallery.map((_, index) => sizes[index] ?? { width: 800, height: 600 })), [gallery, sizes]);
   const focus = useMemo(() => focused && layout.items[focused.index] ? { request: focused.request, bounds: layout.items[focused.index] } : null, [focused, layout]);

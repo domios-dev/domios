@@ -9,7 +9,9 @@ import { anchoredPopoverPosition } from "../../../packages/chat-ui/src/floatingP
 const scope: MentionScope = { tabId: "self", workspaceId: "ws", projectPath: "/repo", teamId: null };
 let searchCalls = 0;
 let subscriptions = 0;
-const registry = createMentionRegistry([{ id: "fixture", group: "Tabs", async search() { searchCalls++; return [
+let releaseSearch!: () => void;
+let pendingSearch: Promise<void> | undefined = new Promise((resolve) => { releaseSearch = resolve; });
+const registry = createMentionRegistry([{ id: "fixture", group: "Tabs", async search() { searchCalls++; await pendingSearch; return [
   { id: "a", label: "Rivet", description: "Worker · Builds", insertText: "@Rivet (tab a)", group: "Tabs", match: 1 },
   { id: "b", label: "Tally", description: "Worker · Mentions", insertText: "@Tally (tab b)", group: "Tabs", match: 1 },
 ]; } }], { subscribe: () => { subscriptions++; return () => { subscriptions--; }; } });
@@ -36,6 +38,10 @@ async function main() {
   const key = async (code: string) => act(async () => { host.querySelector("textarea")!.dispatchEvent(new browser.KeyboardEvent("keydown", { key: code, code, bubbles: true, cancelable: true }) as unknown as Event); });
   try {
     await act(async () => root.render(<Harness />));
+    assert.ok(document.querySelector('[role="status"]'), "loading suggestions are visible before the query resolves");
+    assert.equal(document.querySelectorAll('[role="option"]').length, 0);
+    await act(async () => { releaseSearch(); pendingSearch = undefined; });
+    assert.equal(document.querySelector('[role="status"]'), null);
     assert.equal(document.querySelectorAll('[role="option"]').length, 2);
     await key("ArrowDown"); await key("Tab");
     assert.equal(host.querySelector("textarea")!.value, "@Tally (tab b) ");

@@ -460,7 +460,7 @@ pub fn health_result() -> Result<CommandResult, String> {
         "status": "ok",
         "version": codeterm_build_info::version(),
         "build": codeterm_build_info::hash(),
-        "name": "CodeTerm",
+        "name": codeterm_build_info::PRODUCT_NAME,
         "platform": std::env::consts::OS,
     })))
 }

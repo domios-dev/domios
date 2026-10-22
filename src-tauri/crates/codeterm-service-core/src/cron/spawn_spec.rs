@@ -57,7 +57,11 @@ pub(crate) fn build_cron_spawn_spec(
         team_id: inputs.team_id,
         creator_tab_id: inputs.creator_tab_id.clone(),
         report_target_tab_id: inputs.report_target_tab_id,
-        title: Some(format!("cron:{}", inputs.job_name)),
+        title: Some(if policy.is_some() {
+            "Curator".into()
+        } else {
+            format!("cron:{}", inputs.job_name)
+        }),
         audience: TabAudience::UserOwnedAutomation,
         spawned_by_tab_id: inputs.creator_tab_id.clone(),
         ..Default::default()
@@ -69,8 +73,11 @@ pub(crate) fn build_cron_spawn_spec(
     );
 
     let mut spec = SpawnTabSpec::from_agent_params_with_chatbackends(chatbackends, params);
-    // Cron runs are observed through the run history viewer, never as a live tab.
-    spec.visibility = TabVisibility::Hidden;
+    spec.visibility = if policy.is_some() {
+        TabVisibility::Visible
+    } else {
+        TabVisibility::Hidden
+    };
     if let Some(metadata) = spec.chatbackend_launch.as_mut() {
         metadata.owner_linkage = Some(crate::service::spawn::RuntimeOwnerLinkage::CronRun {
             job_id: inputs.job_id.clone(),

@@ -119,27 +119,7 @@ impl ServiceContext {
             provider_id,
             permit,
         };
-        match &payload.transport {
-            crate::service::messenger::QueuedAgentPayload::Text { text } => self
-                .send_authenticated_delivery_with_options(
-                    delivery,
-                    text,
-                    crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger,
-                    true,
-                ),
-            crate::service::messenger::QueuedAgentPayload::RoutedFrame {
-                opening_tag,
-                body,
-                suffix,
-            } => self.send_authenticated_delivery_with_routed_frame(
-                delivery,
-                codeterm_wire::domios::DomiosFrame {
-                    opening_tag: opening_tag.clone(),
-                    body: body.clone(),
-                    suffix: suffix.clone(),
-                },
-            ),
-        }
+        self.send_authenticated_delivery_with_routed_frame(delivery, payload.transport.clone())
     }
 }
 

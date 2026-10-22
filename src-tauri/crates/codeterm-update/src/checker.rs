@@ -16,7 +16,8 @@ fn latest_release_request(client: &reqwest::Client) -> reqwest::RequestBuilder {
 
 pub async fn latest_release_tag() -> Result<String, String> {
     if codeterm_plugins::update_source::fixture_root().is_some() {
-        let manifest = super::manifest::fetch("https://fixtures.invalid/domios-latest.json").await?;
+        let manifest =
+            super::manifest::fetch("https://fixtures.invalid/domios-latest.json").await?;
         return Ok(format!("v{}", manifest.version));
     }
     let client = reqwest::Client::builder()

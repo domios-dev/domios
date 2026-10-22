@@ -5,6 +5,7 @@ export interface UseTauriFileDropOptions {
   containerRef: React.RefObject<HTMLElement | null>;
   onPaths: (paths: string[]) => void;
   enabled?: boolean;
+  onError?: (message: string) => void;
 }
 
 export interface UseTauriFileDropReturn {
@@ -21,9 +22,12 @@ export function useTauriFileDrop({
   containerRef,
   onPaths,
   enabled = true,
+  onError,
 }: UseTauriFileDropOptions): UseTauriFileDropReturn {
   const onPathsRef = useRef(onPaths);
   onPathsRef.current = onPaths;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
   const [isDragOver, setIsDragOver] = useState(false);
 
   useEffect(() => {
@@ -44,7 +48,7 @@ export function useTauriFileDrop({
         if (paths.length > 0) {
           void materializeDroppedPaths(paths).then((materialized) => {
             onPathsRef.current(materialized);
-          });
+          }).catch((error: unknown) => onErrorRef.current?.(error instanceof Error ? error.message : String(error)));
         }
         return;
       }
@@ -72,11 +76,7 @@ export function useTauriFileDrop({
 
 export async function materializeDroppedPaths(paths: string[]): Promise<string[]> {
   if (paths.length === 0) return [];
-  try {
-    return await nativeBridge.materializeDroppedFiles(paths);
-  } catch {
-    return paths;
-  }
+  return nativeBridge.materializeDroppedFiles(paths);
 }
 
 function isDropInside(

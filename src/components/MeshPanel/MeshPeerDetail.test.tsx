@@ -45,7 +45,7 @@ const peer: PeerStatus = {
   services_stale: true,
   services_error: "peer did not respond",
   services_loaded: false,
-  relay_protocol_version: 1,
+  relay_protocol_version: 2,
 };
 const services = [
   service({ id: "svc-api", name: "API", kind: "daemon", machine_id: "machine-remote", machine_name: "Remote", source_peer_id: "machine-remote", peer_online: false, stale: true }),
