@@ -68,6 +68,8 @@ jobs:
         with:
           ref: ${{ github.event_name == 'push' && github.sha || inputs.tag || github.sha }}
           fetch-depth: 0
+          # History without blobs: unshallowing a workspace a shallow job left behind took minutes.
+          filter: blob:none
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5

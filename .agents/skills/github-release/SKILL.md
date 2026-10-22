@@ -80,6 +80,12 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
    plugin versions remain independent. Run `build.sh release-preflight` per the gates skill on
    that committed head and `git diff --check`.
+   Before every push to `release/X.Y.Z`, including each merge or fix, the release manager runs the
+   checks a CI round would otherwise find one at a time: `./build.sh fmt-check`,
+   `./build.sh nextest cli --wait-build` (every CLI target: transport rows, help text, generated
+   manifest, essence map), `node scripts/test-catalogue.mjs run --entry python-script-tests` (POSIX)
+   and `node --test` over the changed `scripts/**/*.test.mjs`. The owner authorizes these for the
+   release manager; a refused gate goes to the Orchestrator as the exact command to grant.
 4. Verify runner availability with `bash scripts/check-release-runners.sh` and credential
    preflight through `release-credentials.yml`. Confirm the intended version is unpublished.
    With publication GO, push `release/X.Y.Z` and open its PR to master. Do not manually create
@@ -381,4 +387,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
