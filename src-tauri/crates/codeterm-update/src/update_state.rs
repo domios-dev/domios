@@ -340,6 +340,8 @@ pub struct UpdateInfo {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AvailabilitySnapshot {
+    #[serde(default)]
+    pub checked_at_ms: Option<u64>,
     pub items: Vec<AvailabilityItem>,
     pub errors: BTreeMap<String, String>,
 }

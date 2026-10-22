@@ -702,3 +702,76 @@ fn consecutive_distinct_runtime_envelopes_keep_independent_write_once_receipts()
         Poll::Pending
     ));
 }
+
+#[test]
+fn provider_catalogue_replacement_keeps_live_runtime_adapter_and_epoch() {
+    for active_turn in [None, Some("in-flight-tool-turn")] {
+        let (fixture, tab_id, _peer, _cleanup) = runtime_fixture();
+        let session = for_tab(&tab_id).unwrap();
+        session.context.lock().active_turn_id = active_turn.map(str::to_owned);
+        let epoch = session.context.lock().epoch;
+        let adapter = session.adapter.lock().clone().unwrap();
+        let process = session.process.lock().clone().unwrap();
+        fixture.service.agent_registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new("sync-send-fixture"),
+        ));
+        assert!(!Arc::ptr_eq(
+            &adapter,
+            &fixture
+                .service
+                .agent_registry
+                .provider_arc("sync-send-fixture")
+                .unwrap()
+        ));
+        crate::async_runtime::block_on(ensure_locked(
+            &fixture.service,
+            &tab_id,
+            "sync-send-fixture",
+            &json!({}),
+            &session,
+            None,
+        ))
+        .unwrap();
+        assert_eq!(session.context.lock().epoch, epoch);
+        assert_eq!(
+            session.context.lock().active_turn_id.as_deref(),
+            active_turn
+        );
+        assert!(Arc::ptr_eq(
+            &adapter,
+            session.adapter.lock().as_ref().unwrap()
+        ));
+        assert!(Arc::ptr_eq(
+            &process,
+            session.process.lock().as_ref().unwrap()
+        ));
+        assert!(process.ended.borrow().is_none());
+        assert!(validate_binding(&fixture.service, &session).is_ok());
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .session_binding_nonce = Some("foreign".into());
+        assert!(matches!(
+            validate_binding(&fixture.service, &session),
+            Err(RuntimeFailure::Superseded)
+        ));
+    }
+}
+
+#[test]
+fn removed_provider_revokes_live_runtime_binding() {
+    let (fixture, tab, _peer, _cleanup) = runtime_fixture();
+    let session = for_tab(&tab).unwrap();
+    assert!(validate_binding(&fixture.service, &session).is_ok());
+    fixture
+        .service
+        .agent_registry
+        .unregister_provider("sync-send-fixture");
+    assert!(matches!(
+        validate_binding(&fixture.service, &session),
+        Err(RuntimeFailure::Superseded)
+    ));
+}

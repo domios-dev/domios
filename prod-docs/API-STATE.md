@@ -1,7 +1,5 @@
 # State, observability, and update API
 
-Secrets, sessions, web mirror, diagnostics, usage, logs, configuration, and update endpoints.
-
 ## Storage authority and recovery
 
 Each instance has one typed Storage owner for migrated desk, cron, and Blueprint state in `storage/state.db` beneath that instance's data directory. Storage opens before restore and schedulers start. Its one-time importer seals and verifies a copy of recognized legacy inputs under `storage/legacy-originals/`; it retains the original files and switches authority only after archive and semantic checks pass. A failed open, import, or verification leaves migrated state unavailable. Storage-dependent API operations return 503 with the Storage-unavailable error; they do not return or create an empty substitute.
@@ -119,29 +117,7 @@ The scan is bounded, not exhaustive. Each provider orders its sessions by recenc
 
 Nothing is skipped silently. `warnings` lists, per provider, the sessions it could not fully search: `{provider, reason, sessions, message}`, where `reason` is `no_content_source`, `over_byte_cap`, `unreadable`, `content_truncated` (a store session searched only in its newest 8 MiB), or `scan_failed`. The CLI prints each `message` after the hits, also when nothing matched.
 
-Response shape:
-```json
-{
-  "hits": [
-    {
-      "meta": {
-        "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
-        "provider": "claude",
-        "project_path": "/Users/me/code/foo",
-        "title": null,
-        "summary": null,
-        "file_path": "/Users/me/.claude/projects/-Users-me-code-foo/0193e1a4-....jsonl",
-        "created_ts": 1744300000,
-        "modified_ts": 1744387200
-      },
-      "snippets": [
-        {"role": "user", "text": "…fix the webpack config so HMR works…", "ts": 1744300050}
-      ],
-      "match_count": 4
-    }
-  ]
-}
-```
+Search hits contain session metadata (ID, provider, project path, title, summary, file path, creation/modification timestamps), snippets (role, text, timestamp) and match count, alongside the warnings above.
 
 **GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Each provider answers from its own per-session record; session history is never enumerated, so the cost does not grow with the number of stored sessions. Returns `404` if no provider knows it (gone from disk, never existed, wrong machine).
 
@@ -200,30 +176,28 @@ the change instead — `codeterm notify send --offer <surface> --offer-accept <l
 — and it applies only when that label is tapped.
 
 #### Updates
-| Method | Path | Body / Query | Description |
+| Method | Path | Body / `uery | Description |
 |--------|------|------|-------------|
-| GET | `/api/update/check` | `?force=true` | Check for available updates on the active channel. Cached for 1 hour unless `force=true`. |
-| POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). `after_update` (optional) stashes a message to `~/.codeterm/post-update-message.txt`; the new daemon delivers it to the General tab after restart. Update application is single flight process-wide: a request arriving while another is applying is refused with `{"status":"already_in_flight"}`, which is distinct from `no_update`. |
-| GET | `/api/update/channel` | — | Returns the active diagnostic channel, currently `{"channel":"stable"}` on normal installs. |
-| POST | `/api/update/channel` | `{channel}` | Disabled while Domios ships only the default update channel; returns `409 update channel switching is disabled`. |
-| GET | `/api/update/status` | — | Current updater state and last update result |
+| GET | `/api/update/check` | `?force=true` | Check the active channel; cached for one hour unless forced. |
+| POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...&continue_tab=...` | Install as described below; without `auto`, requires a prior check and returns a package-manager command, browser URL, or `up_to_date`. |
+| GET | `/api/update/channel` | — | Active diagnostic channel: normally `{"channel":"stable"}`. |
+| POST | `/api/update/channel` | `{channel}` | Disabled; `409 update channel switching is disabled`. |
+| GET | `/api/update/status` | — | Updater progress plus durable `native_update` operation ID, sequence and outcome when readable. Unreadable handoffs are logged and omitted. |
 
-**Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — a wrong-key signature aborts the install before any binary is touched.
+Native auto-install uses stable, requires an attached application-host updater, returns `{"status":"updating"}` immediately and reports progress through status:
+1. Discover the release with a no-cache GitHub request and pin its immutable manifest. `manifest_url` overrides it; HTTPS is required unless `dev-updater-allowlocal` enables local HTTP/file test sources.
+2. Download the platform artifact and verify its Ed25519 signature before installation. A wrong-key signature aborts before replacing binaries.
+3. The native client durably records the verified target, stops the exact attached server, installs and relaunches the pair.
+4. The replacement records `verified` only after enrollment with the expected instance, target version and matching client/server build. Interrupted operations never replay automatically.
 
-**Auto install flow (`method=auto`).** Auto-install returns `updating` immediately, then:
-1. Discovers the stable release with a no-cache GitHub request, then pins the install to that tag's immutable manifest. A `manifest_url` query override still takes precedence; non-HTTPS overrides require `dev-updater-allowlocal`.
-2. Downloads the selected platform artifact and verifies its signature before installing it.
-3. Shuts down gracefully and restarts the app.
-4. After restart, tabs with valid recorded provider sessions resume; stale or missing sessions launch fresh.
+After restart, valid recorded provider sessions resume; stale or missing sessions launch fresh. `continue_tab` must match the authenticated caller and uses its continuation owner. `after_update` persists the requester's message and identity for the General Agent continuation; failure to persist refuses installation.
 
-The HTTP response returns immediately (`{"status": "updating", "version": "..."}`); the app reports progress.
+**Debian:** `auto` downloads, verifies and privately stages the package, returning `elevation_required` with a `sudo dpkg -i` command on that file. In a terminal outside Domios, quit Domios, confirm it stopped, run that command and relaunch. `uitting inside a Domios tab terminates its shell, so quit is a separate step. Stop if quitting fails. The daemon never runs sudo. `after_update` is rejected for this manual flow.
 
-**Manual install fallback.** Without `method=auto`, the response carries either:
-- `{"status": "command", "command": "..."}` — for package-manager installs (Homebrew, Scoop) where running a shell command is the right action.
-- `{"status": "browser_opened", "url": "..."}` — for raw archive/installer downloads.
-- `{"status": "up_to_date"}` — when no update is available.
+**Outcomes:** HTTP 200: `updating`, `up_to_date`/`no_update`, `command` (Homebrew/Scoop), `browser_opened`, `already_in_flight`, `blocked` or `elevation_required`. The last two include an action reason. Applying is single flight across the process; `already_in_flight` differs from `no_update`. Debian staging contention returns 409.
+**Errors:** 400: invalid/disabled continuation, missing caller/prior check, or malformed channel; 500: blocking-worker or `update_handoff_write_failed`; 502: discovery, signature verification or staging failure; 503 `native_capability_unavailable`: no attached updater. Authentication/protocol middleware can refuse earlier. Install refusals log route, status and reason.
 
-**Errors:** `502 Failed to check for updates` when GitHub is unreachable; `400 Run check first` when `install` is called before `check` populated the cache; `400 invalid channel` on a malformed `channel` body.
+**Recovery:** use desktop Settings > Updates on macOS/Windows, or the official installer at https://github.com/rollacode/codeterm-releases/releases/latest with `codeterm update install --from-file <installer-path>`. Debian uses the verified staging flow above.
 
 ### Tab-scoped local previews
 
@@ -237,4 +211,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 29 -->
+<!-- revision: 33 -->
