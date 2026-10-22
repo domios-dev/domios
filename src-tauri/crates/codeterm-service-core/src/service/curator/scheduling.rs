@@ -411,6 +411,9 @@ impl ServiceContext {
         job: &CronJob,
         now: u64,
     ) -> Result<Option<(Mirror, String)>, CuratorFireError> {
+        self.extensions
+            .try_get::<super::CuratorTabs>()
+            .ok_or("Curator runtime is unavailable")?;
         let plan = self.plan_store.get(&job.task).ok_or("plan absent")?;
         if !curator::eligible(
             &plan,

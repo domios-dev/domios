@@ -3,13 +3,12 @@ use codeterm_events::SystemEvent;
 use std::collections::BTreeSet;
 
 #[derive(Default)]
-pub(super) struct CuratorTabs(pub parking_lot::RwLock<std::collections::BTreeMap<String, String>>);
+pub(crate) struct CuratorTabs(pub parking_lot::RwLock<std::collections::BTreeMap<String, String>>);
 
 impl ServiceContext {
-    pub fn start_curator_events(&self) {
-        if self.set_ext(CuratorTabs::default()).is_err() {
-            return;
-        }
+    pub fn start_curator_events(&self) -> Result<(), String> {
+        self.set_ext(CuratorTabs::default())
+            .map_err(|_| "Curator runtime could not be started".to_string())?;
         let mut receiver = self.events.subscribe();
         let service = self.clone();
         self.rt.spawn(async move {
@@ -82,6 +81,7 @@ impl ServiceContext {
                 }
             }
         });
+        Ok(())
     }
 
     pub(crate) fn reconcile_curator_id(&self, id: &str, now: u64) {
