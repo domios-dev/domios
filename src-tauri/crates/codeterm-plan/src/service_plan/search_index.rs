@@ -121,12 +121,21 @@ impl IndexJob {
             (job, _) => job,
         }
     }
+
+    fn full(self) -> IndexJob {
+        match self {
+            Self::Plan(plan, _) => Self::Plan(plan, PlanIndexScope::Full),
+            job => job,
+        }
+    }
 }
 
 #[derive(Default)]
 struct IndexQueueState {
     order: VecDeque<String>,
     latest: HashMap<String, IndexJob>,
+    /// Plan keys whose last index job failed; their next job rebuilds every unit.
+    needs_full: HashSet<String>,
     in_flight_keys: HashSet<String>,
     in_flight_projects: HashSet<String>,
     in_flight: usize,
@@ -147,6 +156,11 @@ impl IndexQueue {
                 state.order.push_back(key.clone());
                 job
             }
+        };
+        let job = if state.needs_full.contains(&key) {
+            job.full()
+        } else {
+            job
         };
         state.latest.insert(key, job);
         self.ready.notify_one();
@@ -192,8 +206,16 @@ impl IndexQueue {
         (key, project, job)
     }
 
-    fn complete(&self, key: String, project: String) {
+    fn complete(&self, key: String, project: String, failed: bool) {
         let mut state = self.state.lock();
+        if failed {
+            if let Some(queued) = state.latest.remove(&key) {
+                state.latest.insert(key.clone(), queued.full());
+            }
+            state.needs_full.insert(key.clone());
+        } else {
+            state.needs_full.remove(&key);
+        }
         state.in_flight_keys.remove(&key);
         state.in_flight_projects.remove(&project);
         state.in_flight -= 1;
@@ -228,31 +250,21 @@ fn index_queue() -> &'static Arc<IndexQueue> {
                 .name(format!("plan-index-queue-{worker}"))
                 .spawn(move || loop {
                     let (key, project, job) = worker_queue.take();
-                    match job {
+                    let result = match &job {
                         IndexJob::Plan(plan, scope) => {
-                            if let Err(error) = incremental::mirror_plan_scope(&plan, &scope, true)
-                            {
-                                log::warn!("[plan.index] plan {}: {}", plan.id, error);
-                            }
+                            incremental::mirror_plan_scope(plan, scope, true).map(drop)
                         }
-                        IndexJob::DeletePlan(plan) => {
-                            if let Err(error) = delete_plan_units(&plan) {
-                                log::warn!("[plan.index] delete plan {}: {}", plan.id, error);
-                            }
-                        }
-                        IndexJob::Spec(spec) => {
-                            if let Err(error) = mirror_spec(&spec, true) {
-                                log::warn!("[plan.index] spec {}: {}", spec.id, error);
-                            }
-                        }
-                        IndexJob::DeleteSpec(spec) => {
-                            let prefix = format!("planunit_{}_%", spec.id);
-                            if let Err(error) = delete_units(spec_project_root(&spec), &prefix) {
-                                log::warn!("[plan.index] delete spec {}: {}", spec.id, error);
-                            }
-                        }
+                        IndexJob::DeletePlan(plan) => delete_plan_units(plan),
+                        IndexJob::Spec(spec) => mirror_spec(spec, true).map(drop),
+                        IndexJob::DeleteSpec(spec) => delete_units(
+                            spec_project_root(spec),
+                            &format!("planunit_{}_%", spec.id),
+                        ),
+                    };
+                    if let Err(error) = &result {
+                        log::warn!("[plan.index] {key}: {error}");
                     }
-                    worker_queue.complete(key, project);
+                    worker_queue.complete(key, project, result.is_err());
                 })
                 .expect("spawn plan index queue");
         }
@@ -272,8 +284,12 @@ pub(super) fn remove_plan_from_index(plan: Plan) {
     index_queue().enqueue_and_wait(IndexJob::DeletePlan(plan));
 }
 
-pub(super) fn remove_spec_from_index(spec: Spec) {
-    index_queue().enqueue_and_wait(IndexJob::DeleteSpec(spec));
+pub(super) fn enqueue_plan_removal(plan: Plan) {
+    index_queue().enqueue(IndexJob::DeletePlan(plan));
+}
+
+pub(super) fn enqueue_spec_removal(spec: Spec) {
+    index_queue().enqueue(IndexJob::DeleteSpec(spec));
 }
 
 #[cfg(test)]

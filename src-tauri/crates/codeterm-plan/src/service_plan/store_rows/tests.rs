@@ -98,17 +98,29 @@ fn a_plan_row_that_still_embeds_tasks_joins_unchanged() {
 }
 
 #[test]
-fn duplicate_task_ids_refuse_to_split_while_duplicate_attempt_ids_keep_their_positions() {
-    let mut duplicate_task = plan_value();
-    duplicate_task["tasks"][1]["id"] = json!("t2");
-    assert!(split_plan(duplicate_task)
-        .unwrap_err()
-        .contains("duplicate task id"));
+fn unkeyable_tasks_stay_embedded_in_the_plan_row() {
+    for unkeyable in [json!("t2"), json!(7)] {
+        let mut value = plan_value();
+        value["tasks"][1]["id"] = unkeyable;
+        let rows = split_plan(value.clone()).unwrap();
 
+        assert!(rows.tasks.is_empty());
+        assert!(rows.kept_whole.is_some());
+        assert_eq!(serde_json::from_str::<Value>(&rows.plan).unwrap(), value);
+    }
+}
+
+#[test]
+fn duplicate_or_missing_attempt_ids_keep_their_positions() {
     let mut duplicate_attempt = plan_value();
     duplicate_attempt["tasks"][0]["execution_attempts"][1]["id"] = json!("a2");
+    duplicate_attempt["tasks"][0]["execution_attempts"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"state": "no id"}));
     let rows = split_plan(duplicate_attempt.clone()).unwrap();
-    assert_eq!(rows.tasks[0].attempts.len(), 2);
+    assert_eq!(rows.tasks[0].attempts.len(), 3);
+    assert_eq!(rows.tasks[0].attempts[2].id, "");
     duplicate_attempt["tasks"][1]["milestones"] = json!([]);
     duplicate_attempt["tasks"][1]["execution_attempts"] = json!([]);
     assert_eq!(joined(&rows), duplicate_attempt);

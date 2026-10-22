@@ -140,13 +140,33 @@ fn a_plan_older_than_a_year_is_removed_with_all_its_rows_and_a_younger_one_stays
 }
 
 #[test]
-fn retention_runs_once_per_day() {
+fn retention_claims_each_day_once() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
-    plan_with_history(&store, root.path(), "Day", 366);
 
-    assert_eq!(store.run_retention_if_due(NOW_MS).len(), 1);
-    plan_with_history(&store, root.path(), "Later", 400);
-    assert!(store.run_retention_if_due(NOW_MS + 1).is_empty());
-    assert_eq!(store.run_retention_if_due(NOW_MS + DAY_MS).len(), 1);
+    assert!(store.claim_retention_day(NOW_MS));
+    assert!(!store.claim_retention_day(NOW_MS + 1));
+    assert!(store.claim_retention_day(NOW_MS + DAY_MS));
+}
+
+#[test]
+fn a_plan_touched_after_the_candidate_scan_is_not_deleted() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let database = store.database_path_for_test();
+    let touched = plan_with_history(&store, root.path(), "Touched", 400);
+    let cutoff = NOW_MS - PLAN_RETENTION_MS;
+    store
+        .with_plan(&touched, NOW_MS, |plan| {
+            plan.tasks[0].body = "touched".into();
+            Ok(())
+        })
+        .unwrap();
+
+    assert!(store
+        .delete_if_untouched_since(&touched, cutoff)
+        .unwrap()
+        .is_none());
+    assert!(store.get(&touched).is_some());
+    assert_eq!(stored_rows(&database, &touched), [1, 1, 1, 1, 1, 1]);
 }

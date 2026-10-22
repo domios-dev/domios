@@ -51,15 +51,20 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
                 &svc.configuration().orchestration,
             )))
             .await;
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            if svc.plan_store.claim_retention_day(now_ms) {
+                let svc_for_retention = svc.clone();
+                drop(crate::async_runtime::spawn_blocking(move || {
+                    svc_for_retention.plan_store.prune_stale_plans(now_ms);
+                }));
+            }
             let svc_for_scan = svc.clone();
             if let Err(e) = crate::async_runtime::spawn_blocking(move || {
                 svc_for_scan.send_due_plan_time_reminders();
                 svc_for_scan.run_lane_watchdog();
-                let now_ms = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                svc_for_scan.plan_store.run_retention_if_due(now_ms);
             })
             .await
             {
