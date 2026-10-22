@@ -181,3 +181,22 @@ fn dedupe_verdicts_keep_distinct_graphs_out_of_exact_and_structural() {
     assert!(twins.iter().any(|(id, _)| *id == copy));
     assert!(twins.iter().any(|(id, _)| *id == twin));
 }
+
+#[test]
+fn lexical_recall_matches_words_shared_by_every_entry_of_a_small_library() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let only = keep(&mem, "solo", LOGS, &["Echo readiness"]);
+    let hits = mem
+        .recall_blueprint_hits("solo", "echo", None, 5, &RecallConfig::default())
+        .unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].entry.id, only);
+    keep(&mem, "pair", LOGS, &["Echo readiness"]);
+    keep(&mem, "pair", BACKUP, &["Echo valid watcher"]);
+    assert_eq!(
+        mem.recall_blueprint_hits("pair", "Echo", None, 5, &RecallConfig::default())
+            .unwrap()
+            .len(),
+        2
+    );
+}
