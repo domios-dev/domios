@@ -9,9 +9,9 @@ export function canonicalMentions(text: string): CanonicalMention[] {
   const masked: Array<[number, number]> = [];
   for (const match of text.matchAll(/```[\s\S]*?(?:```|$)|`[^`\n]+`|\[[^\]]*\]\([^)]+\)|https?:\/\/\S+/g)) masked.push([match.index!, match.index! + match[0].length]);
   const rows: CanonicalMention[] = [];
-  for (const match of text.matchAll(/(^|\s)@([^\s@()]{1,80}) \((tab|plan|blueprint) ([a-zA-Z0-9_:.\/-]+)\)|\b[A-Za-z][A-Za-z0-9]*-\d+\b/g)) {
+  for (const match of text.matchAll(/(^|\s)@([^\s@()]{1,80}) \((tab|plan|blueprint) ([a-zA-Z0-9_:.\/-]+)\)|\btask_[a-zA-Z0-9]+\b|\b[A-Za-z][A-Za-z0-9]*-\d+\b/g)) {
     const canonical = match[3] !== undefined;
-    if (!canonical && !DS_TASK_KEY_RE.test(match[0])) continue;
+    if (!canonical && !match[0].startsWith("task_") && !DS_TASK_KEY_RE.test(match[0])) continue;
     const start = match.index! + (canonical ? match[1].length : 0);
     const end = match.index! + match[0].length;
     if (masked.some(([a, b]) => start < b && end > a)) continue;

@@ -32,6 +32,8 @@ async function main() {
   host.open(task);
   assert.deepEqual(opened.pop(), { planId: "pl_own", taskId: "task_pl_own", teamId: "own" });
   assert.equal(host.binding.read(key("plan", "pl_other")), null);
+  host.open(key("task", "task_pl_other"));
+  assert.deepEqual(opened.pop(), { planId: "pl_other", taskId: "task_pl_other", teamId: "other" });
   const tab = key("tab", "self");
   assert.equal(host.binding.read(tab)?.title, "Real name");
   let notifications = 0;
