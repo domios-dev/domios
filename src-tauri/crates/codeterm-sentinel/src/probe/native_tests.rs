@@ -251,6 +251,7 @@ fn sentinel_probe_native_windows_preexecution_containment() {
         &owner,
         &super::cancellation::Cancellation::default(),
         &Environment::default(),
+        None,
         |_, _| Err("injected Job assignment failure".into()),
     );
     assert_deadline_receipt(receipt, PROBE_RUNTIME, PROBE_RUNTIME);

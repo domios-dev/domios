@@ -73,6 +73,7 @@ pub fn run(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
     environment: &Environment,
+    stdin: Option<std::fs::File>,
 ) -> Result<Output, ProbeFailure> {
     run_with_assignment(
         command,
@@ -82,6 +83,7 @@ pub fn run(
         owner,
         cancellation,
         environment,
+        stdin,
         |job, process| {
             if unsafe { AssignProcessToJobObject(job, process) } == 0 {
                 Err(last_error())
@@ -100,6 +102,7 @@ pub fn run_with_assignment(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
     environment: &Environment,
+    stdin: Option<std::fs::File>,
     assign: impl FnOnce(HANDLE, HANDLE) -> Result<(), String>,
 ) -> Result<Output, ProbeFailure> {
     let mut run = WindowsRun::new(deadlines, reservation, owner);
@@ -136,7 +139,7 @@ pub fn run_with_assignment(
         return run.finish_failure();
     }
     run.launch_state.job_ready();
-    if let Err(error) = run.prepare_capture() {
+    if let Err(error) = run.prepare_capture(stdin) {
         run.fail("probe_capture_prepare_failed");
         run.add_error(error);
         return run.finish_failure();

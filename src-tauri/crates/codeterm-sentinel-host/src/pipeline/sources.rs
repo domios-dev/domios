@@ -50,14 +50,27 @@ pub(super) fn run(
         .expires_at
         .map(|at| Duration::from_millis(at.saturating_sub(now(handle))))
         .unwrap_or(runtime);
-    let result = probe::run_with_budget(
-        &command,
-        Path::new(&lease.job.cwd),
-        remaining,
-        runtime,
-        &handle.probe_owner,
-        &crate::probe_env::current_instance(svc.configuration().api),
-    );
+    let environment = crate::probe_env::current_instance(svc.configuration().api);
+    let result = if matches!(step.kind, StepKind::Command { .. }) {
+        probe::run_with_budget_input(
+            &command,
+            Path::new(&lease.job.cwd),
+            remaining,
+            runtime,
+            &handle.probe_owner,
+            &environment,
+            previous,
+        )
+    } else {
+        probe::run_with_budget(
+            &command,
+            Path::new(&lease.job.cwd),
+            remaining,
+            runtime,
+            &handle.probe_owner,
+            &environment,
+        )
+    };
     match result {
         Ok(output) => {
             if output.success {
