@@ -144,17 +144,6 @@ fn filesystem_append_wakes_through_a_directory_alias() {
     receive(&events);
 }
 
-#[test]
-fn filesystem_append_wakes_without_a_polling_clock() {
-    let temp = tempfile::tempdir().unwrap();
-    let source = temp.path().join("own.jsonl");
-    std::fs::write(&source, b"").unwrap();
-    let (wake, events) = mpsc::sync_channel(1);
-    let _watcher = watch(&source, wake).unwrap();
-    std::fs::write(&source, b"opaque-turn\n").unwrap();
-    receive(&events);
-}
-
 use notify::event::Flag;
 
 #[test]

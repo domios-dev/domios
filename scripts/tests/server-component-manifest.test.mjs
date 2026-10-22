@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -18,7 +18,7 @@ const CLIENT_BYTES = Buffer.from('client-fixture-bytes-v1');
 const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
 
 async function makeStage() {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'server-component-manifest-'));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'server-component-manifest-')));
   const serverFile = path.join(root, 'target/domios-package', ...SERVER_RELATIVE_PATH.split('/'));
   const clientFile = path.join(root, 'native-client/domios');
   await mkdir(path.dirname(serverFile), { recursive: true });

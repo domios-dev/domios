@@ -7,6 +7,9 @@ license = "PolyForm-Shield-1.0.0"
 [lints]
 workspace = true
 
+[features]
+sha2-software = ["sha2/force-soft"]
+
 [dependencies]
 codeterm-types = { path = "../codeterm-types" }
 
@@ -19,3 +22,9 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7"
 core-foundation = "0.10"
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dev-dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
+
+[dev-dependencies]
+sha2 = "0.10"

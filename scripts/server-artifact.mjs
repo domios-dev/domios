@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync, mkdirSync, copyFileSync, cpSync, chmodSync, lstatSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stagedDevPaths } from './dev-native-layout.mjs';
+import { macDevSigning, signMacDevServer, sealMacDevBundle } from './dev-macos-bundle.mjs';
 import { createRequire } from 'node:module';
 const { bundledCliName } = createRequire(import.meta.url)('./bundle-cli.js');
 
@@ -17,7 +19,7 @@ export function serverArtifact(messages) {
   if (artifacts.length !== 1) throw new Error(`Expected one server binary artifact; received ${artifacts.length}`);
   return realpathSync.native(artifacts[0].executable);
 }
-export function artifactReceipt({ cargoLog, treeLog, build, target, resources }) {
+export function artifactReceipt({ cargoLog, treeLog, build, target, resources, platform = process.platform }) {
   const messages = readFileSync(cargoLog, 'utf8').split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
   if (!messages.some(message => message.reason === 'build-finished' && message.success)) throw new Error('Cargo build did not finish successfully');
   const dependency_packages = readFileSync(treeLog, 'utf8').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
@@ -25,7 +27,7 @@ export function artifactReceipt({ cargoLog, treeLog, build, target, resources })
   const executable = serverArtifact(messages);
   const artifact = messages.find(message => message.reason === 'compiler-artifact' && message.executable && realpathSync.native(message.executable) === executable);
   if (JSON.stringify([...artifact.features].sort()) !== JSON.stringify(['embeddings'])) throw new Error('Unexpected server artifact feature selection');
-  if (path.basename(executable) !== `domios-server${process.platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected server executable filename');
+  if (path.basename(executable) !== `domios-server${platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected server executable filename');
   return { executable, executable_sha256: createHash('sha256').update(readFileSync(executable)).digest('hex'), build, target, profile: 'dev', features: SERVER_FEATURES, resources: realpathSync.native(resources), dependency_packages };
 }
 export function workerArtifact(messages, repo) {
@@ -131,15 +133,14 @@ export function resolveDevResourceRoot(resourceRoot, expectedRoot, {
   return expectedRoot;
 }
 
-export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build, serverOnly = false, checkOnly = false }) {
+export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resourceRoot, client, build, serverOnly = false, checkOnly = false, platform = process.platform, env = process.env, signingRun }) {
   if (!/^[a-f0-9]{40}$/.test(build)) throw new Error('Expected exact DEV source build identity');
   const builtClient = regular(client);
-  const expectedRoot = process.platform === 'win32' ? path.dirname(builtClient) : path.join(path.dirname(builtClient), '.domios-dev-runtime/lib/codeterm');
-  const root = resolveDevResourceRoot(resourceRoot, expectedRoot);
-  const clientFile = process.platform === 'win32' ? path.join(root, 'domios-dev-app.exe') : path.resolve(root, '../../bin/domios-dev-app');
-  const server = artifactReceipt({ cargoLog, treeLog, build, resources: root });
+  const { mac, resources, client: clientFile, serverRelative } = stagedDevPaths(builtClient, { platform, instance: env.CODETERM_DEV_INSTANCE });
+  const root = resolveDevResourceRoot(resourceRoot, resources);
+  const server = artifactReceipt({ cargoLog, treeLog, build, resources: root, platform });
   if (path.dirname(server.executable) !== path.dirname(builtClient)) throw new Error('DEV server and client must share the exact Cargo artifact directory');
-  if (path.basename(builtClient) !== `codeterm${process.platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected DEV client artifact filename');
+  if (path.basename(builtClient) !== `codeterm${platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected DEV client artifact filename');
   const messages = readFileSync(cargoLog, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
   const message = messages.find(row => row.reason === 'compiler-artifact' && row.executable && realpathSync.native(row.executable) === server.executable);
   if (realpathSync.native(message.target.src_path) !== realpathSync.native(path.join(repo, 'src-tauri/crates/domios-server/src/main.rs'))) throw new Error('Server artifact has a foreign source target');
@@ -161,20 +162,22 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
   if (clientFile !== builtClient) copyResource(builtClient, clientFile);
   if (createHash('sha256').update(readFileSync(clientFile)).digest('hex') !== createHash('sha256').update(readFileSync(builtClient)).digest('hex')) throw new Error('Staged client differs from the built native artifact');
   copyResource(cli, path.join(root, 'cli', path.basename(cli)));
-  copyResource(cli, path.join(root, 'cli', bundledCliName()));
-  if (process.platform === 'win32') copyResource(path.join(repo, 'src-tauri/conpty'), path.join(root, 'conpty'));
-  const serverRelative = `domios-server/${path.basename(server.executable)}`;
-  const stagedServer = path.join(repo, 'target/domios-package', serverRelative);
+  copyResource(cli, path.join(root, 'cli', bundledCliName(env, platform)));
+  if (platform === 'win32') copyResource(path.join(repo, 'src-tauri/conpty'), path.join(root, 'conpty'));
+  const stagedServer = path.join(repo, 'target/domios-package/domios-server', path.basename(server.executable));
   copyResource(regular(server.executable), stagedServer);
+  const signing = mac ? macDevSigning(env) : null;
+  if (mac) signMacDevServer(stagedServer, signing, signingRun);
   const { createManifest } = await import('./package-server-component-manifest.mjs');
   const manifestFile = await createManifest({ cwd: repo, serverFile: stagedServer, clientFile,
-    serverBuild: build, serverExecutable: serverRelative, apiVersion: constant('API_VERSION'), bootstrapProtocol: constant('BOOTSTRAP_PROTOCOL') });
+    clientIdentity: signing?.clientIdentity, serverBuild: build, serverExecutable: serverRelative, apiVersion: constant('API_VERSION'), bootstrapProtocol: constant('BOOTSTRAP_PROTOCOL') });
   for (const name of [...(serverOnly ? [] : ['dist']), 'skills', 'LICENSE', 'NOTICE']) copyResource(path.join(repo, name), path.join(root, name));
   publishDevExecutable(stagedServer, path.join(root, serverRelative));
   const sourceManifest = path.join(repo, 'target/domios-package/server-component.json');
   const temporary = path.join(root, 'server-component.json.partial');
   copyResource(sourceManifest, temporary);
   renameSync(temporary, path.join(root, 'server-component.json'));
+  if (mac) sealMacDevBundle({ root, repo, signing, run: signingRun });
   return { manifest: JSON.parse(readFileSync(manifestFile, 'utf8')), worker_cli_sha256: workerDigest, resource_root: root };
 }
 

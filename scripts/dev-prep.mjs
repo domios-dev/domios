@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe/dev-prebuilt; scripts tests/release-input-reuse.test.mjs
+import { devResourceRoot, devServerPath } from "./dev-native-layout.mjs";
 import crypto from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { runDevApp, nativeLocatorRecord, prebuiltReadinessPhase } from "./dev-app-process.mjs";
@@ -58,6 +59,8 @@ const inputPathspecs = [
   "scripts/dev-server.mjs",
   "scripts/dev-server-bootstrap.ps1",
   "scripts/server-artifact.mjs",
+  "scripts/dev-macos-bundle.mjs",
+  "scripts/dev-native-layout.mjs",
   "scripts/package-server-component-manifest.mjs",
   "scripts/dev-app-process.mjs",
   "scripts/dev-runtime-environment.mjs",
@@ -75,10 +78,6 @@ const inputPathspecs = [
   "scripts/build-gateway.sh",
   "scripts/release-signing.sh",
 ];
-
-function devResourceRoot(app) {
-  return isWin ? dirname(app) : resolve(dirname(app), "../lib/codeterm");
-}
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
@@ -261,7 +260,7 @@ function artifactPaths(options) {
     app: option(options, "--app"),
     cli: option(options, "--cli"),
     frontend: option(options, "--frontend"),
-    server: join(devResourceRoot(option(options, "--app")), "domios-server", isWin ? "domios-server.exe" : "domios-server"),
+    server: devServerPath(option(options, "--app")),
     inventory: join(devResourceRoot(option(options, "--app")), "server-component.json"),
     resources: devResourceRoot(option(options, "--app")),
   };
