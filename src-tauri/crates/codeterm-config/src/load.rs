@@ -187,6 +187,7 @@ fn create_default(
     cached_token: Option<&Option<String>>,
 ) -> AppConfig {
     let mut config = AppConfig::default();
+    normalize_runtime_defaults(&mut config);
     apply_instance_token(
         data_root,
         &mut config,
@@ -215,13 +216,10 @@ fn held_config(
         (Some(config), raw) => {
             let contents = toml::to_string_pretty(&config).ok().map(|contents| {
                 let legacy = raw.and_then(|raw| salvaged_critical_values(raw).0);
-                if legacy.is_some() && legacy == config.api.token {
+                if let Some(token) = legacy.filter(|token| config.api.token.as_ref() == Some(token))
+                {
                     let mut tables = contents.parse::<toml::Table>().unwrap_or_default();
-                    insert_nested_value(
-                        &mut tables,
-                        &["api", "token"],
-                        toml::Value::String(legacy.unwrap()),
-                    );
+                    insert_nested_value(&mut tables, &["api", "token"], toml::Value::String(token));
                     return mark_salvaged_config(&toml::to_string_pretty(&tables).unwrap());
                 }
                 mark_salvaged_config(&contents)
