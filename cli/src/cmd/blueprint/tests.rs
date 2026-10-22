@@ -5,6 +5,8 @@ fn blueprint_memory_requests_offer_without_applying_and_preserve_identity() {
     for action in [
         BlueprintAction::New {
             kind: "watch".into(),
+            intent: None,
+            limit: 3,
             like: Some("watch CI failure".into()),
         },
         BlueprintAction::Apply {
@@ -565,3 +567,5 @@ fn blueprint_like_appends_builtins_after_daemon_results_within_five_offers() {
         }
     }
 }
+
+mod blueprint_v2_intent;

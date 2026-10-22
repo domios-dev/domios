@@ -3,7 +3,7 @@
 Recall saved solutions before authoring, then reuse a matching graph or start from a built-in. Native Blueprint files use `schema_version: 2` and one typed graph. Older formats are refused; stored v1 graphs and saved v1 Blueprint solutions are deleted without conversion. Other memory and workspaces are retained.
 
 ```bash
-domios blueprint new --like "watch CI and report failures"
+domios blueprint new --intent "watch CI and report failures" --json
 domios blueprint recipe
 domios blueprint new http-health > health.yaml
 domios blueprint check health.yaml --set url=https://example.com/health
@@ -112,6 +112,12 @@ An exact name identifies a graph in its Team/workspace. Built-in names stay stab
 
 Export generalizes sensitive commands, source data and local targets into described required inputs, excluding runtime state and history. Import uses the same v2 admission and starts stopped unless `--start` is passed. `update --from-file` accepts a native v2 document with its required inputs already bound or defaulted; it enforces the expected version and optional cause. Internal history JSON is not an authoring format. Stopped graphs retain their history for 30 minutes before cleanup.
 
+## Recall before authoring
+
+Start with `domios docs BLUEPRINT-AUTHORING`, the shared short cookbook with a generic `bind.in` example. `blueprint new --intent` returns a minimal native-v2 scaffold with that exact intent and the top three compact typed cards; `--limit` accepts 1..20. `--json` includes `scaffold`, `yaml`, `cards`, `recall` status and `unavailable` entries. Cards carry a stable `mem:` or `catalog:` id, its exact content hash, provenance, score, one-line purpose/WHY, input/result schemas and node-kind counts. They never inline YAML or code. `blueprint show <card-id>` opens a body explicitly. Existing per-intent vectors, canonical descriptions and current enrichment feed one ranked pool for saved solutions and eligible built-in callable nodes. Current intent vectors are mandatory; missing vectors yield visible degraded/pending state, without a word-only substitute. Workspace scope is applied before ranking. Incompatible catalog entries report their exact unavailable native contract.
+
+Reuse a fitting card by a typed `call`; require the complete purpose and port contract to fit. A high score is not a fit decision. No-fit responses retain their scaffold even when irrelevant candidates are returned. Author from scratch when none fits. Call checking returns the sealed native definition, including its `{id, hash}` pins and immutable dependencies; save that returned definition before apply. Run records and `show` expose the expanded callee. Missing revisions refuse and retained pins never silently rebind.
+
 ## Saved solutions
 
 ```bash
@@ -123,4 +129,4 @@ Only the Team Orchestrator keeps solutions. Supply one to five intents, preferab
 
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 48 -->
+<!-- revision: 49 -->

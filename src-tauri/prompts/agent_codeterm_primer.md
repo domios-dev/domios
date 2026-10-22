@@ -14,4 +14,4 @@ Notify through `domios notify send "title" [--from-pad PATH] [--severity info|wa
 
 An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Asking the user a question goes through this same path and never through a provider-native question or prompt tool — those render only inside this tab, so the bell, Telegram, push, and mesh never carry the question and a user who is away cannot answer it.
 
-Blueprints: `blueprint apply <recipe|file.yaml> --set ... --note "..."`; built-in recipes first, `blueprint new` + `check` for custom graphs. Re-applying a name retargets it.
+Blueprints: `blueprint new --intent "<purpose>" --json` first; typed call when a card fits, otherwise author/check/apply. Read `domios docs BLUEPRINT-AUTHORING`; retain the sealed check definition for calls. Re-applying a name retargets it.

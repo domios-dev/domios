@@ -36,6 +36,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../prod-docs/BLUEPRINTS.md"
     ),
     doc!(
+        "BLUEPRINT-AUTHORING",
+        "Recall-first typed Blueprint authoring cookbook",
+        "../../../prod-docs/BLUEPRINT-AUTHORING.md"
+    ),
+    doc!(
         "BLUEPRINT-RECIPES",
         "Blueprint graph use-case patterns and built-in recipe skeletons",
         "../../../prod-docs/BLUEPRINT-RECIPES.md"

@@ -1,8 +1,9 @@
 # Blueprint recipes
 
-A recipe is a native schema_version: 2 YAML Blueprint with typed `inputs`. Apply a built-in directly for common work; print its file when you need a custom graph.
+A recipe is a native schema_version: 2 YAML Blueprint with typed `inputs`. Start with `blueprint new --intent` and reuse a fitting typed call card; otherwise apply a named recipe or author a graph. The shared cookbook is `domios docs BLUEPRINT-AUTHORING`.
 
 ```bash
+domios blueprint new --intent "watch CI and report failures" --json
 domios blueprint recipe
 domios blueprint apply github --set repo=owner/repo --set id=42
 domios blueprint new http-health > health.yaml
@@ -48,4 +49,4 @@ Built-in names remain stable as inputs change, so re-apply retargets the existin
 
 Full format, validation diagnostics, editor schema and sharing: `domios docs BLUEPRINTS`.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
