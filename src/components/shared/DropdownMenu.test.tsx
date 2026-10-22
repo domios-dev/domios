@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { DropdownMenu } from "./DropdownMenu";
+import { dismissTopSurface } from "../../lib/backDismissal";
 
 const window = new Window({ url: "http://localhost/" });
 Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { value: true, configurable: true });
@@ -132,8 +133,12 @@ async function main() {
     throw new Error("opening a dropdown should close the previously open dropdown");
   }
 
+  await act(async () => { if (!dismissTopSurface()) throw new Error("an open menu should be a Back surface"); });
+  if (document.querySelector('[role="menu"]:not([hidden])')) throw new Error("system Back should close the open menu");
+  if (dismissTopSurface()) throw new Error("a closed menu should leave no Back surface behind");
+
   await act(async () => root.unmount());
-  console.log("DropdownMenu tests: 7/7 passed");
+  console.log("DropdownMenu tests: 8/8 passed");
 }
 
 void main();

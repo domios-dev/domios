@@ -16,6 +16,7 @@
   "src/components/Sidebar/sortable.clickDrift.test.tsx",
   "src/components/Sidebar/sortable.pressFocus.test.tsx",
   "src/components/Sidebar/GeneralInventory.test.tsx",
+  "src/components/Sidebar/WorkspaceItem.reveal.test.tsx",
   "src/components/MeshPanel/MeshPanel.web.wiring.test.tsx",
   "src/components/MeshPanel/AddPeerPanel.test.tsx",
   "src/components/MeshPanel/useMeshData.test.tsx",
