@@ -16,6 +16,7 @@ test("nextest metadata reuse requires Cargo Fresh and unchanged binaries and man
   let fresh = true, fail = false;
   const run = (program, args) => {
     if (program === "git") return "Cargo.toml\0";
+    assert.ok(args.includes("--locked"));
     calls.push(args[0]);
     if (fail) throw Object.assign(new Error("compile refused"), { status: 43 });
     if (args[0] === "test") return JSON.stringify({ reason: "compiler-artifact", fresh, profile: { test: true }, executable: binary }) + "\n";
