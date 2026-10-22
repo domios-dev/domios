@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+pub mod checker;
+pub use checker::Diagnostic;
+
 mod positions;
 pub mod schema;
 mod types;
@@ -57,16 +60,6 @@ fn version<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Diagnostic {
-    pub file: String,
-    pub line: usize,
-    pub column: usize,
-    pub field: String,
-    pub severity: String,
-    pub message: String,
-    pub hint: String,
-}
 #[derive(Debug, Serialize)]
 pub struct Check {
     pub ok: bool,
@@ -126,28 +119,32 @@ pub fn parse(file: &str, source: &str) -> Result<Parsed, Vec<Diagnostic>> {
         return Err(positions
             .duplicates
             .iter()
-            .map(|(field, line, column)| Diagnostic {
-                file: file.into(),
-                line: *line,
-                column: *column,
-                field: field.clone(),
-                severity: "error".into(),
-                message: "Duplicate mapping key".into(),
-                hint: "Keep one value per key".into(),
+            .map(|(field, line, column)| {
+                Diagnostic::error(
+                    Location {
+                        file: file.into(),
+                        line: *line,
+                        column: *column,
+                    },
+                    field,
+                    "Duplicate mapping key",
+                    "Keep one value per key",
+                )
             })
             .collect());
     }
     let document: Document = serde_yaml::from_str(source).map_err(|error| {
         let loc = error.location();
-        vec![Diagnostic {
-            file: file.into(),
-            line: loc.as_ref().map_or(1, |l| l.line()),
-            column: loc.as_ref().map_or(1, |l| l.column()),
-            field: String::new(),
-            severity: "error".into(),
-            message: error.to_string(),
-            hint: "Use the native v2 schema; values use lit, input or bind".into(),
-        }]
+        vec![Diagnostic::error(
+            Location {
+                file: file.into(),
+                line: loc.as_ref().map_or(1, |l| l.line()),
+                column: loc.as_ref().map_or(1, |l| l.column()),
+            },
+            "",
+            &error.to_string(),
+            "Use the native v2 schema; values use lit, input or bind",
+        )]
     })?;
     let locations = positions
         .locations
@@ -193,15 +190,15 @@ pub fn check(file: &str, source: &str, assignments: &[String]) -> Check {
                 .into_iter()
                 .map(|(field, message)| {
                     let loc = parsed.at(&field);
-                    Diagnostic {
-                        file: file.into(),
-                        line: loc.line,
-                        column: loc.column,
-                        field,
-                        severity: "error".into(),
-                        message,
-                        hint: "Use blueprint schema and explicit --set key=value bindings".into(),
-                    }
+                    Diagnostic::error(
+                        Location {
+                            file: file.into(),
+                            ..loc
+                        },
+                        &field,
+                        &message,
+                        "Use blueprint schema and explicit --set key=value bindings",
+                    )
                 })
                 .collect(),
         },
@@ -385,13 +382,14 @@ pub fn definition_errors(value: &Value) -> Vec<(String, String)> {
 }
 pub fn diagnostic(file: &str, source: &str, field: &str, message: &str, hint: &str) -> Diagnostic {
     let (line, column) = positions::Positions::parse(source).at(field);
-    Diagnostic {
-        file: file.into(),
-        line,
-        column,
-        field: field.into(),
-        message: message.into(),
-        hint: hint.into(),
-        severity: "error".into(),
-    }
+    Diagnostic::error(
+        Location {
+            file: file.into(),
+            line,
+            column,
+        },
+        field,
+        message,
+        hint,
+    )
 }
