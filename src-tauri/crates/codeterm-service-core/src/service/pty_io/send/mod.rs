@@ -13,35 +13,31 @@ fn compose_routed_suffix(suffix: &str) -> String {
     format!("{suffix}{}", codeterm_wire::domios::DOMIOS_CLOSE_TAG)
 }
 
-struct RoutedInput {
-    body: String,
-    typed_prefix: Option<String>,
-    pasted_tail: Option<String>,
-    typed_suffix: Option<String>,
+pub(super) struct RoutedInput {
+    pub(super) body: String,
+    pub(super) typed_prefix: Option<String>,
+    pub(super) pasted_tail: Option<String>,
+    pub(super) typed_suffix: Option<String>,
 }
 
-fn prepare_routed_input(
+pub(super) fn prepare_routed_input(
     frame: &codeterm_wire::domios::DomiosFrame,
     typed_instruction: Option<&PasteCapability>,
 ) -> RoutedInput {
     let body = sanitize_agent_prompt_input(&frame.body);
-    let suffix = compose_routed_suffix(&frame.suffix);
-    if let Some(capability) = typed_instruction {
-        RoutedInput {
-            pasted_tail: capability
-                .marker_applies_to(&body)
-                .then(codeterm_wire::domios::pasted_marker_tail),
-            body,
-            typed_prefix: Some(frame.opening_tag.clone()),
-            typed_suffix: Some(suffix),
-        }
-    } else {
-        RoutedInput {
-            body: format!("{}{body}{suffix}", frame.opening_tag),
-            typed_prefix: None,
-            pasted_tail: None,
-            typed_suffix: None,
-        }
+    let marker = typed_instruction
+        .filter(|capability| capability.marker_applies_to(&body))
+        .map(|_| codeterm_wire::domios::pasted_marker_tail())
+        .unwrap_or_default();
+    RoutedInput {
+        body: format!(
+            "{}{body}{marker}{}",
+            frame.opening_tag,
+            compose_routed_suffix(&frame.suffix)
+        ),
+        typed_prefix: None,
+        pasted_tail: None,
+        typed_suffix: None,
     }
 }
 

@@ -424,3 +424,49 @@ fn cli_pty_send_resolves_multiline_declaration_without_chat_preprocessors() {
     );
     assert_eq!(sibling_capability, PasteEncodingCapability::LiveModeOnly);
 }
+
+#[test]
+fn long_routed_report_and_next_sender_each_have_one_complete_paste() {
+    let body: String = (0..1600).map(|n| format!("{n:04x}λ8f1c9a\n")).collect();
+    assert!(body.len() >= 20_000);
+    let capability = serde_json::from_value(serde_json::json!({
+        "supportsBracketedPaste": true,
+        "requiresTypedInstructionForRoutedMessages": true
+    }))
+    .unwrap();
+    let frames = [
+        crate::service::messenger::Messenger::report("opaque-a", "a813b7e2").routed_frame(&body),
+        crate::service::messenger::Messenger::message("opaque-b", "b925d6f3")
+            .routed_frame("72d4f9a1\n90c3e8b5"),
+    ];
+    for frame in frames {
+        let input = crate::service::pty_io::send::prepare_routed_input(&frame, Some(&capability));
+        let encoded = encode_paste_frame(
+            &input.body,
+            input.typed_prefix.as_deref(),
+            input.typed_suffix.as_deref(),
+            Some(false),
+            PasteEncodingCapability::MultilineTui,
+        );
+        let expected = format!(
+            "{}{}{}{}{}",
+            frame.opening_tag,
+            frame.body,
+            codeterm_wire::domios::pasted_marker_tail(),
+            frame.suffix,
+            codeterm_wire::domios::DOMIOS_CLOSE_TAG,
+        );
+        assert_eq!(encoded, format!("\x1b[200~{expected}\x1b[201~").as_bytes());
+        let parsed = codeterm_wire::domios::parse_message(&input.body).unwrap();
+        assert_eq!(parsed.body, frame.body);
+        assert_eq!(
+            parsed.content,
+            format!(
+                "{}{}{}",
+                frame.body,
+                codeterm_wire::domios::pasted_marker_tail(),
+                frame.suffix
+            )
+        );
+    }
+}
