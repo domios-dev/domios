@@ -55,6 +55,46 @@ fn task_worker_switch_from_pty_carries_attempt_and_delivers_one_handoff() {
     let payload = serde_json::to_string(&submissions[0]["params"]).unwrap();
     assert_eq!(payload.matches("provider-handoff").count(), 1);
     assert!(payload.contains(&attempt));
+    let opens: Vec<_> = requests
+        .iter()
+        .filter(|frame| frame["method"] == "openThread")
+        .collect();
+    assert_eq!(opens.len(), 1);
+    let prompt = opens[0]["params"]["instructions"].as_str().unwrap();
+    let preset = crate::service::persona::resolve_ambient(
+        Some(crate::multiplexer::types::AgentRole::Worker),
+        None,
+        None,
+    )
+    .unwrap();
+    let contract = preset.contract_guidance();
+    for fragment in [
+        crate::prompts::AGENT_CODETERM_PRIMER.trim(),
+        crate::prompts::AGENT_ROUTING_CONTRACT.trim(),
+        crate::prompts::WORKER_CODETERM_CONTEXT.trim(),
+        crate::prompts::AGENT_PAD_RULE.trim(),
+        crate::prompts::RICH_RENDERING_GUIDANCE.trim(),
+        crate::service::orchestrator::ROLE_AUTHORITY,
+        contract.as_str(),
+    ] {
+        assert!(!fragment.is_empty());
+        assert_eq!(prompt.matches(fragment).count(), 1, "{fragment}");
+    }
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&fixture.tab)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        tab.agent_runtime_config.as_ref().unwrap()["systemPrompt"],
+        prompt
+    );
+    assert_eq!(
+        tab.restorable_launch.identity_instructions.as_deref(),
+        Some(prompt)
+    );
     assert!(fixture
         .service
         .mux
