@@ -119,7 +119,7 @@ it("opens the shared background panel and stops a terminal once", async () => {
   }
 });
 
-it("shows provider-declared internal subagents with elapsed time and transcript access", async () => {
+it("counts provider-declared subagents in the shared bubble and inspects every child", async () => {
   const message = fixtureMessage("agent-item", {
     agent_id: "child-thread", agent_call_id: "call-1", agent_parent_thread_id: "root", agent_ordinal: 1,
     agent_state: "running", agent_description: "Inspect the launch path", agent_model: "model-x", agent_reasoning_effort: "high", agent_binding_nonce:authority.bindingNonce, agent_runtime_epoch:authority.epoch,
@@ -135,18 +135,31 @@ it("shows provider-declared internal subagents with elapsed time and transcript 
     await act(async () => hidden.root.unmount());
   }
 
-  setAgentDescriptors([{ id: "codex", supports_subagent_visibility: true }] as ProviderDescriptor[]);
-  const shown = harness([message], inspect);
+  setAgentDescriptors([{ id: "codex", display_name: "Fixture Harness", supports_subagent_visibility: true }] as ProviderDescriptor[]);
+  const messages = [message, ...[2, 3, 4].map(index => fixtureMessage(`agent-${index}`, { ...message.toolInput as Record<string, unknown>, agent_id: `child-${index}`, agent_call_id: `call-${index}`, agent_description: `Task ${index}`, agent_state: "unknown" }))];
+  const shown = harness(messages, inspect);
   try {
     await act(async () => { shown.render(); });
-    expect(shown.host.querySelector('button[aria-label="1 background work"]')).toBeNull();
-    const panel = shown.host.querySelector('[role="group"][aria-label="Subagents"]');
-    expect(panel?.textContent).toContain("model-x");
-    const transcript = Array.from(panel?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((button) => button.getAttribute("aria-label")?.startsWith("Open transcript for "));
-    expect(transcript).toBeDefined();
-    expect(shown.host.querySelectorAll('button[aria-label^="Open transcript for "]')).toHaveLength(1);
-    await act(async () => { transcript?.click(); });
-    expect(inspect).toHaveBeenCalledExactlyOnceWith("child-thread");
+    const linked = shown.host.querySelector('[role="group"][aria-label="Linked to this tab"]');
+    const bubble = linked?.querySelector<HTMLButtonElement>('button[aria-label="4 background work, Internal agent of Fixture Harness"]');
+    expect(bubble).toBeDefined();
+    expect(shown.host.querySelectorAll('button[aria-label^="Open transcript for "]')).toHaveLength(0);
+    await act(async () => { bubble?.click(); });
+    const panel = shown.host.querySelector('[role="group"][aria-label="Background work"]');
+    const list = panel?.querySelector('ul[aria-label="Subagents"]');
+    expect(list?.querySelectorAll("li")).toHaveLength(4);
+    const transcripts = Array.from(list?.querySelectorAll<HTMLButtonElement>('button[aria-label^="Open transcript for "]') ?? []);
+    expect(transcripts).toHaveLength(4);
+    expect(shown.host.querySelectorAll('button[aria-label^="Open transcript for "]')).toHaveLength(4);
+    for (const transcript of transcripts) {
+      expect(transcript.getAttribute("aria-label")).toContain("Internal agent of Fixture Harness");
+      expect(transcript.title).toContain("Internal agent of Fixture Harness");
+      expect(transcript.disabled).toBe(false);
+      await act(async () => { transcript.click(); });
+    }
+    expect(inspect.mock.calls).toEqual([["child-thread"], ["child-2"], ["child-3"], ["child-4"]]);
+    await act(async () => { bubble?.click(); });
+    expect(shown.host.querySelector('[aria-label="Subagents"]')).toBeNull();
   } finally {
     await act(async () => shown.root.unmount());
   }

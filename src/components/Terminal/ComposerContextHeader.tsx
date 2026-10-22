@@ -6,7 +6,7 @@ import type { ChatSessionIntent } from "@codeterm/chat-core";
 import { useRuntimeStatusPopover } from "./useRuntimeStatusPopover";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { memo, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { Activity, ChevronUp, CircleCheck, Clock3, HeartPulse, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Target, Workflow, X } from "lucide-react";
+import { Activity, Bot, ChevronUp, CircleCheck, Clock3, HeartPulse, TriangleAlert, Infinity as InfinityIcon, Map, Plus, Timer, Target, Workflow, X } from "lucide-react";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, stopMergedJob, type JobsActionAdapter } from "../Jobs/jobActions";
@@ -22,7 +22,7 @@ import { usePhoneViewport } from "../../hooks/useSidebarViewport";
 import { useMuxSelector } from "../../store/multiplexer";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { goalVisible } from "./goalModel";
-import { ComposerBackgroundWorkPanel, SubagentCapsules } from "./ComposerBackgroundWorkPanel";
+import { ComposerBackgroundWorkPanel } from "./ComposerBackgroundWorkPanel";
 import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
 import { composerBackgroundWorkBubble } from "./composerBackgroundWorkModel";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
@@ -150,7 +150,9 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
   });
   const descriptor = useAgentDescriptor(providerId);
   const backgroundWork = useComposerBackgroundWorkStatus();
-  const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items.filter(item => item.kind === "terminal"));
+  const backgroundBubble = composerBackgroundWorkBubble(backgroundWork.items);
+  const hasSubagents = backgroundWork.items.some(item => item.kind === "agent");
+  const internalAgentLabel = `Internal agent of ${descriptor?.display_name ?? "parent harness"}`;
   const { chips, byKey, blueprints, context, refresh } = useTabJobs(tabId, workspaceId, adapter, jobActionAdapter);
   const [requested, setRequested] = useState<ContextKind | null>(null);
   const goalTriggerRef = useRef<HTMLButtonElement>(null);
@@ -292,7 +294,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         </button>
       </>
     ),
-    background: () => <ComposerBackgroundWorkPanel items={backgroundBubble?.items ?? []} onStop={backgroundWork.stop} />,
+    background: () => <ComposerBackgroundWorkPanel items={backgroundBubble?.items ?? []} onStop={backgroundWork.stop} internalAgentLabel={internalAgentLabel} />,
   };
 
   const fallbackTitle = () => {
@@ -345,7 +347,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
       <div id={linkedGroupId} hidden={phone && !unfolded} className="ct-ctx__kinds" role="group" aria-label="Linked to this tab">
         {hasPluginError && pluginError && <RemovedPluginBubble error={pluginError} />}
         {kinds.map((kind) => {
-          const Icon = KIND_ICON[kind];
+          const Icon = kind === "background" && hasSubagents ? Bot : KIND_ICON[kind];
           return (
             <ComposerContextChip
               key={kind}
@@ -353,13 +355,13 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
               kind={kind}
               open={open === kind}
               aria-pressed={open === kind}
-              aria-label={kind === "goal" ? KIND_LABEL.goal : `${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${kind === "delayed" && heartbeats.length > 0 ? ", plan heartbeat" : ""}${alerts[kind] ? ", one needs you" : ""}`}
-              title={KIND_LABEL[kind]}
+              aria-label={kind === "goal" ? KIND_LABEL.goal : `${counts[kind]} ${KIND_LABEL[kind].toLowerCase()}${kind === "delayed" && heartbeats.length > 0 ? ", plan heartbeat" : ""}${alerts[kind] ? ", one needs you" : ""}${kind === "background" && hasSubagents ? `, ${internalAgentLabel}` : ""}`}
+              title={kind === "background" && hasSubagents ? `${KIND_LABEL[kind]} · ${internalAgentLabel}` : KIND_LABEL[kind]}
               onClick={() => toggle(kind)}
             >
               <Icon size={13} aria-hidden="true" />
               {!phone && kind === "delayed" && <span className="ct-ctx-kind__label">{KIND_SHORT_LABEL[kind]}</span>}
-              {(phone || kind === "delayed" || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
+              {(phone || kind === "delayed" || kind === "background" || counts[kind] > 1) && <span className="ct-ctx-kind__count">{counts[kind]}</span>}
               {alerts[kind] && <span className="ct-ctx-kind__alert" aria-hidden="true" />}
             </ComposerContextChip>
           );
@@ -375,7 +377,6 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
         {!phone && linkedChips}
       </div>
       {phone && linkedChips}
-      <SubagentCapsules items={backgroundWork.items.filter(item => item.kind === "agent")} />
       {heartbeat && <SystemHeartbeatDetail message={heartbeat} busy={false} onClose={() => setHeartbeatId(null)} />}
       {open && (phone ? (
         <div className="ct-ctx__reveal" data-open={unfolded || undefined}>
