@@ -92,7 +92,7 @@ function MentionChip({ mention }: { mention: CanonicalMention }) {
   const value = useLiveBinding(host.mentions?.binding, key, null);
   if (!value && mention.kind === "task") return <>{mention.text}</>;
   return <ReferenceChip kind={mention.kind} label={value?.title ?? mention.id} fullRef={mention.id}
-    planId={value?.planId} targetId={value?.targetId} disabled={!value} state={value ? "resolved" : "missing"}
+    planId={value?.planId} targetId={value?.targetId} disabled={!value || value.state === "loading"} state={value?.state ?? (value ? "resolved" : "missing")}
     onOpen={() => host.mentions?.open(key)} />;
 }
 

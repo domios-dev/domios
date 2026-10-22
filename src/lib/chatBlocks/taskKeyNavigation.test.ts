@@ -15,8 +15,15 @@ async function main() {
   const feed = createValueFeed<readonly Plan[]>([plan("pl_other", "other"), plan("pl_own", "own"), plan("pl_far", null, "/other")]);
   const opened: unknown[] = [];
   let reads = 0;
-  const host = createMentionHost({ mux, plans: feed,
-    readGraph: async (scope) => { reads++; assert.equal(scope.teamId, "own"); return { ...fixtureGraph(), nodes: [fixtureNode({ id: "bp_real", kind: "blueprint", owner_tab_id: null, workspace_id: "ws", team_id: "own" }, "Real Blueprint"), fixtureNode({ id: "bp_workspace", kind: "blueprint", owner_tab_id: null, workspace_id: "ws", team_id: null }, "Workspace Blueprint")] }; },
+  let blueprintDeleted = false;
+  let muxSubscriptions = 0;
+  let planSubscriptions = 0;
+  let muxReads = 0;
+  const host = createMentionHost({ mux: {
+    getState: () => { muxReads++; return mux.getState(); },
+    subscribe: (listener) => { muxSubscriptions++; const off = mux.subscribe(listener); return () => { muxSubscriptions--; off(); }; },
+  }, plans: { get: feed.get, set: feed.set, subscribe: (listener) => { planSubscriptions++; const off = feed.subscribe(listener); return () => { planSubscriptions--; off(); }; } },
+    readGraph: async (scope) => { reads++; assert.equal(scope.teamId, "own"); return { ...fixtureGraph(), nodes: blueprintDeleted ? [] : [fixtureNode({ id: "bp_real", kind: "blueprint", owner_tab_id: null, workspace_id: "ws", team_id: "own" }, "Real Blueprint"), fixtureNode({ id: "bp_workspace", kind: "blueprint", owner_tab_id: null, workspace_id: "ws", team_id: null }, "Workspace Blueprint")] }; },
     openPlan: (target) => opened.push(target), openTab: (ws, tab) => opened.push([ws, tab]), openBlueprint: (ws, team, id) => opened.push([ws, team, id]),
   });
   const key = (kind: string, id: string) => JSON.stringify(["self", kind, id]);
@@ -29,21 +36,51 @@ async function main() {
   assert.equal(host.binding.read(tab)?.title, "Real name");
   let notifications = 0;
   const offActivity = host.binding.subscribe(() => notifications++);
+  const extraListeners = Array.from({ length: 100 }, () => host.binding.subscribe(() => {}));
+  assert.equal(muxSubscriptions, 1);
+  assert.equal(planSubscriptions, 1);
+  const beforeActivity = muxReads;
   state = { ...state, tabs: { self: { ...state.tabs.self, agent_state: { state: "working" } as never } } }; mux.notify();
+  assert.equal(muxReads - beforeActivity, 1, "one mux projection for all chips on activity");
   assert.equal(notifications, 0, "rendered chips also ignore activity-only events");
   state = { ...state, tabs: { self: { ...state.tabs.self, title: "Renamed" } } }; mux.notify();
   assert.equal(notifications, 1);
+  for (const off of extraListeners) off();
   offActivity();
+  assert.equal(muxSubscriptions, 0);
+  assert.equal(planSubscriptions, 0);
   assert.equal(host.binding.read(tab)?.title, "Renamed");
   host.open(tab); assert.deepEqual(opened.pop(), ["ws", "self"]);
   const blueprint = key("blueprint", "bp_real");
-  const ready = new Promise<void>((resolve) => { const off = host.binding.subscribe(() => { off(); resolve(); }); });
+  const keepMounted = host.binding.subscribe(() => {});
+  const ready = new Promise<void>((resolve) => { const off = host.binding.subscribe(() => { if (host.binding.read(blueprint)?.state !== "loading") { off(); resolve(); } }); });
   host.binding.refresh(blueprint); host.binding.refresh(blueprint);
+  assert.equal(host.binding.read(blueprint)?.state, "loading");
   await ready;
   assert.equal(reads, 1);
   assert.equal(host.binding.read(blueprint)?.title, "Real Blueprint");
   host.open(blueprint); assert.deepEqual(opened.pop(), ["ws", "own", "bp_real"]);
   host.open(key("blueprint", "bp_workspace")); assert.deepEqual(opened.pop(), ["ws", null, "bp_workspace"]);
+  keepMounted();
+  blueprintDeleted = true;
+  assert.equal(host.binding.read(blueprint), null, "unmounted graph cache is discarded");
+  const offRemount = host.binding.subscribe(() => {});
+  const refreshed = new Promise<void>((resolve) => { const off = host.binding.subscribe(() => { if (host.binding.read(blueprint)?.state !== "loading") { off(); resolve(); } }); });
+  host.binding.refresh(blueprint);
+  await refreshed;
+  assert.equal(reads, 2, "remount reads a fresh graph");
+  assert.equal(host.binding.read(blueprint), null, "deletion while unmounted removes the old label");
+  host.open(blueprint); assert.equal(opened.length, 0, "deleted Blueprint cannot open");
+  offRemount();
+  let taskReads = 0;
+  const indexedPlan = plan("pl_indexed", "own");
+  const tasks = indexedPlan.tasks;
+  Object.defineProperty(indexedPlan, "tasks", { get: () => { taskReads++; return tasks; } });
+  feed.set([indexedPlan]);
+  for (let i = 0; i < 100; i++) host.binding.read(key("task", `SHA-${i}`));
+  assert.equal(taskReads, 1, "unknown prose keys share one scoped task index");
+  feed.set([{ ...indexedPlan, tasks: [{ ...tasks[0], name: "Updated" }] }]);
+  assert(host.binding.read(task)?.title.includes("Updated"), "plan changes invalidate the index");
   state = { ...state, tabs: { self: { ...state.tabs.self, team_id: null } } }; mux.notify();
   assert.equal(host.binding.read(task), null); host.open(task); assert.equal(opened.length, 0);
   feed.set([plan("pl_other", "other"), plan("pl_solo", null), plan("pl_far", null, "/other")]);

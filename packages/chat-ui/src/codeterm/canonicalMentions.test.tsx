@@ -44,3 +44,8 @@ assert.ok(discussion.includes('data-testid="attached-discussion-doc"'));
 const encoded = sent("Follow FRG-1442\\nNext line");
 assert.ok(encoded.includes("\nNext line") && !encoded.includes("\\nNext line"));
 console.log("13 canonical parsing, live-label and transport rendering regression checks passed");
+
+assert.equal(canonicalMentions(canonicalMentionText("tab", "Fix `x`", "actual"))[0]?.id, "actual");
+live.bp_pending = { kind: "blueprint", id: "bp_pending", title: "bp_pending", state: "loading" };
+const pending = render(<LinkedText text="@Pending (blueprint bp_pending)" />);
+assert(pending.includes('data-ref-state="loading"') && pending.includes('disabled=""'));
