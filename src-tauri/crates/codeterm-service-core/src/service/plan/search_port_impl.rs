@@ -17,7 +17,7 @@ impl PlanSearchPort for MemSearchPort {
     }
 
     fn init_embedding_ext(&self, conn: &Connection) {
-        let _ = embeddings::init_extension(conn);
+        let _ = embeddings::init_derived_index(conn);
     }
 
     fn init_schema(&self, conn: &Connection) -> Result<(), String> {

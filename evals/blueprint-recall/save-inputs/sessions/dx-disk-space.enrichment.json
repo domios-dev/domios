@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 12582,
+  "stop_reason": "end_turn",
+  "session_id": "8b3ef3ba-392d-43ff-85e9-7f114099fffe",
+  "total_cost_usd": 0.031719,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11465,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1756,
+    "output_tokens_details": {
+      "thinking_tokens": 1632
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11465,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1756,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11465,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11465
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1756,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11465,
+      "webSearchRequests": 0,
+      "costUSD": 0.031719,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1632,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: This Blueprint continuously monitors free disk space on the root volume using a custom probe running every 10 minutes. It detects when space drops to low levels and sends immediate notifications. The monitoring rearms on each low-space event, so you receive alerts for each new incident without duplicate warnings during prolonged low-capacity conditions. || INTENT: Alert me when root volume free space runs low || INTENT: Monitor available disk space and notify when shortage occurs || INTENT: Get warned before storage capacity reaches critical threshold || INTENT: Watch filesystem and alert on low available space",
+  "ttft_ms": 12134,
+  "type": "result",
+  "duration_ms": 12673,
+  "uuid": "6e1d07a9-3a75-431a-b4d7-49f39d48837e",
+  "ttft_stream_ms": 834,
+  "time_to_request_ms": 61,
+  "first_content_frame_ms": 834,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

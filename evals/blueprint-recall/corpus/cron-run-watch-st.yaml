@@ -1,0 +1,23 @@
+schema_version: 1
+name: Scheduled job {{job}}
+note: Follow a scheduled job's current execution and ping me once it completes.
+inputs:
+  done_regex:
+    type: string
+    description: Regex marking a completed execution
+  job:
+    type: string
+    description: Scheduled job name or id
+watch:
+  observe: cron-run:{{job}}
+  question: has-the-run-ended
+  buckets:
+  - running
+  - ended
+  matches:
+    ended: '{{done_regex}}'
+  until: ended
+  timeout: 4h
+  routes:
+    running: none
+    ended: notify

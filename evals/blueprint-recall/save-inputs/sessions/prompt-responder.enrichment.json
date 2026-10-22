@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 8835,
+  "stop_reason": "end_turn",
+  "session_id": "6d4b730e-ff62-4498-b25d-f0e78a3e03cc",
+  "total_cost_usd": 0.027215999999999997,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11451,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 861,
+    "output_tokens_details": {
+      "thinking_tokens": 718
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11451,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 861,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11451,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11451
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 861,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11451,
+      "webSearchRequests": 0,
+      "costUSD": 0.027215999999999997,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 718,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: This Blueprint monitors a specific agent tab for permission prompts and automatically responds with safe answers when they match your pattern. It watches continuously for up to one hour, classifies incoming prompts to spot permission requests, and triggers a response handler when it finds a match. Useful for automating repetitive permission-related interactions or testing permission flows without manual intervention. || INTENT: Automatically respond to permission prompts on a specific tab || INTENT: Monitor agent tab and handle matching permission requests without manual input || INTENT: Set up automatic responses for permission-related prompts during testing || INTENT: Watch a tab and automatically answer permission prompts matching a pattern",
+  "ttft_ms": 8877,
+  "type": "result",
+  "duration_ms": 9879,
+  "uuid": "26d993f6-a0b7-40f6-b4bb-a3dfe8b5cc61",
+  "ttft_stream_ms": 1763,
+  "time_to_request_ms": 1007,
+  "first_content_frame_ms": 1764,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

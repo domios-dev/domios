@@ -1771,7 +1771,7 @@
         },
         {
           "name": "keep",
-          "about": "Keep a generalised solution (Team Orchestrator only)",
+          "about": "Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents",
           "aliases": [],
           "args": [
             {
@@ -1791,7 +1791,7 @@
               "value_name": "WHEN",
               "possible_values": [],
               "default": null,
-              "help": null,
+              "help": "One \"when would someone want this\" request; repeat 1-5 times, 3-5 phrased differently",
               "aliases": []
             }
           ],
@@ -4213,6 +4213,66 @@
                   "possible_values": [],
                   "default": "all",
                   "help": "Which phase to run: light | deep | normalize | all",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "embedder",
+          "about": "The one embedder behind all of mem: list providers, show status, switch",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "list",
+              "about": "List embedder providers, their models, and whether a remote one can be activated",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "status",
+              "about": "Show the active provider, model, dimension, re-embed progress and vector-pending count",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "use",
+              "about": "Switch the embedder and re-embed every item in the background. A remote provider needs its stored key and memory.embedder.remote_opt_in",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "dimension",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "DIMENSION",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Vector dimension, for models that accept one; defaults to the model's own",
+                  "aliases": []
+                },
+                {
+                  "name": "model",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "MODEL",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Model id; defaults to the provider's default model",
+                  "aliases": []
+                },
+                {
+                  "name": "provider",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PROVIDER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Provider id from `mem embedder list`",
                   "aliases": []
                 }
               ],

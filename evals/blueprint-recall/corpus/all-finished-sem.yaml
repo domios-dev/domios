@@ -1,0 +1,32 @@
+schema_version: 1
+name: Batch done notice
+note: Run one status command on a timer and report to the owner only when it says the whole batch has ended.
+owner: team
+inputs:
+  batch_status_command:
+    type: string
+    description: Command printing a single status line for all running work
+pipeline:
+  trigger:
+    type: schedule
+    every: 2m
+  steps:
+  - name: status
+    input: text
+    run: '{{batch_status_command}}'
+    'on':
+      failed: stop
+  - name: ended
+    input: text
+    uses: filter
+    with:
+      pattern: (?m)^all-ended$
+      bucket: ended
+    'on':
+      ended: next
+      done: stop
+  - name: report
+    input: text
+    run: echo batch-ended
+  result:
+    to: owner

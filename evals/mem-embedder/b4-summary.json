@@ -1,0 +1,23 @@
+{
+  "head": "270bdbb18b3b3b23e6934b4694d0db997682d534",
+  "ran_at": "2026-10-22T15:24:17.102883+00:00",
+  "embedder": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "config_id": "C10",
+  "gate_b": "PASS (pooled recall@5 0.8167 vs 0.80)",
+  "prereg_sha": "88f2e63b042dbe91b3b7cbba99bd849b636ab766",
+  "frozen_sha": "e5f666bb37da53c9e5639d9d72901ad68bc1cdaf",
+  "frozen_sha256": "4dbb17ad4f8ccf306755a3ce707b0ac5adefd7d49428d741e9dff29896ffb432",
+  "queries_sha256": "3d9da7cd5d10ff345b5628a18f61151c03138893aab3dd4ab51bb6f5d2a4ec6b",
+  "manifest_sha256": "cbe5a71ed4d7b1c5a4f8fc1a1749a63c56b46a5b3f7802e7a653a299215f1bc3",
+  "queries": 40,
+  "recall": {
+    "@1": 0.85,
+    "@3": 0.7,
+    "@5": 0.8166666666666667
+  },
+  "confirmation_invocations": 1,
+  "decision_sha": "c013885e6692f8c3bf4fea2a1f740ab46b5852a6",
+  "command_exit": 0,
+  "gateway_job": "20261022T152352-58369-17577",
+  "rerank": "disabled; gate has no rerank, optional paid arm not measured"
+}

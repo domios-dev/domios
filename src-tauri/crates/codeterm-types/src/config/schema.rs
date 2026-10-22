@@ -829,6 +829,8 @@ pub struct MemoryConfig {
     pub dreaming_telegram_notify: bool,
     #[serde(default)]
     pub dream_hygiene: DreamHygieneConfig,
+    #[serde(default)]
+    pub embedder: super::EmbedderConfig,
 }
 
 impl Default for MemoryConfig {
@@ -850,6 +852,7 @@ impl Default for MemoryConfig {
             l1_budget_tokens: default_l1_budget_tokens(),
             dreaming_telegram_notify: true,
             dream_hygiene: DreamHygieneConfig::default(),
+            embedder: super::EmbedderConfig::default(),
         }
     }
 }

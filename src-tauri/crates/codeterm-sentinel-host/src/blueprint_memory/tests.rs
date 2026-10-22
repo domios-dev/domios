@@ -26,7 +26,7 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
     crate::manage_fixture_ports(service, &handle);
     let caller = service.sentinel_caller(&tab, None).unwrap();
     assert!(service
-        .blueprint_keep(&caller, "missing", "Watch CI failures")
+        .blueprint_keep(&caller, "missing", &["Watch CI failures".into()])
         .unwrap_err()
         .contains("Orchestrator"));
     let document=Document::from_definition(&json!({"create":{"name":"Concrete watch","note":"Watch CI","probe":"echo private-instance","question":"Ready?","buckets":["done"],"every":"20s","matches":{"done":"ready"},"routes":{"done":"notify"},"until":"done","timeout":"1h"}})).unwrap();
@@ -35,14 +35,14 @@ fn worker_keep_is_refused_and_saved_recipe_applies_only_in_its_project() {
         .save_blueprint(
             &area(&workspace),
             document,
-            "Watch CI readiness",
+            &["Watch CI readiness".into()],
             Evidence {
                 kept: true,
                 ..Evidence::default()
             },
         )
         .unwrap()
-        .unwrap();
+        .id;
     assert!(service
         .blueprint_apply_recipe(&caller, &id, &[], None, false)
         .is_err());

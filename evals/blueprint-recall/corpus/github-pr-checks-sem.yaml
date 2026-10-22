@@ -1,0 +1,25 @@
+schema_version: 1
+name: '{{name}}'
+note: Run gh pr checks on a timer and tell me once no check on that pull request is still pending.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  pr_checks_probe:
+    type: string
+    description: Read-only gh pr checks command for one pull request
+watch:
+  probe: '{{pr_checks_probe}}'
+  question: are-the-pr-checks-complete
+  buckets:
+  - pending
+  - complete
+  matches:
+    pending: (?m)\bpending\b
+    complete: (?m)^All checks were successful|(?m)\bfail\b
+  until: complete
+  every: 1m
+  timeout: 2h
+  routes:
+    pending: none
+    complete: notify

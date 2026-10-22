@@ -1,4 +1,5 @@
 use super::{DocCandidate, DocSection, Index};
+use crate::embedder::{ActiveEmbedder, EmbedderIdentity};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -28,13 +29,19 @@ struct CacheHeader {
     corpus_hash: String,
 }
 
-fn vector_store() -> &'static RwLock<Option<Arc<DocVectors>>> {
-    static STORE: OnceLock<RwLock<Option<Arc<DocVectors>>>> = OnceLock::new();
+type StampedDocs = (EmbedderIdentity, Arc<DocVectors>);
+
+fn vector_store() -> &'static RwLock<Option<StampedDocs>> {
+    static STORE: OnceLock<RwLock<Option<StampedDocs>>> = OnceLock::new();
     STORE.get_or_init(|| RwLock::new(None))
 }
 
+/// Published vectors, only while they belong to the active embedder.
 pub(super) fn ready_vectors() -> Option<Arc<DocVectors>> {
-    vector_store().try_read()?.as_ref().cloned()
+    let active = ActiveEmbedder::global().identity();
+    let store = vector_store().try_read()?;
+    let (identity, vectors) = store.as_ref()?;
+    (*identity == active).then(|| vectors.clone())
 }
 
 pub(super) fn start_background_build(data_dir: &Path) {
@@ -58,24 +65,57 @@ pub(super) fn prepare_for_benchmark(data_dir: &Path, sections: &[DocSection]) ->
     build_and_publish(data_dir, sections).is_ok()
 }
 
-fn build_and_publish(data_dir: &Path, sections: &[DocSection]) -> Result<(), String> {
+/// Rebuild the docs vectors with `embedder`; published only when it is the
+/// process's active embedder.
+pub(super) fn reembed(data_dir: &Path, embedder: &Arc<ActiveEmbedder>) -> Result<usize, String> {
+    let publish = Arc::ptr_eq(embedder, &ActiveEmbedder::global());
+    build(data_dir, super::corpus_sections(), embedder, publish)
+}
+
+fn build_and_publish(data_dir: &Path, sections: &[DocSection]) -> Result<usize, String> {
+    build(data_dir, sections, &ActiveEmbedder::global(), true)
+}
+
+fn cache_model_key(identity: &EmbedderIdentity) -> String {
+    if *identity == crate::embedder::legacy_identity() {
+        identity.model.clone()
+    } else {
+        identity.to_string()
+    }
+}
+
+fn build(
+    data_dir: &Path,
+    sections: &[DocSection],
+    embedder: &ActiveEmbedder,
+    publish: bool,
+) -> Result<usize, String> {
     let started = Instant::now();
+    let identity = embedder.identity();
     let result = load_or_build(
         &data_dir.join("mem").join("docs-vectors"),
         sections,
-        crate::embeddings::EMBEDDER_MODEL_ID,
-        crate::embeddings::EMBEDDING_DIMENSION,
-        &crate::embeddings::embed,
+        &cache_model_key(&identity),
+        identity.dimension,
+        &|text: &str| {
+            let stamped = embedder.passage(text).map_err(|error| error.to_string())?;
+            if stamped.identity != identity {
+                return Err("the embedder switched during the docs build".into());
+            }
+            Ok(stamped.vector)
+        },
     );
     match result {
         Ok((vectors, cached)) => {
             let chunks = vectors.ids.len();
-            publish_vectors(vectors);
+            if publish {
+                publish_vectors(identity, vectors);
+            }
             log::info!(
                 "[docs.vectors] ready chunks={chunks} cached={cached} ms={}",
                 started.elapsed().as_millis()
             );
-            Ok(())
+            Ok(chunks)
         }
         Err(error) => {
             log_unavailable(&error);
@@ -91,10 +131,13 @@ fn log_unavailable(reason: &str) {
     );
 }
 
-fn publish_vectors(vectors: DocVectors) {
+fn publish_vectors(identity: EmbedderIdentity, vectors: DocVectors) {
     let mut store = vector_store().write();
-    if store.is_none() {
-        *store = Some(Arc::new(vectors));
+    if store
+        .as_ref()
+        .is_none_or(|(current, _)| *current != identity)
+    {
+        *store = Some((identity, Arc::new(vectors)));
     }
 }
 

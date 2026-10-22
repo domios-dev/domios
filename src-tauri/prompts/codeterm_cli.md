@@ -54,7 +54,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Plans, specs, tasks | `plan --help`, `spec --help`, `task --help`; `plan lanes <plan> --clean` previews merged lanes and unregistered build residue, `--confirm` executes, `--fetch` refreshes refs; dirty lanes stay protected | `docs PLAN-EDITING` |
 | Delayed or repeated message to a tab | `send --delay` / `--at` / `--every`, `delayed --help` | — |
 | Scheduled jobs (fresh agent per run) | `cron create --help`; a short meaningful name is required | `docs CONFIG` |
-| Watch CI, builds, files, agents and act | `blueprint recipe`, then `--dry-run` | `docs BLUEPRINTS` |
+| Watch CI, builds, files, agents and act | `blueprint recipe`, then `--dry-run`; `blueprint keep` returns the saved ID and any `evicted_ids`, which the CLI also prints | `docs BLUEPRINTS` |
 | Telegram | `bridge send --to ID --service telegram "..."`; long answers continue with `--append` | `docs TELEGRAM-SETUP` |
 | Remote machines | Mesh block below | `docs MESH` |
 | Memory, skills | Memory block below | `docs MEMORY` |
@@ -95,6 +95,8 @@ Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--m
 The Domios memory protocol is in your provider rules. Commands: `domios mem --help`; depth: `domios docs MEMORY`. Past conversations are not mem: `domios sessions search`.
 
 Use `domios mem taxonomy` for area counts and `domios mem area merge <from> --into <to> --dry-run` to preview a reversible area move; omit `--dry-run` to apply. Undo per item with `domios mem restore <id> --version <history-row>`.
+
+One embedder serves all of mem: `domios mem embedder status` shows it and its re-embed progress; `domios mem embedder use <provider> --model <m>` switches it in the background. A remote embedder needs the owner's stored key and opt-in (`domios docs MEMORY`).
 
 ## Platform notes
 

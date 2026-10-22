@@ -1,0 +1,15 @@
+schema_version: 1
+name: release-preflight
+note: Block a release until map and lanes are clean.
+inputs:
+  root: {type: string, description: Canonical checkout}
+  plan: {type: string, description: Plan id}
+pipeline:
+  trigger: {type: input, kind: text, source: {text: go}}
+  steps:
+    - {name: map, input: text, run: "codeterm essence-map validate --root '{{root}}'", on: {failed: blocked}}
+    - {name: lanes, input: text, run: "codeterm plan lanes '{{plan}}' --stale", on: {failed: blocked}}
+    - {name: clean, input: text, uses: filter, with: {pattern: '(?m)^no stale lanes$', bucket: ok}, on: {ok: next, done: blocked, failed: blocked}}
+    - {name: summary, input: text, run: "codeterm essence-map release-summary --root '{{root}}'", on: {done: stop, failed: blocked}}
+    - {name: blocked, input: text, run: echo release-blocked, on: {done: stop, failed: stop}}
+  result: {to: notify}

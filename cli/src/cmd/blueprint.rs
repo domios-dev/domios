@@ -317,6 +317,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     )
     .unwrap_or_else(|error| fail(2, error));
     let transition_id = params["transition_id"].as_str().map(str::to_owned);
+    let intent = params["intent"].as_str().unwrap_or("").to_owned();
     let mut result = client
         .call_detailed(method, Some(params))
         .unwrap_or_else(|error| {
@@ -327,7 +328,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         });
     if method == "blueprint.recall" {
         if !recipe_list {
-            result = memory::offers(result);
+            result = memory::offers(result, &intent);
         }
         if recipe_list {
             let builtins = recipe_files::FILES
@@ -365,10 +366,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         if json_mode {
             print_json(&result)
         } else {
-            println!(
-                "Queued {} for Blueprint memory.",
-                result["id"].as_str().unwrap_or("?")
-            );
+            println!("{}", memory::save_receipt(&result));
         }
         return;
     }
@@ -545,7 +543,8 @@ fn request(
         }
         BlueprintAction::Keep { id, when } => {
             params["id"] = json!(id);
-            params["when"] = json!(when);
+            params["when"] =
+                json!(codeterm_blueprint_types::blueprint_memory::validate_intents(&when)?);
             "blueprint.keep"
         }
         BlueprintAction::Apply {

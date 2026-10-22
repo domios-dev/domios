@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 3301,
+  "stop_reason": "end_turn",
+  "session_id": "7777b2e3-0c74-47ab-b692-154c24c91fc3",
+  "total_cost_usd": 0.0717058,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 8666,
+    "cache_read_input_tokens": 649,
+    "output_tokens": 112,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8666,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 112,
+        "cache_read_input_tokens": 649,
+        "cache_creation_input_tokens": 8666,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 8666
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 112,
+      "cacheReadInputTokens": 649,
+      "cacheCreationInputTokens": 8666,
+      "webSearchRequests": 0,
+      "costUSD": 0.0717058,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "[\"Check if we're ready to release: essence map valid and no stale plan lanes\", \"Run release preflight and block the release if anything is dirty\", \"Gate a release on essence-map validation and stale lane check\", \"Is it safe to ship? Validate the map and lanes for this plan\", \"Pre-release check that prints a release summary or says blocked\"]",
+  "ttft_ms": 3544,
+  "type": "result",
+  "duration_ms": 4146,
+  "uuid": "eb449494-fb1d-4a83-b3f5-029d8baabb0e",
+  "ttft_stream_ms": 2234,
+  "time_to_request_ms": 264,
+  "first_content_frame_ms": 2234,
+  "queued_turn_count": 0,
+  "result_index": 0
+}
