@@ -51,6 +51,18 @@ impl OpenAiProvider {
         endpoint: &str,
         key: Arc<CachedKey>,
     ) -> Result<Self, String> {
+        #[cfg(test)]
+        {
+            let url = reqwest::Url::parse(endpoint).map_err(|error| error.to_string())?;
+            if url.scheme() != "http"
+                || !url.host_str().is_some_and(|host| {
+                    host.parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback())
+                })
+            {
+                return Err("unit tests require a loopback mock endpoint".into());
+            }
+        }
         if dimension == 0 || dimension > model.native_dimension {
             return Err(format!(
                 "{} supports 1..={} dimensions, got {dimension}",
@@ -253,10 +265,14 @@ impl HttpWorker {
         std::thread::Builder::new()
             .name("mem-embed-openai".into())
             .spawn(move || {
-                let client = reqwest::blocking::Client::builder()
+                let builder = reqwest::blocking::Client::builder()
                     .connect_timeout(CONNECT_TIMEOUT)
-                    .timeout(REQUEST_TIMEOUT)
-                    .build();
+                    .timeout(REQUEST_TIMEOUT);
+                #[cfg(test)]
+                let builder = builder
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none());
+                let client = builder.build();
                 for job in inbox {
                     let reply = match &client {
                         Ok(client) => send(client, &job),

@@ -65,11 +65,31 @@ fn remote_selection() -> EmbedderSelection {
 #[test]
 fn remote_switch_needs_a_stored_key_and_the_opt_in_and_the_key_file_wins() {
     let home = tempfile::tempdir().unwrap();
+    let defaults = codeterm_types::config::EmbedderConfig::default();
+    assert!(!defaults.remote_opt_in);
+    assert_eq!(defaults.provider, "local");
+    assert_eq!(
+        defaults,
+        serde_json::from_str::<codeterm_types::config::EmbedderConfig>("{}").unwrap()
+    );
     let server = MockServer::embeddings(32);
     let ctx = |vault: Arc<MockVault>| BuildContext {
         keys: KeySources::new(home.path().join("secrets"), Some(vault)),
         endpoint: Some(server.url.clone()),
     };
+    let local = catalog::activate(
+        &EmbedderSelection::default(),
+        &ctx(vault(None)),
+        defaults.remote_opt_in,
+    )
+    .unwrap();
+    assert!(!local.remote());
+    let mut external = ctx(vault(Some("vault-key")));
+    external.endpoint = None;
+    assert!(matches!(
+        catalog::activate(&remote_selection(), &external, true),
+        Err(BuildError::Failed(reason)) if reason == "unit tests require a loopback mock endpoint"
+    ));
     let refusal = |vault, opt_in| match catalog::activate(&remote_selection(), &ctx(vault), opt_in)
     {
         Err(BuildError::Refused(refusal)) => refusal,
@@ -83,13 +103,17 @@ fn remote_switch_needs_a_stored_key_and_the_opt_in_and_the_key_file_wins() {
         hints.contains("openai-embedder.key")
             && hints.contains("mem secret save --name openai-embedder")
     );
-    let no_opt_in = refusal(vault(Some("vault-key")), false);
+    let no_opt_in = refusal(vault(Some("vault-key")), defaults.remote_opt_in);
     assert!(!no_opt_in.missing_key && no_opt_in.missing_opt_in);
     assert!(no_opt_in
         .message()
         .contains("memory.embedder.remote_opt_in"));
     let neither = refusal(vault(None), false);
     assert!(neither.missing_key && neither.missing_opt_in);
+    assert_eq!(
+        neither.key_file,
+        home.path().join("secrets/openai-embedder.key")
+    );
     assert_eq!(server.count(), 0);
 
     let from_vault =
