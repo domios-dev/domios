@@ -87,6 +87,7 @@ it("opens the shared background panel and stops a terminal once", async () => {
   });
   setAgentDescriptors([{ id: "codex", agent_runtime: { backgroundProcesses: true } }] as ProviderDescriptor[]);
   const view = harness([terminalMessage], vi.fn());
+  document.body.append(view.host);
   try {
     await act(async () => { view.render(); });
     await act(async () => { await Promise.resolve(); });
@@ -95,8 +96,14 @@ it("opens the shared background panel and stops a terminal once", async () => {
     expect(linked).not.toBeNull();
     expect(bubble?.closest('[role="group"][aria-label="Linked to this tab"]')).toBe(linked);
     await act(async () => { bubble?.click(); });
-    const panel = view.host.querySelector('[role="group"][aria-label="Background work"]');
+    const panel = view.host.querySelector<HTMLElement>('[role="group"][aria-label="Background work"]');
     expect(panel).not.toBeNull();
+    const panelStyle = window.getComputedStyle(panel!);
+    expect(panelStyle.maxHeight).toBe("200px");
+    expect(panelStyle.overflowY).toBe("auto");
+    expect(panelStyle.overscrollBehaviorY).toBe("contain");
+    expect(panelStyle.touchAction).toBe("pan-y");
+    expect(panel?.tabIndex).toBe(0);
     expect(view.host.querySelectorAll('button[aria-label="Details for build.mjs"]')).toHaveLength(1);
     expect(reads).toBe(1);
     expect(panel?.querySelector("code,pre")).toBeNull();
@@ -116,6 +123,7 @@ it("opens the shared background panel and stops a terminal once", async () => {
     expect(view.host.querySelector('button[aria-label="1 background work"]')).toBeNull();
   } finally {
     await act(async () => view.root.unmount());
+    view.host.remove();
   }
 });
 
