@@ -6,6 +6,7 @@ const fetches = vi.hoisted(() => ({ localFetch: vi.fn() }));
 vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...fetches }));
 
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
+import { checkoutTheme } from "./checkoutTheme";
 import { freeLimitGate, upgradePlan } from "./freeLimitGate";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -81,14 +82,23 @@ describe("plans modal", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("upgradePlan posts the chosen key and surfaces a refusal", async () => {
+  it("upgradePlan posts the chosen key with the app's resolved theme and surfaces a refusal", async () => {
+    document.documentElement.dataset.ctTheme = "light";
     fetches.localFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await upgradePlan();
     const [path, init] = fetches.localFetch.mock.calls[0];
     expect(path).toBe("/api/account/upgrade");
-    expect(JSON.parse(init.body)).toEqual({ plan: "pro_monthly" });
+    expect(JSON.parse(init.body)).toEqual({ plan: "pro_monthly", theme: "light" });
+    document.documentElement.dataset.ctTheme = "dark";
     fetches.localFetch.mockResolvedValueOnce(new Response("refused", { status: 400 }));
     await expect(upgradePlan("sponsor_yearly")).rejects.toThrow("refused");
-    expect(JSON.parse(fetches.localFetch.mock.calls[1][1].body)).toEqual({ plan: "sponsor_yearly" });
+    expect(JSON.parse(fetches.localFetch.mock.calls[1][1].body)).toEqual({ plan: "sponsor_yearly", theme: "dark" });
+  });
+
+  it("checkout theme is light or dark, never system", () => {
+    expect(checkoutTheme({ dataset: { ctTheme: "light" } })).toBe("light");
+    expect(checkoutTheme({ dataset: { ctTheme: "dark" } })).toBe("dark");
+    expect(checkoutTheme({ dataset: {} })).toBeNull();
+    expect(checkoutTheme({ dataset: { ctTheme: "system" } })).toBeNull();
   });
 });

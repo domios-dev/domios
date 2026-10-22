@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { localFetch } from "../../lib/webApi";
-import { freeLimitGate } from "../billing/freeLimitGate";
+import { freeLimitGate, upgradePlan } from "../billing/freeLimitGate";
 import { accountPlanModel, manageActionForPlan, type AccountPlan, type PlanModel } from "./accountPlanModel";
 
 async function fetchPlan(focus: boolean, signal?: AbortSignal): Promise<PlanModel> {
@@ -10,8 +10,8 @@ async function fetchPlan(focus: boolean, signal?: AbortSignal): Promise<PlanMode
   return accountPlanModel(await response.json() as AccountPlan);
 }
 
-async function openBilling(action: "upgrade" | "portal", planKey?: string) {
-  const response = await localFetch(`/api/account/${action}`,{method:"POST",...(action === "upgrade" ? {headers:{"Content-Type":"application/json"},body:JSON.stringify({plan:planKey})} : {})});
+async function openPortal() {
+  const response = await localFetch("/api/account/portal",{method:"POST"});
   if (!response.ok) throw new Error(await response.text());
 }
 
@@ -70,9 +70,9 @@ export function useAccountPlan(identityKey: string | null) {
   return {
     plan,
     pending,
-    upgrade: (planKey: string) => run(() => openBilling("upgrade", planKey)),
+    upgrade: (planKey: string) => run(() => upgradePlan(planKey)),
     manage: (openPlans: () => void) => run(async () => {
-      if (manageActionForPlan(await knownPlan()) === "portal") await openBilling("portal");
+      if (manageActionForPlan(await knownPlan()) === "portal") await openPortal();
       else openPlans();
     }),
   };
