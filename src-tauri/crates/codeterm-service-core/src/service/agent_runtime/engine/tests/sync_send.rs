@@ -760,3 +760,18 @@ fn provider_catalogue_replacement_keeps_live_runtime_adapter_and_epoch() {
         ));
     }
 }
+
+#[test]
+fn removed_provider_revokes_live_runtime_binding() {
+    let (fixture, tab, _peer, _cleanup) = runtime_fixture();
+    let session = for_tab(&tab).unwrap();
+    assert!(validate_binding(&fixture.service, &session).is_ok());
+    fixture
+        .service
+        .agent_registry
+        .unregister_provider("sync-send-fixture");
+    assert!(matches!(
+        validate_binding(&fixture.service, &session),
+        Err(RuntimeFailure::Superseded)
+    ));
+}

@@ -33,8 +33,9 @@ pub fn run(
             return;
         }
     };
+    let relaunch_env = codeterm_paths::relaunch_env::ApplicationRelaunchEnv::capture();
     install_client_selector(&selector);
-    let mut builder = codeterm_client_shell::app_runtime::builder();
+    let mut builder = codeterm_client_shell::app_runtime::builder().manage(relaunch_env);
     if startup::desktop_lifecycle::single_instance_enabled(
         cfg!(debug_assertions),
         &context.config().identifier,

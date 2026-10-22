@@ -207,7 +207,7 @@ fn generated_startup_scripts_guard_user_sources_before_loading() {
     assert!(bash.contains("-ef \"${BASH_SOURCE[0]}\""));
     let fish =
         std::fs::read_to_string(dir.path().join("fish/vendor_conf.d/00-codeterm.fish")).unwrap();
-    assert!(fish.contains("set -q CODETERM_SHELL_INTEGRATION; and return"));
+    assert!(fish.contains("set -q CODETERM_SHELL_INTEGRATION; and exit"));
     let powershell = std::fs::read_to_string(dir.path().join("powershell.ps1")).unwrap();
     assert!(
         powershell

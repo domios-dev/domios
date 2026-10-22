@@ -275,3 +275,48 @@ fn matching_client_version_with_a_foreign_server_build_is_not_verified() {
         NativeUpdateApplyPhase::Failed { .. }
     ));
 }
+
+#[test]
+fn failed_stop_and_foreign_handoffs_become_failed_without_blocking_attach() {
+    for foreign in [false, true] {
+        let mut record = handoff();
+        record.advance(NativeUpdateApplyPhase::Relaunching).unwrap();
+        let mut ready = ready_for(&record.request);
+        if foreign {
+            ready.identity.data.push("foreign");
+        }
+        let connection = record.result.connection.clone();
+        assert!(record.recover("1.15.2", "new-build", &connection, &ready));
+        assert!(matches!(
+            record.result.phase,
+            NativeUpdateApplyPhase::Failed { .. }
+        ));
+    }
+}
+
+#[test]
+fn corrupt_or_unreadable_handoff_is_absent_from_status_and_attach() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(path(root.path()), b"{corrupt").unwrap();
+    assert!(read_optional(root.path()).is_none());
+    std::fs::remove_file(path(root.path())).unwrap();
+    std::fs::create_dir(path(root.path())).unwrap();
+    assert!(read_optional(root.path()).is_none());
+}
+
+#[test]
+fn additional_handoff_fields_do_not_break_recovery() {
+    let mut value = serde_json::to_value(handoff()).unwrap();
+    value["future_field"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<NativeUpdateHandoff>(value).is_ok());
+}
+
+#[test]
+fn recovery_quarantines_corrupt_records_without_replaying_them() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(path(root.path()), b"invalid").unwrap();
+    assert!(read_for_recovery(root.path()).is_none());
+    assert!(!path(root.path()).exists());
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    assert!(read_for_recovery(root.path()).is_none());
+}

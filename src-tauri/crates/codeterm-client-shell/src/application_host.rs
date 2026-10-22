@@ -1,7 +1,7 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use codeterm_update::application_host::ApplicationHost;
-use codeterm_update::apply::{ApplyOptions, ApplyResult, DebianPreflight, DebianUpdatePlan};
+use codeterm_update::apply::{ApplyOptions, ApplyResult};
 use codeterm_update::UpdateStateHandle;
 
 use crate::app_runtime::AppHandle;
@@ -43,10 +43,6 @@ pub struct DesktopApplicationHost {
 
 #[async_trait::async_trait]
 impl ApplicationHost for DesktopApplicationHost {
-    fn debian_preflight(&self) -> DebianPreflight {
-        crate::update::apply::debian_preflight_status()
-    }
-
     async fn copy_image_to_clipboard(&self, path: String) -> Result<(), String> {
         crate::commands::copy_image_to_clipboard(path).await
     }
@@ -65,29 +61,6 @@ impl ApplicationHost for DesktopApplicationHost {
             &self.app,
             options,
             self.update_state.clone(),
-            self.server_stop.clone(),
-        )
-        .await
-    }
-
-    async fn check_stage_deb_update(
-        &self,
-        options: &ApplyOptions,
-    ) -> Result<DebianUpdatePlan, String> {
-        crate::update::apply::check_stage_deb_update(&self.app, options, self.update_state.clone())
-            .await
-    }
-
-    async fn install_staged_deb(
-        &self,
-        version: String,
-        path: PathBuf,
-        _initiating_tab: Option<String>,
-    ) -> Result<(), String> {
-        crate::update::apply::install_staged_deb_and_restart(
-            &self.app,
-            version,
-            path,
             self.server_stop.clone(),
         )
         .await

@@ -11,7 +11,9 @@ pub async fn check(
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
     force: bool,
 ) -> Result<AvailabilitySnapshot, String> {
+    let generation = FLIGHT.generation();
     let mut cached = LAST.lock().clone().unwrap_or_default();
+    ensure_app(&mut cached);
     if let Some(bundles) = &bundles {
         let local = bundles.local_availability();
         let previous = cached
@@ -29,36 +31,24 @@ pub async fn check(
         .await
         .map_err(|error| error.to_string())??;
     replace_plugins(&mut cached, plugins);
-    let ui = ui.clone();
-    let state = state.clone();
-    let refresh_required = force || !cache::fresh(cached.checked_at_ms, cache::now_ms());
-    cache::serve(
-        cached,
-        refresh_required,
-        move || async move { refresh(&ui, &state, bundles, force).await },
-        |job| {
-            if REFRESHING
-                .compare_exchange(
-                    false,
-                    true,
-                    std::sync::atomic::Ordering::AcqRel,
-                    std::sync::atomic::Ordering::Acquire,
-                )
-                .is_ok()
-            {
-                codeterm_service_core::async_runtime::spawn(async move {
-                    if let Err(error) = job.await {
-                        log::debug!("[update] background discovery failed: {error}");
-                    }
-                    REFRESHING.store(false, std::sync::atomic::Ordering::Release);
-                });
+    if !force && cache::fresh(cached.checked_at_ms, cache::now_ms()) {
+        return Ok(cached);
+    }
+    FLIGHT
+        .run(generation, || async {
+            match refresh(ui, state, bundles, force).await {
+                Ok(snapshot) => Ok(snapshot),
+                Err(error) => {
+                    record_failure(&mut cached, &error, cache::now_ms());
+                    publish(ui, &cached);
+                    Err(error)
+                }
             }
-        },
-    )
-    .await
+        })
+        .await
 }
 
-static REFRESHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static FLIGHT: cache::SingleFlight<AvailabilitySnapshot> = cache::SingleFlight::new();
 mod cache;
 
 async fn refresh(
@@ -67,7 +57,6 @@ async fn refresh(
     bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
     force: bool,
 ) -> Result<AvailabilitySnapshot, String> {
-    let checked_at_ms = cache::now_ms();
     let method = state.lock().install_method.clone();
     let app_result = codeterm_update::checker::check_for_update(&method).await;
     if let Ok(info) = &app_result {
@@ -88,6 +77,7 @@ async fn refresh(
             Ok(info) => snapshot.items.push(info.availability),
             Err(error) => {
                 snapshot.errors.insert("app".into(), error);
+                ensure_app(&mut snapshot);
             }
         }
         match bundles.map(|bundles| bundles.availability()) {
@@ -117,7 +107,7 @@ async fn refresh(
         .await
         .map_err(|error| error.to_string())??;
     replace_plugins(&mut result, plugins);
-    result.checked_at_ms = Some(checked_at_ms);
+    result.checked_at_ms = Some(cache::now_ms());
     publish(ui, &result);
     if let Some(bundles) = stage_bundles {
         if let Some(item) = result
@@ -153,6 +143,31 @@ pub fn publish(
             "update-availability-changed",
             serde_json::to_value(snapshot).unwrap_or(serde_json::Value::Null),
         );
+    }
+}
+
+fn record_failure(snapshot: &mut AvailabilitySnapshot, error: &str, now_ms: u64) {
+    snapshot.checked_at_ms = Some(now_ms);
+    snapshot.errors.insert("discovery".into(), error.into());
+    ensure_app(snapshot);
+}
+
+fn ensure_app(snapshot: &mut AvailabilitySnapshot) {
+    if !snapshot
+        .items
+        .iter()
+        .any(|item| item.kind == UpdateKind::App)
+    {
+        snapshot.items.push(AvailabilityItem {
+            id: "app".into(),
+            kind: UpdateKind::App,
+            installed: Some(codeterm_build_info::version().into()),
+            latest: None,
+            compatible: true,
+            state: codeterm_plugins::AvailabilityState::UpToDate,
+            reason: "not_checked".into(),
+            channel: Some("official".into()),
+        });
     }
 }
 

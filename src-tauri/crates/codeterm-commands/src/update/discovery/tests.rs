@@ -44,3 +44,16 @@ fn action_completion_replaces_installed_states_and_preserves_other_updates() {
     replace_plugins(&mut snapshot, vec![]);
     assert_eq!(snapshot.items.len(), 1);
 }
+
+#[test]
+fn offline_attempt_is_cached_and_keeps_the_installed_app_visible() {
+    let mut snapshot = AvailabilitySnapshot::default();
+    record_failure(&mut snapshot, "offline", 80_000);
+    assert!(cache::fresh(snapshot.checked_at_ms, 100_000));
+    assert_eq!(snapshot.errors["discovery"], "offline");
+    assert_eq!(snapshot.items.len(), 1);
+    assert_eq!(snapshot.items[0].kind, UpdateKind::App);
+    assert_eq!(snapshot.items[0].latest, None);
+    ensure_app(&mut snapshot);
+    assert_eq!(snapshot.items.len(), 1);
+}

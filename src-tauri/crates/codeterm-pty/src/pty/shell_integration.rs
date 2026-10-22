@@ -441,8 +441,8 @@ fi
 /// events for E/C/D and cwd. Composes with the user's fish_prompt.
 const fn include_fish_conf() -> &'static str {
     r####"# CodeTerm shell integration — do not edit
-status is-interactive; or return
-set -q CODETERM_SHELL_INTEGRATION; and return
+status is-interactive; or exit
+set -q CODETERM_SHELL_INTEGRATION; and exit
 set --global CODETERM_SHELL_INTEGRATION 1
 
 if set -q CODETERM_SHELL_NONCE

@@ -128,3 +128,52 @@ fn custom_integration_marker_and_empty_original_cannot_be_restored() {
     );
     assert_eq!(clean(&[("CODETERM_ORIG_ZDOTDIR", "")]), vec![]);
 }
+
+#[test]
+fn application_restart_keeps_explicit_instance_but_drops_agent_credentials() {
+    let env = vec![
+        ("CODETERM_DATA_DIR".into(), "/isolated/data".into()),
+        ("CODETERM_CONFIG_DIR".into(), "/isolated/config".into()),
+        ("CODETERM_INSTANCE".into(), "isolated".into()),
+        ("CODETERM_DEV_INSTANCE".into(), "isolated".into()),
+        ("CODETERM_DEV_API_PORT".into(), "17686".into()),
+        ("CODETERM_API_TOKEN".into(), "credential".into()),
+        ("CODETERM_TAB_ID".into(), "old-tab".into()),
+    ];
+    let clean = application_relaunch_env_from(env.clone());
+    assert_eq!(clean, env[..5]);
+    assert!(clean_relaunch_env_from(env).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_environment_keys_and_values_survive_cleaning() {
+    use std::os::unix::ffi::OsStringExt;
+    let env = vec![(
+        OsString::from_vec(vec![0xff, b'K']),
+        OsString::from_vec(vec![0xfe]),
+    )];
+    assert_eq!(clean_relaunch_env_from(env.clone()), env);
+}
+
+#[test]
+fn captured_application_environment_outlives_startup_scrubbing() {
+    let captured = ApplicationRelaunchEnv(application_relaunch_env_from(vec![
+        ("CODETERM_DEV_INSTANCE".into(), "harbor".into()),
+        ("CODETERM_DEV_API_PORT".into(), "17686".into()),
+        ("CODETERM_API_TOKEN".into(), "old-token".into()),
+    ]));
+    let mut command = std::process::Command::new("domios");
+    captured.apply(&mut command);
+    let env: Vec<_> = command
+        .get_envs()
+        .map(|(key, value)| (key.to_owned(), value.unwrap().to_owned()))
+        .collect();
+    assert_eq!(
+        env,
+        vec![
+            ("CODETERM_DEV_API_PORT".into(), "17686".into()),
+            ("CODETERM_DEV_INSTANCE".into(), "harbor".into()),
+        ]
+    );
+}

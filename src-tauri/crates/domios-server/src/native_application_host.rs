@@ -8,11 +8,11 @@ use codeterm_types::{
 };
 use codeterm_update::{
     application_host::{async_trait, ApplicationHost},
-    apply::{ApplyOptions, ApplyResult, DebianElevationStatus, DebianPreflight, DebianUpdatePlan},
+    apply::{ApplyOptions, ApplyResult},
     UpdatePhase, UpdateStateHandle,
 };
 use parking_lot::RwLock;
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 type Endpoint = crate::native_host::NativeHostEndpoint<NativeUpdateRequest, NativeUpdateResult>;
 pub(crate) type NativeEndpointSlot = Arc<RwLock<Option<Endpoint>>>;
@@ -41,24 +41,6 @@ impl ApplicationHost for NativeApplicationHost {
     async fn copy_image_to_clipboard(&self, _: String) -> Result<(), String> {
         Err("native_capability_unavailable".into())
     }
-    fn debian_preflight(&self) -> DebianPreflight {
-        DebianPreflight {
-            status: DebianElevationStatus::ElevationRequired,
-            reason: Some("Use the package-managed installation command.".into()),
-        }
-    }
-    async fn check_stage_deb_update(&self, _: &ApplyOptions) -> Result<DebianUpdatePlan, String> {
-        Err("native_capability_unavailable".into())
-    }
-    async fn install_staged_deb(
-        &self,
-        _: String,
-        _: PathBuf,
-        _: Option<String>,
-    ) -> Result<(), String> {
-        Err("native_capability_unavailable".into())
-    }
-
     async fn check_and_apply(&self, options: ApplyOptions) -> Result<ApplyResult, String> {
         let endpoint = self
             .native
@@ -102,14 +84,15 @@ impl ApplicationHost for NativeApplicationHost {
                     return Err("invalid native updater operation or sequence".into());
                 }
                 sequence = result.sequence;
+                if let Some(outcome) = terminal_outcome(&result.phase) {
+                    withdraw = !matches!(result.phase, Phase::Relaunching);
+                    return outcome;
+                }
                 match result.phase {
-                    Phase::NoUpdate => { withdraw = true; return Ok(ApplyResult::NoUpdate); },
-                    Phase::Failed { message } => { withdraw = true; return Err(message); },
-                    Phase::Relaunching => self.update_state.lock().set_phase(UpdatePhase::Applying),
-                    Phase::Verified { .. } => return Err("unexpected replacement result on the predecessor connection".into()),
                     Phase::Admitted => self.update_state.lock().set_phase(UpdatePhase::Checking),
                     Phase::Downloading => self.update_state.lock().set_phase(UpdatePhase::Downloading),
                     Phase::Applying => self.update_state.lock().set_phase(UpdatePhase::Applying),
+                    _ => {}
                 }
                 completion = endpoint.request_update_on_connection(&connection, NativeHostOperation::ObserveNativeUpdate { operation_id, after_sequence: sequence }).await;
             }
@@ -131,6 +114,18 @@ impl ApplicationHost for NativeApplicationHost {
             .map_err(|e| e.to_string())??;
         }
         outcome
+    }
+}
+
+fn terminal_outcome(phase: &Phase) -> Option<Result<ApplyResult, String>> {
+    match phase {
+        Phase::NoUpdate => Some(Ok(ApplyResult::NoUpdate)),
+        Phase::Failed { message } => Some(Err(message.clone())),
+        Phase::Relaunching => Some(Ok(ApplyResult::Restarting)),
+        Phase::Verified { .. } => Some(Err(
+            "unexpected replacement result on the predecessor connection".into(),
+        )),
+        _ => None,
     }
 }
 

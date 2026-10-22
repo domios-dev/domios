@@ -1,69 +1,46 @@
 use super::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[tokio::test]
-async fn cached_snapshot_returns_without_waiting_for_fetch() {
-    let (send, receive) = tokio::sync::oneshot::channel::<u32>();
-    let job = std::sync::Mutex::new(None);
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(1),
-        serve(
-            7,
-            false,
-            || async { Ok(receive.await.unwrap()) },
-            |refresh| {
-                *job.lock().unwrap() = Some(refresh);
-            },
-        ),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(result, 7);
-    send.send(9).unwrap();
-    assert_eq!(job.into_inner().unwrap().unwrap().await.unwrap(), 9);
+async fn stale_concurrent_checks_share_success_and_failure() {
+    for result in [Ok(42), Err("offline".into())] {
+        let flight = SingleFlight::new();
+        let calls = AtomicUsize::new(0);
+        let (entered, entered_rx) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = tokio::sync::oneshot::channel();
+        let first = flight.run(0, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            entered.send(()).unwrap();
+            release_rx.await.unwrap();
+            result.clone()
+        });
+        let second = async {
+            entered_rx.await.unwrap();
+            let pending = flight.run(0, || async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(99)
+            });
+            tokio::pin!(pending);
+            assert!(
+                std::future::poll_fn(|cx| std::task::Poll::Ready(
+                    pending.as_mut().poll(cx).is_pending()
+                ))
+                .await
+            );
+            release.send(()).unwrap();
+            pending.await
+        };
+        let (one, two) = tokio::join!(first, second);
+        assert_eq!(one, result);
+        assert_eq!(two, result);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
 }
 
-#[tokio::test]
-async fn forced_refresh_returns_the_fetched_snapshot() {
-    assert_eq!(
-        serve(
-            7,
-            true,
-            || async { Ok(9) },
-            |_| panic!("forced refresh queued")
-        )
-        .await
-        .unwrap(),
-        9
-    );
-}
 #[test]
-fn cache_age_requires_a_recent_completed_check() {
+fn cache_age_bounds_success_and_failure_attempts() {
     assert!(!fresh(None, 100_000));
     assert!(fresh(Some(70_001), 100_000));
     assert!(!fresh(Some(70_000), 100_000));
     assert!(!fresh(Some(100_001), 100_000));
-}
-
-#[tokio::test]
-async fn stale_plain_check_waits_for_new_manifest_and_propagates_failure() {
-    for checked_at in [None, Some(1)] {
-        let result = serve(
-            "old",
-            !fresh(checked_at, 100_000),
-            || async { Ok("new") },
-            |_| panic!("stale check queued"),
-        )
-        .await
-        .unwrap();
-        assert_eq!(result, "new");
-        assert!(serve(
-            "old",
-            !fresh(checked_at, 100_000),
-            || async { Err("offline".into()) },
-            |_| panic!("stale check queued")
-        )
-        .await
-        .is_err());
-    }
 }
