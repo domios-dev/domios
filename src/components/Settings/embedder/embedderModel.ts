@@ -27,6 +27,19 @@ export interface Refusal {
   hints: string[];
 }
 
+export function normalizeRefusal(reason: unknown): Refusal {
+  if (typeof reason === "string") return { message: reason, hints: [] };
+  if (reason !== null && typeof reason === "object") {
+    return {
+      message: "message" in reason && typeof reason.message === "string" ? reason.message : "The embedder request failed.",
+      hints: "hints" in reason && Array.isArray(reason.hints)
+        ? reason.hints.filter((hint): hint is string => typeof hint === "string")
+        : [],
+    };
+  }
+  return { message: "The embedder request failed.", hints: [] };
+}
+
 export interface ProviderModel {
   model: string;
   dimension: number;
