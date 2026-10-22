@@ -300,6 +300,7 @@ fn to_desk_snapshot(
     snapshot: &SessionSnapshot,
     agent_session_identities: Vec<DeskAgentSessionIdentity>,
 ) -> Result<DeskSnapshot, String> {
+    super::leaf_bound::retain_tabs(snapshot);
     let workspace_ids = snapshot_workspace_ids(snapshot);
     let workspaces = snapshot
         .workspaces
