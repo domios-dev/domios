@@ -1,0 +1,427 @@
+use super::*;
+use crate::blueprint_document::{Port, ValueForm};
+use serde_json::{json, Value};
+use std::path::PathBuf;
+
+struct Tree(PathBuf);
+impl Tree {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!("blueprint-v2-call-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+    fn put(&self, name: &str, doc: &Value) -> String {
+        self.raw(name, &serde_yaml::to_string(doc).unwrap())
+    }
+    fn raw(&self, name: &str, source: &str) -> String {
+        let path = self.0.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, source).unwrap();
+        path.to_str().unwrap().into()
+    }
+    fn resolve(&self, name: &str) -> Result<FrozenClosure, Vec<Diagnostic>> {
+        let path = self.0.join(name);
+        resolve_local(
+            path.to_str().unwrap(),
+            &std::fs::read_to_string(&path).unwrap(),
+        )
+    }
+}
+impl Drop for Tree {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).unwrap();
+    }
+}
+fn object(kind: &str) -> Value {
+    json!({"type":"object","properties":{"n":{"type":kind}},"required":["n"],"additionalProperties":false})
+}
+fn callee() -> Value {
+    json!({"schema_version":2,"kind":"pipeline","name":"increment","inputs":{"p":object("integer")},"steps":[{"id":"increment","code":{"lang":"python","src":"def main(p): return {'n': p['n'] + 1}"},"in":object("integer"),"out":object("integer")}],"result":{"type":object("integer"),"from":"increment.out"}})
+}
+fn caller() -> Value {
+    json!({"schema_version":2,"kind":"pipeline","name":"caller","trigger":{"type":"schedule","every":{"lit":"20s"}},"imports":{"increment":"callee.yaml"},"steps":[{"id":"call","call":{"ref":"increment","with":{"p":{"lit":{"n":7}}}},"in":object("integer"),"out":object("integer")}],"result":{"to":"notify"}})
+}
+fn good(tree: &Tree) -> FrozenClosure {
+    tree.put("callee.yaml", &callee());
+    tree.put("caller.yaml", &caller());
+    tree.resolve("caller.yaml").unwrap()
+}
+fn has_rule(closure: &FrozenClosure, rule: &str) -> bool {
+    check_facts(closure).1.iter().any(|f| f.rule == rule)
+}
+#[test]
+fn blueprint_v2_call_import_missing_file_is_positioned() {
+    let tree = Tree::new();
+    tree.put("caller.yaml", &caller());
+    let errors = tree.resolve("caller.yaml").unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].field, "imports.increment");
+    assert!(errors[0].line > 1);
+    assert!(errors[0].message.contains("Missing import"));
+}
+#[test]
+fn blueprint_v2_call_import_malformed_yaml_preserves_callee_source() {
+    let tree = Tree::new();
+    tree.put("caller.yaml", &caller());
+    let file = tree.raw("callee.yaml", "schema_version: [\n");
+    let errors = tree.resolve("caller.yaml").unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].file, file);
+    assert!(errors[0].line > 0);
+}
+#[test]
+fn blueprint_v2_call_import_duplicate_mapping_key_is_not_last_writer_wins() {
+    let tree = Tree::new();
+    let raw = serde_yaml::to_string(&caller())
+        .unwrap()
+        .replace("imports:", "imports:\n  increment: other.yaml");
+    tree.raw("caller.yaml", &raw);
+    let errors = tree.resolve("caller.yaml").unwrap_err();
+    assert!(errors.iter().any(|e| e.message == "Duplicate mapping key"));
+}
+#[test]
+fn blueprint_v2_call_import_alias_collision_with_inline_is_refused() {
+    let tree = Tree::new();
+    let mut doc = caller();
+    doc["blueprints"] = json!({"increment":{"inputs":{},"steps":[],"result":{}}});
+    tree.put("caller.yaml", &doc);
+    assert!(tree.resolve("caller.yaml").unwrap_err()[0]
+        .message
+        .contains("Duplicate inline/import"));
+}
+#[test]
+fn blueprint_v2_call_import_duplicate_identity_is_refused() {
+    let tree = Tree::new();
+    tree.put("callee.yaml", &callee());
+    let mut doc = caller();
+    doc["imports"]["duplicate"] = json!("./callee.yaml");
+    tree.put("caller.yaml", &doc);
+    assert!(tree.resolve("caller.yaml").unwrap_err()[0]
+        .message
+        .contains("Duplicate/diamond"));
+}
+#[test]
+fn blueprint_v2_call_import_diamond_is_refused() {
+    let tree = Tree::new();
+    tree.put("leaf.yaml", &callee());
+    let mut branch = callee();
+    branch["imports"] = json!({"leaf":"leaf.yaml"});
+    tree.put("left.yaml", &branch);
+    branch["name"] = json!("right");
+    tree.put("right.yaml", &branch);
+    let mut doc = caller();
+    doc["imports"] = json!({"left":"left.yaml","right":"right.yaml"});
+    tree.put("caller.yaml", &doc);
+    assert!(tree.resolve("caller.yaml").unwrap_err()[0]
+        .message
+        .contains("Duplicate/diamond"));
+}
+#[test]
+fn blueprint_v2_call_import_relative_nested_is_based_on_exact_author_file() {
+    let tree = Tree::new();
+    tree.put("nested/leaf.yaml", &callee());
+    let mut branch = callee();
+    branch["imports"] = json!({"leaf":"leaf.yaml"});
+    tree.put("nested/branch.yaml", &branch);
+    let mut doc = caller();
+    doc["imports"] = json!({"increment":"nested/branch.yaml"});
+    tree.put("caller.yaml", &doc);
+    let closure = tree.resolve("caller.yaml").unwrap();
+    assert_eq!(closure.callees.len(), 2);
+    assert!(closure
+        .callees
+        .values()
+        .any(|c| c.id.ends_with("nested/leaf.yaml")));
+}
+#[test]
+fn blueprint_v2_call_import_cycle_is_refused() {
+    let tree = Tree::new();
+    let mut branch = callee();
+    branch["imports"] = json!({"cycle":"caller.yaml"});
+    tree.put("callee.yaml", &branch);
+    tree.put("caller.yaml", &caller());
+    assert!(tree.resolve("caller.yaml").unwrap_err()[0]
+        .message
+        .contains("Cyclic import"));
+}
+#[test]
+fn blueprint_v2_call_import_noncallable_and_network_and_repo_are_refused() {
+    let tree = Tree::new();
+    tree.put("callee.yaml", &caller());
+    tree.put("caller.yaml", &caller());
+    assert!(tree.resolve("caller.yaml").is_err());
+    for path in [
+        "https://example.test/a.yaml",
+        "repo:helper",
+        "package:helper",
+    ] {
+        let mut doc = caller();
+        doc["imports"]["increment"] = json!(path);
+        tree.put("caller.yaml", &doc);
+        assert!(tree.resolve("caller.yaml").unwrap_err()[0]
+            .message
+            .contains("repo trust is unavailable"));
+    }
+}
+#[test]
+fn blueprint_v2_call_import_change_after_validation_fails_identity_recheck() {
+    let tree = Tree::new();
+    let closure = good(&tree);
+    verify_local_sources(&closure).unwrap();
+    let mut doc = callee();
+    doc["steps"][0]["code"]["src"] = json!("def main(p): return {'n': 99}");
+    tree.put("callee.yaml", &doc);
+    assert!(verify_local_sources(&closure)
+        .unwrap_err()
+        .contains("identity changed"));
+    assert!(closure.callees.values().next().unwrap().document.steps[0]
+        .code
+        .as_ref()
+        .unwrap()
+        .src
+        .as_ref()
+        .unwrap()
+        .contains("+ 1"));
+}
+#[test]
+fn blueprint_v2_call_typed_positive_has_fixed_argument_and_exact_transported_closure() {
+    let tree = Tree::new();
+    let closure = good(&tree);
+    let (verified, findings) = check_facts(&closure);
+    assert!(findings.is_empty(), "{findings:?}");
+    assert_eq!(
+        verified["call"].fixed_arguments,
+        BTreeSet::from(["p".into()])
+    );
+    assert_eq!(verified["call"].expanded_steps, 1);
+    let restored = FrozenClosure::from_document(
+        serde_json::from_slice(&serde_json::to_vec(&closure.document()).unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(restored.callees, closure.callees);
+    assert_eq!(
+        restored.root.document.steps[0].call,
+        closure.root.document.steps[0].call
+    );
+}
+use std::collections::BTreeSet;
+#[test]
+fn blueprint_v2_call_arguments_missing_extra_and_mistyped_are_rejected() {
+    let tree = Tree::new();
+    for (args, rule) in [
+        (json!({}), "C2"),
+        (json!({"p":{"lit":{"n":7}},"extra":{"lit":1}}), "C3"),
+        (json!({"p":{"lit":{"n":"7"}}}), "C4"),
+    ] {
+        tree.put("callee.yaml", &callee());
+        let mut doc = caller();
+        doc["steps"][0]["call"]["with"] = args;
+        tree.put("caller.yaml", &doc);
+        assert!(
+            has_rule(&tree.resolve("caller.yaml").unwrap(), rule),
+            "{rule}"
+        );
+    }
+}
+#[test]
+fn blueprint_v2_call_callee_input_port_mismatch_is_rejected() {
+    let tree = Tree::new();
+    let mut doc = callee();
+    doc["steps"][0]["in"] = object("string");
+    tree.put("callee.yaml", &doc);
+    tree.put("caller.yaml", &caller());
+    assert!(has_rule(&tree.resolve("caller.yaml").unwrap(), "C5"));
+}
+#[test]
+fn blueprint_v2_call_wrong_bound_field_schema_is_rejected() {
+    let tree = Tree::new();
+    tree.put("callee.yaml", &callee());
+    let mut doc = caller();
+    doc["steps"].as_array_mut().unwrap().insert(0,json!({"id":"probe","run":{"lit":"echo fixed"},"out":{"type":"object","properties":{"value":object("string")},"required":["value"]}}));
+    doc["steps"][1]["call"]["with"]["p"] = json!({"bind":"probe.out.value"});
+    doc["steps"][1]["bind"] = json!({"in":"probe.out.value"});
+    tree.put("caller.yaml", &doc);
+    let closure = tree.resolve("caller.yaml").unwrap();
+    assert!(has_rule(&closure, "C4"));
+    assert!(has_rule(&closure, "C5"));
+}
+#[test]
+fn blueprint_v2_call_result_port_and_source_mismatch_are_rejected() {
+    let tree = Tree::new();
+    let mut doc = caller();
+    doc["steps"][0]["out"] = object("string");
+    tree.put("callee.yaml", &callee());
+    tree.put("caller.yaml", &doc);
+    assert!(has_rule(&tree.resolve("caller.yaml").unwrap(), "C6"));
+    let mut child = callee();
+    child["result"]["type"] = object("string");
+    tree.put("callee.yaml", &child);
+    tree.put("caller.yaml", &caller());
+    assert!(has_rule(&tree.resolve("caller.yaml").unwrap(), "C6"));
+}
+#[test]
+fn blueprint_v2_call_inline_and_recursive_ref_resolution() {
+    let tree = Tree::new();
+    let mut doc = caller();
+    doc.as_object_mut().unwrap().remove("imports");
+    let mut sub = callee();
+    for key in ["schema_version", "kind", "name"] {
+        sub.as_object_mut().unwrap().remove(key);
+    }
+    doc["blueprints"] = json!({"increment":sub});
+    tree.put("caller.yaml", &doc);
+    assert!(check_facts(&tree.resolve("caller.yaml").unwrap())
+        .1
+        .is_empty());
+    doc["blueprints"]["increment"]["steps"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("code");
+    doc["blueprints"]["increment"]["steps"][0]["call"] =
+        json!({"ref":"increment","with":{"p":{"input":"p"}}});
+    tree.put("caller.yaml", &doc);
+    assert!(tree.resolve("caller.yaml").unwrap_err()[0]
+        .message
+        .contains("Recursive inline"));
+}
+#[test]
+fn blueprint_v2_call_unresolved_reference_is_not_accepted() {
+    let tree = Tree::new();
+    let mut doc = caller();
+    doc.as_object_mut().unwrap().remove("imports");
+    tree.put("caller.yaml", &doc);
+    assert!(tree.resolve("caller.yaml").unwrap_err()[0]
+        .message
+        .contains("Unresolved call"));
+}
+#[test]
+fn blueprint_v2_call_boundary_taint_cannot_reach_executable_input() {
+    let tree = Tree::new();
+    let mut child = callee();
+    child["inputs"] = json!({"command":{"type":"string"}});
+    child["steps"] = json!([{"id":"execute","run":{"input":"command"},"out":{"type":"string"}}]);
+    child["result"] = json!({"type":{"type":"string"},"from":"execute.out"});
+    tree.put("callee.yaml", &child);
+    let mut doc = caller();
+    doc["steps"] = json!([{"id":"probe","run":{"lit":"echo untrusted"},"out":{"type":"string"}},{"id":"call","call":{"ref":"increment","with":{"command":{"bind":"probe.out"}}},"out":{"type":"string"}}]);
+    tree.put("caller.yaml", &doc);
+    assert!(has_rule(&tree.resolve("caller.yaml").unwrap(), "C8"));
+}
+#[test]
+fn blueprint_v2_call_view_diff_lower_preserve_identity_and_contract_changes() {
+    let tree = Tree::new();
+    let closure = good(&tree);
+    let before = closure.document();
+    for (field, value) in [
+        ("imports", json!({"increment":"changed.yaml"})),
+        ("inputs", json!({"new":{"type":"integer"}})),
+        ("result", json!({"to":"owner"})),
+    ] {
+        let mut after = serde_json::to_value(&before).unwrap();
+        after[field] = value;
+        let after: Document = serde_json::from_value(after).unwrap();
+        assert!(projection::diff(&before, &after)
+            .document_fields
+            .contains(&field.into()));
+    }
+    let graph = projection::canonical(&before);
+    assert_eq!(
+        graph.nodes[0].node.call.as_ref().unwrap().pin,
+        before.steps[0].call.as_ref().unwrap().pin
+    );
+    for field in ["in", "out", "call", "caps"] {
+        let mut after = serde_json::to_value(&before).unwrap();
+        after["steps"][0][field] = match field {
+            "in" | "out" => object("string"),
+            "caps" => json!(["net:example.test"]),
+            _ => json!({"ref":"changed","pin":{"id":"missing","hash":"0"}}),
+        };
+        let after: Document = serde_json::from_value(after).unwrap();
+        assert!(projection::diff(&before, &after).changed["call"].contains(&field.into()));
+    }
+    assert!(before
+        .lower()
+        .unwrap_err()
+        .iter()
+        .any(|(_, m)| m.contains("call")));
+    let mut after = before.clone();
+    let key = after.dependencies.keys().next().unwrap().clone();
+    after.dependencies.get_mut(&key).unwrap().document.steps[0]
+        .caps
+        .push("net:changed".into());
+    assert!(projection::diff(&before, &after)
+        .document_fields
+        .contains(&"dependencies".into()));
+    assert!(FrozenClosure::from_document(after).is_err());
+}
+#[test]
+fn blueprint_v2_call_structural_arguments_are_never_expression_interpolation() {
+    let call = crate::blueprint_document::Call {
+        reference: "helper".into(),
+        pin: None,
+        arguments: BTreeMap::from([
+            ("lit".into(), ValueForm::literal("$(effect) {{input}}")),
+            ("input".into(), ValueForm::input("p")),
+            (
+                "bind".into(),
+                ValueForm::Bind {
+                    bind: "probe.out.n".into(),
+                },
+            ),
+        ]),
+    };
+    let values = arguments(
+        &call,
+        &BTreeMap::from([("p".into(), json!({"n":7}))]),
+        &BTreeMap::from([("probe".into(), json!({"n":8}))]),
+    )
+    .unwrap();
+    assert_eq!(
+        values,
+        BTreeMap::from([
+            ("lit".into(), json!("$(effect) {{input}}")),
+            ("input".into(), json!({"n":7})),
+            ("bind".into(), json!(8))
+        ])
+    );
+}
+#[test]
+fn blueprint_v2_call_closure_missing_hash_and_mismatched_id_are_errors() {
+    let tree = Tree::new();
+    let mut closure = good(&tree);
+    closure.root.document.steps[0]
+        .call
+        .as_mut()
+        .unwrap()
+        .pin
+        .as_mut()
+        .unwrap()
+        .id = "mem:foreign".into();
+    assert!(closure.verify().unwrap_err().contains("identity mismatch"));
+    let mut closure = good(&tree);
+    closure.callees.clear();
+    assert!(closure
+        .verify()
+        .unwrap_err()
+        .contains("Missing pinned hash"));
+}
+#[test]
+fn blueprint_v2_call_port_field_comparison_is_recursive_and_ref_bounded() {
+    let actual: Port = serde_json::from_value(object("string")).unwrap();
+    let expected: Port = serde_json::from_value(object("integer")).unwrap();
+    assert!(!ports::compatible(&actual, &expected));
+    assert!(ports::expand(
+        &Port {
+            reference: Some("Loop".into()),
+            ..Default::default()
+        },
+        &BTreeMap::from([(
+            "Loop".into(),
+            Port {
+                reference: Some("Loop".into()),
+                ..Default::default()
+            }
+        )])
+    )
+    .is_none());
+}

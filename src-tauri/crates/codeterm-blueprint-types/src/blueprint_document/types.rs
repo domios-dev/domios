@@ -243,6 +243,8 @@ pub struct Code {
 pub struct Call {
     #[serde(rename = "ref")]
     pub reference: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin: Option<super::calls::CallPin>,
     #[serde(default, rename = "with", skip_serializing_if = "BTreeMap::is_empty")]
     pub arguments: BTreeMap<String, ValueForm>,
 }
