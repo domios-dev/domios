@@ -143,7 +143,7 @@ function broker(executable, command, request, { hold = false, env } = {}) {
     const signal = deadline();
     return Promise.race([
       new Promise(resolve => receivers.push(resolve)),
-      exit.then(() => { throw new Error('Broker exited before framed acknowledgement'); }),
+      exit.then(([code]) => { throw new Error(`Broker exited before framed acknowledgement (exit ${code}): ${error.trim() || 'no stderr'}`); }),
       new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('Broker acknowledgement deadline')), { once: true })),
     ]);
   };
