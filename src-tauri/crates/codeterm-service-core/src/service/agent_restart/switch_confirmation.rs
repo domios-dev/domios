@@ -101,8 +101,11 @@ impl PreparedSwitchConfirmation {
                 break;
             };
             let _ = tab;
-            let screens = self.service.screen_state.lock();
-            let Some(screen) = screens.get_screen_text(&self.pty) else {
+            let Some(screens) = self.service.screen_state.existing(&self.pty) else {
+                break;
+            };
+            let screens = screens.lock();
+            let Some(screen) = screens.get_screen_text() else {
                 break;
             };
             let mut tracker = self
@@ -203,7 +206,6 @@ impl Drop for PreparedSwitchConfirmation {
         drop(tracker);
         self.service
             .screen_state
-            .lock()
             .unsubscribe_screen_changes(&self.pty, &self.signal);
     }
 }
@@ -290,7 +292,7 @@ impl ServiceContext {
                 ))
             })
             .flatten()?;
-        let screen = self.screen_state.lock().get_screen_text(pty)?;
+        let screen = self.screen_state.get_screen_text(pty)?;
         if self
             .agent_registry
             .with_provider(&provider, |provider| provider.parse_prompt(&screen))
@@ -299,7 +301,7 @@ impl ServiceContext {
         {
             return None;
         }
-        let signal = self.screen_state.lock().subscribe_screen_changes(pty);
+        let signal = self.screen_state.subscribe_screen_changes(pty);
         let result = (|| {
             let wake = signal.clone();
             let own_path = path.clone();
@@ -320,9 +322,7 @@ impl ServiceContext {
             Some((watcher, boundary))
         })();
         let Some((watcher, boundary)) = result else {
-            self.screen_state
-                .lock()
-                .unsubscribe_screen_changes(pty, &signal);
+            self.screen_state.unsubscribe_screen_changes(pty, &signal);
             return None;
         };
         self.replace_switch_confirmation(pty, Some(signal.clone()));

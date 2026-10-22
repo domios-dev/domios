@@ -22,7 +22,7 @@ use picker::CommandPicker;
 use prompt::CommandPrompt;
 
 fn command_signal(
-    screens: &mut crate::pty::screen_state::ScreenState,
+    screens: &crate::pty::screen_state::ScreenState,
     pty_id: &str,
 ) -> std::sync::Arc<crate::pty::screen_state::ScreenChangeSignal> {
     screens.subscribe_screen_changes(pty_id)
@@ -130,7 +130,6 @@ fn command_prompt_absent(
         return true;
     };
     svc.screen_state
-        .lock()
         .get_screen_text(&target.pty_id)
         .is_some_and(|screen| !pattern.is_match(&screen))
 }
@@ -144,7 +143,6 @@ fn command_dialogs_absent(
     command_prompt_absent(svc, target, prompt)
         && picker.is_none_or(|picker| {
             svc.screen_state
-                .lock()
                 .get_screen_text(&target.pty_id)
                 .is_some_and(|screen| !picker.present(&screen))
         })
@@ -267,7 +265,7 @@ impl ServiceContext {
             return (false, observed);
         }
         if during_turn {
-            let screen = self.screen_state.lock().get_screen_text(&target.pty_id);
+            let screen = self.screen_state.get_screen_text(&target.pty_id);
             let no_prompt = screen.is_some_and(|screen| {
                 self.agent_registry
                     .with_provider(&target.provider, |provider| {
@@ -278,11 +276,12 @@ impl ServiceContext {
             return (no_prompt, observed);
         }
         let frame = target.readiness.as_ref().and_then(|_| {
-            let screens = self.screen_state.lock();
+            let screens = self.screen_state.existing(&target.pty_id)?;
+            let screens = screens.lock();
             screens
-                .get_screen_rows(&target.pty_id)
+                .get_screen_rows()
                 .map(|rows| rows.join("\n"))
-                .zip(screens.composer_input_state(&target.pty_id))
+                .zip(screens.composer_input_state())
         });
         let no_dialog = frame.as_ref().is_none_or(|(screen, _)| {
             self.agent_registry
@@ -706,7 +705,7 @@ impl ServiceContext {
                 .len(),
         );
         let pty_id = target.pty_id.as_str();
-        let signal = command_signal(&mut self.screen_state.lock(), pty_id);
+        let signal = command_signal(&self.screen_state, pty_id);
         let transcript_signal = signal.clone();
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
@@ -721,7 +720,6 @@ impl ServiceContext {
             })
             .map_err(|error| {
                 self.screen_state
-                    .lock()
                     .unsubscribe_screen_changes(pty_id, &signal);
                 ModelSwitchError::LiveCommandFailed(error.to_string())
             })?;
@@ -729,7 +727,6 @@ impl ServiceContext {
             notify::Watcher::watch(&mut watcher, &path, notify::RecursiveMode::NonRecursive)
         {
             self.screen_state
-                .lock()
                 .unsubscribe_screen_changes(pty_id, &signal);
             return Err(ModelSwitchError::LiveCommandFailed(error.to_string()));
         }
@@ -737,7 +734,6 @@ impl ServiceContext {
         let binding_current = || target.current(self);
         let picker_absent = !picker.as_ref().is_some_and(|picker| {
             self.screen_state
-                .lock()
                 .get_screen_text(pty_id)
                 .is_some_and(|screen| picker.present(&screen))
         });
@@ -749,7 +745,6 @@ impl ServiceContext {
         let stage = std::cell::Cell::new(during_turn::ScreenStage::Admission);
         let observed_screen = std::cell::RefCell::new(
             self.screen_state
-                .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default()
                 .chars()
@@ -786,12 +781,16 @@ impl ServiceContext {
                     {
                         return Err("the session changed before command injection".into());
                     }
-                    let screen = self.screen_state.lock();
+                    let screen = self
+                        .screen_state
+                        .existing(pty_id)
+                        .ok_or_else(|| "the command screen is unavailable".to_owned())?;
+                    let screen = screen.lock();
                     if template.picker.as_ref().is_some_and(|declaration| {
                         confirmation_pattern(&declaration.screen_regex, model, display_name, effort)
                             .is_ok_and(|pattern| {
                                 screen
-                                    .get_screen_text(pty_id)
+                                    .get_screen_text()
                                     .is_none_or(|text| pattern.is_match(&text))
                             })
                     }) {
@@ -799,7 +798,7 @@ impl ServiceContext {
                     }
                     if prompt_pattern.as_ref().is_some_and(|pattern| {
                         screen
-                            .get_screen_text(pty_id)
+                            .get_screen_text()
                             .is_none_or(|text| pattern.is_match(&text))
                     }) {
                         return Err(
@@ -808,7 +807,7 @@ impl ServiceContext {
                     }
                     let input = crate::service::pty_io::submit_transaction::live_command_input(
                         &command,
-                        screen.bracketed_paste_mode(pty_id),
+                        screen.bracketed_paste_mode(),
                     );
                     let pty = self.pty.lock();
                     let session = pty
@@ -863,7 +862,7 @@ impl ServiceContext {
                     if !binding_current() {
                         break false;
                     }
-                    if let Some(screen) = self.screen_state.lock().get_screen_text(pty_id) {
+                    if let Some(screen) = self.screen_state.get_screen_text(pty_id) {
                         *observed_screen.borrow_mut() = screen.chars().take(16_384).collect();
                         let has_prompt = self
                             .agent_registry
@@ -962,7 +961,6 @@ impl ServiceContext {
             },
         );
         self.screen_state
-            .lock()
             .unsubscribe_screen_changes(pty_id, &signal);
         let result = if result.is_err()
             && prompt_error.is_none()

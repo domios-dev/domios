@@ -158,7 +158,6 @@ fn tab_status(svc: &ServiceContext, pty_id: &str) -> TabStatus {
 
 fn screen_tail(svc: &ServiceContext, pty_id: &str) -> String {
     svc.screen_state
-        .lock()
         .tail_text(pty_id, TAIL_ROWS)
         .unwrap_or_default()
 }

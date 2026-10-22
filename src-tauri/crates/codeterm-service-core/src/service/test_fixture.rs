@@ -595,10 +595,7 @@ impl ServiceFixture {
                 "output_buf",
                 crate::pty::manager::OutputBuffer::new(65_536),
             )),
-            screen_state: Arc::new(TimedMutex::new(
-                "screen_state",
-                crate::pty::screen_state::ScreenState::new(),
-            )),
+            screen_state: Arc::new(crate::pty::screen_state::ScreenState::new()),
             notif: Arc::new(Mutex::new(if persistent {
                 crate::notification::store::NotificationStore::open_persisted(
                     data_dir.join("notifications.json"),

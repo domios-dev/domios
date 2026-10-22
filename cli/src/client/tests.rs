@@ -585,6 +585,21 @@ fn http_fallback_refuses_non_loopback_urls() {
 }
 
 #[test]
+fn startup_discovery_needs_only_a_confined_target_without_control_credentials() {
+    assert_eq!(
+        http_base_url_from(None, Some("7686")).unwrap(),
+        "http://127.0.0.1:7686"
+    );
+    for target in [
+        "http://192.168.1.2:7686",
+        "http://127.0.0.1:7686/other",
+        "http://user@127.0.0.1:7686",
+    ] {
+        assert!(http_base_url_from(Some(target), None).is_err());
+    }
+}
+
+#[test]
 fn http_rpc_result_preserves_payloads_with_an_inner_error_field() {
     let result = http_rpc_result(
         reqwest::StatusCode::OK,
@@ -595,6 +610,22 @@ fn http_rpc_result_preserves_payloads_with_an_inner_error_field() {
     .unwrap();
     assert_eq!(result["error"]["kind"], "report_refused");
     assert_eq!(result["accepted"], false);
+}
+
+#[test]
+fn early_http_rpc_refusal_keeps_starting_phase_through_shared_renderer() {
+    let refusal = http_rpc_result(
+        reqwest::StatusCode::SERVICE_UNAVAILABLE,
+        serde_json::json!({
+            "ok": false,
+            "error": { "code": "starting" },
+            "startup": { "state": "starting", "phases": { "providers": "starting" } },
+        }),
+    )
+    .unwrap_err();
+    let error = crate::cmd::print::CliError::from(refusal);
+    assert_eq!(error.message, "Domios is starting (phase providers)");
+    assert_eq!(error.data.as_ref().unwrap()["error"]["code"], "starting");
 }
 
 fn restore_env(key: &str, value: Option<String>) {

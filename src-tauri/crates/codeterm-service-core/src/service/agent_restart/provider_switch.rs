@@ -147,7 +147,7 @@ impl ServiceContext {
         let handoff = self.provider_switch_input(&tab, &messages, &archive)?;
         let handoff = prepare_handoff(&handoff)?;
         let full_access = permission.is_some();
-        let params = SpawnAgentParams {
+        let mut params = SpawnAgentParams {
             agent: Some(target.into()),
             cwd: tab.cwd.clone(),
             model: model.clone(),
@@ -158,11 +158,20 @@ impl ServiceContext {
             permission_bypass_authorization: permission,
             ..Default::default()
         };
+        let identity_instructions =
+            self.general_provider_switch_prompt(&tab, target)
+                .or_else(|| {
+                    (route.target == TargetRoute::Runtime)
+                        .then(|| {
+                            crate::service::orchestrator::compose_runtime_system_prompt(&mut params)
+                        })
+                        .flatten()
+                });
         let input = crate::service::restored_launch::restored_fresh_launch_input(
             &self.agent_registry,
             params,
             RestorableLaunchParameters {
-                identity_instructions: self.general_provider_switch_prompt(&tab, target),
+                identity_instructions,
                 captured: true,
                 requested_model,
                 model,

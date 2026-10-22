@@ -732,7 +732,6 @@ fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
     fixture
         .service
         .screen_state
-        .lock()
         .process(pty_id, b"\x1b[?2004h\x1b[?1h\x1b=");
 
     assert!(fixture
@@ -740,11 +739,7 @@ fn confirmed_provider_exit_resets_terminal_modes_for_shell() {
         .clear_tab_agent_identity_after_confirmed_exit(&tab_id, "provider process exited"));
 
     assert_eq!(
-        fixture
-            .service
-            .screen_state
-            .lock()
-            .bracketed_paste_mode(pty_id),
+        fixture.service.screen_state.bracketed_paste_mode(pty_id),
         Some(false)
     );
     fixture

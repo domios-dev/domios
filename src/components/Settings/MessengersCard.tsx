@@ -117,7 +117,7 @@ function TelegramConnection({ bridge, store }: { bridge: BridgeConnectInfo; stor
             <p className="m-0 text-xs text-[var(--ct-muted-fg)]">A bot token is saved on this machine.</p>
           )}
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" variant="primary" size="sm" disabled={busy} data-testid="settings-telegram-connect">
+            <Button type="submit" variant="primary" size="sm" className="text-xs" disabled={busy} data-testid="settings-telegram-connect">
               {busy ? "Connecting…" : "Connect Telegram"}
             </Button>
             {bridge.tokenStored && (

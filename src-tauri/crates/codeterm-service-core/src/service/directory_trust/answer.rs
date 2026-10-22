@@ -185,10 +185,15 @@ impl AnswerIo for BoundAnswerIo {
             return Err("folder trust PTY binding changed".into());
         }
         let (generation, screen) = {
-            let state = self.service.screen_state.lock();
+            let state = self
+                .service
+                .screen_state
+                .existing(&self.pty)
+                .ok_or("folder trust screen unavailable")?;
+            let state = state.lock();
             let generation = self.signal.generation();
             let screen = state
-                .get_screen_text(&self.pty)
+                .get_screen_text()
                 .ok_or("folder trust screen unavailable")?;
             (generation, screen)
         };
@@ -247,7 +252,7 @@ impl ServiceContext {
             .read()
             .get_tab(tab_id)
             .and_then(|tab| tab.session_binding_nonce.clone());
-        let signal = self.screen_state.lock().subscribe_screen_changes(&pty);
+        let signal = self.screen_state.subscribe_screen_changes(&pty);
         std::thread::spawn(move || {
             let result = if authorize() {
                 let mut io = BoundAnswerIo {
@@ -264,7 +269,6 @@ impl ServiceContext {
             };
             service
                 .screen_state
-                .lock()
                 .unsubscribe_screen_changes(&pty, &signal);
             LEDGER
                 .lock()
@@ -291,7 +295,6 @@ impl ServiceContext {
                 Err(error) => {
                     let screen = service
                         .screen_state
-                        .lock()
                         .get_screen_text(&pty)
                         .unwrap_or_default();
                     service.note_directory_trust(

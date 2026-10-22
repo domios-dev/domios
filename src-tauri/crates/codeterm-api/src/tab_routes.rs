@@ -16,6 +16,8 @@ mod stop;
 mod turn_controls;
 pub use turn_controls::turn_controls;
 #[cfg(test)]
+mod restart_tests;
+#[cfg(test)]
 mod utility_tests;
 
 pub use exec::exec_in_tab;
@@ -621,19 +623,47 @@ pub async fn restart_shell_tab(
         .map_err(|(status, message)| (status, message.to_string()))?;
     let svc = state.svc.clone();
     let caller = caller_tab_header(&headers);
-    let outcome = tokio::task::spawn_blocking(move || {
-        if let Some(timeout) = body.timeout {
-            let owner = caller
-                .as_deref()
-                .ok_or("timeout requires an owning agent")?;
-            svc.set_utility_timeout(&tab_id, owner, &timeout)?;
-        }
-        svc.restart_shell_tab(&tab_id, body.cwd, body.cmd.as_deref())
+    tokio::task::spawn_blocking(move || {
+        restart_shell_request(
+            body,
+            caller.as_deref(),
+            |owner, timeout| svc.set_utility_timeout(&tab_id, owner, timeout),
+            |cwd, command| svc.restart_shell_tab(&tab_id, cwd, command),
+        )
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
-    Ok(Json(serde_json::to_value(outcome).unwrap_or_default()))
+}
+
+fn restart_shell_request<T: serde::Serialize>(
+    body: RestartShellTabBody,
+    caller: Option<&str>,
+    set_timeout: impl FnOnce(&str, &str) -> Result<(), String>,
+    restart: impl FnOnce(Option<String>, Option<&str>) -> Result<T, String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let command_requested = body.cmd.is_some();
+    let outcome = (|| {
+        if let Some(timeout) = body.timeout {
+            let owner = caller.ok_or("timeout requires an owning agent")?;
+            set_timeout(owner, &timeout)?;
+        }
+        restart(body.cwd, body.cmd.as_deref())
+    })()
+    .map_err(|error: String| {
+        if command_requested {
+            let error = if error.starts_with("shell_command_not_submitted:") {
+                error
+            } else {
+                format!("shell_command_not_submitted: {error}")
+            };
+            (StatusCode::CONFLICT, error)
+        } else {
+            (StatusCode::BAD_REQUEST, error)
+        }
+    })?;
+    serde_json::to_value(outcome)
+        .map(Json)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
 pub(crate) fn caller_tab_header(headers: &HeaderMap) -> Option<String> {
@@ -1021,7 +1051,7 @@ pub async fn stop_capture(
     let owner = state.clone();
     let (pty_id, screen) = tokio::task::spawn_blocking(move || {
         let pty_id = resolve_pty_id_with_fallback(&owner, &raw_tab_id)?;
-        let screen = owner.svc.screen_state.lock().get_screen_text(&pty_id);
+        let screen = owner.svc.screen_state.get_screen_text(&pty_id);
         Ok::<_, (StatusCode, &'static str)>((pty_id, screen))
     })
     .await

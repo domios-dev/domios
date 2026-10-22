@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { flushSync } from "react-dom";
 import { listen } from "../../lib/bridge";
 import { resetWebEvents } from "../../lib/webEvents";
@@ -163,12 +163,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? closeMenu() : setOpen(true))}
-        className={`flex min-h-[44px] items-center gap-1.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)] sm:min-h-0 sm:h-7 ${compact ? "min-w-0 max-w-[126px] px-2" : "px-2.5"}`}
+        className={`flex min-h-[44px] items-center gap-1.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)] sm:min-h-0 sm:h-7 ${compact ? "min-w-0 max-w-[126px] px-2 sm:max-w-none" : "px-2.5"}`}
         title="Switch Domios host"
       >
         <span className={`w-2 h-2 shrink-0 rounded-full ${switchingTo ? "animate-pulse bg-[var(--ct-muted,#8b949e)]" : switchFailed ? "bg-[var(--ct-red,#f85149)]" : "bg-[var(--ct-green,#3fb950)]"}`} />
-        <span className="max-w-[104px] truncate sm:max-w-[120px]">{label}</span>
-        <span className="opacity-60 text-[9px]">▾</span>
+        <span className="max-w-[104px] truncate sm:max-w-none">{label}</span>
+        <ChevronDown size={12} className="shrink-0 opacity-60" aria-hidden="true" />
       </button>
       <AnchoredPopover open={open} anchor={rootRef} placement={compact ? "bottom-end" : "bottom-start"} onClose={dismissMenu}>
         <div

@@ -428,7 +428,6 @@ fn restored_owner_rechecks_pty_generation_immediately_before_the_single_write() 
             .expect("replace the PTY with a new concrete generation");
             assert!(service
                 .screen_state
-                .lock()
                 .bind_pty_generation(&rotate_id, session.generation));
         }),
     );

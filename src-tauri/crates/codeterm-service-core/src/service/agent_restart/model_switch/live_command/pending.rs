@@ -63,7 +63,6 @@ impl Drop for Observer {
         };
         self.svc
             .screen_state
-            .lock()
             .unsubscribe_screen_changes(&self.target.pty_id, &self.signal);
         if own && self.settled {
             if let Some(tab) = self.svc.mux.write().get_tab_mut(&self.target.tab_id) {
@@ -90,7 +89,7 @@ impl ServiceContext {
         effort: Option<String>,
         model_changed: bool,
     ) {
-        let signal = command_signal(&mut self.screen_state.lock(), &target.pty_id);
+        let signal = command_signal(&self.screen_state, &target.pty_id);
         crate::service::boot_wait::observe_boot_changes(&signal);
         let id = uuid::Uuid::new_v4().to_string();
         {
@@ -166,7 +165,7 @@ impl ServiceContext {
                         break;
                     }
                     if !unknown_reported {
-                        let screen = observer.svc.screen_state.lock().get_screen_text(&observer.target.pty_id).unwrap_or_default();
+                        let screen = observer.svc.screen_state.get_screen_text(&observer.target.pty_id).unwrap_or_default();
                         let unknown = observer.target.readiness.as_ref().is_some_and(|ready| ready.has_dialog(&screen))
                             && observer.svc.agent_registry.with_provider(&observer.target.provider, |provider| provider.parse_prompt(&screen).is_none()).unwrap_or(false);
                         if unknown {

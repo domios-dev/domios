@@ -658,7 +658,6 @@ impl ServiceContext {
         }
         let screen = self
             .screen_state
-            .lock()
             .get_screen_text(&pty_id)
             .unwrap_or_default();
         let Some((occurrence, response)) =
@@ -720,7 +719,6 @@ impl ServiceContext {
         for (tab_id, pty_id) in targets {
             let screen = self
                 .screen_state
-                .lock()
                 .get_screen_text(&pty_id)
                 .unwrap_or_default();
             let prompt = self
@@ -793,7 +791,6 @@ impl ServiceContext {
             Some(text) => text.to_string(),
             None => self
                 .screen_state
-                .lock()
                 .get_screen_text(&pty_id)
                 .unwrap_or_default(),
         };
@@ -979,14 +976,13 @@ impl ServiceContext {
         if !applies {
             return false;
         }
-        let signal = self.screen_state.lock().subscribe_screen_changes(pty_id);
+        let signal = self.screen_state.subscribe_screen_changes(pty_id);
         let mut recognized = false;
         let mut enter_submitted = false;
         loop {
             let generation = signal.generation();
             let screen = self
                 .screen_state
-                .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
             let has_dialog = self
@@ -1024,7 +1020,6 @@ impl ServiceContext {
             }
         }
         self.screen_state
-            .lock()
             .unsubscribe_screen_changes(pty_id, &signal);
         recognized
     }
@@ -1057,7 +1052,6 @@ impl ServiceContext {
         let owed = applies && {
             let screen = self
                 .screen_state
-                .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
             self.agent_registry
@@ -1093,7 +1087,6 @@ impl ServiceContext {
         let owed = cwd.is_some_and(|cwd| {
             let screen = self
                 .screen_state
-                .lock()
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
             let provisioned = self

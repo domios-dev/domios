@@ -120,7 +120,6 @@ impl ServiceContext {
         let pty_id = tab.pty_id.as_deref().ok_or(RequestRefusal::PromptChanged)?;
         let screen = self
             .screen_state
-            .lock()
             .get_screen_text(pty_id)
             .ok_or(RequestRefusal::PromptChanged)?;
         let target = self

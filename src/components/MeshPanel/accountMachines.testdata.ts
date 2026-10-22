@@ -54,6 +54,8 @@ export function snapshot(patch: Partial<AccountMeshSnapshot> = {}): AccountMeshS
     },
     registry: { observed_at: NOW, rows: [selfRow, macRow, lenovoRow] },
     registry_failure: null,
+    enrollment: "enrolled",
+    last_refusal: null,
     pairs: [],
     ...patch,
   };
@@ -76,6 +78,9 @@ export class FakeAccountMeshClient implements AccountMeshClient {
   snapshotCalls = 0;
   listCalls = 0;
   listRows: AccountMachineRow[] | null = null;
+  listOutcome: AccountMeshOutcome = { ok: true };
+  enrollCalls = 0;
+  enrollOutcome: AccountMeshOutcome = { ok: true };
   linkCalls: MeshTarget[] = [];
   revokeCalls: MeshTarget[] = [];
   renameCalls: Array<[number, string]> = [];
@@ -100,7 +105,12 @@ export class FakeAccountMeshClient implements AccountMeshClient {
     if (this.listRows !== null) {
       this.state = { ...this.state, registry: { observed_at: NOW, rows: this.listRows }, registry_failure: null };
     }
-    return { ok: true };
+    return this.listOutcome;
+  }
+
+  async enroll(): Promise<AccountMeshOutcome> {
+    this.enrollCalls++;
+    return this.enrollOutcome;
   }
 
   subscribe(onChange: () => void): () => void {

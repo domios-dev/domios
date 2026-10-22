@@ -200,7 +200,6 @@ impl ServiceContext {
         let pty_id = self.authorize_tab_adopt(tab_id, caller)?;
         let screen = self
             .screen_state
-            .lock()
             .get_screen_text(&pty_id)
             .unwrap_or_default();
         let any_provider_tui = self.agent_registry.any_provider_screen_has_tui(&screen);
@@ -366,7 +365,6 @@ mod tests {
         fixture
             .service
             .screen_state
-            .lock()
             .process("pty-live", tui_screen().as_bytes());
         let caller = proven_caller(&owner_id, "owner-nonce");
 
@@ -443,7 +441,6 @@ mod tests {
         fixture
             .service
             .screen_state
-            .lock()
             .process("pty-live", screen.as_bytes());
 
         fixture
@@ -477,7 +474,6 @@ mod tests {
         fixture
             .service
             .screen_state
-            .lock()
             .process("pty-live", shell_screen().as_bytes());
         let human = AuthenticatedPlanCaller::default();
 
@@ -516,7 +512,6 @@ mod tests {
         fixture
             .service
             .screen_state
-            .lock()
             .process("pty-live", tui_screen().as_bytes());
 
         let worker = proven_caller(&worker_id, "worker-nonce");

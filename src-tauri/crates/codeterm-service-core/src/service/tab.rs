@@ -694,7 +694,6 @@ impl ServiceContext {
                 let Some(pty_id) = pty_id else { continue };
                 let screen = svc
                     .screen_state
-                    .lock()
                     .get_screen_text(&pty_id)
                     .unwrap_or_default();
                 if screen.is_empty() {
@@ -909,7 +908,6 @@ impl ServiceContext {
         };
         let screen = {
             self.screen_state
-                .lock()
                 .get_screen_text(&pty_id)
                 .unwrap_or_default()
         };
