@@ -686,7 +686,7 @@ export function parseVoiceMessage(content: string): ParsedVoice | null {
   };
 }
 
-export function VoiceCard({ v }: { v: ParsedVoice }) {
+export function VoiceCard({ v, renderText }: { v: ParsedVoice; renderText?: (text: string) => React.ReactNode }) {
   const [playError, setPlayError] = useState("");
   const play = async () => {
     if (!v.fileUrl) return;
@@ -716,7 +716,7 @@ export function VoiceCard({ v }: { v: ParsedVoice }) {
       </div>
       {playError && <span role="alert">{playError}</span>}
       {v.transcript ? (
-        <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{v.transcript}</pre>
+        <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{renderText ? renderText(v.transcript) : v.transcript}</pre>
       ) : (
         <span className="text-[11px] italic" style={{ color: "var(--ct-muted-fg)" }}>
           {v.note ?? "voice note"}
@@ -745,7 +745,7 @@ export function parsePluginConfigMessage(content: string): ParsedPluginConfig | 
   };
 }
 
-export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
+export function PluginConfigCard({ c, renderText }: { c: ParsedPluginConfig; renderText?: (text: string) => React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
       <div
@@ -755,29 +755,29 @@ export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
         <Settings size={13} strokeWidth={2} className="shrink-0" />
         <span className="opacity-80 font-medium shrink-0">Configure {c.name}</span>
       </div>
-      <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{c.body}</pre>
+      <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{renderText ? renderText(c.body) : c.body}</pre>
     </div>
   );
 }
 
-export function renderUserContent(rawContent: string, parseTransport = true): React.ReactNode {
+export function renderUserContent(rawContent: string, parseTransport = true, renderText?: (text: string) => React.ReactNode): React.ReactNode {
   const parts = localArtifactTextParts(rawContent);
   if (parts.some((part) => part.directive)) {
     return <>{parts.map((part, index) => part.directive
       ? <RichMarkdown key={index} text={part.text} />
-      : <React.Fragment key={index}>{renderPlainUserContent(part.text, parseTransport)}</React.Fragment>)}</>;
+      : <React.Fragment key={index}>{renderPlainUserContent(part.text, parseTransport, renderText)}</React.Fragment>)}</>;
   }
-  return renderPlainUserContent(rawContent, parseTransport);
+  return renderPlainUserContent(rawContent, parseTransport, renderText);
 }
 
-function renderPlainUserContent(rawContent: string, parseTransport: boolean): React.ReactNode {
+function renderPlainUserContent(rawContent: string, parseTransport: boolean, renderText?: (text: string) => React.ReactNode): React.ReactNode {
   const content = decodeCliMessageText(rawContent);
   const discussion = parseAttachedDiscussionDoc(content);
   if (discussion) return <AttachedDiscussionDocView doc={discussion} />;
   const voice = parseTransport ? parseVoiceMessage(content) : null;
-  if (voice) return <VoiceCard v={voice} />;
+  if (voice) return <VoiceCard v={voice} renderText={renderText} />;
   const pluginConfig = parseTransport ? parsePluginConfigMessage(content) : null;
-  if (pluginConfig) return <PluginConfigCard c={pluginConfig} />;
+  if (pluginConfig) return <PluginConfigCard c={pluginConfig} renderText={renderText} />;
   // Non-voice attachment markers (photo/document/video/file) → file badge.
   const mk = parseTransport ? parseMarker(content.trim()) : null;
   if (mk && ["photo", "file", "document", "video", "audio", "sticker"].includes(mk.kind)) {
@@ -807,7 +807,7 @@ function renderPlainUserContent(rawContent: string, parseTransport: boolean): Re
   while ((match = attachRe.exec(content)) !== null) {
     const before = content.slice(lastIndex, match.index).trim();
     if (before) {
-      parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{before}</pre>);
+      parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{renderText ? renderText(before) : before}</pre>);
     }
     const filePath = (match[1] || match[2]).trim();
     const name = fileName(filePath);
@@ -832,11 +832,11 @@ function renderPlainUserContent(rawContent: string, parseTransport: boolean): Re
 
   const rest = content.slice(lastIndex).trim();
   if (rest) {
-    parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{rest}</pre>);
+    parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{renderText ? renderText(rest) : rest}</pre>);
   }
 
   if (parts.length === 0) {
-    return <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{content}</pre>;
+    return <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{renderText ? renderText(content) : content}</pre>;
   }
 
   return <>{parts}</>;

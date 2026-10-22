@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useState } from "react";
 import { BusyState } from "../../shared/BusyState";
 import { BoardPanel, BoardPanelSection } from "./BoardPanel";
 import { RefLabel, RefText, type BoardRefs } from "./BoardRefText";
 import {
   clipTaskName,
   EVENT_LOG_PAGE,
+  EVENT_LINKED_TASKS_PREVIEW,
   EVENT_PART_SEPARATOR,
   EVENT_REVEAL_HIDE_LABEL,
   EVENT_REVEAL_SHOW_LABEL,
@@ -55,6 +56,14 @@ function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
           open ? " mc-board-log-message-open" : ""
         }`}
       >
+        {event.linkedTasks.slice(0, open ? undefined : EVENT_LINKED_TASKS_PREVIEW).map((task, index) => (
+          <Fragment key={task.id}>
+            {index > 0 && EVENT_PART_SEPARATOR}
+            <RefLabel id={task.id} refs={refs} fallback={task.name} />
+          </Fragment>
+        ))}
+        {!open && event.linkedTasks.length > EVENT_LINKED_TASKS_PREVIEW && ` +${event.linkedTasks.length - EVENT_LINKED_TASKS_PREVIEW}`}
+        {event.linkedTasks.length > 0 && <span className="mc-board-log-sep">{EVENT_PART_SEPARATOR}</span>}
         {event.taskName && (
           <>
             <span data-testid="mc-board-event-task" className="mc-board-log-task">
@@ -73,7 +82,7 @@ function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
           data-expanded={open ? "true" : "false"}
           className="mc-board-log-body"
         >
-          <RefText text={open ? event.body : event.preview} refs={refs} />
+          <span style={open ? { whiteSpace: "pre-wrap" } : undefined}><RefText text={open ? event.body : event.preview} refs={refs} /></span>
         </span>
         {event.runLabel && (
           <span data-testid="mc-board-event-run" className="mc-board-log-run">

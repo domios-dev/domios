@@ -1,3 +1,5 @@
+/* Declared first so layers named by the imports below cannot reorder Tailwind's. */
+@layer theme, base, components, utilities;
 @import "./tokens.css";
 @import "./primitives.css";
 @import "./syntax-highlight.css";
@@ -426,8 +428,8 @@ button {
   line-height: var(--ct-line-height);
 }
 
-button,
-[role="button"] {
+/* Small pills keep their layered border so Chip tone utilities can recolour it. */
+:where(button:not(.ct-small-pill), [role="button"]:not(.ct-small-pill)) {
   border: none;
 }
 
@@ -3442,9 +3444,10 @@ button,
   transition: color 120ms ease;
 }
 .ct-capsule__detail { color: var(--ct-muted-fg, #8b949e); }
-/* The kind label is painted, not text, so the mirror's text stays identical to the textarea's; it is centred in the hidden token's box. */
-.ct-capsule__kind { position: relative; }
-.ct-capsule__kind::after { content: attr(data-kind); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 1em; line-height: 1; white-space: nowrap; }
+.ct-capsule--padded { max-width: min(24rem, 100%); white-space: nowrap; text-align: start; }
+.ct-capsule__name { display: inline-flex; min-width: 0; }
+.ct-capsule__name > :first-child { overflow: hidden; text-overflow: ellipsis; }
+.ct-capsule__name > :last-child, .ct-capsule--padded > .ct-capsule__detail { flex-shrink: 0; }
 .ct-capsule[data-hovered="true"] > .ct-capsule__plate,
 .ct-capsule-button:not(:disabled):hover .ct-capsule__plate {
   background: color-mix(in srgb, var(--ct-fg, #c9d1d9) 11%, transparent);

@@ -8,6 +8,21 @@ import type { ChecklistBlockState } from "./checklistBlockModel";
 import type { ChoiceBlockState } from "./choiceBlockModel";
 import type { JobBlockState } from "./jobBlockModel";
 import type { TasksBlockState } from "./tasksBlockModel";
+import type { CanonicalMentionKind } from "../codeterm/canonicalMentions";
+
+export interface ChatMentionValue {
+  state?: "loading";
+  title: string;
+  kind: CanonicalMentionKind;
+  id: string;
+  planId?: string;
+  targetId?: string;
+  teamId?: string | null;
+}
+export interface ChatMentionHost {
+  binding: LiveBindingSource<ChatMentionValue | null>;
+  open(key: string): void;
+}
 
 /** Host services the plugin block reads and acts through; every mutation runs only from a user click. */
 export interface PluginBlockHost {
@@ -86,6 +101,8 @@ export interface ChatCardMenuSpec {
 
 /** Scope-wide services for chat blocks. Absent fields hide the matching control instead of faking it. */
 export interface ChatBlockHost {
+  mentionTabId?: string;
+  mentions?: ChatMentionHost;
   /** Draws a card's overflow trigger and menu with the host's shared dropdown. */
   renderMenu?(menu: ChatCardMenuSpec): React.ReactNode;
   /** Adds the block to the tab composer as context; `text` is what the agent reads. */

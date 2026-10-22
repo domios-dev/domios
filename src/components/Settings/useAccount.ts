@@ -66,6 +66,11 @@ export function useAccount() {
       if (action === "login") {
         try {
           const status = await request("status");
+          // Another surface's sign-in holds the login; wait for it to settle rather than report a failure.
+          if (status.pending) {
+            if (generation === active.current) setModel({ kind: "pending" });
+            return null;
+          }
           if (status.last_sign_in_failure) {
             failure = accountModel(status);
             signInFailure = status.last_sign_in_failure;
