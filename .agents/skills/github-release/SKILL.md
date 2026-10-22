@@ -80,6 +80,21 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    `npm run check:versions` and `node scripts/check-release-locks.mjs`. Commit the complete bump;
    plugin versions remain independent. Run `build.sh release-preflight` per the gates skill on
    that committed head and `git diff --check`.
+   Before every push of `release/X.Y.Z` (the first one and each one carrying a fix or merge), the
+   Orchestrator mirrors the CI fast tier on that exact candidate in canonical, so a CI round never
+   stops on a one-minute defect. Rust jobs go through
+   the gateway one after another; the frontend and guards run in parallel in a second utility tab:
+   - Rust: `./build.sh fmt-check`, `./build.sh ci-clippy`, `./build.sh nextest cli 'all()'` (every
+     CLI target, generated manifest, essence map), and `./build.sh ci-tests full` with `RUNNER_OS`
+     set to the host OS (the whole workspace, one build).
+   - Frontend: `pnpm exec tsc --noEmit`, `pnpm check:api-effects`, `npm run test:unit` (all TS unit
+     files) and `pnpm exec vitest run` (all files). Never only the files that failed before.
+   - Guards: `bash scripts/check-file-sizes.sh --fail`, `node scripts/check-provider-boundary.mjs`,
+     `node scripts/check-installed-identity.mjs`, `node scripts/test-catalogue.mjs validate`,
+     `node scripts/check-plugin-bundles.mjs` (a changed plugin UI source needs its rebuilt bundle).
+   While iterating on a fix, `pnpm exec vitest related <files>` and the matching Rust filterset give
+   a quick signal, but the push to the release branch still waits for the whole list above: the warm
+   build keeps that rerun cheap.
    Before every push to `release/X.Y.Z`, including each merge or fix, the release manager runs the
    checks a CI round would otherwise find one at a time: `./build.sh fmt-check`,
    `./build.sh nextest cli --wait-build` (every CLI target: transport rows, help text, generated
