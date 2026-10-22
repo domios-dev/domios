@@ -25,16 +25,20 @@ pub enum ErrorCode {
     RateLimited,
     Refused,
     Unavailable,
+    Starting,
+    StartupFailed,
     Internal,
 }
 
-pub const ALL_ERROR_CODES: [ErrorCode; 7] = [
+pub const ALL_ERROR_CODES: [ErrorCode; 9] = [
     ErrorCode::NotFound,
     ErrorCode::InvalidArgument,
     ErrorCode::Conflict,
     ErrorCode::RateLimited,
     ErrorCode::Refused,
     ErrorCode::Unavailable,
+    ErrorCode::Starting,
+    ErrorCode::StartupFailed,
     ErrorCode::Internal,
 ];
 
@@ -47,6 +51,8 @@ impl ErrorCode {
             Self::RateLimited => "rate_limited",
             Self::Refused => "refused",
             Self::Unavailable => "unavailable",
+            Self::Starting => "starting",
+            Self::StartupFailed => "startup_failed",
             Self::Internal => "internal",
         }
     }
@@ -69,6 +75,8 @@ impl ErrorCode {
             Self::Unavailable => {
                 "check that Domios is running (`domios identify` shows the target)"
             }
+            Self::Starting => "the daemon is still starting; the reported phase has not completed",
+            Self::StartupFailed => "check the daemon log for the failed startup phase",
             Self::Internal => "check the daemon log for the failure",
         }
     }
