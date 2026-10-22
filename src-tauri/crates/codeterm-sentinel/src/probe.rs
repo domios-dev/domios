@@ -24,6 +24,8 @@ mod native_tests;
 mod owner_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_readiness;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_receipt;
 #[cfg(test)]
 mod tests;
 

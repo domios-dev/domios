@@ -763,6 +763,12 @@ impl UnixRun {
         failure.exit_code = self.status.and_then(|status| status.code());
         failure.stdout = (self.child_id != 0).then(|| self.stdout.data.metadata());
         failure.stderr = (self.child_id != 0).then(|| self.stderr.data.metadata());
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            failure.stderr_tail = super::test_receipt::stderr_tail(&String::from_utf8_lossy(
+                &self.stderr.data.prefix,
+            ));
+        }
         if !self.has_open_resources() {
             if let Err(error) = self.close_event_resources() {
                 failure.cleanup_error(error);

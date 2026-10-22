@@ -1040,6 +1040,12 @@ impl WindowsRun {
         failure.exit_code = self.exit_code.map(|code| code as i32);
         failure.stdout = (self.child_id != 0).then(|| self.stdout.data.metadata());
         failure.stderr = (self.child_id != 0).then(|| self.stderr.data.metadata());
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            failure.stderr_tail = super::test_receipt::stderr_tail(&String::from_utf8_lossy(
+                &self.stderr.data.prefix,
+            ));
+        }
         if let Some(cleanup_failure) = self.failure.take() {
             if cleanup_failure.primary == "probe_cancel_wake_failed" {
                 failure.primary = cleanup_failure.primary;

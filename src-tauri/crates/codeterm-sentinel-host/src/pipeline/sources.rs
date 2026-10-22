@@ -75,6 +75,14 @@ pub(super) fn run(
     };
     match result {
         Ok(output) => {
+            #[cfg(any(test, feature = "test-support"))]
+            if !output.success {
+                lease.cancelled.record_diagnostic(format!(
+                    "command_probe exit={:?} stderr_tail={:?}",
+                    output.exit_code,
+                    crate::probe::test_receipt::stderr_tail(&output.stderr_text())
+                ));
+            }
             let output_limit = step
                 .execution
                 .as_ref()
@@ -138,7 +146,14 @@ pub(super) fn run(
                 uncertain: false,
             }
         }
-        Err(failure) => command_failure(failure, &previous),
+        Err(failure) => {
+            #[cfg(any(test, feature = "test-support"))]
+            lease.cancelled.record_diagnostic(format!(
+                "command_probe reason={} stderr_tail={:?}",
+                failure.primary, failure.stderr_tail
+            ));
+            command_failure(failure, &previous)
+        }
     }
 }
 

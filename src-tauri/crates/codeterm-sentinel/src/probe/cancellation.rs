@@ -26,6 +26,8 @@ struct State {
     wait_observer: Option<std::sync::mpsc::Sender<WaitPhase>>,
     #[cfg(any(test, feature = "test-support"))]
     spawn_observer: Option<std::sync::mpsc::Sender<u32>>,
+    #[cfg(any(test, feature = "test-support"))]
+    diagnostics: Vec<String>,
     #[cfg(all(any(test, feature = "test-support"), windows))]
     fixture_argv: Option<Arc<[String]>>,
 }
@@ -190,6 +192,19 @@ impl Cancellation {
             Some(ready) => ready(),
             None => Ok(deadlines),
         }
+    }
+
+    pub fn record_diagnostic(&self, diagnostic: String) {
+        let mut state = self.state.lock();
+        if state.spawn_observer.is_some() {
+            state.diagnostics.push(diagnostic);
+        }
+    }
+
+    pub fn finish_observation(&self) -> Vec<String> {
+        let mut state = self.state.lock();
+        state.spawn_observer = None;
+        std::mem::take(&mut state.diagnostics)
     }
 
     pub fn observe_spawned(&self) -> std::sync::mpsc::Receiver<u32> {

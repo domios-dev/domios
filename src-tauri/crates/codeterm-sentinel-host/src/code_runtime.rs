@@ -7,13 +7,28 @@ use std::time::Duration;
 pub struct RuntimeFailure {
     pub reason: &'static str,
     pub uncertain: bool,
+    #[cfg(any(test, feature = "test-support"))]
+    pub stderr_tail: String,
 }
 
 impl RuntimeFailure {
+    #[cfg(target_os = "macos")]
+    fn observed(reason: &'static str, _stderr: &str) -> Self {
+        let failure = Self::new(reason);
+        #[cfg(any(test, feature = "test-support"))]
+        let failure = Self {
+            stderr_tail: crate::probe::test_receipt::stderr_tail(_stderr),
+            ..failure
+        };
+        failure
+    }
+
     fn new(reason: &'static str) -> Self {
         Self {
             reason,
             uncertain: false,
+            #[cfg(any(test, feature = "test-support"))]
+            stderr_tail: String::new(),
         }
     }
 }
@@ -34,7 +49,34 @@ pub fn run(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
 ) -> Result<Output, RuntimeFailure> {
-    run_with_output(code, input, timeout, owner, cancellation, None)
+    let receipt = crate::probe::test_receipt::Receipt::start(
+        &format!("native-code:{:?}", code.lang),
+        cancellation,
+    );
+    let result = run_with_output(code, input, timeout, owner, cancellation, None);
+    let outcome = match &result {
+        Ok(output) if output.success => "done".into(),
+        Ok(output) => format!("nonzero:{:?}", output.exit_code),
+        Err(failure) => failure.reason.to_owned(),
+    };
+    let detail = match &result {
+        Ok(output) => format!(
+            "stderr_tail={}",
+            crate::probe::test_receipt::stderr_tail(&output.stderr_text())
+        ),
+        Err(failure) => {
+            format!(
+                "runtime_failure={failure:?}; stderr_tail={:?}",
+                failure.stderr_tail
+            )
+        }
+    };
+    receipt.finish(
+        result.as_ref().is_ok_and(|output| output.success),
+        &outcome,
+        &detail,
+    );
+    result
 }
 
 pub fn run_with_output(

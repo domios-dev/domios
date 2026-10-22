@@ -55,6 +55,8 @@ pub struct ProbeFailure {
     pub exit_code: Option<i32>,
     pub stdout: Option<crate::command::Capture>,
     pub stderr: Option<crate::command::Capture>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub stderr_tail: String,
 }
 
 impl ProbeFailure {
@@ -69,6 +71,8 @@ impl ProbeFailure {
             exit_code: None,
             stdout: None,
             stderr: None,
+            #[cfg(any(test, feature = "test-support"))]
+            stderr_tail: String::new(),
         }
     }
 
@@ -76,6 +80,10 @@ impl ProbeFailure {
         self.exit_code = output.exit_code;
         self.stdout = Some(output.stdout.clone());
         self.stderr = Some(output.stderr.clone());
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.stderr_tail = super::test_receipt::stderr_tail(&output.stderr_text());
+        }
         self
     }
 
