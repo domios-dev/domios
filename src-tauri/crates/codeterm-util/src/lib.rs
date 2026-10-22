@@ -16,6 +16,7 @@ pub mod project_roots;
 pub mod pty_frame_timing;
 pub mod redact;
 pub mod restart_stdio;
+pub mod safe_tree;
 pub mod secret_file;
 pub mod shell;
 pub mod task_files;
@@ -26,5 +27,6 @@ pub mod windows_env;
 #[cfg(windows)]
 pub mod windows_job;
 pub mod windows_powershell;
+pub mod worktree_cleanup;
 
 pub mod plugin_runtime_files;

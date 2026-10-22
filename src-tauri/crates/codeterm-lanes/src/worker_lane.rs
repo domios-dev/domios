@@ -546,25 +546,13 @@ fn provision_lane_at_base(
 ) -> Result<ProvisionedWorkerLane, String> {
     let project_cwd = codeterm_paths::canonical_cwd(project_cwd);
     let project = Path::new(&project_cwd);
-    let repo = project
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-        .ok_or_else(|| {
-            format!("cannot derive a lane container from workspace cwd '{project_cwd}'")
-        })?;
     let slug = format!(
         "{}-{}",
         lane_slug(lane_label),
         &uuid::Uuid::new_v4().simple().to_string()[..8]
     );
     let branch = format!("lane/{slug}");
-    let container = project
-        .parent()
-        .ok_or_else(|| {
-            format!("cannot derive a sibling lane container from workspace cwd '{project_cwd}'")
-        })?
-        .join(format!("{repo}-worktrees"));
+    let container = crate::residue::worktree_root(project)?;
     std::fs::create_dir_all(&container).map_err(|error| {
         format!(
             "cannot create worker lane container '{}': {error}",

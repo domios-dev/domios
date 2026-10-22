@@ -11,6 +11,21 @@ utility shell it created. Keep the shell's own tab id and launch nonce; never
 copy the parent's session or binding. The daemon checks recorded ownership and
 the live Plan owner. Dirty, unmerged and occupied lanes remain protected.
 
+The preview also inventories unregistered residue under the lane root. Confirm
+removes only artifact directories without `.git` or tracked source, and checks
+registration and live holders again immediately before deletion. Unknown content
+stays protected. Removal unlinks reparse points without following their targets,
+uses extended Windows paths, verifies absence and reports exact failed paths
+with Windows holder evidence when available.
+
+Acceptance defers cleanup while the Worker is live and retries when it closes.
+Clean merged lanes lose their worktree and branch (`git branch -d`). Cancellation
+may remove a clean unmerged worktree while retaining its branch for recovery.
+Dirty lanes stay intact; reminders retain cleanup debt and its exact command.
+`build.sh gc` trims expired lane `target`, `src-tauri/target` and `cli/target`
+outputs using the configured build-cache retention, protecting recent artifacts,
+tracked content and the calling checkout.
+
 Use the bundled PowerShell script from the canonical checkout:
 
 ```powershell

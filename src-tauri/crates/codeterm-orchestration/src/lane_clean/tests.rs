@@ -190,19 +190,19 @@ fn lane_clean_keeps_dirty_unmerged_and_occupied_lanes() {
 }
 
 #[test]
-fn lane_clean_uses_recorded_destination_even_when_canonical_head_is_behind() {
+fn lane_clean_keeps_lane_until_canonical_contains_the_recorded_destination() {
     let mut fixture = Fixture::new();
     fixture.commit_lane();
     git(fixture.cwd(), &["branch", "accepted", "lane/clean"]).unwrap();
     fixture.lane.destination = Some("accepted".into());
     let row = run_lane(&fixture.lane, true, &[], None);
-    assert_eq!(row.action, "removed", "{row:?}");
-    assert!(!Path::new(fixture.path()).exists());
+    assert_eq!(row.action, "kept", "{row:?}");
+    assert!(Path::new(fixture.path()).exists());
     assert!(git(
         fixture.cwd(),
         &["show-ref", "--verify", "refs/heads/lane/clean"]
     )
-    .is_err());
+    .is_ok());
 }
 
 #[test]

@@ -37,7 +37,12 @@ fn fixture_project(root: &Path) -> std::path::PathBuf {
     git(&project, &["config", "user.email", "test@example.com"]);
     git(&project, &["config", "user.name", "Test"]);
     std::fs::write(project.join("README.md"), "fixture").unwrap();
-    git(&project, &["add", "README.md"]);
+    std::fs::write(
+        project.join(".gitignore"),
+        "canonical-link\nnode_modules/\n",
+    )
+    .unwrap();
+    git(&project, &["add", "README.md", ".gitignore"]);
     git(&project, &["commit", "-qm", "fixture"]);
     project
 }
@@ -73,23 +78,6 @@ fn link_dir(link: &Path, target: &Path) {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-}
-
-#[test]
-fn lane_removal_links_dispatches_directory_and_file_links_by_metadata() {
-    assert_eq!(
-        link_removal_kind(true, true, false),
-        Some(LinkRemovalKind::Directory)
-    );
-    assert_eq!(
-        link_removal_kind(true, false, true),
-        Some(LinkRemovalKind::Directory)
-    );
-    assert_eq!(
-        link_removal_kind(true, false, false),
-        Some(LinkRemovalKind::File)
-    );
-    assert_eq!(link_removal_kind(false, true, true), None);
 }
 
 #[test]
@@ -145,6 +133,52 @@ fn lane_removal_links_refuses_a_lane_with_leftover_content() {
         "retain this lane content"
     );
     assert!(Path::new(&lane.cwd).is_dir());
+}
+
+#[test]
+fn lane_removal_force_still_protects_dirty_source() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "dirty-force").unwrap();
+    let source = Path::new(&lane.cwd).join("README.md");
+    std::fs::write(&source, "uncommitted work").unwrap();
+    let error = remove_lane(
+        &LaneRemovalRequest {
+            worktree_path: lane.cwd.clone(),
+            branch: Some(lane.branch.clone()),
+            canonical_cwd: Some(project.display().to_string()),
+            force: true,
+        },
+        &[],
+    )
+    .unwrap_err();
+    assert!(error.contains("protected"));
+    assert_eq!(std::fs::read_to_string(source).unwrap(), "uncommitted work");
+    assert!(branch_exists(&project, &lane.branch));
+}
+
+#[test]
+fn lane_removal_without_branch_still_protects_unmerged_work() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "unmerged-no-branch").unwrap();
+    git(
+        Path::new(&lane.cwd),
+        &["commit", "--allow-empty", "-qm", "retained work"],
+    );
+    let error = remove_lane(
+        &LaneRemovalRequest {
+            worktree_path: lane.cwd.clone(),
+            branch: None,
+            canonical_cwd: Some(project.display().to_string()),
+            force: false,
+        },
+        &[],
+    )
+    .unwrap_err();
+    assert!(error.contains("not merged"));
+    assert!(Path::new(&lane.cwd).exists());
+    assert!(branch_exists(&project, &lane.branch));
 }
 
 #[test]

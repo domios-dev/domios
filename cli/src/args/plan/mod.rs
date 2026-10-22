@@ -118,7 +118,7 @@ pub enum PlanAction {
         /// Lane branch to delete after worktree removal, if merged into project HEAD
         #[arg(long, value_name = "BRANCH")]
         branch: Option<String>,
-        /// Force removal, discarding uncommitted and untracked lane content
+        /// Force Git cleanup after cleanliness and ancestry checks; dirty content stays protected
         #[arg(long)]
         force: bool,
         /// Canonical checkout (needed for a missing worktree unless its task identifies the project)
