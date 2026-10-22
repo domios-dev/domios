@@ -16,7 +16,6 @@ fn shell_output_settles_wake_only_after_own_prompt_evidence() {
         fixture
             .service
             .screen_state
-            .lock()
             .bind_pty_generation("shell-pty", 7);
         fixture
             .service
@@ -47,7 +46,6 @@ fn stale_output_and_agent_shell_prompts_cannot_settle_a_launch() {
         fixture
             .service
             .screen_state
-            .lock()
             .bind_pty_generation("shell-pty", 7);
         fixture
             .service
@@ -67,7 +65,6 @@ fn prompt_observed_before_link_is_reconciled_for_the_selected_shell() {
     fixture
         .service
         .screen_state
-        .lock()
         .bind_pty_generation("shell-pty", 7);
     fixture
         .service

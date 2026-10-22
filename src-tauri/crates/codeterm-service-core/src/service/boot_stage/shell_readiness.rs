@@ -24,10 +24,12 @@ impl ServiceContext {
                 {
                     return false;
                 }
-                let mut screen = self.screen_state.lock();
-                if generation
-                    .is_some_and(|generation| screen.pty_generation(pty_id) != Some(generation))
-                    || !screen.arm_shell_ready_signal(pty_id).is_ready()
+                let Some(handle) = self.screen_state.existing(pty_id) else {
+                    return false;
+                };
+                let mut screen = handle.lock();
+                if generation.is_some_and(|generation| screen.pty_generation() != Some(generation))
+                    || !screen.arm_shell_ready_signal().is_ready()
                 {
                     return false;
                 }
