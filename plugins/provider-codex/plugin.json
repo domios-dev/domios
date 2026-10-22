@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.14.49",
-  "minCodeterm": "1.14.9",
+  "version": "1.14.51",
+  "minCodeterm": "1.15.1",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
@@ -570,6 +570,6 @@
     "breaking": []
   },
   "dataPaths": [
-    "~/.codeterm/codex/tasks"
+    "~/.domios/codex/tasks"
   ]
 }
