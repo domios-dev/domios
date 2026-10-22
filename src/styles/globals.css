@@ -761,12 +761,8 @@ button {
   }
 }
 
-/* Layered so a call site's own text-size and disabled: utilities still win. */
+/* Layered so a call site's own disabled: utilities still win. */
 @layer components {
-  .ct-btn {
-    font-size: var(--ct-font-size-sm);
-  }
-
   .ct-btn:disabled {
     cursor: default;
     opacity: 0.45;
