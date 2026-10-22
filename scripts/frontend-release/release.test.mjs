@@ -150,9 +150,10 @@ test('a published retry with mismatched bytes cannot mutate discovery', async ()
 });
 
 
-test('workflow retains one archive copy for one day and preserves publication download', async () => {
+test('workflow hands the release files to publication through the private store', async () => {
   const workflow = (await readFile(new URL('../../.github/workflows/frontend-release.yml', import.meta.url), 'utf8')).replaceAll('\r\n', '\n');
-  assert.match(workflow, /retention-days: 1/);
-  assert.match(workflow, /path: \|\n            frontend-release-output\/\*\n            !frontend-release-output\/dist\//);
-  assert.match(workflow, /download-artifact@[\s\S]*?path: frontend-release-output\//);
+  assert.doesNotMatch(workflow, /actions\/(upload|download)-artifact@/);
+  assert.match(workflow, /files=\(frontend-release-output\/\*\)[\s\S]*?\[ -f "\$file" \] \|\| continue[\s\S]*?ci-artifact\.sh put "\$GITHUB_RUN_ID\/frontend-release\/\$\{file##\*\/\}"/);
+  assert.match(workflow, /uses: \.\/\.github\/actions\/ci-artifact-spool/);
+  assert.match(workflow, /ci-artifact\.sh get-prefix "\$GITHUB_RUN_ID\/frontend-release\/" frontend-release-output/);
 });

@@ -27,6 +27,9 @@ permissions:
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('frontend-release-pr-{0}', github.event.pull_request.number) || 'frontend-release' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  # Builders are shared with agents; a CI job queues for the slot instead of failing busy (75).
+  CODETERM_BUILD_GATEWAY_MODE: queue
 jobs:
   build:
     runs-on: [self-hosted, Linux, light]
@@ -89,6 +92,9 @@ jobs:
         run: node scripts/frontend-release/release.mjs prepare "$FRONTEND_TAG"
       - name: Store the frontend release for publication
         shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
         run: |
           shopt -s nullglob
           files=(frontend-release-output/*)
@@ -121,6 +127,8 @@ jobs:
       - name: Fetch the frontend release
         env:
           GH_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
         run: bash scripts/ci-artifact.sh get-prefix "$GITHUB_RUN_ID/frontend-release/" frontend-release-output
       - name: Install GitHub CLI
         env:
