@@ -87,8 +87,8 @@ Domios routes messages between Telegram and the General Agent:
 Setup via CLI:
 ```bash
 # Save token to secrets dir
-mkdir -p ~/.codeterm/secrets
-echo -n "BOT_TOKEN" > ~/.codeterm/secrets/telegram.token
+mkdir -p ~/.domios/secrets
+echo -n "BOT_TOKEN" > ~/.domios/secrets/telegram.token
 
 # Enable
 domios config set integrations.telegram_enabled true
@@ -140,4 +140,4 @@ Agent hierarchy and session integration: `domios docs AGENT-CONTROL`.
 
 For `send --every --mesh` and `delayed create/edit --every --mesh`, the peer must advertise `delayed_recurrence` in `domios identify` features. If it does not, the request is refused with the peer name and version; update that peer or send a one-shot explicitly.
 
-<!-- revision: 89 -->
+<!-- revision: 90 -->
