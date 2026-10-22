@@ -24,7 +24,7 @@ import { applyStatusDelta, type MuxStatusDelta } from "./statusDelta";
 export type Action =
   | { type: "APPLY_STATUS_DELTA"; delta: MuxStatusDelta }
   | { type: "UPDATE_SHELL_STATE"; tabId: string; ptyId: string; state: ShellCommandState }
-  | { type: "SET_STATE"; state: MultiplexerState; pageOwnedSelection?: boolean; initialSelection?: PageSelection }
+  | { type: "SET_STATE"; state: MultiplexerState; force?: boolean; pageOwnedSelection?: boolean; initialSelection?: PageSelection }
   | { type: "ADD_WORKSPACE"; workspace: Workspace; tab: Tab }
   | { type: "SET_ACTIVE_WORKSPACE"; id: string }
   | { type: "CLOSE_WORKSPACE"; id: string }
@@ -166,6 +166,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         generation: -1,
         pendingCloses: [],
         storageUnavailable: false,
+        muxResyncRequired: false,
       };
 
     case "STORAGE_UNAVAILABLE":
@@ -173,7 +174,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
 
     case "SET_STATE": {
       const incomingGen = action.state.generation;
-      if (typeof incomingGen === "number" && incomingGen <= state.generation) {
+      if (!action.force && typeof incomingGen === "number" && incomingGen <= state.generation) {
         return state;
       }
       // This snapshot is accepted. Apply optimistic-close tombstones now, so a
@@ -275,6 +276,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           typeof incomingGen === "number" ? incomingGen : state.generation,
         pendingCloses: stillPending,
         storageUnavailable: false,
+        muxResyncRequired: false,
       });
     }
 

@@ -2,11 +2,14 @@ use serde_json::{json, Map, Value};
 
 pub(super) fn equal_except(a: &Value, b: &Value, ignored: &[&str]) -> bool {
     match (a.as_object(), b.as_object()) {
-        (Some(a), Some(b)) => a
-            .keys()
-            .chain(b.keys())
-            .filter(|key| !ignored.contains(&key.as_str()))
-            .all(|key| a.get(key) == b.get(key)),
+        (Some(a), Some(b)) => {
+            a.iter()
+                .filter(|(key, _)| !ignored.contains(&key.as_str()))
+                .all(|(key, value)| b.get(key) == Some(value))
+                && b.keys()
+                    .filter(|key| !ignored.contains(&key.as_str()))
+                    .all(|key| a.contains_key(key))
+        }
         _ => a == b,
     }
 }

@@ -144,6 +144,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const publishNotice = useMemo(() => createNoticePublisher({ upsertToast }), [upsertToast]);
   const stateRef = useRef(state);
+  const backendStateRevisionRef = useRef(0);
   stateRef.current = state;
   const muxStateStoreRef = useRef(createMuxStateStore(() => stateRef.current));
   // so one click = exactly one tab (no duplicate on double-fire).
@@ -200,10 +201,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     return () => { active = false; window.removeEventListener("codeterm-peer-switch-reset", reset); window.removeEventListener("codeterm-peer-switch-rebind", hydrate); };
   }, [applyRemoteProjection]);
 
-  const applyBackendState = useCallback((s: MultiplexerState) => {
+  const applyBackendState = useCallback((s: MultiplexerState, force = false) => {
+    backendStateRevisionRef.current++;
     // here silently dropped the closed-history on every reload.
     const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current);
-    dispatch({ type: "SET_STATE", state: guarded, pageOwnedSelection: IS_WEB,
+    dispatch({ type: "SET_STATE", state: guarded, force, pageOwnedSelection: IS_WEB,
       initialSelection: IS_WEB && !reconciledRef.current ? initialPageSelection(guarded, loadClientPageSelection()) : undefined });
     const remoteTabs = Object.fromEntries(
       Object.entries(stateRef.current.tabs).filter(([, tab]) => Boolean(tab.remote_peer_id)),
@@ -225,12 +227,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     focused_tab_id, recently_closed, closed_structures, tabStatuses]);
 
   const cachedBackendGenerationRef = useRef<number | undefined>(undefined);
-  const acceptBackendState = useCallback((s: MultiplexerState) => {
-    if (s.generation !== undefined && cachedBackendGenerationRef.current !== undefined
+  const acceptBackendState = useCallback((s: MultiplexerState, force = false) => {
+    if (!force && s.generation !== undefined && cachedBackendGenerationRef.current !== undefined
       && s.generation <= cachedBackendGenerationRef.current) return;
     cachedBackendGenerationRef.current = s.generation;
     const wasReconciled = reconciledRef.current;
-    applyBackendState(s);
+    applyBackendState(s, force);
     reconciledRef.current = true;
     writeGateRef.current.unlock();
     peerRebindGateRef.current.acceptedSnapshot(peerSwitchRef.current);
@@ -301,11 +303,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [refreshRemoteProjection]);
   remoteRefreshRunRef.current = runRemoteRefresh;
 
-  const runRefresh = useCallback(async (): Promise<boolean> => {
+  const runRefresh = useCallback(async (force = false): Promise<boolean> => {
     try {
+      const startedAt = cachedBackendGenerationRef.current;
+      const revision = backendStateRevisionRef.current;
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s) {
-        acceptBackendState(s);
+        const unchanged = cachedBackendGenerationRef.current === startedAt && backendStateRevisionRef.current === revision;
+        if (force && !unchanged && s.generation !== undefined && s.generation <= (cachedBackendGenerationRef.current ?? -1)) {
+          void refreshCoalescerRef.current.request(undefined, true);
+        } else acceptBackendState(s, force && unchanged);
       }
       return !!s;
     } catch (e) {
@@ -325,7 +332,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const runRefreshRef = useRef(runRefresh);
   runRefreshRef.current = runRefresh;
   const refreshCoalescerRef = useRef(
-    createRefreshCoalescer(() => runRefreshRef.current(), isSnapshotRefusal,
+    createRefreshCoalescer((force) => runRefreshRef.current(force), isSnapshotRefusal,
       () => cachedBackendGenerationRef.current),
   );
   const peerRebindGateRef = useRef(
@@ -338,9 +345,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }),
   );
   const refreshFromBackend = useCallback(
-    (generation?: number): Promise<boolean> => refreshCoalescerRef.current.request(generation),
+    (generation?: number, force = false): Promise<boolean> => refreshCoalescerRef.current.request(generation, force),
     [],
   );
+
+  const restoreFromBackend = useCallback(() => refreshFromBackend(undefined, true), [refreshFromBackend]);
+  useEffect(() => {
+    if (!state.muxResyncRequired) return;
+    cachedBackendGenerationRef.current = undefined;
+    void restoreFromBackend();
+  }, [state.muxResyncRequired, restoreFromBackend]);
 
   useEffect(() => {
     remoteProjectionActiveRef.current = true;
@@ -539,12 +553,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       eventStats.__ctEvents.lastAt = Date.now();
       const s = event.payload;
       if (isMuxStatusDelta(s)) {
+        if (stateRef.current.muxResyncRequired) {
+          void refreshFromBackend(s.generation, true);
+          return;
+        }
         const action = statusDeltaAction(cachedBackendGenerationRef.current, s);
         if (action === "apply") {
           cachedBackendGenerationRef.current = s.generation;
           dispatch({ type: "APPLY_STATUS_DELTA", delta: s });
         } else if (action === "refresh") {
-          void refreshFromBackend(s.generation);
+          void refreshFromBackend(s.generation, true);
         }
       } else if (muxStateEventAction(s) === "apply-snapshot") {
         acceptBackendState(s as MultiplexerState);
@@ -790,11 +808,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       guardedInvoke("mux_close_workspace", { workspaceId: id, force })
         .then(() => refreshFromBackend())
         .catch(async () => {
+          const revision = backendStateRevisionRef.current;
           const current = await invoke<MultiplexerState>("mux_get_state").catch(() => null);
           if (!current) return;
           const remaining = current.workspaces.find(workspace => workspace.id === id);
           dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds });
-          applyBackendState(current);
+          acceptBackendState(current, current.generation === cachedBackendGenerationRef.current && revision === backendStateRevisionRef.current);
           if (!remaining) return;
           const survivors = remaining.tabs.map(tabId => current.tabs[tabId]?.title || tabId);
           publishNotice({ kind: "toast", id: uid(),
@@ -804,10 +823,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
             detail: survivors.length ? survivors.join("\n") : remaining.name,
             severity: "Error",
             actions: [{ label: "Retry", run: () => closeWorkspace(id, true) }] });
-          refreshFromBackend();
+          void restoreFromBackend();
         });
     },
-    [guardedInvoke, refreshFromBackend, applyBackendState, publishNotice],
+    [guardedInvoke, refreshFromBackend, restoreFromBackend, acceptBackendState, publishNotice],
   );
 
   const renameWorkspace = useCallback((id: string, name: string) => {
@@ -816,17 +835,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [guardedInvoke]);
 
   const moveTab = useCallback((tabId: string, fromWorkspaceId: string, toWorkspaceId: string) => {
-    guardedInvoke("mux_move_tab", { tabId, fromWorkspaceId, toWorkspaceId }).catch(() => {});
+    guardedInvoke("mux_move_tab", { tabId, fromWorkspaceId, toWorkspaceId }).catch(() => { void restoreFromBackend(); });
     dispatch({ type: "MOVE_TAB", tabId, fromWorkspaceId, toWorkspaceId });
-  }, [guardedInvoke]);
+  }, [guardedInvoke, restoreFromBackend]);
 
   // The optimistic order stays until the daemon's state arrives; a refused save snaps back now and says why.
   const commitReorder = useCallback((command: string, args: Record<string, unknown>, workspaceId: string | null) => {
     guardedInvoke(command, args).catch((error: unknown) => {
-      void refreshFromBackend();
+      void restoreFromBackend();
       publishNotice(reorderFailureToast(workspaceId, error));
     });
-  }, [guardedInvoke, refreshFromBackend, publishNotice]);
+  }, [guardedInvoke, restoreFromBackend, publishNotice]);
 
   const reorderTabs = useCallback(
     (args: { workspaceId?: string; parentTabId?: string; orderedTabIds: string[] }) => {
@@ -964,10 +983,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         .catch(() => {
           dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
           if (isRemote) void requestRemoteRefresh();
-          else refreshFromBackend();
+          else void restoreFromBackend();
         });
     },
-    [refreshFromBackend, requestRemoteRefresh, guardedInvoke],
+    [refreshFromBackend, restoreFromBackend, requestRemoteRefresh, guardedInvoke],
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
@@ -982,12 +1001,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     pendingTabSwitchRef.current[workspaceId] = { tabId };
     guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {
       delete pendingTabSwitchRef.current[workspaceId];
-      void refreshFromBackend();
+      void restoreFromBackend();
     });
     dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
     if (IS_WEB) dispatch({ type: "SET_FOCUSED_TAB", tabId });
-  }, [guardedInvoke, refreshFromBackend]);
+  }, [guardedInvoke, restoreFromBackend]);
 
   // Select + focus a just-spawned tab by resolving its owning tab; a fresh
   // tab may lag local state, so fall back to an authoritative snapshot.

@@ -45,6 +45,10 @@ impl PublishedMuxState {
         self.current.load().json.clone()
     }
 
+    pub(super) fn read_value(&self) -> serde_json::Value {
+        self.current.load().value.as_ref().clone()
+    }
+
     pub(super) fn read_versioned(&self) -> (u64, Bytes) {
         let snapshot = self.current.load();
         (snapshot.generation, snapshot.json.clone())
