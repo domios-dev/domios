@@ -228,8 +228,8 @@ fn binding_model_refuses_nonworker_remote_or_retired_authority() {
                 let attempt = &mut task.execution_attempts[0];
                 match refusal {
                     "executor" => attempt.executor_tab_id = "other-tab".into(),
-                    "provider" => attempt.provider = Some("claude".into()),
-                    "agent_type" => attempt.agent_type = Some("claude".into()),
+                    "provider" => attempt.provider = Some("other-provider".into()),
+                    "agent_type" => attempt.agent_type = Some("other-provider".into()),
                     "session" => attempt.session_id = Some("other-session".into()),
                     "role" => attempt.role = Some("orchestrator".into()),
                     "retired" => attempt.retired_at = Some(7),
@@ -284,8 +284,8 @@ fn binding_model_refuses_nonworker_remote_or_retired_authority() {
                 request.receipt.session_id = "other-session".into();
             }
             "request_provider" => {
-                request.provider = "claude".into();
-                request.receipt.provider = "claude".into();
+                request.provider = "other-provider".into();
+                request.receipt.provider = "other-provider".into();
             }
             "request_old_nonce" => {
                 request.expected_old_nonce = "other-old".into();
@@ -386,7 +386,7 @@ fn binding_model_refuses_nonworker_remote_or_retired_authority() {
             "receipt_attempt" => request.receipt.attempt_id = "other-attempt".into(),
             "receipt_executor" => request.receipt.executor_tab_id = "other-tab".into(),
             "receipt_session" => request.receipt.session_id = "other-session".into(),
-            "receipt_provider" => request.receipt.provider = "claude".into(),
+            "receipt_provider" => request.receipt.provider = "other-provider".into(),
             "receipt_epoch" => request.receipt.owner_epoch += 1,
             "receipt_old_digest" => request.receipt.old_nonce_digest = "sha256:old".into(),
             "receipt_current_digest" => {
