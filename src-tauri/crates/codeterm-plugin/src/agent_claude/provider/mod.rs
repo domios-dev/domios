@@ -179,7 +179,7 @@ impl AgentProvider for ClaudeProvider {
             untrusted_above_lines: 0,
             typed_follow_up: codeterm_wire::domios::pasted_marker_tail(),
             paste_marker_when: crate::provider::PasteMarkerWhen::Multiline,
-            requires_typed_instruction_for_routed_messages: true,
+            marks_routed_messages: true,
         })
     }
 

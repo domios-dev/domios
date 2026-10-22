@@ -169,13 +169,13 @@ fn refresh_channel_for_install(channel: &str, warnings: &mut Vec<String>) -> boo
 fn install_message(base: &str, id: &str, reload_required: bool) -> String {
     let mut msg = base.to_string();
     if reload_required {
-        msg.push_str(" — reload CodeTerm to activate");
+        msg.push_str(" — reload Domios to activate");
     }
     msg.push_str(&format!(
-        ". To configure it: run `codeterm plugin get {id}` to see options, \
-         ask the user what they want, then use `codeterm plugin config {id} --set key=value` \
+        ". To configure it: run `domios plugin get {id}` to see options, \
+         ask the user what they want, then use `domios plugin config {id} --set key=value` \
          for non-secret fields. For secret fields, pipe the value to \
-         `codeterm plugin config {id} --secret FIELD`; never put the value in command arguments."
+         `domios plugin config {id} --secret FIELD`; never put the value in command arguments."
     ));
     msg
 }
@@ -325,18 +325,25 @@ pub(super) fn install_from_dir(
     if tmp.exists() {
         fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
     }
-    copy_dir_filtered(source, &tmp)?;
+    if source.join("runtime-files.txt").is_file() {
+        codeterm_util::plugin_runtime_files::copy_runtime_bundle(source, &tmp)
+            .map_err(|e| e.to_string())?;
+    } else {
+        copy_dir_filtered(source, &tmp)?;
+    }
     let manifest_path = tmp.join("plugin.json");
     let manifest_text = fs::read_to_string(&manifest_path)
         .map_err(|e| format!("read {}: {e}", manifest_path.display()))?;
     let mut manifest: serde_json::Value =
         serde_json::from_str(&manifest_text).map_err(|e| format!("parse plugin.json: {e}"))?;
-    manifest["id"] = serde_json::Value::String(id.to_string());
-    fs::write(
-        &manifest_path,
-        serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| format!("write {}: {e}", manifest_path.display()))?;
+    if manifest["id"].as_str() != Some(id) {
+        manifest["id"] = serde_json::Value::String(id.to_string());
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| format!("write {}: {e}", manifest_path.display()))?;
+    }
     if let Some(record) = record {
         let body = serde_json::to_string_pretty(record).map_err(|e| e.to_string())?;
         fs::write(tmp.join(".codeterm-install.json"), body).map_err(|e| e.to_string())?;

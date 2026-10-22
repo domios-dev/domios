@@ -2,13 +2,7 @@ use super::*;
 use codeterm_blueprint_types::blueprint_github::GithubResource;
 use codeterm_blueprint_types::blueprint_source::SourceReading;
 
-pub(super) fn run(
-    handle: &Handle,
-    svc: &ServiceContext,
-    lease: &Lease,
-    step: &Step,
-    previous: &str,
-) -> StepResult {
+pub(super) fn run(handle: &Handle, lease: &Lease, step: &Step, previous: &str) -> StepResult {
     if let StepKind::Http { probe } = &step.kind {
         if let Err(reason) = probe.validate() {
             return failed_input_step(&reason);
@@ -50,14 +44,27 @@ pub(super) fn run(
         .expires_at
         .map(|at| Duration::from_millis(at.saturating_sub(now(handle))))
         .unwrap_or(runtime);
-    let result = probe::run_with_budget(
-        &command,
-        Path::new(&lease.job.cwd),
-        remaining,
-        runtime,
-        &handle.probe_owner,
-        &crate::probe_env::current_instance(svc.configuration().api),
-    );
+    let environment = crate::probe_env::command();
+    let result = if matches!(step.kind, StepKind::Command { .. }) {
+        probe::run_with_budget_input(
+            &command,
+            Path::new(&lease.job.cwd),
+            remaining,
+            runtime,
+            &handle.probe_owner,
+            &environment,
+            previous,
+        )
+    } else {
+        probe::run_with_budget(
+            &command,
+            Path::new(&lease.job.cwd),
+            remaining,
+            runtime,
+            &handle.probe_owner,
+            &environment,
+        )
+    };
     match result {
         Ok(output) => {
             if output.success {

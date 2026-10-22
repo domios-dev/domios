@@ -1,6 +1,9 @@
 use std::io;
 use std::path::Path;
 
+#[cfg(windows)]
+mod retry;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
     Backup,
@@ -23,7 +26,7 @@ impl Step {
 fn swap(
     has_previous: bool,
     mut perform: impl FnMut(Step) -> io::Result<()>,
-    retryable: impl Fn(&io::Error) -> bool,
+    mut retryable: impl FnMut(&io::Error) -> bool,
 ) -> Result<(), String> {
     if has_previous {
         perform(Step::Backup).map_err(|e| format!("{}: {e}", Step::Backup.label()))?;
@@ -58,6 +61,9 @@ fn windows_sharing_error(error: &io::Error) -> bool {
 }
 
 pub(super) fn activate(staging: &Path, destination: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    let retry = retry::ChangeRetry::new(staging)
+        .map_err(|error| format!("watch locked staging path {}: {error}", staging.display()))?;
     let backup = destination.with_extension("rollback.tmp-install");
     super::ensure_plugin_path_inside(&backup)?;
     if backup
@@ -80,12 +86,21 @@ pub(super) fn activate(staging: &Path, destination: &Path) -> Result<(), String>
             Step::Restore => std::fs::rename(&backup, destination),
             Step::Cleanup => std::fs::remove_dir_all(&backup),
         },
-        windows_sharing_error,
+        |error| {
+            if !windows_sharing_error(error) {
+                return false;
+            }
+            #[cfg(windows)]
+            return retry.changed(staging, destination);
+            #[cfg(not(windows))]
+            false
+        },
     )
     .map_err(|e| {
         format!(
-            "install {}: {e}; backup {}",
+            "install {} from staging {}: {e}; a sharing violation may lock either path; backup {}",
             destination.display(),
+            staging.display(),
             backup.display()
         )
     })

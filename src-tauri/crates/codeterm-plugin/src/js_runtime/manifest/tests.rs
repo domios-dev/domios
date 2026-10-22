@@ -747,7 +747,7 @@ fn shipped_browser_manifest_contributes_a_valid_prompt_line() {
     let line = manifest
         .agent_prompt_line
         .expect("browser declares agentPromptLine");
-    assert!(line.contains("`codeterm docs BROWSER`"));
+    assert!(line.contains("`domios docs BROWSER`"));
 }
 
 #[test]

@@ -570,6 +570,6 @@
     "breaking": []
   },
   "dataPaths": [
-    "~/.codeterm/codex/tasks"
+    "~/.domios/codex/tasks"
   ]
 }

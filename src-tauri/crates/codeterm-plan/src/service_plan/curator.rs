@@ -10,6 +10,17 @@ pub mod digest;
 pub mod movement;
 pub mod note;
 pub mod synthesis;
+pub fn request_round(state: &mut ControlLoop, eligible: bool, now: u64) -> Result<(), String> {
+    if !eligible || state.owner_heartbeat() {
+        return Err("Curator round is suspended or Curator mode is unavailable".into());
+    }
+    if state.running.is_some() || state.manual_run_requested {
+        return Err("Curator round is already running or requested".into());
+    }
+    state.manual_run_requested = true;
+    state.next_at = Some(now);
+    Ok(())
+}
 #[cfg(test)]
 mod tests;
 
@@ -57,11 +68,12 @@ impl PlanStore {
             if update.mode != ControlLoopMode::Heartbeat
                 || ![900, 1800, 2700, 3600, 5400, 7200].contains(&interval)
             {
-                return Err(PlanError::Io("heartbeat interval must be 15, 30, 45, 60, 90 or 120 minutes, in heartbeat mode".into()));
+                return Err(PlanError::Validation("heartbeat interval must be 15, 30, 45, 60, 90 or 120 minutes, in heartbeat mode".into()));
             }
         }
         self.with_plan(id, now, |plan| {
             plan.control_loop.mode = update.mode;
+            plan.control_loop.manual_run_requested = false;
             plan.control_loop.heartbeat_interval_secs = update.heartbeat_interval_secs;
             plan.control_loop.next_at = None;
             plan.control_loop.fallback_reason = None;
@@ -89,10 +101,10 @@ impl PlanStore {
                 .running
                 .as_ref()
                 .filter(|r| r.number == number)
-                .ok_or_else(|| PlanError::Io("Curator round is no longer active".into()))?
+                .ok_or_else(|| PlanError::Validation("Curator round is no longer active".into()))?
                 .clone();
             if note.ready.is_some() && !run.synthesis {
-                return Err(PlanError::Io(
+                return Err(PlanError::Validation(
                     "READY is only valid in a synthesis round".into(),
                 ));
             }
@@ -111,15 +123,16 @@ impl PlanStore {
                 }
             }
             let round = CuratorRound {
+                run_id: run.run_id,
+                tab_id: run.tab_id,
                 number,
                 started_at: run.started_at,
                 ended_at: now,
                 outcome: if plan.control_loop.mode == ControlLoopMode::Curator {
-                    "done"
+                    codeterm_types::plan::CuratorOutcome::Done
                 } else {
-                    "mode_changed"
-                }
-                .into(),
+                    codeterm_types::plan::CuratorOutcome::ModeChanged
+                },
                 summary: note.ready.as_ref().map_or_else(
                     || note.next_move.clone(),
                     |ready| format!("{}\nREADY: {ready}", note.next_move),
@@ -128,19 +141,19 @@ impl PlanStore {
                 move_line: note.next_move.clone(),
                 retro: note.retro.clone(),
                 learn: note.learnings.clone(),
+                next_checks: note.next_checks.clone(),
                 ready: note.ready.clone(),
                 next_delay_secs: curator_delay(Some(note.next_secs)),
                 reason: note.reason.clone(),
                 learnings: (note.retro.len() + note.learnings.len() + note.next_checks.len())
                     as u64,
-                asked: note.asked.clone(),
+                asked: note.asked,
                 digest_hash: run.digest_hash,
                 section_sizes: run.section_sizes,
                 turns: run.turns,
                 output_tokens: run.output_tokens,
                 save_id: run.save_id,
                 duration_ms: now.saturating_sub(run.started_at),
-                ..Default::default()
             };
             plan.control_loop.consecutive_failures = 0;
             plan.control_loop.fallback_reason = None;

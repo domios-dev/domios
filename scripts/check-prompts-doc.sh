@@ -52,6 +52,17 @@ for source in loader_sources:
 
 errors = []
 
+product_content = [*prompt_files, *(root / "prod-docs").glob("*.md"), *(root / "skills").rglob("*.md")]
+repository_only = re.compile(
+    r"build\.(?:sh|ps1)|src-tauri/|tests/playwright/|scripts/merge-stack-audit\.sh|"
+    r"\.agents/skills/(?:orchestration|build|dev-run)/SKILL\.md|"
+    r"upgrade-restore|dev-updater-allowlocal|api\.mesh_tailnet_host"
+)
+for path in product_content:
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if repository_only.search(line):
+            errors.append(f"Repository-only guidance in shipped content: {path.relative_to(root)}:{number}")
+
 bold_prompt_files = sorted(
     p.relative_to(prompts_dir).as_posix()
     for p in prompt_files

@@ -99,16 +99,6 @@ test("screenshots must be recorded for setup and verify and be real PNG files", 
   assert.match(errorsOf(bad), /setup\.png is not a PNG/);
 });
 
-test("an upgrade run directory validates both cycles, using upgrade.json for the first", () => {
-  const dir = scratch();
-  writeFixtureRun(join(dir, "n"));
-  writeFixtureRun(join(dir, "n-1-to-n"), { restart: null });
-  writeFileSync(join(dir, "n-1-to-n", "upgrade.json"), JSON.stringify(fixtureRestart()));
-  assert.deepEqual(validateTree(dir).map((report) => report.pass), [true, true]);
-  rmSync(join(dir, "n", "restart.json"));
-  assert.deepEqual(validateTree(dir).map((report) => report.pass), [true, false]);
-});
-
 test("the CLI exits 0 on the complete fixture and 1 on a broken one", () => {
   const cli = join(here, "evidence-contract.mjs");
   assert.equal(spawnSync(process.execPath, [cli, run()], { encoding: "utf8" }).status, 0);

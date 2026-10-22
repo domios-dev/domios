@@ -3,7 +3,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::agent::provider::{VerifySubmitStrategy, DEFAULT_SUBMIT_RETRY_OFFSETS};
+use crate::agent::provider::{PasteCapability, VerifySubmitStrategy, DEFAULT_SUBMIT_RETRY_OFFSETS};
 use crate::agent::status::TabStatus;
 use crate::pty::screen_state::ScreenChangeSignal;
 use crate::service::inject_verify::{
@@ -24,8 +24,7 @@ pub(crate) use paste_encoding::live_command_input;
 use paste_encoding::PasteEncodingCapability;
 #[cfg(test)]
 use paste_encoding::{
-    encode_paste_frame, encode_paste_frame_with_tail, xterm_paste, BRACKETED_PASTE_END,
-    BRACKETED_PASTE_START,
+    encode_paste_payload, xterm_paste, BRACKETED_PASTE_END, BRACKETED_PASTE_START,
 };
 pub(crate) use readiness::observe_delivery_readiness;
 use readiness::{exact_session_turn_source_available, pty_owner_guard};
@@ -47,7 +46,7 @@ use runner::run;
 use runner::run_with_submit_key;
 #[cfg(test)]
 use runner::run_with_submit_key_and_follow_up;
-use runner::run_with_submit_key_and_frame;
+use runner::run_with_submit_key_and_payload;
 
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = DEFAULT_SUBMIT_RETRY_OFFSETS.len() + 1;
@@ -179,26 +178,12 @@ trait SubmitTransport {
         true
     }
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
-    fn write_paste_with_frame(
-        &self,
-        text: &str,
-        typed_prefix: Option<&str>,
-        pasted_tail: Option<&str>,
-        typed_suffix: Option<&str>,
-        deadline: Instant,
-    ) -> Result<usize, InjectionError> {
-        let framed = format!(
-            "{}{text}{}{}",
-            typed_prefix.unwrap_or_default(),
-            pasted_tail.unwrap_or_default(),
-            typed_suffix.unwrap_or_default()
-        );
-        self.write_paste(&framed, deadline)
-    }
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
 }
 
 struct PtySubmitTransport<'a> {
+    force_bracketed_paste: bool,
+    paste_marker: Option<&'a str>,
     svc: &'a ServiceContext,
     pty_id: &'a str,
     signal: RefCell<Arc<ScreenChangeSignal>>,
@@ -242,7 +227,7 @@ fn initial_submit_frames(
     capability: PasteEncodingCapability,
 ) -> Vec<Vec<u8>> {
     vec![
-        encode_paste_frame(text, None, None, live_mode, capability),
+        encode_paste_payload(text, false, None, live_mode, capability),
         key.to_vec(),
     ]
 }
@@ -474,18 +459,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
-        self.write_paste_with_frame(text, None, None, None, deadline)
-    }
-
-    fn write_paste_with_frame(
-        &self,
-        text: &str,
-        typed_prefix: Option<&str>,
-        pasted_tail: Option<&str>,
-        typed_suffix: Option<&str>,
-        deadline: Instant,
-    ) -> Result<usize, InjectionError> {
-        if text.is_empty() && typed_prefix.is_none() && typed_suffix.is_none() {
+        if text.is_empty() {
             return Ok(0);
         }
         let live_bracketed_paste_mode = self
@@ -493,11 +467,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .screen_state
             .lock()
             .bracketed_paste_mode(self.pty_id);
-        let input = paste_encoding::encode_paste_frame_with_tail(
+        let input = paste_encoding::encode_paste_payload(
             text,
-            typed_prefix,
-            pasted_tail,
-            typed_suffix,
+            self.force_bracketed_paste,
+            self.paste_marker,
             live_bracketed_paste_mode,
             self.paste_capability,
         );
@@ -691,7 +664,7 @@ fn composer_draft_evidence(svc: &ServiceContext, pty_id: &str, text: &str) -> us
 pub(crate) fn submit_text(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     enter: bool,
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
@@ -702,7 +675,7 @@ pub(crate) fn submit_text(
 pub(crate) fn submit_text_with_key(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     enter: bool,
     submit_key: &[u8],
     strategy: VerifySubmitStrategy,
@@ -727,7 +700,7 @@ pub(crate) fn submit_text_with_key(
 pub(crate) fn submit_text_with_key_and_follow_up(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     typed_follow_up: Option<&str>,
     enter: bool,
     submit_key: &[u8],
@@ -763,7 +736,7 @@ pub(crate) fn recovery_attempted(result: &InjectionResult) -> bool {
 pub(crate) fn submit_text_with_key_claimed_and_follow_up(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     typed_follow_up: Option<&str>,
     enter: bool,
     submit_key: &[u8],
@@ -791,13 +764,12 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
     )
 }
 
-pub(crate) fn submit_text_with_key_claimed_and_frame(
+pub(crate) fn submit_text_with_key_claimed(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
-    typed_prefix: Option<&str>,
-    pasted_tail: Option<&str>,
-    typed_suffix: Option<&str>,
+    text: &crate::service::messenger::AgentInput,
+    force_bracketed_paste: bool,
+    paste_marker: Option<&str>,
     enter: bool,
     submit_key: &[u8],
     strategy: VerifySubmitStrategy,
@@ -806,13 +778,12 @@ pub(crate) fn submit_text_with_key_claimed_and_frame(
     track_exact_session_turn: bool,
     claim: SubmitCycleClaim,
 ) -> Result<InjectionResult, InjectionError> {
-    submit_text_with_key_claimed_and_frame_revalidated(
+    submit_text_with_key_claimed_revalidated(
         svc,
         pty_id,
         text,
-        typed_prefix,
-        pasted_tail,
-        typed_suffix,
+        force_bracketed_paste,
+        paste_marker,
         enter,
         submit_key,
         strategy,
@@ -829,7 +800,7 @@ pub(crate) fn submit_text_with_key_claimed_and_frame(
 pub(crate) fn submit_text_with_key_claimed_and_follow_up_revalidated(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
+    text: &crate::service::messenger::AgentInput,
     typed_follow_up: Option<&str>,
     enter: bool,
     submit_key: &[u8],
@@ -842,13 +813,12 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up_revalidated(
     allow_superseded_payload: bool,
     payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Result<InjectionResult, InjectionError> {
-    submit_text_with_key_claimed_and_parts_revalidated(
+    submit_text_with_key_claimed_revalidated(
         svc,
         pty_id,
         text,
-        None,
+        false,
         typed_follow_up,
-        None,
         enter,
         submit_key,
         strategy,
@@ -862,13 +832,12 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up_revalidated(
     )
 }
 
-pub(crate) fn submit_text_with_key_claimed_and_frame_revalidated(
+pub(crate) fn submit_text_with_key_claimed_revalidated(
     svc: &ServiceContext,
     pty_id: &str,
-    text: &str,
-    typed_prefix: Option<&str>,
-    pasted_tail: Option<&str>,
-    typed_suffix: Option<&str>,
+    text: &crate::service::messenger::AgentInput,
+    force_bracketed_paste: bool,
+    paste_marker: Option<&str>,
     enter: bool,
     submit_key: &[u8],
     strategy: VerifySubmitStrategy,
@@ -880,44 +849,20 @@ pub(crate) fn submit_text_with_key_claimed_and_frame_revalidated(
     allow_superseded_payload: bool,
     payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Result<InjectionResult, InjectionError> {
-    submit_text_with_key_claimed_and_parts_revalidated(
-        svc,
-        pty_id,
-        text,
-        typed_prefix,
-        pasted_tail,
-        typed_suffix,
-        enter,
-        submit_key,
-        strategy,
-        opts,
-        permit,
-        track_exact_session_turn,
-        claim,
-        pre_write_guard,
-        allow_superseded_payload,
-        payload_queued,
-    )
-}
-
-fn submit_text_with_key_claimed_and_parts_revalidated(
-    svc: &ServiceContext,
-    pty_id: &str,
-    text: &str,
-    typed_prefix: Option<&str>,
-    pasted_tail: Option<&str>,
-    typed_suffix: Option<&str>,
-    enter: bool,
-    submit_key: &[u8],
-    strategy: VerifySubmitStrategy,
-    opts: VerifyOpts,
-    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
-    track_exact_session_turn: bool,
-    claim: SubmitCycleClaim,
-    pre_write_guard: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
-    allow_superseded_payload: bool,
-    payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
-) -> Result<InjectionResult, InjectionError> {
+    if matches!(text, crate::service::messenger::AgentInput::Shell(_)) {
+        let mux = svc.mux.read();
+        if mux
+            .tab_id_for_pty(pty_id)
+            .and_then(|id| mux.get_tab(&id))
+            .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting)
+        {
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: pty_id.into(),
+            });
+        }
+    }
+    let rendered = text.text();
+    let text = rendered.as_ref();
     if claim.pty_id() != pty_id || claim.command_wait().is_some() {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
@@ -954,7 +899,12 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
             .with_provider(&provider, |provider| provider.composer_cursor_position())
     });
     let policy = line_mode::submit_policy(track_exact_session_turn, composer);
+    let paste_marker = paste_marker
+        .filter(|marker| PasteCapability::is_valid_typed_follow_up(marker))
+        .filter(|_| enter && !text.is_empty());
     let transport = PtySubmitTransport {
+        force_bracketed_paste,
+        paste_marker,
         svc,
         pty_id,
         signal: RefCell::new(signal),
@@ -990,14 +940,13 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
     let mut key_guard = |allow_initial_key: bool, _turn_was_started: bool| {
         recovery_guard::submit_key_guard(&transport, allow_initial_key)
     };
-    let run = run_with_submit_key_and_frame(
+    let expected_user_turn = format!("{text}{}", paste_marker.unwrap_or_default());
+    let run = run_with_submit_key_and_payload(
         &transport,
         text,
         enter,
         submit_key,
-        typed_prefix,
-        pasted_tail,
-        typed_suffix,
+        &expected_user_turn,
         strategy,
         opts,
         &mut key_guard,
@@ -1022,16 +971,6 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
             );
         }
     });
-    let expected_user_turn = if enter && !text.is_empty() {
-        format!(
-            "{}{text}{}{}",
-            typed_prefix.unwrap_or_default(),
-            pasted_tail.unwrap_or_default(),
-            typed_suffix.unwrap_or_default()
-        )
-    } else {
-        text.to_string()
-    };
     let exact_turn_present =
         track_exact_session_turn && transport.exact_user_turn_present(&expected_user_turn);
     if exact_turn_present {

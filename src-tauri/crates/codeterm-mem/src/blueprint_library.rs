@@ -22,31 +22,47 @@ pub(crate) enum Pending {
     Reuse(Vec<String>),
 }
 
-fn entries(conn: &Connection, blobs: &std::path::Path, area: &str) -> Result<Vec<Entry>, String> {
+fn load_entries(
+    conn: &Connection,
+    blobs: &std::path::Path,
+    area: &str,
+    validate: bool,
+) -> Result<Vec<Entry>, String> {
     let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND m.area=?1 AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id LIMIT 51").map_err(|error|error.to_string())?;
     let ids = stmt
         .query_map(params![area, SOURCE], |row| row.get::<_, String>(0))
         .map_err(|error| error.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
-    ids.into_iter()
-        .map(|id| {
-            let item = store::get(conn, &id, blobs)?.ok_or("Blueprint solution disappeared")?;
-            let stats = metadata::read(conn, &id)?
-                .and_then(|record| record.blueprint)
-                .ok_or("Blueprint metadata absent")?;
-            Ok(Entry {
-                id,
-                document: model::parse_document(&item.body)?,
-                when_to_use: stats.when_to_use,
-                uses: stats.uses,
-                successes: stats.successes,
-                failures: stats.failures,
-                kept: stats.explicitly_kept,
-                last_used: stats.last_used,
-            })
-        })
-        .collect()
+    let mut result = Vec::new();
+    for id in ids {
+        let item = store::get(conn, &id, blobs)?.ok_or("Blueprint solution disappeared")?;
+        let stats = metadata::read(conn, &id)?
+            .and_then(|record| record.blueprint)
+            .ok_or("Blueprint metadata absent")?;
+        let document = match model::parse_document(&item.body) {
+            Ok(document) if !validate || document.template_errors().is_empty() => document,
+            _ => {
+                archive(conn, &id, "Blueprint recipe fails current validation")?;
+                continue;
+            }
+        };
+        result.push(Entry {
+            id,
+            document,
+            when_to_use: stats.when_to_use,
+            uses: stats.uses,
+            successes: stats.successes,
+            failures: stats.failures,
+            kept: stats.explicitly_kept,
+            last_used: stats.last_used,
+        });
+    }
+    Ok(result)
+}
+
+fn entries(conn: &Connection, blobs: &std::path::Path, area: &str) -> Result<Vec<Entry>, String> {
+    load_entries(conn, blobs, area, true)
 }
 
 fn archive(conn: &Connection, id: &str, reason: &str) -> Result<(), String> {
@@ -67,22 +83,7 @@ fn write_entry(
     mut record: SolutionMetadata,
 ) -> Result<(), String> {
     record.set_entry(entry);
-    let mut document = entry.document.clone();
-    if let Some(curator) = &record.curator {
-        let how = model::abstract_document(document.clone())
-            .note
-            .unwrap_or_default();
-        document.note = Some(format!(
-            "{how}\nEvidence: {} Grants: {}",
-            curator
-                .episodes
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(" "),
-            curator.grants.iter().cloned().collect::<Vec<_>>().join(" ")
-        ));
-    }
+    let document = &entry.document;
     let mut tags = vec!["blueprint-library".into()];
     if let Some(curator) = &record.curator {
         tags.push("curator".into());
@@ -177,7 +178,7 @@ impl MemManager {
         let yaml = document.yaml()?;
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-        let mut library = entries(&tx, &self.blobs_dir, area)?;
+        let mut library = load_entries(&tx, &self.blobs_dir, area, !evidence.kept)?;
         let now = chrono::Utc::now();
         let id = if let Some(existing) = model::duplicate(&library, &document) {
             let mut record =
@@ -196,6 +197,10 @@ impl MemManager {
             let mut next = model::merge_pair(existing, &candidate)
                 .ok_or("Blueprint structure changed")?
                 .keeper;
+            if evidence.kept {
+                next.document = candidate.document;
+                next.when_to_use = candidate.when_to_use;
+            }
             next.id = existing.id.clone();
             record.observe(&evidence, now.timestamp());
             write_entry(&tx, &self.blobs_dir, &next, record)?;
@@ -280,11 +285,13 @@ impl MemManager {
         intent: &str,
         limit: usize,
     ) -> Result<Vec<Entry>, String> {
-        let library = {
-            let conn = self.conn.lock();
-            entries(&conn, &self.blobs_dir, area)?
+        let embedding = if intent.trim().is_empty() {
+            None
+        } else {
+            crate::solution_search::query_embedding(intent)
         };
-        let result = model::recall(&library, intent, limit, chrono::Utc::now().timestamp());
+        let result =
+            self.recall_blueprints_with_embedding(area, intent, limit, embedding.as_deref())?;
         let total = RECALLS.fetch_add(1, Ordering::Relaxed) + 1;
         if !result.is_empty() {
             HITS.fetch_add(1, Ordering::Relaxed);
@@ -300,6 +307,81 @@ impl MemManager {
             ));
         }
         Ok(result)
+    }
+
+    fn recall_blueprints_with_embedding(
+        &self,
+        area: &str,
+        intent: &str,
+        limit: usize,
+        embedding: Option<&[f32]>,
+    ) -> Result<Vec<Entry>, String> {
+        let now = chrono::Utc::now().timestamp();
+        if intent.trim().is_empty() {
+            let mut library = entries(&self.conn.lock(), &self.blobs_dir, area)?;
+            library.sort_by(|a, b| {
+                model::score(b, now)
+                    .total_cmp(&model::score(a, now))
+                    .then(a.id.cmp(&b.id))
+            });
+            library.truncate(limit.min(AREA_CAP));
+            return Ok(library);
+        }
+        let hits = self.recall_solutions_with_embedding(
+            &crate::SearchQuery {
+                query: intent.into(),
+                kind: Some("skill".into()),
+                area: (!area.is_empty()).then(|| area.into()),
+                limit: Some(AREA_CAP),
+                ..Default::default()
+            },
+            Some(SOURCE),
+            embedding,
+        )?;
+        let conn = self.conn.lock();
+        let mut ranked = Vec::new();
+        for hit in hits {
+            let Some(stats) =
+                metadata::read(&conn, &hit.item.id)?.and_then(|record| record.blueprint)
+            else {
+                continue;
+            };
+            let document = match model::parse_document(&hit.item.body) {
+                Ok(document) if document.template_errors().is_empty() => document,
+                _ => {
+                    archive(
+                        &conn,
+                        &hit.item.id,
+                        "Blueprint recipe fails current validation",
+                    )?;
+                    continue;
+                }
+            };
+            ranked.push((
+                hit.score,
+                Entry {
+                    id: hit.item.id,
+                    document,
+                    when_to_use: stats.when_to_use,
+                    uses: stats.uses,
+                    successes: stats.successes,
+                    failures: stats.failures,
+                    kept: stats.explicitly_kept,
+                    last_used: stats.last_used,
+                },
+            ));
+        }
+        ranked.sort_by(|(a_rank, a), (b_rank, b)| {
+            a_rank
+                .total_cmp(b_rank)
+                .then(model::score(b, now).total_cmp(&model::score(a, now)))
+                .then(a.id.cmp(&b.id))
+        });
+        Ok(ranked
+            .into_iter()
+            .take(limit.min(AREA_CAP))
+            .map(|(_, entry)| entry)
+            .collect())
     }
 
     pub fn list_blueprint_solutions(&self, area: &str) -> Result<Vec<Entry>, String> {

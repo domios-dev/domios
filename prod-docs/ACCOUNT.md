@@ -1,15 +1,15 @@
 # Domios Account and Analytics
 
-The account and analytics features each own a provider trait; vendors are adapters chosen by config, and each feature ships `local` and `fake` adapters that work with no vendor account.
+Sign in, manage a subscription, and control optional product analytics through the Account menu, Settings, or the CLI.
 
 ## Account
 
-`account.provider` selects `local` (without build-time Firebase configuration), `fake` (tests) or `firebase`. Local signs in `local-dev-user` without cloud setup. Provider configuration is read when the account service first starts; restart after changing it. Firebase defaults come from build-time environment variables: DOMIOS_FIREBASE_API_KEY, DOMIOS_FIREBASE_PROJECT_ID, DOMIOS_FIREBASE_APP_ID and DOMIOS_ACCOUNT_REDEEM_URL. Complete values select Firebase by default; missing values select local. The project ID supplies the hosted sign-in URL. Existing account.signin_url, account.redeem_url and account.api_key config values override those defaults; an incomplete Firebase configuration falls back to local. No vendor key is stored in the repository. `account.login_timeout_secs` defaults to 180 (valid range 1–600). Login carries a random state and S256 challenge to the system browser. Both the loopback callback and `domios://auth/callback` require matching state; redemption submits the verifier to the backend. The refresh credential stays in the configured secret store, and the ID token stays in memory. A saved credential is refreshed at startup.
+Provider configuration is read when the account service starts. `account.login_timeout_secs` defaults to 180 (valid range 1–600). Login opens the system browser with a random state and S256 challenge. Browser callbacks require matching state; redemption submits the verifier to the backend. The refresh credential stays in the configured secret store, and the ID token stays in memory. A saved credential is refreshed at startup.
 
 ```bash
-codeterm account login
-codeterm account status
-codeterm account logout
+domios account login
+domios account status
+domios account logout
 ```
 
 Account status includes `last_sign_in_failure`: `null`, or a safe `{stage, error}` record for the last completed unsuccessful sign-in. Stages are `preparation`, `browser`, `callback`, `redemption`, `credential_save`, and `publication`; redemption includes provider token exchange and profile retrieval. Errors are closed account error categories, never provider response bodies, URLs, identifiers or credentials. The record stays available across status reads and client remounts, and clears when an explicit sign-in starts or a session succeeds. Account surfaces show a plain-language message from this record. It describes only attempts completed by this running app; it cannot diagnose a past attempt made before this instrumentation.
@@ -17,24 +17,26 @@ Account status includes `last_sign_in_failure`: `null`, or a safe `{stage, error
 ## Subscription
 
 ```bash
-codeterm account plan
-codeterm account upgrade pro
-codeterm account portal
+domios account plan
+domios account upgrade pro
+domios account portal
 ```
 
 The round avatar and chevron immediately left of Settings open the Account menu. Signed-out users can choose Sign in, Create account, Google, Facebook or email. Sign-in and account creation share the system-browser flow; the mode changes its heading. When signed in, its initial opens identity, plan, Manage subscription and Sign out. Both account states offer Community links for Telegram and Discord; the Guide offers the same links, opened in the system browser. Settings > Account shows the same plan, status, period end, cancellation flag and stale marker. Upgrade and Manage subscription open the system browser. The client reads only the signed-in user's server record using the in-memory ID token. Signed-out users get free. A failed fetch retains the last known entitlement marked stale. Sign-in, explicit app focus (at most once per minute), and checkout return refresh the cache; browser return alone never grants access. Returning from checkout to the app bypasses the focus throttle once. Hosted completion may also open `domios://billing/return`.
 
-`billing.provider` defaults to `cloud`; `billing.endpoint` overrides build-time DOMIOS_BILLING_FUNCTIONS_URL and must be an HTTPS base URL ending in `/`. Providers are selected when billing first starts. DEV also supports `local` and `fake`. Local reads `billing.entitlements` on every refresh, so a local config change plus app focus exercises the full plan display without a vendor account. Configure `plan`, `status`, `current_period_end` (Unix seconds), and `cancel_at_period_end`; missing local entitlements return free. Local checkout and portal open the loopback simulator at `billing.origin` (default `http://127.0.0.1:15100/`); run the standalone local accounts backend for its pages. Local config is the entitlement authority for this adapter; simulator payment does not change that config. Release builds refuse explicit dev providers. Without a cloud endpoint, the local fallback returns free and subscription actions report that cloud billing is unavailable.
+The cloud service supplies subscription entitlements. Without a cloud endpoint, the app returns free and subscription actions report that cloud billing is unavailable.
 
 ## Product analytics
 
-Product analytics is off by default; Settings > Privacy or `codeterm analytics status|enable|disable` records opt-in consent in `analytics-settings.json`, and turning it off clears queued events and installation/account identifiers. `DOMIOS_ANALYTICS_MODE` selects `off` (default), `console` (DEV debug logs, no external account) or `amplitude`; `DOMIOS_AMPLITUDE_SERVER_ZONE` is `us` (default) or `eu`; `DOMIOS_ANALYTICS_PROJECT` is `test` (default) or `prod`; set them before starting the daemon. The Amplitude adapter first reads build-time DOMIOS_AMPLITUDE_API_KEY_TEST or DOMIOS_AMPLITUDE_API_KEY_PROD, then reads `domios.amplitude.test.api_key` or `domios.amplitude.prod.api_key` from the secret store and holds the queue while it is missing; analytics status reports vendor_available=false. Every sink shares the consent gate, the closed product event catalog below, the persisted queue and the bounded retry policy.
+Product analytics is off by default. Settings > Privacy or `domios analytics status|enable|disable` records opt-in consent. Turning it off clears queued events and installation/account identifiers. If the analytics service is unavailable, the app holds the queue; analytics status reports `vendor_available=false`. Delivery follows the consent gate, the closed product event catalog below, and a bounded retry policy.
 
 Every event contains its catalog properties plus a random installation ID (`device_id`), unique event ID (`insert_id`) and timestamp (`time`). An authenticated account contributes only its exact Firebase account UID (`user_id`, without hashing). Sign-out removes it from subsequent events; events already queued keep the identity that owned them. Sign-in while analytics is off does not persist an analytics account ID. Opting in while signed in attaches the current account ID. A restarted daemon clears its active analytics account ID until account refresh establishes the identity again.
 
 Prompts, messages, terminal output, paths, workspace or tab names, email addresses, display names, session IDs, peer identities, credentials and arbitrary plugin model or provider names are never included. Custom providers become `other`; models are never collected. No emitter can bypass the consent gate: consent off prevents queueing and analytics network delivery, clears queued events and analytics identifiers, and a later opt-in creates a new random installation ID. Settings > Privacy > What we collect shows the same closed catalog.
 
 Managed app updates report only their kind after the requested app version is running. Frontend updates report only their kind after enrolled clients prove health and activation is saved. Plan creation follows successful persistence. Pairing and workspace creation carry the saved post-change counts. Checkout follows a successful browser open; subscription changes follow authoritative entitlement refresh, with unchanged plan/status and failed refreshes suppressed.
+
+`app_first_run` records the first consented startup with only version and platform; its saved marker is committed only after delivery and survives restarts and opt-out. An undelivered first-run event remains pending in the queue; if dropped, the next startup enqueues it again. `app_opened` accompanies each consented daemon startup. Enabling analytics during the current run records these startup events after consent, using the current signed-in UID when available. `plan_viewed` records a free-limit plans modal opening, an explicit subscription-plans request, or observed visibility of the plan cards, with no account or plan properties.
 
 `active_day` records the first app start, user message admission, agent spawn or workspace switch in a local calendar day. `feature_used` records successful use of each listed feature at most once per local calendar day. Both gates persist alongside analytics settings, survive restarts, and use activity events without timers or polling. Opt-out clears the saved days together with identifiers and queued events. Machine counts include this machine plus paired peers; workspace counts include all workspaces.
 
@@ -45,6 +47,9 @@ Versions contain numeric major, minor and patch only, without prerelease labels 
 <!-- analytics-catalog:start -->
 | Event | Properties |
 |---|---|
+| `app_first_run` | `version`: Version, `platform`: Platform |
+| `app_opened` | None |
+| `plan_viewed` | None |
 | `app_started` | `version`: Version, `platform`: Platform, `mesh_machines`: u32, `workspaces`: u32 |
 | `mesh_peer_paired` | `mesh_machines`: u32 |
 | `workspace_created` | `workspaces`: u32 |
@@ -79,7 +84,7 @@ Local callers only.
 | POST | `/api/account/logout` | — | Block Mesh traffic, withdraw this machine's endpoint once, then clear credentials and cached entitlements; saved pairs and the machine slot stay |
 | GET | `/api/account/plan` | — | Cached entitlement and stale marker |
 | POST | `/api/account/plan/refresh` | — | Explicit focus refresh, throttled to once per minute |
-| POST | `/api/account/upgrade` | `{plan}` | Open checkout in the system browser |
+| POST | `/api/account/upgrade` | `{plan, theme?}` | Open checkout in the system browser; `theme` (`light` or `dark`) sets the checkout page's theme |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
 | GET | `/api/account/mesh` | — | Account Mesh snapshot: `binding`, `traffic`, `cleanup`, `self`, last `registry` observation, pending `limit_notice` |
 | POST | `/api/account/mesh/enroll` | — | Retry enrollment; a refusal returns `{ok:false, request_id, failure}` |
@@ -90,4 +95,4 @@ Local callers only.
 
 Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not.
 
-<!-- revision: 9 -->
+<!-- revision: 13 -->

@@ -2,6 +2,7 @@ mod account;
 pub mod account_mesh;
 pub mod adapters;
 mod build_config;
+pub mod firebase_endpoints;
 mod flow;
 mod sign_in_diagnostic;
 pub use sign_in_diagnostic::{SignInFailure, SignInStage};

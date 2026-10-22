@@ -5,8 +5,8 @@ fn test_health_returns_ok() {
     let result = health_result().unwrap();
     let json = result.into_json();
     assert_eq!(json["status"], "ok");
-    assert_eq!(json["name"], "CodeTerm");
-    assert!(json["version"].is_string());
+    assert_eq!(json["name"], "Domios");
+    assert_eq!(json["version"], codeterm_build_info::version());
     assert!(json["platform"].is_string());
 }
 
@@ -1002,4 +1002,16 @@ fn workspace_set_cwd_deserializes_without_replacing_identity() {
     .unwrap();
     assert!(matches!(cmd, Command::WorkspaceSetCwd { workspace_id, cwd }
         if workspace_id == "existing" && cwd == "/new"));
+}
+
+#[test]
+fn exact_tab_projection_includes_hidden_tabs_while_lists_hide_them() {
+    let (mut state, id) = crate::multiplexer::state::MultiplexerState::new();
+    state.get_tab_mut(&id).unwrap().hidden = true;
+    let snapshot = state.snapshot();
+    assert!(build_tab_list_json(&snapshot).is_empty());
+    let inspected = build_tab_projection_json(&snapshot, true);
+    assert_eq!(inspected.len(), 1);
+    assert_eq!(inspected[0]["id"], id);
+    assert_eq!(inspected[0]["hidden"], true);
 }

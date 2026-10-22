@@ -980,7 +980,7 @@ fn discover_unix_socket() -> Result<(SocketClient, ResolvedSocket), String> {
 /// An agent sandbox that denies the daemon pipe must not read as a dead daemon.
 fn connect_failure_message(socket_path: &str, denied: bool, caller_tab: Option<&str>) -> String {
     let base = format!("Failed to connect to '{socket_path}' (tried with/without .sock)");
-    let restart = |tab: &str| format!("from another tab run `codeterm agent restart --tab {tab}`");
+    let restart = |tab: &str| format!("from another tab run `domios agent restart --tab {tab}`");
     match (denied, caller_tab) {
         (true, Some(tab)) => format!(
             "{base}: access denied. This agent is likely confined by its provider sandbox, launched without Domios's permission bypass; {}",

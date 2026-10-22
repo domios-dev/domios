@@ -5,6 +5,9 @@ import { aggregateTabStatuses } from "../components/Sidebar/tabStatuses";
 import type { Tab } from "./types";
 
 const agent: TabActivityInput = { tab_type: "Terminal", agent_type: "fixture", agent_session_id: "bound-session" };
+const background: TabActivityInput["provider_signals"] = { auth: null, api_error: null, permission_mode: null, background: { running: { child: "Inspect" }, overflow: false, history_incomplete: false, history_initialized: true } };
+assert.equal(tabActivity({ ...agent, provider_signals: background, agent_state: { state: "idle" } }, "Idle").status, "Working");
+assert.equal(tabActivity({ ...agent, provider_signals: background, agent_state: { state: "question" } }, "Waiting").status, "Waiting");
 const cases: Array<[string, TabActivityInput | null, TabStatus | null, TabActivity["kind"], boolean, boolean]> = [
   ["unknown", null, null, "idle", false, false],
   ["tracker output without classifier", agent, "Working", "idle", false, false],

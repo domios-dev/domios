@@ -112,3 +112,8 @@ assert(summarizeGroupClose({ managers: 2, workers: 0 }) === "2 managers", "omits
 assert(summarizeGroupClose({ managers: 1, workers: 1 }) === "1 manager, 1 worker", "both singular");
 
 console.log("✓ orchestrationSections: role→section matrix, badges, partition, group-close summary");
+
+const curator = tab({ role: "Manager", role_profile: "curator" });
+assert(sectionForRole(curator.role, curator.role_profile) === "manager", "Curator groups under managers");
+assert(roleShieldLabel(curator) === "CURATOR", "Curator has a distinct identity badge");
+assert(partitionBySection([{ tab: curator }]).managers.length === 1, "Curator is in the managers partition");

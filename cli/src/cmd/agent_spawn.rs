@@ -80,7 +80,7 @@ pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), Strin
         if ctx.task_bound() {
             return Err(concat!(
                 "--authorized-gate is not carried by a task-bound spawn; declare the gates ",
-                "where they are also enforced: codeterm plan task dispatch <plan> <task> ",
+                "where they are also enforced: domios plan task dispatch <plan> <task> ",
                 "--authorized-gate <command>"
             )
             .into());

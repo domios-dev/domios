@@ -18,6 +18,20 @@ pub(super) fn team_plan_rpc_err(error: TeamPlanError) -> JsonRpcError {
     }
 }
 
+fn close_team_rpc_error(message: String) -> JsonRpcError {
+    let data = codeterm_service_core::service::close_inventory_error_data(&message);
+    JsonRpcError {
+        code: if data.is_some() { -32000 } else { -32602 },
+        message: data
+            .as_ref()
+            .and_then(|data| data.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or(&message)
+            .to_string(),
+        data,
+    }
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -100,11 +114,7 @@ pub(super) fn dispatch(
             let result = codeterm_service_core::async_runtime::block_on(
                 svc.close_team(&team_id, caller, force_busy),
             )
-            .map_err(|message| JsonRpcError {
-                code: -32602,
-                message,
-                data: None,
-            })?;
+            .map_err(close_team_rpc_error)?;
             Ok(serde_json::to_value(&result).unwrap_or_default())
         }
         "team.adopt_plan" => {
@@ -275,87 +285,4 @@ fn required_caller_tab(params: &Option<Value>, action: &str) -> Result<String, J
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn team_lifecycle_advances_after_plan_approval_and_retains_closing() {
-        let mut team = codeterm_types::team::Team::new("ws", 1);
-        let mut plan = codeterm_service_core::plan::Plan::new(
-            "Approved work".into(),
-            "/project".into(),
-            codeterm_service_core::plan::OrchestratorRef::from_tab("orch"),
-        );
-        plan.team_id = Some(team.id.clone());
-        plan.mode = codeterm_service_core::plan::PlanMode::Approved;
-        assert_eq!(
-            lifecycle_for_team(&team, &[plan.clone()]),
-            codeterm_types::team::TeamLifecycle::Active
-        );
-        team.lifecycle = codeterm_types::team::TeamLifecycle::Closing;
-        assert_eq!(
-            lifecycle_for_team(&team, &[plan]),
-            codeterm_types::team::TeamLifecycle::Closing
-        );
-    }
-
-    #[test]
-    fn team_members_reports_cartographer_as_a_manager_kind() {
-        let (mut mux, orchestrator) =
-            codeterm_service_core::multiplexer::state::MultiplexerState::new();
-        let team_id = mux
-            .resolve_or_mint_team_for_parent(&orchestrator)
-            .unwrap()
-            .team_id;
-        let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
-        let cartographer = mux.create_tab(&workspace_id).unwrap();
-        mux.set_tab_role_kind(
-            &cartographer,
-            codeterm_types::agent::roles::AgentRole::Manager,
-            Some(codeterm_types::agent::role_kind::builtins::CARTOGRAPHER),
-            Some(&orchestrator),
-        )
-        .unwrap();
-
-        let members = team_members(&mux, &team_id);
-        let member = members
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|member| member["tab_id"] == cartographer)
-            .expect("cartographer is a Team member");
-        assert_eq!(member["role"], "cartographer");
-        assert_eq!(member["role_type"], "Manager");
-        assert_eq!(member["role_profile"], "cartographer");
-    }
-
-    #[test]
-    fn required_caller_tab_names_the_refused_action() {
-        let error = required_caller_tab(&Some(json!({})), "Team agent adoption").unwrap_err();
-        assert_eq!(error.code, -32602);
-        assert!(
-            error.message.contains("Team agent adoption"),
-            "{}",
-            error.message
-        );
-    }
-
-    #[test]
-    fn adopt_plan_caller_requires_nonempty_tab_id() {
-        assert_eq!(
-            adopt_plan_caller(&Some(json!({ "caller_tab_id": "manager" }))).unwrap(),
-            "manager"
-        );
-        for params in [
-            None,
-            Some(json!({})),
-            Some(json!({ "caller_tab_id": null })),
-            Some(json!({ "caller_tab_id": "  " })),
-        ] {
-            let error = adopt_plan_caller(&params).unwrap_err();
-            assert_eq!(error.code, -32602);
-            assert!(error.message.contains("caller_tab_id is required"));
-        }
-    }
-}
+mod tests;

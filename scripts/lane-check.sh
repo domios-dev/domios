@@ -41,6 +41,14 @@ configure_lane_workspace_wrapper() {
   fi
 }
 
+lane_cargo_check() {
+  local python
+  if command -v python3 >/dev/null 2>&1 && python3 --version >/dev/null 2>&1; then python=python3
+  elif command -v python >/dev/null 2>&1 && python --version >/dev/null 2>&1; then python=python
+  else echo 'lane-check requires Python for the shared-intermediate lock' >&2; return 2; fi
+  "$python" "$(dirname "${BASH_SOURCE[0]}")/lane-check-run.py" "$CARGO_BUILD_BUILD_DIR" cargo "$@"
+}
+
 lane_check() (
   local packages=() tests=() timings=() target=(--lib) manifest=src-tauri/Cargo.toml package has_cli=0
   while [ "$#" -gt 0 ]; do
@@ -72,5 +80,5 @@ lane_check() (
   configure_lane_workspace_wrapper || return $?
   prepare_dev_frontend_dist "$(pwd -P)"
   prepare_bundle_stubs
-  CARGO_BUILD_JOBS=4 cargo check --manifest-path "$manifest" "${package_args[@]}" "${target[@]}" "${tests[@]}" "${timings[@]}"
+  CARGO_BUILD_JOBS=4 lane_cargo_check check --manifest-path "$manifest" "${package_args[@]}" "${target[@]}" "${tests[@]}" "${timings[@]}"
 )

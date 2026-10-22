@@ -47,7 +47,7 @@ fn session_resume_reuses_only_a_ready_authoritative_session() {
             .existing_session_resume_tab("opaque-session")
             .unwrap_err();
         assert!(
-            error.contains(&format!("codeterm agent restart --tab {tab_id}")),
+            error.contains(&format!("domios agent restart --tab {tab_id}")),
             "{error}"
         );
         assert_eq!(

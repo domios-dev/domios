@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { Box } from "./layout";
-import type { ViewportTransform } from "./useCanvasViewport";
+import type { ViewportTransform } from "@codeterm/canvas-camera";
 import type { LodMarker } from "./canvasRender/sceneLod";
 
 const MM_W = 168;

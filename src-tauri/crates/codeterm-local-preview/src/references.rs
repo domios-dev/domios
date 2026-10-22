@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::html_preview::checked_path;
 use codeterm_types::agent::chat_types::ChatMsg;
 
-pub(super) fn path_key(path: &Path) -> String {
+pub fn path_key(path: &Path) -> String {
     let value = path.to_string_lossy().replace('\\', "/");
     let key = value.strip_prefix("//?/").unwrap_or(&value).to_string();
     if cfg!(windows) {
@@ -41,8 +41,10 @@ fn insert(paths: &mut HashSet<String>, raw: &str, cwd: Option<&str>) {
     }
 }
 
-fn directive(line: &str) -> Option<&str> {
-    let (tag, value) = line.trim().split_once(char::is_whitespace)?;
+fn directive(line: &str) -> Vec<&str> {
+    let Some((tag, value)) = line.trim().split_once(char::is_whitespace) else {
+        return Vec::new();
+    };
     if ![
         "@ds-page",
         "@ds-image",
@@ -55,15 +57,9 @@ fn directive(line: &str) -> Option<&str> {
     .iter()
     .any(|prefix| tag.eq_ignore_ascii_case(prefix))
     {
-        return None;
+        return Vec::new();
     }
-    let value = value.trim();
-    if value.starts_with(['\'', '"']) {
-        let quote = value.chars().next()?;
-        value.strip_prefix(quote)?.strip_suffix(quote)
-    } else {
-        Some(value)
-    }
+    crate::artifact_directive::artifact_paths(tag, value)
 }
 
 fn marker_paths(line: &str) -> Vec<String> {
@@ -115,7 +111,7 @@ pub fn referenced_paths(messages: &[ChatMsg], cwd: Option<&str>) -> HashSet<Stri
             for path in marker_paths(line) {
                 insert(&mut paths, &path, None);
             }
-            if let Some(path) = directive(line) {
+            for path in directive(line) {
                 insert(&mut paths, path, None);
             }
         }

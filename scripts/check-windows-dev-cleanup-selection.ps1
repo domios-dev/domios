@@ -10,12 +10,12 @@ $fixturePath = Join-Path $env:TEMP "codeterm-cleanup-selection-$PID.json"
 
 $processes = @(
   @{ ProcessId = 100; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe" },
-  @{ ProcessId = 110; ParentProcessId = 100; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--user-data-dir=$env:LOCALAPPDATA\com.codeterm.dev\EBWebView" },
+  @{ ProcessId = 110; ParentProcessId = 100; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--user-data-dir=$env:LOCALAPPDATA\com.domios.dev\EBWebView" },
   @{ ProcessId = 120; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js --port 1420" },
   @{ ProcessId = 130; ParentProcessId = 100; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--remote-debugging-port=9223" },
   @{ ProcessId = 200; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe" },
   @{ ProcessId = 201; ParentProcessId = 200; Name = "child.exe"; ExecutablePath = "C:\fixture\child.exe"; CommandLine = "child-without-direct-ownership" },
-  @{ ProcessId = 210; ParentProcessId = 1; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--user-data-dir=$env:LOCALAPPDATA\com.codeterm.dev.provider.model.oracle\EBWebView" },
+  @{ ProcessId = 210; ParentProcessId = 1; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--user-data-dir=$env:LOCALAPPDATA\com.domios.dev.provider.model.oracle\EBWebView" },
   @{ ProcessId = 220; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js --port 1560" },
   @{ ProcessId = 225; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js build --watch" },
   @{ ProcessId = 240; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "node node_modules/vite/bin/vite.js build --watch" },
@@ -56,7 +56,7 @@ try {
     Root = $repo
     TargetDebug = $targetDebug
     DataDir = $namedDataDir
-    Identifier = "com.codeterm.dev.provider.model.oracle"
+    Identifier = "com.domios.dev.provider.model.oracle"
     Instance = "provider-model-oracle"
     ApiPort = 7787
     VitePort = 1560
@@ -97,7 +97,7 @@ try {
     Root = $repo
     TargetDebug = $defaultTargetDebug
     DataDir = $defaultDataDir
-    Identifier = "com.codeterm.dev"
+    Identifier = "com.domios.dev"
     ApiPort = 7686
     VitePort = 1420
     CdpPort = 9223

@@ -212,7 +212,7 @@ fn fail(error: String) -> ! {
     crate::cmd::print::fail_with_hints(
         crate::cmd::print::CLI_ERROR_EXIT_CODE,
         format!("essence-map failed: {error}"),
-        &["fix: codeterm essence-map generate --root ."],
+        &["fix: domios essence-map generate --root ."],
     )
 }
 
@@ -423,7 +423,7 @@ fn validate_map_records(
         };
         if *actual != *expected {
             return Err(format!(
-                "map {} node `{id}` does not match the current source essence; regenerate with `codeterm essence-map generate`",
+                "map {} node `{id}` does not match the current source essence; regenerate with `domios essence-map generate`",
                 map_path.display()
             ));
         }
@@ -444,7 +444,7 @@ fn validate_map_records(
         let missing = expected_edges.difference(&actual_edges).next();
         let extra = actual_edges.difference(&expected_edges).next();
         return Err(format!(
-            "map {} edges differ from the current source essences (missing: {}; unexpected: {}); regenerate with `codeterm essence-map generate`",
+            "map {} edges differ from the current source essences (missing: {}; unexpected: {}); regenerate with `domios essence-map generate`",
             map_path.display(),
             missing.map_or("none", String::as_str),
             extra.map_or("none", String::as_str)
@@ -774,7 +774,7 @@ fn print_release(release: &journal::ReleaseSummary) {
         println!("choice: {choice}");
     }
     if let (Some(_), Some(baseline)) = (release.revert_choice(), release.baseline.as_deref()) {
-        println!("revert: codeterm essence-map revert --to {baseline}");
+        println!("revert: domios essence-map revert --to {baseline}");
     }
 }
 

@@ -81,7 +81,7 @@ pub(crate) fn dispatch_safety_nudges(
     lane: &TaskLaneMetadata,
 ) -> Vec<SafetyNudge> {
     let update =
-        |field: &str| format!("codeterm plan task update {plan_id} {task_id} --{field} <value>");
+        |field: &str| format!("domios plan task update {plan_id} {task_id} --{field} <value>");
     let mut nudges = Vec::new();
     if lane.worktree_path.is_some() && lane.branch.is_none() {
         nudges.push(SafetyNudge::new(
@@ -186,11 +186,10 @@ pub(crate) fn preflight_checkout_occupancy(
     let Some((occupying_task_id, occupying_attempt_id, executor_tab_id)) = occupant else {
         return Ok(());
     };
-    let release_command =
-        executor_tab_id.map(|tab_id| format!("codeterm tab close --tab {tab_id}"));
+    let release_command = executor_tab_id.map(|tab_id| format!("domios tab close --tab {tab_id}"));
     let update_command = isolated_lane_update_command(&plan.id, dispatched_task_id);
     let dispatch_command = format!(
-        "codeterm plan task dispatch {} {}",
+        "domios plan task dispatch {} {}",
         plan.id, dispatched_task_id
     );
     let occupancy = format!(
@@ -234,7 +233,7 @@ pub(crate) fn preflight_checkout_occupancy(
 /// literal template has to be runnable once substituted in either shell.
 pub(crate) fn isolated_lane_update_command(plan_id: &str, task_id: &str) -> String {
     format!(
-        "codeterm plan task update {plan_id} {task_id} --worktree <existing-isolated-worktree-path> \
+        "domios plan task update {plan_id} {task_id} --worktree <existing-isolated-worktree-path> \
          --branch <existing-isolated-branch> --base <base-ref>"
     )
 }

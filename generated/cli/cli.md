@@ -2,7 +2,7 @@
 
 
 Complete command reference. The section between the markers below is
-auto-generated from the clap command tree by `codeterm cli-manifest --write` —
+auto-generated from the clap command tree by `domios cli-manifest --write` —
 do not edit it by hand. Conventions: target tabs use `--tab`; `--json` is
 a global flag on every command. For agent orientation, prefer the human-readable
 workspace and tab maps, then inspect one selected record. Whole-list JSON is for
@@ -14,75 +14,75 @@ backlog or debt reaches the threshold. Dispatch, compete, and respawn do not nee
 capacity grants. Prioritize review closures; all ownership, dependency, evidence,
 and review-verdict requirements remain unchanged.
 
-Tab checklists are bounded service records, independent of tab snapshots. Any agent tab, Orchestrator included, creates and keeps its own; task dispatch seeds locked items from acceptance criteria. `codeterm todo list` reads the current agent tab; `codeterm todo write --from-pad todos.json` declares the whole list as a JSON array of `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "link?", "reason?" }`. The first write creates the checklist; later writes keep items whose content matches a title, append new content as unlocked items and remove omitted unlocked items. An existing item's link must match its current label/URL/task id; a new item's link is an http(s) URL or task reference. At most one item, omitted locked items included, is `in_progress`, and the refusal names the offending items. `blocked` and `skipped` require a `reason`. Omitted locked items stay in place and the reply reports their count and the remaining open items, as does `tab todo complete`. Writing a completed item back to `in_progress` restarts the same item: its id stays, its attempt counter increments and the reason is recorded. Every item keeps lifetime counters (started, completed, reopened, blocked, skipped) and its newest 32 events with actor, time, attempt and reason, from which attempt durations follow; older events fold into the counters. A checklist holds at most 12 items; a larger write is refused, and the remedy is a task split proposed in the report. `codeterm tab todo list --tab <child-id>` uses the authorized parent-list API. Parent `init` reads a JSON array of criteria strings; QA `append` reads checklist drafts and requires the current `--generation`; Orchestrator `amend` reads one draft. The Orchestrator or a QA Worker reopens one child item with `tab todo reopen <item-id> --tab <child-id> --reason "<why>"`; `plan review bounce ... --todo-item <item-id>` reopens that item with the bounce note before recording the bounce. A respawned or re-dispatched Worker on the same task inherits its predecessor's list with attempts and history. Drafts use `{ "title", "description?", "link?" }`, with link `{ "kind": "url", "url", "label" }` or `{ "kind": "domios_task", "task_ref", "plan_ref?", "label?" }`. User `reset --from-file` starts a generation from a draft array and `clear <item-id>` / `clear --all` remove unlocked items; locked items (dispatch criteria and QA checks) are never deleted, so a generation holding them refuses clear and reset and its items are marked `skipped` with a reason instead.
+Tab checklists are bounded service records, independent of tab snapshots. Any agent tab, Orchestrator included, creates and keeps its own; task dispatch seeds locked items from acceptance criteria. `domios todo list` reads the current agent tab; `domios todo write --from-pad todos.json` declares the whole list as a JSON array of `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "link?", "reason?" }`. The first write creates the checklist; later writes keep items whose content matches a title, append new content as unlocked items and remove omitted unlocked items. An existing item's link must match its current label/URL/task id; a new item's link is an http(s) URL or task reference. At most one item, omitted locked items included, is `in_progress`, and the refusal names the offending items. `blocked` and `skipped` require a `reason`. Omitted locked items stay in place and the reply reports their count and the remaining open items, as does `tab todo complete`. Writing a completed item back to `in_progress` restarts the same item: its id stays, its attempt counter increments and the reason is recorded. Every item keeps lifetime counters (started, completed, reopened, blocked, skipped) and its newest 32 events with actor, time, attempt and reason, from which attempt durations follow; older events fold into the counters. A checklist holds at most 12 items; a larger write is refused, and the remedy is a task split proposed in the report. `domios tab todo list --tab <child-id>` uses the authorized parent-list API. Parent `init` reads a JSON array of criteria strings; QA `append` reads checklist drafts and requires the current `--generation`; Orchestrator `amend` reads one draft. The Orchestrator or a QA Worker reopens one child item with `tab todo reopen <item-id> --tab <child-id> --reason "<why>"`; `plan review bounce ... --todo-item <item-id>` reopens that item with the bounce note before recording the bounce. A respawned or re-dispatched Worker on the same task inherits its predecessor's list with attempts and history. Drafts use `{ "title", "description?", "link?" }`, with link `{ "kind": "url", "url", "label" }` or `{ "kind": "domios_task", "task_ref", "plan_ref?", "label?" }`. User `reset --from-file` starts a generation from a draft array and `clear <item-id>` / `clear --all` remove unlocked items; locked items (dispatch criteria and QA checks) are never deleted, so a generation holding them refuses clear and reset and its items are marked `skipped` with a reason instead.
 
 `workspace current` prints a bare id for shell use. Its point-query `--json`
 form identifies `explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`
 as the source. When no identity resolves, it exits 1 with empty stdout.
 
-**Planning?** Read `codeterm docs ORCHESTRATION` first (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
+**Planning?** Read `domios docs ORCHESTRATION` first (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
-The Team verbs are `codeterm team list|show|rename|close|adopt-plan|adopt-agent|pair`. `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` creates an Orchestrator + Planner Team in one action and leaves the Plan unbound until the first goal. A caller tab holding a Manager or Worker role (a Team leaf, the General Agent excepted) is refused unless it also passes `--acknowledge-leaf` — a declared, deliberate creation attributed to that calling tab, never to some other intermediary tab it might otherwise spawn to route around the refusal. `codeterm team close <team_id>` is the only user operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. The one automatic removal is Domios's own startup lease: the Team a `team pair` minted for its two reserved launch attempts is reaped when that launch fails, and only while it is still forming, empty, and free of any member the pair did not reserve. Every other Team - normal, active, adopted, manually created, or nonempty - survives tab and workspace closure exactly as before. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
+The Team verbs are `domios team list|show|rename|close|adopt-plan|adopt-agent|pair`. `domios team pair --orchestrator <provider[:model]> --planner <provider[:model]>` creates an Orchestrator + Planner Team in one action and leaves the Plan unbound until the first goal. A caller tab holding a Manager or Worker role (a Team leaf, the General Agent excepted) is refused unless it also passes `--acknowledge-leaf` — a declared, deliberate creation attributed to that calling tab, never to some other intermediary tab it might otherwise spawn to route around the refusal. `domios team close <team_id>` is the only user operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. The one automatic removal is Domios's own startup lease: the Team a `team pair` minted for its two reserved launch attempts is reaped when that launch fails, and only while it is still forming, empty, and free of any member the pair did not reserve. Every other Team - normal, active, adopted, manually created, or nonempty - survives tab and workspace closure exactly as before. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `domios team rename <team_id> <name>` and `domios docs ORCHESTRATION` guidance.
 
-`codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_TAB_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
+`domios team adopt-plan <team_id> <plan_id>` requires `CODETERM_TAB_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `domios plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
 
-Agents join a Team two ways, both authorized against the caller's own membership (`CODETERM_TAB_ID` must already belong to that Team; a non-member is refused before any tab is created or mutated). `codeterm agent spawn <provider> --team <team_id>` attaches a fresh roleless agent at spawn time, mirroring `codeterm tab new --team`; it is rejected together with `--plan-task`, because a plan-bound agent already derives its Team from that binding. `codeterm team adopt-agent <team_id> <tab_id>` attaches an already-running roleless agent tab; adopting a tab that already belongs to a Team, holds a role, or does not exist fails with a specific error. Both bind the tab under the Team's live Orchestrator, and `codeterm team show <team_id>` lists the Team's member tabs.
+Agents join a Team two ways, both authorized against the caller's own membership (`CODETERM_TAB_ID` must already belong to that Team; a non-member is refused before any tab is created or mutated). `domios agent spawn <provider> --team <team_id>` attaches a fresh roleless agent at spawn time, mirroring `domios tab new --team`; it is rejected together with `--plan-task`, because a plan-bound agent already derives its Team from that binding. `domios team adopt-agent <team_id> <tab_id>` attaches an already-running roleless agent tab; adopting a tab that already belongs to a Team, holds a role, or does not exist fails with a specific error. Both bind the tab under the Team's live Orchestrator, and `domios team show <team_id>` lists the Team's member tabs.
 
-A Team whose Orchestrator is gone is not stranded. Removing its final Orchestrator retires that owner but retains the discoverable Team and its active Plan identity/history. `codeterm agent spawn <provider> --team <team_id> --role Orchestrator` hands it a new one and is the only `--role` that combines with `--team`: it needs no `--workspace` (the Team names one), carries no other spawn flag, and lands on the same daemon staffing verb as the sidebar's add-member action and `POST /api/teams/{team_id}/members`. The new Orchestrator takes the Team's active plan over through the tab-gone owner rebind — owner and owner history move — so the plan heartbeat follows to the new tab; descendant role bindings follow ordinary unlink rules. If takeover fails, staffing fails and removes the spawned replacement/lane without changing the retained Team or Plan owner/history. A Team is allowed at most one **live** Orchestrator, counted as live anchoring tabs: a removed tab is gone and a dead agent's identity is cleared on exit, so neither counts, while a second live one is refused by the `team_orchestrator_already_live` error code and logged with the Team, the role, and the cause.
+A Team whose Orchestrator is gone is not stranded. Removing its final Orchestrator retires that owner but retains the discoverable Team and its active Plan identity/history. `domios agent spawn <provider> --team <team_id> --role Orchestrator` hands it a new one and is the only `--role` that combines with `--team`: it needs no `--workspace` (the Team names one), carries no other spawn flag, and lands on the same daemon staffing verb as the sidebar's add-member action and `POST /api/teams/{team_id}/members`. The new Orchestrator takes the Team's active plan over through the tab-gone owner rebind — owner and owner history move — so the plan heartbeat follows to the new tab; descendant role bindings follow ordinary unlink rules. If takeover fails, staffing fails and removes the spawned replacement/lane without changing the retained Team or Plan owner/history. A Team is allowed at most one **live** Orchestrator, counted as live anchoring tabs: a removed tab is gone and a dead agent's identity is cleared on exit, so neither counts, while a second live one is refused by the `team_orchestrator_already_live` error code and logged with the Team, the role, and the cause.
 
-A Worker spawn without a task binding is permitted when it declares `--execution-intent read_only`: that is the canonical verification Worker `codeterm docs ORCHESTRATION-OPERATIONS` prescribes for post-merge QA. It is spawned under the plan it verifies (`--plan <plan_id>`), reports to `--parent-tab` / `--report-to`, and carries its command scope as repeated `--authorized-gate <command>` tokens, which are rendered into its brief. Holding no task, it can report against none and transition none — a report naming a task it does not hold is refused and writes nothing. The safeguard for source-changing work is unchanged: `--execution-intent mutating` without `--plan-task` (or `--plan` + `--task-id`) is refused, and so is `--role Worker --plan <id>` with neither a task binding nor read-only intent. Declare gates on the dispatch (`plan task dispatch --authorized-gate`) for a task-bound Worker; `agent spawn --authorized-gate` is rejected alongside `--plan-task`.
+A Worker spawn without a task binding is permitted when it declares `--execution-intent read_only`: that is the canonical verification Worker `domios docs ORCHESTRATION-OPERATIONS` prescribes for post-merge QA. It is spawned under the plan it verifies (`--plan <plan_id>`), reports to `--parent-tab` / `--report-to`, and carries its command scope as repeated `--authorized-gate <command>` tokens, which are rendered into its brief. Holding no task, it can report against none and transition none — a report naming a task it does not hold is refused and writes nothing. The safeguard for source-changing work is unchanged: `--execution-intent mutating` without `--plan-task` (or `--plan` + `--task-id`) is refused, and so is `--role Worker --plan <id>` with neither a task binding nor read-only intent. Declare gates on the dispatch (`plan task dispatch --authorized-gate`) for a task-bound Worker; `agent spawn --authorized-gate` is rejected alongside `--plan-task`.
 
-`codeterm plan task dispatch` refuses a **mutating** dispatch before any tab exists when the resolved worktree is the canonical checkout or another task's lane; the error carries a stable `violation_id` (`lane.mutating_write_in_canonical_checkout`, `lane.mutating_write_in_foreign_lane`) plus the exact `plan task update --worktree/--branch/--base` command that supplies an isolated lane. A task with no recorded lane is not refused — the dispatcher provisions one and commits Team workspace identity together with the lane. Every other lane finding is advisory: the dispatch succeeds and prints a `safety_nudges` block on stderr, each line carrying a stable id and the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs are never obstructed, including in canonical.
+`domios plan task dispatch` refuses a **mutating** dispatch before any tab exists when the resolved worktree is the canonical checkout or another task's lane; the error carries a stable `violation_id` (`lane.mutating_write_in_canonical_checkout`, `lane.mutating_write_in_foreign_lane`) plus the exact `plan task update --worktree/--branch/--base` command that supplies an isolated lane. A task with no recorded lane is not refused — the dispatcher provisions one and commits Team workspace identity together with the lane. Every other lane finding is advisory: the dispatch succeeds and prints a `safety_nudges` block on stderr, each line carrying a stable id and the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs are never obstructed, including in canonical.
 
-`codeterm plan task update --status pending|cancelled`, `plan task assign`, `plan task dispatch`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. A deliberate `--status blocked` update also requires a fresh nonblank `--status-label` with its reason and owner trigger, and is limited to the live Plan owner or Planner. A Worker `agent report --status blocked` is a proposal that preserves task state, assignment, lane, and report evidence until that owner decision. Stale-owner recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. The live Plan owner is recognised from its own live tab binding, not from the owner record's session field, so an Orchestrator whose session moved without an `agent restart` is not locked out of its own plan. Refusals carry a stable discriminant in `data.type` — `task_owner_epoch_stale`, `task_mutation_binding_stale`, `task_owner_gone_verb_not_recoverable`, `caller_is_not_task_owner_or_plan_owner`, `task_block_authority_required` — so a tab-gone task never reports a stale epoch for a verb-eligibility problem. `codeterm plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
+`domios plan task update --status pending|cancelled`, `plan task assign`, `plan task dispatch`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. A deliberate `--status blocked` update also requires a fresh nonblank `--status-label` with its reason and owner trigger, and is limited to the live Plan owner or Planner. A Worker `agent report --status blocked` is a proposal that preserves task state, assignment, lane, and report evidence until that owner decision. Stale-owner recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. The live Plan owner is recognised from its own live tab binding, not from the owner record's session field, so an Orchestrator whose session moved without an `agent restart` is not locked out of its own plan. Refusals carry a stable discriminant in `data.type` — `task_owner_epoch_stale`, `task_mutation_binding_stale`, `task_owner_gone_verb_not_recoverable`, `caller_is_not_task_owner_or_plan_owner`, `task_block_authority_required` — so a tab-gone task never reports a stale epoch for a verb-eligibility problem. `domios plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
 
-Competition has no `codeterm plan task` verb — it is driven by the `plan.task.compete` route, which `codeterm plan task show` prints for any competition-enabled task. That route gives each **mutating** competitor its own provisioned worktree/branch/base before spawn, so N competitors never share a checkout and never fall back to canonical; lanes created earlier in the call are removed if a later competitor fails. Read-only competition is unchanged.
+Competition has no `domios plan task` verb — it is driven by the `plan.task.compete` route, which `domios plan task show` prints for any competition-enabled task. That route gives each **mutating** competitor its own provisioned worktree/branch/base before spawn, so N competitors never share a checkout and never fall back to canonical; lanes created earlier in the call are removed if a later competitor fails. Read-only competition is unchanged.
 
-`codeterm plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_TAB_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
+`domios plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_TAB_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 
 <!-- cli:auto-start -->
-#### `codeterm`
+#### `domios`
 
 Domios CLI — control your terminal multiplexer
 
 - `--json` — Output raw JSON instead of human-readable text
 - `--mesh` — Execute command on a remote mesh peer instead of locally
 
-#### `codeterm account`
+#### `domios account`
 
 Sign in, inspect identity or sign out on this machine
 
-#### `codeterm account login`
+#### `domios account login`
 
 Sign in using the system browser and wait for completion
 
-#### `codeterm account logout`
+#### `domios account logout`
 
 Sign out and delete the saved credential
 
-#### `codeterm account plan`
+#### `domios account plan`
 
 Show the current plan and stale-cache marker
 
-#### `codeterm account portal`
+#### `domios account portal`
 
 Open subscription management in the system browser
 
-#### `codeterm account status`
+#### `domios account status`
 
 Show the signed-in identity
 
-#### `codeterm account upgrade`
+#### `domios account upgrade`
 
 Open an upgrade checkout in the system browser
 
 - `<plan_key>`
 
-#### `codeterm agent`
+#### `domios agent`
 
 Agent hierarchy management
 
-#### `codeterm agent ack`
+#### `domios agent ack`
 
 Acknowledge receipt and ownership of the assigned task
 
@@ -90,14 +90,14 @@ Acknowledge receipt and ownership of the assigned task
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `--task` — Task id (default: $CODETERM_TASK_ID)
 
-#### `codeterm agent allow-spawn`
+#### `domios agent allow-spawn`
 
 Toggle whether a tab can spawn children
 
 - `--enable` — Enable or disable spawning
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm agent child-history`
+#### `domios agent child-history`
 
 Read one recorded child's transcript under the exact parent binding
 
@@ -108,54 +108,54 @@ Read one recorded child's transcript under the exact parent binding
 - `--tab` — Parent agent tab id
 - `--thread` — Recorded child thread id
 
-#### `codeterm agent cli`
+#### `domios agent cli`
 
 Inspect or manage a provider's CLI using its manifest commands
 
-#### `codeterm agent cli install`
+#### `domios agent cli install`
 
 Run the manifest installer in a visible utility tab and report its result
 
 - `<provider>`
 
-#### `codeterm agent cli status`
+#### `domios agent cli status`
 
 Show installed state, resolved binary, and commands for this OS
 
 - `<provider>`
 
-#### `codeterm agent cli update`
+#### `domios agent cli update`
 
 Run the manifest updater in a visible utility tab and report its result
 
 - `<provider>`
 
-#### `codeterm agent compact`
+#### `domios agent compact`
 
 Compact agent context (sends /compact to Claude)
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm agent fork`
+#### `domios agent fork`
 
 Open a new tab from a provider-declared session fork; bind only from its own session evidence
 
 - `--tab`
 
-#### `codeterm agent ledger`
+#### `domios agent ledger`
 
 List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model / status / last-seen, one row per worker
 
 - `--tab` — Orchestrator tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm agent link`
+#### `domios agent link`
 
 Link a tab as worker under a parent
 
 - `--parent-tab` — Parent tab ID (orchestrator)
 - `--tab` — Tab ID to link (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm agent login`
+#### `domios agent login`
 
 Sign in to the tab's runtime provider without a terminal
 
@@ -164,7 +164,7 @@ Sign in to the tab's runtime provider without a terminal
 - `--device`
 - `--tab`
 
-#### `codeterm agent model`
+#### `domios agent model`
 
 Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`
 
@@ -176,17 +176,17 @@ Switch one idle agent Tab to another model. Only that Tab changes: it is relaunc
 - `--speed` — Service tier id or `default` to clear the selection
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm agent models`
+#### `domios agent models`
 
 List available models for a specific provider
 
 - `<provider>` — Provider id (e.g. "claude"). Required
 
-#### `codeterm agent providers`
+#### `domios agent providers`
 
 List available agent providers (claude, codex, ...) with their display names, default models, and capability flags
 
-#### `codeterm agent report`
+#### `domios agent report`
 
 Send a report to your parent in the hierarchy
 
@@ -209,7 +209,7 @@ Send a report to your parent in the hierarchy
 - `--test-result` — Result of the test command (e.g. "42 passed")
 - `--text` — Report message as a flag, useful when paired with --doc
 
-#### `codeterm agent restart`
+#### `domios agent restart`
 
 Restart a live agent, or resume an exited provider's verified session in its shell
 
@@ -220,13 +220,13 @@ Restart a live agent, or resume an exited provider's verified session in its she
 - `--provider` — Relaunch with this installed PTY provider instead of the current provider
 - `--tab` — Tab ID (defaults to $CODETERM_TAB_ID locally; required with --mesh)
 
-#### `codeterm agent set-orchestrator`
+#### `domios agent set-orchestrator`
 
 Mark a tab as orchestrator (top-level, can spawn workers)
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm agent spawn`
+#### `domios agent spawn`
 
 Spawn a new agent; roleless unless --role is provided.
 
@@ -244,7 +244,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--kind` — Worker prompt kind/profile, with or without a task: qa, release_manager or reviewer (read-only by default)
 - `--location` — Execution location declared by the provider. Remote tasks are one-shot tabs
 - `--max-actions` — Max watcher actions per tick
-- `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
+- `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `domios agent models <provider>` to see what's available
 - `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its prompts and exits never notify the user; they are reported to its parent instead
 - `--nudge-cooldown` — Watcher nudge cooldown, e.g. 10m
 - `--parent-tab` — Parent tab ID. Required for Workers; for a Planner, resolved from --plan (its Orchestrator) when omitted
@@ -267,18 +267,18 @@ Spawn a new agent; roleless unless --role is provided.
 - `--unplanned` — Create and dispatch a visible exceptional task for this Worker
 - `--workspace` — Target workspace ID. Defaults to the parent tab's workspace, then your own — never the workspace selected in the UI. Pass this only to place the agent in a different workspace on purpose
 
-#### `codeterm agent startup-ack`
+#### `domios agent startup-ack`
 
 Acknowledge that this spawned agent received its first startup turn
 
-#### `codeterm agent startup-hold`
+#### `domios agent startup-hold`
 
 Cancel automatic cleanup for an inspected startup attempt
 
 - `--attempt` — Launch attempt shown in the startup-overdue report
 - `--tab` — Target spawned Tab
 
-#### `codeterm agent switch-provider`
+#### `domios agent switch-provider`
 
 Continue this tab on another provider through a bounded handoff produced by the target
 
@@ -288,14 +288,14 @@ Continue this tab on another provider through a bounded handoff produced by the 
 - `--reasoning-effort`
 - `--tab`
 
-#### `codeterm agent switch-provider-status`
+#### `domios agent switch-provider-status`
 
 Read a daemon-owned provider switch operation, including self-switch results
 
 - `<operation>`
 - `--tab`
 
-#### `codeterm agent turns`
+#### `domios agent turns`
 
 Read completed turns from a tool-less agent's exact bound session
 
@@ -303,97 +303,77 @@ Read completed turns from a tool-less agent's exact bound session
 - `--last`
 - `--tab`
 
-#### `codeterm agent unlink`
+#### `domios agent unlink`
 
 Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm agent usage`
+#### `domios agent usage`
 
 Read usage or consume a confirmed reset credit for an exact tab
 
-#### `codeterm agent usage read`
+#### `domios agent usage read`
 
 Read this exact tab's provider usage snapshot
 
 - `--tab`
 
-#### `codeterm agent usage reset`
+#### `domios agent usage reset`
 
 Consume one available reset credit on this exact tab's account
 
 - `--confirm` — Confirm spending one reset credit
 - `--tab`
 
-#### `codeterm analytics`
+#### `domios analytics`
 
 Manage local opt-in product analytics
 
-#### `codeterm analytics disable`
+#### `domios analytics disable`
 
 Record opt-out consent and clear queued events and identifiers
 
-#### `codeterm analytics enable`
+#### `domios analytics enable`
 
 Record opt-in consent and create an installation identifier
 
-#### `codeterm analytics status`
+#### `domios analytics status`
 
 Show recorded consent, queue size and delivery counters
 
-#### `codeterm app`
+#### `domios app`
 
 Control the exact local native application and server lifecycle
 
-#### `codeterm app quit`
+#### `domios app quit`
 
 Quit the exact local application after successful server cleanup and observed exits
 
 - `--exact`
 
-#### `codeterm blueprint`
+#### `domios blueprint`
 
 Cheap hash-gated watchers with closed-set routes
 
-#### `codeterm blueprint create`
+#### `domios blueprint apply`
 
-Classify a bounded probe or same-Team agent observation
+Create or update a YAML file or recipe by name in the caller's Team
 
-- `--buckets`
-- `--convert-timeout` — Bound the one-time conversion, in the --every duration syntax
-- `--convert-to` — Convert the input to another kind once: text|audio
-- `--dry-run` — Validate and print the resulting graph without creating it
-- `--escalation-timeout-ms` — Bound how long an `other` escalation may hold this stage, in milliseconds
-- `--every` — Owner-requested cadence (minimum 10s, default 20s)
-- `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
-- `--input` — Watch data instead of a probe or observation: text|audio|video|image
-- `--input-file` — Absolute or caller-cwd-relative path of the input data file
-- `--input-text` — Inline input text (only for --input text)
-- `--input-url` — http or https URL of the input data
-- `--match` — Deterministic classification: unmatched output never calls the model; bucket=regex
-- `--max-actions` — Finite action-attempt budget (maximum 1024)
-- `--max-transitions` — Finite accepted transition budget (maximum 256)
-- `--model-classification` — Opt in to Supporter model classification when no patterns are declared
-- `--name` — Short meaningful name describing what is watched and what happens
-- `--note` — Plain-text Blueprint note, at most 200 characters
-- `--observe` — Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
-- `--output-settled` — Fire when terminal output settles for this many milliseconds (10..60000)
-- `--owner` — Assign the pipeline to its creator tab or Team
-- `--paused` — Create a dormant downstream stage; its lifetime starts now
-- `--probe`
-- `--question`
-- `--rearm-on-change` — Route again when this bucket's output changes without changing buckets
-- `--recipe` — Create from a named pipeline recipe
-- `--route` — Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
-- `--session` — Keep exchanges outside transition/action budgets; stop at 16384 exchanges or 120/minute
-- `--set` — Replace recipe placeholders with key=value pairs
-- `--spec` — JSON or YAML pipeline specification, or `-` to read standard input
-- `--terminal-pattern` — Fire with the new terminal output delta when this regex matches
-- `--timeout` — End the blueprint after this duration
-- `--until` — Stop after this bucket's first confident transition
+- `--dry-run`
+- `--like` — Offer proven graphs matching this intent before authoring
+- `--note`
+- `--set`
+- `<source>`
 
-#### `codeterm blueprint delete`
+#### `domios blueprint check`
+
+Validate a YAML file or built-in recipe without a daemon
+
+- `--set`
+- `<source>`
+
+#### `domios blueprint delete`
 
 Delete a whole blueprint, or every stopped one in the Team; the creator or the Team owner may delete
 
@@ -401,31 +381,31 @@ Delete a whole blueprint, or every stopped one in the Team; the creator or the T
 - `--stop` — Stop a running blueprint before deleting it
 - `--stopped` — Delete every stopped blueprint the caller may delete in its Team
 
-#### `codeterm blueprint escalation`
+#### `domios blueprint escalation`
 
 Resolve an open escalation
 
-#### `codeterm blueprint escalation resolve`
+#### `domios blueprint escalation resolve`
 
 Release a held stage and re-evaluate its observation
 
 - `<id>`
 - `<transition_id>`
 
-#### `codeterm blueprint export`
+#### `domios blueprint export`
 
 Export a portable recipe containing only the definition
 
 - `<id>`
 - `--out`
 
-#### `codeterm blueprint history`
+#### `domios blueprint history`
 
 Show immutable definition versions
 
 - `<id>`
 
-#### `codeterm blueprint import`
+#### `domios blueprint import`
 
 Import a portable recipe into the caller's Team (stopped by default)
 
@@ -434,7 +414,7 @@ Import a portable recipe into the caller's Team (stopped by default)
 - `--start` — Start immediately after validation
 - `--stopped`
 
-#### `codeterm blueprint input`
+#### `domios blueprint input`
 
 Deliver a text body to a running text input stage
 
@@ -442,40 +422,58 @@ Deliver a text body to a running text input stage
 - `<id>`
 - `--text-file` — Read a UTF-8 body from a file
 
-#### `codeterm blueprint list`
+#### `domios blueprint keep`
+
+Keep a generalised solution (Team Orchestrator only)
+
+- `<id>`
+- `--when`
+
+#### `domios blueprint list`
 
 List blueprints scoped to the calling tab and its Team
 
-#### `codeterm blueprint log`
+#### `domios blueprint log`
 
 List bounded run journal entries, newest first
 
 - `<id>`
 - `--limit`
 
-#### `codeterm blueprint nodes`
+#### `domios blueprint new`
+
+Print a commented YAML scaffold from a recipe or node kind
+
+- `<kind>`
+- `--like` — Offer proven graphs matching this intent before authoring
+
+#### `domios blueprint nodes`
 
 List trigger, step, converter and event-source capabilities
 
-#### `codeterm blueprint recipe`
+#### `domios blueprint recipe`
 
 List built-in graph skeletons or print one ready-to-edit recipe
 
 - `<name>`
 
-#### `codeterm blueprint show`
+#### `domios blueprint schema`
+
+Print the authoring JSON Schema for editors and agents
+
+#### `domios blueprint show`
 
 Show one blueprint
 
 - `<id>`
 
-#### `codeterm blueprint stop`
+#### `domios blueprint stop`
 
 Stop one blueprint
 
 - `<id>`
 
-#### `codeterm blueprint update`
+#### `domios blueprint update`
 
 Replace one definition at the expected version
 
@@ -486,11 +484,11 @@ Replace one definition at the expected version
 - `<id>`
 - `--note` — Replace the Blueprint note (at most 200 plain-text characters)
 
-#### `codeterm bridge`
+#### `domios bridge`
 
 Send a message to an external service (Telegram, etc.)
 
-#### `codeterm bridge migrate`
+#### `domios bridge migrate`
 
 Migrate active bridge poller from this node to another mesh peer
 
@@ -500,9 +498,9 @@ Migrate active bridge poller from this node to another mesh peer
 - `--force` — Skip preflight target-state check (for force migrations)
 - `--no-rollback` — Skip auto-rollback if target claim fails (leave source disabled)
 - `--service` — Service to migrate (currently only "telegram")
-- `--to` — Target peer instance_name (as shown in `codeterm mesh peers`)
+- `--to` — Target peer instance_name (as shown in `domios mesh peers`)
 
-#### `codeterm bridge react`
+#### `domios bridge react`
 
 Set an emoji reaction on a message
 
@@ -510,11 +508,11 @@ Set an emoji reaction on a message
 - `--message-id` — Message ID to react to
 - `--to` — Recipient chat/user ID
 
-#### `codeterm bridge restart`
+#### `domios bridge restart`
 
 Start or restart messaging bridge (Telegram, etc.)
 
-#### `codeterm bridge send`
+#### `domios bridge send`
 
 Send a message to Telegram or other service
 
@@ -530,28 +528,28 @@ Send a message to Telegram or other service
 - `--to` — Recipient chat/user ID
 - `--type` — Content type: text, photo, document, voice, animation, video, sticker
 
-#### `codeterm bridge thread`
+#### `domios bridge thread`
 
 Open a tab's Telegram topic thread
 
-#### `codeterm bridge thread open`
+#### `domios bridge thread open`
 
 Open or reuse a tab's Telegram topic and print where to find it
 
 - `--service` — Target service
 - `--tab` — Tab whose thread to open (default: $CODETERM_TAB_ID). Only the General Agent may name another tab
 
-#### `codeterm canvas`
+#### `domios canvas`
 
 Canvas control commands
 
-#### `codeterm canvas filter`
+#### `domios canvas filter`
 
 Dim the canvas to a facet value such as area:layout
 
 - `--facet`
 
-#### `codeterm canvas focus`
+#### `domios canvas focus`
 
 Focus the open canvas on a task, tab, or plan
 
@@ -559,45 +557,45 @@ Focus the open canvas on a task, tab, or plan
 - `--tab`
 - `--task`
 
-#### `codeterm capabilities`
+#### `domios capabilities`
 
 List CLI commands and clearly marked RPC-only/internal methods
 
-#### `codeterm cli-manifest`
+#### `domios cli-manifest`
 
 Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
 
-- `--markdown` — Emit the generated/cli/cli.md auto-block markdown instead of JSON
-- `--write` — Regenerate committed artifacts (generated/cli/cli-manifest.json + generated/cli/cli.md)
+- `--markdown` — Emit the Markdown command reference instead of JSON
+- `--write` — Write the CLI manifest, Markdown reference and command-path exports
 
-#### `codeterm config`
+#### `domios config`
 
 Read or write Domios configuration
 
-#### `codeterm config get`
+#### `domios config get`
 
 Get a config value (dot-notation, e.g. "integrations.telegram_enabled")
 
 - `<key>`
 
-#### `codeterm config set`
+#### `domios config set`
 
 Set a config value (JSON-compatible: true, false, 42, "string")
 
 - `<key>`
 - `<value>`
 
-#### `codeterm cron`
+#### `domios cron`
 
 Cron job management
 
-#### `codeterm cron cancel`
+#### `domios cron cancel`
 
 Stop any currently-running executions of a cron job without deleting the job definition. Future scheduled fires still run
 
 - `<id>` — Cron job ID
 
-#### `codeterm cron complete`
+#### `domios cron complete`
 
 Mark a cron run as complete (called by agent at end of task)
 
@@ -605,7 +603,7 @@ Mark a cron run as complete (called by agent at end of task)
 - `--summary` — Summary of what happened
 - `--yes` — Confirm a human completion when this caller has no tab identity
 
-#### `codeterm cron create`
+#### `domios cron create`
 
 Create a cron job
 
@@ -619,7 +617,7 @@ Create a cron job
 - `--once` — Oneshot: fire once at scheduled time, then auto-delete
 - `--reasoning-effort` — Reasoning-effort level advertised by the agent provider. Leave unset to use the provider default
 - `--schedule` — Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
-- `--skill` — Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path
+- `--skill` — Mem skill slug (`domios mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path
 - `--tab` — Tab ID to receive reports. Omit to keep runs private to the cron
 - `--task` — Task prompt for the agent
 - `--team` — Explicit Team membership cross-check. Jobs already inherit the calling Tab's Team
@@ -627,19 +625,19 @@ Create a cron job
 - `--tz` — IANA timezone for the schedule (e.g. "Europe/Riga"). Default: UTC
 - `--workspace` — Workspace ID. Defaults to the calling tab's own workspace — pass this only to schedule the job somewhere other than where you are
 
-#### `codeterm cron delete`
+#### `domios cron delete`
 
 Delete a cron job
 
 - `<id>` — Cron job ID
 
-#### `codeterm cron disable`
+#### `domios cron disable`
 
 Disable a cron job
 
 - `<id>` — Cron job ID
 
-#### `codeterm cron edit`
+#### `domios cron edit`
 
 Edit a cron job
 
@@ -657,35 +655,46 @@ Edit a cron job
 - `--timeout-secs` — Per-cron run timeout (seconds). 0 clears the override (back to global default)
 - `--tz` — IANA timezone (e.g. "Europe/Riga"). Pass empty string to clear back to UTC
 
-#### `codeterm cron enable`
+#### `domios cron enable`
 
 Enable a cron job
 
 - `<id>` — Cron job ID
 
-#### `codeterm cron history`
+#### `domios cron history`
 
 Show run history
 
 - `<id>` — Cron job ID or name
 
-#### `codeterm cron list`
+#### `domios cron list`
 
 List cron jobs
 
 - `--workspace` — Filter by workspace ID
 
-#### `codeterm cron trigger`
+#### `domios cron trigger`
 
 Manually trigger a cron job now
 
 - `<id>` — Cron job ID
 
-#### `codeterm delayed`
+#### `domios curator`
+
+Finish the current Team Curator round
+
+#### `domios curator finish`
+
+Validate the retro, record this round and choose the next cadence
+
+- `--from-pad`
+- `--next`
+
+#### `domios delayed`
 
 Manage delayed Chat UI sends
 
-#### `codeterm delayed create`
+#### `domios delayed create`
 
 Queue a delayed message
 
@@ -700,13 +709,13 @@ Queue a delayed message
 - `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
 - `--until` — Stop recurring delivery at an absolute time
 
-#### `codeterm delayed delete`
+#### `domios delayed delete`
 
 Delete a delayed message
 
 - `<id>` — Delayed message ID
 
-#### `codeterm delayed edit`
+#### `domios delayed edit`
 
 Edit a queued or failed delayed message
 
@@ -721,29 +730,29 @@ Edit a queued or failed delayed message
 - `--text` — Replacement text
 - `--until` — Replace the recurrence end time
 
-#### `codeterm delayed list`
+#### `domios delayed list`
 
 List delayed messages for a tab
 
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm delayed send-now`
+#### `domios delayed send-now`
 
 Send a delayed message immediately
 
 - `<id>` — Delayed message ID
 
-#### `codeterm docs`
+#### `domios docs`
 
 Read embedded Domios documentation in full. Omit NAME to list documents
 
 - `<name>` — Document name. Omit to list every available name and purpose
 
-#### `codeterm effort`
+#### `domios effort`
 
 Complete work bundles and effort lineage
 
-#### `codeterm effort link`
+#### `domios effort link`
 
 Link two efforts by lineage
 
@@ -751,17 +760,17 @@ Link two efforts by lineage
 - `--rel` — Lineage relationship from --from to --to: follows (continues after) or supersedes (replaces)
 - `--to`
 
-#### `codeterm effort show`
+#### `domios effort show`
 
 Show the full effort bundle (linked spec(s) + plan + tasks) for one plan_id
 
 - `<plan_id>`
 
-#### `codeterm essence-map`
+#### `domios essence-map`
 
 Generate and validate the source-backed essence map
 
-#### `codeterm essence-map generate`
+#### `domios essence-map generate`
 
 Generate essences/map.jsonl from the capability and core essences
 
@@ -769,7 +778,7 @@ Generate essences/map.jsonl from the capability and core essences
 - `--map` — Map JSONL path, relative to --root unless absolute
 - `--root` — Repository root containing the essences directory
 
-#### `codeterm essence-map record`
+#### `domios essence-map record`
 
 Append one decision explaining the current map to the decisions log
 
@@ -779,7 +788,7 @@ Append one decision explaining the current map to the decisions log
 - `--root` — Repository root containing the essences directory
 - `--summary` — What changed in the map
 
-#### `codeterm essence-map release-summary`
+#### `domios essence-map release-summary`
 
 Summarize the map decisions of a release and offer the revert choice
 
@@ -788,7 +797,7 @@ Summarize the map decisions of a release and offer the revert choice
 - `--root` — Repository root containing the essences directory
 - `--since` — Baseline decision id; the summary covers every decision after it
 
-#### `codeterm essence-map revert`
+#### `domios essence-map revert`
 
 Restore the map recorded by an earlier decision and log the revert
 
@@ -797,7 +806,7 @@ Restore the map recorded by an earlier decision and log the revert
 - `--root` — Repository root containing the essences directory
 - `--to` — Decision id whose recorded map is restored
 
-#### `codeterm essence-map validate`
+#### `domios essence-map validate`
 
 Validate a generated essence map and its append-only decisions log
 
@@ -805,15 +814,15 @@ Validate a generated essence map and its append-only decisions log
 - `--map` — Map JSONL path, relative to --root unless absolute
 - `--root` — Repository root containing the essences directory
 
-#### `codeterm identify`
+#### `domios identify`
 
 Show Domios version and system info
 
-#### `codeterm inbox`
+#### `domios inbox`
 
 Workspace Inbox — standalone tasks with no plan
 
-#### `codeterm inbox add`
+#### `domios inbox add`
 
 Add a standalone task to the workspace Inbox
 
@@ -834,23 +843,23 @@ Add a standalone task to the workspace Inbox
 - `--why`
 - `--why-file`
 
-#### `codeterm integration`
+#### `domios integration`
 
 Provider hook integration: install it with recorded consent and trust, or read its state
 
-#### `codeterm integration install`
+#### `domios integration install`
 
 Install a provider's hook integration and trust Domios's own hooks. Running it records consent the same way the Settings install does
 
 - `--provider` — Provider id (e.g. claude, codex)
 
-#### `codeterm integration status`
+#### `domios integration status`
 
 Show a provider's hook integration state
 
 - `--provider` — Provider id (e.g. claude, codex)
 
-#### `codeterm integration sweep-profiles`
+#### `domios integration sweep-profiles`
 
 Preview dead provider launch artifacts; only the machine owner may remove them
 
@@ -858,11 +867,11 @@ Preview dead provider launch artifacts; only the machine owner may remove them
 - `--include-legacy` — Include exact-pattern unmarked legacy profiles whose tabs are not live here
 - `--provider` — Provider id (e.g. codex)
 
-#### `codeterm keepawake`
+#### `domios keepawake`
 
 Prevent the system from sleeping while an agent is running
 
-#### `codeterm keepawake start`
+#### `domios keepawake start`
 
 Start keeping the system awake
 
@@ -871,19 +880,19 @@ Start keeping the system awake
 - `--gnome-policy` — On Linux/GNOME, explicitly apply current-user power policy overrides (disable inactive sleep, idle blanking, lid-close and power-button suspend)
 - `--system-block` — Print system-level sudo mask commands in the status response. Domios never runs these commands silently
 
-#### `codeterm keepawake status`
+#### `domios keepawake status`
 
 Show current keep-awake status (default)
 
-#### `codeterm keepawake stop`
+#### `domios keepawake stop`
 
 Stop the current keep-awake session
 
-#### `codeterm mem`
+#### `domios mem`
 
 Unified memory store — skills, facts, notes, scripts, peers, preferences
 
-#### `codeterm mem append`
+#### `domios mem append`
 
 Append text to an existing item's body (non-destructive). Loads the current body, appends with a blank-line separator, re-indexes the embedding. Use this instead of a full `update --body` replace
 
@@ -892,7 +901,7 @@ Append text to an existing item's body (non-destructive). Loads the current body
 - `<id>` — Mem item id
 - `<text>` — Text to append (positional). Use `-` for stdin, or pass --file
 
-#### `codeterm mem archive`
+#### `domios mem archive`
 
 Archive an item without deleting it; undo with `mem restore`
 
@@ -900,11 +909,11 @@ Archive an item without deleting it; undo with `mem restore`
 - `<id>`
 - `--reason`
 
-#### `codeterm mem area`
+#### `domios mem area`
 
 Merge an area reversibly; use taxonomy to list areas and counts
 
-#### `codeterm mem area merge`
+#### `domios mem area merge`
 
 Move every item to another area, preserving scope and audit history
 
@@ -912,11 +921,11 @@ Move every item to another area, preserving scope and audit history
 - `<from>`
 - `--into`
 
-#### `codeterm mem calibration`
+#### `domios mem calibration`
 
 Memory calibration: review or trigger the dreamer's importance/archive sweep
 
-#### `codeterm mem calibration log`
+#### `domios mem calibration log`
 
 Show recent calibration changes (audit log)
 
@@ -924,79 +933,79 @@ Show recent calibration changes (audit log)
 - `--limit` — Max rows (default 50, max 500)
 - `--since` — ISO8601 lower-bound for changed_at (default: epoch)
 
-#### `codeterm mem calibration stale`
+#### `domios mem calibration stale`
 
 Archive items untouched for a year (no access, update, relation change or touched neighbour). Gated by memory.dream_hygiene.stale_archive
 
 - `--dry-run` — List the ids and reasons that would be archived; change nothing
 - `--limit` — Dry-run list size (default: tonight's remaining cap, max 1000)
 
-#### `codeterm mem calibration sweep`
+#### `domios mem calibration sweep`
 
 Manually trigger a calibration sweep (Sunday only unless --force)
 
 - `--force` — Bypass the day-of-week gate. Manual / testing
 
-#### `codeterm mem delete`
+#### `domios mem delete`
 
 Delete an item by id
 
 - `<id>`
 
-#### `codeterm mem dream`
+#### `domios mem dream`
 
 Dreamer review/apply: run a daemon-routed dream phase, or apply a reviewed re-cluster plan against the local mem DB
 
-#### `codeterm mem dream apply`
+#### `domios mem dream apply`
 
 Re-parse a plan file and call `introduce_topic` for each YAML-fenced action block. Malformed individual fences become warnings; the rest still run. After a successful run the file is renamed to `<name>-applied.md` with a summary footer appended. Plans are hand-written or produced by a future Dreamer re-cluster phase
 
 - `--db-path` — Override the path to knowledge.db
 - `<plan_file>` — Path to the plan markdown file
 
-#### `codeterm mem dream diary`
+#### `domios mem dream diary`
 
 Show the most recent dream diary entries (the structured PATTERN / CONNECTION / IDEA / WHAT IF / HUBS / ONE ACTION reflections the REM agent writes after each dream cycle). Use this to read the Dreamer's fresh observations before acting on them
 
 - `--limit` — How many entries to return (most-recent first)
 
-#### `codeterm mem dream run`
+#### `domios mem dream run`
 
 Run dreaming consolidation via the daemon. Phases: light, deep, normalize, all (default). Replaces the v1.1.22 `mem dream --phase ...` form which is gone in v1.1.23
 
 - `--phase` — Which phase to run: light | deep | normalize | all
 
-#### `codeterm mem extract-pending`
+#### `domios mem extract-pending`
 
 Re-run extraction workers for items that haven't been extracted yet. Useful after LLM API failures, quota resets, or bulk imports with skip_extract. Workers fire sequentially with a short delay
 
 - `--limit` — Maximum number of items to queue (default 200)
 
-#### `codeterm mem forget`
+#### `domios mem forget`
 
 Batch-delete every item in an area (use sparingly)
 
 - `<area>` — Area name (e.g. auth, deploy, billing)
 - `--yes` — Confirm the batch delete (refused without it)
 
-#### `codeterm mem get`
+#### `domios mem get`
 
 Print one item by id
 
 - `<id>` — Mem item id (e.g. skill_home_assistant)
 
-#### `codeterm mem graph`
+#### `domios mem graph`
 
 Graph operations
 
-#### `codeterm mem graph alias`
+#### `domios mem graph alias`
 
 Merge one entity into another (alias → canonical)
 
 - `--alias`
 - `--canonical`
 
-#### `codeterm mem graph augment-entity`
+#### `domios mem graph augment-entity`
 
 Patch properties on an existing entity (audit-logged)
 
@@ -1004,14 +1013,14 @@ Patch properties on an existing entity (audit-logged)
 - `--id` — Entity id (e.g. person_andrey)
 - `--patch` — JSON object of properties to merge in (e.g. '{"city":"Riga"}')
 
-#### `codeterm mem graph collapse-synonym-edges`
+#### `domios mem graph collapse-synonym-edges`
 
 Collapse parallel membership-synonym edges graph-wide in one pass: per node-pair keep ONE of about/applies_to/belongs_to/part_of/documented_in, invalidate the rest. Distinct predicates (uses, runs_on, …) untouched
 
 - `--actor`
 - `--dry-run` — Print the redundant edge rowids without invalidating anything
 
-#### `codeterm mem graph create`
+#### `domios mem graph create`
 
 Create a graph entity
 
@@ -1020,7 +1029,7 @@ Create a graph entity
 - `--props` — JSON properties
 - `--scope`
 
-#### `codeterm mem graph delete-entity`
+#### `domios mem graph delete-entity`
 
 Delete an entity by id (audited). Refuses if it has active relations unless --force, in which case those relations are cascade-deleted too
 
@@ -1029,14 +1038,14 @@ Delete an entity by id (audited). Refuses if it has active relations unless --fo
 - `--id` — Entity id (e.g. seed_person_anna)
 - `--purge-history` — Also hard-delete invalidated (historical) relations referencing this entity. Default false: history is preserved as ghost rows for `revive-broken` and timeline queries. Set this when you're sure the entity is gone for good
 
-#### `codeterm mem graph delete-relations`
+#### `domios mem graph delete-relations`
 
 Delete relations by explicit rowids (audited to graph_purge_log)
 
 - `--actor`
 - `--rowids` — Comma-separated rowids (e.g. "42,87,103")
 
-#### `codeterm mem graph find-duplicate-entities`
+#### `domios mem graph find-duplicate-entities`
 
 Find duplicate entities (exact name match, alias chain, or vector similarity)
 
@@ -1045,20 +1054,20 @@ Find duplicate entities (exact name match, alias chain, or vector similarity)
 - `--strategy` — Strategy: exact-name | alias-chain | vector
 - `--threshold` — Cosine similarity threshold for `vector` strategy (0.0-1.0). 0.90+ = strong-merge candidate, 0.85+ = review-worthy
 
-#### `codeterm mem graph find-duplicate-relations`
+#### `domios mem graph find-duplicate-relations`
 
 Find duplicate relations grouped by selected columns. Read-only diagnostic — does not mutate the graph
 
 - `--group-by` — Comma-separated columns from: from_id,relation_type,to_id,scope,valid_from. Default excludes valid_from because the relations UNIQUE(from,rel,to,valid_from) makes grouping by all four a guaranteed no-op — meaningful dedup is on the triple
 - `--limit`
 
-#### `codeterm mem graph get`
+#### `domios mem graph get`
 
 Inspect a graph entity: properties_json + degree summary. Filling the gap that mem search only hits mem_items, not entities. Use this when you need email/phone/role/whatever a Person/Tech/Project entity carries in its properties — `mem graph related` returns relations only
 
 - `<id>` — Entity id (e.g. person_andrey, tech_codeterm)
 
-#### `codeterm mem graph hubs`
+#### `domios mem graph hubs`
 
 List the top hub nodes by active degree (at or above threshold). Each hub returns its degree, relation_type distribution and `clusters`: inbound neighbours grouped by shared area, title keyword or kind, each with a `suggested_topic` and member ids ready for `introduce-topic`. The dreams anchor is reported under `excluded`, not as a hub
 
@@ -1066,7 +1075,7 @@ List the top hub nodes by active degree (at or above threshold). Each hub return
 - `--sample` — Per-hub raw neighbor sample with titles (default 0: clusters only)
 - `--threshold`
 
-#### `codeterm mem graph introduce-topic`
+#### `domios mem graph introduce-topic`
 
 Atomically introduce a topic intermediate: insert topic entity (if missing), link sources → topic → anchor, invalidate direct sources → anchor edges
 
@@ -1079,7 +1088,7 @@ Atomically introduce a topic intermediate: insert topic entity (if missing), lin
 - `--topic-id`
 - `--type`
 
-#### `codeterm mem graph invalidate`
+#### `domios mem graph invalidate`
 
 Invalidate a relation (set valid_to, preserve history)
 
@@ -1088,14 +1097,14 @@ Invalidate a relation (set valid_to, preserve history)
 - `--rel`
 - `--to`
 
-#### `codeterm mem graph islands`
+#### `domios mem graph islands`
 
 List connected components of size <= max-size — disconnected "islands" the Dreamer should bridge or delete. Returns component member id/kind/title/area, plus a `suggested_anchor` derived from shared area / kind / title-keywords across members. JSON mode emits JSONL (one component per line, sorted by size asc)
 
 - `--limit` — Maximum number of components to emit (caps verbose output)
 - `--max-size` — Maximum component size to include (default 6 — pairs through small clusters; bigger groups are real sub-graphs)
 
-#### `codeterm mem graph merge-relations`
+#### `domios mem graph merge-relations`
 
 Merge relations into `keep`, folding properties/confidence
 
@@ -1103,13 +1112,13 @@ Merge relations into `keep`, folding properties/confidence
 - `--keep` — Rowid of the relation to keep (its properties and rowid survive)
 - `--merge` — Comma-separated rowids to fold into `keep` (these are deleted)
 
-#### `codeterm mem graph orphans`
+#### `domios mem graph orphans`
 
 List nodes with degree 0 — true orphans (entities with no relations, mem_items not pointed at by anything). Output: id, kind, title, area, last access. JSON mode emits a flat array
 
 - `--limit` — Cap the number of orphans emitted
 
-#### `codeterm mem graph path`
+#### `domios mem graph path`
 
 Shortest path between two entities
 
@@ -1118,21 +1127,21 @@ Shortest path between two entities
 - `--max-hops`
 - `--to`
 
-#### `codeterm mem graph prune-dream-hub-edges`
+#### `domios mem graph prune-dream-hub-edges`
 
 Invalidate dream-diary backlinks into hubs in one pass: every edge from a daily diary to a graph entity via a noise predicate (keeps the dreams anchor)
 
 - `--actor`
 - `--dry-run` — Print the dream backlink rowids without invalidating anything
 
-#### `codeterm mem graph prune-thin-vectors`
+#### `domios mem graph prune-thin-vectors`
 
 Find and (optionally) delete vectors whose mem_item has no real body (empty / title-only) — the "bodyless embeddings" that pollute search
 
 - `--actor`
 - `--dry-run` — Print the thin-body vector ids without deleting anything
 
-#### `codeterm mem graph purge-invalidated`
+#### `domios mem graph purge-invalidated`
 
 Hard-delete relations whose valid_to is set. Optional filters by cutoff date and reason substring. Audited to graph_purge_log
 
@@ -1141,7 +1150,7 @@ Hard-delete relations whose valid_to is set. Optional filters by cutoff date and
 - `--dry-run` — Print count without modifying any rows or writing audit row
 - `--reason` — Match relations.reason via LIKE %substring%
 
-#### `codeterm mem graph relate`
+#### `domios mem graph relate`
 
 Create a relation between entities or mem_items
 
@@ -1154,7 +1163,7 @@ Create a relation between entities or mem_items
 - `--valid-from` — Validity start (ISO 8601, default now)
 - `--valid-to` — Validity end (ISO 8601, optional)
 
-#### `codeterm mem graph related`
+#### `domios mem graph related`
 
 List outgoing relations from an id
 
@@ -1163,21 +1172,21 @@ List outgoing relations from an id
 - `--include-invalidated` — Include relations whose valid_to is set (default: active-only)
 - `--rel` — Filter by relation type
 
-#### `codeterm mem graph repair-orphan-blobs`
+#### `domios mem graph repair-orphan-blobs`
 
 Find and (optionally) delete sha256_*.txt blob files in the mem blobs directory that no mem_item references. CAS-aware sweep (refcount = 0)
 
 - `--actor`
 - `--dry-run` — Print orphans without deleting anything
 
-#### `codeterm mem graph repair-orphan-vectors`
+#### `domios mem graph repair-orphan-vectors`
 
 Find and (optionally) delete orphan rows in mem_vectors — vectors whose mem_id has no matching mem_items / entities row. One-shot legacy cleanup
 
 - `--actor`
 - `--dry-run` — Print orphans without deleting anything
 
-#### `codeterm mem graph revive-broken`
+#### `domios mem graph revive-broken`
 
 Restore valid_to=NULL for relations whose endpoints both still exist in entities or mem_items. Idempotent
 
@@ -1185,7 +1194,7 @@ Restore valid_to=NULL for relations whose endpoints both still exist in entities
 - `--dry-run`
 - `--since`
 
-#### `codeterm mem graph route`
+#### `domios mem graph route`
 
 Atomically re-route an active direct edge (from → to) through an intermediate (from → via → to). Invalidates the original direct edge
 
@@ -1197,14 +1206,14 @@ Atomically re-route an active direct edge (from → to) through an intermediate 
 - `--to`
 - `--via`
 
-#### `codeterm mem graph timeline`
+#### `domios mem graph timeline`
 
 Full temporal timeline for an entity
 
 - `--entity`
 - `--include-invalidated` — Include relations whose valid_to is set (default: active-only)
 
-#### `codeterm mem graph traverse`
+#### `domios mem graph traverse`
 
 BFS traversal from an entity (max_hops cap)
 
@@ -1214,19 +1223,19 @@ BFS traversal from an entity (max_hops cap)
 - `--include-invalidated` — Include relations whose valid_to is set (default: active-only)
 - `--max-nodes`
 
-#### `codeterm mem graph tunnels`
+#### `domios mem graph tunnels`
 
 List entities bridging 2+ areas (cross-project connections)
 
 - `--include-invalidated` — Include relations whose valid_to is set (default: active-only)
 
-#### `codeterm mem history`
+#### `domios mem history`
 
 Print the full audit trail for one item (create/update/promote/delete)
 
 - `<id>` — Mem item id
 
-#### `codeterm mem learn`
+#### `domios mem learn`
 
 Capture a quick learning (insight, error, feature request)
 
@@ -1236,17 +1245,17 @@ Capture a quick learning (insight, error, feature request)
 - `--tags` — Comma-separated tags
 - `<text>` — What you learned. If omitted and stdin piped, read stdin
 
-#### `codeterm mem learn-list`
+#### `domios mem learn-list`
 
 List pending learnings (kind=learning items)
 
-#### `codeterm mem learn-promote`
+#### `domios mem learn-promote`
 
 Promote a learning to a fact (raises importance)
 
 - `<id>`
 
-#### `codeterm mem merge`
+#### `domios mem merge`
 
 Merge a near-duplicate into a keeper, reversibly: the lesser is archived (never deleted) and linked `merged_into` the keeper; `--conflict` links keeper `supersedes` lesser instead. Undo with `mem restore <lesser>`. Pinned, skill, rule and preference items are refused as the lesser
 
@@ -1257,19 +1266,19 @@ Merge a near-duplicate into a keeper, reversibly: the lesser is archived (never 
 - `--keeper` — Item that survives
 - `--lesser` — Item that is archived and linked to the keeper
 
-#### `codeterm mem pin`
+#### `domios mem pin`
 
 Pin a mem item so it always loads in L1 wake-up
 
 - `<id>` — Mem item id (e.g. fact_my_thing)
 
-#### `codeterm mem pinned`
+#### `domios mem pinned`
 
 List all currently pinned items, ordered by importance/evidence/recency
 
 - `--limit` — Max results (default 100, max 500)
 
-#### `codeterm mem purge-precompact`
+#### `domios mem purge-precompact`
 
 Preview or purge retained raw PreCompact payloads for one already-deleted record
 
@@ -1278,13 +1287,13 @@ Preview or purge retained raw PreCompact payloads for one already-deleted record
 - `--vacuum` — Rebuild SQLite free pages and truncate the current WAL after purge
 - `--verified-deleted` — Attest prior verification of this deleted record's original flush source, summary and tags
 
-#### `codeterm mem reembed`
+#### `domios mem reembed`
 
 Re-embed mem_items and/or graph entities into mem_vectors. Use this after swapping the embedder model, or to backfill existing entities that pre-date the auto-embed-on-create wiring. Daemon-routed (the daemon owns the embedder process). Idempotent
 
 - `--scope` — What to re-embed: items (mem_items) | entities (graph) | all
 
-#### `codeterm mem restore`
+#### `domios mem restore`
 
 Undo an area merge, or restore from audit history. An archived item gets its prior kind back and its merge link invalidated (plus the --version body when given); otherwise reverts the body before the most recent change
 
@@ -1292,14 +1301,14 @@ Undo an area merge, or restore from audit history. An archived item gets its pri
 - `<id>` — Mem item id
 - `--version` — History row id from `mem history <id>`: undo its area merge or restore its body. Omit to undo the latest area merge, archive, or body change
 
-#### `codeterm mem run-worker`
+#### `domios mem run-worker`
 
 Run a single mem maintenance pass in this subprocess. Opens the DB directly (multi-process WAL) and performs one phase of work, then exits. Used by the daemon's supervisor so a panic / OOM in dreaming or librarian cannot take the API down
 
-- `--db-path` — Override the path to knowledge.db. Defaults to the same data dir the CLI uses elsewhere (`~/.codeterm/mem/knowledge.db` for prod, `~/.codeterm-dev/mem/knowledge.db` for dev)
+- `--db-path` — Override the path to knowledge.db. Defaults to the same data dir the CLI uses elsewhere (`~/.domios/mem/knowledge.db` for prod, `~/.domios-dev/mem/knowledge.db` for dev)
 - `<kind>` — Which phase to run: dreaming-light | dreaming-deep | dreaming-normalize | librarian-once
 
-#### `codeterm mem save`
+#### `domios mem save`
 
 Save a new mem item
 
@@ -1318,7 +1327,7 @@ Save a new mem item
 - `--title` — Title (will be slugified into id). If omitted, first line of body
 - `--workspace` — Convenience: scope this item to workspace ID. Maps to scope="workspace:<ws>"
 
-#### `codeterm mem save-preference`
+#### `domios mem save-preference`
 
 Save a stable user/machine preference for wake-up context
 
@@ -1334,7 +1343,7 @@ Save a stable user/machine preference for wake-up context
 - `--title` — Title (will be slugified into id). If omitted, first line of body
 - `--workspace` — Convenience: scope this item to workspace ID. Maps to scope="workspace:<ws>"
 
-#### `codeterm mem search`
+#### `domios mem search`
 
 Search across mem_items (FTS5 + hybrid scoring)
 
@@ -1347,25 +1356,25 @@ Search across mem_items (FTS5 + hybrid scoring)
 - `--scope` — Restrict to global / workspace / workspace:<id>
 - `--supporter` — Force Supporter Agent memory re-rank on or off for this search; omitted, a connected Supporter runs automatically
 
-#### `codeterm mem secret`
+#### `domios mem secret`
 
 Pluggable secret store: save / get / search / list / delete. Backend is selected in Settings (default: bitwarden once shipped; `mock` in Phase 1 builds)
 
-#### `codeterm mem secret delete`
+#### `domios mem secret delete`
 
 Delete by name
 
 - `--name`
 - `--yes`
 
-#### `codeterm mem secret get`
+#### `domios mem secret get`
 
 Resolve and print a secret. Default = raw value to stdout (no trailing newline). Use --json for {name, value, notes}
 
 - `--json`
 - `--name`
 
-#### `codeterm mem secret list`
+#### `domios mem secret list`
 
 List saved secrets (metadata only — never values)
 
@@ -1373,15 +1382,15 @@ List saved secrets (metadata only — never values)
 - `--limit`
 - `--org`
 
-#### `codeterm mem secret lock`
+#### `domios mem secret lock`
 
 Lock the active backend (in-process session is dropped)
 
-#### `codeterm mem secret logout`
+#### `domios mem secret logout`
 
 Sign out — also drops persisted creds (OS keychain entry)
 
-#### `codeterm mem secret save`
+#### `domios mem secret save`
 
 Save a secret. Value comes from --value or stdin (preferred — keeps the value out of shell history)
 
@@ -1393,67 +1402,67 @@ Save a secret. Value comes from --value or stdin (preferred — keeps the value 
 - `--overwrite` — Allow replacing an existing secret with the same name
 - `--value` — Plaintext value. Omit and pipe via stdin instead
 
-#### `codeterm mem secret save-master-password`
+#### `domios mem secret save-master-password`
 
 Arm auto-unlock on the active backend. Refused unless the backend declares the auto-unlock capability; when it does, the password is handed to the vault, which must authenticate it before the backend persists anything in its own bucket. The CLI stores nothing itself. Reads value from stdin (preferred — out of shell history) or --password
 
 - `--password`
 
-#### `codeterm mem secret search`
+#### `domios mem secret search`
 
 Free-text search over saved secret metadata
 
 - `<query>`
 
-#### `codeterm mem secret status`
+#### `domios mem secret status`
 
 Show backend + auth status
 
-#### `codeterm mem secret sync`
+#### `domios mem secret sync`
 
 Pull latest from the remote vault. No-op for backends with no remote (Local OS-keychain, Mock). Bitwarden runs `bw sync`
 
-#### `codeterm mem secret unlock`
+#### `domios mem secret unlock`
 
 Unlock the active backend with a master password (read from stdin if --password is omitted, never from argv)
 
 - `--email`
 - `--password`
 
-#### `codeterm mem skill`
+#### `domios mem skill`
 
-Skill management — folder-on-disk skills with mem index. Skills live as ~/.codeterm/skills/<name>/SKILL.md (+ optional support files). `add` registers the folder; Librarian re-vectorizes if SKILL.md changes
+Skill management — folder-on-disk skills with mem index. Skills live as ~/.domios/skills/<name>/SKILL.md (+ optional support files). `add` registers the folder; Librarian re-vectorizes if SKILL.md changes
 
-#### `codeterm mem skill add`
+#### `domios mem skill add`
 
-Register an existing skill folder. Reads <folder>/SKILL.md and saves a mem item with source_path linked to it. Re-runs are idempotent. Area can come from --area flag, YAML frontmatter (`area: foo`), or the parent folder name (~/.codeterm/skills/<area>/<skill>/SKILL.md)
+Register an existing skill folder. Reads <folder>/SKILL.md and saves a mem item with source_path linked to it. Re-runs are idempotent. Area can come from --area flag, YAML frontmatter (`area: foo`), or the parent folder name (~/.domios/skills/<area>/<skill>/SKILL.md)
 
 - `--area` — Override the auto-detected area
-- `<folder>` — Folder containing SKILL.md (e.g. ~/.codeterm/skills/mem-testing)
+- `<folder>` — Folder containing SKILL.md (e.g. ~/.domios/skills/mem-testing)
 - `--importance` — Importance 1-5, default 4
 
-#### `codeterm mem skill list`
+#### `domios mem skill list`
 
 List all registered skills
 
-#### `codeterm mem skill new`
+#### `domios mem skill new`
 
 Scaffold a new skill folder under <skills-dir>/<name>/ (skills/ in the active instance data dir), write a SKILL.md template (with frontmatter + canonical sections) plus an empty scripts/ subdir, then register it in mem immediately. After this, edit the SKILL.md — Librarian will re-index on change
 
 - `--area` — Optional area tag to put in the frontmatter
 - `<name>` — Skill slug (also folder name). Use kebab-case
 
-#### `codeterm mem stats`
+#### `domios mem stats`
 
 Show mem store stats (counts by kind, blob sizes)
 
-#### `codeterm mem sync`
+#### `domios mem sync`
 
 Trigger file sync for source-tracked items (Librarian)
 
 - `--path` — Sync one file by path
 
-#### `codeterm mem tail`
+#### `domios mem tail`
 
 Show recent mem writes (newest first). With --follow, poll for new rows
 
@@ -1461,19 +1470,19 @@ Show recent mem writes (newest first). With --follow, poll for new rows
 - `--limit` — Max rows per fetch (default 20)
 - `--since` — ISO8601 lower-bound for the initial fetch (rows created at/after this time)
 
-#### `codeterm mem taxonomy`
+#### `domios mem taxonomy`
 
 Print {area -> {kind -> count}} for the store (or a single workspace)
 
 - `--workspace` — Restrict to one workspace scope
 
-#### `codeterm mem unpin`
+#### `domios mem unpin`
 
 Unpin a previously pinned item
 
 - `<id>`
 
-#### `codeterm mem update`
+#### `domios mem update`
 
 Partial update of an existing mem item by id. Only the flags you pass are written; everything else stays as-is
 
@@ -1487,7 +1496,7 @@ Partial update of an existing mem item by id. Only the flags you pass are writte
 - `--tags` — Comma-separated tags (REPLACES existing tags)
 - `--title`
 
-#### `codeterm mem wake-up`
+#### `domios mem wake-up`
 
 Print L0+L1 wake-up context (GA init injection)
 
@@ -1497,34 +1506,34 @@ Print L0+L1 wake-up context (GA init injection)
 - `--no-l0` — Skip identity layer (return L1 only)
 - `--workspace` — Workspace override; defaults to the calling tab's workspace
 
-#### `codeterm mem worker`
+#### `domios mem worker`
 
 Graph-worker operations (hidden mem panel agents)
 
-#### `codeterm mem worker get`
+#### `domios mem worker get`
 
 Get one worker by id
 
 - `<id>`
 
-#### `codeterm mem worker kill`
+#### `domios mem worker kill`
 
 Kill a worker by id
 
 - `<id>`
 
-#### `codeterm mem worker list`
+#### `domios mem worker list`
 
 List all graph workers
 
-#### `codeterm mem worker progress`
+#### `domios mem worker progress`
 
 Report progress (called by worker itself; uses $CODETERM_WORKER_ID)
 
 - `--status`
 - `<text>`
 
-#### `codeterm mem worker report`
+#### `domios mem worker report`
 
 Submit final report: execution ended (uses $CODETERM_WORKER_ID)
 
@@ -1533,7 +1542,7 @@ Submit final report: execution ended (uses $CODETERM_WORKER_ID)
 - `--reason` — Concrete reason for a partial or failed finalization
 - `<summary>`
 
-#### `codeterm mem worker spawn`
+#### `domios mem worker spawn`
 
 Spawn a new graph worker
 
@@ -1542,101 +1551,101 @@ Spawn a new graph worker
 - `--parent`
 - `--task`
 
-#### `codeterm mesh`
+#### `domios mesh`
 
 Mesh networking — peer discovery, pairing, relay
 
-#### `codeterm mesh announce`
+#### `domios mesh announce`
 
 Push our current address list to paired peers without re-detecting locally. Use --to to limit to one peer
 
 - `--to` — Optional target peer (instance_id or name). Omit for all peers
 
-#### `codeterm mesh approve`
+#### `domios mesh approve`
 
 Accept an incoming pairing request
 
 - `<request_id>` — Request ID of the pending pairing request
 
-#### `codeterm mesh broadcast`
+#### `domios mesh broadcast`
 
 Start broadcasting for the configured duration
 
-#### `codeterm mesh connect`
+#### `domios mesh connect`
 
 Initiate owner-approved pairing with a discovered peer or explicit address
 
 - `--addr` — Read the peer identity directly at this IP:port before pairing
 - `<instance_id>` — Instance ID or advertised name; --addr also accepts a hexadecimal ID prefix
 
-#### `codeterm mesh disconnect`
+#### `domios mesh disconnect`
 
 Disconnect (unpair) from a paired peer
 
 - `<instance_id>` — Instance ID of the paired peer
 
-#### `codeterm mesh discover`
+#### `domios mesh discover`
 
 Trigger mesh discovery scan (list discovered peers)
 
-#### `codeterm mesh offline`
+#### `domios mesh offline`
 
 Go offline: stop pinging peers, stop announcing, stop refreshing local addresses (which keeps Tailscale alive). The daemon stays up; peers will time out our presence on their side. Local-only command
 
-#### `codeterm mesh online`
+#### `domios mesh online`
 
 Come back online — resume mesh activity. Local-only
 
-#### `codeterm mesh peer`
+#### `domios mesh peer`
 
 Per-peer address management
 
-#### `codeterm mesh peer set-addr`
+#### `domios mesh peer set-addr`
 
-Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr PEER-NAME 100.100.100.100 codeterm mesh peer set-addr PEER-NAME 192.168.1.42:7685
+Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: domios mesh peer set-addr PEER-NAME 100.100.100.100 domios mesh peer set-addr PEER-NAME 192.168.1.42:7685
 
 - `<addr>` — New address as ip[:port]
 - `<peer>` — Target peer (instance_id or name)
 
-#### `codeterm mesh peers`
+#### `domios mesh peers`
 
 List all peers (paired + discovered)
 
-#### `codeterm mesh refresh`
+#### `domios mesh refresh`
 
 Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting Domios
 
-#### `codeterm mesh reject`
+#### `domios mesh reject`
 
 Reject and block an incoming pairing request
 
 - `<request_id>` — Request ID of the pending pairing request
 
-#### `codeterm mesh status`
+#### `domios mesh status`
 
 Show mesh status (identity, discovery, peers)
 
-#### `codeterm mesh stop-broadcast`
+#### `domios mesh stop-broadcast`
 
 Stop broadcasting immediately
 
-#### `codeterm mesh tabs`
+#### `domios mesh tabs`
 
 List tabs on a remote mesh peer
 
 - `<target>` — Target peer name or instance ID
 
-#### `codeterm mesh unrevoke`
+#### `domios mesh unrevoke`
 
 Explicitly lift a peer identity revocation so it can pair again
 
 - `<instance_id>` — Instance ID of the revoked peer
 
-#### `codeterm model-provider`
+#### `domios model-provider`
 
 Configure model endpoints through the installed provider capability
 
-#### `codeterm model-provider add`
+#### `domios model-provider add`
 
 Add an endpoint; pipe the key on stdin. Omit --model to discover models
 
@@ -1646,15 +1655,15 @@ Add an endpoint; pipe the key on stdin. Omit --model to discover models
 - `--name`
 - `--secret`
 
-#### `codeterm model-provider list`
+#### `domios model-provider list`
 
 List Domios-owned endpoints without key values
 
-#### `codeterm model-provider preset`
+#### `domios model-provider preset`
 
 Manage Domios-owned provider presets
 
-#### `codeterm model-provider preset add`
+#### `domios model-provider preset add`
 
 Create or replace an owned model, prompt and parameter preset
 
@@ -1665,43 +1674,43 @@ Create or replace an owned model, prompt and parameter preset
 - `--temperature`
 - `--top-p`
 
-#### `codeterm model-provider preset list`
+#### `domios model-provider preset list`
 
 List Domios-owned presets
 
-#### `codeterm model-provider preset remove`
+#### `domios model-provider preset remove`
 
 Remove only a Domios-owned preset
 
 - `--name`
 
-#### `codeterm model-provider remove`
+#### `domios model-provider remove`
 
 Remove a Domios-owned endpoint and its owned secret
 
 - `--name`
 
-#### `codeterm model-provider test`
+#### `domios model-provider test`
 
 Check an endpoint within a bounded deadline and return its models
 
 - `--name`
 
-#### `codeterm notify`
+#### `domios notify`
 
 Send, list, and clear notifications
 
-#### `codeterm notify clear`
+#### `domios notify clear`
 
 Clear all notifications
 
-#### `codeterm notify list`
+#### `domios notify list`
 
 List notifications
 
 - `--unread` — Show only unread notifications
 
-#### `codeterm notify send`
+#### `domios notify send`
 
 Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it
 
@@ -1719,11 +1728,11 @@ Send a notification. The body is read only from the calling tab's AgentPad. Repo
 - `--target-tab` — The open tab whose chat holds the message this notification is about
 - `<title>` — Notification title: not blank, at most 200 characters
 
-#### `codeterm orchestrator`
+#### `domios orchestrator`
 
 Orchestrator helpers
 
-#### `codeterm orchestrator handoff`
+#### `domios orchestrator handoff`
 
 Create an orchestrator handoff and optionally reseed this tab
 
@@ -1738,24 +1747,24 @@ Create an orchestrator handoff and optionally reseed this tab
 - `--tab`
 - `--task`
 
-#### `codeterm orchestrator heartbeat`
+#### `domios orchestrator heartbeat`
 
 Orchestrator heartbeat helpers
 
-#### `codeterm orchestrator heartbeat show`
+#### `domios orchestrator heartbeat show`
 
 Show the current heartbeat and learnings
 
 - `--plan`
 
-#### `codeterm orchestrator inspect`
+#### `domios orchestrator inspect`
 
 Show the full orchestration snapshot, including report bodies
 
 - `--plan`
 - `--tab`
 
-#### `codeterm orchestrator learn`
+#### `domios orchestrator learn`
 
 Append a persistent learning to this orchestrator's heartbeat
 
@@ -1763,48 +1772,48 @@ Append a persistent learning to this orchestrator's heartbeat
 - `--tag`
 - `<text>`
 
-#### `codeterm orchestrator refresh`
+#### `domios orchestrator refresh`
 
 Run the daemon-side refresh cycle (handoff → compact → re-orient → verify resumption)
 
 - `--plan`
 - `--tab`
 
-#### `codeterm orchestrator status`
+#### `domios orchestrator status`
 
 Show a compact orchestration summary
 
 - `--plan`
 - `--tab`
 
-#### `codeterm pad`
+#### `domios pad`
 
 Inspect the current agent tab's private ephemeral filesystem pad
 
-#### `codeterm pad list`
+#### `domios pad list`
 
 List relative regular files in the current agent tab's pad
 
-#### `codeterm pad path`
+#### `domios pad path`
 
 Print the current agent tab's private ephemeral pad path
 
-#### `codeterm paste`
+#### `domios paste`
 
 Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)
 
-#### `codeterm paste get`
+#### `domios paste get`
 
 Print a paste body to stdout. Does NOT delete unless --pop or the paste was created with --pop
 
 - `<id>` — Paste id (e.g. "paste:a3f9k2")
 - `--pop` — Delete after fetching (one-shot read)
 
-#### `codeterm paste list`
+#### `domios paste list`
 
 List local (or --mesh <peer>) pastes — id, size, ttl_remaining
 
-#### `codeterm paste put`
+#### `domios paste put`
 
 Stash a payload. Body from positional / --from-file / stdin
 
@@ -1816,25 +1825,25 @@ Stash a payload. Body from positional / --from-file / stdin
 - `--pop` — One-shot — paste self-deletes after first fetch
 - `--ttl` — TTL — e.g. "30m", "1h", "24h". Default 1h. Max 24h
 
-#### `codeterm paste rm`
+#### `domios paste rm`
 
 Explicit delete
 
 - `<id>` — Paste id
 
-#### `codeterm persona`
+#### `domios persona`
 
 Inspect the shared role preset resolver — kinds, overlays, and the exact text each delivery occasion emits
 
-#### `codeterm persona list`
+#### `domios persona list`
 
 List every role kind the resolver can reach, with refused overlays
 
-#### `codeterm persona reload`
+#### `domios persona reload`
 
 Re-read the overlay directory without restarting or rebuilding
 
-#### `codeterm persona show`
+#### `domios persona show`
 
 Render the exact preset text a role kind receives at each delivery occasion
 
@@ -1843,11 +1852,11 @@ Render the exact preset text a role kind receives at each delivery occasion
 - `--occasion` — Render only this occasion
 - `--role` — Structural role — Manager or Worker
 
-#### `codeterm plan`
+#### `domios plan`
 
 Canvas plans — persistent orchestration boards
 
-#### `codeterm plan adopt`
+#### `domios plan adopt`
 
 Adopt an existing plan sidecar directory into this project
 
@@ -1856,32 +1865,56 @@ Adopt an existing plan sidecar directory into this project
 - `--project`
 - `<source>`
 
-#### `codeterm plan approve`
+#### `domios plan approve`
 
 Mark the plan approved for task generation
 
 - `<plan_id>`
 
-#### `codeterm plan archive`
+#### `domios plan archive`
 
 Archive a plan
 
 - `<plan_id>`
 - `--yes` — Confirm archive when no Plan tab identity is available
 
-#### `codeterm plan claim`
+#### `domios plan claim`
 
 Claim an unowned plan
 
 - `<plan_id>`
 
-#### `codeterm plan coverage`
+#### `domios plan control-loop`
+
+Inspect or set a plan's control loop
+
+#### `domios plan control-loop run`
+
+Request one Curator round now, subject to the plan and human-wait gates
+
+- `<plan_id>`
+
+#### `domios plan control-loop set`
+
+Switch the plan between Curator rounds and the plain heartbeat
+
+- `--interval`
+- `<mode>`
+- `<plan_id>`
+
+#### `domios plan control-loop show`
+
+Show the plan's control-loop mode and heartbeat interval
+
+- `<plan_id>`
+
+#### `domios plan coverage`
 
 Show section coverage (% + gaps)
 
 - `<plan_id>`
 
-#### `codeterm plan create`
+#### `domios plan create`
 
 Create a new plan
 
@@ -1892,11 +1925,25 @@ Create a new plan
 - `--spec-file`
 - `--title`
 
-#### `codeterm plan decision`
+#### `domios plan curator`
+
+Grant bounded authority to the active Curator round
+
+#### `domios plan curator grant`
+
+Grant the Curator tab the blueprints, plan skills and saves it may use
+
+- `--blueprint`
+- `<curator_tab>`
+- `--plan-skill`
+- `<plan_id>`
+- `--save`
+
+#### `domios plan decision`
 
 Decision gates — structured blocking questions routed to the planner
 
-#### `codeterm plan decision answer`
+#### `domios plan decision answer`
 
 Answer an open gate (immutable audit record, resumes paused tasks)
 
@@ -1905,7 +1952,7 @@ Answer an open gate (immutable audit record, resumes paused tasks)
 - `<gate_id>`
 - `<plan_id>`
 
-#### `codeterm plan decision ask`
+#### `domios plan decision ask`
 
 Create a decision gate, pause blocking tasks, and route the question to the planner
 
@@ -1915,7 +1962,7 @@ Create a decision gate, pause blocking tasks, and route the question to the plan
 - `<plan_id>`
 - `--question`
 
-#### `codeterm plan decision escalate`
+#### `domios plan decision escalate`
 
 Escalate a stale open gate
 
@@ -1923,27 +1970,27 @@ Escalate a stale open gate
 - `--note`
 - `<plan_id>`
 
-#### `codeterm plan decision list`
+#### `domios plan decision list`
 
 List decision gates for a plan
 
 - `--open` — Show only open gates
 - `<plan_id>`
 
-#### `codeterm plan delete`
+#### `domios plan delete`
 
 Delete a plan. Cascades: the plan's owned spec (1:1, co-located spec.yaml) is deleted with it; specs merely linked/referenced from other plans are untouched and only lose their reference to this plan
 
 - `<plan_id>`
 - `--yes` — Confirm permanent deletion
 
-#### `codeterm plan disown`
+#### `domios plan disown`
 
 Release plan ownership
 
 - `<plan_id>`
 
-#### `codeterm plan doctor`
+#### `domios plan doctor`
 
 Inspect project-local plan files for storage and structure errors
 
@@ -1951,11 +1998,11 @@ Inspect project-local plan files for storage and structure errors
 - `<plan_id>`
 - `--project`
 
-#### `codeterm plan element`
+#### `domios plan element`
 
 Generic canvas elements
 
-#### `codeterm plan element add`
+#### `domios plan element add`
 
 Add a generic canvas element of an arbitrary kind, optionally linked
 
@@ -1965,28 +2012,28 @@ Add a generic canvas element of an arbitrary kind, optionally linked
 - `--link`
 - `<plan_id>`
 
-#### `codeterm plan element list`
+#### `domios plan element list`
 
 List generic canvas elements
 
 - `--kind`
 - `<plan_id>`
 
-#### `codeterm plan element rm`
+#### `domios plan element rm`
 
 Remove a generic canvas element
 
 - `<element_id>`
 - `<plan_id>`
 
-#### `codeterm plan element show`
+#### `domios plan element show`
 
 Show one generic canvas element
 
 - `<element_id>`
 - `<plan_id>`
 
-#### `codeterm plan element update`
+#### `domios plan element update`
 
 Update a generic canvas element's content, kind, or links
 
@@ -1997,41 +2044,41 @@ Update a generic canvas element's content, kind, or links
 - `--link`
 - `<plan_id>`
 
-#### `codeterm plan facets`
+#### `domios plan facets`
 
 Set declared tag facets
 
-#### `codeterm plan facets set`
+#### `domios plan facets set`
 
 Set the declared tag facets (CSV)
 
 - `--facets`
 - `<plan_id>`
 
-#### `codeterm plan files`
+#### `domios plan files`
 
 List generated section/task body files
 
 - `<plan_id>`
 
-#### `codeterm plan gaps`
+#### `domios plan gaps`
 
 Show sections with zero tasks
 
 - `<plan_id>`
 
-#### `codeterm plan get`
+#### `domios plan get`
 
 Render the whole plan as markdown (goal + sections + tasks); --sections for the tree only
 
 - `<plan_id>`
 - `--sections`
 
-#### `codeterm plan goal`
+#### `domios plan goal`
 
 Plan north-star goal
 
-#### `codeterm plan goal set`
+#### `domios plan goal set`
 
 Update the plan's goal; fields not passed keep their current value
 
@@ -2043,17 +2090,17 @@ Update the plan's goal; fields not passed keep their current value
 - `--vision`
 - `--vision-file`
 
-#### `codeterm plan goal show`
+#### `domios plan goal show`
 
 Show the plan's north-star goal (vector, vision, constraints, postulates)
 
 - `<plan_id>`
 
-#### `codeterm plan groups`
+#### `domios plan groups`
 
 Set task groups (phases)
 
-#### `codeterm plan groups close`
+#### `domios plan groups close`
 
 Record an optional retrospective stride for a completed group
 
@@ -2061,18 +2108,18 @@ Record an optional retrospective stride for a completed group
 - `--note`
 - `<plan_id>`
 
-#### `codeterm plan groups set`
+#### `domios plan groups set`
 
 Set the task groups / phases (CSV)
 
 - `--groups`
 - `<plan_id>`
 
-#### `codeterm plan handoff`
+#### `domios plan handoff`
 
 Orchestrator handoffs attached to the plan
 
-#### `codeterm plan handoff create`
+#### `domios plan handoff create`
 
 Create a durable, goal-anchored handoff attached to the plan
 
@@ -2086,13 +2133,13 @@ Create a durable, goal-anchored handoff attached to the plan
 - `--stdin`
 - `--task`
 
-#### `codeterm plan handoff list`
+#### `domios plan handoff list`
 
 List the handoffs attached to a plan
 
 - `<plan_id>`
 
-#### `codeterm plan handoff show`
+#### `domios plan handoff show`
 
 Show a handoff (--latest or --seq N), optionally as markdown
 
@@ -2102,41 +2149,41 @@ Show a handoff (--latest or --seq N), optionally as markdown
 - `<selector>`
 - `--seq`
 
-#### `codeterm plan in-progress`
+#### `domios plan in-progress`
 
 List active orchestration tasks; without PLAN_ID, scope to the current directory's project
 
 - `--all` — List active tasks across every project
 - `<plan_id>` — Plan to list regardless of the caller's working directory
 
-#### `codeterm plan ingest`
+#### `domios plan ingest`
 
 Ingest markdown headings as plan sections
 
 - `<markdown>`
 - `<plan_id>`
 
-#### `codeterm plan kinds`
+#### `domios plan kinds`
 
 Set milestone kind columns
 
-#### `codeterm plan kinds set`
+#### `domios plan kinds set`
 
 Set the declared milestone kind columns (CSV)
 
 - `--kinds`
 - `<plan_id>`
 
-#### `codeterm plan lane-remove`
+#### `domios plan lane-remove`
 
 Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it
 
 - `--branch` — Lane branch to delete after worktree removal, if merged into project HEAD
-- `--force` — Force removal, discarding uncommitted and untracked lane content
+- `--force` — Force Git cleanup after cleanliness and ancestry checks; dirty content stays protected
 - `--project` — Canonical checkout (needed for a missing worktree unless its task identifies the project)
 - `<worktree>` — Lane worktree path to remove
 
-#### `codeterm plan lanes`
+#### `domios plan lanes`
 
 Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/cleanup)
 
@@ -2146,11 +2193,11 @@ Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/clean
 - `<plan_id>`
 - `--stale` — Only show stale lanes (dead tab / report-overdue / uncleaned)
 
-#### `codeterm plan layout`
+#### `domios plan layout`
 
 Canvas layout overrides
 
-#### `codeterm plan layout set`
+#### `domios plan layout set`
 
 Set a canvas element's x/y layout override
 
@@ -2159,14 +2206,14 @@ Set a canvas element's x/y layout override
 - `--x`
 - `--y`
 
-#### `codeterm plan link`
+#### `domios plan link`
 
 Link this plan to a related plan
 
 - `<plan_id>`
 - `--to`
 
-#### `codeterm plan list`
+#### `domios plan list`
 
 List plans
 
@@ -2178,7 +2225,7 @@ List plans
 - `--unowned`
 - `--workspace`
 
-#### `codeterm plan locate`
+#### `domios plan locate`
 
 File + line range of a body block, for in-place edits with file tools
 
@@ -2187,11 +2234,11 @@ File + line range of a body block, for in-place edits with file tools
 - `--spec-section` — Spec section id or handle (of the plan's spec)
 - `--task` — Task id or handle
 
-#### `codeterm plan loop`
+#### `domios plan loop`
 
 Self-improving loops
 
-#### `codeterm plan loop create`
+#### `domios plan loop create`
 
 Declare a self-improving loop with a target and iteration budget
 
@@ -2200,7 +2247,7 @@ Declare a self-improving loop with a target and iteration budget
 - `--stop-when`
 - `--target`
 
-#### `codeterm plan loop record`
+#### `domios plan loop record`
 
 Record one loop iteration and leave a stride
 
@@ -2209,7 +2256,7 @@ Record one loop iteration and leave a stride
 - `--stop`
 - `--task`
 
-#### `codeterm plan loop set`
+#### `domios plan loop set`
 
 Update a loop's budget or stop condition
 
@@ -2217,23 +2264,23 @@ Update a loop's budget or stop condition
 - `<loop_id>`
 - `--stop-when`
 
-#### `codeterm plan loop status`
+#### `domios plan loop status`
 
 Show a loop's iteration count, budget, and status
 
 - `<loop_id>`
 
-#### `codeterm plan loop stop`
+#### `domios plan loop stop`
 
 Stop a loop (marks it complete)
 
 - `<loop_id>`
 
-#### `codeterm plan milestone`
+#### `domios plan milestone`
 
 Task milestones
 
-#### `codeterm plan milestone add`
+#### `domios plan milestone add`
 
 Add a milestone (stride) to a task; --add-kind declares a new kind inline
 
@@ -2245,7 +2292,7 @@ Add a milestone (stride) to a task; --add-kind declares a new kind inline
 - `--text`
 - `--text-file`
 
-#### `codeterm plan milestone rm`
+#### `domios plan milestone rm`
 
 Remove a milestone from a task
 
@@ -2253,7 +2300,7 @@ Remove a milestone from a task
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan milestone update`
+#### `domios plan milestone update`
 
 Update a milestone's kind or text
 
@@ -2264,7 +2311,7 @@ Update a milestone's kind or text
 - `--text`
 - `--text-file`
 
-#### `codeterm plan mode`
+#### `domios plan mode`
 
 Set explicit effort mode: planning | approved | execution | complete
 
@@ -2272,7 +2319,7 @@ Set explicit effort mode: planning | approved | execution | complete
 - `<plan_id>`
 - `--set`
 
-#### `codeterm plan move`
+#### `domios plan move`
 
 Move a plan sidecar from another project or data dir into this project
 
@@ -2282,17 +2329,17 @@ Move a plan sidecar from another project or data dir into this project
 - `<plan_id>`
 - `--to`
 
-#### `codeterm plan next`
+#### `domios plan next`
 
 Prioritized, advisory next-action guidance computed from plan state
 
 - `<plan_id>`
 
-#### `codeterm plan note`
+#### `domios plan note`
 
 Free-form notes on the canvas
 
-#### `codeterm plan note add`
+#### `domios plan note add`
 
 Add a free-form canvas note, optionally linked to a task or section
 
@@ -2302,14 +2349,14 @@ Add a free-form canvas note, optionally linked to a task or section
 - `--text`
 - `--text-file`
 
-#### `codeterm plan note rm`
+#### `domios plan note rm`
 
 Remove a free-form canvas note
 
 - `<note_id>`
 - `<plan_id>`
 
-#### `codeterm plan note update`
+#### `domios plan note update`
 
 Update a free-form canvas note
 
@@ -2318,7 +2365,7 @@ Update a free-form canvas note
 - `--text`
 - `--text-file`
 
-#### `codeterm plan pause`
+#### `domios plan pause`
 
 Park the whole effort without changing task state or executor bindings
 
@@ -2327,7 +2374,7 @@ Aliases: park
 - `<plan_id>`
 - `--reason`
 
-#### `codeterm plan planning-state`
+#### `domios plan planning-state`
 
 Return a draft to drafting; approval uses `plan approve`
 
@@ -2336,18 +2383,18 @@ Return a draft to drafting; approval uses `plan approve`
 - `--set`
 - `--tab` — Deprecated author label retained for draft reset records
 
-#### `codeterm plan prune`
+#### `domios plan prune`
 
 Preview or delete smoke/empty project-local plan files (dry-run by default)
 
 - `--apply`
 - `--project`
 
-#### `codeterm plan qa`
+#### `domios plan qa`
 
 Serialized QA queue for in_review tasks
 
-#### `codeterm plan qa fail`
+#### `domios plan qa fail`
 
 Mark QA failed, bounce to in_progress, and nudge the implementer
 
@@ -2357,7 +2404,7 @@ Mark QA failed, bounce to in_progress, and nudge the implementer
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan qa next`
+#### `domios plan qa next`
 
 Show the next queued QA task, claim it, or record a group's full-gate regression run
 
@@ -2366,7 +2413,7 @@ Show the next queued QA task, claim it, or record a group's full-gate regression
 - `--note` — Claim note. Required with --claim
 - `<plan_id>`
 
-#### `codeterm plan qa override`
+#### `domios plan qa override`
 
 Authorized Orchestrator waiver of pending regression gates (owner-only, audited)
 
@@ -2374,7 +2421,7 @@ Authorized Orchestrator waiver of pending regression gates (owner-only, audited)
 - `<plan_id>`
 - `--reason` — Why the frontier may advance past the gate — required
 
-#### `codeterm plan qa pass`
+#### `domios plan qa pass`
 
 Mark QA passed and close the task
 
@@ -2382,7 +2429,7 @@ Mark QA passed and close the task
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan qa queue`
+#### `domios plan qa queue`
 
 Show the plan QA queue, or enqueue one in_review task with --task
 
@@ -2390,7 +2437,7 @@ Show the plan QA queue, or enqueue one in_review task with --task
 - `<plan_id>`
 - `--task`
 
-#### `codeterm plan rebind`
+#### `domios plan rebind`
 
 Re-sync this planning binding, or restore its original Worker attempt with --task and --attempt
 
@@ -2398,14 +2445,14 @@ Re-sync this planning binding, or restore its original Worker attempt with --tas
 - `<plan_id>` — Optional plan id for context; required with --task and --attempt
 - `--task` — Exact task whose existing Worker attempt should regain its authenticated binding
 
-#### `codeterm plan reconcile`
+#### `domios plan reconcile`
 
 Detect plan/task drift and optionally apply conservative fixes
 
 - `--fix`
 - `<plan_id>`
 
-#### `codeterm plan record`
+#### `domios plan record`
 
 Record task progress with one atomic plan write
 
@@ -2420,26 +2467,26 @@ Record task progress with one atomic plan write
 - `--task`
 - `--upsert-task`
 
-#### `codeterm plan reindex`
+#### `domios plan reindex`
 
 Rebuild the project-local plan recall index
 
 - `--project`
 
-#### `codeterm plan related`
+#### `domios plan related`
 
 Show structural neighbors for a plan/spec/task/section unit
 
 - `--depth`
 - `--id`
 
-#### `codeterm plan resume`
+#### `domios plan resume`
 
 Resume a paused effort, restoring its previous mode
 
 - `<plan_id>`
 
-#### `codeterm plan retrospective`
+#### `domios plan retrospective`
 
 Write the plan completion retrospective (plan-level stride, kind retrospective)
 
@@ -2447,11 +2494,11 @@ Write the plan completion retrospective (plan-level stride, kind retrospective)
 - `--body-file`
 - `<plan_id>`
 
-#### `codeterm plan review`
+#### `domios plan review`
 
 Review-backpressure: capacity, credit reconciliation, and verdicts
 
-#### `codeterm plan review accept`
+#### `domios plan review accept`
 
 ACCEPT: attaches the verdict and closes the task (in_review -> done)
 
@@ -2463,7 +2510,7 @@ ACCEPT: attaches the verdict and closes the task (in_review -> done)
 - `--residual-risk` — Past the default round bound, routes residual risk to a follow-up task
 - `<task_id>`
 
-#### `codeterm plan review authorize-capacity`
+#### `domios plan review authorize-capacity`
 
 Grant daemon-owned review-capacity provenance to one task
 
@@ -2471,7 +2518,7 @@ Grant daemon-owned review-capacity provenance to one task
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan review authorize-reporter`
+#### `domios plan review authorize-reporter`
 
 Authorize one task-less tab to append plan-level review or canonical-QA evidence
 
@@ -2479,7 +2526,7 @@ Authorize one task-less tab to append plan-level review or canonical-QA evidence
 - `<plan_id>`
 - `<reporter_tab_id>`
 
-#### `codeterm plan review bounce`
+#### `domios plan review bounce`
 
 BOUNCE: atomically exits in_review back to in_progress
 
@@ -2491,7 +2538,7 @@ BOUNCE: atomically exits in_review back to in_progress
 - `<task_id>`
 - `--todo-item` — Reopen this Worker checklist item with the bounce note as its reason
 
-#### `codeterm plan review delegate`
+#### `domios plan review delegate`
 
 Hand one in-review task to a direct child QA for accept/bounce review
 
@@ -2499,7 +2546,7 @@ Hand one in-review task to a direct child QA for accept/bounce review
 - `--qa-tab`
 - `<task_id>`
 
-#### `codeterm plan review hold`
+#### `domios plan review hold`
 
 HOLD: records a review hold without releasing the task assignment or lane
 
@@ -2508,7 +2555,7 @@ HOLD: records a review hold without releasing the task assignment or lane
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan review override`
+#### `domios plan review override`
 
 Record a P0 exception authorizing the next over-round-limit review entry
 
@@ -2518,26 +2565,26 @@ Record a P0 exception authorizing the next over-round-limit review entry
 - `--reproduction`
 - `<task_id>`
 
-#### `codeterm plan review reconcile-credit`
+#### `domios plan review reconcile-credit`
 
 Repair historical review-credit debt from leaked review exits and audit it
 
 - `<plan_id>`
 - `--reason`
 
-#### `codeterm plan review status`
+#### `domios plan review status`
 
 Show review-backpressure status: WIP count/limit, credit, blocked reason
 
 - `<plan_id>`
 
-#### `codeterm plan review waves`
+#### `domios plan review waves`
 
 Show batch-compatible QA waves (grouped by task group)
 
 - `<plan_id>`
 
-#### `codeterm plan search`
+#### `domios plan search`
 
 Search synced plan/spec/task/stride history for this project
 
@@ -2550,11 +2597,11 @@ Search synced plan/spec/task/stride history for this project
 - `<query>`
 - `--scope` — Restrict to an indexed scope such as global or workspace:<id>
 
-#### `codeterm plan section`
+#### `domios plan section`
 
 Plan sections
 
-#### `codeterm plan section add`
+#### `domios plan section add`
 
 Add a plan section (execution phase), optionally nested under --parent
 
@@ -2567,7 +2614,7 @@ Add a plan section (execution phase), optionally nested under --parent
 - `--tag`
 - `--title`
 
-#### `codeterm plan section attach`
+#### `domios plan section attach`
 
 Attach a file to a plan section
 
@@ -2575,21 +2622,21 @@ Attach a file to a plan section
 - `<plan_id>`
 - `<section_id>`
 
-#### `codeterm plan section rm`
+#### `domios plan section rm`
 
 Remove a plan section and its subsections
 
 - `<plan_id>`
 - `<section_id>`
 
-#### `codeterm plan section show`
+#### `domios plan section show`
 
 Show one plan section's title, body, tags, and subsections
 
 - `<plan_id>`
 - `<section_id>`
 
-#### `codeterm plan section update`
+#### `domios plan section update`
 
 Update a plan section's title, body, tags, or handle
 
@@ -2602,18 +2649,18 @@ Update a plan section's title, body, tags, or handle
 - `--tag`
 - `--title`
 
-#### `codeterm plan set-project`
+#### `domios plan set-project`
 
 Repair a plan's project folder after it moves, preserving plan and task identity
 
 - `<path>`
 - `<plan_id>`
 
-#### `codeterm plan skill`
+#### `domios plan skill`
 
 Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)
 
-#### `codeterm plan skill edit`
+#### `domios plan skill edit`
 
 Record a keep|discard|superseded ledger entry; --body-file replaces SKILL.md
 
@@ -2623,13 +2670,13 @@ Record a keep|discard|superseded ledger entry; --body-file replaces SKILL.md
 - `<slug>`
 - `--verdict`
 
-#### `codeterm plan skill list`
+#### `domios plan skill list`
 
 List plan skills with their latest ledger verdict
 
 - `--plan`
 
-#### `codeterm plan skill new`
+#### `domios plan skill new`
 
 Create a new plan skill folder (SKILL.md + scripts/)
 
@@ -2640,36 +2687,36 @@ Create a new plan skill folder (SKILL.md + scripts/)
 - `<slug>`
 - `--title`
 
-#### `codeterm plan skill show`
+#### `domios plan skill show`
 
 Print a plan skill's SKILL.md and ledger history
 
 - `--plan`
 - `<slug>`
 
-#### `codeterm plan spec`
+#### `domios plan spec`
 
 Print only the plan's hydrated section prose (no goal, tasks, or metadata)
 
 - `<plan_id>`
 
-#### `codeterm plan state`
+#### `domios plan state`
 
 One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)
 
 - `<plan_id>`
 
-#### `codeterm plan tags`
+#### `domios plan tags`
 
 Show tag facets, counts, topics, and duplicate warnings
 
 - `<plan_id>`
 
-#### `codeterm plan task`
+#### `domios plan task`
 
 Plan tasks
 
-#### `codeterm plan task add`
+#### `domios plan task add`
 
 Add a task to a plan (carries model/why routing + quality fields)
 
@@ -2717,14 +2764,14 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--workspace-name`
 - `--worktree`
 
-#### `codeterm plan task adopt-checkpoint`
+#### `domios plan task adopt-checkpoint`
 
 Adopt a sealed handoff checkpoint into this authenticated Worker tab
 
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan task assign`
+#### `domios plan task assign`
 
 Assign a task to a tab (exports CODETERM_TASK_ID to that tab)
 
@@ -2733,7 +2780,7 @@ Assign a task to a tab (exports CODETERM_TASK_ID to that tab)
 - `--tab`
 - `<task_id>`
 
-#### `codeterm plan task attach`
+#### `domios plan task attach`
 
 Attach a file to a plan task
 
@@ -2741,7 +2788,7 @@ Attach a file to a plan task
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan task attempt`
+#### `domios plan task attempt`
 
 Show one execution attempt for a plan task
 
@@ -2749,14 +2796,14 @@ Show one execution attempt for a plan task
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan task attempts`
+#### `domios plan task attempts`
 
 List execution attempts for a plan task
 
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan task close`
+#### `domios plan task close`
 
 Close a task from any lifecycle state. The authenticated Plan Orchestrator overrides worker owner-epoch drift; open subtasks still block
 
@@ -2766,7 +2813,7 @@ Close a task from any lifecycle state. The authenticated Plan Orchestrator overr
 - `--result-file`
 - `<task_id>`
 
-#### `codeterm plan task dispatch`
+#### `domios plan task dispatch`
 
 Spawn a worker, assign the task, and deliver its brief in one atomic call
 
@@ -2787,7 +2834,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `<task_id>`
 - `--workspace`
 
-#### `codeterm plan task files`
+#### `domios plan task files`
 
 Replace structured task context files (relative paths resolve against the Worker cwd)
 
@@ -2796,7 +2843,7 @@ Replace structured task context files (relative paths resolve against the Worker
 - `--read-file`
 - `<task_id>`
 
-#### `codeterm plan task link`
+#### `domios plan task link`
 
 Link a task to one or more plan sections (CSV)
 
@@ -2804,7 +2851,7 @@ Link a task to one or more plan sections (CSV)
 - `--sections`
 - `<task_id>`
 
-#### `codeterm plan task list`
+#### `domios plan task list`
 
 List a plan's tasks, optionally filtered by status
 
@@ -2812,7 +2859,7 @@ List a plan's tasks, optionally filtered by status
 - `<plan_id>`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 
-#### `codeterm plan task merge-remote-lane`
+#### `domios plan task merge-remote-lane`
 
 Fetch a reviewed remote lane through its paired peer and merge it into the origin checkout
 
@@ -2820,14 +2867,14 @@ Fetch a reviewed remote lane through its paired peer and merge it into the origi
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan task relink`
+#### `domios plan task relink`
 
 Preview or apply automatic section links for unlinked tasks (--apply)
 
 - `--apply`
 - `<plan_id>`
 
-#### `codeterm plan task remote-ack`
+#### `domios plan task remote-ack`
 
 Acknowledge a remote Worker attempt on the origin plan
 
@@ -2835,7 +2882,7 @@ Acknowledge a remote Worker attempt on the origin plan
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan task remote-report`
+#### `domios plan task remote-report`
 
 Persist a remote Worker's in-review report on the origin plan
 
@@ -2850,7 +2897,7 @@ Persist a remote Worker's in-review report on the origin plan
 - `--test-cmd`
 - `--test-result`
 
-#### `codeterm plan task respawn`
+#### `domios plan task respawn`
 
 Respawn a worker from one prior attempt, inheriting its recorded execution intent and provider/model
 
@@ -2864,7 +2911,7 @@ Respawn a worker from one prior attempt, inheriting its recorded execution inten
 - `--title`
 - `--workspace`
 
-#### `codeterm plan task retag`
+#### `domios plan task retag`
 
 Replace facet/topic tags and regenerate the task handle
 
@@ -2873,7 +2920,7 @@ Replace facet/topic tags and regenerate the task handle
 - `--tag`
 - `<task_id>`
 
-#### `codeterm plan task rm`
+#### `domios plan task rm`
 
 Remove a task from the plan, or --all to reset generated tasks
 
@@ -2882,7 +2929,7 @@ Remove a task from the plan, or --all to reset generated tasks
 - `<task_id>`
 - `--yes`
 
-#### `codeterm plan task show`
+#### `domios plan task show`
 
 Show one task in the plan with full detail (body, criteria, test_plan, correctness, executor_role, sections)
 
@@ -2891,7 +2938,7 @@ Show one task in the plan with full detail (body, criteria, test_plan, correctne
 - `--siblings` — List sibling tasks (open-only unless --all)
 - `<task_id>`
 
-#### `codeterm plan task split`
+#### `domios plan task split`
 
 Split a task into dispatchable child tasks
 
@@ -2900,7 +2947,7 @@ Split a task into dispatchable child tasks
 - `<plan_id>`
 - `<task_id>`
 
-#### `codeterm plan task update`
+#### `domios plan task update`
 
 Update task metadata, status, quality fields, or lane assignment
 
@@ -2953,7 +3000,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--workspace-name`
 - `--worktree`
 
-#### `codeterm plan transfer`
+#### `domios plan transfer`
 
 Transfer plan ownership
 
@@ -2961,26 +3008,26 @@ Transfer plan ownership
 - `--reason`
 - `--to`
 
-#### `codeterm plan unapprove`
+#### `domios plan unapprove`
 
 Return an approved/execution plan to planning mode
 
 - `<plan_id>`
 
-#### `codeterm plan unarchive`
+#### `domios plan unarchive`
 
 Restore an archived plan to active
 
 - `<plan_id>`
 
-#### `codeterm plan unlink`
+#### `domios plan unlink`
 
 Remove a plan link
 
 - `<plan_id>`
 - `--to`
 
-#### `codeterm plan update`
+#### `domios plan update`
 
 Update plan metadata
 
@@ -2993,49 +3040,49 @@ Update plan metadata
 - `--status`
 - `--title`
 
-#### `codeterm plugin`
+#### `domios plugin`
 
 Plugin management — install, update, remove, manage channels
 
-#### `codeterm plugin channel`
+#### `domios plugin channel`
 
 Manage plugin channels
 
-#### `codeterm plugin channel add`
+#### `domios plugin channel add`
 
 Add a local path or git URL channel
 
 - `--name`
 - `<url>`
 
-#### `codeterm plugin channel diff`
+#### `domios plugin channel diff`
 
 Compare installed plugins against a channel without installing
 
 - `<name>`
 
-#### `codeterm plugin channel ensure-default`
+#### `domios plugin channel ensure-default`
 
 Register the default marketplace channel (codeterm-plugins) if missing. Register-only: nothing is installed. Best-effort/offline-tolerant
 
-#### `codeterm plugin channel list`
+#### `domios plugin channel list`
 
 List registered channels
 
-#### `codeterm plugin channel refresh`
+#### `domios plugin channel refresh`
 
 Refresh one channel, or all channels when name is omitted
 
 - `<name>`
 
-#### `codeterm plugin channel remove`
+#### `domios plugin channel remove`
 
 Remove a channel cache and registry entry
 
 - `--force` — Allow removing the protected system channel registration
 - `<name>`
 
-#### `codeterm plugin config`
+#### `domios plugin config`
 
 Configure plugin settings. Non-secret fields use the comment-preserving config.yaml; secret values are read from stdin and stored in the plugin bucket
 
@@ -3046,13 +3093,13 @@ Configure plugin settings. Non-secret fields use the comment-preserving config.y
 - `--set` — Set a field: --set key=value (repeatable)
 - `--values-json` — Set multiple fields from a JSON object (named --values-json so it does not collide with the global --json output flag)
 
-#### `codeterm plugin get`
+#### `domios plugin get`
 
 Show a plugin's agent-facing config and guidance: its config.yaml, settings schema, secret field presence, configHelp, agent verbs, agent guide, and installed/configured/reload state
 
 - `<id>`
 
-#### `codeterm plugin install`
+#### `domios plugin install`
 
 Install a plugin by id from channels, or directly from a local folder
 
@@ -3061,11 +3108,11 @@ Install a plugin by id from channels, or directly from a local folder
 - `<id>` — Plugin id to install from registered channels
 - `--id-override` — Rename the installed runtime plugin id, including plugin.json#id
 
-#### `codeterm plugin list`
+#### `domios plugin list`
 
 List installed plugins
 
-#### `codeterm plugin receiver-target`
+#### `domios plugin receiver-target`
 
 Show, set, or clear the tab that receives a webhook plugin's events
 
@@ -3073,7 +3120,7 @@ Show, set, or clear the tab that receives a webhook plugin's events
 - `<id>` — Plugin id that declares a webhook receiver
 - `--set` — Bind this tab id as the receiver target
 
-#### `codeterm plugin remove`
+#### `domios plugin remove`
 
 Remove an installed plugin
 
@@ -3081,7 +3128,7 @@ Remove an installed plugin
 - `<id>`
 - `--remove-data` — Also remove plugin-owned downloaded data
 
-#### `codeterm plugin settings`
+#### `domios plugin settings`
 
 Manage a plugin's exact-host network grants
 
@@ -3089,37 +3136,37 @@ Manage a plugin's exact-host network grants
 - `--disallow-host` — Remove a user-granted host or host:port (repeatable)
 - `<id>`
 
-#### `codeterm plugin update`
+#### `domios plugin update`
 
 Update one installed plugin, or all plugins when id is omitted
 
 - `<id>`
 
-#### `codeterm plugin update-system`
+#### `domios plugin update-system`
 
 Update bundled system provider plugins from the official plugin channel
 
 - `<id>`
 
-#### `codeterm plugin validate`
+#### `domios plugin validate`
 
 Validate a plugin directory without installing it: strict manifest parse (the daemon's deny-unknown-fields PluginManifest), a real QuickJS load of the entry script, then a report of which AgentProvider exports plugin.js implements and which fallbacks serve the rest. Exits non-zero on the first failure, naming it
 
 - `<dir>` — Path to the plugin directory (the folder containing plugin.json)
 
-#### `codeterm rest-api`
+#### `domios rest-api`
 
 Inspect and recover the local REST listener through the socket
 
-#### `codeterm rest-api restart`
+#### `domios rest-api restart`
 
 Restart the REST listener and wait for readiness or a reported failure
 
-#### `codeterm rest-api status`
+#### `domios rest-api status`
 
 Show listener phase and the last bind or runtime error over the local socket
 
-#### `codeterm send`
+#### `domios send`
 
 Send text to a tab (default: current tab)
 
@@ -3131,17 +3178,18 @@ Send text to a tab (default: current tab)
 - `--from-file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--require-agent` — Refuse unless the target tab has an agent attached. Guards task dispatch so prose never lands in a raw shell (issue #8)
-- `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
+- `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: domios send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
+- `--system-context` — Deliver a host system notice with this context and no reply address
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback). Comma-separated ids address several tabs in one call — the same payload is delivered per tab, every target is reported, and the call exits non-zero if any of them failed. Multi-target does not accept mesh ids: run it on the owning peer, one peer per call
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 - `--to-shell` — Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force
 - `--until` — Stop recurring delivery at this unix millisecond, RFC3339, or local YYYY-MM-DDTHH:MM time
 
-#### `codeterm service`
+#### `domios service`
 
-Manage daemon services (long-running processes monitored by codeterm)
+Manage daemon services (long-running processes monitored by Domios)
 
-#### `codeterm service add`
+#### `domios service add`
 
 Register a new daemon-kind service
 
@@ -3153,7 +3201,7 @@ Register a new daemon-kind service
 - `--health-ok-values` — Comma-separated values that map to healthy (default: ok,healthy,UP)
 - `--health-path` — HTTP health path (default: /healthz)
 - `--host` — Host (for health_mode=tcp)
-- `--kind` — Service kind (default: daemon — for cron use `codeterm cron create`)
+- `--kind` — Service kind (default: daemon — for cron use `domios cron create`)
 - `<name>`
 - `--port` — Port (for health_mode=tcp)
 - `--process-label` — Process label (for health_mode=process — launchd label or systemd unit)
@@ -3161,13 +3209,13 @@ Register a new daemon-kind service
 - `--script-path` — Script path (for health_mode=script — exit 0 = healthy)
 - `--url` — HTTP URL (for health_mode=http)
 
-#### `codeterm service delete`
+#### `domios service delete`
 
 Delete a service (also deletes its push token + activity)
 
 - `<id>` — Service ID
 
-#### `codeterm service edit`
+#### `domios service edit`
 
 Edit a service
 
@@ -3180,35 +3228,35 @@ Edit a service
 - `--name`
 - `--url`
 
-#### `codeterm service list`
+#### `domios service list`
 
 List all registered services (cron + daemon)
 
 - `--enabled` — Filter by enabled state
 - `--kind` — Filter by kind: cron | daemon
 
-#### `codeterm service show`
+#### `domios service show`
 
 Show service detail (status, config, recent activity)
 
 - `<id>` — Service ID
 
-#### `codeterm service token`
+#### `domios service token`
 
 Show or rotate the push token for a service
 
 - `<id>` — Service ID
 - `--rotate` — Rotate (generate new token, invalidate old)
 
-#### `codeterm sessions`
+#### `domios sessions`
 
 Past agent sessions — search conversations across all providers
 
-#### `codeterm sessions backups`
+#### `domios sessions backups`
 
 Full-desk session backups (workspaces + tabs). List the rotated snapshots and recover a reduced/wiped desk from one without hand-editing JSON
 
-#### `codeterm sessions backups export`
+#### `domios sessions backups export`
 
 Export a read-only, sanitized desk snapshot with transcript size evidence
 
@@ -3216,31 +3264,31 @@ Export a read-only, sanitized desk snapshot with transcript size evidence
 - `--out` — Destination JSON file. Nothing is written to the instance
 - `--sanitize` — Required: message bodies, paths and secrets become same-size filler
 
-#### `codeterm sessions backups import`
+#### `domios sessions backups import`
 
 Replace a disposable named DEV desk with a sanitized fixture
 
 - `--file`
 
-#### `codeterm sessions backups list`
+#### `domios sessions backups list`
 
 List desk snapshot backups, newest first, with workspace/tab counts
 
 - `--limit` — Max backups shown
 
-#### `codeterm sessions backups restore`
+#### `domios sessions backups restore`
 
 Restore a backup into the live desk. Strictly additive — it replaces NOTHING: existing workspaces and tabs are untouched, only workspaces and tabs missing from the live desk are recreated from the backup
 
 - `<name>` — Backup name from `sessions backups list` (unix timestamp)
 
-#### `codeterm sessions get`
+#### `domios sessions get`
 
 Print metadata for a past session (provider, cwd, file path, times). Read-only probe — use before `sessions resume` to verify the session is still on disk
 
 - `<session_id>`
 
-#### `codeterm sessions resume`
+#### `domios sessions resume`
 
 Resume a past session in its original cwd. Atomic replacement for the "workspace create → agent spawn --args=--resume=UUID" dance which keeps failing because Claude/Codex look for the JSONL in the current cwd. This command: finds the session across providers, creates a workspace at the right project path, spawns an agent tab there, and hands the resume id to the provider correctly
 
@@ -3250,7 +3298,7 @@ Resume a past session in its original cwd. Atomic replacement for the "workspace
 - `--workspace-id` — Reuse an existing workspace instead of creating a new one
 - `--workspace-name` — Custom name for the new workspace (default: basename of cwd)
 
-#### `codeterm sessions search`
+#### `domios sessions search`
 
 Search past sessions by content across all registered providers. Results are tagged with `provider` so an agent can resume with the right launcher
 
@@ -3260,29 +3308,29 @@ Search past sessions by content across all registered providers. Results are tag
 - `--provider` — Filter by provider id (e.g. "claude"). Omit or pass "all" to search every registered provider
 - `<query>` — Query string. Terms are whitespace-split; every term must appear (case-insensitive) in at least one matching message
 
-#### `codeterm spec`
+#### `domios spec`
 
 Requirements specs — first-class WHAT documents
 
-#### `codeterm spec create`
+#### `domios spec create`
 
 Create a new spec
 
 - `--project`
 - `--title`
 
-#### `codeterm spec delete`
+#### `domios spec delete`
 
 Delete a spec (scrubs plan references, removes the yaml)
 
 - `<spec_id>`
 - `--yes` — Confirm permanent deletion
 
-#### `codeterm spec link`
+#### `domios spec link`
 
 Spec-to-plan links
 
-#### `codeterm spec link add`
+#### `domios spec link add`
 
 Link spec section(s) to plan section(s) (M:N coverage edges)
 
@@ -3292,13 +3340,13 @@ Link spec section(s) to plan section(s) (M:N coverage edges)
 - `--spec`
 - `--spec-section`
 
-#### `codeterm spec link list`
+#### `domios spec link list`
 
 List spec-to-plan links for a spec
 
 - `<spec_id>`
 
-#### `codeterm spec link rm`
+#### `domios spec link rm`
 
 Remove spec-to-plan link(s); narrow with --spec-section / --plan-section
 
@@ -3307,7 +3355,7 @@ Remove spec-to-plan link(s); narrow with --spec-section / --plan-section
 - `--spec`
 - `--spec-section`
 
-#### `codeterm spec list`
+#### `domios spec list`
 
 List specs
 
@@ -3316,11 +3364,11 @@ List specs
 - `--archived`
 - `--project`
 
-#### `codeterm spec section`
+#### `domios spec section`
 
 Spec sections
 
-#### `codeterm spec section add`
+#### `domios spec section add`
 
 Add a spec section (requirement), optionally nested under --parent
 
@@ -3333,21 +3381,21 @@ Add a spec section (requirement), optionally nested under --parent
 - `--tag`
 - `--title`
 
-#### `codeterm spec section rm`
+#### `domios spec section rm`
 
 Remove a spec section and its subsections
 
 - `<section_id>`
 - `<spec_id>`
 
-#### `codeterm spec section show`
+#### `domios spec section show`
 
 Show one spec section's title, body, tags, and subsections
 
 - `<section_id>`
 - `<spec_id>`
 
-#### `codeterm spec section update`
+#### `domios spec section update`
 
 Update a spec section's title, body, tags, or handle
 
@@ -3360,76 +3408,76 @@ Update a spec section's title, body, tags, or handle
 - `--tag`
 - `--title`
 
-#### `codeterm spec show`
+#### `domios spec show`
 
 Show a hydrated spec
 
 - `<spec_id>`
 
-#### `codeterm supporter`
+#### `domios supporter`
 
 Configure and inspect Spinal Cord (Supporter Agent)
 
 Aliases: spinal-cord
 
-#### `codeterm supporter disconnect`
+#### `domios supporter disconnect`
 
 Remove a saved connection and its token; removing the active one stops the Supporter
 
 - `<adapter>`
 
-#### `codeterm supporter models`
+#### `domios supporter models`
 
 List registered adapters and their discovered models
 
-#### `codeterm supporter status`
+#### `domios supporter status`
 
 Show connection, activity, token state and budget
 
-#### `codeterm supporter token`
+#### `domios supporter token`
 
 Manage the selected adapter's API token. The value is read from stdin only and is never printed
 
-#### `codeterm supporter token clear`
+#### `domios supporter token clear`
 
 Remove the stored token
 
 - `--adapter`
 
-#### `codeterm supporter token set`
+#### `domios supporter token set`
 
-Store the token piped on stdin, e.g. `pbpaste | codeterm supporter token set --adapter typesafe-jev`. There is deliberately no argv flag for the value
+Store the token piped on stdin, e.g. `pbpaste | domios supporter token set --adapter typesafe-jev`. There is deliberately no argv flag for the value
 
 - `--adapter`
 
-#### `codeterm supporter token status`
+#### `domios supporter token status`
 
 Report token presence, file path and mode (never the value). Without --adapter, every registered adapter is listed
 
 - `--adapter`
 
-#### `codeterm supporter use`
+#### `domios supporter use`
 
 Connect or activate an adapter, remembering its own model and token
 
 - `<adapter>`
 - `--model`
 
-#### `codeterm surface`
+#### `domios surface`
 
 Plugin surface tabs: app tabs whose content a plugin view renders
 
-#### `codeterm surface close`
+#### `domios surface close`
 
 Close a surface tab; refuses tabs that are not surfaces
 
 - `--tab` — Surface tab id
 
-#### `codeterm surface list`
+#### `domios surface list`
 
 List the surfaces enabled plugins declare and the surface tabs that are open
 
-#### `codeterm surface open`
+#### `domios surface open`
 
 Open a plugin surface as a tab nested under its owner
 
@@ -3437,30 +3485,30 @@ Open a plugin surface as a tab nested under its owner
 - `<target>` — Surface to open, as `<plugin_id>:<surface_id>`
 - `--title-from-owner` — Label the tab after its owner ("{owner}'s {title}") even when the surface is not agent-bound
 
-#### `codeterm system`
+#### `domios system`
 
 OS-level integration: autostart, supervision, install hooks. Each subcommand is local-only and writes to platform-specific places (schtasks on Windows, LaunchAgents on macOS, user systemd on Linux)
 
-#### `codeterm system autostart-status`
+#### `domios system autostart-status`
 
 Print whether the autostart trigger is installed and where
 
-#### `codeterm system disable-autostart`
+#### `domios system disable-autostart`
 
 Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent — running on a host without a trigger is a no-op
 
-#### `codeterm system enable-autostart`
+#### `domios system enable-autostart`
 
 Install an OS login trigger for the external crash-aware supervisor. The supervisor alone applies clean-exit, backoff, and loop policy; platform wrappers never restart the app independently
 
 - `--binary` — Override the path to the Domios executable. Defaults to the installed app binary for the current platform
 - `--supervisor` — Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable
 
-#### `codeterm tab`
+#### `domios tab`
 
 Tab management
 
-#### `codeterm tab adopt-agent`
+#### `domios tab adopt-agent`
 
 Adopt a live PTY as an agent send target without restarting it
 
@@ -3468,38 +3516,38 @@ Adopt a live PTY as an agent send target without restarting it
 - `--provider` — Registered PTY provider to assert. Required; never inferred
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab auto-confirm`
+#### `domios tab auto-confirm`
 
 Opt a tab in or out of auto-confirming provider permission prompts the provider positively recognizes, or show the setting with recent auto-confirmations. Questions, trust dialogs and unrecognized prompts are never answered
 
 - `<mode>` — `on`, `off`, or `status`
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab capture`
+#### `domios tab capture`
 
 Dev-only: tee a tab's raw PTY output into an asciicast v2 `.cast` file
 
-#### `codeterm tab capture start`
+#### `domios tab capture start`
 
 Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`
 
 - `--out` — Path of the `.cast` file to write
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab capture stop`
+#### `domios tab capture stop`
 
 Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`
 
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab chat`
+#### `domios tab chat`
 
 Read a tab's parsed chat transcript (text/thinking/tool calls/results)
 
 - `--since` — Only return messages from this index onward
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab close`
+#### `domios tab close`
 
 Close a tab by ID
 
@@ -3507,20 +3555,20 @@ Close a tab by ID
 - `<id>` — Temporary positional alias for the tab id. Prefer --tab
 - `--tab` — Tab ID to close
 
-#### `codeterm tab current`
+#### `domios tab current`
 
 Print the current focused tab ID — no JSON parsing needed
 
 - `--last` — Return the last tab instead of the focused one
 
-#### `codeterm tab describe`
+#### `domios tab describe`
 
 Set a short tab description (empty clears it)
 
 - `<summary>` — Short summary, max 200 chars
 - `--tab` — Tab ID to describe (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab exec`
+#### `domios tab exec`
 
 Execute a command in a tab and return output
 
@@ -3528,21 +3576,21 @@ Execute a command in a tab and return output
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `--timeout` — Timeout in milliseconds
 
-#### `codeterm tab focus`
+#### `domios tab focus`
 
 Focus a tab by ID
 
 - `<id>` — Temporary positional alias for the tab id. Prefer --tab
 - `--tab` — Tab ID to focus
 
-#### `codeterm tab get-text`
+#### `domios tab get-text`
 
 Get visible terminal text of a tab (what the user sees)
 
 - `--formatted` — Include raw ANSI escape codes (colors, cursor state) instead of plain text
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab inspect`
+#### `domios tab inspect`
 
 Show the full daemon tab payload for one or more explicit tab ids
 
@@ -3550,7 +3598,7 @@ Show the full daemon tab payload for one or more explicit tab ids
 - `--tab` — One or more tab ids to inspect. Repeat the flag for multiple tabs
 - `<tabs>` — Temporary positional aliases for tab ids. Prefer --tab
 
-#### `codeterm tab list`
+#### `domios tab list`
 
 List compact tab summaries across every workspace. Use `--workspace` for one workspace and `tab inspect` for full tab details
 
@@ -3558,12 +3606,12 @@ List compact tab summaries across every workspace. Use `--workspace` for one wor
 - `--all-workspaces` — Accepted for compatibility; every workspace is now listed by default
 - `--workspace` — Workspace id to list. Without this selector every workspace is listed
 
-#### `codeterm tab new`
+#### `domios tab new`
 
-Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab use `codeterm agent spawn`
+Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab use `domios agent spawn`
 
-- `--chat-backend` — Open a non-PTY chat-backend tab driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`tab get-text` then route to the plugin, not a shell
-- `--cmd` — Spawn a shell that runs this command on start (e.g. `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab
+- `--chat-backend` — Open a non-PTY chat-backend tab driven by the given plugin id (a plugin declaring the `chatBackend` capability). `domios send`/`tab get-text` then route to the plugin, not a shell
+- `--cmd` — Spawn a shell that runs this command on start (e.g. `"npm run dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab
 - `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new tab
 - `--description` — Activity summary shown below the tab title
@@ -3574,31 +3622,31 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--purpose` — Utility shell purpose shown in the sidebar
 - `--shell` — Shell profile id (discover with --list-shells)
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
-- `--timeout` — Shell lifetime: positive duration (30s, 10m, 2h), or none
+- `--timeout` — Agent-owned shell lifetime: positive duration (30s, 10m, 2h), or none. Requires a live creating agent (CODETERM_TAB_ID); omit for human shells
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
 
-#### `codeterm tab rebind`
+#### `domios tab rebind`
 
 Bind a running tab to an existing provider session without restarting it
 
 - `<session_id>` — Provider session ID to bind
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab release-ownership`
+#### `domios tab release-ownership`
 
 Release stored remote mesh control ownership from a local tab
 
 - `--tab` — Local tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab rename`
+#### `domios tab rename`
 
 Rename a tab (default: current tab)
 
 - `--tab` — Tab ID to rename (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `<title>` — New title
 
-#### `codeterm tab repair`
+#### `domios tab repair`
 
 Repair a live tab's provider identity from verified session evidence
 
@@ -3608,14 +3656,14 @@ Repair a live tab's provider identity from verified session evidence
 - `--session` — Rebind this verified session and reassert its provider identity
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab respond`
+#### `domios tab respond`
 
 Answer the tab's current provider-declared prompt by numbered option. Sends only when a pending prompt exists; use this instead of raw keys
 
 - `<option>` — One-based option number shown by `tab status` or `tab inspect`
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab restart`
+#### `domios tab restart`
 
 Replace a plain shell's process in the same tab, preserving tab identity and metadata
 
@@ -3624,36 +3672,36 @@ Replace a plain shell's process in the same tab, preserving tab identity and met
 - `--tab` — Tab ID to restart (default: current tab)
 - `--timeout` — Fresh shell lifetime (30s, 10m, 2h, none); defaults to the previous duration
 
-#### `codeterm tab search`
+#### `domios tab search`
 
 Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias
 
 - `<pattern>` — Substring or short pattern to match
 
-#### `codeterm tab status`
+#### `domios tab status`
 
 Show agent status for a tab (type, provider session, prompt)
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab stop`
+#### `domios tab stop`
 
 Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop-key sequence. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
-#### `codeterm tab timeout`
+#### `domios tab timeout`
 
 Reset an owned utility shell's lifetime from now, or disable it with none
 
 - `--tab`
 - `--timeout`
 
-#### `codeterm tab todo`
+#### `domios tab todo`
 
 Manage a tab-owned bounded checklist through the daemon service
 
-#### `codeterm tab todo amend`
+#### `domios tab todo amend`
 
 Amend one checklist item (Orchestrator only)
 
@@ -3662,7 +3710,7 @@ Amend one checklist item (Orchestrator only)
 - `<item_id>` — Stable checklist item id
 - `--tab` — Child tab id
 
-#### `codeterm tab todo append`
+#### `domios tab todo append`
 
 Append ordered checks to a child checklist (QA Worker only)
 
@@ -3671,7 +3719,7 @@ Append ordered checks to a child checklist (QA Worker only)
 - `--generation` — Current checklist generation, supplied by the authorized Orchestrator
 - `--tab` — Child tab id
 
-#### `codeterm tab todo clear`
+#### `domios tab todo clear`
 
 Clear one item or the entire checklist as the user
 
@@ -3679,14 +3727,14 @@ Clear one item or the entire checklist as the user
 - `<item_id>` — Stable checklist item id; omit when using --all
 - `--tab` — Target tab id (default: this tab when invoked from the host)
 
-#### `codeterm tab todo complete`
+#### `domios tab todo complete`
 
 Mark one checklist item complete
 
 - `<item_id>` — Stable checklist item id
 - `--tab` — Target tab id (default: this tab)
 
-#### `codeterm tab todo init`
+#### `domios tab todo init`
 
 Seed a child tab's locked checklist from acceptance criteria (Orchestrator only)
 
@@ -3694,13 +3742,13 @@ Seed a child tab's locked checklist from acceptance criteria (Orchestrator only)
 - `--from-pad` — JSON array of acceptance-criteria strings from this tab's pad
 - `--tab` — Child tab id to initialize
 
-#### `codeterm tab todo list`
+#### `domios tab todo list`
 
 List the current tab's checklist or inspect one child as its parent
 
 - `--tab` — Child tab id. Requires this tab to be its authorized parent
 
-#### `codeterm tab todo reopen`
+#### `domios tab todo reopen`
 
 Reopen one child checklist item with the review reason (Orchestrator or QA)
 
@@ -3708,24 +3756,24 @@ Reopen one child checklist item with the review reason (Orchestrator or QA)
 - `--reason` — Why the step failed review; the Worker sees it on the item
 - `--tab` — Child tab id
 
-#### `codeterm tab todo reset`
+#### `domios tab todo reset`
 
 Reset/rewrite a checklist as the user, starting a new generation
 
 - `--from-file` — JSON array of checklist drafts from a file
 - `--tab` — Target tab id (default: this tab when invoked from the host)
 
-#### `codeterm task`
+#### `domios task`
 
 Plan-backed tasks across active plans
 
-#### `codeterm task drop`
+#### `domios task drop`
 
 Release the task assignment
 
 - `<task_id>`
 
-#### `codeterm task list`
+#### `domios task list`
 
 List tasks across active plans
 
@@ -3737,7 +3785,7 @@ List tasks across active plans
 - `--unassigned`
 - `--workspace`
 
-#### `codeterm task show`
+#### `domios task show`
 
 Show one task with plan and section context
 
@@ -3745,31 +3793,31 @@ Show one task with plan and section context
 - `--siblings` — List sibling tasks (open-only unless --all)
 - `<task_id>`
 
-#### `codeterm task take`
+#### `domios task take`
 
 Assign the task to the caller's tab
 
 - `<task_id>`
 
-#### `codeterm team`
+#### `domios team`
 
 Team registry, 1:1 plan binding, and paired creation
 
-#### `codeterm team adopt-agent`
+#### `domios team adopt-agent`
 
 Attach an already-running roleless agent or plain shell tab to a Team (a shell becomes a utility shell, process kept)
 
 - `<tab_id>` — Tab ID of the running agent or shell
 - `<team_id>` — Team ID
 
-#### `codeterm team adopt-plan`
+#### `domios team adopt-plan`
 
 Bind an existing plan to a Team
 
 - `<plan_id>` — Plan ID
 - `<team_id>` — Team ID
 
-#### `codeterm team attach-cartographer`
+#### `domios team attach-cartographer`
 
 Attach the one optional Cartographer Manager to a Team
 
@@ -3778,18 +3826,18 @@ Attach the one optional Cartographer Manager to a Team
 - `--provider` — Agent provider ID
 - `<team_id>` — Team ID
 
-#### `codeterm team close`
+#### `domios team close`
 
 Close every member tab and remove the Team registry entry. Refused while a Team task is in progress or a Worker is working, unless --force
 
 - `--force` — Close anyway: reports every killed Worker and task, and keeps plans with unfinished tasks active and flagged
 - `<team_id>` — Team ID
 
-#### `codeterm team list`
+#### `domios team list`
 
 List registered Teams
 
-#### `codeterm team pair`
+#### `domios team pair`
 
 Create an Orchestrator + Planner Team in one action. The Plan stays unbound until the first goal
 
@@ -3799,44 +3847,44 @@ Create an Orchestrator + Planner Team in one action. The Plan stays unbound unti
 - `--title`
 - `--workspace`
 
-#### `codeterm team rename`
+#### `domios team rename`
 
 Give a Team a human-readable name
 
 - `<name>` — New Team name
 - `<team_id>` — Team ID
 
-#### `codeterm team show`
+#### `domios team show`
 
 Show one Team
 
 - `<team_id>` — Team ID
 
-#### `codeterm theme`
+#### `domios theme`
 
 Theme management
 
-#### `codeterm theme apply`
+#### `domios theme apply`
 
 Apply a theme by name
 
 - `<name>` — Theme name (builtin or custom)
 
-#### `codeterm theme delete`
+#### `domios theme delete`
 
 Delete a custom theme
 
 - `<id>` — Theme ID to delete
 
-#### `codeterm theme dir`
+#### `domios theme dir`
 
 Show the custom themes directory path
 
-#### `codeterm theme list`
+#### `domios theme list`
 
 List available themes
 
-#### `codeterm theme save`
+#### `domios theme save`
 
 Save a custom theme from a TOML file
 
@@ -3844,11 +3892,11 @@ Save a custom theme from a TOML file
 - `<file>` — Path to theme TOML file
 - `<id>` — Theme ID (filename without .toml)
 
-#### `codeterm todo`
+#### `domios todo`
 
 Read or update the current agent tab's bounded checklist
 
-#### `codeterm todo amend`
+#### `domios todo amend`
 
 Review and amend a child's checklist; seeded criteria stay locked
 
@@ -3856,58 +3904,58 @@ Review and amend a child's checklist; seeded criteria stay locked
 - `--note-from-pad`
 - `--tab`
 
-#### `codeterm todo approve`
+#### `domios todo approve`
 
 Mark a child's shared checklist reviewed
 
 - `--note-from-pad`
 - `--tab`
 
-#### `codeterm todo list`
+#### `domios todo list`
 
 Read this agent tab's current bounded checklist
 
-#### `codeterm todo submit`
+#### `domios todo submit`
 
 Share this tab's checklist with its parent; work may continue immediately
 
-#### `codeterm todo write`
+#### `domios todo write`
 
 Declare this tab's whole checklist: created on first write, then reconciled; locked items stay
 
 - `--from-pad` — JSON array of {content,status,activeForm,link?,reason?} from this tab's pad
 
-#### `codeterm trace`
+#### `domios trace`
 
 Read this instance's DEV flow trace without contacting the daemon
 
-#### `codeterm trace recent`
+#### `domios trace recent`
 
 List the most recently observed flows
 
 - `--limit`
 
-#### `codeterm trace show`
+#### `domios trace show`
 
 Show a retained flow or all flows involving a tab, with missing stages
 
 - `<id>`
 - `--since` — Limit the retained window (for example 30m, 1h, 2d)
 
-#### `codeterm update`
+#### `domios update`
 
 Check for updates and manage Domios version
 
 - `--after-update` — Message to inject into the General Agent tab after the new daemon boots. Useful for remote-triggered updates ("run the update and then verify health") — GA reads it as user input post-restart
 - `--manifest-url` — Override manifest URL when paired with `install --auto`. Backend must be built with `dev-updater-allowlocal` for non-https URLs
 
-#### `codeterm update check`
+#### `domios update check`
 
 Check for available updates
 
 - `--force` — Force re-check (ignore cache)
 
-#### `codeterm update install`
+#### `domios update install`
 
 Install update (--auto for automatic download + install + restart)
 
@@ -3919,40 +3967,40 @@ Install update (--auto for automatic download + install + restart)
 - `--manifest-url` — Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it
 - `--no-continue` — Suppress the calling tab's continuation for the next start
 
-#### `codeterm usage`
+#### `domios usage`
 
 Agent usage tracking — current %, projection for end-of-today / end-of-cycle based on your historical rhythm scaled to today's pace
 
-#### `codeterm usage latest`
+#### `domios usage latest`
 
 Latest usage snapshot (session + weekly %, reset times)
 
 - `--account-id`
 - `--provider`
 
-#### `codeterm usage projection`
+#### `domios usage projection`
 
 End-of-today and end-of-cycle projection based on your historical rhythm scaled by today's observed pace. Plan-independent (the rhythm is normalized; today's % anchors the absolute scale)
 
 - `--account-id`
 - `--provider`
 
-#### `codeterm usage rebuild-ledger`
+#### `domios usage rebuild-ledger`
 
 Re-derive KPI token usage from provider transcripts so each response counts once; safe to repeat
 
-#### `codeterm usage refresh`
+#### `domios usage refresh`
 
 Re-read usage from the provider's own quota-free source (never spends quota)
 
 - `--account-id`
 - `--provider`
 
-#### `codeterm web`
+#### `domios web`
 
 Web mirror helpers (share links, etc.)
 
-#### `codeterm web link`
+#### `domios web link`
 
 Print a ready-to-open browser UI URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)
 
@@ -3961,18 +4009,18 @@ Print a ready-to-open browser UI URL for THIS machine with the API token embedde
 - `--port` — Port override (default: this daemon's API port)
 - `--query` — Emit ?token= instead of #token= — easier to type, but query strings reach server/proxy logs; the fragment never does
 
-#### `codeterm workspace`
+#### `domios workspace`
 
 Workspace management
 
-#### `codeterm workspace close`
+#### `domios workspace close`
 
 Close/delete a workspace
 
 - `--force` — Explicitly acknowledge destroying agent tabs in this workspace
 - `<id>` — Workspace ID
 
-#### `codeterm workspace create`
+#### `domios workspace create`
 
 Create a new workspace. With --cwd, reuses an existing workspace at that cwd. With --provision, the daemon creates a fresh directory for it
 
@@ -3980,23 +4028,23 @@ Create a new workspace. With --cwd, reuses an existing workspace at that cwd. Wi
 - `<name>` — Workspace name
 - `--provision` — Create a new empty directory under the Domios data dir as the cwd; agents started exactly there get directory trust
 
-#### `codeterm workspace current`
+#### `domios workspace current`
 
 Print this tab's workspace ID. Resolution order: --workspace, then $CODETERM_TAB_ID, then $CODETERM_WORKSPACE_ID, then the active workspace. Exits 1 with empty stdout when no identity resolves
 
 - `--workspace` — Workspace id to report, validated against the daemon's workspace list
 
-#### `codeterm workspace focus`
+#### `domios workspace focus`
 
 Focus a workspace by ID
 
 - `<id>` — Workspace ID
 
-#### `codeterm workspace list`
+#### `domios workspace list`
 
 Show a compact human-readable workspace → Team/Plan → Tab overview
 
-#### `codeterm workspace move-tab`
+#### `domios workspace move-tab`
 
 Move a tab to another workspace
 
@@ -4004,14 +4052,14 @@ Move a tab to another workspace
 - `<tab_id>` — Tab ID to move
 - `<to>` — Destination workspace ID
 
-#### `codeterm workspace rename`
+#### `domios workspace rename`
 
 Rename a workspace
 
 - `<id>` — Workspace ID
 - `<name>` — New name
 
-#### `codeterm workspace set-cwd`
+#### `domios workspace set-cwd`
 
 Relocate a workspace to an existing absolute folder, preserving its identity
 

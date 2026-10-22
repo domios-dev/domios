@@ -53,7 +53,7 @@ AppImage.
 - Minisign updater key at `~/.tauri/codeterm.key` (+ `.pub`) for macOS and arm64 Linux. Windows and
   x86_64 Linux updater bundles use `TAURI_SIGNING_PRIVATE_KEY` from Actions secrets on their runners.
 
-**Secrets — restore from the Bitwarden vault** (`codeterm mem secret get --name <slug>`):
+**Secrets — restore from the Bitwarden vault** (`domios mem secret get --name <slug>`):
 
 | Vault slug | Restore to | chmod |
 |---|---|---|
@@ -245,7 +245,7 @@ production decision as cleanup and require confirmed process, capture, Job and h
 no cleanup errors. After canonical merge and review, request:
 
 ```sh
-actionlint .github/workflows/tests.yml
+actionlint .github/workflows/tests.yml .github/workflows/tests-fast.yml .github/workflows/tests-rust.yml
 scripts/test-capped.sh --exec pwsh -NoLogo -NoProfile -NonInteractive -File scripts/windows-sccache-session.ps1 -ContractOnly
 ```
 
@@ -422,7 +422,7 @@ This runbook restores the ROG Windows GitHub Actions runner after a clean Window
   -InstallVisualStudioBuildTools `
   -ConfigureRunner `
   -Replace `
-  -RegistrationTokenCommand 'codeterm paste get paste:REPLACE_ME --pop' `
+  -RegistrationTokenCommand 'domios paste get paste:REPLACE_ME --pop' `
   -StartListener
 ```
 
@@ -513,7 +513,7 @@ Registration tokens, signing keys, package tokens, and Tauri signing passwords s
 
 Reuse can falsely report `installed_executable_differs_from_pinned_archive` when comparing a ZIP entry stream's unsupported `Length` property. Compare the entry descriptor length, then drain and compare both streams. Three in-memory compressed ZIP controls cover equality across buffer boundaries, changed bytes and changed length; never replace installed bytes to bypass refusal.
 
-<!-- revision: 4 -->
+<!-- revision: 6 -->
 
 Detached server startup passed the single-member maintenance oracle but exposed compiler windows during
 Lookout compilation: pinned sccache creates ordinary compiler children, which lack a console to inherit.

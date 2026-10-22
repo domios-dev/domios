@@ -496,7 +496,7 @@ impl ServiceContext {
         body: &str,
     ) -> Result<(), String> {
         if !self.tab_has_agent_identity(target) {
-            return self.send_text(target, body);
+            return self.send_text(target, &self.programmatic_input(target, body));
         }
         self.gateway_deliver(target, envelope, body, DeliveryClass::SystemNotice)
             .map(|_| ())
@@ -522,7 +522,11 @@ impl ServiceContext {
             let job = store.get(job_id);
             (
                 job.and_then(|job| job.report_target_tab_id.clone()),
-                job.is_some_and(|job| job.oneshot && job.role.as_deref() != Some("curator")),
+                job.is_some_and(|job| {
+                    job.oneshot
+                        && !super::role_policy::resolve(job.role.as_deref())
+                            .is_some_and(|policy| policy.retain_oneshot())
+                }),
                 job.map(|job| job.name.trim().to_string())
                     .filter(|name| !name.is_empty())
                     .unwrap_or_else(|| job_id.to_string()),
@@ -666,8 +670,10 @@ impl ServiceContext {
             if store.is_job_running(id) {
                 return Err(format!("Cron job '{}' is already running", job.name));
             }
-            if job.role.as_deref() == Some("curator") {
-                return Err("system Curator rounds are fired only by the daemon".into());
+            if super::role_policy::resolve(job.role.as_deref())
+                .is_some_and(|policy| !policy.allow_manual_fire())
+            {
+                return Err("system-owned jobs are fired only by the daemon".into());
             }
             (
                 job.agent.clone(),
@@ -926,7 +932,9 @@ impl ServiceContext {
             // The terminal status already recorded stands (first terminal wins); log it so the race stays observable instead of surfacing as an opaque "not found".
             log::warn!(
                 "[cron] cron.complete for run={} (job={}) arrived after the run was already finalized as {:?} — treating as idempotent no-op",
-                run_id, job_id, run.status
+                run_id,
+                job_id,
+                run.status
             );
             Ok(None)
         } else {

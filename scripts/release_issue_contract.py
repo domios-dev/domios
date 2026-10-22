@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Caller: build.sh release-preflight; CI ready-for-release.yml, release-manifest-validate.yml, tests.yml; scripts tests/test_release_issue_contract.py; skill github-release
+# Caller: build.sh release-preflight; CI ready-for-release.yml, release-manifest-validate.yml, tests-fast.yml; scripts tests/test_release_issue_contract.py; skill github-release
 import argparse
 import json
 import re
@@ -12,10 +12,10 @@ SOURCE_REPOSITORY = "rollacode/codeterm"
 # A declaration may close a prose line: commit messages are immutable, so a
 # trailing marker must resolve instead of failing every range that contains it.
 PUBLIC_REFERENCE = re.compile(
-    r"(?:^|(?<=\s))Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)[).,;]*$"
+    r"(?:^|(?<=[\s(]))Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)[).,;]*$"
 )
 REPOSITORY_REFERENCE = re.compile(
-    r"(?:^|(?<=\s))Repository-Issue: rollacode/codeterm#([1-9][0-9]*)[).,;]*$"
+    r"(?:^|(?<=[\s(]))Repository-Issue: rollacode/codeterm#([1-9][0-9]*)[).,;]*$"
 )
 INLINE_CODE_SPAN = re.compile(r"`[^`]*`")
 PUBLIC_REFERENCE_MARKER = re.compile(r"Public-Issue:", re.IGNORECASE)

@@ -72,7 +72,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
         "provider": "codex",
         "requested_model": "gpt-9-bogus",
         "valid_model_ids": ["gpt-6-sol", "gpt-6-astra"],
-        "refresh_command": "codeterm agent models codex",
+        "refresh_command": "domios agent models codex",
         "message": "unknown model"
     });
     let mut client = FakeRpc::refusing_after(
@@ -123,7 +123,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
     assert_eq!(output["data"]["valid_model_ids"][0], "gpt-6-sol");
     assert_eq!(
         output["data"]["refresh_command"],
-        "codeterm agent models codex"
+        "domios agent models codex"
     );
     assert_eq!(output["error"]["rpc_code"], -32602);
     assert_eq!(output["error"]["code"], "invalid_argument");

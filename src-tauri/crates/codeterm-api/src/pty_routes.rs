@@ -128,6 +128,10 @@ pub async fn pty_write(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .require_tab_input_allowed(&pty_id, None)
+            .map_err(|e| (StatusCode::FORBIDDEN, e))?;
         let diagnostic_level = crate::stream_diagnostics::configured_level(
             state.config.lock().diagnostics.terminal_transport,
         );
@@ -152,8 +156,12 @@ pub async fn pty_write(
             );
         }
         if body.raw {
-            codeterm_commands::commands::write_pty_string_core(&state.svc, pty_id, body.data)
-                .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+            codeterm_commands::commands::write_pty_string_core(
+                &state.svc,
+                pty_id,
+                codeterm_service_core::service::messenger::HumanKeys::new(body.data.as_bytes()),
+            )
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
         } else {
             // off the async runtime.
             let svc = state.svc.clone();
@@ -161,9 +169,23 @@ pub async fn pty_write(
                 let text_stripped = body.data.trim_end_matches('\r');
                 let enter = text_stripped.len() != body.data.len();
                 if enter {
-                    svc.send_text_to_pty(&pty_id, text_stripped)
+                    svc.send_text_to_pty(
+                        &pty_id,
+                        &codeterm_service_core::service::messenger::AgentInput::Human(
+                            codeterm_service_core::service::messenger::HumanInput::composer(
+                                text_stripped,
+                            ),
+                        ),
+                    )
                 } else {
-                    svc.insert_text_to_pty(&pty_id, text_stripped)
+                    svc.insert_text_to_pty(
+                        &pty_id,
+                        &codeterm_service_core::service::messenger::AgentInput::Human(
+                            codeterm_service_core::service::messenger::HumanInput::composer(
+                                text_stripped,
+                            ),
+                        ),
+                    )
                 }
             }
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;

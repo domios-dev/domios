@@ -66,7 +66,12 @@ pub(crate) fn consume(
         .status(&send_id)
         .is_some_and(|status| status.state == ChatSendState::Sent);
     if !already_delivered {
-        let result = super::send::send_startup(svc, tab, &payload, &send_id);
+        let result = super::send::send_startup(
+            svc,
+            tab,
+            &crate::service::messenger::LaunchBootstrap::new(payload.clone()),
+            &send_id,
+        );
         if let Err(error) = result {
             if !error.bytes_written() {
                 return Err(error.to_string());

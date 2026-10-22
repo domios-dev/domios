@@ -32,7 +32,7 @@ when tasks carry identical guidance. Each task also carries an
 `executor_role` field — a short slug (e.g. `rust-backend-dev`, `frontend-dev`,
 `code-reviewer`) that lets the Orchestrator name the expected agent personality
 for that task without altering the two-value `AgentRole` hierarchy. Execution
-tasks without `executor_role` are flagged by `codeterm plan doctor --kind quality`.
+tasks without `executor_role` are flagged by `domios plan doctor --kind quality`.
 The field is a contract, enforced where the paths converge: `plan task add`
 requires it, `plan task update` refuses to blank it, and approval refuses a plan
 holding a roleless task. Enforcement is presence only — no allowlist, minimum
@@ -56,7 +56,7 @@ dispatches a worker that falls back to the title `Worker`. `plan task update`
 can set it on an existing task and refuses to blank it. The name must be one
 word of letters, e.g. `Alex`, `Emma`, `Leo`. `plan task dispatch` derives a short
 description from the task name; `--description` overrides it. Direct `agent spawn`
-still needs `--description`. Update progress with `codeterm tab describe` as the
+still needs `--description`. Update progress with `domios tab describe` as the
 assignment moves.
 
 ## Role Model
@@ -197,6 +197,6 @@ full source and loader map is `.agents/skills/prompts/inventory.md`.
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
+Moved out of the embedded `domios docs` pages because they describe Domios's own source:
 
 - [references/attempt-retirement.md](references/attempt-retirement.md) — the attempt retirement fence

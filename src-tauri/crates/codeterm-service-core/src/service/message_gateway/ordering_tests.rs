@@ -114,7 +114,7 @@ fn bind_live_worker_session(bw: &BoundWorker) {
         .unwrap();
 }
 
-/// The authority a Worker's own `codeterm agent report` carries.
+/// The authority a Worker's own `domios agent report` carries.
 fn worker_report_details(bw: &BoundWorker, status: ReportStatus) -> ReportDetails {
     ReportDetails {
         status: Some(status),

@@ -809,10 +809,10 @@ mod tests {
             "the memory protocol reaches the General Agent exactly once"
         );
         for command in [
-            "`codeterm mem search`",
-            "`codeterm mem save`",
-            "`codeterm sessions search`",
-            "`codeterm mem skill new <slug>`",
+            "`domios mem search`",
+            "`domios mem save`",
+            "`domios sessions search`",
+            "`domios mem skill new <slug>`",
         ] {
             assert!(
                 crate::prompts::BRIDGE_MEM.contains(command),

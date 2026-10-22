@@ -312,7 +312,7 @@ pub enum AgentAction {
     /// Two spawn shapes:
     ///   Worker (leaf task you own; reports back; never spawns further):
     ///     spawn claude --role Worker --parent-tab $CODETERM_TAB_ID --task "...
-    ///     when done: codeterm agent report '<summary>'"
+    ///     when done: domios agent report '<summary>'"
     ///   Orchestrator (independent objective / separate workspace / remote):
     ///     spawn codex --role Orchestrator --workspace WS_ID --task "..."
     ///
@@ -379,7 +379,7 @@ pub enum AgentAction {
         workspace: Option<String>,
         /// Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The
         /// provider knows whether to emit `-m X` or `--model X` — caller passes
-        /// the model string opaque. Run `codeterm agent models <provider>` to
+        /// the model string opaque. Run `domios agent models <provider>` to
         /// see what's available.
         #[arg(long)]
         model: Option<String>,

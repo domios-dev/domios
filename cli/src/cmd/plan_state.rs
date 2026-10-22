@@ -205,7 +205,7 @@ pub fn render_state(val: &Value) -> String {
             .unwrap_or(mode != "planning");
         if !unlocked {
             out.push_str(
-                "planning: delegate structure drafting to the Planner; run `codeterm plan doctor <plan> --kind quality` then `codeterm plan approve <plan>`\n",
+                "planning: delegate structure drafting to the Planner; run `domios plan doctor <plan> --kind quality` then `domios plan approve <plan>`\n",
             );
         }
     }

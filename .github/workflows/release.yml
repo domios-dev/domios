@@ -68,6 +68,8 @@ jobs:
         with:
           ref: ${{ github.event_name == 'push' && github.sha || inputs.tag || github.sha }}
           fetch-depth: 0
+          # History without blobs: unshallowing a workspace a shallow job left behind took minutes.
+          filter: blob:none
 
       - name: Setup Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -187,7 +189,7 @@ jobs:
           set -euo pipefail
           if ! gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "$SOURCE_REPO" --target "$SOURCE_SHA" --draft \
-              --title "CodeTerm $TAG" --notes "See the assets to download this version and install."
+              --title "Domios $TAG" --notes "See the assets to download this version and install."
           fi
           node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG"
 
@@ -195,7 +197,7 @@ jobs:
             export GH_TOKEN="$MIRROR_TOKEN"
             if ! gh release view "$TAG" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
               gh release create "$TAG" --repo rollacode/codeterm-releases \
-                --draft --title "CodeTerm $TAG" \
+                --draft --title "Domios $TAG" \
                 --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
             fi
             node scripts/release-clear-wedged-assets.mjs rollacode/codeterm-releases "$TAG"
@@ -249,11 +251,10 @@ jobs:
     name: Fast checks
     needs: prepare
     if: needs.prepare.outputs.run_tests == 'true' && needs.prepare.outputs.published != 'true'
-    uses: ./.github/workflows/tests.yml
+    uses: ./.github/workflows/tests-fast.yml
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
-      phase: fast
       cancel_run: true
       artifacts_optional: ${{ needs.prepare.outputs.dry_run == 'true' }}
     permissions:
@@ -296,17 +297,52 @@ jobs:
       TIER_PREFIX: 'Fast checks / '
       TIER_ANCHOR: Fast checks / guards
 
+  # Builds take the runners left once every Rust test job is claimed; they never wait for test results.
+  builds-tier:
+    name: builds tier opens
+    needs: [prepare, tests-tier]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' && needs.tests-tier.result == 'success'
+      && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
+    runs-on: [self-hosted, Linux, light]
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          sparse-checkout: |
+            scripts
+            .github
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - name: Wait until every job of the tier above is claimed or finished
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-tier-gate.mjs "$TIER_PREFIX" "$TIER_ANCHOR" 45
+      - name: Upload artifacts spooled while the private store was unreachable
+        if: always()
+        uses: ./.github/actions/ci-artifact-spool
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
+      TIER_PREFIX: 'Rust tests / '
+      TIER_ANCHOR: Rust tests / tree is new
+
   tests:
     name: Rust tests
     needs: [prepare, tests-tier]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.tests-tier.result == 'success'
       && needs.prepare.outputs.run_tests == 'true' && needs.prepare.outputs.published != 'true'
-    uses: ./.github/workflows/tests.yml
+    uses: ./.github/workflows/tests-rust.yml
     with:
       source_ref: ${{ needs.prepare.outputs.source_sha }}
       scope: ${{ needs.prepare.outputs.kind == 'app' && 'full' || 'frontend' }}
-      phase: long
       artifacts_optional: ${{ needs.prepare.outputs.dry_run == 'true' }}
     permissions:
       contents: read
@@ -316,9 +352,10 @@ jobs:
 
   macos-arm64:
     name: macOS arm64
-    needs: [prepare, frontend-dist]
+    needs: [prepare, frontend-dist, builds-tier]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
+      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-macos-build.yml
     with:
@@ -332,9 +369,10 @@ jobs:
 
   macos-x64:
     name: macOS x64
-    needs: [prepare, frontend-dist]
+    needs: [prepare, frontend-dist, builds-tier]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
+      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-macos-build.yml
     with:
@@ -348,9 +386,10 @@ jobs:
 
   linux-arm64:
     name: Linux arm64
-    needs: [prepare, frontend-dist]
+    needs: [prepare, frontend-dist, builds-tier]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
+      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux-arm64.yml
     with:
@@ -363,9 +402,10 @@ jobs:
 
   linux-x86_64:
     name: Linux x64
-    needs: [prepare, frontend-dist]
+    needs: [prepare, frontend-dist, builds-tier]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
+      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-linux.yml
     with:
@@ -378,9 +418,10 @@ jobs:
 
   windows-x64:
     name: Windows x64
-    needs: [prepare, frontend-dist]
+    needs: [prepare, frontend-dist, builds-tier]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
+      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-windows.yml
     with:
@@ -394,9 +435,10 @@ jobs:
 
   windows-arm64:
     name: Windows arm64
-    needs: [prepare, frontend-dist]
+    needs: [prepare, frontend-dist, builds-tier]
     if: >-
       !cancelled() && needs.prepare.result == 'success' && needs.frontend-dist.result == 'success'
+      && (needs.builds-tier.result == 'success' || needs.builds-tier.result == 'skipped' && needs.prepare.outputs.run_tests != 'true')
       && needs.prepare.outputs.published != 'true' && needs.prepare.outputs.kind == 'app' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/release-windows.yml
     with:

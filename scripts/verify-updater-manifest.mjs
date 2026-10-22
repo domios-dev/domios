@@ -60,8 +60,8 @@ function parseArgs(argv) {
 }
 
 const PLATFORM_ARTIFACTS = new Map([
-  ['darwin-aarch64', 'CodeTerm_aarch64.app.tar.gz'],
-  ['darwin-x86_64', 'CodeTerm_x64.app.tar.gz'],
+  ['darwin-aarch64', 'Domios_aarch64.app.tar.gz'],
+  ['darwin-x86_64', 'Domios_x64.app.tar.gz'],
 ]);
 
 // The one origin the shipped updater reads from. A version segment anywhere in

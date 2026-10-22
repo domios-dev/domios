@@ -7,6 +7,28 @@ import type { ComposerUpload } from "./composerUploadModel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+test.each(["file", "image", "video"] as const)("paints the %s filename instead of the kind", async (kind) => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const textareaRef = createRef<HTMLTextAreaElement>();
+  const name = "quarterly-report.pdf";
+  const path = `/tmp/${name}`;
+  try {
+    await act(async () => root.render(
+      <ComposerCapsuleField tabId="opaque" value={capsuleToken(name)} active registry={{ [name]: { label: name, kind, path } }} textareaRef={textareaRef} marginPx={0} onRemove={() => {}}>
+        <textarea ref={textareaRef} aria-label="Message" />
+      </ComposerCapsuleField>,
+    ));
+    const capsule = host.querySelector<HTMLElement>("[data-capsule-start]")!;
+    expect(capsule.textContent).toContain(name);
+    expect(capsule.getAttribute("aria-label")).toContain(name);
+    expect(capsule.title).toBe(path);
+    expect([...capsule.querySelectorAll("span")].some((span) => span.style.visibility === "hidden")).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test.each(["uploading", "failed"] as const)("%s capsule exposes removal and retry without hover", async (state) => {
   const host = document.createElement("div");
   document.body.append(host);

@@ -75,13 +75,20 @@ fn with_run_close(
 
 pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
     let run_id = uuid::Uuid::new_v4().simple().to_string();
+    let stop_command = std::cell::Cell::new(false);
     with_run_close(
-        || run_pipeline(handle, svc, lease, &run_id),
-        |completion| finish_run(handle, lease, &run_id, completion),
+        || run_pipeline(handle, svc, lease, &run_id, &stop_command),
+        |completion| finish_run(handle, lease, &run_id, completion, stop_command.get()),
     );
 }
 
-fn finish_run(handle: &Handle, lease: &Lease, run_id: &str, completion: &RunCompletion) {
+fn finish_run(
+    handle: &Handle,
+    lease: &Lease,
+    run_id: &str,
+    completion: &RunCompletion,
+    stop_command: bool,
+) {
     let closed = write_journal(
         handle,
         &lease.job,
@@ -93,7 +100,11 @@ fn finish_run(handle: &Handle, lease: &Lease, run_id: &str, completion: &RunComp
             reason: Some(completion.reason.clone()),
         },
     );
-    if completion.state == JournalState::Held
+    if stop_command {
+        let _ = storage::commit(&handle.store, |store| {
+            store.stage_stop(&lease.job.id, "command_failed")
+        });
+    } else if completion.state == JournalState::Held
         || completion.reason == JournalReason::JournalWriteFailed
         || !closed
     {
@@ -107,6 +118,10 @@ fn finish_run(handle: &Handle, lease: &Lease, run_id: &str, completion: &RunComp
         });
     }
     handle.notify();
+}
+
+fn stops_failed_command(completion: &RunCompletion) -> bool {
+    completion.state == JournalState::Failed && completion.reason.as_str() == "command_failed"
 }
 
 struct PreparedInput {
@@ -204,6 +219,7 @@ fn run_pipeline(
     svc: &ServiceContext,
     lease: &Lease,
     run_id: &str,
+    stop_command: &std::cell::Cell<bool>,
 ) -> Result<RunCompletion, JournalReason> {
     let Some(spec) = lease.job.pipeline() else {
         return Err(JournalReason::Other("pipeline_missing".into()));
@@ -234,6 +250,7 @@ fn run_pipeline(
         input_display,
         mut input_run,
     } = prepare_input(handle, lease, spec, run_id);
+    let mut terminal_failure = None;
     while let Some(index) = state.current_step {
         if lease.cancelled.load(Ordering::SeqCst) {
             let now = now(handle);
@@ -423,6 +440,14 @@ fn run_pipeline(
                 required_journal(write_journal(handle, &lease.job, decision))?;
             }
         }
+        if next.status == RunStatus::Failed {
+            let completion = RunCompletion::new(
+                JournalState::Failed,
+                result.reason.clone().unwrap_or_else(|| "failed".into()),
+            );
+            stop_command.set(stops_failed_command(&completion));
+            terminal_failure = result.reason;
+        }
         state = next;
     }
 
@@ -595,7 +620,10 @@ fn run_pipeline(
             let _ = run.advance(InputRun::Delivered);
         }
     }
-    Ok(RunCompletion::new(terminal_state.into(), outcome))
+    Ok(RunCompletion::new(
+        terminal_state.into(),
+        terminal_failure.unwrap_or_else(|| outcome.into()),
+    ))
 }
 
 fn run_step(
@@ -615,7 +643,7 @@ fn run_step(
     }
     match &step.kind {
         StepKind::Command { .. } | StepKind::Github { .. } | StepKind::Http { .. } => {
-            sources::run(handle, svc, lease, step, previous)
+            sources::run(handle, lease, step, previous)
         }
         StepKind::Agent {
             provider,

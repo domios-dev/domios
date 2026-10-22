@@ -106,6 +106,14 @@ pub async fn finish_session_binding(
         }
     }
     bind_planner_session_after_claim(svc, tab_id).await?;
+    if claim.nonce_verified {
+        let service = svc.clone();
+        let tab = tab_id.to_string();
+        tokio::task::spawn_blocking(move || service.bind_role_session(&tab))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(|error| (StatusCode::CONFLICT, error))?;
+    }
     if claim.changed {
         crate::service::provider_signals::refresh_auth(svc, tab_id);
         if let Some(previous_session_id) = claim.prev.as_deref() {
@@ -285,7 +293,15 @@ pub async fn finish_session_binding(
         .plan_store
         .observe_handoff_session_start(tab_id, sid, epoch_ms())
     {
-        svc.send_text_detached(&resume.tab_id, &resume.text);
+        svc.send_text_detached(
+            &resume.tab_id,
+            &crate::service::messenger::AgentInput::Framed(
+                crate::service::messenger::Messenger::from(
+                    crate::service::messenger::MessageEnvelope::codeterm_reminder("turn-resume"),
+                )
+                .framed_delivery(&resume.text),
+            ),
+        );
         let _ = svc.plan_store.mark_handoff_resume_sent(
             &resume.plan_id,
             &resume.handoff_id,

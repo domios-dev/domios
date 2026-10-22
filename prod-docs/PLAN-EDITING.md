@@ -9,13 +9,13 @@ inline), `<plan>/goal.yaml`, `<plan>/spec.yaml` (the plan's spec, 1:1),
 
 | Need | Command |
 |---|---|
-| One task (meta + body + context) | `codeterm task show <task-id>` |
-| One plan section subtree | `codeterm plan section show <plan> <section-id-or-handle>` |
-| One spec section subtree | `codeterm spec section show <spec> <section-id-or-handle>` |
-| Section tree only (no bodies) | `codeterm plan get <plan> --sections` |
-| Counts/coverage snapshot | `codeterm plan state <plan>` |
+| One task (meta + body + context) | `domios task show <task-id>` |
+| One plan section subtree | `domios plan section show <plan> <section-id-or-handle>` |
+| One spec section subtree | `domios spec section show <spec> <section-id-or-handle>` |
+| Section tree only (no bodies) | `domios plan get <plan> --sections` |
+| Counts/coverage snapshot | `domios plan state <plan>` |
 
-`codeterm plan get <plan>` renders the ENTIRE plan — goal, every section, every
+`domios plan get <plan>` renders the ENTIRE plan — goal, every section, every
 task. On a large plan that is tens of thousands of tokens. Reach for it only
 when you genuinely need the whole picture.
 
@@ -26,9 +26,9 @@ Read/Edit tools; the daemon's watcher reconciles the change. Locate the exact
 lines first:
 
 ```
-codeterm plan locate <plan> --task <id-or-handle>
-codeterm plan locate <plan> --section <id-or-handle>
-codeterm plan locate <plan> --spec-section <id-or-handle>
+domios plan locate <plan> --task <id-or-handle>
+domios plan locate <plan> --section <id-or-handle>
+domios plan locate <plan> --spec-section <id-or-handle>
 # -> /abs/path/file.yaml:START-END  (1-based, inclusive)
 ```
 
@@ -48,15 +48,15 @@ For replacing a whole body, CLI `--body-file` is equally cheap.
 
 - `id`, `handle`, timestamps — identity and ordering; CLI owns them.
 - `status`, assignments, lane fields — go through
-  `codeterm plan task update` / `codeterm plan record` so memory, index, and
+  `domios plan task update` / `domios plan record` so memory, index, and
   events stay in sync.
-- `strides.jsonl` — append-only via `codeterm plan milestone add` /
-  `codeterm plan record --step`; never rewrite.
+- `strides.jsonl` — append-only via `domios plan milestone add` /
+  `domios plan record --step`; never rewrite.
 
 ## Bulk mutations
 
 An Orchestrator can split an approved in-progress task with
-`codeterm plan task split <plan> <task> --child <name>` (repeat `--child`) or
+`domios plan task split <plan> <task> --child <name>` (repeat `--child`) or
 `--from-file <children.json>`. Child tasks retain the parent link and inherit
 sections, tags (including `work:<value>`), executor role, model routing, and
 quality fields unless the file overrides a field. Dispatch children individually; each receives its own lane.
@@ -70,7 +70,7 @@ or `tags`. `criteria` and `tags` are arrays of strings; a child tag such as
 `work:qa` replaces the inherited tag of the same facet key and plain tags are
 added. `sections` accepts an array of section ids or a comma-separated string.
 
-`codeterm plan record` batches upsert-task + status + steps + links into ONE
+`domios plan record` batches upsert-task + status + steps + links into ONE
 atomic write. Prefer it over N separate `task update` calls when closing out
 work. (`plan.batch` RPC carries arbitrary op lists; a general CLI wrapper is
 planned.)
@@ -86,7 +86,7 @@ resolve its live binding.
 Task file context is structured data, separate from the brief:
 
 ```bash
-codeterm plan task files PLAN TASK --edit-file src/new.rs --read-file docs/context.md
+domios plan task files PLAN TASK --edit-file src/new.rs --read-file docs/context.md
 ```
 
 Repeat flags to attach multiple files. This replaces both lists; omit both flags to clear them. The task JSON field is `files: {edit: [...], read: [...]}`. Paths resolve against the dispatched Worker's cwd. Editable files may be new; read-only files must exist at dispatch. Core rejects overlapping resolved paths. Planners may set these structural fields through the same authorized draft mutation path as other task structure.
@@ -96,9 +96,9 @@ For a tool-less Worker, core attaches the task files and exact attempt skill sna
 Inspect completed work without reading provider history files:
 
 ```bash
-codeterm agent turns --tab WORKER --last 10
+domios agent turns --tab WORKER --last 10
 ```
 
 This local command returns authoritative completed user/assistant turns and outcomes from the Worker's authenticated session. Agent callers must be the authenticated manager, plan owner, or target itself. User administration remains allowed. `--last` accepts 1–50; `--after` is a UTF-8 user-record lower bound. Each request scans at most 256 completed records and returns the last requested rows within that window, with `next_offset` and `has_more`. Continue with `--after NEXT_OFFSET` when `has_more` is true. Individual rows are bounded to 256 KiB and the response to 1 MiB; request fewer turns if the response budget is exceeded. Pending generations are not completed turns; plain/non-adapter sessions return an explicit unavailable reason.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

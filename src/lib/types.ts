@@ -203,7 +203,7 @@ export interface Tab {
   agent_runtime_config?: { confirmedServiceTier?: { selection: ServiceTierSelection; sessionId: string; bindingNonce: string | null }; serviceTier?: ServiceTierSelection; serviceTierAvailability?: Record<string, readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>; serviceTierAvailabilityBinding?: {sessionId:string;bindingNonce:string|null}; [key: string]: unknown } | null;
   agent_runtime_questions?: import("./agentRuntimeQuestions").AgentRuntimeQuestion[];
   agent_runtime_state?: import("./agentRuntimeState").AgentRuntimeState | null;
-  pending_model_selection?: { model: string; effort: string | null } | null;
+  pending_model_selection?: { model: string; effort: string | null; confirmation_pending?: boolean } | null;
   pending_model_switch_observation?: { launched_model: string } | null;
   close_restore?: { command: string | null; stopped: boolean; record_id: string | null; exact_session: boolean } | null;
   shell_profile?: ShellProfile | null;
@@ -495,6 +495,7 @@ export interface CronRunInfo {
   tab_id: string | null;
   session_id?: string | null;
   cwd?: string | null;
+  summary?: string | null;
 }
 
 export interface CronJob {
@@ -740,7 +741,7 @@ export interface PairedPeer {
   relay_protocol_version: number;
 }
 
-export const RELAY_PROTOCOL_VERSION = 1;
+export const RELAY_PROTOCOL_VERSION = 2;
 
 export type WebUiEndpoint =
   | { transport: "tailscale_https"; host: string; port: number }

@@ -394,13 +394,13 @@ fn render_list_with(plugins: &[PluginGuide]) -> String {
     for guide in plugins {
         writeln!(output, "  {:<16} {}", guide.name, guide.purpose).unwrap();
     }
-    output.push_str("\nRead one complete document: codeterm docs <NAME>\n");
+    output.push_str("\nRead one complete document: domios docs <NAME>\n");
     output
 }
 
 pub(crate) fn render_help() -> String {
     format!(
-        "Read embedded Domios documentation.\n\nUsage: codeterm docs [NAME]\n\n{}",
+        "Read embedded Domios documentation.\n\nUsage: domios docs [NAME]\n\n{}",
         render_list()
     )
 }
@@ -636,7 +636,7 @@ mod tests {
             let mut seen = HashSet::new();
             for fragment in document.body.split('`') {
                 let command = fragment.trim();
-                let Some(target) = command.strip_prefix("codeterm docs ") else {
+                let Some(target) = command.strip_prefix("domios docs ") else {
                     continue;
                 };
                 if target == "<NAME>" || target == "--help" {
@@ -678,7 +678,7 @@ mod tests {
                             || line.contains("before continuing")
                     })
                     .flat_map(|line| line.split('`'))
-                    .filter_map(|fragment| fragment.trim().strip_prefix("codeterm docs "))
+                    .filter_map(|fragment| fragment.trim().strip_prefix("domios docs "))
                     .filter(|target| !target.starts_with('<') && *target != "--help")
                     .collect::<Vec<_>>();
                 (document.name, targets)

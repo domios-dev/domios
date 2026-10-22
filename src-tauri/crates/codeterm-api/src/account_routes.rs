@@ -140,6 +140,15 @@ pub async fn plan(
 #[serde(deny_unknown_fields)]
 pub struct Upgrade {
     pub plan: String,
+    #[serde(default)]
+    pub theme: Option<String>,
+}
+impl Upgrade {
+    pub fn checkout_theme(&self) -> Option<codeterm_billing::CheckoutTheme> {
+        self.theme
+            .as_deref()
+            .and_then(codeterm_billing::CheckoutTheme::parse)
+    }
 }
 pub async fn upgrade(
     State(state): State<AppState>,
@@ -149,7 +158,7 @@ pub async fn upgrade(
     admit(caller.as_ref())?;
     state
         .svc
-        .billing_open(Some(&input.plan))
+        .billing_open(Some(&input.plan), input.checkout_theme())
         .await
         .map_err(unavailable)?;
     Ok(Json(serde_json::json!({"opened": true})))
@@ -159,7 +168,11 @@ pub async fn portal(
     caller: Option<Extension<CallerIdentity>>,
 ) -> Result<Json<serde_json::Value>, Error> {
     admit(caller.as_ref())?;
-    state.svc.billing_open(None).await.map_err(unavailable)?;
+    state
+        .svc
+        .billing_open(None, None)
+        .await
+        .map_err(unavailable)?;
     Ok(Json(serde_json::json!({"opened": true})))
 }
 pub async fn refresh_plan(

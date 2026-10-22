@@ -66,7 +66,7 @@ export function verifyArchiveBuilds(builds, receipts) {
     builds.map((b) => '| ' + archivePlatform(b.os, b.arch) + ' | ' + b.runner + ' | ' + b.seconds.toFixed(1) + ' s |').join('\n');
 }
 
-const SHARED_JOB = 'tests.yml:rust-tests';
+const SHARED_JOB = 'tests-rust.yml:rust-tests';
 const NEXTEST_SCOPE = /^\.\/build\.sh nextest ([\w-]+)$/;
 const SAFE_NAME = /^[A-Za-z0-9_:.\/-]+$/;
 const HOST_PLATFORM = { win32: 'windows', darwin: 'macos', linux: 'linux' }[process.platform] ?? process.platform;

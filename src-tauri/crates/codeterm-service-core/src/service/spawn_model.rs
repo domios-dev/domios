@@ -459,10 +459,10 @@ fn resolve_authoritative_live_default(
         let selected = configured_default.or(provider_default);
         let warning = match selected.as_deref() {
             Some(model) => format!(
-                "provider '{provider_id}' requires a live model catalogue, but none is available; launching default model '{model}' unchanged. Run codeterm agent models {provider_id} to refresh and inspect the catalogue."
+                "provider '{provider_id}' requires a live model catalogue, but none is available; launching default model '{model}' unchanged. Run domios agent models {provider_id} to refresh and inspect the catalogue."
             ),
             None => format!(
-                "provider '{provider_id}' requires a live model catalogue, but none is available and it declares no default model. Run codeterm agent models {provider_id} to refresh and inspect the catalogue."
+                "provider '{provider_id}' requires a live model catalogue, but none is available and it declares no default model. Run domios agent models {provider_id} to refresh and inspect the catalogue."
             ),
         };
         return Some(FreshAgentModelResolution {
@@ -533,7 +533,7 @@ fn resolve_authoritative_live_default(
 
 fn unavailable_live_catalogue_warning(provider_id: &str, model: &str) -> String {
     format!(
-        "provider '{provider_id}' requires a live model catalogue, but none is available; launching requested model '{model}' unchanged. Run `codeterm agent models {provider_id}` to refresh and inspect the catalogue."
+        "provider '{provider_id}' requires a live model catalogue, but none is available; launching requested model '{model}' unchanged. Run `domios agent models {provider_id}` to refresh and inspect the catalogue."
     )
 }
 

@@ -57,11 +57,11 @@ test('every required job name exists in the release graph', () => {
 test('the source draft takes every retained distributable and fragment; the mirror takes no fragment', () => {
   const tag = 'v9.9.9';
   const headless = headlessAssetNames(tag, 'darwin-aarch64');
-  const receipt = { files: ['CodeTerm_9.9.9_aarch64.dmg', 'CodeTerm_aarch64.app.tar.gz', 'updater-darwin-aarch64.json',
+  const receipt = { files: ['Domios_9.9.9_aarch64.dmg', 'Domios_aarch64.app.tar.gz', 'updater-darwin-aarch64.json',
     headless.archive, headless.checksum, headless.manifest].map(name => ({ name })) };
   assert.deepEqual(promotionPlan(tag, 'darwin-aarch64', receipt), {
-    source: ['CodeTerm_9.9.9_aarch64.dmg', 'CodeTerm_aarch64.app.tar.gz', 'updater-darwin-aarch64.json'],
-    mirror: ['CodeTerm_9.9.9_aarch64.dmg', 'CodeTerm_aarch64.app.tar.gz'],
+    source: ['Domios_9.9.9_aarch64.dmg', 'Domios_aarch64.app.tar.gz', 'updater-darwin-aarch64.json'],
+    mirror: ['Domios_9.9.9_aarch64.dmg', 'Domios_aarch64.app.tar.gz'],
   });
 });
 
@@ -69,7 +69,7 @@ test('promotion uploads the retained bytes, reads each back and refuses a change
   const directory = await mkdtemp(path.join(os.tmpdir(), 'promote-fixture-'));
   try {
     const tag = 'v9.9.9';
-    const names = ['CodeTerm_9.9.9_amd64.AppImage', 'CodeTerm_9.9.9_amd64.deb', 'updater-linux-x86_64.json', 'updater-linux-x86_64-deb.json'];
+    const names = ['Domios_9.9.9_amd64.AppImage', 'Domios_9.9.9_amd64.deb', 'updater-linux-x86_64.json', 'updater-linux-x86_64-deb.json'];
     const files = [];
     for (const name of names) {
       await writeFile(path.join(directory, name), 'bytes of ' + name);
@@ -95,9 +95,9 @@ test('promotion uploads the retained bytes, reads each back and refuses a change
     assert.equal(calls.filter(args => args[1] === 'download').length, 2);
     assert.deepEqual(await publishPlatform({ ...options, repository: 'rollacode/codeterm' }), names);
     assert.deepEqual(headless, ['rollacode/codeterm-releases', 'rollacode/codeterm']);
-    tamper = 'CodeTerm_9.9.9_amd64.deb';
+    tamper = 'Domios_9.9.9_amd64.deb';
     await assert.rejects(publishPlatform({ ...options, repository: 'rollacode/codeterm' }),
-      /rollacode\/codeterm CodeTerm_9\.9\.9_amd64\.deb differs from its linux-x86_64 receipt/);
+      /rollacode\/codeterm Domios_9\.9\.9_amd64\.deb differs from its linux-x86_64 receipt/);
     assert.equal(headless.length, 2, 'a refused platform never reaches headless publication');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
@@ -109,7 +109,7 @@ test('a promotion run publishes without building, testing or a second warning re
   assert.equal(evaluate(release.jobs['frontend-dist'].if)({ prepare }, {}), false);
   for (const id of ['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x86_64', 'windows-x64', 'windows-arm64', 'rust-warnings']) {
     // Even a successful bundle job could not start a build in a promotion run.
-    const needs = { prepare, 'quick-checks': { result: 'skipped' }, 'frontend-dist': { result: 'success' } };
+    const needs = { prepare, 'quick-checks': { result: 'skipped' }, 'frontend-dist': { result: 'success' }, 'builds-tier': { result: 'skipped' } };
     assert.equal(evaluate(release.jobs[id].if)(needs, {}), false, id);
   }
   assert.equal(evaluate(release.jobs['quick-checks'].if)({ prepare }, {}), false);

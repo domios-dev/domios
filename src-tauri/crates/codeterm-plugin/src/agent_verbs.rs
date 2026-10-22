@@ -1,6 +1,6 @@
 //! What an installed plugin lets agents do, as data: the verbs reachable through
-//! `codeterm plugin <id> <verb>`, plus the mem skill item that makes them findable
-//! by `codeterm mem search`. Pure — the host owns the store and the triggers.
+//! `domios plugin <id> <verb>`, plus the mem skill item that makes them findable
+//! by `domios mem search`. Pure — the host owns the store and the triggers.
 
 use serde::Serialize;
 
@@ -29,7 +29,7 @@ pub struct AgentVerbCatalog {
     pub verbs: Vec<String>,
     pub keywords: Vec<String>,
     /// The plugin's bounded `agentGuide` markdown, when it ships one. Kept out of
-    /// the `codeterm capabilities` listing; the mem item and `plugin get` carry it.
+    /// the `domios capabilities` listing; the mem item and `plugin get` carry it.
     #[serde(skip)]
     pub guide: Option<String>,
     /// Core status decided by the loader; only core catalogs reach every agent.
@@ -104,7 +104,7 @@ impl AgentVerbCatalog {
     }
 
     pub fn invocation(&self) -> String {
-        format!("codeterm plugin {} <verb>", self.id)
+        format!("domios plugin {} <verb>", self.id)
     }
 }
 
@@ -191,7 +191,7 @@ pub fn compose_plugin_skill(catalog: &AgentVerbCatalog) -> PluginSkillItem {
         body.push_str("\n\n");
     }
     body.push_str(&format!(
-        "Installed CodeTerm plugin. Agents call it with `{}`; setup state and full guidance: `codeterm plugin get {id}`.\n\n",
+        "Installed CodeTerm plugin. Agents call it with `{}`; setup state and full guidance: `domios plugin get {id}`.\n\n",
         catalog.invocation()
     ));
     if catalog.verbs.is_empty() {
@@ -199,7 +199,7 @@ pub fn compose_plugin_skill(catalog: &AgentVerbCatalog) -> PluginSkillItem {
     } else {
         body.push_str("Verbs:\n");
         for verb in &catalog.verbs {
-            body.push_str(&format!("- `codeterm plugin {id} {verb}`\n"));
+            body.push_str(&format!("- `domios plugin {id} {verb}`\n"));
         }
     }
     if !catalog.keywords.is_empty() {

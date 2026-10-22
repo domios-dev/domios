@@ -95,13 +95,24 @@ pub struct DeliveryReceipt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliveryError {
     /// The target tab could not be resolved to a live tab/PTY.
-    TabNotFound { target: String },
+    TabNotFound {
+        target: String,
+    },
     /// Bytes were written but submission could not be confirmed.
-    DeliveredUnverified { detail: String },
+    DeliveredUnverified {
+        detail: String,
+    },
     /// Any other failure from the underlying path, kept opaque for adapters.
-    Transport { detail: String },
+    Transport {
+        detail: String,
+    },
     /// A system notice was refused because the target has no live agent; nothing was written.
-    AgentUnavailable { target: String },
+    AgentUnavailable {
+        target: String,
+    },
+    ReadOnly {
+        target: String,
+    },
 }
 
 impl DeliveryError {
@@ -113,6 +124,7 @@ impl DeliveryError {
 impl std::fmt::Display for DeliveryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ReadOnly { .. } => f.write_str("curator_read_only: Curator round, read-only"),
             Self::TabNotFound { target } => write!(f, "Tab not found: {target}"),
             Self::DeliveredUnverified { detail } => write!(f, "delivered unverified: {detail}"),
             Self::Transport { detail } => write!(f, "transport error: {detail}"),
@@ -164,9 +176,11 @@ pub(crate) fn system_notice_target_refusal(
     Some("tab has no agent identity, launch, or chat backend")
 }
 
-/// Build the ordered PTY actions from gateway strokes, mirroring the HTTP route:
-/// a `\r` key becomes a Submit, every other key its raw bytes.
-fn build_ordered(strokes: &[KeyStroke]) -> Result<Vec<OrderedPtyAction>, String> {
+fn build_ordered(
+    svc: &super::ServiceContext,
+    tab: &str,
+    strokes: &[KeyStroke],
+) -> Result<Vec<OrderedPtyAction>, String> {
     let mut ordered = Vec::with_capacity(strokes.len());
     for stroke in strokes {
         match stroke {
@@ -174,9 +188,13 @@ fn build_ordered(strokes: &[KeyStroke]) -> Result<Vec<OrderedPtyAction>, String>
                 std::time::Duration::from_millis(*ms),
             )),
             KeyStroke::Key(key) => {
-                let bytes = crate::agent::keys::action_key_bytes(key)
+                let bytes = svc
+                    .encode_pty_action_key(tab, key)
                     .ok_or_else(|| format!("unknown action key: {key}"))?;
-                if bytes == b"\r" {
+                if matches!(
+                    key.replace('_', "-").to_ascii_lowercase().as_str(),
+                    "enter" | "return"
+                ) {
                     ordered.push(OrderedPtyAction::Submit);
                 } else {
                     ordered.push(OrderedPtyAction::Raw(bytes));
@@ -194,6 +212,9 @@ impl DeliverySeam for super::ServiceContext {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
+        if envelope.kind != super::messenger::MessageKind::System {
+            self.require_tab_input_allowed(to_tab, Some(&envelope.from_tab))?;
+        }
         Messenger::deliver(self, to_tab, envelope, body)
     }
 
@@ -203,19 +224,25 @@ impl DeliverySeam for super::ServiceContext {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        if envelope.kind != super::messenger::MessageKind::System {
+            self.require_tab_input_allowed(to_tab, Some(&envelope.from_tab))?;
+        }
         Messenger::deliver_with_pad_file(self, to_tab, envelope, body)
     }
 
     fn deliver_text(&self, tab: &str, text: &str) -> Result<(), String> {
+        self.require_tab_input_allowed(tab, None)?;
         self.deliver(tab, Input::TextDetached(text))
     }
 
     fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
+        self.require_tab_input_allowed(tab, None)?;
         self.deliver(tab, Input::Batch(batch))
     }
 
     fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
-        let ordered = build_ordered(strokes)?;
+        self.require_tab_input_allowed(tab, None)?;
+        let ordered = build_ordered(self, tab, strokes)?;
         execute_ordered_actions(
             text,
             &ordered,
@@ -279,24 +306,30 @@ impl super::ServiceContext {
         body: &str,
         class: DeliveryClass,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
-        let curator_body = self.curator_message(&envelope.from_tab, target, body)?;
-        let body = curator_body.as_deref().unwrap_or(body);
-        let receipt = self
-            .gateway
-            .submit(
-                self,
-                OutboundMessage {
-                    target: target.to_string(),
-                    body: MessageBody::Text {
-                        body: body.to_string(),
-                    },
-                    envelope: Some(envelope),
-                    class,
-                    origin: MessageOrigin::System,
-                    idempotency_key: None,
+        let policy = self.role_policy_for_tab(&envelope.from_tab);
+        let role_body = match policy {
+            Some(policy) => policy.prepare_message(self, &envelope.from_tab, target, body)?,
+            None => None,
+        };
+        let sender = envelope.from_tab.clone();
+        let body = role_body.as_deref().unwrap_or(body);
+        let receipt = self.gateway.submit(
+            self,
+            OutboundMessage {
+                target: target.to_string(),
+                body: MessageBody::Text {
+                    body: body.to_string(),
                 },
-            )
-            .map_err(|e| e.to_string())?;
+                envelope: Some(envelope),
+                class,
+                origin: MessageOrigin::System,
+                idempotency_key: None,
+            },
+        );
+        if let Some(policy) = policy {
+            policy.message_receipt(self, &sender, &receipt)?;
+        }
+        let receipt = receipt.map_err(|error| error.to_string())?;
         if class == DeliveryClass::AgentTraffic
             && self
                 .plan_store
@@ -317,7 +350,11 @@ impl super::ServiceContext {
 /// structural markers those paths already emit until typed errors land upstream.
 fn classify(target: &str, err: String) -> DeliveryError {
     let low = err.to_lowercase();
-    if low.contains("not found")
+    if err.starts_with("curator_read_only:") {
+        DeliveryError::ReadOnly {
+            target: target.to_string(),
+        }
+    } else if low.contains("not found")
         || low.contains("Tab missing")
         || low.contains("has no pty")
         || low.contains("did not start")
@@ -395,7 +432,7 @@ impl MessageGateway {
         session: &std::sync::Arc<super::agent_runtime::engine::Session>,
         process: &std::sync::Arc<super::agent_runtime::process::Process>,
         send_id: &str,
-        input: codeterm_plugin::agent_runtime::TurnInput,
+        input: super::messenger::AgentInput,
     ) -> Result<(), super::delivery_error::DeliveryError> {
         super::agent_runtime::transport::submit_loaded(svc, session, process, send_id, input).await
     }

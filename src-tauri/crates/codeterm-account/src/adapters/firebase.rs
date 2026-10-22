@@ -59,10 +59,7 @@ impl Transport for HttpTransport {
                 return Err(Error::Configuration);
             }
         };
-        if target.scheme() != "https"
-            || !target.username().is_empty()
-            || target.password().is_some()
-        {
+        if !crate::firebase_endpoints::allows_url(&target) {
             log_request_diagnostic(diagnostic, None, "none", false, false);
             return Err(Error::Configuration);
         }
@@ -188,13 +185,26 @@ pub struct Firebase {
 }
 impl Firebase {
     pub fn new(config: Config, transport: Arc<dyn Transport>) -> Self {
-        Self { config, transport }
+        Self {
+            config: crate::firebase_endpoints::account_config(config),
+            transport,
+        }
     }
     fn endpoint(&self, base: &str) -> Result<String> {
         if self.config.api_key.is_empty() {
             return Err(Error::Configuration);
         }
-        let mut url = url::Url::parse(base).map_err(|_| Error::Configuration)?;
+        let endpoints = crate::firebase_endpoints::current();
+        let base = base
+            .replace(
+                crate::firebase_endpoints::PRODUCTION.identity_toolkit,
+                endpoints.identity_toolkit,
+            )
+            .replace(
+                crate::firebase_endpoints::PRODUCTION.secure_token,
+                endpoints.secure_token,
+            );
+        let mut url = url::Url::parse(&base).map_err(|_| Error::Configuration)?;
         url.query_pairs_mut()
             .append_pair("key", &self.config.api_key);
         Ok(url.into())
@@ -332,7 +342,7 @@ impl IdentityProvider for Firebase {
 }
 
 pub fn default_config() -> Config {
-    config_from_build(crate::build_config::vendor())
+    crate::firebase_endpoints::account_config(config_from_build(crate::build_config::vendor()))
 }
 fn config_from_build(vendor: crate::build_config::Vendor) -> Config {
     let present = |value: Option<&'static str>| value.filter(|value| !value.trim().is_empty());

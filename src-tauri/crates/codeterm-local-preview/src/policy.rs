@@ -15,7 +15,31 @@ pub struct PreviewPolicy {
     pad_denied: Vec<String>,
 }
 
+pub struct PreviewRoots {
+    pub configured: Vec<PathBuf>,
+    pub private: Vec<PathBuf>,
+    pub uploads: Vec<PathBuf>,
+    pub own_pad: Option<PathBuf>,
+    pub ssh: Option<PathBuf>,
+}
+
 impl PreviewPolicy {
+    pub fn for_context(references: HashSet<String>, roots: PreviewRoots) -> Result<Self, String> {
+        let mut denied = roots.configured.clone();
+        denied.extend(roots.private);
+        denied.extend(roots.ssh.clone());
+        let mut evidence_denied = roots.configured.clone();
+        evidence_denied.extend(roots.ssh);
+        let mut policy = Self::new(references, &denied)?;
+        for uploads in roots.uploads {
+            policy = policy.with_uploads(&uploads, &roots.configured)?;
+        }
+        if let Some(pad) = roots.own_pad {
+            policy = policy.with_own_pad(&pad, &evidence_denied)?;
+        }
+        Ok(policy)
+    }
+
     pub fn new(references: HashSet<String>, denied: &[PathBuf]) -> Result<Self, String> {
         let mut roots = Vec::new();
         for path in denied {

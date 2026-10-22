@@ -244,7 +244,7 @@ mod tests {
     fn json_connection_shape_is_pinned() {
         let payload = extend_payload(
             serde_json::json!({
-                "name": "CodeTerm",
+                "name": "Domios",
                 "version": "1.7.8",
                 "platform": "windows",
                 "features": []
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn cli_identity_includes_version_and_build_sha() {
         let payload = extend_cli_identity(serde_json::json!({
-            "name": "CodeTerm",
+            "name": "Domios",
             "version": "1.7.8"
         }))
         .unwrap();

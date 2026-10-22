@@ -1,4 +1,5 @@
 use super::{SURFACE_NO_INPUT, SURFACE_NO_TEXT};
+use crate::service::messenger::AgentInput;
 use crate::service::pty_io::SendBatchItem;
 use crate::service::tab_transport::TabTransport;
 
@@ -14,7 +15,7 @@ fn no_text() -> String {
 }
 
 impl TabTransport for SurfaceTransport {
-    fn send(&self, _text: &str, _enter: bool) -> Result<(), String> {
+    fn send(&self, _input: &AgentInput, _enter: bool) -> Result<(), String> {
         Err(no_input())
     }
 

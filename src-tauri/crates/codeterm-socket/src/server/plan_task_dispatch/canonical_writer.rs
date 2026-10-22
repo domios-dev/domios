@@ -118,7 +118,7 @@ pub(crate) fn refuse_lane_integration_while_canonical_held(
          '{task_id}' cannot be accepted into it yet."
     );
     let safe_alternative = format!(
-        "record the canonical writer's verdict first (codeterm plan review accept|bounce {} \
+        "record the canonical writer's verdict first (domios plan review accept|bounce {} \
          {holder_task_id} --note \"<evidence>\"), then accept this lane.",
         plan.id
     );

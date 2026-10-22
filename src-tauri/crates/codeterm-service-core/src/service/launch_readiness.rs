@@ -1191,5 +1191,5 @@ impl ServiceContext {
 }
 
 fn recovery_command(tab_id: &str) -> String {
-    format!("codeterm agent restart --tab {tab_id}")
+    format!("domios agent restart --tab {tab_id}")
 }

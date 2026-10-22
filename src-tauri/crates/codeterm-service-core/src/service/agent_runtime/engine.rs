@@ -82,6 +82,10 @@ pub(crate) fn has_live_bound_session(tab: &crate::multiplexer::types::Tab) -> bo
 #[path = "engine/backfill.rs"]
 pub(super) mod backfill;
 
+#[path = "engine/launch.rs"]
+mod launch;
+use launch::{require_launch_authority, validate_loaded_settings};
+
 #[cfg(test)]
 #[path = "engine/test_support.rs"]
 pub(crate) mod test_support;
@@ -97,6 +101,29 @@ pub fn stop_blocking(svc: &ServiceContext, tab: &str) -> Result<(), String> {
         }
         Ok(_) => Err("Runtime stop requires async stop on a current-thread executor".into()),
         Err(_) => finish(),
+    }
+}
+
+pub(crate) fn stop_removed_provider(svc: &ServiceContext, provider: &str) {
+    if svc.agent_registry.provider_arc(provider).is_some() {
+        return;
+    }
+    let tabs: Vec<_> = SESSIONS
+        .lock()
+        .iter()
+        .filter(|(_, session)| session.provider == provider)
+        .map(|(tab, _)| tab.clone())
+        .collect();
+    for tab in tabs {
+        let svc = svc.clone();
+        let provider = provider.to_string();
+        crate::async_runtime::spawn(async move {
+            if svc.agent_registry.provider_arc(&provider).is_none() {
+                if let Err(error) = stop(&svc, &tab).await {
+                    log::warn!("[runtime] removed provider shutdown failed for {tab}: {error}");
+                }
+            }
+        });
     }
 }
 
@@ -180,6 +207,7 @@ async fn ensure_with_fork(
         ));
     }
     super::restore::tab(svc, tab).map_err(RuntimeFailure::Refused)?;
+    require_launch_authority(svc, tab)?;
     let prompt_service = svc.clone();
     let prompt_tab = tab.to_string();
     tokio::task::spawn_blocking(move || {
@@ -329,14 +357,7 @@ async fn ensure_locked(
         ));
     }
     let old = session.process.lock().clone();
-    let registered = svc.agent_registry.provider_arc(provider);
-    let same_adapter = session
-        .adapter
-        .lock()
-        .as_ref()
-        .zip(registered.as_ref())
-        .is_some_and(|(active, current)| Arc::ptr_eq(active, current));
-    let live = same_adapter
+    let live = session.adapter.lock().is_some()
         && old.as_ref().is_some_and(|process| {
             process.ended.borrow().is_none() && process.client.ended().borrow().is_none()
         });
@@ -563,7 +584,17 @@ async fn ensure_locked(
                 thread_id,
                 settings,
             },
-        ) => (thread_id, settings),
+        ) => {
+            validate_loaded_settings(&context.settings, &settings, |requested, reported| {
+                crate::service::session_model::session_model_matches(
+                    &svc.agent_registry,
+                    provider,
+                    requested,
+                    reported,
+                )
+            })?;
+            (thread_id, settings)
+        }
         _ => {
             return Err(RuntimeFailure::HookFailed(
                 "Thread load result is invalid".into(),
@@ -968,15 +999,8 @@ fn validate_binding_inner(
     require_thread: bool,
 ) -> Result<(), RuntimeFailure> {
     let context = session.context.lock().clone();
-    let current = svc
-        .agent_registry
-        .provider_arc(&session.provider)
-        .ok_or(RuntimeFailure::Superseded)?;
-    if session
-        .adapter
-        .lock()
-        .as_ref()
-        .is_none_or(|adapter| !Arc::ptr_eq(adapter, &current))
+    if session.adapter.lock().is_none()
+        || svc.agent_registry.provider_arc(&session.provider).is_none()
     {
         return Err(RuntimeFailure::Superseded);
     }

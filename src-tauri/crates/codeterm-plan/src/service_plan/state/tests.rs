@@ -699,3 +699,49 @@ fn mission_control_projects_tab_todo_link_as_one_task_event() {
     assert_eq!(events[0].task_id.as_deref(), Some("t_done"));
     assert_eq!(events[0].text, "Checklist item linked: Review source");
 }
+
+#[test]
+fn checklist_runs_fold_before_event_limit_and_preserve_distinct_tasks() {
+    let mut plan = fixture();
+    let baseline = super::mission_control::build_plan_event_log(&plan).recorded_events;
+    let task_count = plan.tasks.len();
+    for index in 0..240 {
+        let mut event = milestone(&format!("link_{index}"), 1_000_000 + index as u64);
+        event.kind = "tab_todo_linked".into();
+        event.text = "opaque checklist".into();
+        plan.tasks[index % task_count].milestones.push(event);
+    }
+    let log = super::mission_control::build_plan_event_log(&plan);
+    assert!(!log.truncated);
+    assert_eq!(log.recorded_events, baseline + 240);
+    let runs: Vec<_> = log
+        .entries
+        .iter()
+        .filter(|event| event.kind == "tab_todo_linked")
+        .collect();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].count, 240);
+    assert_eq!(runs[0].last_ts, 1_000_239);
+    assert_eq!(runs[0].linked_tasks.len(), task_count);
+    for task in &plan.tasks {
+        assert!(runs[0]
+            .linked_tasks
+            .iter()
+            .any(|linked| linked.id == task.id && linked.name == task.name));
+    }
+    plan.strides.push(milestone("interruption", 1_000_100));
+    let mut different = milestone("different", 1_000_240);
+    different.kind = "tab_todo_linked".into();
+    different.text = "different checklist".into();
+    plan.tasks[0].milestones.push(different);
+    let log = super::mission_control::build_plan_event_log(&plan);
+    let runs: Vec<_> = log
+        .entries
+        .iter()
+        .filter(|event| event.kind == "tab_todo_linked")
+        .collect();
+    assert_eq!(
+        runs.iter().map(|event| event.count).collect::<Vec<_>>(),
+        vec![101, 139, 1]
+    );
+}

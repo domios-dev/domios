@@ -12,7 +12,7 @@ pub enum NudgeKind {
     Orchestrator,
 }
 
-pub const WORKER_REMINDER: &str = "Plan reminder: you are assigned to an active task. Run `codeterm agent report --plan <plan_id> --task <task_id> \"status update\"` so your parent can see progress.";
+pub const WORKER_REMINDER: &str = "Plan reminder: you are assigned to an active task. Run `domios agent report --plan <plan_id> --task <task_id> \"status update\"` so your parent can see progress.";
 
 pub const ORCHESTRATOR_REMINDER: &str = "Plan reminder: {actionable}. {parked}";
 

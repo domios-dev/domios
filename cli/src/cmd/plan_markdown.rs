@@ -9,7 +9,7 @@ pub(crate) fn render_plan_markdown(plan: &Value) -> String {
     let id = plan.get("id").and_then(|v| v.as_str()).unwrap_or("?");
     let status = plan.get("status").and_then(|v| v.as_str()).unwrap_or("?");
     out.push_str(&format!("# {title} (`{id}`)\n\n"));
-    out.push_str("> Exported snapshot. Domios planner state is authoritative; update the plan with `codeterm plan ...`, not by editing this markdown.\n\n");
+    out.push_str("> Exported snapshot. Domios planner state is authoritative; update the plan with `domios plan ...`, not by editing this markdown.\n\n");
     out.push_str(&format!("**Status:** {status}\n\n"));
     if let Some(state) = plan.get("control_loop") {
         let mode = state["mode"].as_str().unwrap_or("curator");
@@ -43,7 +43,7 @@ pub(crate) fn render_plan_markdown(plan: &Value) -> String {
     {
         let id = plan.get("id").and_then(|v| v.as_str()).unwrap_or("?");
         out.push_str(&format!(
-            "**Unlinked tasks:** {count} (preview: `codeterm plan task relink {id}`; apply: `codeterm plan task relink {id} --apply`)\n\n"
+            "**Unlinked tasks:** {count} (preview: `domios plan task relink {id}`; apply: `domios plan task relink {id} --apply`)\n\n"
         ));
     }
     if let Some(sections) = plan.get("sections").and_then(|v| v.as_array()) {

@@ -33,7 +33,7 @@ fn candidate_context_is_bounded_and_excludes_provider_file_paths() {
         },
         snippets: vec![SessionSnippet {
             role: "assistant".into(),
-            text: "Use the codeterm sessions get command".into(),
+            text: "Use the domios sessions get command".into(),
             ts: None,
         }],
         match_count: 1,
@@ -47,11 +47,8 @@ fn candidate_context_is_bounded_and_excludes_provider_file_paths() {
     assert_eq!(result.hit["session_id"], "s-1");
     assert_eq!(result.hit["provider"], "fixture-provider");
     assert_eq!(result.hit["title"], "Release plan");
-    assert_eq!(
-        result.hit["excerpt"],
-        "Use the codeterm sessions get command"
-    );
-    assert_eq!(result.hit["pointer"], "codeterm sessions get s-1");
+    assert_eq!(result.hit["excerpt"], "Use the domios sessions get command");
+    assert_eq!(result.hit["pointer"], "domios sessions get s-1");
     assert!(!result.hit.to_string().contains("/private/session.jsonl"));
 }
 

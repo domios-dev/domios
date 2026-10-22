@@ -99,7 +99,7 @@ macro_rules! agent_provider_prompt_detection {
         /// Extract the agent's human-readable session display name from the
         /// current screen — e.g. Claude Code prints "vivid-bhabha-1234" in its
         /// TUI banner. Captured once per agent run and stored on the tab so
-        /// `codeterm tab find <pattern>` can locate tabs by friendly name.
+        /// `domios tab find <pattern>` can locate tabs by friendly name.
         /// Default returns None; providers that emit a stable handle override.
         fn extract_session_name(&self, _screen: &str) -> Option<String> {
             None

@@ -13,11 +13,6 @@ pub fn update_inventory(ctx: PluginCtx, refresh: bool) -> Result<serde_json::Val
             }
         }
     }
-    if refresh && !errors.contains_key(SYSTEM_CHANNEL_NAME) {
-        if let Err(error) = update_system_cached(None) {
-            errors.insert(SYSTEM_CHANNEL_NAME.to_string(), error);
-        }
-    }
     let listed = list_installed()?;
     let items: Vec<serde_json::Value> = listed["plugins"]
         .as_array()

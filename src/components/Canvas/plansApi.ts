@@ -129,10 +129,12 @@ export async function resolvePlanRefs(
 export async function fetchPlans(
   api: ApiConfig,
   signal?: AbortSignal,
-  opts?: { project?: string | null },
+  opts?: { project?: string | null; chat?: boolean; query?: string; team?: string | null },
 ): Promise<Plan[]> {
-  const params = new URLSearchParams({ full: "1" });
+  const params = new URLSearchParams(opts?.chat ? { chat: "1" } : { full: "1" });
   if (opts?.project) params.set("project", opts.project);
+  if (opts?.query !== undefined) params.set("query", opts.query);
+  if (opts?.team !== undefined) params.set("team", opts.team ?? "");
   const res = await daemonFetch(api, `/api/plans?${params}`, {
     headers: authHeaders(api),
     signal,
@@ -244,6 +246,19 @@ export async function setPlanControlLoop(api: ApiConfig, planId: string, update:
     method: "POST", headers: confirmedHeaders(api, planId), body: JSON.stringify(update),
   });
   if (!res.ok) throw new Error(`plan control loop update failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+export async function runPlanControlLoop(api: ApiConfig, planId: string): Promise<PlanControlLoop> {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/control-loop/run`, {
+    method: "POST", headers: confirmedHeaders(api, planId), body: "{}",
+  });
+  if (!res.ok) {
+    const body: unknown = await res.json().catch(() => null);
+    const error = body && typeof body === "object" && "error" in body ? body.error : null;
+    const message = error && typeof error === "object" && "message" in error ? error.message : error;
+    throw new Error(typeof message === "string" && message.trim() ? message : "The Curator round could not start.");
+  }
   return res.json();
 }
 

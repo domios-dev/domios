@@ -108,7 +108,7 @@ async function fixture(local = false) {
     if (path === "/api/mesh/peers") {
       return Response.json({ local_instance_name: local ? "eight" : "gateway", paired: (local ? [B] : [A, B]).map((id) => ({
         instance_id: id, instance_name: stores.get(id)!.mesh.instance_name, addresses: [], api_port: 7685,
-        online: true, relay_protocol_version: 1,
+        online: true, relay_protocol_version: 2,
       })) });
     }
     if (path === "/api/config") {

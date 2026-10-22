@@ -322,6 +322,7 @@ impl ServiceContext {
                 session_id,
             )
         };
+        let role_policy = self.role_policy_for_tab(&canonical_tab_id);
         if let Err(error) = self.prepare_tab_close(tab_id, reason) {
             self.mux.write().abort_tab_close(&reservation);
             return Err(error);
@@ -343,6 +344,11 @@ impl ServiceContext {
             self.forget_evicted_tab_todos(evicted);
         }
         let pty_ids = close_result?;
+        if let Some(policy) = role_policy {
+            if let Err(error) = policy.tab_closed(self, &canonical_tab_id) {
+                log::error!("[tab-close] role settlement {canonical_tab_id}: {error}");
+            }
+        }
         if let Err(error) = self.cancel_utility_timeout(&canonical_tab_id) {
             log::error!("[utility-timeout] closed shell deadline cleanup failed: {error}");
         }
@@ -737,7 +743,9 @@ impl ServiceContext {
             );
             let mut messages = queued.into_iter();
             while let Some(message) = messages.next() {
-                if let Err(error) = service.start_chat_send(&tab_id, message.clone(), None, None) {
+                if let Err(error) = super::messenger::Messenger::restore_framed_delivery(&message)
+                    .and_then(|frame| service.deliver_framed_input(&tab_id, frame))
+                {
                     log::warn!("[bridge] buffered message admission held tab={tab_id}: {error}");
                     crate::bridge::inbound_buffer::push(&tab_id, message);
                     for remaining in messages {

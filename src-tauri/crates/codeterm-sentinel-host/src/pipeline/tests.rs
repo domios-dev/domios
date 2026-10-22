@@ -331,3 +331,92 @@ fn github_probe_budget_tolerates_slow_queries_and_respects_graph_expiry() {
     let expiring = probe::process::Deadlines::at(Duration::from_secs(5), runtime, now).unwrap();
     assert_eq!(expiring.hard.duration_since(now), Duration::from_secs(5));
 }
+
+#[test]
+fn unhandled_command_failure_stops_but_recovered_failure_keeps_running() {
+    let mut spec = result_spec(BlueprintOwner::Team, ResultTarget::Owner);
+    let initial = RunnerState::start(&spec).unwrap();
+    let failed = blueprint_pipeline::advance(&initial, StepOutcome::Failed).unwrap();
+    assert_eq!(failed.status, RunStatus::Failed);
+    assert!(stops_failed_command(&RunCompletion::new(
+        JournalState::Failed,
+        "command_failed"
+    )));
+    spec.steps[0].on.insert("failed".into(), "next".into());
+    let recovered =
+        blueprint_pipeline::advance(&RunnerState::start(&spec).unwrap(), StepOutcome::Failed)
+            .unwrap();
+    assert_eq!(recovered.status, RunStatus::Done);
+    assert!(!stops_failed_command(&RunCompletion::new(
+        JournalState::Done,
+        "command_failed"
+    )));
+    assert!(!stops_failed_command(&RunCompletion::new(
+        JournalState::Failed,
+        "agent_cancelled"
+    )));
+}
+
+#[test]
+fn every_shipped_recipe_command_runs_in_the_runtime_probe_shell() {
+    fn commands(value: &serde_json::Value, output: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Object(fields) => {
+                for (key, value) in fields {
+                    if matches!(key.as_str(), "run" | "probe") {
+                        if let Some(command) = value.as_str() {
+                            let tokens =
+                                codeterm_blueprint_types::blueprint_placeholder::tokens(command);
+                            // Required probe inputs are commands authored by the caller.
+                            if tokens.len() == 1 && tokens[0].span == (0..command.len()) {
+                                continue;
+                            }
+                            let mut bound = command.to_owned();
+                            for token in tokens.iter().rev() {
+                                bound.replace_range(token.span.clone(), "ready");
+                            }
+                            output.push(bound);
+                        }
+                    }
+                    commands(value, output);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    commands(value, output);
+                }
+            }
+            _ => {}
+        }
+    }
+    let root = codeterm_service_core::test_support::fixture_manifest_dir()
+        .join("../../../resources/blueprints");
+    let directory = tempfile::tempdir().unwrap();
+    let owner = std::sync::Arc::new(probe::owner::ProbeResourceOwner::new());
+    let mut executed = 0;
+    for entry in std::fs::read_dir(root).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("yaml") {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let value: serde_json::Value = serde_yaml::from_str(&raw).unwrap();
+        let mut shipped = Vec::new();
+        commands(&value, &mut shipped);
+        for command in shipped {
+            let output = probe::run(&command, directory.path(), Duration::from_secs(20), &owner)
+                .unwrap_or_else(|failure| panic!("{}: {command}: {failure:?}", path.display()));
+            assert!(
+                output.success,
+                "{}: {command}: {}",
+                path.display(),
+                output.text
+            );
+            executed += 1;
+        }
+    }
+    assert!(
+        executed > 0,
+        "recipe command discovery must exercise the probe shell"
+    );
+}

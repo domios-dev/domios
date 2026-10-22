@@ -129,7 +129,7 @@ impl ServiceContext {
         }
         let handle = self.spawn_tab_with_ready(spec, ready_tx)?;
         if let Some(tab) = self.mux.write().get_tab_mut(&handle.tab_id) {
-            crate::service::reasoning_effort::persist_launch_identity(
+            crate::service::reasoning_effort::persist_completed_launch_identity(
                 tab,
                 bind_params.planned_reasoning_effort.as_deref(),
                 bind_params.reasoning_effort.as_deref(),
@@ -149,6 +149,11 @@ impl ServiceContext {
             bind_params.task.as_deref().unwrap_or_default().len(),
         );
         Ok(SpawnResult {
+            team_id: self
+                .mux
+                .read()
+                .get_tab(&handle.tab_id)
+                .and_then(|tab| tab.team_id.clone()),
             tab_id: handle.tab_id,
             pty_id: handle.pty_id.unwrap_or_default(),
             agent,
@@ -307,6 +312,11 @@ impl ServiceContext {
                 bind_params.task.as_deref().unwrap_or_default().len(),
             );
             return Ok(SpawnResult {
+                team_id: self
+                    .mux
+                    .read()
+                    .get_tab(&handle.tab_id)
+                    .and_then(|tab| tab.team_id.clone()),
                 tab_id: handle.tab_id,
                 pty_id: handle.pty_id.unwrap_or_default(),
                 agent: agent_cmd,
@@ -855,6 +865,11 @@ impl ServiceContext {
             params.task.as_deref().unwrap_or_default().len(),
         );
         Ok(SpawnResult {
+            team_id: self
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.team_id.clone()),
             tab_id,
             pty_id: String::new(), // PTY not yet assigned — happens async
             agent: agent_cmd,

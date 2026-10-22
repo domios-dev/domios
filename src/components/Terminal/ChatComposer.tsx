@@ -58,7 +58,7 @@ import { replaceTextareaRange, useComposerCapsules, type InlineAttachmentSink } 
 import { composerSendPlan, resolveComposerSend } from "./composerSendPlan";
 import { recordDroppedUploads } from "./DroppedUploadNotice";
 import { classifyAttachmentPaths } from "./composerFiles";
-import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
+import { ComposerMentions, type ComposerMentionsHandle } from "./ComposerMentions";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
@@ -290,7 +290,7 @@ function ChatComposerImpl({
 
   useComposerInsertions(tabId, capsules.insertContext);
   const reply = useComposerReply(tabId, flagComposerError, refocusComposer);
-  const mentionPicker = useComposerMentions(input, setInput, refocusComposer);
+  const mentionPicker = useRef<ComposerMentionsHandle>(null);
   const { expand: expandDsTasks, plansSink } = useDsTasksExpander(tabId);
 
   useLayoutEffect(() => { recordComposerPaint(); }, [input]);
@@ -599,13 +599,8 @@ function ChatComposerImpl({
             onHighlight={setPickerHighlight}
             onPick={pickSlashCommand}
           />
-          <ComposerMentionPicker
-            mentions={mentionPicker.mentions}
-            highlighted={mentionPicker.highlighted}
-            triggerRef={textareaRef}
-            onHighlight={mentionPicker.setHighlighted}
-            onPick={mentionPicker.pick}
-          />
+          <ComposerMentions ref={mentionPicker} tabId={tabId} input={input} setInput={setInput}
+            onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />
           {plansSink}
           <ComposerCapsuleField
             tabId={tabId}
@@ -629,6 +624,7 @@ function ChatComposerImpl({
                 setComposerInvalid(false);
                 recall.reset();
                 setInput(e.target.value);
+                mentionPicker.current?.syncSelection(e.currentTarget);
               }}
               onBeforeInput={(e) => {
                 recordComposerBeforeInput(e.nativeEvent.inputType || "beforeinput");
@@ -640,6 +636,7 @@ function ChatComposerImpl({
                   code: e.code, key: e.key, keyCode: e.nativeEvent.keyCode, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey,
                   metaKey: e.metaKey, altKey: e.altKey, isComposing: e.nativeEvent.isComposing,
                 });
+                if (mentionPicker.current?.handleKey(e)) return;
                 if (isComposerEnterKey(e)) {
                   if (enterIntent !== "submit") {
                     if (enterIntent === "newline") setPickerOpen(false);
@@ -647,7 +644,6 @@ function ChatComposerImpl({
                   }
                 }
                 if (capsules.handleKeyDown(e)) return;
-                if (mentionPicker.handleKey(e)) return;
                 const shortcutContext = { composerFocus: isActive, composing: compositionGate.active,
                   pickerOpen, atStart: e.currentTarget.selectionStart === 0 };
                 if ((e.code === "ArrowUp" || e.code === "ArrowDown") && evaluateWhen("composerFocus && !composing && !pickerOpen && atStart", shortcutContext)) {
@@ -725,7 +721,7 @@ function ChatComposerImpl({
               }}
               onCopy={(e) => capsules.handleCopy(e, false)}
               onCut={(e) => capsules.handleCopy(e, true)}
-              onSelect={(e) => capsules.snapSelection(e.currentTarget)}
+              onSelect={(e) => { capsules.snapSelection(e.currentTarget); mentionPicker.current?.syncSelection(e.currentTarget); }}
               placeholder={pendingPrompt
                 ? "Agent may be waiting in the terminal."
                 : "Message"}

@@ -14,6 +14,7 @@ import { EnvelopeContent } from "../EnvelopeContent";
 
 interface Props {
   text: string;
+  markdown?: boolean;
   segments?: MessageSegment[] | null;
   fontScale?: number;
   onOpenPlan?: OpenPlan;
@@ -23,7 +24,7 @@ interface Props {
 }
 
 /** Body of every inbound and system notice: markdown text plus the same quote, image and file rendering a user bubble gets. */
-export function CompactMessageContent({ text, segments, fontScale, onOpenPlan, resolvePlanRef, collapseAfter = 8, expandTestId }: Props) {
+export function CompactMessageContent({ text, markdown = false, segments, fontScale, onOpenPlan, resolvePlanRef, collapseAfter = 8, expandTestId }: Props) {
   const parts = React.useMemo(() => segments ? { text, files: [], inline: null, reply: null } : userMessageAttachments(text), [text, segments]);
   const normalized = normalizeMessageText(parts.text);
   const lines = normalized.split("\n");
@@ -35,8 +36,8 @@ export function CompactMessageContent({ text, segments, fontScale, onOpenPlan, r
     const normalized = normalizeMessageText(part.text);
     const shown = expanded || !collapsible ? normalized : normalized.split("\n").slice(0, collapseAfter).join("\n");
     const body = part.inline ? <InlineAttachmentText segments={part.inline} />
-      : hasPlanRefs(shown) ? <LinkedText text={shown} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
-      : <RichMarkdown text={shown} fontScale={fontScale} />;
+      : !markdown && hasPlanRefs(shown) ? <LinkedText text={shown} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+      : <RichMarkdown text={shown} fontScale={fontScale} planLinks={{ onOpenPlan, resolvePlanRef }} />;
     return <>{part.files.length > 0 && <AttachmentStrip images={[]} files={part.files} captioned={Boolean(shown.trim())} />}{body}</>;
   };
 

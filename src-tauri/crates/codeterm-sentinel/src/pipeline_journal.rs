@@ -51,7 +51,7 @@ impl Store {
             return Err("blueprint not found".into());
         };
         if job.pipeline().is_none() {
-            return Err("blueprint has no pipeline journal".into());
+            return Err(format!("This is a watch; use `domios blueprint show {id}` for its latest observation, progress and transitions. Pipeline run journals are available only for pipelines."));
         }
         let Some(backend) = self.backend.sqlite() else {
             return Err("blueprint journal requires typed Storage".into());

@@ -93,7 +93,7 @@ export function useAttachments({
   const uploadFiles = useCallback(async (files: Iterable<File>) => { await Promise.all(Array.from(files, (file) => upload(file, file.name || "file.bin"))); }, [upload]);
 
   const handlePasteEvent = useCallback(async (e: ClipboardEvent) => {
-    if (handledPastes.has(e)) return;
+    if (!enabled || handledPastes.has(e)) return;
     handledPastes.add(e);
     const cd = e.clipboardData;
     const files = cd ? extractTransferFiles(cd) : [];
@@ -110,7 +110,11 @@ export function useAttachments({
       const paths = await invoke<string[]>("read_clipboard_files");
       if (paths && paths.length > 0) {
         e.preventDefault();
-        await deliverPaths(await materializeDroppedPaths(paths));
+        try {
+          await deliverPaths(await materializeDroppedPaths(paths));
+        } catch (error) {
+          onError(error instanceof Error ? error.message : String(error));
+        }
         return;
       }
     } catch {
@@ -128,7 +132,7 @@ export function useAttachments({
         onError(err instanceof Error ? err.message : String(err));
       }
     }
-  }, [deliverPaths, onError, uploadFiles, upload]);
+  }, [deliverPaths, onError, uploadFiles, upload, enabled]);
 
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {
@@ -148,6 +152,7 @@ export function useAttachments({
   useTauriFileDrop({
     containerRef: chatRootRef as React.RefObject<HTMLElement | null>,
     enabled,
+    onError,
     onPaths: (paths) => void deliverPaths(paths),
   });
 

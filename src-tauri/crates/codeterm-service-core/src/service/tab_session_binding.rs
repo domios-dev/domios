@@ -82,7 +82,7 @@ impl ServiceContext {
                     if let Err(error) = self.arm_bound_worker_ack_deadline_for_tab(
                         tab_id,
                         format!(
-                            "codeterm plan task dispatch {} {}",
+                            "domios plan task dispatch {} {}",
                             ready.plan_id, ready.task_id
                         ),
                     ) {

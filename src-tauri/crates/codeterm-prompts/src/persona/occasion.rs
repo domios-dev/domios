@@ -139,6 +139,14 @@ static TABLE: &[OccasionRules] = &[
                     standalone: true,
                 },
             ),
+            (
+                Selector::Kind(builtins::CURATOR),
+                Placement {
+                    slot: Slot::Contract,
+                    separator: "\n\n",
+                    standalone: true,
+                },
+            ),
             (Selector::Kind(builtins::WATCHER), Placement::SILENT),
             (Selector::Kind(builtins::GENERAL_AGENT), Placement::SILENT),
             (
@@ -177,6 +185,10 @@ static TABLE: &[OccasionRules] = &[
         fallback: Fallback::Declared(crate::prompts::planner_suffix),
     },
 ];
+
+#[cfg(test)]
+#[path = "occasion_contract_tests.rs"]
+mod contract_tests;
 
 fn rules(occasion: Occasion) -> &'static OccasionRules {
     TABLE

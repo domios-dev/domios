@@ -24,6 +24,10 @@ use super::store::MemItem;
 
 pub(crate) mod graph_source;
 mod lexical;
+#[cfg(feature = "embeddings")]
+mod scoped;
+#[cfg(feature = "embeddings")]
+pub(crate) use scoped::scoped_vectors;
 
 const STOP_WORDS: &[&str] = &[
     "what",
@@ -250,6 +254,7 @@ pub enum SearchMode {
 /// production values baked in today; tests/benches may override to A/B.
 #[derive(Debug, Clone)]
 pub struct SearchConfig {
+    pub source_filter: Option<Option<String>>,
     /// RRF k constant. Smaller k → top ranks dominate more.
     pub rrf_k: f64,
     /// Multiplier applied to items tagged `auto-extracted`. <1.0 penalises.
@@ -290,6 +295,7 @@ pub struct SearchConfig {
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
+            source_filter: None,
             rrf_k: 60.0,
             auto_extracted_penalty: 0.5,
             recurrence_cap: 0.25,
@@ -354,6 +360,10 @@ pub fn run_with_config(
     if let Some(a) = &q.area {
         sql.push_str(&format!(" AND mem_items.area = ?{}", binds.len() + 1));
         binds.push(Box::new(a.clone()));
+    }
+    if let Some(source) = &cfg.source_filter {
+        sql.push_str(&format!(" AND mem_items.source IS ?{}", binds.len() + 1));
+        binds.push(Box::new(source.clone()));
     }
     sql.push_str(&format!(" ORDER BY rank LIMIT {}", pool));
 
@@ -464,7 +474,7 @@ fn is_issue_number(value: &str) -> bool {
     !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-fn extract_keywords(q: &str) -> HashSet<String> {
+pub(crate) fn extract_keywords(q: &str) -> HashSet<String> {
     let stops: HashSet<&str> = STOP_WORDS.iter().copied().collect();
     q.split(|c: char| !c.is_alphanumeric())
         .filter(|w| w.len() >= 3)
@@ -661,7 +671,7 @@ pub(crate) fn hybrid_rrf_with_embedding(
     let vec_hits = {
         let pool = limit * 5;
         let raw = embedding
-            .and_then(|v| super::embeddings::recall_vector(conn, v, pool).ok())
+            .and_then(|v| scoped_vectors(conn, v, pool, q, cfg).ok())
             .unwrap_or_default();
         let mut out = Vec::new();
         for (id, dist) in raw {
@@ -680,6 +690,13 @@ pub(crate) fn hybrid_rrf_with_embedding(
                     if item.area.as_deref() != Some(a) {
                         continue;
                     }
+                }
+                if cfg
+                    .source_filter
+                    .as_ref()
+                    .is_some_and(|source| item.source != *source)
+                {
+                    continue;
                 }
                 out.push(SearchHit { item, score: dist });
             }
@@ -843,7 +860,7 @@ fn vector_first_with_embedding(
     let raw = {
         let pool = limit * cfg.vector_rerank_pool_multiplier.max(1);
         embedding
-            .and_then(|v| super::embeddings::recall_vector(conn, v, pool).ok())
+            .and_then(|v| scoped_vectors(conn, v, pool, q, cfg).ok())
             .unwrap_or_default()
     };
     #[cfg(not(feature = "embeddings"))]

@@ -42,6 +42,8 @@ pub struct TeamMissionControlEvent {
     pub author_tab_id: Option<String>,
     pub task_id: Option<String>,
     pub task_name: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub linked_tasks: Vec<codeterm_plan::service_plan::state::mission_control::LinkedEventTask>,
     pub text: String,
 }
 
@@ -162,6 +164,7 @@ fn lifecycle_event(
         author_tab_id,
         task_id: None,
         task_name: None,
+        linked_tasks: vec![],
         text: format!("Plan {}", event.kind),
     }
 }
@@ -188,6 +191,7 @@ fn stored_event(
         author_tab_id: event.author_tab_id.clone(),
         task_id: event.task_id.clone(),
         task_name: event.task_name.clone(),
+        linked_tasks: event.linked_tasks.clone(),
         text: event.text.clone(),
     }
 }

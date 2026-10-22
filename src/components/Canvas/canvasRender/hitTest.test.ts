@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Canvas/canvasRender/hitTest.test.ts
 
 import type { LaidOutNode } from "../layout";
-import type { ViewportTransform } from "../useCanvasViewport";
+import type { ViewportTransform } from "@codeterm/canvas-camera";
 import { TaskStatus } from "../types";
 import type { HitRegion } from "./drawCard";
 import { hitTestScene, type SceneDrawInput } from "./drawScene";

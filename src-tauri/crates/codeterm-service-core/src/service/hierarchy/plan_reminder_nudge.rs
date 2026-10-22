@@ -51,6 +51,16 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
                 &svc.configuration().orchestration,
             )))
             .await;
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            if svc.plan_store.claim_retention_day(now_ms) {
+                let svc_for_retention = svc.clone();
+                drop(crate::async_runtime::spawn_blocking(move || {
+                    svc_for_retention.plan_store.prune_stale_plans(now_ms);
+                }));
+            }
             let svc_for_scan = svc.clone();
             if let Err(e) = crate::async_runtime::spawn_blocking(move || {
                 svc_for_scan.send_due_plan_time_reminders();
@@ -84,6 +94,17 @@ trait TimeReminderPorts {
     fn agent_lost(&self, tab_id: &str, target: &PlanReminderTarget);
 }
 
+fn effective_interval(plans: &[Plan], target: &PlanReminderTarget, machine_default: u64) -> u64 {
+    match target {
+        PlanReminderTarget::Owner { plan_id } => plans
+            .iter()
+            .find(|plan| &plan.id == plan_id)
+            .map_or(machine_default, |plan| {
+                plan.control_loop.interval(machine_default)
+            }),
+        PlanReminderTarget::Worker => machine_default,
+    }
+}
 fn send_due_plan_time_reminders_via(
     plans: &[Plan],
     counter: &TurnCounter,
@@ -98,14 +119,7 @@ fn send_due_plan_time_reminders_via(
     let mut due = 0usize;
     for timed in targets {
         counter.record_time_tick(&timed.tab_id, now);
-        let interval = match &timed.target {
-            PlanReminderTarget::Owner { plan_id } => plans
-                .iter()
-                .find(|p| &p.id == plan_id)
-                .map(|p| p.control_loop.interval(interval_secs))
-                .unwrap_or(interval_secs),
-            PlanReminderTarget::Worker => interval_secs,
-        };
+        let interval = effective_interval(plans, &timed.target, interval_secs);
         let is_due = counter.time_nudge_due(&timed.tab_id, now, interval);
         if !is_due {
             ports.note(&timed.tab_id, &timed.target, TickFact::NotDue);
@@ -799,7 +813,13 @@ pub(crate) fn deliver_tab_todo_recitation(
     tab_id: &str,
     text: &str,
 ) -> Result<bool, String> {
-    svc.deliver_automated_plan_reminder(tab_id, text, None)
+    svc.gateway_deliver(
+        tab_id,
+        crate::service::messenger::MessageEnvelope::codeterm_reminder("checklist"),
+        text,
+        crate::service::message_gateway::DeliveryClass::SystemNotice,
+    )
+    .map(|delivery| delivery.is_written())
 }
 
 fn plan_reminder_state_key(plan_id: &str, kind: NudgeKind, plan: &Plan) -> String {

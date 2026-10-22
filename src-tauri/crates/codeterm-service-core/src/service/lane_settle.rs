@@ -27,6 +27,9 @@ pub enum Ancestry {
 pub trait LaneGit {
     fn ancestry(&mut self, canonical: &str, branch: &str, destination: &str) -> Ancestry;
     fn remove(&mut self, request: &LaneRemovalRequest) -> Result<(), String>;
+    fn remove_cancelled(&mut self, request: &LaneRemovalRequest) -> Result<(), String> {
+        self.remove(request)
+    }
     /// The live tab whose cwd is inside the worktree, if any.
     fn holder(&mut self, worktree: &str) -> Option<String>;
 }
@@ -41,6 +44,7 @@ pub enum SettleTrigger {
 pub struct LaneRecord {
     pub task_id: String,
     pub terminal: bool,
+    pub cancelled: bool,
     pub bound_tabs: Vec<String>,
     pub peer: Option<String>,
     pub worktree: Option<String>,
@@ -65,8 +69,10 @@ impl LaneRecord {
         Self {
             task_id: task.id.clone(),
             terminal: task.status.is_terminal(),
+            cancelled: task.status == crate::plan::TaskStatus::Cancelled,
             bound_tabs: non_empty(task.lane.tab_id.as_deref())
                 .into_iter()
+                .chain(non_empty(task.assigned_tab_id.as_deref()))
                 .chain(
                     task.execution_attempts
                         .iter()
@@ -85,17 +91,25 @@ impl LaneRecord {
         }
     }
 
-    /// Any recorded cleanup status is final; dispatching the task again clears it.
+    /// Decision events settle once; a holder close may revisit retained cleanup debt.
     pub fn needs_settlement(&self) -> bool {
         self.wants(SettleTrigger::Decided)
     }
 
-    /// A lane held only by a live tab is settled once more when that tab closes.
+    /// Closing a recorded holder retries outstanding cleanup debt once.
     pub fn wants(&self, trigger: SettleTrigger) -> bool {
         let open = match self.cleanup_status.as_deref() {
             None => true,
             Some(status) => {
-                trigger == SettleTrigger::HolderClosed && status.eq_ignore_ascii_case(CLEANUP_HELD)
+                trigger == SettleTrigger::HolderClosed
+                    && [
+                        CLEANUP_HELD,
+                        CLEANUP_OFFERED,
+                        CLEANUP_RETAINED,
+                        "cleanup_debt",
+                    ]
+                    .iter()
+                    .any(|value| status.eq_ignore_ascii_case(value))
             }
         };
         self.terminal && open && (self.worktree.is_some() || self.branch.is_some())
@@ -131,29 +145,70 @@ pub fn settle(
         record.branch.as_deref(),
         canonical,
     );
+    if let Some(holder) = record
+        .worktree
+        .as_deref()
+        .and_then(|worktree| git.holder(worktree))
+    {
+        return Settlement::Record {
+            status: CLEANUP_HELD,
+            hints: std::iter::once(format!(
+                "worktree is open in live tab {holder}; settled again when it closes"
+            ))
+            .chain(release.clone())
+            .collect(),
+            worktree_gone: false,
+            branch_gone: false,
+        };
+    }
     let ancestry = match record.branch.as_deref() {
-        Some(branch) => git.ancestry(
-            canonical,
-            branch,
-            record.destination.as_deref().unwrap_or("HEAD"),
-        ),
+        Some(branch) => git.ancestry(canonical, branch, "HEAD"),
         None => Ancestry::BranchGone,
     };
     let retained = |reason: String| Settlement::Record {
         status: CLEANUP_RETAINED,
-        hints: std::iter::once(bounded(reason))
-            .chain(release.clone())
-            .collect(),
+        hints: std::iter::once(reason).chain(release.clone()).collect(),
         worktree_gone: false,
         branch_gone: false,
     };
+    if record.cancelled && ancestry == Ancestry::Unmerged {
+        let Some(worktree) = record.worktree.as_deref().filter(|_| worktree_exists) else {
+            return retained("cancelled lane branch retained for recovery".into());
+        };
+        let request = LaneRemovalRequest {
+            worktree_path: worktree.into(),
+            branch: None,
+            force: false,
+            canonical_cwd: Some(canonical.into()),
+        };
+        return match git.remove_cancelled(&request) {
+            Ok(()) => Settlement::Record {
+                status: CLEANUP_RETAINED,
+                hints: std::iter::once(format!(
+                    "cancelled clean worktree removed; branch {} retained for recovery",
+                    record.branch.as_deref().unwrap_or_default()
+                ))
+                .chain(lane_release_command(
+                    None,
+                    record.branch.as_deref(),
+                    canonical,
+                ))
+                .collect(),
+                worktree_gone: true,
+                branch_gone: false,
+            },
+            Err(reason) => retained(reason),
+        };
+    }
     match ancestry {
         Ancestry::Unmerged => retained(format!(
             "branch {} has commits not merged into {}; lane kept",
             record.branch.as_deref().unwrap_or_default(),
-            record.destination.as_deref().unwrap_or("HEAD"),
+            "HEAD",
         )),
-        Ancestry::Unknown(reason) => retained(format!("ancestry unknown: {reason}; lane kept")),
+        Ancestry::Unknown(reason) => {
+            retained(bounded(format!("ancestry unknown: {reason}; lane kept")))
+        }
         Ancestry::BranchGone if !worktree_exists => Settlement::Record {
             status: CLEANUP_DONE,
             hints: Vec::new(),
@@ -164,18 +219,6 @@ pub fn settle(
             let Some(worktree) = record.worktree.clone() else {
                 return offered(release.clone().into_iter().collect());
             };
-            if let Some(holder) = git.holder(&worktree) {
-                return Settlement::Record {
-                    status: CLEANUP_HELD,
-                    hints: std::iter::once(format!(
-                        "worktree is open in live tab {holder}; settled again when it closes"
-                    ))
-                    .chain(release.clone())
-                    .collect(),
-                    worktree_gone: false,
-                    branch_gone: false,
-                };
-            }
             let request = LaneRemovalRequest {
                 worktree_path: worktree,
                 branch: record.branch.clone(),
@@ -316,6 +359,19 @@ impl LaneGit for ServiceLaneGit<'_> {
         self.service.remove_owned_lane(request).map(|_| ())
     }
 
+    fn remove_cancelled(&mut self, request: &LaneRemovalRequest) -> Result<(), String> {
+        let outcome = crate::service::lane_removal::remove_cancelled_worktree(
+            request,
+            &self.service.live_tab_cwds(),
+        )?;
+        crate::service::lane_removal::finalize_lane_removal(
+            &self.service.plan_store,
+            self.service
+                .ext::<crate::repowatch::RepoWatchRegistryHandle>(),
+            &outcome,
+        )
+    }
+
     fn holder(&mut self, worktree: &str) -> Option<String> {
         let tabs = self.service.live_tab_cwds();
         crate::service::lane_removal::find_lane_holder(worktree, &tabs)
@@ -427,7 +483,30 @@ impl ServiceContext {
             service: self,
             spawned: 0,
         };
-        let settlement = settle(&record, canonical, exists, &mut git);
+        let bound_live = self
+            .mux
+            .read()
+            .all_tabs()
+            .find(|tab| record.bound_to(&tab.id))
+            .map(|tab| tab.id.clone());
+        let settlement = if let Some(tab) = bound_live.filter(|_| record.peer.is_none()) {
+            Settlement::Record {
+                status: CLEANUP_HELD,
+                hints: std::iter::once(format!(
+                    "Worker tab {tab} is live; cleanup runs when it closes"
+                ))
+                .chain(lane_release_command(
+                    record.worktree.as_deref(),
+                    record.branch.as_deref(),
+                    canonical,
+                ))
+                .collect(),
+                worktree_gone: false,
+                branch_gone: false,
+            }
+        } else {
+            settle(&record, canonical, exists, &mut git)
+        };
         log::debug!(
             "[lane-settle] {plan_id}/{task_id}: {settlement:?} ancestry_git_spawns={}",
             git.spawned

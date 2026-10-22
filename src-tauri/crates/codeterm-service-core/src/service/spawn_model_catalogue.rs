@@ -32,7 +32,7 @@ impl InvalidModelError {
     }
 
     pub(crate) fn refresh_command(&self) -> String {
-        format!("codeterm agent models {}", self.provider_id)
+        format!("domios agent models {}", self.provider_id)
     }
 }
 

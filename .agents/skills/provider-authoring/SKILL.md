@@ -242,8 +242,8 @@ binary. Status includes the resolver verdict and path plus `installer` and
 explicitly require no CLI. Missing and unknown observations stay distinct.
 
 Plugin install/update prints that status immediately. Agents can inspect it with
-`codeterm agent cli status <provider>` and run the declared commands with
-`codeterm agent cli install <provider>` or `codeterm agent cli update <provider>`.
+`domios agent cli status <provider>` and run the declared commands with
+`domios agent cli install <provider>` or `domios agent cli update <provider>`.
 Commands run in visible Team utility tabs, with completion reports and status
 refreshes; unsupported OS commands are refused before a tab is created.
 Status and dispatch warnings name missing command runners with setup guidance,
@@ -265,7 +265,7 @@ The contract supports a thin provider; nothing forces codex-grade depth.
   authored lines: `plugin.json`, `package.json`, a small `src/plugin.ts`
   (`buildLaunchCommand`, `buildResumeCommand`, `detectFromTitle`,
   `detectFromOutput`), the built `plugin.js`, and the install loop
-  (`codeterm plugin install --from-dir <dir>`). Everything else degrades sanely:
+  (`domios plugin install --from-dir <dir>`). Everything else degrades sanely:
   detection falls to the universal prompt detector, session discovery to the
   manifest-driven heuristic, status to the generic classifier, chat UI honestly
   absent. This tier works today.
@@ -374,9 +374,10 @@ model and effort commands during an active turn. The host bypasses busy staging
 and idle admission for those commands, without replay or automatic fallback.
 Declare each follow-up picker and `prompt` screen regex with its response key;
 the screen authorizes keys, never success. Fresh own-session output confirms.
-A refused or unconfirmed operation emits `during_turn_switch_incident` with its
-stage and screen, surfaces a failure notification on the tab, and retains the
-previous selection. This pure declaration adds no host API or sandbox access;
+A proven refusal or unrecognized confirmation emits `during_turn_switch_incident`
+with its stage and screen. Already written commands whose own-session stdout is
+buffered stay visibly pending until that output lands; they never replay or fail
+merely because confirmation is delayed. This pure declaration adds no host API or sandbox access;
 cover native/JS parity and recorded busy, picker and confirmation frames.
 
 Other busy model changes require authenticated own-turn completion; Idle alone
@@ -490,7 +491,7 @@ Provider-relevant subset (full contract in [PLUGINS.md](../PLUGINS.md)):
 | `network` | object | `host.fetch` host allowlist: an `allow` array of hosts. |
 | `subprocess` | object | `host.exec` binary allowlist: an `allow` array of binaries. |
 | `secrets` | bool | May use the per-plugin secret bucket. |
-| `agent_commands` (alias `agentCommands`) | bool | Spawned agents may route `codeterm plugin <id> <verb>` to this plugin's `onAgentCommand`. Declare the verbs as top-level `agentVerbs` (usage strings such as `send <chat-id> <text>`) and optional `agentKeywords`; Domios publishes them as the `plugin-<id>` mem skill and in `codeterm capabilities`. Without `agentVerbs`, the backticked spans after `Agent verbs:` in `configHelp` are used. Optional top-level `agentGuide` names a bundle-relative markdown file (absolute or escaping paths are refused; past 16 KiB it is cut with a truncation marker) that is appended to that mem skill and returned by `codeterm plugin get <id>`. Optional top-level `agentPromptLine` (one line, at most 240 characters) is added to every agent's launch prompt under `Built-in plugins:`, but only for enabled, hash-verified core plugins; a core plugin's `agentGuide` is also served by `codeterm docs <ID>`. A successful result may include `catalogueChanged: true` when the verb changed this provider's model catalogue. |
+| `agent_commands` (alias `agentCommands`) | bool | Spawned agents may route `domios plugin <id> <verb>` to this plugin's `onAgentCommand`. Declare the verbs as top-level `agentVerbs` (usage strings such as `send <chat-id> <text>`) and optional `agentKeywords`; Domios publishes them as the `plugin-<id>` mem skill and in `domios capabilities`. Without `agentVerbs`, the backticked spans after `Agent verbs:` in `configHelp` are used. Optional top-level `agentGuide` names a bundle-relative markdown file (absolute or escaping paths are refused; past 16 KiB it is cut with a truncation marker) that is appended to that mem skill and returned by `domios plugin get <id>`. Optional top-level `agentPromptLine` (one line, at most 240 characters) is added to every agent's launch prompt under `Built-in plugins:`, but only for enabled, hash-verified core plugins; a core plugin's `agentGuide` is also served by `domios docs <ID>`. A successful result may include `catalogueChanged: true` when the verb changed this provider's model catalogue. |
 | `manage_workspaces` (alias `manageWorkspaces`) | bool | May create/manage workspaces via `host.workspace*`. |
 | `spawn_agents` (alias `spawnAgents`) | bool | May spawn/drive agents via `host.agent*`. |
 | `analytics` | bool | May read machine-wide KPI aggregates via `host.analytics`. |
@@ -642,7 +643,7 @@ Status parsing, tab-state classification, and usage parsing are tested against
 
 1. Run the real CLI in a Domios tab and drive it to the state you need (a
    permission prompt, the `/usage` screen, a model picker, an auth wall).
-2. Capture the visible screen text — `codeterm tab get-text --tab <ID>` — and
+2. Capture the visible screen text — `domios tab get-text --tab <ID>` — and
    save it verbatim under `tests/fixtures/` (subdirectories per concern:
    `tab-state/`, usage snapshots, pickers). Redact secrets; keep layout intact,
    because your parser sees exactly these bytes in production.
@@ -680,7 +681,7 @@ harness); the promotion-time boundary is the cheap, honest seam.
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
+Moved out of the embedded `domios docs` pages because they describe Domios's own source:
 
 - [prompt-detection.md](prompt-detection.md) — provider prompt detection architecture
 - [references/session-storage.md](references/session-storage.md) — provider session storage and search scanning
@@ -710,3 +711,15 @@ four typed outcomes. Confirmation creates a UUID once; retries preserve it.
 An optional `creditId` selects an actual reported available credit; omission lets
 the provider choose. Adapters must preserve it through consume and retries.
 Never invoke a live redemption during testing: credits are irreversible.
+
+Live command transcript declarations may add `additionalRecordSources` entries
+with `recordType` and `contentPath` when one harness emits different record shapes
+while busy and idle. All sources share the exact stdout wrapper and own-session
+append boundary. They parse only supplied JSON and add no host filesystem,
+network or subprocess access. Native/JS parity must cover every declared shape;
+additional system records never become foreign user turns.
+
+## Claude repository verification
+
+- [Canonical oracles](claude-canonical-oracles.md) owns repository build and live QA procedures.
+- [Verification evidence](claude-verification-evidence.md) retains the local hook refresh and outstanding producer evidence moved out of the bundled guide.

@@ -68,6 +68,30 @@ async function click(label: string, parent?: ParentNode) {
 }
 function panel(plan = FIXTURE_PLAN) { return <ConnectedPlanSettings plan={plan} api={API} now={NOW} />; }
 
+it("requests a round through the owner-confirmed endpoint and disables it while suspended", async () => {
+  await render(panel());
+  await click("Run now");
+  const run = requests.find(({ path }) => path.endsWith("/control-loop/run"));
+  expect(run?.init?.method).toBe("POST");
+  expect(new Headers(run?.init?.headers).get("X-CodeTerm-Plan-Confirmation")).toBe(FIXTURE_PLAN.id);
+  await render(<ConnectedPlanSettings plan={FIXTURE_PLAN} initial={{ ...BASE, suspended_reason: "waiting_on_human" }} api={API} now={NOW} />);
+  expect(button("Run now").disabled).toBe(true);
+});
+
+it("shows the authoritative Curator outcome in Jobs history", async () => {
+  await render(<CronRunHistory allowed runLabel="Curator round" runs={[{ run_id: "round-one", started_at: NOW, finished_at: NOW + 1000, status: "Failed", summary: "failed", tab_id: "closed-tab", session_id: "retained-session" }]} onOpen={() => undefined} />);
+  expect(host.textContent).toContain("Curator round · failed");
+  expect(host.textContent).not.toContain("Success");
+});
+it("shows an unavailable Curator refusal beside Run now", async () => {
+  await render(panel());
+  vi.mocked(daemonFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "curator_unavailable", message: "No Curator adapter is connected" }), { status: 400 }));
+  await click("Run now");
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("curator_unavailable");
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("No Curator adapter is connected");
+  expect(button("Run now").disabled).toBe(false);
+});
+
 it("reads persisted Curator settings, switches mode, and persists interval presets", async () => {
   await render(panel());
   expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Curator");

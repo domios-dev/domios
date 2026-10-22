@@ -655,7 +655,7 @@ pub struct PermissionsConfig {
     /// Whether the plugin may use its per-plugin secret bucket (`host.secret*`).
     #[serde(default)]
     pub secrets: bool,
-    /// Whether a spawned agent may route `codeterm plugin <id> <verb>` to this plugin's `onAgentCommand` (the inverse seam).
+    /// Whether a spawned agent may route `domios plugin <id> <verb>` to this plugin's `onAgentCommand` (the inverse seam).
     #[serde(default, rename = "agent_commands", alias = "agentCommands")]
     pub agent_commands: bool,
     /// Whether `host.surface.call` may drive the calling agent's own stream surface of this plugin.

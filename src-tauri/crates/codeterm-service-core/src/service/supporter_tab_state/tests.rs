@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::service::messenger::AgentInput;
 use crate::service::pty_io::SendBatchItem;
 use codeterm_decision::{
     DecisionError, DecisionPrimitives, DecisionRequest, DecisionResponse, TokenMode,
@@ -238,7 +239,7 @@ impl StubTransport<'_> {
 }
 
 impl TabTransport for StubTransport<'_> {
-    fn send(&self, _text: &str, _enter: bool) -> Result<(), String> {
+    fn send(&self, _input: &AgentInput, _enter: bool) -> Result<(), String> {
         self.write()
     }
 

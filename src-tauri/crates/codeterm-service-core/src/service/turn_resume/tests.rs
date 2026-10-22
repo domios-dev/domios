@@ -584,3 +584,40 @@ fn live_resume_keeps_owed_continue_past_deadline_then_claims_once() {
     ));
     assert_eq!(advance_consider(&restored, &tab_id, &wave, false), None);
 }
+
+#[test]
+fn continuation_uncertainty_becomes_a_typed_incident_without_replay_authority() {
+    let incident = delivery_incident(
+        "tab",
+        "session",
+        &DeliveryFailure::SendRefused("submit_unconfirmed: opaque".into()),
+    );
+    assert_eq!(incident["code"], "submit_unconfirmed");
+    assert_eq!(incident["bytes_written"], true);
+    assert_eq!(incident["tab_id"], "tab");
+    assert_eq!(incident["session_id"], "session");
+    let (mut mux, tab_id) = agent_tab(TimelineState::Working);
+    record_turn_edge(mux.get_tab_mut(&tab_id).unwrap(), FIRST);
+    let mux = shared(mux);
+    assert!(matches!(step(&mux, &tab_id, SECOND), Step::Claimed(_)));
+    withdraw_sent_claim(
+        &mut mux.write().get_tab_mut(&tab_id).unwrap().turn_resume,
+        SECOND,
+        "submit_unconfirmed".into(),
+    );
+    assert_eq!(step(&mux, &tab_id, SECOND), Step::Settled);
+}
+
+#[test]
+fn continuation_prewrite_refusal_reports_nothing_written() {
+    for failure in [
+        DeliveryFailure::ClaimNotPersisted,
+        DeliveryFailure::SessionChanged,
+        DeliveryFailure::SendRefused("pty unavailable".into()),
+    ] {
+        assert_eq!(
+            delivery_incident("tab", "session", &failure)["bytes_written"],
+            false
+        );
+    }
+}

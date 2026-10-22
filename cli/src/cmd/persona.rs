@@ -1,4 +1,4 @@
-//! `codeterm persona` — inspect the shared role preset resolver. The daemon
+//! `domios persona` — inspect the shared role preset resolver. The daemon
 //! owns the text; this surface only asks for it and prints it verbatim.
 
 use serde_json::{json, Value};

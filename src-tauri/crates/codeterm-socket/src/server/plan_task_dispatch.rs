@@ -1109,7 +1109,7 @@ where
         provenance: initial_provenance.clone(),
         provisioned_lane,
         lane_protection,
-        spawn_command: format!("codeterm plan task dispatch {plan_id} {task_id}"),
+        spawn_command: format!("domios plan task dispatch {plan_id} {task_id}"),
     };
     std::thread::spawn(move || self::startup::run_startup(startup, ready_rx));
 

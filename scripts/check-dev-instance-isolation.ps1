@@ -31,7 +31,7 @@ function Assert-DefaultHealth($Health, [string] $ExpectedSha) {
   }
   if ($Health.instance.name -ne "" -or [string]$Health.instance.api_port -ne "7686" -or
       [string]$Health.instance.vite_port -ne "1420" -or [string]$Health.instance.cdp_port -ne "9223" -or
-      $Health.instance.identifier -ne "com.codeterm.dev") {
+      $Health.instance.identifier -ne "com.domios.dev") {
     throw "default dev instance identity is stale or mismatched"
   }
 }

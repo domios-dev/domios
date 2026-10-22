@@ -27,7 +27,7 @@ fn curator_synthesis_history_keeps_newest_lines_within_digest_cap() {
                 number,
                 ended_at: number * 1000,
                 digest_hash: "opaque".into(),
-                outcome: "done".into(),
+                outcome: codeterm_types::plan::CuratorOutcome::Done,
                 move_line: format!("move-{number} [task_{number}]"),
                 retro: vec![format!("+ retro-{number} [task_{number}]")],
                 learn: vec![format!(
@@ -50,7 +50,7 @@ fn curator_synthesis_history_keeps_newest_lines_within_digest_cap() {
     super::super::append_round(
         &mut plan,
         CuratorRound {
-            outcome: "quiet".into(),
+            outcome: codeterm_types::plan::CuratorOutcome::Quiet,
             ..Default::default()
         },
     );

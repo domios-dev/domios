@@ -150,6 +150,20 @@ pub fn check(file: &str, source: &str, assignments: &[String]) -> Check {
 }
 
 impl Document {
+    pub fn template_errors(&self) -> Vec<(String, String)> {
+        let value = match serde_json::to_value(self) {
+            Ok(value) => value,
+            Err(error) => return vec![(String::new(), error.to_string())],
+        };
+        let mut errors = Vec::new();
+        validate::document(&value, &mut |field, message, _, warning| {
+            if !warning {
+                errors.push((field.into(), message.into()));
+            }
+        });
+        errors
+    }
+
     pub fn bind(&self, assignments: &[String]) -> Result<Value, Vec<(String, String)>> {
         let mut errors = Vec::new();
         let mut values = self

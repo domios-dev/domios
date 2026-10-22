@@ -12,7 +12,7 @@ Run this AFTER a plan's structure is cut (GOAL + Spec + Plan sections + Tasks
 with briefs) and BEFORE the Orchestrator dispatches any lane. It is the stage
 between `structure_ready` and `approved`.
 
-`codeterm plan doctor <plan> --kind quality` checks plan *structure* — coverage,
+`domios plan doctor <plan> --kind quality` checks plan *structure* — coverage,
 vague briefs, missing acceptance/test-plan. It CANNOT check plan-vs-codebase
 *truth*: whether the tables/services/fields a task assumes actually exist, or
 already exist. That gap is what this skill closes. In real runs it has caught
@@ -34,8 +34,8 @@ Do NOT use mid-execution (fix inline then) or while structure is still being cut
 ### 1. Read the whole plan, list every structural claim
 
 ```bash
-codeterm plan get <plan> --json        # or --sections for cheap structure
-codeterm task show <task_id>           # per task, cheap
+domios plan get <plan> --json        # or --sections for cheap structure
+domios task show <task_id>           # per task, cheap
 ```
 
 Note every concrete claim the tasks make: file paths created/modified, model
@@ -86,13 +86,13 @@ on the plan, not a substitute for it.
 ## Exit gate
 
 Execution starts only when every CRITICAL is RESOLVED. HIGH/MEDIUM/LOW may stay
-pending with awareness, or become new tasks (`codeterm plan task add`).
+pending with awareness, or become new tasks (`domios plan task add`).
 
 ## Bundle as a plan skill
 
 To make this run on a specific plan for every executor/QA:
 
 ```bash
-codeterm plan skill new gap-analysis    # scaffolds the folder for this plan
-codeterm plan skill show gap-analysis
+domios plan skill new gap-analysis    # scaffolds the folder for this plan
+domios plan skill show gap-analysis
 ```

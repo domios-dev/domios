@@ -13,6 +13,8 @@ export interface CuratorRound {
 }
 
 export interface PlanControlLoop {
+  manual_run_requested?: boolean;
+  running?: { number: number } | null;
   mode: ControlLoopMode;
   heartbeat_interval_secs: number | null;
   next_at: number | null;

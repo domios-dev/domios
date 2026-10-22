@@ -1047,7 +1047,9 @@ impl super::ServiceContext {
         super::pty_io::submit_transaction::submit_text_with_key_claimed_and_follow_up_revalidated(
             self,
             pty_id,
-            text,
+            &crate::service::messenger::AgentInput::Human(
+                crate::service::messenger::HumanInput::composer(text),
+            ),
             record.typed_follow_up.as_deref(),
             true,
             b"\r",

@@ -26,7 +26,7 @@ export function isByteResumeCursor(token: string | null): token is string {
 export async function resumeChatCursor(
   cursor: string,
   read: (cursor: string) => Promise<ChatResumeResult>,
-  adopt: (delta: ChatResumeDelta) => void,
+  adopt: (delta: ChatResumeDelta) => boolean | void,
   isCurrent: () => boolean,
 ): Promise<"caught_up" | "attach" | "superseded"> {
   let next = cursor;
@@ -38,7 +38,9 @@ export async function resumeChatCursor(
     if (result.kind !== "resumed") return "attach";
     pages++;
     bytes += result.deltas.reduce((total, delta) => total + Math.max(0, delta.offset - delta.start_offset), 0);
-    for (const delta of result.deltas) adopt(delta);
+    for (const delta of result.deltas) {
+      if (adopt(delta) === false) return "attach";
+    }
     if (result.caught_up) return "caught_up";
     if (pages >= 8 || bytes >= 8 * 1024 * 1024) return "attach";
     const continuation = result.deltas[result.deltas.length - 1]?.cursor;

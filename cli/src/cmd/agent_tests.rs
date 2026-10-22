@@ -328,13 +328,13 @@ fn refusal_hint_stages_the_report_body_in_the_pad() {
 
     let message = refusal.message();
 
-    assert!(message.contains("codeterm pad path"));
+    assert!(message.contains("domios pad path"));
     assert!(message.contains("--from-pad report.md"));
     // A heredoc only terminates on a column-0 EOF, so the copied block must stay unindented.
     assert_eq!(message.lines().filter(|line| *line == "EOF").count(), 2);
     let indented_command = message
         .lines()
-        .find(|line| line.starts_with(' ') && line.trim_start().starts_with("codeterm agent"));
+        .find(|line| line.starts_with(' ') && line.trim_start().starts_with("domios agent"));
     assert_eq!(indented_command, None);
 }
 

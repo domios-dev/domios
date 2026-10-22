@@ -2,6 +2,7 @@ import { configureOrchestrationTransport } from "../../lib/transport/orchestrati
 import { orchestrationTestClient } from "../../lib/transport/orchestration.testdata";
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Terminal/ComposerContextHeader.test.tsx
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -22,12 +23,28 @@ function bubble(host: HTMLElement, title: string): HTMLButtonElement | null {
     .find((button) => button.querySelector(".ct-ctx-bubble__title")?.textContent === title) ?? null;
 }
 
+function assertScrollablePanel(label: string) {
+  const panel = requireControl<HTMLElement>(`[role="group"][aria-label="${label}"]`);
+  const style = window.getComputedStyle(panel);
+  assert.equal(style.maxHeight, "200px");
+  assert.equal(style.overflowY, "auto");
+  assert.equal(style.overscrollBehaviorY, "contain");
+  assert.equal(style.touchAction, "pan-y");
+  assert.equal(panel.tabIndex, 0);
+  panel.focus();
+  assert.equal(document.activeElement, panel, "keyboard users can focus the scroll region");
+  assert.equal(panel.contains(document.querySelector('[aria-label="Linked to this tab"]')), false, "the header stays outside the scrolling body");
+}
+
 async function main() {
   const win = new Window({ url: "http://localhost/" });
   for (const key of ["window", "document", "navigator", "localStorage", "HTMLElement", "HTMLButtonElement", "SVGElement", "Element", "Node", "Event", "MouseEvent", "KeyboardEvent", "CustomEvent"]) {
     Object.defineProperty(globalThis, key, { configurable: true, value: (win as unknown as Record<string, unknown>)[key] });
   }
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const stylesheet = document.createElement("style");
+  stylesheet.textContent = readFileSync(new URL("./composerContext.css", import.meta.url), "utf8");
+  document.head.append(stylesheet);
 
   const [{ __setInvokeForTest, __setListenForTest }, { ComposerContextHeader }, { OPEN_JOB_EVENT }, { MuxStateStoreContext }, { createMuxStateStore }] = await Promise.all([
     import("../../lib/bridge"),
@@ -119,7 +136,9 @@ async function main() {
   assert.equal(host.querySelector('[data-kind="delayed"]')?.getAttribute("aria-label"), "3 delayed messages, plan heartbeat", "the heartbeat counts as a delayed message");
   assert.equal(host.querySelectorAll('button[title="Heartbeat"]').length, 0);
   const delayedChip = requireControl<HTMLButtonElement>('button[title="Delayed messages"]');
+  assert.ok(delayedChip.querySelector("svg"), "delayed chip retains its icon");
   await act(async () => { delayedChip.click(); });
+  assertScrollablePanel("Delayed messages");
   const heartbeatRow = requireControl<HTMLButtonElement>('[aria-label="Plan heartbeat: Plan reminder"]');
   assert.match(heartbeatRow.textContent ?? "", /Plan heartbeat.*every 1m.*next/);
   assert.equal(heartbeatRow.parentElement?.querySelectorAll("button").length, 1, "heartbeat cannot be cancelled or disabled");
@@ -129,6 +148,7 @@ async function main() {
   await act(async () => { document.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click(); });
   await act(async () => { render("tab-a", [system, { ...delayed, id: "due", scheduledAtMs: 0 }, { ...delayed, id: "sending", state: "sending" }]); });
   assert.equal(delayedChip.getAttribute("aria-label"), "1 delayed messages, plan heartbeat");
+  assert.ok(delayedChip.querySelector("svg"), "heartbeat-only delayed chip retains its icon");
   assert.equal(requireControl('[aria-label="Plan heartbeat: Plan reminder"]'), heartbeatRow, "queue transitions preserve the heartbeat row");
   assert.equal(document.querySelectorAll('[aria-label="Cancel delayed message"]').length, 0);
   await act(async () => { render("tab-a", [stashed, delayed, system]); });
@@ -140,11 +160,13 @@ async function main() {
   assert.match(host.querySelector(".ct-ctx__title")?.textContent ?? "", /Blueprint:Echo pipeline/, "with no plan, the owned blueprint heads the capsule");
 
   await act(async () => { blueprints.click(); });
+  assertScrollablePanel("Blueprints");
   assert.equal(blueprints.getAttribute("aria-pressed"), "true", "the pressed kind reports its state");
   assert.equal(host.querySelector(".ct-ctx__reveal")?.hasAttribute("data-open"), true, "pressing a kind unfolds its strip");
   await act(async () => { bubble(host, "Echo pipeline")!.click(); });
 
   await act(async () => { crons.click(); });
+  assertScrollablePanel("Crons");
   assert.equal(host.querySelector(".ct-ctx__strip")?.getAttribute("data-kind"), "crons", "switching kinds swaps the strip");
   assert.equal(host.querySelectorAll(".ct-ctx__strip .ct-ctx-bubble").length, 5, "every bound cron gets a bubble");
   await act(async () => { bubble(host, "rust-rss-new-videos")!.click(); });
@@ -206,6 +228,11 @@ async function main() {
         const chip = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
         assert.ok(chip, label);
         assert.equal(chip.closest('[role="group"]'), group);
+        assert.ok(chip.querySelector("svg"), `${label} retains its icon at ${width}px`);
+        if (label !== "Plugin removed") {
+          assert.equal(window.getComputedStyle(chip).flexShrink, "0");
+          assert.equal(window.getComputedStyle(chip.querySelector("svg")!).flexShrink, "0");
+        }
       }
       const fold = host.querySelector<HTMLButtonElement>('button[aria-controls]');
       if (width === 390) {

@@ -8,6 +8,7 @@ use std::{
 
 pub struct WorkerCli {
     _file: File,
+    _alias: File,
     _lease: tempfile::TempDir,
     pub path: PathBuf,
 }
@@ -59,8 +60,15 @@ fn verify_worker_cli(path: &Path, expected: &str) -> io::Result<WorkerCli> {
     }
     let mut pinned = options.open(&destination)?;
     verify_digest(&mut pinned, expected)?;
+    let alias = lease
+        .path()
+        .join(format!("domios{}", std::env::consts::EXE_SUFFIX));
+    std::fs::copy(&destination, &alias)?;
+    let mut pinned_alias = options.open(&alias)?;
+    verify_digest(&mut pinned_alias, expected)?;
     Ok(WorkerCli {
         _file: pinned,
+        _alias: pinned_alias,
         _lease: lease,
         path: destination.canonicalize()?,
     })

@@ -98,7 +98,7 @@ pub(super) fn claim_explicit_report<'a>(
 fn fallback_report_message(source: &str) -> String {
     format!(
         "STATUS: partial\n\
-         CHANGES: Worker turn ended without an explicit codeterm agent report\n\
+         CHANGES: Worker turn ended without an explicit domios agent report\n\
          TESTS RUN: not reported\n\
          GATES REQUESTED: none\n\
          FOLLOWUP: automatic {source} handoff; task remains in progress"
@@ -193,7 +193,7 @@ mod tests {
         assert_eq!(
             fallback_report_message(WorkerTurnSignal::ProviderStop.source()),
             "STATUS: partial\n\
-             CHANGES: Worker turn ended without an explicit codeterm agent report\n\
+             CHANGES: Worker turn ended without an explicit domios agent report\n\
              TESTS RUN: not reported\n\
              GATES REQUESTED: none\n\
              FOLLOWUP: automatic provider-stop handoff; task remains in progress"

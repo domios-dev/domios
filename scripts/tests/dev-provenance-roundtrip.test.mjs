@@ -41,7 +41,7 @@ function fixture() {
     fs.copyFileSync(path.join(root, 'scripts', name), path.join(checkout, 'scripts', name));
   }
   const exe = process.platform === 'win32' ? '.exe' : '';
-  for (const file of [`${clientDebug}/codeterm${exe}`, `data/bin/codeterm${exe}`,
+  for (const file of [`${clientDebug}/domios-dev-app${exe}`, `data/bin/codeterm${exe}`,
     'dist/index.html']) {
     fs.writeFileSync(path.join(checkout, file), `opaque artifact: ${file}`, { mode: 0o755 });
   }
@@ -81,7 +81,7 @@ test('two named instances persist and validate their own checkout artifact prove
     const exe = process.platform === 'win32' ? '.exe' : '';
     const records = [];
     for (const instance of ['meshqa', 'welcomeqa']) {
-      const app = path.join(checkout, 'src-tauri/target/dev-instances', instance, process.platform === 'win32' ? `debug/codeterm${exe}` : `debug/.domios-dev-runtime/bin/codeterm${exe}`);
+      const app = path.join(checkout, 'src-tauri/target/dev-instances', instance, process.platform === 'win32' ? `debug/domios-dev-app${exe}` : `debug/.domios-dev-runtime/bin/domios-dev-app${exe}`);
       const cli = path.join(checkout, 'data', instance, `bin/codeterm${exe}`);
       for (const file of [app, cli]) {
         fs.mkdirSync(path.dirname(file), { recursive: true });

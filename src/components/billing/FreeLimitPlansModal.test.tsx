@@ -1,16 +1,57 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const fetches = vi.hoisted(() => ({ localFetch: vi.fn() }));
+const fetches = vi.hoisted(() => ({ localFetch: vi.fn(), localJson: vi.fn(async () => ({ consent: "off" })) }));
+const account = vi.hoisted(() => ({
+  signedIn: true,
+  plan: "free",
+  login: null as null | ((outcome: "ok" | "fail") => void),
+  logins: 0,
+}));
 vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...fetches }));
 
+import type { ToastInput } from "../../lib/notices";
+import { connectNoticeToasts } from "../../lib/notices";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
+import { checkoutTheme } from "./checkoutTheme";
 import { freeLimitGate, upgradePlan } from "./freeLimitGate";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | null = null;
+let disconnectToasts: () => void = () => {};
+const toasts: ToastInput[] = [];
+
+const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+const identity = { uid: "user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+const status = () => ({ identity: account.signedIn ? identity : null, pending: false, last_sign_in_failure: null });
+
+async function fakeDaemon(url: string) {
+  const path = url.split("?")[0];
+  if (path.endsWith("/status")) return json(status());
+  if (path.includes("/plan")) {
+    const plan = account.signedIn ? account.plan : "free";
+    return json({ entitlements: { plan, status: "active", current_period_end: 0, cancel_at_period_end: false },
+      access: { authority: plan === "free" ? "free" : "billing", full_access: false }, stale: false });
+  }
+  if (path.endsWith("/login")) {
+    account.logins++;
+    const outcome = await new Promise<"ok" | "fail">((resolve) => { account.login = resolve; });
+    if (outcome === "fail") return new Response("opaque", { status: 503 });
+    account.signedIn = true;
+    return json(status());
+  }
+  return json({});
+}
+
+beforeEach(() => {
+  fetches.localJson.mockClear().mockResolvedValue({ consent: "off" });
+  Object.assign(account, { signedIn: true, plan: "free", login: null, logins: 0 });
+  fetches.localFetch.mockImplementation(fakeDaemon);
+  toasts.length = 0;
+  disconnectToasts = connectNoticeToasts((toast) => { toasts.push(toast); });
+});
 
 async function render(upgrade: (planKey: string) => Promise<void>) {
   const host = document.createElement("div");
@@ -21,13 +62,24 @@ async function render(upgrade: (planKey: string) => Promise<void>) {
 
 const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
 const button = (name: string) => [...document.querySelectorAll("button")].find((candidate) => candidate.textContent === name)!;
-const click = (name: string) => act(async () => { button(name).click(); });
+const settle = () => act(async () => { for (let turn = 0; turn < 10; turn++) await Promise.resolve(); });
+const click = async (name: string) => {
+  await act(async () => { button(name).click(); });
+  await settle();
+};
+const openModal = async (key: Parameters<typeof freeLimitGate.open>[0]) => {
+  await act(async () => freeLimitGate.open(key));
+  await settle();
+};
+const proCard = () => dialog()!.querySelector<HTMLElement>("section[aria-label='Pro plan']")!;
 
 afterEach(async () => {
   await act(async () => root?.unmount());
   root = null;
   act(() => freeLimitGate.close());
   freeLimitGate.setLimits(null);
+  disconnectToasts();
+  fetches.localFetch.mockReset();
   document.body.replaceChildren();
 });
 
@@ -42,10 +94,21 @@ describe("plans modal", () => {
     expect(dialog()?.querySelector("section[aria-label='Enterprise plan']")).not.toBeNull();
   });
 
+  it("records a consented plan view only when the limit modal opens", async () => {
+    fetches.localJson.mockResolvedValue({ consent: "on" });
+    await render(async () => {});
+    expect(fetches.localJson).not.toHaveBeenCalled();
+    await openModal("workspaces");
+    expect(fetches.localJson.mock.calls).toEqual([
+      ["GET", "/api/analytics/status"],
+      ["POST", "/api/analytics/event", { event_type: "plan_viewed", event_properties: {} }],
+    ]);
+  });
+
   it("Upgrade checks out pro_monthly and closes", async () => {
     const upgrade = vi.fn(async () => {});
     await render(upgrade);
-    await act(async () => freeLimitGate.open("agent.tabs"));
+    await openModal("agent.tabs");
     await click("Upgrade");
     expect(upgrade).toHaveBeenCalledWith("pro_monthly");
     expect(dialog()).toBeNull();
@@ -54,16 +117,86 @@ describe("plans modal", () => {
   it("a chosen card checks out its own key", async () => {
     const upgrade = vi.fn(async () => {});
     await render(upgrade);
-    await act(async () => freeLimitGate.open("teams"));
+    await openModal("teams");
     await click("Choose Sponsor");
     expect(upgrade).toHaveBeenCalledWith("sponsor_yearly");
   });
 
-  it("a checkout failure stays open and says why", async () => {
-    await render(async () => { throw new Error("opaque-billing-failure"); });
-    await act(async () => freeLimitGate.open("teams"));
+  it("a checkout failure stays open with the cards back, and its toast Retry checks out again", async () => {
+    const upgrade = vi.fn(async () => { throw new Error("opaque-billing-failure"); });
+    await render(upgrade);
+    await openModal("teams");
     await click("Upgrade");
-    expect(dialog()?.querySelector("[role=alert]")?.textContent).toContain("opaque-billing-failure");
+    expect(dialog()).not.toBeNull();
+    expect(dialog()!.querySelector("[role=alert]")).toBeNull();
+    expect(button("Choose Pro").disabled).toBe(false);
+    expect(toasts).toHaveLength(1);
+    await act(async () => { await toasts[0].local_actions!.find((action) => action.label === "Retry")!.run(); });
+    await settle();
+    expect(upgrade).toHaveBeenCalledTimes(2);
+  });
+
+  it("signed out: Upgrade signs in on the Pro card, then checks out with no second click", async () => {
+    account.signedIn = false;
+    const upgrade = vi.fn(async () => {});
+    await render(upgrade);
+    await openModal("workspaces");
+    expect(button("Upgrade").disabled).toBe(false);
+    expect(button("Choose Pro").disabled).toBe(false);
+    await click("Upgrade");
+    expect(account.logins).toBe(1);
+    expect(proCard().querySelector("[role=status]")).not.toBeNull();
+    expect(button("Upgrade").disabled).toBe(true);
+    expect(upgrade).not.toHaveBeenCalled();
+    await act(async () => account.login!("ok"));
+    await settle();
+    expect(upgrade).toHaveBeenCalledExactlyOnceWith("pro_monthly");
+    expect(dialog()).toBeNull();
+  });
+
+  it("signed out into an account that already has Pro: confirmation, no checkout, Done closes", async () => {
+    account.signedIn = false;
+    account.plan = "pro";
+    const upgrade = vi.fn(async () => {});
+    await render(upgrade);
+    await openModal("workspaces");
+    await click("Upgrade");
+    await act(async () => account.login!("ok"));
+    await settle();
+    expect(upgrade).not.toHaveBeenCalled();
+    expect(dialog()?.querySelector("section[aria-label$=' plan']")).toBeNull();
+    expect(document.activeElement).toBe(button("Done"));
+    await click("Done");
+    expect(dialog()).toBeNull();
+  });
+
+  it("signing in: Cancel returns the cards to idle; Not now cancels and closes", async () => {
+    account.signedIn = false;
+    const upgrade = vi.fn(async () => {});
+    await render(upgrade);
+    await openModal("workspaces");
+    await click("Choose Pro");
+    await click("Cancel");
+    expect(proCard().querySelector("[role=status]")).toBeNull();
+    expect(button("Upgrade").disabled).toBe(false);
+    await click("Upgrade");
+    await click("Not now");
+    expect(dialog()).toBeNull();
+    await act(async () => account.login!("ok"));
+    await settle();
+    expect(upgrade).not.toHaveBeenCalled();
+  });
+
+  it("a failed sign-in is a toast with Retry and the modal stays open", async () => {
+    account.signedIn = false;
+    await render(vi.fn(async () => {}));
+    await openModal("workspaces");
+    await click("Upgrade");
+    await act(async () => account.login!("fail"));
+    await settle();
+    expect(dialog()).not.toBeNull();
+    expect(button("Upgrade").disabled).toBe(false);
+    expect(toasts.map((toast) => toast.local_actions?.some((action) => action.label === "Retry"))).toEqual([true]);
   });
 
   it("Not now and Escape close it and return focus to where the user was", async () => {
@@ -81,14 +214,23 @@ describe("plans modal", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("upgradePlan posts the chosen key and surfaces a refusal", async () => {
+  it("upgradePlan posts the chosen key with the app's resolved theme and surfaces a refusal", async () => {
+    document.documentElement.dataset.ctTheme = "light";
     fetches.localFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await upgradePlan();
     const [path, init] = fetches.localFetch.mock.calls[0];
     expect(path).toBe("/api/account/upgrade");
-    expect(JSON.parse(init.body)).toEqual({ plan: "pro_monthly" });
+    expect(JSON.parse(init.body)).toEqual({ plan: "pro_monthly", theme: "light" });
+    document.documentElement.dataset.ctTheme = "dark";
     fetches.localFetch.mockResolvedValueOnce(new Response("refused", { status: 400 }));
     await expect(upgradePlan("sponsor_yearly")).rejects.toThrow("refused");
-    expect(JSON.parse(fetches.localFetch.mock.calls[1][1].body)).toEqual({ plan: "sponsor_yearly" });
+    expect(JSON.parse(fetches.localFetch.mock.calls[1][1].body)).toEqual({ plan: "sponsor_yearly", theme: "dark" });
+  });
+
+  it("checkout theme is light or dark, never system", () => {
+    expect(checkoutTheme({ dataset: { ctTheme: "light" } })).toBe("light");
+    expect(checkoutTheme({ dataset: { ctTheme: "dark" } })).toBe("dark");
+    expect(checkoutTheme({ dataset: {} })).toBeNull();
+    expect(checkoutTheme({ dataset: { ctTheme: "system" } })).toBeNull();
   });
 });

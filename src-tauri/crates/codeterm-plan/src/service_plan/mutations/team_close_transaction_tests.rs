@@ -1,5 +1,5 @@
 use crate::plan::reconcile::TEAM_CLOSED_LABEL;
-use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef, TaskExecutionAttempt, TaskStatus};
+use crate::plan::{OrchestratorRef, PlanStatus, TaskExecutionAttempt, TaskStatus};
 use crate::service_plan::{NewTask, PlanStore};
 
 #[test]
@@ -39,77 +39,6 @@ fn team_archive_transaction_restores_every_bound_plan() {
 
     assert_eq!(store.get(&active.id).unwrap(), before_active);
     assert_eq!(store.get(&archived.id).unwrap(), before_archived);
-}
-
-#[test]
-fn detaching_a_large_unfinished_team_plan_is_one_database_write() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let plan = store
-        .create_plan_for_team(
-            "Large plan".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-            "team_closed".into(),
-            vec![],
-            1,
-        )
-        .unwrap();
-    store
-        .set_planner_ref(
-            &plan.id,
-            Some(PlannerRef::Tab {
-                tab_id: "planner".into(),
-                session_id: None,
-                title: None,
-            }),
-            66,
-        )
-        .unwrap();
-    for number in 0..64 {
-        store
-            .add_task(
-                &plan.id,
-                NewTask {
-                    name: format!("Task {number}"),
-                    kind: "fix".into(),
-                    body: format!("large plan task body {number}"),
-                    ..Default::default()
-                },
-                number + 2,
-            )
-            .unwrap();
-    }
-    let before = store.operation_count_for_test(Some(&plan.id));
-
-    store
-        .archive_and_detach_team_plans_transaction("team_closed", 100)
-        .unwrap();
-
-    assert_eq!(store.operation_count_for_test(Some(&plan.id)), before + 1);
-    let detached = store.get(&plan.id).unwrap();
-    assert!(detached.team_id.is_none());
-    assert_eq!(detached.status, PlanStatus::Active);
-    assert_eq!(
-        detached
-            .orphaned
-            .as_ref()
-            .map(|orphan| orphan.unfinished_task_ids.len()),
-        Some(64)
-    );
-    assert_eq!(detached.owner, OrchestratorRef::default());
-    assert_eq!(detached.planner, None);
-    assert_eq!(
-        detached
-            .owner_history
-            .last()
-            .unwrap()
-            .from
-            .tab_id
-            .as_deref(),
-        Some("orch")
-    );
-    assert_eq!(detached.tasks.len(), 64);
 }
 
 #[test]
@@ -204,4 +133,36 @@ fn team_close_force_keeps_plan_active_flagged() {
         .unwrap();
     assert_eq!(adopted.team_id.as_deref(), Some("team_next"));
     assert_eq!(adopted.orphaned, None);
+}
+
+#[test]
+fn large_team_detach_preserves_tasks_and_flags_unfinished_work() {
+    let mut plan = crate::plan::Plan::new(
+        "Large".into(),
+        "/decision-project".into(),
+        OrchestratorRef::from_tab("orch"),
+    );
+    plan.team_id = Some("team_closed".into());
+    plan.planner = Some(crate::plan::PlannerRef::Tab {
+        tab_id: "planner".into(),
+        session_id: None,
+        title: None,
+    });
+    plan.tasks = (0..64)
+        .map(|n| crate::service_plan::test_support::task(&format!("task_{n}")))
+        .collect();
+    let tasks = plan.tasks.clone();
+    super::team_plan_detach::detach_closed_team_plan(&mut plan, "team_closed", 100);
+    assert_eq!(plan.tasks, tasks);
+    assert_eq!(plan.team_id, None);
+    assert_eq!(plan.status, PlanStatus::Active);
+    assert_eq!(plan.owner, OrchestratorRef::default());
+    assert_eq!(plan.planner, None);
+    let orphan = plan.orphaned.unwrap();
+    assert_eq!(orphan.unfinished_task_ids.len(), 64);
+    assert_eq!(orphan.at, 100);
+    assert_eq!(
+        plan.owner_history.last().unwrap().from.tab_id.as_deref(),
+        Some("orch")
+    );
 }

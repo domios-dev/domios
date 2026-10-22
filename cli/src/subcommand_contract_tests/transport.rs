@@ -48,6 +48,13 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Unsupported("capabilities is socket-only; run it on the target machine"),
     ),
     (
+        "curator",
+        &["codeterm", "curator", "finish", "--next", "1h", "--from-pad", "retro.md"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported("Curator rounds are local to the owning Team"),
+    ),
+    (
         "pad",
         &["codeterm", "pad", "path"],
         Local::Socket,
@@ -442,7 +449,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 27, "unsupported command count changed");
+    assert_eq!(checked, 28, "unsupported command count changed");
 }
 
 #[test]
