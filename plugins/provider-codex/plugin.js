@@ -1010,8 +1010,9 @@ function cloudExports(hostRef) {
     if (backend) return backend;
     const host2 = hostRef();
     const manifest = JSON.parse(host2.manifestJson() ?? "{}");
-    const root = `${host2.dataDir().replace(/[\\/]$/, "")}/codex/tasks`;
-    if (!root) throw new Error("Cloud task storage is unavailable");
+    const dataRoot = host2.dataDir();
+    if (!dataRoot) throw new Error("Cloud task storage is unavailable");
+    const root = `${dataRoot.replace(/[\\/]$/, "")}/codex/tasks`;
     capability = manifest.capabilities.remoteTask;
     transport = createCodexCloudTransport(host2);
     backend = remoteChatBackend(new RemoteTaskFileStorage(host2.fs, root), cloudTaskBackend(capability, transport), manifest.id);

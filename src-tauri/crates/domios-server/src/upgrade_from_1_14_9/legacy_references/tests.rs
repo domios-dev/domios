@@ -233,3 +233,38 @@ fn legacy_references_errors_are_visible_without_blocking_startup() {
     assert_eq!(reported.len(), 1);
     assert_eq!(reported[0].kind, ReferenceKind::ScanFailure);
 }
+
+#[test]
+fn unrelated_user_services_are_not_read_or_reported() {
+    let home = tempfile::tempdir().unwrap();
+    let legacy = home.path().join(".codeterm");
+    let data = home.path().join(".domios");
+    for (name, bytes) in [
+        ("third-party.plist", b"bplist00".as_slice()),
+        ("third-party.service", b"invalid UTF-8: \xff".as_slice()),
+    ] {
+        let file = home.path().join(name);
+        fs::write(&file, bytes).unwrap();
+        let mut notices = Vec::new();
+        scan_file(
+            &mut notices,
+            &file,
+            ReferenceKind::LaunchAgent,
+            &legacy,
+            &data,
+        );
+        assert!(notices.is_empty());
+    }
+    let mut notices = Vec::new();
+    let file = home.path().join("com.domios.plist");
+    fs::write(&file, b"bplist00").unwrap();
+    scan_file(
+        &mut notices,
+        &file,
+        ReferenceKind::LaunchAgent,
+        &legacy,
+        &data,
+    );
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].kind, ReferenceKind::ScanFailure);
+}

@@ -120,7 +120,8 @@ fn stores() -> Stores {
     let data = home.path().join(".domios-dev");
     std::fs::create_dir_all(data.join("storage")).unwrap();
     std::fs::create_dir_all(data.join("mem")).unwrap();
-    let rebase = PathRebase::new(&legacy, &data).unwrap();
+    let mut rebase = PathRebase::new(&legacy, &data).unwrap();
+    rebase.home_root = true;
     Stores {
         _home: home,
         legacy,
@@ -465,12 +466,13 @@ fn stored_paths_rebase_crons_and_nested_plugin_config_idempotently() {
 
 #[test]
 fn stored_paths_tilde_rewrite_is_scoped_to_the_exact_instance() {
-    let rebase = PathRebase::with_platform(
+    let mut rebase = PathRebase::with_platform(
         Path::new("C:/Users/Owner/.codeterm-dev-fixture"),
         Path::new("C:/Users/Owner/.domios-dev-fixture"),
         true,
     )
     .unwrap();
+    rebase.home_root = true;
     assert_eq!(
         rebase.rebase_value("~/.codeterm-dev-fixture/general"),
         Some("~/.domios-dev-fixture/general".into())
@@ -479,5 +481,20 @@ fn stored_paths_tilde_rewrite_is_scoped_to_the_exact_instance() {
     assert_eq!(
         rebase.rebase_value("~/.codeterm-dev-fixture-other/general"),
         None
+    );
+}
+
+#[test]
+fn stored_paths_custom_root_does_not_rewrite_home_shorthand() {
+    let rebase = PathRebase::with_platform(
+        Path::new("/custom/.codeterm"),
+        Path::new("/custom/.domios"),
+        false,
+    )
+    .unwrap();
+    assert_eq!(rebase.rebase_value("~/.codeterm/general"), None);
+    assert_eq!(
+        rebase.rebase_value("/custom/.codeterm/general"),
+        Some("/custom/.domios/general".into())
     );
 }

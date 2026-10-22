@@ -621,6 +621,7 @@ fn completed_relocation_moves_recreated_scratch_and_keeps_destination() {
     )
     .unwrap();
     assert!(!fixture.old.exists());
+    assert!(legacy_references::scan_legacy_writes(&fixture.new).is_empty());
     assert!(fixture.new.join("sentinel.bin").exists());
     assert!(notices
         .iter()
