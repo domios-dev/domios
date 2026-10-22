@@ -50,10 +50,14 @@ test("removal clears a stale status and agent state without reviving closed tabs
   assert.equal(next.pendingCloses, state.pendingCloses);
 });
 
-test("duplicates, out-of-order deltas and gaps never mutate the reducer", () => {
+test("a declined delta records a resync without changing displayed status or tabs", () => {
   const state = fixture();
   for (const update of [delta(5, 9), delta(5, 10), delta(9, 15), delta(11, 15)]) {
-    assert.equal(reducer(state, { type: "APPLY_STATUS_DELTA", delta: update }), state);
+    const declined = reducer(state, { type: "APPLY_STATUS_DELTA", delta: update });
+    assert.equal(declined.muxResyncRequired, true);
+    assert.equal(declined.tabs, state.tabs);
+    assert.equal(declined.tabStatuses, state.tabStatuses);
+    assert.equal(declined.generation, 10);
   }
   assert.equal(statusDeltaAction(10, delta(9, 15)), "refresh");
   assert.equal(statusDeltaAction(undefined, delta()), "refresh");
@@ -62,6 +66,45 @@ test("duplicates, out-of-order deltas and gaps never mutate the reducer", () => 
   assert.equal(statusDeltaAction(10, delta()), "apply");
   assert.equal(isMuxStatusDelta(delta()), true);
   assert.equal(isMuxStatusDelta({ generation: 15 }), false);
+});
+
+test("a forced published snapshot recovers a reducer outside the stream generation", () => {
+  const state = fixture();
+  const ahead = reducer(state, { type: "SET_STATE", state: { ...state, generation: 100 } });
+  const declined = reducer(ahead, { type: "APPLY_STATUS_DELTA", delta: delta(10, 11) });
+  assert.equal(declined.muxResyncRequired, true);
+  const restored = reducer(declined, { type: "SET_STATE", force: true, state: { ...state, generation: 11 } });
+  assert.equal(restored.generation, 11);
+  assert.equal(restored.muxResyncRequired, false);
+  const next = reducer(restored, { type: "APPLY_STATUS_DELTA", delta: delta(11, 12) });
+  assert.equal(next.tabStatuses.a, "Idle");
+  assert.equal(next.generation, 12);
+});
+
+test("an unchanged published snapshot can restore a rejected optimistic close", () => {
+  const state = fixture();
+  const closed = reducer(state, { type: "CLOSE_TAB", workspaceId: "w", tabId: "b", removedTabIds: ["b"] });
+  const rejected = reducer(closed, { type: "REMOVE_PENDING_CLOSE", tabIds: ["b"] });
+  assert.equal(reducer(rejected, { type: "SET_STATE", state }), rejected);
+  const restored = reducer(rejected, { type: "SET_STATE", state, force: true });
+  assert.equal(restored.generation, 10);
+  assert.ok(restored.tabs.b);
+  assert.deepEqual(restored.workspaces[0].tabs, ["a", "b"]);
+  assert.deepEqual(restored.pendingCloses, []);
+});
+
+test("equal decoded agent state retains the tab identity while status changes", () => {
+  const state = fixture();
+  state.tabs.a.agent_state = { state: "idle", status_line: "opaque-phase" };
+  const update = delta();
+  update.status_deltas.a.agent_state = { state: "idle", status_line: "opaque-phase" };
+  const next = reducer(state, { type: "APPLY_STATUS_DELTA", delta: update });
+  assert.equal(next.tabStatuses.a, "Idle");
+  assert.equal(next.tabs, state.tabs);
+  assert.equal(next.tabs.a, state.tabs.a);
+  const again = reducer(next, { type: "APPLY_STATUS_DELTA", delta: { ...update, base_generation: 15, generation: 18 } });
+  assert.equal(again.tabs, next.tabs);
+  assert.equal(again.tabStatuses, next.tabStatuses);
 });
 
 test("126 status and 16 structural events across five 221-tab clients cut refetches from 710 to 80", () => {

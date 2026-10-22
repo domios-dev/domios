@@ -133,7 +133,7 @@ fn emit(service: ServiceContext, snapshot_requested: bool, focuses: Vec<String>,
     }
 }
 
-fn emit_snapshot(service: &ServiceContext, causes: u64) {
+pub(super) fn emit_snapshot(service: &ServiceContext, causes: u64) {
     let stats = service.ext::<Arc<MuxEmitStats>>();
     stats.pending_since_ms.store(0, Ordering::Relaxed);
     service

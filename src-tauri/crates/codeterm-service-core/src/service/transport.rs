@@ -40,8 +40,8 @@ pub struct AtomicSpawnParams {
 /// Authoritative result the client applies once. PTY and chat launch work stays
 /// in the backend, so no mounted frontend surface is required to start either.
 #[derive(Debug, Clone, Serialize)]
-pub struct AtomicSpawn {
-    pub snapshot: MultiplexerSnapshot,
+pub struct AtomicSpawn<S = MultiplexerSnapshot> {
+    pub snapshot: S,
     pub tab_id: String,
     pub workspace_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
