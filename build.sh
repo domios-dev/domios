@@ -428,8 +428,8 @@ run_nextest_scope() {
       cli_target="$(node scripts/rust-test-lanes.mjs cli target)" || return $?
       lane_args="$(node scripts/rust-test-lanes.mjs cli)" || return $?
       while IFS= read -r arg; do cli_args+=("$arg"); done <<< "$lane_args"
-      CARGO_TARGET_DIR="$cli_target" cargo nextest list --manifest-path cli/Cargo.toml "${cli_args[@]}" \
-        --locked --list-type binaries-only --message-format json >/dev/null || return $?
+      CARGO_TARGET_DIR="$cli_target" cargo test --manifest-path cli/Cargo.toml "${cli_args[@]}" \
+        --locked --no-run --message-format=json >/dev/null || return $?
       export CARGO_TARGET_DIR="$workspace_target"
       ;;
     app|codeterm|service-core|codeterm-service-core)
@@ -509,8 +509,8 @@ run_nextest_scope() {
     filter_args=()
     confirmation_args=(--archive-file "$archive")
   else
-  if [ -f "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/nextest-metadata-cache.mjs" ]; then
-    node "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/nextest-metadata-cache.mjs" "$timing_dir" "$manifest" "${targets[@]}" || return $?
+  if declare -F prepare_nextest_metadata >/dev/null; then
+    prepare_nextest_metadata "$timing_dir" "$manifest" "${targets[@]}" || return $?
   else
   if cargo nextest list --manifest-path "$manifest" "${targets[@]}" \
     --locked --list-type binaries-only --message-format json > "$timing_dir/binaries.json"; then
@@ -1692,6 +1692,10 @@ fi
 
 prepare_bundle_stubs() {
   node scripts/prepare-test-bundle.mjs "${CARGO_BUILD_TARGET:-$(ct_host_triple)}"
+}
+
+prepare_nextest_metadata() {
+  node "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/nextest-metadata-cache.mjs" "$@"
 }
 
 prepare_dev_frontend_dist() {

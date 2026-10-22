@@ -31,7 +31,7 @@ export function prepareNextestMetadata({ root = process.cwd(), manifest, targets
   };
   let reuse = false;
   if (receipt) {
-    const built = timed("cargo-freshness", () => run("cargo", ["test", "--no-run", "--message-format=json",
+    const built = timed("cargo-freshness", () => run("cargo", ["test", "--no-run", "--locked", "--message-format=json",
       "--manifest-path", manifest, ...targets], options));
     const artifacts = built.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line))
       .filter(row => row.reason === "compiler-artifact");
@@ -47,7 +47,7 @@ export function prepareNextestMetadata({ root = process.cwd(), manifest, targets
     fs.mkdirSync(cache, { recursive: true });
     fs.rmSync(receiptPath, { force: true });
     const binariesText = timed("nextest-list", () => run("cargo", ["nextest", "list", "--manifest-path", manifest,
-      ...targets, "--list-type", "binaries-only", "--message-format", "json"], options));
+      ...targets, "--locked", "--list-type", "binaries-only", "--message-format", "json"], options));
     const metadataText = timed("cargo-metadata", () => run("cargo", ["metadata", "--manifest-path", manifest,
       "--format-version", "1", "--locked"], options));
     const summary = JSON.parse(binariesText);

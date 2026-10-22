@@ -11,7 +11,7 @@ import { archiveTargets, loadReleaseRust } from '../ci-rust-archives.mjs';
 function runShell(script, directory, env) {
   const file = path.join(directory, 'selection.sh');
   fs.writeFileSync(file, script.replaceAll('\r', ''));
-  return spawnSync('bash', [file.replaceAll('\\', '/')], { encoding: 'utf8', env });
+  return spawnSync(process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash', [file.replaceAll('\\', '/')], { encoding: 'utf8', env });
 }
 
 test('nextest shell selection and full CI use the catalogue lane definitions', () => {
@@ -59,6 +59,7 @@ run_nextest_scope workspace
   assert.equal(result.status, 42, result.stderr);
   const lines = fs.readFileSync(log, 'utf8').trim().split('\n');
   assert.equal(lines.length, 2);
+  assert.match(lines[0], /^test .*--locked --no-run --message-format=json$/);
   for (const [index, lane] of [FULL_LANES[1], FULL_LANES[0]].entries()) {
     assert.ok(lines[index].includes(`--manifest-path ${lane.manifest} ${lane.targets.join(' ')}`));
   }
