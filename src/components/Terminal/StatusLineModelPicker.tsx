@@ -86,7 +86,7 @@ export function StatusLineModelPicker({
   currentServiceTier?: ServiceTierSelection;
   currentRuntimeMode?: string;
   serviceTierAvailability?: Record<string,readonly import("../../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[]>;
-  pendingSelection?: { model: string; effort: string | null };
+  pendingSelection?: { model: string; effort: string | null; confirmation_pending?: boolean };
 }) {
   const gate = statusLineSwitchGate(descriptor, facts);
   const currentModel = currentModelId(descriptor, modelCandidates);
@@ -148,7 +148,7 @@ export function StatusLineModelPicker({
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
     || selection.model;
   const afterTurn = Boolean(pendingSelection);
-  const displayedLabel = tabMetaParts(modelName, serviceTierLabel(descriptor, currentServiceTier), selection.effort, afterTurn ? "after this turn" : undefined).join(" · ");
+  const displayedLabel = tabMetaParts(modelName, serviceTierLabel(descriptor, currentServiceTier), selection.effort, pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? "after this turn" : undefined).join(" · ");
   const harnessName = descriptor?.display_name ?? label.split(" · ")[0];
   const glyph = descriptor ? (
     <span aria-hidden="true" className="ct-status-identity__glyph" data-testid="status-harness-glyph" title={harnessName}>
@@ -200,7 +200,7 @@ export function StatusLineModelPicker({
           failure={failure}
           onCommit={(selection, restart) => void commit(selection, restart)}
           onClose={() => {
-            void getTabModelApi().cancelStagedModel?.(tabId).then(() => { setApplied(null); }).catch((error: unknown) => {
+            if (!pendingSelection?.confirmation_pending) void getTabModelApi().cancelStagedModel?.(tabId).then(() => { setApplied(null); }).catch((error: unknown) => {
               setFailure({ message: String(error), selection });
             });
             setFailure(null); close();
