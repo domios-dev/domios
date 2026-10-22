@@ -1,0 +1,38 @@
+schema_version: 1
+name: Uptime {{endpoint}}
+note: Poll a web address and tell me whether it answers, including the status number; no redirect following.
+owner: team
+inputs:
+  endpoint:
+    type: string
+    description: HTTP endpoint URL
+  wait_ms:
+    type: integer
+    default: 5000
+    description: Probe timeout in milliseconds
+  ok_status:
+    type: string
+    default: '204'
+    description: Expected status
+  period:
+    type: string
+    default: 1m
+    description: Probe interval, at least 10s
+pipeline:
+  trigger:
+    type: schedule
+    every: '{{period}}'
+  steps:
+  - name: Ping endpoint
+    input: text
+    uses: http
+    with:
+      timeout_ms: '{{wait_ms}}'
+      url: '{{endpoint}}'
+      expected_status: '{{ok_status}}'
+    'on':
+      down: next
+      up: next
+      failed: stop
+  result:
+    to: owner

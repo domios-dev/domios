@@ -1,0 +1,26 @@
+schema_version: 1
+name: '{{title}}'
+note: A single status command covers every job; stay quiet while pending and report once everything has ended.
+inputs:
+  status_command:
+    type: string
+    description: Status command printing one line for the whole batch
+  title:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  complete_regex:
+    type: string
+    description: Regex that matches when the batch is complete
+watch:
+  probe: '{{status_command}}'
+  question: is-the-batch-complete
+  buckets:
+  - pending
+  - complete
+  matches:
+    complete: '{{complete_regex}}'
+  until: complete
+  timeout: 2h
+  routes:
+    pending: none
+    complete: notify

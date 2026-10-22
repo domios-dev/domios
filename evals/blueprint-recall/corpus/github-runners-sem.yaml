@@ -1,0 +1,26 @@
+schema_version: 1
+name: Repo runner watch {{repo}}
+note: Probe a repository's self-hosted runner list with gh and notify when the labelled ones drop offline.
+inputs:
+  repo:
+    type: string
+    description: GitHub owner/repository
+  runner_probe:
+    type: string
+    description: Read-only gh command printing online or offline for the repository's labelled runners
+watch:
+  probe: '{{runner_probe}}'
+  question: are-the-repo-runners-online
+  buckets:
+  - online
+  - offline
+  matches:
+    online: (?m)^online\r?$
+    offline: (?m)^offline\r?$
+  every: 1m
+  rearm_on_change:
+  - offline
+  timeout: 7d
+  routes:
+    online: none
+    offline: notify

@@ -33,11 +33,12 @@ pub enum BlueprintAction {
         #[arg(long, conflicts_with = "kind")]
         like: Option<String>,
     },
-    /// Keep a generalised solution (Team Orchestrator only)
+    /// Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents
     Keep {
         id: String,
-        #[arg(long, required = true)]
-        when: String,
+        /// One "when would someone want this" request; repeat 1-5 times, 3-5 phrased differently
+        #[arg(long, required = true, action = clap::ArgAction::Append)]
+        when: Vec<String>,
     },
     /// Print the authoring JSON Schema for editors and agents
     Schema,

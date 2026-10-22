@@ -1,0 +1,19 @@
+schema_version: 1
+name: local-api-guard
+note: Monitor the local development API server; grab the latest request traces if it goes away.
+watch:
+  probe: codeterm rest-api status --json --verbose
+  question: what-phase-is-the-server-in
+  buckets: [serving, gone]
+  matches: {serving: '"phase":\s*"listening"', gone: '"phase":\s*"(stopped|failed|crashed)"'}
+  every: 1m
+  timeout: 12h
+  rearm_on_change: [gone]
+  handlers:
+    serving: []
+    gone:
+      - {type: command, parameters: {command: codeterm trace recent --limit 10, label: Latest traces, timeout_ms: 2500}}
+      - {type: notify}
+    other:
+      - {type: escalate, parameters: {target: creator}}
+  escalation_timeout_ms: 300000

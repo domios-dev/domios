@@ -1,0 +1,23 @@
+schema_version: 1
+name: '{{title}}'
+note: Transcribe a recorded audio memo into words and sort what it says.
+inputs:
+  memo_path:
+    type: string
+    description: Path to voice note
+  title:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+watch:
+  input:
+    kind: audio
+    data:
+      file: '{{memo_path}}'
+    convert_to: text
+  question: what-is-in-the-memo
+  buckets:
+  - transcribed
+  timeout: 2h
+  model_classification: true
+  routes:
+    transcribed: notify

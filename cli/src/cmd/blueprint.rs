@@ -366,10 +366,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         if json_mode {
             print_json(&result)
         } else {
-            println!(
-                "Queued {} for Blueprint memory.",
-                result["id"].as_str().unwrap_or("?")
-            );
+            println!("{}", memory::save_receipt(&result));
         }
         return;
     }
@@ -546,7 +543,8 @@ fn request(
         }
         BlueprintAction::Keep { id, when } => {
             params["id"] = json!(id);
-            params["when"] = json!(when);
+            params["when"] =
+                json!(codeterm_blueprint_types::blueprint_memory::validate_intents(&when)?);
             "blueprint.keep"
         }
         BlueprintAction::Apply {

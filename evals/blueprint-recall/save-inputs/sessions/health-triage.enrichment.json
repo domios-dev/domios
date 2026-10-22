@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 11045,
+  "stop_reason": "end_turn",
+  "session_id": "ff403c2d-ac6e-4a18-a184-007476a6fb5f",
+  "total_cost_usd": 0.030522,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11569,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1475,
+    "output_tokens_details": {
+      "thinking_tokens": 1332
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11569,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1475,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11569,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11569
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1475,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11569,
+      "webSearchRequests": 0,
+      "costUSD": 0.030522,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1332,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: This Blueprint monitors a service health endpoint on a 60-second schedule. It probes the URL and stops if the service is up. When the service is down or fails, it runs a diagnostic command to measure status and latency, then asks whether the failure is transient or a real outage. Transient issues are logged; outages are escalated to notification. || INTENT: Monitor a service endpoint and alert on real outages || INTENT: Detect if a service failure is transient or critical || INTENT: Periodically probe health endpoint and escalate actual problems || INTENT: Automatically check service status and classify failures by severity",
+  "ttft_ms": 10861,
+  "type": "result",
+  "duration_ms": 11521,
+  "uuid": "1dadb9b5-3b94-4012-bcf2-8682304c1456",
+  "ttft_stream_ms": 1254,
+  "time_to_request_ms": 447,
+  "first_content_frame_ms": 1254,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

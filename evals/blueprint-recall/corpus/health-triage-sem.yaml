@@ -1,0 +1,23 @@
+schema_version: 1
+name: Outage triage watch
+note: Curl a health endpoint, let a model call it transient or an outage, and escalate anything unclear.
+inputs:
+  health_probe:
+    type: string
+    description: Read-only curl command for the service health endpoint
+watch:
+  probe: '{{health_probe}}'
+  question: Is this a transient blip or an outage?
+  buckets: [healthy, transient, outage]
+  model_classification: true
+  every: 1m
+  timeout: 7d
+  rearm_on_change: [outage]
+  handlers:
+    healthy: []
+    transient: []
+    outage:
+      - {type: notify}
+    other:
+      - {type: escalate, parameters: {target: creator}}
+  escalation_timeout_ms: 600000

@@ -1,0 +1,30 @@
+schema_version: 1
+name: '{{name}}'
+note: Probe a workflow run with gh run view; flag a failing job as soon as it appears, then report the conclusion.
+inputs:
+  name:
+    type: string
+    description: Short Blueprint name, 3 to 40 characters
+  run_view_probe:
+    type: string
+    description: Read-only gh run view command printing running, failing or concluded
+watch:
+  probe: '{{run_view_probe}}'
+  question: how-is-the-workflow-run-going
+  buckets:
+  - running
+  - failing
+  - concluded
+  matches:
+    running: (?m)^running\r?$
+    failing: (?m)^failing\r?$
+    concluded: (?m)^concluded\r?$
+  until: concluded
+  rearm_on_change:
+  - failing
+  every: 1m
+  timeout: 3h
+  routes:
+    running: none
+    failing: notify
+    concluded: notify

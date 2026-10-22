@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 10731,
+  "stop_reason": "end_turn",
+  "session_id": "bbfc0f1b-b5bf-4c23-9265-b8695562d6fd",
+  "total_cost_usd": 0.030561,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11656,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1448,
+    "output_tokens_details": {
+      "thinking_tokens": 1307
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11656,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1448,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11656,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11656
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1448,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11656,
+      "webSearchRequests": 0,
+      "costUSD": 0.030561,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1307,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: This Blueprint validates release readiness by checking two critical systems: the project map and task plan lanes. It runs essence-map validation on your codebase root, then checks the plan for stale lanes. If both pass and no stale lanes exist, it generates a release summary. If validation fails at any step, it blocks the release and runs a notification command to alert the team about what needs fixing before release can proceed. || INTENT: Validate project map and plan before release || INTENT: Block releases with stale lanes || INTENT: Run preflight checks to gate releases || INTENT: Check codebase state during release process",
+  "ttft_ms": 10224,
+  "type": "result",
+  "duration_ms": 10857,
+  "uuid": "eae1e5f5-1df9-490a-b878-58ef370a41cd",
+  "ttft_stream_ms": 643,
+  "time_to_request_ms": 92,
+  "first_content_frame_ms": 643,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

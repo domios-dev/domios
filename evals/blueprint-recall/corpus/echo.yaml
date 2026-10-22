@@ -1,0 +1,28 @@
+# Check and apply this file with codeterm blueprint.
+schema_version: 1
+name: Echo example
+note: Run one fixed command, match its output, and return the result to the owner tab.
+owner: team
+inputs:
+  message:
+    type: string
+    description: Message
+    default: ready
+pipeline:
+  trigger:
+    type: schedule
+    every: 20s
+  steps:
+  - name: emit
+    input: text
+    run: echo '{{message}}'
+  - name: match
+    input: text
+    uses: filter
+    with:
+      pattern: ^{{message}}$
+      bucket: matched
+    'on':
+      matched: stop
+  result:
+    to: owner

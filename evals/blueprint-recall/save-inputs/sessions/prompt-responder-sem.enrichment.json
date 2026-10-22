@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 6854,
+  "stop_reason": "end_turn",
+  "session_id": "485a3560-a461-40b8-b49a-878dcc1a0fae",
+  "total_cost_usd": 0.027621,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11571,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 894,
+    "output_tokens_details": {
+      "thinking_tokens": 785
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11571,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 894,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11571,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11571
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 894,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11571,
+      "webSearchRequests": 0,
+      "costUSD": 0.027621,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 785,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Monitors an agent tab in the background, polling its status every 15 seconds. When it detects the agent is waiting on a permission prompt, it automatically responds with approval and sends a notification. Works hands-off for up to 8 hours. || INTENT: Auto-respond to agent permission prompts || INTENT: Monitor and auto-approve agent permissions || INTENT: Automatically handle agent permission requests || INTENT: Keep agent running by auto-approving prompts",
+  "ttft_ms": 6510,
+  "type": "result",
+  "duration_ms": 6969,
+  "uuid": "0a2fcb22-3b1d-4a4e-bf93-40e6e3dbde36",
+  "ttft_stream_ms": 693,
+  "time_to_request_ms": 79,
+  "first_content_frame_ms": 693,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

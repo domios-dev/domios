@@ -1,0 +1,38 @@
+{"original": "all-finished", "text": "Poll a status command quietly and alert me only once all my concurrent tasks have finished.", "attempt": 1}
+{"original": "all-finished", "text": "Poll a status script and notify me only once all my concurrent tasks have finished", "attempt": 2}
+{"original": "cron-run-watch", "text": "Alert after a specific overnight scheduled run completes", "attempt": 1}
+{"original": "cron-run-watch", "text": "Alert after one particular nightly scheduled task completes", "attempt": 3}
+{"original": "dev-run-health", "text": "Notify on local API process crash with recent trace snapshot attached", "attempt": 2}
+{"original": "dev-run-health", "text": "Alert me if my local dev backend crashes and grab the final log lines.", "attempt": 3}
+{"original": "echo", "text": "Run a simple echo check and tell me pass or fail against the expected text.", "attempt": 6}
+{"original": "github", "text": "Notify me early when a step breaks in a running GitHub workflow, not after it finishes", "attempt": 1}
+{"original": "github", "text": "Notify me the moment a single build step breaks, without waiting for the full run to complete", "attempt": 2}
+{"original": "github-org-runners", "text": "Monitor whether our organization's custom Actions runners are available and report how many are active", "attempt": 9}
+{"original": "github-pr-checks", "text": "Notify me once build status results come back for a coworker's merge request", "attempt": 4}
+{"original": "github-pr-checks", "text": "Alert me once the build pipeline completes on someone else's PR", "attempt": 6}
+{"original": "github-pr-ci-watch", "text": "Monitor pipeline status on my open merge request and notify me of any failures", "attempt": 1}
+{"original": "github-pr-ci-watch", "text": "Monitor pull request pipeline status continuously and notify me on each failure.", "attempt": 2}
+{"original": "github-runners", "text": "Alert me when my repository's labeled Actions runners go offline or drop in number", "attempt": 3}
+{"original": "github-runners", "text": "Alert me when my repo's custom labeled CI runners go offline or drop in number", "attempt": 5}
+{"original": "health-triage", "text": "Classify checkout API health alerts as transient glitches or genuine outages, escalating ambiguous ones to on-call staff", "attempt": 1}
+{"original": "health-triage", "text": "Triage intermittent billing system uptime failures into momentary hiccups versus serious outages with human review fallback", "attempt": 1}
+{"original": "http-health", "text": "Scheduled check that alerts me if my web page goes down and shows its status code.", "attempt": 1}
+{"original": "http-health", "text": "Scheduled uptime checker that alerts me when our promo site goes down and shows its status code", "attempt": 2}
+{"original": "launch-prompt-gate", "text": "Unblock background agents stuck on launch confirmations, approve familiar ones, notify me about new ones", "attempt": 2}
+{"original": "launch-prompt-gate", "text": "unblock headless agent launches by auto-approving familiar dialogs, forwarding new ones for my review", "attempt": 3}
+{"original": "plan-review-gate", "text": "Check that each requirement in my design doc maps to a verified work item and flag readiness.", "attempt": 2}
+{"original": "plan-review-gate", "text": "Audit design doc coverage against tested tickets and report go/no-go, leaving approval to me.", "attempt": 4}
+{"original": "prompt-responder", "text": "Automatically respond yes when the coding assistant pauses for confirmation", "attempt": 4}
+{"original": "prompt-responder", "text": "Automatically answer yes when the AI assistant asks for confirmation before acting", "attempt": 5}
+{"original": "release-preflight", "text": "Pre-deploy check that halts publishing when capability map is broken or abandoned git worktrees linger.", "attempt": 2}
+{"original": "release-preflight", "text": "Pre-release check that halts deployment on broken capability definitions or orphaned worktree folders.", "attempt": 3}
+{"original": "retry-until-pass", "text": "Track my unreliable release pipeline through its retry attempts until it completes successfully", "attempt": 2}
+{"original": "retry-until-pass", "text": "Track a shipping script that reruns on failure a few times and tell me when it works.", "attempt": 3}
+{"original": "service-health", "text": "Investigate service outages automatically and email me a root cause summary", "attempt": 1}
+{"original": "service-health", "text": "Automation that investigates the root cause when my service goes down and emails me a report", "attempt": 2}
+{"original": "team-watch", "text": "Notify me when a teammate's terminal output shows their migration has reached the next phase", "attempt": 1}
+{"original": "team-watch", "text": "Notify me when a coworker's terminal output shows their database migration has advanced to the next phase.", "attempt": 2}
+{"original": "voice-note-to-text", "text": "Transcribe a voice recording from my phone and categorize it by topic automatically.", "attempt": 5}
+{"original": "voice-note-to-text", "text": "Transcribe a voice recording from my phone and categorize it by topic", "attempt": 6}
+{"original": "wait-for-build", "text": "Send an alert with the result once a slow compile job completes", "attempt": 1}
+{"original": "wait-for-build", "text": "Alert me when a long build finishes and say whether it passed or failed", "attempt": 2}
