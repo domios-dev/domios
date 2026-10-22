@@ -449,73 +449,6 @@ fn mesh_remote_lane_conflict_aborts_merge_and_keeps_checkout_clean() {
     ));
 }
 
-/// The provenance is persisted and later replayed as a git working directory,
-/// so a verbatim prefix here is what refuses a finished worker's report.
-#[test]
-fn lane_provenance_is_a_path_git_accepts_as_a_working_directory() {
-    let root = tempfile::tempdir().unwrap();
-    let project = root.path().join("project");
-    std::fs::create_dir_all(&project).unwrap();
-    git(&project, &["init", "-q"]);
-    git(&project, &["config", "user.email", "test@example.com"]);
-    git(&project, &["config", "user.name", "Test"]);
-    std::fs::write(project.join("README.md"), "fixture").unwrap();
-    git(&project, &["add", "README.md"]);
-    git(&project, &["commit", "-qm", "fixture"]);
-
-    let canonical_project = std::fs::canonicalize(&project).unwrap();
-    let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test", &[]).unwrap();
-    let provenance = verify_worker_lane(
-        canonical_project.to_str().unwrap(),
-        &lane.cwd,
-        Some(&lane.branch),
-        None,
-        LaneProtection::Enforced,
-    )
-    .unwrap();
-
-    for path in [&provenance.worktree_path, &provenance.canonical_cwd] {
-        assert!(
-            !path.starts_with(r"\\?\"),
-            "lane provenance carries a verbatim prefix git cannot use: {path}"
-        );
-    }
-    run_git(
-        &provenance.worktree_path,
-        ["rev-parse", "--is-inside-work-tree"],
-    )
-    .expect("the recorded worktree must validate where the lane's commits live");
-    lane.cleanup().unwrap();
-}
-
-#[test]
-fn canonical_checkout_provisions_a_sibling_worker_lane() {
-    let root = tempfile::tempdir().unwrap();
-    let project = root.path().join("project");
-    std::fs::create_dir_all(&project).unwrap();
-    git(&project, &["init", "-q"]);
-    git(&project, &["config", "user.email", "test@example.com"]);
-    git(&project, &["config", "user.name", "Test"]);
-    std::fs::write(project.join("README.md"), "fixture").unwrap();
-    git(&project, &["add", "README.md"]);
-    git(&project, &["commit", "-qm", "fixture"]);
-
-    let canonical_project = std::fs::canonicalize(&project).unwrap();
-    let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test", &[]).unwrap();
-    let lane_path = PathBuf::from(&lane.cwd);
-    assert!(lane_path.is_dir());
-    assert_eq!(
-        std::fs::canonicalize(lane_path.parent().unwrap()).unwrap(),
-        std::fs::canonicalize(root.path().join("project-worktrees")).unwrap()
-    );
-    assert!(lane.branch.starts_with("lane/team-test-"));
-    assert!(!is_canonical_checkout(
-        &lane.cwd,
-        Some(project.to_str().unwrap())
-    ));
-    lane.cleanup().unwrap();
-}
-
 #[test]
 fn non_git_workspace_is_not_treated_as_a_canonical_checkout() {
     let workspace = tempfile::tempdir().unwrap();
@@ -536,8 +469,24 @@ fn worker_lane_verification_reads_back_branch_and_base_commit() {
     git(&project, &["add", "README.md"]);
     git(&project, &["commit", "-qm", "fixture"]);
 
-    let lane = provision_lane(project.to_str().unwrap(), "verify", &[]).unwrap();
+    let canonical_project = std::fs::canonicalize(&project).unwrap();
+    let lane = provision_lane(canonical_project.to_str().unwrap(), "verify", &[]).unwrap();
+    let lane_path = PathBuf::from(&lane.cwd);
+    assert!(lane_path.is_dir());
+    assert_eq!(
+        std::fs::canonicalize(lane_path.parent().unwrap()).unwrap(),
+        std::fs::canonicalize(root.path().join("project-worktrees")).unwrap()
+    );
+    assert!(lane.branch.starts_with("lane/verify-"));
+    assert!(!is_canonical_checkout(
+        &lane.cwd,
+        Some(project.to_str().unwrap())
+    ));
     let provenance = lane.verify().unwrap();
+    for path in [&provenance.worktree_path, &provenance.canonical_cwd] {
+        assert!(!path.starts_with(r"\\?\"));
+        run_git(path, ["rev-parse", "--is-inside-work-tree"]).unwrap();
+    }
     assert_eq!(provenance.branch, lane.branch);
     assert_eq!(
         provenance.base,

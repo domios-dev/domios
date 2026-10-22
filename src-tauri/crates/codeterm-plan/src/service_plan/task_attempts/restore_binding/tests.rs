@@ -204,30 +204,6 @@ fn attempt_binding_restore_changes_only_nonce_and_receipt() {
 }
 
 #[test]
-fn attempt_binding_restore_accepts_an_acknowledged_in_review_attempt() {
-    let fixture = fixture();
-    fixture
-        .store
-        .with_plan(&fixture.plan_id, 7, |plan| {
-            plan.tasks[0].status = TaskStatus::InReview;
-            plan.tasks[0].execution_attempts[0].reported_at = Some(7);
-            Ok(())
-        })
-        .unwrap();
-    let request = request(&fixture, 8);
-    assert!(matches!(
-        fixture
-            .store
-            .restore_current_attempt_binding(request, 8)
-            .unwrap(),
-        RestoreCurrentAttemptBindingResult::Restored(_)
-    ));
-    let task = fixture.store.show_task(&fixture.task_id).unwrap().task;
-    assert_eq!(task.status, TaskStatus::InReview);
-    assert_eq!(task.execution_attempts[0].reported_at, Some(7));
-}
-
-#[test]
 fn attempt_binding_restore_current_replay_is_a_noop() {
     let fixture = fixture();
     let initial_request = request(&fixture, 7);
@@ -408,6 +384,13 @@ fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
         .store
         .restore_current_attempt_binding(restore, 8)
         .unwrap();
+    let restored = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    assert_eq!(restored.status, TaskStatus::InReview);
+    assert_eq!(restored.execution_attempts[0].reported_at, Some(7));
+    assert_eq!(
+        restored.execution_attempts[0].report,
+        before.execution_attempts[0].report
+    );
     let bounce = fixture
         .store
         .bounce_review(
