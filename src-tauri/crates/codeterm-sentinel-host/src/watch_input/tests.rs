@@ -71,6 +71,7 @@ fn watch_apply_refuses_missing_runtime_then_converts_and_records_observation() {
     std::fs::write(&audio, b"opaque audio fixture").unwrap();
     let (mut mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
     mux.resolve_or_mint_team_for_parent(&tab).unwrap();
+    mux.get_tab_mut(&tab).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
     let fixture = ServiceFixture::new(mux);
     let service = &fixture.service;
     let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1000);
