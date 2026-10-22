@@ -1,0 +1,47 @@
+schema_version: 1
+name: Startup {{job}}
+note: For every timed execution, clear known startup questions via the sanctioned reply route and hand unknown ones to me.
+inputs:
+  job:
+    type: string
+    description: Cron name or id
+watch:
+  observe: cron-run:{{job}}
+  question: which-startup-question-is-shown
+  buckets:
+  - none
+  - folder
+  - vendor
+  - upgrade
+  matches:
+    none: \x22prompt\x22:null
+    folder: \x22kind\x22:\x22directory_trust\x22
+    vendor: \x22kind\x22:\x22provider\x22
+    upgrade: \x22kind\x22:\x22manual_update\x22
+  rearm_on_change:
+  - folder
+  - vendor
+  - upgrade
+  escalation_timeout_ms: 900000
+  timeout: 14d
+  handlers:
+    none: []
+    folder:
+    - type: respond_prompt
+      parameters:
+        target: directory_trust
+    vendor:
+    - type: respond_prompt
+      parameters:
+        target: onboarding
+    - type: respond_prompt
+      parameters:
+        target: permission
+    upgrade:
+    - type: respond_prompt
+      parameters:
+        target: update
+    other:
+    - type: escalate
+      parameters:
+        target: creator

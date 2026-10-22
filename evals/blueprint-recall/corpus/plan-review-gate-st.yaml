@@ -1,0 +1,13 @@
+schema_version: 1
+name: plan-signoff-advisor
+note: Look for uncovered spec parts and advise; a person does the final sign-off.
+inputs:
+  plan_id: {type: string, description: Plan id}
+pipeline:
+  trigger: {type: input, kind: text, source: {text: review}}
+  steps:
+    - {name: holes, input: text, run: "codeterm plan gaps '{{plan_id}}' --json --all", on: {failed: rework}}
+    - {name: complete, input: text, uses: filter, with: {bucket: empty, pattern: '"gaps":\s*\[\]'}, on: {failed: rework, empty: next, done: next}}
+    - {name: judge, input: text, uses: ask, with: {buckets: [go, rework], question: 'Does a verified task back each spec section?'}, on: {go: stop, other: rework, rework: next}}
+    - {name: rework, input: text, run: echo plan-rework-needed, on: {failed: stop, done: stop}}
+  result: {to: notify}

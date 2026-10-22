@@ -1,0 +1,26 @@
+schema_version: 1
+name: Org runner watch {{org}}
+note: Probe the organization runner list with gh and notify when labelled machines go offline or come back.
+inputs:
+  org:
+    type: string
+    description: GitHub organization
+  runner_probe:
+    type: string
+    description: Read-only gh command printing online or offline for the org's labelled runners
+watch:
+  probe: '{{runner_probe}}'
+  question: are-the-org-runners-online
+  buckets:
+  - online
+  - offline
+  matches:
+    online: (?m)^online\r?$
+    offline: (?m)^offline\r?$
+  every: 2m
+  rearm_on_change:
+  - offline
+  timeout: 7d
+  routes:
+    online: none
+    offline: notify

@@ -1,0 +1,30 @@
+schema_version: 1
+name: Tab change poll {{tab_id}}
+note: Read a team member's tab text on a timer and notify me when it matches the change I care about.
+owner: team
+inputs:
+  tab_id:
+    type: string
+    description: Tab id
+  changed_pattern:
+    type: string
+    description: Changed pattern
+pipeline:
+  trigger:
+    type: schedule
+    every: 30s
+  steps:
+  - name: read tab
+    input: text
+    run: codeterm tab get-text --tab '{{tab_id}}'
+  - name: changed
+    input: text
+    uses: filter
+    with:
+      pattern: '{{changed_pattern}}'
+      bucket: changed
+    'on':
+      changed: next
+      done: stop
+  result:
+    to: notify
