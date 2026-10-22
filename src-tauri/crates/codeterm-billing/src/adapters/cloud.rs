@@ -12,6 +12,13 @@ impl Cloud {
         override_url: Option<&str>,
         installation_id: codeterm_account::InstallationId,
     ) -> Result<std::sync::Arc<dyn BillingProvider>> {
+        let endpoints = codeterm_account::firebase_endpoints::current();
+        if !cfg!(debug_assertions) || endpoints.emulator {
+            return Ok(std::sync::Arc::new(Self::new(
+                endpoints.functions,
+                installation_id,
+            )?));
+        }
         Self::configured_from(
             override_url,
             crate::build_config::functions_url(),
@@ -33,8 +40,10 @@ impl Cloud {
     }
 
     pub fn new(base: &str, installation_id: codeterm_account::InstallationId) -> Result<Self> {
+        let endpoints = codeterm_account::firebase_endpoints::current();
+        let base = base_for(cfg!(debug_assertions), endpoints, base);
         let base = url::Url::parse(base).map_err(|_| "Invalid billing endpoint")?;
-        if base.scheme() != "https"
+        if !codeterm_account::firebase_endpoints::allows_url(&base)
             || base.host_str().is_none()
             || !base.username().is_empty()
             || base.password().is_some()
@@ -116,6 +125,20 @@ impl Cloud {
         Ok(url)
     }
 }
+
+fn base_for(
+    dev_build: bool,
+    endpoints: codeterm_account::firebase_endpoints::Endpoints,
+    configured: &str,
+) -> &str {
+    if !dev_build {
+        codeterm_account::firebase_endpoints::PRODUCTION.functions
+    } else if endpoints.emulator {
+        endpoints.functions
+    } else {
+        configured
+    }
+}
 #[async_trait]
 impl BillingProvider for Cloud {
     async fn entitlements(&self, session: &Session) -> Result<Reading> {
@@ -139,35 +162,4 @@ impl BillingProvider for Cloud {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn id() -> codeterm_account::InstallationId {
-        codeterm_account::InstallationId::parse("fixture-installation".into()).unwrap()
-    }
-    #[tokio::test]
-    async fn build_endpoint_missing_uses_local_free_and_honest_actions() {
-        let local = Cloud::configured_from(None, None, id()).unwrap();
-        let session = Session {
-            identity: codeterm_account::Identity {
-                uid: "user".into(),
-                email: None,
-                display_name: None,
-                provider: "local".into(),
-            },
-            id_token: codeterm_account::Secret::new("test-token"),
-        };
-        assert_eq!(
-            local.entitlements(&session).await.unwrap(),
-            Reading::current(Entitlements::default())
-        );
-        assert!(local
-            .portal_url(&session)
-            .await
-            .unwrap_err()
-            .contains("unavailable"));
-        assert!(Cloud::configured_from(None, Some("https://example.test/"), id()).is_ok());
-        assert!(
-            Cloud::configured_from(Some("https://override.test/"), Some("invalid"), id()).is_ok()
-        );
-    }
-}
+mod tests;
