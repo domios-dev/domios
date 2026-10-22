@@ -85,13 +85,16 @@ impl ServiceContext {
         wait_for_observed_readiness(
             deadline,
             || {
-                let (screen, input) = {
-                    let screen_state = self.screen_state.pty(pty_id);
-                    let screen_state = screen_state.lock();
-                    let screen = screen_state.get_screen_text().unwrap_or_default();
-                    let input = screen_state.composer_input_state();
-                    (screen, input)
-                };
+                let (screen, input) = self
+                    .screen_state
+                    .existing(pty_id)
+                    .map(|screen_state| {
+                        let screen_state = screen_state.lock();
+                        let screen = screen_state.get_screen_text().unwrap_or_default();
+                        let input = screen_state.composer_input_state();
+                        (screen, input)
+                    })
+                    .unwrap_or_default();
                 let provider_screen_has_tui = self
                     .agent_registry
                     .with_provider(agent_id, |provider| provider.screen_has_tui(&screen));

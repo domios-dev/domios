@@ -497,15 +497,18 @@ impl ServiceContext {
             if mode == LaunchInputMode::LazySessionStart {
                 diagnostic.provider_process_alive = GateFact::Observed(provider_process_alive);
             }
-            let (screen, screen_rows, input) = {
-                let screen_state = self.screen_state.pty(&attempt.pty_id);
-                let screen_state = screen_state.lock();
-                (
-                    screen_state.get_screen_text().unwrap_or_default(),
-                    screen_state.get_screen_rows().unwrap_or_default(),
-                    screen_state.composer_input_state(),
-                )
-            };
+            let (screen, screen_rows, input) = self
+                .screen_state
+                .existing(&attempt.pty_id)
+                .map(|screen_state| {
+                    let screen_state = screen_state.lock();
+                    (
+                        screen_state.get_screen_text().unwrap_or_default(),
+                        screen_state.get_screen_rows().unwrap_or_default(),
+                        screen_state.composer_input_state(),
+                    )
+                })
+                .unwrap_or_default();
             let snapshot = TabStateSnapshot {
                 tab_id: attempt.tab_id.clone(),
                 agent_type: agent_id.to_string(),

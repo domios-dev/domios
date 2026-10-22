@@ -671,7 +671,7 @@ fn mission_control_spend_ingests_a_settled_turn_with_no_status_transition() {
     // The composer's ready glyph: the screen the classifier reads as a settled turn.
     let hash = {
         let screen = fixture.service.screen_state.pty(pty_id);
-        let mut screen = screen.lock();
+        let mut screen = screen.lock_for_update();
         screen.process("assistant finished\r\n\u{276f} \r\n".as_bytes());
         screen.get_content_hash(0).unwrap()
     };

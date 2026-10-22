@@ -109,15 +109,17 @@ impl TabTransport for PtyTransport<'_> {
 
     fn read_screen(&self, formatted: bool) -> Result<serde_json::Value, String> {
         let pty_id = self.svc.resolve_pty_id(&self.tab_id)?;
-        let ss = self.svc.screen_state.pty(&pty_id);
-        let ss = ss.lock();
+        let ss = self.svc.screen_state.existing(&pty_id);
+        let ss = ss.as_ref().map(|screen| screen.lock());
         let text = if formatted {
             let bytes = ss
-                .get_screen_formatted()
+                .as_ref()
+                .and_then(|screen| screen.get_screen_formatted())
                 .ok_or_else(|| "No Tab text".to_string())?;
             String::from_utf8_lossy(&bytes).into_owned()
         } else {
-            ss.get_screen_text()
+            ss.as_ref()
+                .and_then(|screen| screen.get_screen_text())
                 .unwrap_or_default()
                 .replace('\n', "\r\n")
         };

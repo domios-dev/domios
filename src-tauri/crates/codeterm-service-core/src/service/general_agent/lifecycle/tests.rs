@@ -987,7 +987,10 @@ impl crate::agent::provider::AgentProvider for ScreenLockProbeProvider {
         false
     }
     fn detect_from_output(&self, _: &str) -> bool {
-        let free = self.screen_state.pty("pty-1").try_lock().is_some();
+        let free = self
+            .screen_state
+            .existing("pty-1")
+            .is_some_and(|screen| screen.try_lock().is_some());
         self.screen_free_during_call.lock().push(free);
         true
     }

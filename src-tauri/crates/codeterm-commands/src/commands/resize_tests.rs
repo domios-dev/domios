@@ -65,4 +65,5 @@ fn missing_pty_resize_does_not_create_a_screen() {
     )
     .is_err());
     assert!(screens.get_screen_text("missing").is_none());
+    assert!(!screens.contains_pty("missing"));
 }

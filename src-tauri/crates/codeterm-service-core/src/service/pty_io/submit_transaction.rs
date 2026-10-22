@@ -305,7 +305,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn observe(&self) -> Option<Observation> {
-        let state = self.svc.screen_state.pty(self.pty_id);
+        let state = self.svc.screen_state.existing(self.pty_id)?;
         let state = state.lock();
         state.tail_text(TAIL_ROWS).map(|tail| Observation { tail })
     }
@@ -640,7 +640,9 @@ fn composer_draft_evidence(svc: &ServiceContext, pty_id: &str, text: &str) -> us
     if text.is_empty() {
         return 1;
     }
-    let state = svc.screen_state.pty(pty_id);
+    let Some(state) = svc.screen_state.existing(pty_id) else {
+        return 0;
+    };
     let state = state.lock();
     let lines = state
         .lines_and_tail(TAIL_ROWS)

@@ -276,7 +276,7 @@ impl ServiceContext {
             return (no_prompt, observed);
         }
         let frame = target.readiness.as_ref().and_then(|_| {
-            let screens = self.screen_state.pty(&target.pty_id);
+            let screens = self.screen_state.existing(&target.pty_id)?;
             let screens = screens.lock();
             screens
                 .get_screen_rows()
@@ -781,7 +781,10 @@ impl ServiceContext {
                     {
                         return Err("the session changed before command injection".into());
                     }
-                    let screen = self.screen_state.pty(pty_id);
+                    let screen = self
+                        .screen_state
+                        .existing(pty_id)
+                        .ok_or_else(|| "the command screen is unavailable".to_owned())?;
                     let screen = screen.lock();
                     if template.picker.as_ref().is_some_and(|declaration| {
                         confirmation_pattern(&declaration.screen_regex, model, display_name, effort)

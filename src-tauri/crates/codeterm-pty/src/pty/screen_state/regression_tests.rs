@@ -62,7 +62,7 @@ fn pinned_waiter_stays_attached_when_armed_after_removal() {
     screens.bind_pty_generation("tab", 1);
     let pinned = screens.pty("tab");
     screens.remove("tab");
-    let signal = pinned.lock().arm_screen_change_signal();
+    let signal = pinned.lock_for_update().arm_screen_change_signal();
     let generation = signal.generation();
     drop(pinned);
     screens.bind_pty_generation("tab", 2);
