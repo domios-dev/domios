@@ -51,6 +51,7 @@ const BASH_RC: &str = include_bash_rc();
 const FISH_CONF: &str = include_fish_conf();
 
 const POWERSHELL_PS1: &str = r#"# CodeTerm shell integration - do not edit
+if ($global:__CodeTermShellIntegrationLoaded) { return }
 if ($env:CODETERM_CLI_PATH) {
   $cliDir = [System.IO.Path]::GetDirectoryName($env:CODETERM_CLI_PATH)
   $env:PATH = (@($cliDir) + (($env:PATH -split ';') | Where-Object { $_ -ne $cliDir })) -join ';'
@@ -130,15 +131,24 @@ fn write_scripts(dir: &std::path::Path) {
     let cli_path = include_str!("cli_path.sh");
     let zsh_user_startup = |file: &str| {
         format!(
-            r#"export CODETERM_INTEGRATION_ZDOTDIR="${{CODETERM_INTEGRATION_ZDOTDIR:-$ZDOTDIR}}"
-if [[ -z "$CODETERM_USER_ZDOTDIR" ]]; then
+            r#"if [[ -n "${{__ct_loading_{guard}:-}}" ]]; then return; fi
+__ct_loading_{guard}=1
+export CODETERM_INTEGRATION_ZDOTDIR="${{${{(%):-%x}}:A:h}}"
+if [[ -z "${{CODETERM_USER_ZDOTDIR:-}}" ]]; then
   export CODETERM_USER_ZDOTDIR="${{CODETERM_ORIG_ZDOTDIR:-$HOME}}"
 fi
+if [[ "${{CODETERM_USER_ZDOTDIR:A}}" == "${{CODETERM_INTEGRATION_ZDOTDIR:A}}" || "${{CODETERM_USER_ZDOTDIR:A}}" == "${{${{(%):-%x}}:A:h}}" ]]; then
+  export CODETERM_USER_ZDOTDIR="$HOME"
+fi
 ZDOTDIR="$CODETERM_USER_ZDOTDIR"
-[[ -f "$ZDOTDIR/{file}" ]] && source "$ZDOTDIR/{file}"
+if [[ -f "$ZDOTDIR/{file}" && ! "$ZDOTDIR/{file}" -ef "${{(%):-%x}}" ]]; then
+  source "$ZDOTDIR/{file}"
+fi
+unset __ct_loading_{guard}
 export ZDOTDIR="${{CODETERM_INTEGRATION_ZDOTDIR}}"
 {cli_path}
-"#
+"#,
+            guard = file.trim_start_matches('.'),
         )
     };
     for file in [".zshenv", ".zprofile", ".zlogin"] {
@@ -171,8 +181,14 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
     #[cfg(not(target_os = "windows"))]
     {
         if shell.contains("zsh") {
-            let orig = std::env::var("ZDOTDIR").unwrap_or_default();
-            if !orig.is_empty() {
+            let inherited = std::env::var_os("ZDOTDIR").unwrap_or_default();
+            let home = std::env::var_os("HOME").unwrap_or_else(|| "/".into());
+            let orig = codeterm_paths::relaunch_env::user_zdotdir(
+                std::path::Path::new(&inherited),
+                &dir,
+                std::path::Path::new(&home),
+            );
+            if !orig.as_os_str().is_empty() {
                 cmd.env("CODETERM_ORIG_ZDOTDIR", &orig);
             } else {
                 cmd.env(
@@ -304,7 +320,12 @@ fi
 /// DEBUG trap is the portable preexec and composes with any existing trap).
 const fn include_bash_rc() -> &'static str {
     r####"# CodeTerm shell integration — do not edit
-[ -r ~/.bashrc ] && . ~/.bashrc
+if [ -n "${__ct_loading_bashrc:-}" ]; then return; fi
+__ct_loading_bashrc=1
+if [[ -r "$HOME/.bashrc" && ! "$HOME/.bashrc" -ef "${BASH_SOURCE[0]}" ]]; then
+  . "$HOME/.bashrc"
+fi
+unset __ct_loading_bashrc
 
 if [ -z "${CODETERM_SHELL_INTEGRATION:-}" ]; then
   CODETERM_SHELL_INTEGRATION=1
@@ -420,8 +441,8 @@ fi
 /// events for E/C/D and cwd. Composes with the user's fish_prompt.
 const fn include_fish_conf() -> &'static str {
     r####"# CodeTerm shell integration — do not edit
-status is-interactive; or exit
-set -q CODETERM_SHELL_INTEGRATION; and exit
+status is-interactive; or return
+set -q CODETERM_SHELL_INTEGRATION; and return
 set --global CODETERM_SHELL_INTEGRATION 1
 
 if set -q CODETERM_SHELL_NONCE
@@ -494,199 +515,8 @@ __preserve_ct_fish_prompt
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn powershell_integration_loads_as_text_with_the_path_quoted() {
-        let command =
-            powershell_integration_command(std::path::Path::new("C:/Users/o'neil/.domios/ps.ps1"));
-        assert_eq!(
-            command,
-            "Invoke-Expression ([System.IO.File]::ReadAllText('C:/Users/o''neil/.domios/ps.ps1'))"
-        );
-    }
-
-    /// The portable-pty invariant behind the prod crash: a default-prog (login)
-    /// builder panics the instant an arg is added.
-    #[test]
-    #[should_panic(expected = "default_prog")]
-    fn default_prog_builder_panics_on_arg() {
-        let mut cmd = CommandBuilder::new_default_prog();
-        cmd.arg("--rcfile");
-    }
-
-    /// Regression guard. The plain terminal is built with `new_default_prog()`
-    /// (a login shell). Before the fix the bash branch called
-    /// `cmd.arg("--rcfile")` on it, panicking `spawn_pty` and leaving bash
-    /// terminals blank — zsh used env only, so it was spared (the "x64 vs arm"
-    /// report was really bash vs zsh). `apply_env` must never add args to a
-    /// default-prog builder.
-    #[test]
-    fn apply_env_never_adds_args_to_default_prog_bash() {
-        ensure_scripts(); // make the bashrc integration file exist — the panic precondition
-        let mut cmd = CommandBuilder::new_default_prog();
-        apply_env(&mut cmd, "/bin/bash"); // must not panic
-        assert!(
-            cmd.is_default_prog(),
-            "apply_env must not add args to the default login-shell builder"
-        );
-    }
-
-    /// An explicit-prog builder (specific shell/command) safely takes --rcfile.
-    #[test]
-    fn apply_env_keeps_explicit_bash_prog_spawnable() {
-        ensure_scripts();
-        let mut cmd = CommandBuilder::new("/bin/bash");
-        apply_env(&mut cmd, "/bin/bash"); // must not panic
-        assert!(!cmd.is_default_prog());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn bash_host_path_reporting_uses_the_shell_mount_mapping() {
-        let home = tempfile::tempdir().unwrap();
-        let harness = format!(
-            "cygpath() {{ printf '%s' 'C:/repo with spaces'; }}\n{BASH_RC}\n__ct_update_cwd"
-        );
-        let mut command = std::process::Command::new("/bin/bash");
-        command
-            .args(["--noprofile", "--norc", "-c", &harness])
-            .env("HOME", home.path())
-            .env("CODETERM_HOST_PATHS", "1")
-            .env_remove("CODETERM_SHELL_INTEGRATION");
-        codeterm_util::process_util::no_window_std(&mut command);
-        let output = command.output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        assert!(stdout.contains("633;P;Cwd=C:/repo with spaces"));
-        assert!(stdout.contains("/C:/repo with spaces\x1b\\"));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn apply_env_wires_powershell_command_finished_observation() {
-        ensure_scripts();
-        let script = integration_dir().join("powershell.ps1");
-        // The shipped script, not this machine's copy: ensure_scripts discards its
-        // write error, so an install could be running an older file than this constant.
-        let content = POWERSHELL_PS1;
-        let authenticated_command = content.find("']633;E;;'").unwrap();
-        let command_finished = content.find("']633;D;'").unwrap();
-        assert!(content.contains("$env:CODETERM_SHELL_NONCE"));
-        assert!(content.contains("Remove-Item Env:CODETERM_SHELL_NONCE"));
-        assert!(content.contains("IsNullOrEmpty($global:__CodeTermShellNonce)"));
-        assert!(authenticated_command < command_finished);
-
-        let mut cmd = CommandBuilder::new("powershell.exe");
-        apply_env(&mut cmd, "powershell.exe");
-        let argv = cmd.get_argv();
-        assert_eq!(argv[1], "-NoExit");
-        assert_eq!(argv[2], "-Command");
-        assert_eq!(
-            argv[3].to_string_lossy(),
-            powershell_integration_command(&script)
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn only_agent_powershell_skips_profiles_and_keeps_integration() {
-        ensure_scripts();
-        for shell in ["powershell.exe", "pwsh.exe", "cmd.exe", "bash.exe"] {
-            for agent_shell in [false, true] {
-                let mut cmd = CommandBuilder::new(shell);
-                cmd.env("PATH", "inherited-provider-path");
-                cmd.env("OPAQUE_AUTH", "inherited-auth");
-                apply_agent_startup(&mut cmd, shell, agent_shell);
-                apply_env(&mut cmd, shell);
-                assert_eq!(
-                    cmd.get_argv().iter().any(|arg| arg == "-NoProfile"),
-                    agent_shell && is_powershell(shell)
-                );
-                assert_eq!(
-                    cmd.get_env("PATH"),
-                    Some(std::ffi::OsStr::new("inherited-provider-path"))
-                );
-                assert_eq!(
-                    cmd.get_env("OPAQUE_AUTH"),
-                    Some(std::ffi::OsStr::new("inherited-auth"))
-                );
-                if is_powershell(shell) {
-                    assert_eq!(
-                        cmd.get_argv().last().unwrap().to_string_lossy(),
-                        powershell_integration_command(&integration_dir().join("powershell.ps1"))
-                    );
-                }
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn restore_contract_powershell_command_finished_requires_a_new_history_entry() {
-        // The shipped script, for the same reason as the test above.
-        let content = POWERSHELL_PS1;
-        let prompt = content.find("function global:prompt").unwrap();
-        let history = content.find("Get-History -Count 1").unwrap();
-        let gate = content
-            .find("$historyId -gt $global:__CodeTermLastHistoryId")
-            .unwrap();
-        let authenticated_command = prompt + content[prompt..].find("']633;E;;'").unwrap();
-        assert!(prompt < history && history < gate && gate < authenticated_command);
-        assert!(!content.contains("__CodeTermPromptSeen"));
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn apply_env_keeps_default_powershell_builders_argument_free() {
-        ensure_scripts();
-        for shell in ["powershell.exe", "pwsh.exe"] {
-            let mut cmd = CommandBuilder::new_default_prog();
-            apply_env(&mut cmd, shell);
-            assert!(cmd.is_default_prog());
-            assert!(cmd.get_argv().is_empty());
-        }
-    }
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn shell_integration_powershell_chains_readline_and_prompt() {
-        let harness = r#"
-$env:CODETERM_SHELL_NONCE = 'own-nonce'
-function global:prompt { 'custom-prompt' }
-function global:PSConsoleHostReadLine { param($token) 'line-' + $token }
-"#;
-        let assertions = r#"
-$line = PSConsoleHostReadLine 'argument'
-if ($line -ne 'line-argument') { throw 'ReadLine result or arguments changed' }
-if ((prompt) -ne 'custom-prompt') { throw 'Prompt result changed' }
-$global:__CodeTermOriginalReadLine = { '' }
-if ((PSConsoleHostReadLine) -ne '') { throw 'Empty input changed' }
-"#;
-        let output = std::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command"])
-            .arg(format!("{harness}\n{POWERSHELL_PS1}\n{assertions}"))
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        assert_eq!(
-            stdout
-                .matches("\x1b]633;E;line-argument;own-nonce\x07\x1b]633;C\x07")
-                .count(),
-            1
-        );
-        assert!(stdout.contains("\x1b]633;A\x07\x1b]633;B\x07"));
-    }
-}
+#[path = "shell_integration/tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "shell_integration/cli_tests.rs"]

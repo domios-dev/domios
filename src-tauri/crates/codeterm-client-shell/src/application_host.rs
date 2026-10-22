@@ -49,7 +49,7 @@ impl ApplicationHost for DesktopApplicationHost {
     }
 
     fn restart(&self) -> Result<(), String> {
-        self.app.restart()
+        crate::update::restart::restart(&self.app)
     }
 
     fn exit(&self, code: i32) -> Result<(), String> {
