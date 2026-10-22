@@ -47,6 +47,34 @@ const EFFORT_SCREEN: &str = include_str!(concat!(
 ));
 
 #[test]
+fn cancellation_uses_whole_screen_selection_when_picker_footer_is_unrecognized() {
+    let picker = CommandPicker::new(&commands().model.picker.unwrap(), &target(), None).unwrap();
+    let mut prompt = picker.cancellation_prompt(&target()).unwrap();
+    prompt.injected();
+    let screen = format!(
+        "{}\n❯ \nstatus",
+        MODEL_SCREEN.replace("Enter to set as default", "Changed footer")
+    );
+    assert!(!picker.present(&screen));
+    let mut keys = Vec::new();
+    assert!(!prompt
+        .cancel(&screen, |key| {
+            keys.push(key.to_vec());
+            Ok(())
+        })
+        .unwrap());
+    assert!(!prompt
+        .cancel(&screen, |_| panic!("cancellation must not repeat"))
+        .unwrap());
+    assert_eq!(keys, [b"\x1b".to_vec()]);
+    assert!(prompt
+        .cancel("❯ \nstatus", |_| panic!(
+            "normal input must not receive cancellation"
+        ))
+        .unwrap());
+}
+
+#[test]
 fn combined_switch_selects_current_sonnet_label_across_reordered_and_stale_frames() {
     let declaration = commands().model.picker.unwrap();
     let mut selection = target();

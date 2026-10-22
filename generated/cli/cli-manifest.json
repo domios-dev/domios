@@ -1478,40 +1478,10 @@
       "args": [],
       "subcommands": [
         {
-          "name": "create",
-          "about": "Classify a bounded probe or same-Team agent observation",
+          "name": "apply",
+          "about": "Create or update a YAML file or recipe by name in the caller's Team",
           "aliases": [],
           "args": [
-            {
-              "name": "buckets",
-              "positional": false,
-              "required": false,
-              "value_name": "BUCKETS",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "convert-timeout",
-              "positional": false,
-              "required": false,
-              "value_name": "DURATION",
-              "possible_values": [],
-              "default": null,
-              "help": "Bound the one-time conversion, in the --every duration syntax",
-              "aliases": []
-            },
-            {
-              "name": "convert-to",
-              "positional": false,
-              "required": false,
-              "value_name": "KIND",
-              "possible_values": [],
-              "default": null,
-              "help": "Convert the input to another kind once: text|audio",
-              "aliases": []
-            },
             {
               "name": "dry-run",
               "positional": false,
@@ -1519,127 +1489,17 @@
               "value_name": "DRY_RUN",
               "possible_values": [],
               "default": null,
-              "help": "Validate and print the resulting graph without creating it",
+              "help": null,
               "aliases": []
             },
             {
-              "name": "escalation-timeout-ms",
+              "name": "like",
               "positional": false,
               "required": false,
-              "value_name": "ESCALATION_TIMEOUT_MS",
+              "value_name": "LIKE",
               "possible_values": [],
               "default": null,
-              "help": "Bound how long an `other` escalation may hold this stage, in milliseconds",
-              "aliases": []
-            },
-            {
-              "name": "every",
-              "positional": false,
-              "required": false,
-              "value_name": "EVERY",
-              "possible_values": [],
-              "default": null,
-              "help": "Owner-requested cadence (minimum 10s, default 20s)",
-              "aliases": []
-            },
-            {
-              "name": "handlers-file",
-              "positional": false,
-              "required": false,
-              "value_name": "HANDLERS_FILE",
-              "possible_values": [],
-              "default": null,
-              "help": "JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`",
-              "aliases": []
-            },
-            {
-              "name": "input",
-              "positional": false,
-              "required": false,
-              "value_name": "INPUT",
-              "possible_values": [],
-              "default": null,
-              "help": "Watch data instead of a probe or observation: text|audio|video|image",
-              "aliases": []
-            },
-            {
-              "name": "input-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": "Absolute or caller-cwd-relative path of the input data file",
-              "aliases": []
-            },
-            {
-              "name": "input-text",
-              "positional": false,
-              "required": false,
-              "value_name": "INPUT_TEXT",
-              "possible_values": [],
-              "default": null,
-              "help": "Inline input text (only for --input text)",
-              "aliases": []
-            },
-            {
-              "name": "input-url",
-              "positional": false,
-              "required": false,
-              "value_name": "INPUT_URL",
-              "possible_values": [],
-              "default": null,
-              "help": "http or https URL of the input data",
-              "aliases": []
-            },
-            {
-              "name": "match",
-              "positional": false,
-              "required": false,
-              "value_name": "MATCHES",
-              "possible_values": [],
-              "default": null,
-              "help": "Deterministic classification: unmatched output never calls the model; bucket=regex",
-              "aliases": []
-            },
-            {
-              "name": "max-actions",
-              "positional": false,
-              "required": false,
-              "value_name": "MAX_ACTIONS",
-              "possible_values": [],
-              "default": null,
-              "help": "Finite action-attempt budget (maximum 1024)",
-              "aliases": []
-            },
-            {
-              "name": "max-transitions",
-              "positional": false,
-              "required": false,
-              "value_name": "MAX_TRANSITIONS",
-              "possible_values": [],
-              "default": null,
-              "help": "Finite accepted transition budget (maximum 256)",
-              "aliases": []
-            },
-            {
-              "name": "model-classification",
-              "positional": false,
-              "required": false,
-              "value_name": "MODEL_CLASSIFICATION",
-              "possible_values": [],
-              "default": null,
-              "help": "Opt in to Supporter model classification when no patterns are declared",
-              "aliases": []
-            },
-            {
-              "name": "name",
-              "positional": false,
-              "required": false,
-              "value_name": "NAME",
-              "possible_values": [],
-              "default": null,
-              "help": "Short meaningful name describing what is watched and what happens",
+              "help": "Offer proven graphs matching this intent before authoring",
               "aliases": []
             },
             {
@@ -1649,110 +1509,7 @@
               "value_name": "NOTE",
               "possible_values": [],
               "default": null,
-              "help": "Plain-text Blueprint note, at most 200 characters",
-              "aliases": []
-            },
-            {
-              "name": "observe",
-              "positional": false,
-              "required": false,
-              "value_name": "OBSERVE",
-              "possible_values": [],
-              "default": null,
-              "help": "Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled",
-              "aliases": []
-            },
-            {
-              "name": "output-settled",
-              "positional": false,
-              "required": false,
-              "value_name": "OUTPUT_SETTLED",
-              "possible_values": [],
-              "default": null,
-              "help": "Fire when terminal output settles for this many milliseconds (10..60000)",
-              "aliases": []
-            },
-            {
-              "name": "owner",
-              "positional": false,
-              "required": false,
-              "value_name": "OWNER",
-              "possible_values": [
-                "tab",
-                "team"
-              ],
-              "default": null,
-              "help": "Assign the pipeline to its creator tab or Team",
-              "aliases": []
-            },
-            {
-              "name": "paused",
-              "positional": false,
-              "required": false,
-              "value_name": "PAUSED",
-              "possible_values": [],
-              "default": null,
-              "help": "Create a dormant downstream stage; its lifetime starts now",
-              "aliases": []
-            },
-            {
-              "name": "probe",
-              "positional": false,
-              "required": false,
-              "value_name": "PROBE",
-              "possible_values": [],
-              "default": null,
               "help": null,
-              "aliases": []
-            },
-            {
-              "name": "question",
-              "positional": false,
-              "required": false,
-              "value_name": "QUESTION",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "rearm-on-change",
-              "positional": false,
-              "required": false,
-              "value_name": "BUCKET",
-              "possible_values": [],
-              "default": null,
-              "help": "Route again when this bucket's output changes without changing buckets",
-              "aliases": []
-            },
-            {
-              "name": "recipe",
-              "positional": false,
-              "required": false,
-              "value_name": "RECIPE",
-              "possible_values": [],
-              "default": null,
-              "help": "Create from a named pipeline recipe",
-              "aliases": []
-            },
-            {
-              "name": "route",
-              "positional": false,
-              "required": false,
-              "value_name": "ROUTES",
-              "possible_values": [],
-              "default": null,
-              "help": "Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers",
-              "aliases": []
-            },
-            {
-              "name": "session",
-              "positional": false,
-              "required": false,
-              "value_name": "SESSION",
-              "possible_values": [],
-              "default": null,
-              "help": "Keep exchanges outside transition/action budgets; stop at 16384 exchanges or 120/minute",
               "aliases": []
             },
             {
@@ -1762,47 +1519,45 @@
               "value_name": "SET",
               "possible_values": [],
               "default": null,
-              "help": "Replace recipe placeholders with key=value pairs",
+              "help": null,
               "aliases": []
             },
             {
-              "name": "spec",
+              "name": "source",
+              "positional": true,
+              "required": false,
+              "value_name": "SOURCE",
+              "possible_values": [],
+              "default": "",
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "check",
+          "about": "Validate a YAML file or built-in recipe without a daemon",
+          "aliases": [],
+          "args": [
+            {
+              "name": "set",
               "positional": false,
               "required": false,
-              "value_name": "SPEC",
+              "value_name": "SET",
               "possible_values": [],
               "default": null,
-              "help": "JSON or YAML pipeline specification, or `-` to read standard input",
+              "help": null,
               "aliases": []
             },
             {
-              "name": "terminal-pattern",
-              "positional": false,
-              "required": false,
-              "value_name": "TERMINAL_PATTERN",
+              "name": "source",
+              "positional": true,
+              "required": true,
+              "value_name": "SOURCE",
               "possible_values": [],
               "default": null,
-              "help": "Fire with the new terminal output delta when this regex matches",
-              "aliases": []
-            },
-            {
-              "name": "timeout",
-              "positional": false,
-              "required": false,
-              "value_name": "TIMEOUT",
-              "possible_values": [],
-              "default": null,
-              "help": "End the blueprint after this duration",
-              "aliases": []
-            },
-            {
-              "name": "until",
-              "positional": false,
-              "required": false,
-              "value_name": "UNTIL",
-              "possible_values": [],
-              "default": null,
-              "help": "Stop after this bucket's first confident transition",
+              "help": null,
               "aliases": []
             }
           ],
@@ -2015,6 +1770,34 @@
           "subcommands": []
         },
         {
+          "name": "keep",
+          "about": "Keep a generalised solution (Team Orchestrator only)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "when",
+              "positional": false,
+              "required": true,
+              "value_name": "WHEN",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "list",
           "about": "List blueprints scoped to the calling tab and its Team",
           "aliases": [],
@@ -2050,6 +1833,34 @@
           "subcommands": []
         },
         {
+          "name": "new",
+          "about": "Print a commented YAML scaffold from a recipe or node kind",
+          "aliases": [],
+          "args": [
+            {
+              "name": "kind",
+              "positional": true,
+              "required": false,
+              "value_name": "KIND",
+              "possible_values": [],
+              "default": "watch",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "like",
+              "positional": false,
+              "required": false,
+              "value_name": "LIKE",
+              "possible_values": [],
+              "default": null,
+              "help": "Offer proven graphs matching this intent before authoring",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "nodes",
           "about": "List trigger, step, converter and event-source capabilities",
           "aliases": [],
@@ -2072,6 +1883,13 @@
               "aliases": []
             }
           ],
+          "subcommands": []
+        },
+        {
+          "name": "schema",
+          "about": "Print the authoring JSON Schema for editors and agents",
+          "aliases": [],
+          "args": [],
           "subcommands": []
         },
         {
@@ -3099,6 +2917,42 @@
               "possible_values": [],
               "default": null,
               "help": "Cron job ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "curator",
+      "about": "Finish the current Team Curator round",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "finish",
+          "about": "Validate the retro, record this round and choose the next cadence",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "FROM_PAD",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "next",
+              "positional": false,
+              "required": true,
+              "value_name": "NEXT",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -8289,6 +8143,91 @@
           "subcommands": []
         },
         {
+          "name": "control-loop",
+          "about": "Inspect or set a plan's control loop",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "run",
+              "about": "Request one Curator round now, subject to the plan and human-wait gates",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "interval",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "INTERVAL",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "mode",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MODE",
+                  "possible_values": [
+                    "curator",
+                    "heartbeat"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "coverage",
           "about": "Show section coverage (% + gaps)",
           "aliases": [],
@@ -8373,6 +8312,72 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "curator",
+          "about": "Grant bounded authority to the active Curator round",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "grant",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "blueprint",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "BLUEPRINT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "curator_tab",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "CURATOR_TAB",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan-skill",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PLAN_SKILL",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "save",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "SAVE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         },
         {
           "name": "decision",

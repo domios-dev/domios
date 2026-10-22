@@ -43,7 +43,7 @@ it("keeps mouse, touch and keyboard activation out of editors while ordinary row
     };
     for (const editor of host.querySelectorAll("input, textarea, select, [data-editor]")) await dispatch(editor);
     for (const listener of Object.values(listeners)) expect(listener).not.toHaveBeenCalled();
-    await dispatch(host.querySelector('[data-testid="handle"]')!);
+    await dispatch(host.querySelector('[data-dnd-group]')!);
     for (const listener of Object.values(listeners)) expect(listener).toHaveBeenCalledTimes(1);
   } finally {
     await act(async () => root.unmount());

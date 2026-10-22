@@ -89,6 +89,48 @@ impl CommandPrompt {
 }
 
 impl ServiceContext {
+    pub(super) fn command_input_restored(&self, target: &CommandTarget) -> bool {
+        let Some(readiness) = &target.readiness else {
+            return false;
+        };
+        let screens = self.screen_state.lock();
+        screens
+            .get_screen_rows(&target.pty_id)
+            .zip(screens.composer_input_state(&target.pty_id))
+            .is_some_and(|(rows, input)| readiness.matches(&rows.join("\n"), &input))
+    }
+
+    pub(super) fn verify_command_input_restored(
+        &self,
+        target: &CommandTarget,
+    ) -> Result<(), String> {
+        let signal = command_signal(&mut self.screen_state.lock(), &target.pty_id);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let result = (|| loop {
+            let generation = signal.generation();
+            if !target.current(self) {
+                return Err("the session changed before normal command input was restored".into());
+            }
+            if self.command_input_restored(target) {
+                return Ok(());
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(
+                    "normal command input was not observed after dialog cancellation".into(),
+                );
+            };
+            if !signal.wait_after(generation, remaining) {
+                return Err(
+                    "normal command input was not observed after dialog cancellation".into(),
+                );
+            }
+        })();
+        self.screen_state
+            .lock()
+            .unsubscribe_screen_changes(&target.pty_id, &signal);
+        result
+    }
+
     pub(super) fn respond_to_command_prompt(
         &self,
         target: &CommandTarget,

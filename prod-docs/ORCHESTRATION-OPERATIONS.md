@@ -102,6 +102,7 @@ Curator is the default plan control loop. It reviews a bounded system digest wit
 
 ```bash
 codeterm plan control-loop show <plan>
+codeterm plan control-loop run <plan>
 codeterm plan control-loop set <plan> curator
 codeterm plan control-loop set <plan> heartbeat --interval 30m
 codeterm plan curator grant <plan> <tab> --blueprint <id>
@@ -111,6 +112,8 @@ codeterm curator finish --next 90m --from-pad note.md
 ```
 
 Heartbeat intervals are 15, 30, 45, 60, 90 or 120 minutes. Grants expire with the round and session. Blueprint grants cover only daemon-flagged duplicate or stale items; plan skill grants cover one slug. A Curator job belongs to its Team, retains ordinary job runs, and cannot be deleted manually. Its round metadata appears in a `curator_round` stride. The control-loop view exposes suspension and fallback reasons and seven-day counts.
+
+The owner or Orchestrator may request one round now from the command above or Plan settings. It still requires Curator mode, an available mirrored provider, and an eligible plan with no human wait. A turn end keeps the round alive for an Orchestrator reply; explicit finish, the deadline or a hard failure ends it. Jobs reports that round's outcome, and its transcript remains readable after the tab closes.
 
 Heartbeat preserves the control loop across idle time and compaction. The daemon derives it from plan state, live assignments, gates, and durable learnings. Orchestrators do not edit heartbeat fields.
 
@@ -170,4 +173,6 @@ Curator memory saves require a round grant for a repeated candidate and at most 
 
 Each non-quiet Curator finish note includes `MOVE: <one highest-leverage next step> [ids]` immediately after `NEXT`. The round summary and its Orchestrator result carry that move. Movement sections report task ages, review backlog, waits, decisions, open questions, observed agent-state minutes and accepted work without recorded owner notice evidence. These contain ids and numbers; lower-priority sections are trimmed within the shared 8 KiB limit.
 
-<!-- revision: 17 -->
+Every sixth real Curator round and each newly closed group triggers synthesis. Its digest includes the goal, correctness vector, open acceptance criteria count and the newest prior MOVE, RETRO and LEARN lines, dropping oldest history within the shared 8 KiB cap. A synthesis note may include `READY: yes|no ... [ids]`. READY is advisory: it appears in the round summary and never changes plan or release state.
+
+<!-- revision: 19 -->

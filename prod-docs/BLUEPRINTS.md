@@ -86,9 +86,9 @@ Each named step declares its `input` (`text`, `file`, `audio`, `video`, or `imag
 | `agent` | `provider`, `profile`, `task`, `deadline_ms`, `max_tokens`, `max_turns` | `done`, `failed` |
 | `run` | command text directly | `done`, `failed` |
 
-Command nodes output text. They take the preceding typed result under the existing bounded command contract; model output never becomes executable command text. Agents use a provider with the bounded task capability, return structured status/output, and obey explicit budgets. Graph stop aborts the active task; uncertain effects remain unconfirmed.
+Command nodes output text. Commands run in PowerShell on Windows and sh elsewhere; use portable commands such as `echo`, or typed `http` / `github` sources instead of shell-specific syntax. They take the preceding typed result under the existing bounded command contract; model output never becomes executable command text. Agents use a provider with the bounded task capability, return structured status/output, and obey explicit budgets. Graph stop aborts the active task; uncertain effects remain unconfirmed.
 
-`on` maps outcomes to `next`, `stop` or a later named stage. An unspecified outcome goes to the next stage. Routes are forward-only. `stop` ends that run, while `blueprint stop` stops the recurring graph. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`. Steps must agree on input/output types. Plugin conversion availability is verified at apply.
+`on` maps outcomes to `next`, `stop` or a later named stage. An unspecified `failed` outcome stops the run; other unspecified outcomes go to the next stage. Routes are forward-only. `stop` ends that run. A command that exits unsuccessfully and ends the run as failed also stops the recurring graph; route `failed` to a recovery stage to keep it running. Repair the command and re-apply to resume. `blueprint stop` explicitly stops the recurring graph. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`. Steps must agree on input/output types. Plugin conversion availability is verified at apply.
 
 ## Watches
 
@@ -107,7 +107,7 @@ watch:
   timeout: 1h
 ```
 
-Choose exactly one source: `probe` command, `observe: tab:<id>` / `cron-run:<name-or-id>`, or `input: {kind: text, data: {text: hello}}`. Input data can instead use an absolute `file` path or HTTP(S) `url`; optional `convert_to` and `convert_timeout_ms` request conversion. Runtime media support is checked at apply/execution. Text stages accept later messages through `blueprint input <id> --from-pad <path>` or `--text-file <path>`; admission is not a delivery receipt. Pending messages are discarded on stop, restart or definition changes.
+Choose exactly one source: `probe` command, `observe: tab:<id>` / `cron-run:<name-or-id>`, or `input: {kind: text, data: {text: hello}}`. Input data can instead use an absolute `file` path or HTTP(S) `url`; optional `convert_to` and `convert_timeout_ms` request conversion. Runtime media support is checked at apply/execution. Watches convert media to text through an installed converter; apply refuses an unavailable conversion with `input_runtime_unavailable`. If that capability disappears later, the watch is held with the reason visible in `show`. Text stages accept later messages through `blueprint input <id> --from-pad <path>` or `--text-file <path>`; admission is not a delivery receipt. Pending messages are discarded on stop, restart or definition changes.
 
 `every` defaults to `20s` and must be at least `10s`. Durations use `s`, `m`, `h`, `d` or combinations such as `1h30m`, bounded to 366 days. `until` and `rearm_on_change` name declared buckets. A terminal shell observation requires `terminal: {pattern: '...', idle_ms: 500}` with a pattern or idle limit (10..60000ms).
 
@@ -146,6 +146,6 @@ codeterm blueprint delete <id> --stop
 
 Both the UI and CLI export and import the same YAML. Export writes the same authoring YAML with sensitive commands, input data, patterns and local targets replaced by required described inputs. It excludes runtime/history and local owner IDs. Import binds those inputs in the caller's Team and starts stopped by default; `--start` starts immediately. Check exported files after supplying every required input.
 
-Stopped graphs and their history remain for 30 minutes before cleanup. Changed definitions create an immutable version; an unchanged apply reactivates a stopped graph under the same ID. Import uses the same name lookup and keeps the result stopped unless explicitly started. Advanced `update` accepts an internal definition file with `--expect-version` for explicit version/cause control. `history` definitions can be restored through that path, and `escalation resolve <id> <transition>` releases a held unknown case after repair. Recipe examples: `codeterm docs BLUEPRINT-RECIPES`.
+Stopped graphs and their history remain for 30 minutes before cleanup. Changed definitions create an immutable version; an unchanged apply reactivates a stopped graph under the same ID. Import uses the same name lookup and keeps the result stopped unless explicitly started. Advanced `update` accepts an internal definition file with `--expect-version` for explicit version/cause control. `history` definitions can be restored through that path, and `escalation resolve <id> <transition>` releases a held unknown case after repair. For a watch, use `show` to inspect its latest observation, progress and transitions; `log` provides pipeline journals. Unscheduled inputs omit `next_run`. Recipe examples: `codeterm docs BLUEPRINT-RECIPES`.
 
-<!-- revision: 38 -->
+<!-- revision: 41 -->

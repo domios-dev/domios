@@ -58,15 +58,18 @@ impl FakeFile {
 }
 
 impl TailPort for FakeFile {
-    fn length(&self) -> Option<u64> {
-        Some(self.complete_end() + self.partial)
+    fn length(&self) -> Result<u64, String> {
+        Ok(self.complete_end() + self.partial)
     }
 
-    fn probe(&self, end: u64) -> Option<u64> {
-        Some(self.generation.wrapping_mul(1_000_003).wrapping_add(end))
+    fn probe(&self, end: u64) -> Result<u64, String> {
+        if end > self.complete_end() + self.partial {
+            return Err("probe exceeds transcript length".into());
+        }
+        Ok(self.generation.wrapping_mul(1_000_003).wrapping_add(end))
     }
 
-    fn window(&self) -> (TailRows, u64) {
+    fn window(&self) -> Result<(TailRows, u64), String> {
         let end = self.complete_end();
         let page_start = self
             .records
@@ -92,7 +95,7 @@ impl TailPort for FakeFile {
             .collect();
         let (messages, record_starts) = self.rows_of(&kept);
         self.parsed.set(self.parsed.get() + end - page_start);
-        (
+        Ok((
             TailRows {
                 start_offset: record_starts.first().copied().unwrap_or(page_start),
                 end_offset: end,
@@ -100,10 +103,10 @@ impl TailPort for FakeFile {
                 record_starts,
             },
             end - page_start,
-        )
+        ))
     }
 
-    fn append(&self, from: u64, until: u64) -> (TailRows, u64) {
+    fn append(&self, from: u64, until: u64) -> Result<(TailRows, u64), String> {
         let fresh: Vec<&FakeRecord> = self
             .records
             .iter()
@@ -114,7 +117,7 @@ impl TailPort for FakeFile {
             .map_or(from, |record| record.start + record.len);
         let (messages, record_starts) = self.rows_of(&fresh);
         self.parsed.set(self.parsed.get() + end - from);
-        (
+        Ok((
             TailRows {
                 start_offset: from,
                 end_offset: end,
@@ -122,7 +125,7 @@ impl TailPort for FakeFile {
                 record_starts,
             },
             end - from,
-        )
+        ))
     }
 }
 
@@ -270,4 +273,55 @@ fn entries_are_bounded_and_least_recent_evicts_first() {
     let unbounded = TailCache::with_limits(4, 1);
     unbounded.read(&key("big"), &file).unwrap();
     assert_eq!(unbounded.len(), 0);
+}
+
+#[test]
+fn incremental_charges_equal_a_rebuilt_window_after_eviction() {
+    let mut file = FakeFile::new();
+    let cache = TailCache::default();
+    let key = key("charged");
+    for _ in 0..400 {
+        file.push(20_000, 3);
+        cache.read(&key, &file).unwrap();
+        let fresh = TailCache::default();
+        fresh.read(&key, &file).unwrap();
+        let entries = cache.entries.lock();
+        let rebuilt = fresh.entries.lock();
+        assert_eq!(entries[0].bytes, rebuilt[0].bytes);
+        assert_eq!(entries[0].charges, rebuilt[0].charges);
+    }
+}
+
+#[test]
+fn unavailable_transcript_returns_an_error_instead_of_an_empty_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(AgentRegistry::new());
+    let cache = TailCache::default();
+    assert!(cache
+        .jsonl_tail(
+            &registry,
+            "fixture",
+            &dir.path().join("missing.jsonl"),
+            "test"
+        )
+        .is_err());
+    assert!(cache
+        .jsonl_tail(&registry, "fixture", dir.path(), "test")
+        .is_err());
+    assert_eq!(cache.len(), 0);
+}
+
+#[test]
+fn appending_keeps_retained_message_allocations() {
+    let mut file = FakeFile::new();
+    file.push(1000, 1);
+    let cache = TailCache::default();
+    let key = key("owned");
+    let first = cache.read(&key, &file).unwrap();
+    let retained = first.rows.messages[0].content.as_ptr();
+    drop(first);
+    file.push(1000, 1);
+    let appended = cache.read(&key, &file).unwrap();
+    assert_eq!(appended.rows.messages[0].content.as_ptr(), retained);
+    assert_eq!(appended.rows.messages.len(), 2);
 }

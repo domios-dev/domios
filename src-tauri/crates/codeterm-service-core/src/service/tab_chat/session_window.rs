@@ -143,19 +143,33 @@ pub fn parse_window(
     from: u64,
     until: u64,
 ) -> (Vec<RichMessage>, u64) {
+    try_parse_window(registry, provider_id, path, from, until).unwrap_or_default()
+}
+
+pub fn try_parse_window(
+    registry: &Arc<AgentRegistry>,
+    provider_id: &str,
+    path: &Path,
+    from: u64,
+    until: u64,
+) -> Result<(Vec<RichMessage>, u64), String> {
     let mut offset = from;
     let mut out: Vec<RichMessage> = Vec::new();
     while offset < until {
-        let Some(delta) = registry
-            .with_provider(provider_id, |p| {
-                let mut delta = super::jsonl_kernel::delta(p, path, offset, until - offset)?;
+        let delta = registry
+            .with_provider(provider_id, |p| -> Result<_, String> {
+                let Some(mut delta) =
+                    super::jsonl_kernel::try_delta(p, path, offset, until - offset)?
+                else {
+                    return Ok(None);
+                };
                 for m in &mut delta.messages {
                     super::enrich_interactive(m, p);
                 }
-                Some(delta)
+                Ok(Some(delta))
             })
-            .flatten()
-        else {
+            .ok_or_else(|| "Session provider is unavailable".to_owned())??;
+        let Some(delta) = delta else {
             break;
         };
         if delta.new_offset <= offset {
@@ -164,7 +178,7 @@ pub fn parse_window(
         offset = delta.new_offset;
         out.extend(delta.messages);
     }
-    (out, offset)
+    Ok((out, offset))
 }
 
 /// Soft byte limit for one complete-record history page.
@@ -197,16 +211,22 @@ pub fn parse_page_before(
 /// Bounded snapshot of a JSONL session: the whole transcript for ordinary
 /// files, the trailing [`SNAPSHOT_WINDOW_BYTES`] for oversized ones.
 pub fn snapshot(registry: &Arc<AgentRegistry>, provider_id: &str, path: &Path) -> SessionSnapshot {
-    let total = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-    let page = page_before(path, total, SNAPSHOT_WINDOW_BYTES).unwrap_or(
-        codeterm_plugin::jsonl_window::RecordPage {
-            start: total,
-            end: total,
-        },
-    );
-    let (rich, end) = parse_window(registry, provider_id, path, page.start, page.end);
+    try_snapshot(registry, provider_id, path).unwrap_or_default()
+}
+
+pub fn try_snapshot(
+    registry: &Arc<AgentRegistry>,
+    provider_id: &str,
+    path: &Path,
+) -> Result<SessionSnapshot, String> {
+    let total = std::fs::metadata(path)
+        .map_err(|error| error.to_string())?
+        .len();
+    let page =
+        page_before(path, total, SNAPSHOT_WINDOW_BYTES).map_err(|error| error.to_string())?;
+    let (rich, end) = try_parse_window(registry, provider_id, path, page.start, page.end)?;
     let (start_offset, messages) = super::snapshot_rows::retain_tail(&rich, page.start);
-    SessionSnapshot {
+    Ok(SessionSnapshot {
         row_record_starts: messages
             .iter()
             .map(|message| {
@@ -241,7 +261,7 @@ pub fn snapshot(registry: &Arc<AgentRegistry>, provider_id: &str, path: &Path) -
         start_offset,
         end_offset: end,
         bytes_read: end.saturating_sub(page.start),
-    }
+    })
 }
 
 /// Emitted once per oversized-session chat init so a slow chat has a marker in

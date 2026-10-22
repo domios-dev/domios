@@ -15,7 +15,7 @@ pipeline:
   steps:
   - name: emit
     input: text
-    run: printf '{{message}}'
+    run: echo '{{message}}'
   - name: match
     input: text
     uses: filter

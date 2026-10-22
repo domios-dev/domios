@@ -1,29 +1,26 @@
-use codeterm_blueprint_types::blueprint_memory::curator::dream_candidate;
+use crate::solution_metadata::{self, Confidence};
 use rusqlite::Connection;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) fn render(conn: &Connection, now: i64) -> Result<Option<String>, String> {
-    let mut statement = conn.prepare("SELECT id, tags_json FROM mem_items WHERE EXISTS (SELECT 1 FROM json_each(tags_json) WHERE value='curator') ORDER BY id LIMIT 200").map_err(|error| error.to_string())?;
+    let mut statement = conn.prepare("SELECT s.item_id FROM solution_metadata s JOIN mem_items m ON m.id=s.item_id WHERE m.kind='skill' AND json_extract(s.metadata_json,'$.curator.confidence')='low' AND json_extract(s.metadata_json,'$.curator.observed_at')<=?1 ORDER BY s.item_id LIMIT 20").map_err(|error|error.to_string())?;
     let rows = statement
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        .query_map([now.saturating_sub(60 * 86400)], |row| {
+            row.get::<_, String>(0)
         })
         .map_err(|error| error.to_string())?;
     let mut ids = Vec::new();
     for row in rows {
-        let (id, tags) = row.map_err(|error| error.to_string())?;
-        let tags: Vec<String> = serde_json::from_str(&tags).map_err(|error| error.to_string())?;
-        let confidence = tags
-            .iter()
-            .find_map(|tag| tag.strip_prefix("confidence:"))
-            .unwrap_or("");
-        let observed = tags
-            .iter()
-            .find_map(|tag| tag.strip_prefix("curator:observed:")?.parse().ok());
-        if observed.is_some_and(|at| dream_candidate(true, confidence, at, now)) {
+        let id = row.map_err(|error| error.to_string())?;
+        let metadata =
+            solution_metadata::read(conn, &id)?.ok_or("solution metadata disappeared")?;
+        let curator = metadata.curator.ok_or("Curator metadata absent")?;
+        if curator.confidence == Confidence::Low
+            && now.saturating_sub(curator.observed_at) >= 60 * 86400
+        {
             ids.push(id);
-            if ids.len() == 20 {
-                break;
-            }
         }
     }
     Ok((!ids.is_empty()).then(|| {

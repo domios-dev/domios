@@ -8,9 +8,9 @@ fn during_turn_command_capability_native_js_parity() {
     let js = js.model_switch_commands().unwrap();
     assert!(native.during_turn);
     assert_eq!(native, js);
-    for command in [&native.model, native.effort.as_ref().unwrap()] {
-        assert!(command.prompt.is_some());
-    }
+    assert!(native.model.prompt.is_some());
+    assert!(native.effort.as_ref().unwrap().prompt.is_some());
+    assert_eq!(native.transcript.additional_record_sources.len(), 1);
     let mut value = serde_json::to_value(native).unwrap();
     value.as_object_mut().unwrap().remove("duringTurn");
     let undeclared: crate::provider::ModelSwitchCommands = serde_json::from_value(value).unwrap();

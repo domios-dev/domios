@@ -1,5 +1,5 @@
 use super::{AuthenticatedPlanCaller, ServiceContext};
-use crate::mem::{store::MemUpdate, MemKind, NewMemItem, SearchQuery};
+use crate::mem::{MemKind, NewMemItem, SearchQuery};
 use codeterm_blueprint_types::blueprint_memory::curator::{self, Decision, Relation};
 use codeterm_mem::manager_crud::SaveOutcome;
 
@@ -7,7 +7,7 @@ impl ServiceContext {
     pub fn save_memory_for_caller(
         &self,
         caller: &AuthenticatedPlanCaller,
-        mut item: NewMemItem,
+        item: NewMemItem,
         replace: bool,
     ) -> Result<SaveOutcome, String> {
         if !caller
@@ -17,7 +17,15 @@ impl ServiceContext {
         {
             return self.mem.save_with_outcome(item, replace);
         }
-        let identity = self.curator_identity(caller)?;
+        let identity = self.authenticate_curator(caller)?;
+        if [&item.title, &item.body]
+            .into_iter()
+            .chain(item.summary.iter())
+            .chain(item.tags.iter())
+            .any(|text| codeterm_blueprint_types::blueprint_memory::contains_credentials(text))
+        {
+            return Err("Curator solution contains credentials".into());
+        }
         if item.kind != MemKind::Skill {
             return Err("Curator global saves must be generalised skills".into());
         }
@@ -52,10 +60,7 @@ impl ServiceContext {
             })
             .map(|task| task.id.clone())
             .collect();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = self.curator_now()?;
         let shape = curator::fingerprint(&item.body);
         let id = self.curator_save_solution(
             &identity,
@@ -73,77 +78,36 @@ impl ServiceContext {
                     .iter()
                     .map(|hit| {
                         if hit.item.kind == "skill"
-                            && hit.item.body.split("\n\nCurator evidence:").next()
-                                == Some(item.body.as_str())
+                            && (hit.item.body == item.body
+                                || self.mem.curator_skill_covers(&hit.item.id, &item.body)?)
                         {
-                            Relation::Covers(hit.item.id.clone())
+                            Ok(Relation::Covers(hit.item.id.clone()))
                         } else {
-                            Relation::Conflict(hit.item.id.clone())
+                            Ok(Relation::Conflict(hit.item.id.clone()))
                         }
                     })
-                    .collect::<Vec<_>>();
+                    .collect::<Result<Vec<_>, String>>()?;
                 let decision = curator::decide(episodes, granted, false, &relations)?;
                 if let Decision::Improve(id) = &decision {
                     if !replace {
                         return Err(format!("covered by {id}; use --replace to improve"));
                     }
                 }
-                let previous = match &decision {
-                    Decision::Improve(id) => self.mem.get(id)?,
+                let improve = match &decision {
+                    Decision::Improve(id) => Some(id.as_str()),
                     Decision::Save => None,
                 };
-                let round_prefix = format!("curator:round:{}:", identity.plan_id);
-                let prior_round = previous.as_ref().and_then(|item| {
-                    item.tags
-                        .iter()
-                        .find_map(|tag| tag.strip_prefix(&round_prefix)?.parse().ok())
-                });
-                let prior_confidence = previous
-                    .as_ref()
-                    .and_then(|item| {
-                        item.tags
-                            .iter()
-                            .find_map(|tag| tag.strip_prefix("confidence:"))
-                    })
-                    .unwrap_or("low");
-                item.tags.retain(|tag| {
-                    !tag.starts_with("confidence:")
-                        && !tag.starts_with("curator:round:")
-                        && !tag.starts_with("curator:observed:")
-                });
-                item.tags.extend([
-                    "curator".into(),
-                    identity.plan_id.clone(),
-                    format!(
-                        "confidence:{}",
-                        curator::confidence(prior_round, identity.number, prior_confidence)
-                    ),
-                    format!("{round_prefix}{}", identity.number),
-                    format!("curator:observed:{}", now / 1000),
-                ]);
-                item.body.push_str(&format!(
-                    "\n\nCurator evidence: {}{}",
-                    episodes.iter().cloned().collect::<Vec<_>>().join(" "),
-                    if granted {
-                        format!(" grant:{}:{}", identity.plan_id, identity.number)
-                    } else {
-                        String::new()
-                    }
-                ));
-                match decision {
-                    Decision::Save => self.mem.save(item),
-                    Decision::Improve(id) => {
-                        self.mem.update(
-                            &id,
-                            MemUpdate {
-                                body: Some(item.body),
-                                tags: Some(item.tags),
-                                ..Default::default()
-                            },
-                        )?;
-                        Ok(id)
-                    }
-                }
+                self.mem.save_curator_skill(
+                    item,
+                    improve,
+                    codeterm_blueprint_types::blueprint_memory::CuratorEvidence {
+                        plan: identity.plan_id.clone(),
+                        round: identity.number,
+                        episodes: episodes.iter().cloned().collect(),
+                        granted,
+                    },
+                    (now / 1000) as i64,
+                )
             },
         )?;
         Ok(SaveOutcome {

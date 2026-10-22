@@ -3,12 +3,13 @@ pub struct CuratorNote {
     pub next_secs: u64,
     pub reason: String,
     pub next_move: String,
+    pub ready: Option<String>,
     pub retro: Vec<String>,
     pub learnings: Vec<String>,
     pub next_checks: Vec<String>,
     pub tidy: Vec<String>,
     pub candidates: Vec<String>,
-    pub asked: String,
+    pub asked: codeterm_types::plan::CuratorAsked,
 }
 
 pub fn duration_secs(text: &str) -> Option<u64> {
@@ -42,6 +43,14 @@ fn has_ids(text: &str) -> bool {
 }
 
 pub fn parse(text: &str, requested_secs: u64) -> Result<CuratorNote, String> {
+    parse_for_round(text, requested_secs, false)
+}
+
+pub fn parse_for_round(
+    text: &str,
+    requested_secs: u64,
+    synthesis: bool,
+) -> Result<CuratorNote, String> {
     if text.len() > 8192 {
         return Err("Curator note exceeds 8 KiB".into());
     }
@@ -59,6 +68,7 @@ pub fn parse(text: &str, requested_secs: u64) -> Result<CuratorNote, String> {
             if [
                 "NEXT",
                 "MOVE",
+                "READY",
                 "RETRO",
                 "LEARN",
                 "NEXT-CHECK",
@@ -89,7 +99,7 @@ pub fn parse(text: &str, requested_secs: u64) -> Result<CuratorNote, String> {
                         return Err("invalid ASKED".into());
                     }
                     asked_seen = true;
-                    note.asked = line.into();
+                    note.asked = line.parse()?;
                     continue;
                 }
                 if head == "MOVE" {
@@ -97,6 +107,20 @@ pub fn parse(text: &str, requested_secs: u64) -> Result<CuratorNote, String> {
                         return Err("MOVE requires one next step with cited ids".into());
                     }
                     note.next_move = line.into();
+                    continue;
+                }
+                if head == "READY" {
+                    let verdict = line.split_whitespace().next();
+                    if !synthesis
+                        || note.ready.is_some()
+                        || !matches!(verdict, Some("yes" | "no"))
+                        || !has_ids(line)
+                    {
+                        return Err(
+                            "READY requires a synthesis round, yes or no, and cited ids".into()
+                        );
+                    }
+                    note.ready = Some(line.into());
                     continue;
                 }
             }

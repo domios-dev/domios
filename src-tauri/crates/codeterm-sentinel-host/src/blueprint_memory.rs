@@ -101,7 +101,10 @@ impl BlueprintMemoryExt for ServiceContext {
         {
             return Err("When to use must contain 1..200 plain-text characters".into());
         }
-        if self.is_curator_tab(&caller.tab) {
+        if self
+            .role_policy_for_tab(&caller.tab)
+            .is_some_and(|policy| policy.conservative_save())
+        {
             return curator::keep(self, caller, id, when);
         }
         let handle = self
@@ -166,7 +169,9 @@ impl BlueprintMemoryExt for ServiceContext {
                 .collect::<Vec<_>>()
                 .join("; ")
         })?;
-        let result = self.blueprint_apply(caller, definition, dry_run)?;
+        let result = self
+            .blueprint_apply(caller, definition, dry_run)
+            .map_err(|error| error.to_string())?;
         if !dry_run {
             self.mem.record_blueprint_reuse(id);
         }

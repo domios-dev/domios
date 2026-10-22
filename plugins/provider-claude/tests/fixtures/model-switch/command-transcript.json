@@ -1,6 +1,11 @@
 [
   {
-    "record": {"type":"user","message":{"content":"<local-command-stdout>Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing</local-command-stdout>"}},
+    "record": {
+      "type": "user",
+      "message": {
+        "content": "<local-command-stdout>Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing</local-command-stdout>"
+      }
+    },
     "stdout": "Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing",
     "foreign": false
   },
@@ -63,5 +68,71 @@
     },
     "stdout": null,
     "foreign": true
+  },
+  {
+    "record": {
+      "type": "system",
+      "content": "<local-command-stdout>Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing</local-command-stdout>"
+    },
+    "stdout": "Set effort level to medium (saved as your default for new sessions): Balanced approach with standard implementation and testing",
+    "foreign": false
+  },
+  {
+    "record": {
+      "type": "system",
+      "content": "<local-command-caveat>Local command protocol caveat</local-command-caveat>"
+    },
+    "stdout": null,
+    "foreign": false
+  },
+  {
+    "record": {
+      "type": "system",
+      "content": "<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args></command-args>"
+    },
+    "stdout": null,
+    "foreign": false
+  },
+  {
+    "record": {
+      "type": "system",
+      "content": "<local-command-stdout>Set model to `Sonnet 5.5` for this session only</local-command-stdout>"
+    },
+    "stdout": "Set model to `Sonnet 5.5` for this session only",
+    "foreign": false
+  },
+  {
+    "record": {
+      "parentUuid": "79fb0571-e046-496c-a78b-2f62b9985f22",
+      "isSidechain": false,
+      "type": "system",
+      "subtype": "local_command",
+      "content": "<local-command-stdout>Set effort level to high (saved as your default for new sessions): Comprehensive implementation with extensive testing and documentation</local-command-stdout>",
+      "level": "info",
+      "timestamp": "2026-10-22T00:41:47.574Z",
+      "uuid": "bdd8e851-241b-4422-9a3c-0e12183fbb28",
+      "isMeta": false,
+      "commandRun": {
+        "command": "effort",
+        "args": "high"
+      },
+      "userType": "external",
+      "entrypoint": "cli",
+      "cwd": "C:\\Users\\User\\.domios-dev\\provisioned-workspaces\\switchafter-641a1e5feaa3",
+      "sessionId": "18875f0e-d6f7-48e8-8555-b9b27efc0434",
+      "version": "2.1.307",
+      "gitBranch": "HEAD"
+    },
+    "stdout": "Set effort level to high (saved as your default for new sessions): Comprehensive implementation with extensive testing and documentation",
+    "foreign": false
+  },
+  {
+    "record": {
+      "type": "system",
+      "subtype": "turn_duration",
+      "durationMs": 200
+    },
+    "stdout": null,
+    "foreign": false
   }
 ]
