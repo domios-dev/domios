@@ -104,8 +104,7 @@ fn blueprint_text_input_wire_preserves_file_body_and_identity() {
     std::fs::write(&path, body).unwrap();
     let (method, params) = request(
         BlueprintAction::Input {
-            id: Some("graph".into()),
-            file: None,
+            id: "graph".into(),
             from_pad: None,
             text_file: Some(path),
         },

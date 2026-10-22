@@ -10,3 +10,13 @@ fn blueprint_v2_call_show_text_preserves_expanded_identity_body_result_and_neste
 fn blueprint_v2_call_show_plain_job_has_no_invented_call_projection() {
     assert_eq!(text(&json!({"id":"plain"})), "");
 }
+
+#[test]
+fn blueprint_v2_call_check_drift_names_pin_head_and_semantic_fields() {
+    let rendered = drift(
+        &json!({"call_drift":[{"pin":{"id":"mem:helper","hash":"pinned"},"head_hash":"edited","diff":{"changed":{"value":["code"]},"document_fields":["inputs"]}}]}),
+    );
+    for required in ["WARNING:", "mem:helper@pinned", "edited", "code", "inputs"] {
+        assert!(rendered.contains(required), "{rendered}");
+    }
+}

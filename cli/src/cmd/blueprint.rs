@@ -284,7 +284,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     if checking {
         if json_mode {
             print_json(
-                &json!({"ok":true,"diagnostics":result["diagnostics"],"definition":result["after"]}),
+                &json!({"ok":true,"diagnostics":result["diagnostics"],"definition":result["after"],"call_drift":result["call_drift"]}),
             );
         } else {
             if let Ok(diagnostics) = serde_json::from_value::<
@@ -299,9 +299,13 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
                     )
                 );
             }
+            print!("{}", call_view::drift(&result));
             println!("Valid Blueprint (host admission)");
         }
         return;
+    }
+    if !json_mode {
+        print!("{}", call_view::drift(&result));
     }
     if method == "blueprint.recall" {
         if !recipe_list {
@@ -344,6 +348,9 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
             print_json(&result)
         } else {
             println!("{}", memory::save_receipt(&result));
+            if let Some(hash) = result["hash"].as_str() {
+                println!("Hash: {hash}");
+            }
         }
         return;
     }
@@ -433,7 +440,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         }
     } else {
         render(&result);
-        if method == "blueprint.show" {
+        if method == "blueprint.show" && result["saved_solution"] != true {
             let source = input_source_line(&result)
                 .or_else(|| pipeline_input_source_line(&result))
                 .or_else(|| {
@@ -532,6 +539,12 @@ fn request(
             dry_run,
         } => {
             let bundle = authoring::local_bundle(&source)?;
+            if bundle.document.kind == codeterm_blueprint_types::blueprint_document::Kind::Pipeline
+                && bundle.document.trigger.is_none()
+                && bundle.document.result.port.is_some()
+            {
+                return Err("Callable Blueprints are saved with `blueprint keep --file`; reuse them via call".into());
+            }
             let mut definition = bundle
                 .document
                 .bind(&set)

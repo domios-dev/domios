@@ -56,3 +56,21 @@ pub(super) fn text(value: &Value) -> String {
 }
 #[cfg(test)]
 mod tests;
+
+pub(super) fn drift(value: &Value) -> String {
+    value["call_drift"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(64)
+        .map(|warning| {
+            format!(
+                "WARNING: pinned callee {}@{} differs from head {}: {}\n",
+                warning["pin"]["id"].as_str().unwrap_or("?"),
+                warning["pin"]["hash"].as_str().unwrap_or("?"),
+                warning["head_hash"].as_str().unwrap_or("?"),
+                warning["diff"]
+            )
+        })
+        .collect()
+}

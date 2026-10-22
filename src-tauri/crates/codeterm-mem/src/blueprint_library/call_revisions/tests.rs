@@ -208,7 +208,36 @@ fn blueprint_v2_call_immutable_revision_survives_merge_dream_and_reopen() {
         let caller = save(&mem, caller(&callee));
         let pinned = pin(&load(&mem, &caller));
         edit(&mem, &callee, callable(99), "head changed before merge");
-        let _ = mem.dream_blueprints().unwrap();
+        let mut prepared = mem
+            .qualify_blueprint(
+                "blueprints:workspace",
+                callable(99),
+                &["Return fixed data".into()],
+                evidence(),
+            )
+            .unwrap();
+        prepared.team = Some("team".into());
+        let duplicate = mem
+            .persist_blueprint("blueprints:workspace", prepared, false, AREA_CAP)
+            .unwrap()
+            .id;
+        assert_ne!(duplicate, callee);
+        assert_eq!(
+            mem.dream_blueprints().unwrap(),
+            1,
+            "actual dream merge must occur"
+        );
+        let kinds = [
+            mem.get(&callee).unwrap().unwrap().kind,
+            mem.get(&duplicate).unwrap().unwrap().kind,
+        ];
+        assert_eq!(
+            kinds
+                .iter()
+                .filter(|kind| kind.as_str() == "archived")
+                .count(),
+            1
+        );
         (callee, pinned, caller)
     };
     let mem = MemManager::open_offline(directory.path()).unwrap();
@@ -232,4 +261,30 @@ fn blueprint_v2_call_immutable_revision_survives_merge_dream_and_reopen() {
             .id,
         format!("mem:{callee_id}")
     );
+}
+
+#[test]
+fn blueprint_v2_call_dream_never_merges_across_team_scope() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let save_team = |team: &str| {
+        mem.save_blueprint_scoped(
+            "blueprints:workspace",
+            team,
+            callable(8),
+            &["Return fixed data".into()],
+            evidence(),
+        )
+        .unwrap()
+        .id
+    };
+    let first = save_team("first");
+    let second = save_team("second");
+    assert_ne!(first, second);
+    assert_eq!(mem.dream_blueprints().unwrap(), 0);
+    for (team, id) in [("first", first), ("second", second)] {
+        assert_ne!(mem.get(&id).unwrap().unwrap().kind, "archived");
+        assert!(mem
+            .blueprint_callable("blueprints:workspace", team, &format!("mem:{id}"))
+            .is_ok());
+    }
 }

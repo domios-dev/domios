@@ -82,6 +82,18 @@ pub(super) fn same_scope(
         _ => false,
     })
 }
+pub(super) fn merge_allowed(conn: &Connection, first: &str, second: &str) -> Result<bool, String> {
+    let scope = |id: &str| -> Result<Option<(String, String)>, String> {
+        conn.query_row(
+            "SELECT area,team FROM blueprint_call_scopes WHERE item_id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    };
+    Ok(scope(first)? == scope(second)?)
+}
 pub(super) fn retain(conn: &Connection, id: &str, document: &Document) -> Result<(), String> {
     let scoped: Option<(String, String)> = conn
         .query_row(
@@ -130,13 +142,15 @@ pub(super) fn freeze(
             .collect::<Vec<_>>()
             .join("; ")
     })?;
-    let (_, findings) = calls::check_facts(&closure);
-    if !findings.is_empty() {
-        return Err(findings
-            .into_iter()
-            .map(|f| format!("{}: {}", f.rule, f.message))
-            .collect::<Vec<_>>()
-            .join("; "));
+    let context = calls::check_context(&closure, &Default::default());
+    let diagnostics = codeterm_blueprint_types::blueprint_document::checker::check_ir(
+        &closure.root.ir(),
+        &context,
+    );
+    if codeterm_blueprint_types::blueprint_document::checker::has_errors(&diagnostics) {
+        return Err(
+            codeterm_blueprint_types::blueprint_document::checker::render(&diagnostics, true),
+        );
     }
     Ok(closure.document())
 }
