@@ -409,22 +409,27 @@ impl PlanStore {
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
         let _writer_turn = self.mutation_writer.enter();
-        self.delete_in_writer(id, self.get(id), super::search_index::enqueue_plan_removal)
+        self.delete_in_writer(id, self.get(id))
     }
 
     pub(super) fn delete_in_writer(
         &self,
         id: &str,
         indexed_plan: Option<Plan>,
-        remove_from_index: fn(Plan),
     ) -> std::io::Result<()> {
+        if let Some(plan) = indexed_plan {
+            let specs = self
+                .list_specs_full()
+                .into_iter()
+                .filter(|spec| spec.plan_id.as_deref() == Some(id))
+                .collect::<Vec<_>>();
+            super::search_index::remove_plan_from_index(plan, &specs)
+                .map_err(std::io::Error::other)?;
+        }
         self.database
             .delete_plan(id, unix_time_millis())
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         self.forget_plan(id);
-        if let Some(plan) = indexed_plan {
-            remove_from_index(plan);
-        }
         super::attachments::remove_dir_if_exists(self.plan_data_dir(id))
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         Ok(())
