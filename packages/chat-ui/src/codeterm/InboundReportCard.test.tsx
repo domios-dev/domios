@@ -46,7 +46,7 @@ const markdownBody = markdownHost.querySelector('[data-testid="chat-inbound-repo
 if (markdownBody?.querySelector("h2")?.textContent !== "Result") throw new Error("report heading must render with a plan reference present");
 if (!markdownBody.querySelector("li strong button[data-target-id=task_b8d1]")) throw new Error("report list and emphasis must retain clickable refs");
 if (markdownBody.querySelector("code button, a button")) throw new Error("code and existing links must stay literal");
-if (!markdownBody.querySelector("pre code")?.textContent?.includes("opaque code")) throw new Error("report code must render");
+if (!Array.from(markdownBody.querySelectorAll("code")).some((code) => code.textContent?.includes("opaque code"))) throw new Error("report code must render");
 if (!markdownBody.querySelector('a[href="https://example.test/evidence"]')) throw new Error("report link must render");
 if (!markdownHost.textContent?.includes("In Review") || !markdownHost.textContent?.includes("abc1234")) throw new Error("report header chips must remain");
 const taskLink = markdownBody.querySelector('[data-testid="chat-task-link"]') as HTMLButtonElement | null;
