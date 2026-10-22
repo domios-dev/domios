@@ -66,7 +66,10 @@ fn blueprint_v2_call_import_malformed_yaml_preserves_callee_source() {
     let file = tree.raw("callee.yaml", "schema_version: [\n");
     let errors = tree.resolve("caller.yaml").unwrap_err();
     assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].file, file);
+    assert_eq!(
+        errors[0].file,
+        std::fs::canonicalize(file).unwrap().to_string_lossy()
+    );
     assert!(errors[0].line > 0);
 }
 #[test]
@@ -397,7 +400,10 @@ fn blueprint_v2_call_closure_missing_hash_and_mismatched_id_are_errors() {
         .as_mut()
         .unwrap()
         .id = "mem:foreign".into();
-    assert!(closure.verify().unwrap_err().contains("identity mismatch"));
+    assert!(closure
+        .verify()
+        .unwrap_err()
+        .contains("Missing pinned hash"));
     let mut closure = good(&tree);
     closure.callees.clear();
     assert!(closure
@@ -424,4 +430,47 @@ fn blueprint_v2_call_port_field_comparison_is_recursive_and_ref_bounded() {
         )])
     )
     .is_none());
+}
+#[test]
+fn blueprint_v2_call_distinct_ids_share_body_without_collision() {
+    let tree = Tree::new();
+    let closure = good(&tree);
+    let mut callee = closure.callees.values().next().unwrap().clone();
+    let mut other = callee.clone();
+    callee.id = "mem:first".into();
+    other.id = "mem:second".into();
+    let mut root = closure.root.document.clone();
+    root.steps[0].call.as_mut().unwrap().pin = Some(callee.pin());
+    let closure = FrozenClosure {
+        root: Parsed {
+            document: root,
+            locations: BTreeMap::new(),
+        },
+        callees: BTreeMap::from([(callee.pin().key(), callee), (other.pin().key(), other)]),
+    };
+    closure.verify().unwrap();
+    assert_eq!(closure.callees.len(), 2);
+}
+#[test]
+fn blueprint_v2_call_diagnostic_has_stable_rule_proof_and_position() {
+    let tree = Tree::new();
+    let mut closure = good(&tree);
+    closure.root.document.steps[0]
+        .call
+        .as_mut()
+        .unwrap()
+        .arguments
+        .clear();
+    let diagnostic = check_facts(&closure)
+        .1
+        .into_iter()
+        .next()
+        .unwrap()
+        .into_diagnostic();
+    assert_eq!(diagnostic.rule, "C2");
+    assert_eq!(diagnostic.name, "missing_argument");
+    assert_eq!(diagnostic.proof.rule, "C2");
+    assert_eq!(diagnostic.failing.len(), 1);
+    assert!(diagnostic.line > 1);
+    assert!(diagnostic.id.starts_with("C2:atom:"));
 }

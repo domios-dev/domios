@@ -71,9 +71,13 @@ impl BlueprintMemoryExt for ServiceContext {
         let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(
             &crate::portable::definition(&job),
         )?;
-        let saved =
-            self.mem
-                .save_blueprint(&area(workspace), document, &[when.to_owned()], evidence)?;
+        let saved = self.mem.save_blueprint_scoped(
+            &area(workspace),
+            team.ok_or("Saved callable requires a Team")?,
+            document,
+            &[when.to_owned()],
+            evidence,
+        )?;
         self.mem.blueprint_recipe(&area(workspace), &saved.id)?;
         Ok(json!({"id":saved.id,"evicted_ids":saved.evicted_ids,"status":"saved"}))
     }
@@ -123,8 +127,12 @@ impl BlueprintMemoryExt for ServiceContext {
                 .ok_or("Blueprint not found in this Team")?
         };
         let evidence = evidence(&handle, &job)?;
-        let saved = self.mem.enqueue_blueprint(
+        let saved = self.mem.enqueue_blueprint_scoped(
             area(&caller.workspace),
+            caller
+                .team
+                .clone()
+                .ok_or("Saved callable requires a Team")?,
             crate::portable::definition(&job),
             when.clone(),
             evidence,

@@ -51,6 +51,7 @@ pub fn resolve(
         imported: BTreeSet::new(),
         stack: Vec::new(),
         total_bytes: source.len(),
+        local_files: true,
     };
     let root_id = std::fs::canonicalize(&root_path)
         .unwrap_or(root_path.clone())
@@ -67,12 +68,43 @@ pub fn resolve(
         .map_err(|e| vec![finding(&closure.root, "dependencies", e)])?;
     Ok(closure)
 }
+pub fn resolve_saved(
+    document: Document,
+    memory: &dyn MemoryResolver,
+) -> Result<FrozenClosure, Vec<Diagnostic>> {
+    let mut resolver = Resolver {
+        memory,
+        callees: document.dependencies.clone(),
+        imported: BTreeSet::new(),
+        stack: Vec::new(),
+        total_bytes: 0,
+        local_files: false,
+    };
+    let root = resolver.graph(
+        Parsed {
+            document,
+            locations: BTreeMap::new(),
+        },
+        Path::new("saved"),
+        None,
+    )?;
+    let closure = FrozenClosure {
+        root,
+        callees: resolver.callees,
+    };
+    closure
+        .verify()
+        .and_then(|_| closure.drift(memory).map(|_| ()))
+        .map_err(|e| vec![finding(&closure.root, "dependencies", e)])?;
+    Ok(closure)
+}
 struct Resolver<'a> {
     memory: &'a dyn MemoryResolver,
     callees: BTreeMap<String, FrozenCallee>,
     imported: BTreeSet<String>,
     stack: Vec<String>,
     total_bytes: usize,
+    local_files: bool,
 }
 impl Resolver<'_> {
     fn graph(
@@ -94,6 +126,15 @@ impl Resolver<'_> {
                     &format!("imports.{alias}"),
                     "Duplicate inline/import name",
                 )]);
+            }
+            if !self.local_files
+                && !parsed.document.nodes().any(|n| {
+                    n.call
+                        .as_ref()
+                        .is_some_and(|call| call.reference == alias && call.pin.is_none())
+                })
+            {
+                continue;
             }
             let callee = if target.starts_with("mem:") {
                 self.mem(&target, None, &parsed, &format!("imports.{alias}"))?
@@ -120,7 +161,7 @@ impl Resolver<'_> {
                 } else {
                     let frozen = self
                         .callees
-                        .get(&pin.hash)
+                        .get(&pin.key())
                         .cloned()
                         .ok_or_else(|| vec![finding(&parsed, &field, "Missing pinned hash")])?;
                     if frozen.id != pin.id {
@@ -181,8 +222,8 @@ impl Resolver<'_> {
     ) -> Result<(), Vec<Diagnostic>> {
         if self
             .callees
-            .get(&callee.hash)
-            .is_some_and(|prior| prior != &callee)
+            .get(&callee.pin().key())
+            .is_some_and(|prior| prior.document != callee.document || prior.id != callee.id)
         {
             return Err(vec![finding(
                 parsed,
@@ -190,7 +231,7 @@ impl Resolver<'_> {
                 "Conflicting dependency identity for content hash",
             )]);
         }
-        self.callees.insert(callee.hash.clone(), callee);
+        self.callees.insert(callee.pin().key(), callee);
         Ok(())
     }
     fn snapshot(
@@ -221,6 +262,13 @@ impl Resolver<'_> {
         parsed: &Parsed,
         field: &str,
     ) -> Result<FrozenCallee, Vec<Diagnostic>> {
+        if !self.local_files {
+            return Err(vec![finding(
+                parsed,
+                field,
+                "Local imports must be frozen from their authoring file before save/apply",
+            )]);
+        }
         if target.contains("://")
             || target.starts_with("repo:")
             || target.starts_with("package:")

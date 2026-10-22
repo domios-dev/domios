@@ -6,6 +6,7 @@ use codeterm_blueprint_types::{
 };
 use rusqlite::{params, Connection};
 use std::sync::atomic::{AtomicU64, Ordering};
+mod call_revisions;
 pub(crate) mod cleanup;
 pub mod dedupe;
 pub mod enrichment;
@@ -41,7 +42,8 @@ pub(crate) enum Pending {
 }
 
 pub(crate) fn initialize(conn: &Connection) -> Result<(), String> {
-    index::initialize(conn)
+    index::initialize(conn)?;
+    call_revisions::initialize(conn)
 }
 
 fn load_entries(
@@ -132,6 +134,7 @@ fn write_entry(
         },
         blobs,
     )?;
+    call_revisions::retain(conn, &entry.id, document)?;
     metadata::write(conn, &entry.id, &record)
 }
 
@@ -242,12 +245,28 @@ impl MemManager {
             document,
             intents,
             evidence,
+            team,
             index: mut index_row,
         } = prepared;
-        let yaml = document.yaml()?;
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let document =
+            call_revisions::freeze(&tx, &self.blobs_dir, area, team.as_deref(), document)?;
+        if !model::safe_template(&document, &intents.join("; ")) {
+            return Err("Unsafe callee closure cannot be saved".into());
+        }
+        if team.is_some() {
+            index_row = qualification::index_row(&document, &intents);
+        }
+        let yaml = document.yaml()?;
         let mut library = load_entries(&tx, &self.blobs_dir, area, !evidence.kept)?;
+        let mut scoped = Vec::new();
+        for entry in library {
+            if call_revisions::same_scope(&tx, &entry.id, area, team.as_deref())? {
+                scoped.push(entry);
+            }
+        }
+        library = scoped;
         let now = chrono::Utc::now();
         let existing = merge
             .then(|| model::duplicate(&library, &document))
@@ -280,6 +299,9 @@ impl MemManager {
             }
             next.id = existing.id.clone();
             record.observe(&evidence, now.timestamp());
+            if let Some(team) = &team {
+                call_revisions::scope(&tx, &next.id, area, team)?;
+            }
             write_entry(&tx, &self.blobs_dir, &next, record)?;
             let id = next.id.clone();
             library.retain(|entry| entry.id != id);
@@ -315,6 +337,9 @@ impl MemManager {
             };
             let mut record = SolutionMetadata::default();
             record.observe(&evidence, now.timestamp());
+            if let Some(team) = &team {
+                call_revisions::scope(&tx, &next.id, area, team)?;
+            }
             write_entry(&tx, &self.blobs_dir, &next, record)?;
             index::write_row(&tx, &id, &index_row)?;
             library.push(next);
