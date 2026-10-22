@@ -70,7 +70,7 @@ fn install_from_channel_refuses_incompatible_min_codeterm() {
             Some("needychan".to_string()),
         )
         .unwrap_err();
-        assert!(err.contains("requires CodeTerm"), "got: {err}");
+        assert!(err.contains("requires Domios"), "got: {err}");
         assert!(
             !plugin_dir(&PluginId::validated("needy")).exists(),
             "incompatible plugin must not be installed"

@@ -17,7 +17,7 @@ fn close_and_read_advised_source(busy: &BusyWorker) -> String {
     let command = events[0]["recovery"].as_str().unwrap();
     assert!(notice.contains(command));
     let arguments: Vec<_> = command.split_whitespace().collect();
-    assert_eq!(&arguments[..4], &["codeterm", "plan", "task", "respawn"]);
+    assert_eq!(&arguments[..4], &["domios", "plan", "task", "respawn"]);
     assert_eq!(arguments[4], busy.plan_id);
     assert_eq!(arguments[5], busy.task_id);
     assert_eq!(arguments[6], "--attempt");
