@@ -4,6 +4,11 @@ use crate::plan::{
     curator_delay, ControlLoop, CuratorGrant, CuratorRound, CuratorRun, Plan, PlanMode, PlanStatus,
 };
 use codeterm_plan::service_plan::curator::{self, digest, note, ControlLoopUpdate, DueAction};
+use codeterm_types::plan::control_loop::{
+    CuratorFailure, CuratorSuspension, CURATOR_ELEVATED_LANES, CURATOR_HIGH_LANES,
+    CURATOR_INITIAL_WINDOW_MS, CURATOR_MAX_OUTPUT_TOKENS, CURATOR_MAX_TURNS, CURATOR_TIMEOUT_MS,
+    CURATOR_TIMEOUT_SECS,
+};
 use serde_json::json;
 
 mod authority;
@@ -15,15 +20,25 @@ pub struct CuratorGrantScope {
     pub plan_skills: Vec<String>,
     pub saves: Vec<String>,
 }
+mod completion;
 mod digest_sources;
+mod events;
+mod manual;
 mod movement_sources;
-mod resources;
+pub(crate) mod policy;
 mod scheduling;
 #[cfg(test)]
 mod tests;
 pub use authority::CuratorIdentity;
 
 impl ServiceContext {
+    pub fn curator_now(&self) -> Result<u64, String> {
+        self.extensions
+            .try_get::<crate::CronState>()
+            .map(|clock| clock.lock().now_ms())
+            .ok_or_else(|| "Curator clock is unavailable".into())
+    }
+
     pub(crate) fn curator_heartbeat_body(&self, plan: &Plan) -> String {
         let heartbeat = self.plan_store.prepend_heartbeat_for_plan(&plan.id, "");
         let actions = crate::service::plan::reminders::composition::action_groups(plan);
@@ -41,37 +56,53 @@ impl ServiceContext {
         let service = self.clone();
         let tab_id = tab_id.to_string();
         let _ = crate::async_runtime::spawn_blocking(move || {
-            let Some(plan) = service.plan_store.list_full().into_iter().find(|p| {
-                p.control_loop
-                    .running
-                    .as_ref()
-                    .is_some_and(|r| r.tab_id.as_deref() == Some(&tab_id))
-            }) else {
+            let plan_id = service
+                .extensions
+                .try_get::<events::CuratorTabs>()
+                .and_then(|index| index.0.read().get(&tab_id).cloned());
+            let Some(plan) = plan_id.and_then(|id| service.plan_store.get(&id)) else {
                 return;
             };
             let tokens = service
                 .kpi
                 .ledger()
                 .and_then(|l| l.output_tokens_for_tab(&tab_id).ok().flatten());
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
+            let now = match service.curator_now() {
+                Ok(now) => now,
+                Err(error) => {
+                    log::debug!("[curator] settle {tab_id}: {error}");
+                    return;
+                }
+            };
             let result = service.plan_store.with_plan(&plan.id, now, |plan| {
-                let Some(run) = plan.control_loop.running.as_mut() else {
+                let Some(run) = plan
+                    .control_loop
+                    .running
+                    .as_mut()
+                    .filter(|run| run.tab_id.as_deref() == Some(&tab_id))
+                else {
                     return Ok(None);
                 };
                 run.turns += 1;
                 run.output_tokens = tokens;
-                if run.turns < 24 && tokens.is_none_or(|n| n < 64_000) {
+                if run.turns < CURATOR_MAX_TURNS
+                    && tokens.is_none_or(|n| n < CURATOR_MAX_OUTPUT_TOKENS)
+                {
                     return Ok(None);
                 }
                 let round = CuratorRound {
+                    run_id: run.run_id.clone(),
+                    tab_id: run.tab_id.clone(),
                     number: run.number,
                     started_at: run.started_at,
                     ended_at: now,
-                    outcome: "partial".into(),
-                    reason: if run.turns >= 24 { "turns" } else { "tokens" }.into(),
+                    outcome: codeterm_types::plan::CuratorOutcome::Partial,
+                    reason: if run.turns >= CURATOR_MAX_TURNS {
+                        "turns"
+                    } else {
+                        "tokens"
+                    }
+                    .into(),
                     summary: "Curator round reached its resource cap".into(),
                     next_delay_secs: curator_delay(None),
                     turns: run.turns,
@@ -88,12 +119,18 @@ impl ServiceContext {
                 curator::append_round(plan, round.clone());
                 Ok(Some(round))
             });
-            if let Ok(Some(round)) = result {
-                service.journal_curator(&plan.id, &round);
-                let _ = service.close_tab_with_reason(
-                    &tab_id,
-                    crate::multiplexer::types::TabCloseReason::AgentRunEnded,
-                );
+            match result {
+                Ok(Some(round)) => {
+                    service.journal_curator(&plan.id, &round);
+                    if let Err(error) = service.close_tab_with_reason(
+                        &tab_id,
+                        crate::multiplexer::types::TabCloseReason::AgentRunEnded,
+                    ) {
+                        log::debug!("[curator] close capped round {tab_id}: {error}");
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => log::debug!("[curator] settle {tab_id}: {error}"),
             }
         });
     }
@@ -101,10 +138,7 @@ impl ServiceContext {
     pub fn control_loop_show(&self, plan_id: &str) -> Result<ControlLoop, String> {
         let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
         let mut state = plan.control_loop.clone();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = self.curator_now()?;
         state.refresh_counts(now);
         state.suspended_reason = self.curator_suspended_reason(&plan);
         if state.suspended_reason.is_some() {
@@ -124,27 +158,27 @@ impl ServiceContext {
         self.plan_store
             .set_control_loop(plan_id, update, now)
             .map_err(|e| e.to_string())?;
-        self.reconcile_curators(now);
+        self.reconcile_curator_id(plan_id, now);
         self.ui.emit("plan-changed", json!({"plan_id":plan_id}));
         self.control_loop_show(plan_id)
     }
 
-    fn curator_suspended_reason(&self, plan: &Plan) -> Option<String> {
+    fn curator_suspended_reason(&self, plan: &Plan) -> Option<CuratorSuspension> {
         let reason = if !self.configuration().orchestration.plan_reminders {
-            Some("reminders_disabled")
+            Some(CuratorSuspension::RemindersDisabled)
         } else if plan.mode == PlanMode::Paused {
-            Some("paused")
+            Some(CuratorSuspension::Paused)
         } else if plan.mode == PlanMode::Complete
             || plan.status == PlanStatus::Archived
             || crate::service::plan::heartbeat::is_plan_complete(plan)
         {
-            Some("complete")
+            Some(CuratorSuspension::Complete)
         } else if self.curator_human_wait(plan) {
-            Some("waiting_on_human")
+            Some(CuratorSuspension::WaitingOnHuman)
         } else {
             None
         };
-        reason.map(str::to_string)
+        reason
     }
 
     fn curator_human_wait(&self, plan: &Plan) -> bool {
@@ -172,14 +206,14 @@ impl ServiceContext {
         next_secs: u64,
         now: u64,
     ) -> Result<CuratorRound, String> {
-        let identity = self.curator_identity(caller)?;
+        let identity = self.authenticate_curator(caller)?;
         let run = self
             .plan_store
             .get(&identity.plan_id)
             .and_then(|plan| plan.control_loop.running)
             .ok_or("Curator round is no longer active")?;
         let note = note::parse_for_round(text, next_secs, run.synthesis)?;
-        if run.asked == (note.asked == "none") {
+        if run.asked == (note.asked == codeterm_types::plan::CuratorAsked::None) {
             return Err("ASKED must match this round's message record".into());
         }
         let round = self
@@ -210,8 +244,7 @@ impl ServiceContext {
                 .lock()
                 .get_tab_owner(&identity.tab_id)
                 .map(|(job, run)| (job.to_string(), run.to_string()));
-            if let Some((job, run)) = run {
-                let _ = job;
+            if let Some((_job, run)) = run {
                 self.run_watcher.request_cron_completion(
                     self,
                     &identity.tab_id,

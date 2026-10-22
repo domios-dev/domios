@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { publishNotice } from "../../../lib/notices";
 import type { ApiConfig } from "../../../lib/types";
-import { fetchPlanControlLoop, setPlanControlLoop } from "../plansApi";
+import { fetchPlanControlLoop, setPlanControlLoop, runPlanControlLoop } from "../plansApi";
 import type { ControlLoopUpdate, PlanControlLoop } from "../planControlLoop";
 
 export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, revision: number, initial?: PlanControlLoop) {
@@ -30,7 +30,7 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
     if (initial) setReading({ planId, value: initial });
   }, [planId, initial]);
 
-  const update = (value: ControlLoopUpdate) => {
+  const mutate = (perform: () => Promise<PlanControlLoop>) => {
     if (!api) return Promise.resolve();
     queued.current++;
     setBusy(true);
@@ -38,7 +38,7 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
       try {
         if (active.current !== identity) return;
         ++request.current;
-        const persisted = await setPlanControlLoop(api, planId, value);
+        const persisted = await perform();
         if (active.current === identity) {
           setReading({ planId, value: persisted });
           setLoadError(null);
@@ -54,5 +54,7 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
     pending.current = pending.current.then(run);
     return pending.current;
   };
-  return { value: reading?.planId === planId ? reading.value : initial, busy, loadError, update };
+  const update = (value: ControlLoopUpdate) => api ? mutate(() => setPlanControlLoop(api, planId, value)) : Promise.resolve();
+  const runNow = () => api ? mutate(() => runPlanControlLoop(api, planId)) : Promise.resolve();
+  return { value: reading?.planId === planId ? reading.value : initial, busy, loadError, update, runNow };
 }

@@ -114,4 +114,4 @@ Voice notes arrive as `<domios type="attachment" kind="voice" path="<file>" labe
 
 For cold replacement, `codeterm app quit --exact --json` must confirm cleanup and pinned process exits.
 
-The plan defaults to Curator mode. Inspect it with `codeterm plan control-loop show <plan>`, or choose `codeterm plan control-loop set <plan> curator` / `codeterm plan control-loop set <plan> heartbeat --interval 30m`. A Curator mirrors its Orchestrator's model, receives a bounded digest, and may ask one message with up to three questions. Its grants are limited to the active round and session; see `codeterm docs ORCHESTRATION-OPERATIONS`.
+The plan defaults to Curator mode. Inspect it with `codeterm plan control-loop show <plan>`, request a round now with `codeterm plan control-loop run <plan>`, or choose `codeterm plan control-loop set <plan> curator` / `codeterm plan control-loop set <plan> heartbeat --interval 30m`. A Curator mirrors its Orchestrator's model, receives a bounded digest, and may ask one message with up to three questions. Its grants are limited to the active round and session; see `codeterm docs ORCHESTRATION-OPERATIONS`.

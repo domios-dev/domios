@@ -2,6 +2,25 @@ use super::*;
 use crate::plan::{curator_delay, OrchestratorRef, CURATOR_IDLE_FLOOR_MS};
 
 #[test]
+fn manual_round_requests_preserve_suspension_and_single_round_gates() {
+    let mut state = ControlLoop::default();
+    state.next_at = Some(50_000);
+    assert!(request_round(&mut state, false, 10).is_err());
+    assert_eq!(state.next_at, Some(50_000));
+    assert!(!state.manual_run_requested);
+    assert!(request_round(&mut state, true, 10).is_ok());
+    assert_eq!(state.next_at, Some(10));
+    assert!(state.manual_run_requested);
+    assert!(request_round(&mut state, true, 11).is_err());
+    state.manual_run_requested = false;
+    state.mode = ControlLoopMode::Heartbeat;
+    assert!(request_round(&mut state, true, 11).is_err());
+    state.mode = ControlLoopMode::Curator;
+    state.running = Some(Default::default());
+    assert!(request_round(&mut state, true, 11).is_err());
+}
+
+#[test]
 fn curator_cadence_clamps_and_rearms_from_round_end() {
     for (chosen, expected) in [
         (None, 2700),
@@ -62,7 +81,7 @@ fn curator_human_wait_and_lifecycle_override_idle_floor() {
 fn curator_producer_preserves_owner_mode_and_fallback_default_interval() {
     let mut state = ControlLoop::default();
     assert!(!state.owner_heartbeat());
-    state.fallback_reason = Some("mirror_unavailable".into());
+    state.fallback_reason = Some(codeterm_types::plan::CuratorFailure::MirrorUnavailable);
     state.heartbeat_interval_secs = Some(1800);
     assert!(state.owner_heartbeat());
     assert_eq!(state.interval(3600), 3600);

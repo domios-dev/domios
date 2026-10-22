@@ -495,6 +495,7 @@ export interface CronRunInfo {
   tab_id: string | null;
   session_id?: string | null;
   cwd?: string | null;
+  summary?: string | null;
 }
 
 export interface CronJob {

@@ -279,24 +279,30 @@ impl super::ServiceContext {
         body: &str,
         class: DeliveryClass,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
-        let curator_body = self.curator_message(&envelope.from_tab, target, body)?;
-        let body = curator_body.as_deref().unwrap_or(body);
-        let receipt = self
-            .gateway
-            .submit(
-                self,
-                OutboundMessage {
-                    target: target.to_string(),
-                    body: MessageBody::Text {
-                        body: body.to_string(),
-                    },
-                    envelope: Some(envelope),
-                    class,
-                    origin: MessageOrigin::System,
-                    idempotency_key: None,
+        let policy = self.role_policy_for_tab(&envelope.from_tab);
+        let role_body = match policy {
+            Some(policy) => policy.prepare_message(self, &envelope.from_tab, target, body)?,
+            None => None,
+        };
+        let sender = envelope.from_tab.clone();
+        let body = role_body.as_deref().unwrap_or(body);
+        let receipt = self.gateway.submit(
+            self,
+            OutboundMessage {
+                target: target.to_string(),
+                body: MessageBody::Text {
+                    body: body.to_string(),
                 },
-            )
-            .map_err(|e| e.to_string())?;
+                envelope: Some(envelope),
+                class,
+                origin: MessageOrigin::System,
+                idempotency_key: None,
+            },
+        );
+        if let Some(policy) = policy {
+            policy.message_receipt(self, &sender, &receipt)?;
+        }
+        let receipt = receipt.map_err(|error| error.to_string())?;
         if class == DeliveryClass::AgentTraffic
             && self
                 .plan_store
