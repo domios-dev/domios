@@ -47,30 +47,26 @@ fn blueprint_v2_runtime_review_ordinary_raise_routes_failed_with_stderr() {
     let mut doc = document("python", src, &sink);
     doc["steps"][1].as_object_mut().unwrap().remove("in");
     let (fixture, storage, handle, lease) = fixture(doc, root.path());
-    let completion = run_pipeline(
-        &handle,
-        &fixture.service,
-        &lease,
-        "raise-proof",
-        &std::cell::Cell::new(false),
-    )
-    .unwrap();
+    let (completion, diagnostic) = run_recorded(&handle, &fixture.service, &lease, "raise-proof");
     assert_eq!(
         completion.state,
         JournalState::Done,
-        "ordinary exceptions must follow failed route"
+        "ordinary exceptions must follow failed route; {diagnostic}"
     );
-    assert!(sink.exists());
+    assert!(sink.exists(), "{diagnostic}");
     let entries = journal(&handle, &lease.job.id);
-    assert!(entries.iter().any(|entry| entry.step_name == "transform"
-        && entry
-            .reason
-            .as_ref()
-            .is_some_and(|r| r.as_str() == "code_failed")
-        && entry
-            .result_summary
-            .as_ref()
-            .is_some_and(|s| s.contains("bad row") && s.chars().count() <= 200)));
+    assert!(
+        entries.iter().any(|entry| entry.step_name == "transform"
+            && entry
+                .reason
+                .as_ref()
+                .is_some_and(|r| r.as_str() == "code_failed")
+            && entry
+                .result_summary
+                .as_ref()
+                .is_some_and(|s| s.contains("bad row") && s.chars().count() <= 200)),
+        "{diagnostic}"
+    );
     drop(handle);
     drop(fixture);
     close(storage);
@@ -97,15 +93,8 @@ fn blueprint_v2_runtime_review_code_file_is_frozen_at_admission() {
     };
     assert_eq!(code.file, None, "persisted root graphs must seal code.file");
     assert_eq!(code.src.as_deref(), Some(src));
-    let completion = run_pipeline(
-        &handle,
-        &fixture.service,
-        &lease,
-        "freeze-proof",
-        &std::cell::Cell::new(false),
-    )
-    .unwrap();
-    assert_eq!(completion.state, JournalState::Done);
+    let (completion, diagnostic) = run_recorded(&handle, &fixture.service, &lease, "freeze-proof");
+    assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
     assert_eq!(
         ExecutionEnvelope::decode(&std::fs::read(&sink).unwrap())
             .unwrap()
@@ -128,18 +117,11 @@ fn blueprint_v2_runtime_review_prompt_main_bind_produces_linen() {
     doc["steps"].as_array_mut().unwrap().insert(1, json!({"id":"caption","code":{"lang":"python","src":"def main(value): return value.upper()\n"},"bind":{"in":"swatch.out"},"in":{"type":"string"},"out":{"type":"string"}}));
     doc["steps"][2]["in"] = json!({"type":"string"});
     let (fixture, storage, handle, lease) = fixture(doc, root.path());
-    let completion = run_pipeline(
-        &handle,
-        &fixture.service,
-        &lease,
-        "bind-proof",
-        &std::cell::Cell::new(false),
-    )
-    .unwrap();
+    let (completion, diagnostic) = run_recorded(&handle, &fixture.service, &lease, "bind-proof");
     assert_eq!(
         completion.state,
         JournalState::Done,
-        "prompt-taught main(value) must run"
+        "prompt-taught main(value) must run; {diagnostic}"
     );
     assert_eq!(
         ExecutionEnvelope::decode(&std::fs::read(&sink).unwrap())
@@ -185,15 +167,8 @@ fn blueprint_v2_runtime_review_twenty_kib_command_reaches_next_step() {
     doc["steps"][0] = json!({"id":"text","run":{"lit":"printf '%20480s' x"}});
     doc["steps"][1].as_object_mut().unwrap().remove("in");
     let (fixture, storage, handle, lease) = fixture(doc, root.path());
-    let completion = run_pipeline(
-        &handle,
-        &fixture.service,
-        &lease,
-        "text-proof",
-        &std::cell::Cell::new(false),
-    )
-    .unwrap();
-    assert_eq!(completion.state, JournalState::Done);
+    let (completion, diagnostic) = run_recorded(&handle, &fixture.service, &lease, "text-proof");
+    assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
     let output = ExecutionEnvelope::decode(&std::fs::read(&sink).unwrap()).unwrap();
     assert_eq!(output.payload_text().len(), 20480);
     assert!(output.payload_text().ends_with('x'));
@@ -229,16 +204,9 @@ fn blueprint_v2_runtime_review_raising_main_redacts_and_bounds_stderr() {
     let mut doc = document("python", "def main(value):\n raise ValueError('x' * 6000 + '\\nbad row\\napi_key=opaque-should-not-leak')\n", &sink);
     doc["steps"][1].as_object_mut().unwrap().remove("in");
     let (fixture, storage, handle, lease) = fixture(doc, root.path());
-    let completion = run_pipeline(
-        &handle,
-        &fixture.service,
-        &lease,
-        "main-error",
-        &std::cell::Cell::new(false),
-    )
-    .unwrap();
-    assert_eq!(completion.state, JournalState::Done);
-    assert!(sink.exists());
+    let (completion, diagnostic) = run_recorded(&handle, &fixture.service, &lease, "main-error");
+    assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
+    assert!(sink.exists(), "{diagnostic}");
     let entries = journal(&handle, &lease.job.id);
     let failure = entries
         .iter()
@@ -249,9 +217,12 @@ fn blueprint_v2_runtime_review_raising_main_redacts_and_bounds_stderr() {
                     .as_ref()
                     .is_some_and(|r| r.as_str() == "code_failed")
         })
-        .unwrap();
-    let summary = failure.result_summary.as_ref().unwrap();
-    assert!(summary.contains("bad row"));
+        .unwrap_or_else(|| panic!("{diagnostic}"));
+    let summary = failure
+        .result_summary
+        .as_ref()
+        .unwrap_or_else(|| panic!("{diagnostic}"));
+    assert!(summary.contains("bad row"), "{diagnostic}");
     assert!(summary.contains("[redacted]"));
     assert!(!summary.contains("opaque-should-not-leak"));
     assert!(summary.chars().count() <= 200);

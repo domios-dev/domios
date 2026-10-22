@@ -73,6 +73,11 @@ pub(super) fn run(
             }
         }
         Err(failure) => {
+            #[cfg(any(test, feature = "test-support"))]
+            lease.cancelled.record_diagnostic(format!(
+                "code_runtime reason={} stderr_tail={:?}",
+                failure.reason, failure.stderr_tail
+            ));
             let mut result = failed_input_step(failure.reason);
             result.summary = format!(
                 "code stopped: {}; body_sha256={body_sha256}",

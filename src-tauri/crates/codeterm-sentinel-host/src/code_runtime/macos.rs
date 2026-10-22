@@ -164,22 +164,32 @@ pub(super) fn run(
             "runtime_unavailable"
         },
         uncertain: failure.is_unconfirmed(),
+        #[cfg(any(test, feature = "test-support"))]
+        stderr_tail: failure.stderr_tail,
     })?;
     let stderr = output.stderr_text();
+    #[cfg(any(test, feature = "test-support"))]
+    if !output.success || !stderr.is_empty() {
+        cancellation.record_diagnostic(format!(
+            "native_code exit={:?} stderr_tail={:?}",
+            output.exit_code,
+            crate::probe::test_receipt::stderr_tail(&stderr)
+        ));
+    }
     if stderr.lines().any(|line| {
         line == "DOMIOS_SANDBOX_DENIED"
             || line.starts_with("sandbox-exec: ")
             || line.starts_with("sandbox_apply:")
     }) {
-        return Err(RuntimeFailure::new("sandbox_denied"));
+        return Err(RuntimeFailure::observed("sandbox_denied", &stderr));
     }
     if stderr.contains("DOMIOS_CONTRACT_VIOLATION") {
-        return Err(RuntimeFailure::new("contract_violation"));
+        return Err(RuntimeFailure::observed("contract_violation", &stderr));
     }
     if code.lang == Language::Ts
         && (stderr.contains("bad option:") || stderr.contains("unknown option"))
     {
-        return Err(RuntimeFailure::new("runtime_unavailable"));
+        return Err(RuntimeFailure::observed("runtime_unavailable", &stderr));
     }
     directory
         .close()

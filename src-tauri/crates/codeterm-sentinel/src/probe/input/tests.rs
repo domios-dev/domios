@@ -1,22 +1,48 @@
 use super::*;
 use crate::probe::{
-    environment::Environment, owner::ProbeResourceOwner, run_with_budget_input, PROBE_RUNTIME,
+    environment::Environment,
+    owner::ProbeResourceOwner,
+    test_receipt::{stderr_tail, Receipt},
+    PROBE_RUNTIME,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 fn run(command: &str, previous: &str) -> crate::probe::Output {
     let dir = tempfile::tempdir().unwrap();
-    run_with_budget_input(
+    let cancellation = crate::probe::cancellation::Cancellation::default();
+    let receipt = Receipt::start("command-stdin", &cancellation);
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let deadlines = crate::probe::process::Deadlines::start(PROBE_RUNTIME, PROBE_RUNTIME).unwrap();
+    let input = file(previous).unwrap();
+    let result = crate::probe::run_transaction(
         command,
         dir.path(),
-        PROBE_RUNTIME,
-        PROBE_RUNTIME,
-        &Arc::new(ProbeResourceOwner::new()),
+        deadlines,
+        &owner,
+        &cancellation,
+        false,
         &Environment::default(),
-        previous,
-    )
-    .unwrap()
+        Some(input),
+    );
+    let outcome = match &result {
+        Ok(output) if output.success => "done".into(),
+        Ok(output) => format!("nonzero:{:?}", output.exit_code),
+        Err(failure) => failure.primary.to_owned(),
+    };
+    let detail = match &result {
+        Ok(output) => format!("stderr_tail={}", stderr_tail(&output.stderr_text())),
+        Err(failure) => format!("failure={failure:?}; stderr_tail={:?}", failure.stderr_tail),
+    };
+    let receipt = receipt.finish(
+        result.as_ref().is_ok_and(|output| output.success),
+        &outcome,
+        &detail,
+    );
+    let output = result.unwrap_or_else(|failure| panic!("{}; {failure:?}", receipt.diagnostic));
+    assert!(output.success, "{}", receipt.diagnostic);
+    assert_eq!(receipt.child_pids.len(), 1, "{}", receipt.diagnostic);
+    output
 }
 
 #[cfg(windows)]
@@ -94,27 +120,7 @@ fn blueprint_v2_runtime_stdin_exact_boundary_and_argv_separation() {
 
 #[test]
 fn blueprint_v2_runtime_oversized_stdin_delivers_explicit_marker() {
-    let dir = tempfile::tempdir().unwrap();
-    let cancellation = crate::probe::cancellation::Cancellation::default();
-    let spawned = cancellation.observe_spawned();
-    let owner = Arc::new(ProbeResourceOwner::new());
-    let deadlines = crate::probe::process::Deadlines::start(PROBE_RUNTIME, PROBE_RUNTIME).unwrap();
-    let input = file(&"x".repeat(32768)).unwrap();
-    let result = crate::probe::run_transaction(
-        READ,
-        dir.path(),
-        deadlines,
-        &owner,
-        &cancellation,
-        false,
-        &Environment::default(),
-        Some(input),
-    );
-    let pids = spawned.try_iter().collect::<Vec<_>>();
-    eprintln!("blueprint_v2_runtime_oversized_stdin_delivers_explicit_marker child_pids={pids:?}; deadline={PROBE_RUNTIME:?}");
-    let output = result.unwrap_or_else(|failure| panic!("child_pids={pids:?}; {failure:?}"));
-    assert_eq!(pids.len(), 1, "the tested child must have a PID receipt");
-    assert!(output.success);
+    let output = run(READ, &"x".repeat(32768));
     let marker = ExecutionEnvelope::decode(output.stdout_text().as_bytes()).unwrap();
     assert_eq!(marker.value["truncated"], true);
     assert_eq!(marker.value["total_bytes"], 32768);
