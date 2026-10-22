@@ -1,0 +1,127 @@
+export interface EmbedderIdentity {
+  provider: string;
+  model: string;
+  dimension: number;
+}
+
+export interface ReembedProgress {
+  state: "idle" | "running" | "completed";
+  target: EmbedderIdentity | null;
+  total: number;
+  done: number;
+  failed: number;
+}
+
+export interface EmbedderStatus extends EmbedderIdentity {
+  remote: boolean;
+  available: boolean;
+  index: EmbedderIdentity | null;
+  index_matches: boolean;
+  vectors: number;
+  pending: number;
+  reembed: ReembedProgress;
+}
+
+export interface Refusal {
+  message: string;
+  hints: string[];
+}
+
+export interface ProviderModel {
+  model: string;
+  dimension: number;
+  min_dimension: number;
+  max_tokens: number;
+  default: boolean;
+}
+
+export interface ProviderListing {
+  id: string;
+  label: string;
+  remote: boolean;
+  models: ProviderModel[];
+  active: boolean;
+  refusal: Refusal | null;
+}
+
+export interface EmbedderListing {
+  providers: ProviderListing[];
+  remote_opt_in: boolean;
+  remote_warning: string;
+  status: EmbedderStatus;
+}
+
+export interface SwitchPreview {
+  target: EmbedderIdentity;
+  remote: boolean;
+  warning: string | null;
+  plan: { items: number; entities: number; docs: number };
+  total: number;
+  refusal: Refusal | null;
+}
+
+export interface EmbedderOption {
+  value: string;
+  provider: string;
+  model: string;
+  label: string;
+  disabled: boolean;
+  reason: string | null;
+}
+
+const SEPARATOR = "\u0000";
+
+export function optionValue(provider: string, model: string): string {
+  return `${provider}${SEPARATOR}${model}`;
+}
+
+export function parseOption(value: string): { provider: string; model: string } {
+  const [provider, model = ""] = value.split(SEPARATOR);
+  return { provider, model };
+}
+
+/** One option per provider model; a remote one is disabled while its key or the opt-in is missing. */
+export function embedderOptions(listing: EmbedderListing): EmbedderOption[] {
+  return listing.providers.flatMap((provider) =>
+    provider.models.map((model) => ({
+      value: optionValue(provider.id, model.model),
+      provider: provider.id,
+      model: model.model,
+      label: `${provider.label} · ${model.model} (${model.dimension} dims)`,
+      disabled: provider.refusal !== null,
+      reason: provider.refusal?.message ?? null,
+    })),
+  );
+}
+
+export function activeOption(status: EmbedderStatus): string {
+  return optionValue(status.provider, status.model);
+}
+
+export function progressLabel(status: EmbedderStatus): string {
+  const { state, done, total, failed } = status.reembed;
+  if (state === "running") {
+    const percent = total === 0 ? 100 : Math.floor((done * 100) / total);
+    return `Re-embedding ${done} of ${total} (${percent}%)`;
+  }
+  if (state === "completed") return failed > 0 ? `Re-embedded ${done - failed} of ${total}; ${failed} failed` : `Re-embedded ${total} items`;
+  return status.index_matches ? "Index up to date" : "Index belongs to another model";
+}
+
+export function isReembedding(status: EmbedderStatus): boolean {
+  return status.reembed.state === "running";
+}
+
+export function switchSummary(preview: SwitchPreview): string {
+  const { items, entities, docs } = preview.plan;
+  return `Switching re-embeds ${preview.total} items (${items} memories, ${entities} entities, ${docs} doc sections) in the background.`;
+}
+
+/** The status an event payload carries, or null when it is not one. */
+export function statusFromEvent(payload: unknown): EmbedderStatus | null {
+  if (!payload || typeof payload !== "object") return null;
+  const candidate = payload as Partial<EmbedderStatus>;
+  return typeof candidate.provider === "string" && typeof candidate.dimension === "number" && candidate.reembed
+    ? (candidate as EmbedderStatus)
+    : null;
+}
