@@ -104,10 +104,13 @@ def main():
     parser.add_argument("--binary", required=True, type=Path)
     parser.add_argument("--cache", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     torch.set_num_threads(4)
-    results = []
+    results = json.loads(args.out.read_text())["results"] if args.resume and args.out.exists() else []
     for descriptor in MODELS:
+        if any(row["label"] == descriptor[0] and row["passed"] for row in results):
+            continue
         result = measure(args.binary.resolve(), args.cache, descriptor, args.out.parent / "oracle-refs")
         results.append(result)
         args.out.write_text(json.dumps({"command": os.sys.argv, "torch": torch.__version__, "results": results}, indent=2) + "\n")
