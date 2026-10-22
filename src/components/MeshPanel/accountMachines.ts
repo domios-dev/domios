@@ -52,6 +52,7 @@ export type MyMachinesView =
 export interface MyMachinesInput {
   account: AccountPresence;
   snapshot: AccountMeshSnapshot | null;
+  listFailure?: AccountMeshFailure | null;
   linking: ReadonlySet<string>;
   /** Epoch seconds. */
   now: number;
@@ -61,7 +62,7 @@ const NO_CONTROLS: MachineControls = { add: null, revoke: null, unpairInstanceId
 const SLOT_NOTE = "Signing out blocks Mesh on this machine but keeps its pairings and its account slot.";
 const CLEANUP_PENDING_NOTE = "Address cleanup is pending: this machine could not confirm its endpoint was withdrawn.";
 
-export function myMachinesView({ account, snapshot, linking, now }: MyMachinesInput): MyMachinesView {
+export function myMachinesView({ account, snapshot, listFailure = null, linking, now }: MyMachinesInput): MyMachinesView {
   if (account === "pending" || !snapshot) return { kind: "loading" };
   const notes = snapshot.cleanup === "pending" ? [CLEANUP_PENDING_NOTE] : [];
   if (account === "signed_out") {
@@ -99,14 +100,21 @@ export function myMachinesView({ account, snapshot, linking, now }: MyMachinesIn
     self: selfRow(snapshot),
     machines: registryRows(snapshot, pairs, linking, now, !blocked),
     saved,
-    notes: [...notes, ...registryNotes(snapshot)],
+    notes: [...notes, ...registryNotes(snapshot, listFailure)],
   };
 }
 
-function registryNotes(snapshot: AccountMeshSnapshot): string[] {
-  if (!snapshot.registry_failure) return [];
-  const message = failureMessage(snapshot.registry_failure);
-  return [snapshot.registry ? `Showing the last account list. ${message}` : `Your account's machines could not be listed. ${message}`];
+function registryNotes(snapshot: AccountMeshSnapshot, listFailure: AccountMeshFailure | null): string[] {
+  const notes: string[] = [];
+  if (snapshot.enrollment === "refused" && snapshot.last_refusal) {
+    notes.push(`Account enrollment was refused. ${failureMessage(snapshot.last_refusal)}`);
+  }
+  const failure = listFailure ?? snapshot.registry_failure;
+  if (failure) {
+    const message = failureMessage(failure);
+    notes.push(snapshot.registry ? `Showing the last account list. ${message}` : `Your account's machines could not be listed. ${message}`);
+  }
+  return notes;
 }
 
 function selfRow(snapshot: AccountMeshSnapshot): SelfRowView | null {
