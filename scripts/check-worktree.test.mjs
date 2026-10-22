@@ -238,6 +238,50 @@ test('gc removes only owned broken/pending leftovers and preserves active and fo
   } finally { fs.rmSync(f.directory, { recursive: true, force: true }); }
 });
 
+test('a gateway through a linked ancestor prepares and collects while in-tree links are refused', async () => {
+  const f = fixture();
+  try {
+    const home = path.join(f.directory, 'home');
+    const alias = path.join(f.directory, 'linked-home');
+    const physicalGateway = path.join(home, 'gateway');
+    fs.mkdirSync(home);
+    fs.renameSync(f.gateway, physicalGateway);
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+    fs.symlinkSync(home, alias, linkType);
+    const gateway = path.join(alias, 'gateway');
+    const current = await prepareCheckWorktree({ ...f, gateway, jobId: 'live' });
+    assert.equal(current, path.join(checkWorktreeRoot(f.repository, fs.realpathSync(physicalGateway)), 'check-worktree'));
+    verifyCheckWorktree(current, f.sha, f.git('rev-parse', `${f.sha}^{tree}`));
+    const pending = path.join(path.dirname(current), 'check-worktree.pending-stale');
+    f.git('worktree', 'add', '--quiet', '--detach', pending, f.sha);
+    assert.deepEqual(collectCheckWorktrees(f.repository, gateway, { log: () => {} }), [pending]);
+    assert.equal(fs.existsSync(pending), false);
+    assert.equal(registeredWorktree(f.repository, pending), false);
+    assert.equal(registeredWorktree(f.repository, current), true);
+
+    const namespace = path.join(physicalGateway, 'check-worktrees');
+    const saved = path.join(f.directory, 'saved-namespace');
+    fs.renameSync(namespace, saved);
+    fs.symlinkSync(saved, namespace, linkType);
+    await assert.rejects(prepareCheckWorktree({ ...f, gateway, jobId: 'linked' }), /Unsafe check-worktree link/);
+    assert.throws(() => collectCheckWorktrees(f.repository, gateway), /Unsafe check-worktree link/);
+    fs.unlinkSync(namespace);
+    fs.renameSync(saved, namespace);
+
+    for (const entry of ['check-worktree.pending-linked', 'check-worktree.previous-linked',
+      'check-worktree-publication.json', 'check-worktree-publication.json.linked']) {
+      const linked = path.join(path.dirname(current), entry);
+      fs.symlinkSync(path.join(f.directory, 'missing'), linked, linkType);
+      await assert.rejects(prepareCheckWorktree({ ...f, gateway, jobId: 'linked' }), /Unsafe check-worktree link/);
+      if (entry === 'check-worktree.pending-linked' || entry === 'check-worktree-publication.json') {
+        assert.throws(() => collectCheckWorktrees(f.repository, gateway), /Unsafe check-worktree link/);
+      }
+      fs.unlinkSync(linked);
+    }
+    verifyCheckWorktree(current, f.sha, f.git('rev-parse', `${f.sha}^{tree}`));
+  } finally { fs.rmSync(f.directory, { recursive: true, force: true }); }
+});
+
 test('gc preserves interrupted publications and refuses linked candidate directories', async () => {
   const f = fixture();
   try {

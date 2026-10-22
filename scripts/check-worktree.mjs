@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { checkWorktreeRoot, git, noLinkedAncestors, registeredWorktree } from './check-worktree-paths.mjs';
+import { checkWorktreeRoot, git, noLinkedPath, registeredWorktree } from './check-worktree-paths.mjs';
 export { registeredWorktree } from './check-worktree-paths.mjs';
 
 export function verifyCheckWorktree(directory, sha, expectedTree) {
@@ -57,19 +57,25 @@ export function carryUnchangedMtimes(repository, from, to, sha) {
 
 export async function prepareCheckWorktree({ repository, gateway, sha, jobId, beforePublish = async () => {} }) {
   if (!/^[a-zA-Z0-9-]+$/.test(jobId)) throw new Error('Invalid check-worktree job identity');
-  gateway = checkWorktreeRoot(repository, gateway);
-  noLinkedAncestors(gateway);
+  const root = fs.realpathSync(gateway);
+  gateway = checkWorktreeRoot(repository, root);
+  noLinkedPath(root, gateway);
   fs.mkdirSync(gateway, { recursive: true });
   const current = path.join(gateway, 'check-worktree');
   const staging = path.join(gateway, `check-worktree.pending-${jobId}`);
   const previous = path.join(gateway, `check-worktree.previous-${jobId}`);
   const journal = path.join(gateway, 'check-worktree-publication.json');
+  const temporaryJournal = `${journal}.${jobId}`;
+  const checkPaths = () => {
+    for (const directory of [current, staging, previous, journal, temporaryJournal]) noLinkedPath(root, directory);
+  };
+  checkPaths();
   const owned = name => {
     const resolved = path.resolve(name);
     if (path.dirname(resolved) !== gateway || !/^check-worktree\.(pending|previous)-[a-zA-Z0-9-]+$/.test(path.basename(resolved))) {
       throw new Error('Refusing check-worktree publication path outside gateway');
     }
-    noLinkedAncestors(resolved);
+    noLinkedPath(root, resolved);
     return resolved;
   };
   const move = (from, to) => git(repository, ['worktree', 'move', from, to]);
@@ -111,8 +117,8 @@ export async function prepareCheckWorktree({ repository, gateway, sha, jobId, be
   verifyCheckWorktree(staging, sha, expectedTree);
   if (fs.existsSync(path.join(current, '.git'))) carryUnchangedMtimes(repository, current, staging, sha);
   await beforePublish(staging);
+  checkPaths();
   verifyCheckWorktree(staging, sha, expectedTree);
-  const temporaryJournal = `${journal}.${jobId}`;
   fs.writeFileSync(temporaryJournal, JSON.stringify({ staging, previous, sha, expectedTree }));
   fs.renameSync(temporaryJournal, journal);
   try {
