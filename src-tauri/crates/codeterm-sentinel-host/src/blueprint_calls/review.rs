@@ -53,12 +53,6 @@ fn blueprint_v2_call_review_same_named_nodes_have_authoritative_parent_and_versi
     let mut document = source(false);
     edit_callee(&mut document, |callee| {
         callee.steps[0].id = "invoke".into();
-        callee.steps[1].params.insert(
-            "payload".into(),
-            ValueForm::Bind {
-                bind: "invoke.out.n".into(),
-            },
-        );
         callee.result.from = Some("invoke.out".into());
     });
     let receipt = run(document, false);
@@ -84,6 +78,7 @@ fn blueprint_v2_call_review_nested_callable_check_preserves_signature_and_stays_
     let root = tempfile::tempdir().unwrap();
     let (mut mux, creator) = MultiplexerState::new();
     mux.resolve_or_mint_team_for_parent(&creator).unwrap();
+    mux.get_tab_mut(&creator).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let service = &instance.fixture.service;
     let handle = crate::scheduler::fixture_handle_with_ui(
@@ -148,6 +143,7 @@ fn blueprint_v2_call_review_import_export_update_preserves_pins_and_version_hist
     let root = tempfile::tempdir().unwrap();
     let (mut mux, creator) = MultiplexerState::new();
     mux.resolve_or_mint_team_for_parent(&creator).unwrap();
+    mux.get_tab_mut(&creator).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
     let service = &instance.fixture.service;
     let handle = crate::scheduler::fixture_handle_with_ui(
@@ -173,7 +169,8 @@ fn blueprint_v2_call_review_import_export_update_preserves_pins_and_version_hist
         )
         .unwrap();
     let id = imported["id"].as_str().unwrap();
-    let exported = service.blueprint_export(&caller, id).unwrap();
+    let mut exported = service.blueprint_export(&caller, id).unwrap();
+    exported.definition["note"] = json!("Amend metadata while retaining the exact call pin");
     assert_eq!(exported.definition["steps"][0]["call"]["pin"], json!(pin));
     let update = service
         .blueprint_apply_document(

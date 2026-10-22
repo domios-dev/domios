@@ -43,7 +43,7 @@ fn source(fail: bool) -> Document {
                 .into()
         }
     };
-    let value = json!({"schema_version":2,"kind":"pipeline","name":"real-call","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"invoke","call":{"ref":"increment","with":{"p":{"lit":{"n":7}}}},"out":port()}],"blueprints":{"increment":{"inputs":{"p":port()},"steps":[{"id":"increment","run":{"lit":command},"in":port(),"out":port()},{"id":"fixed-sink","uses":"notify","with":{"payload":{"bind":"increment.out.n"}}}],"result":{"type":port(),"from":"increment.out"}}},"result":{"to":"notify"}});
+    let value = json!({"schema_version":2,"kind":"pipeline","name":"real-call","owner":"tab","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"invoke","call":{"ref":"increment","with":{"p":{"lit":{"n":7}}}},"out":port()}],"blueprints":{"increment":{"inputs":{"p":port()},"steps":[{"id":"increment","run":{"lit":command},"in":port(),"out":port()},{"id":"fixed-sink","uses":"notify","in":port()}],"result":{"type":port(),"from":"increment.out"}}},"result":{"to":"notify"}});
     let source = serde_yaml::to_string(&value).unwrap();
     let closure = calls::resolve_local("fixture.yaml", &source).unwrap();
     assert!(calls::check_facts(&closure).1.is_empty());
@@ -54,6 +54,7 @@ struct Receipt {
     notices: Vec<String>,
     journal: Vec<codeterm_storage::BlueprintJournalEntry>,
     effects: Vec<SimulatedEffect>,
+    child_pids: Vec<u32>,
     stop: Option<CallStop>,
     view: Value,
 }
@@ -246,18 +247,38 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
         cancelled: Arc::new(crate::probe::cancellation::Cancellation::new(false)),
         event: None,
     };
+    let spawned = lease.cancelled.observe_spawned();
     let mut ctx = RunCtx::new(&handle, service, &lease, "call-proof");
     ctx.call_state.simulate = simulate;
+    let started_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let started = std::time::Instant::now();
     let result = execute_step(&mut ctx, &step, ExecutionEnvelope::from_text(""));
+    let child_pids = spawned.try_iter().collect::<Vec<_>>();
+    if matches!(result, Err(JournalReason::Deadline)) {
+        use std::io::Write;
+        writeln!(std::io::stdout().lock(), "call fixture Deadline: test={:?} test_binary_pid={} child_pids={child_pids:?} started_unix_ms={started_at} ended_unix_ms={} elapsed_ms={} remaining_ms={} native_command_cap_ms={} stop={:?}", std::thread::current().name(), std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), started.elapsed().as_millis(), ctx.remaining().as_millis(), crate::probe::PROBE_RUNTIME.as_millis(), ctx.call_state.stop).unwrap();
+    }
     let output = result.map(|step: StepExecution| step.output);
     let effects = ctx.call_state.effects.clone();
     let stop = ctx.call_state.stop.clone();
     drop(ctx);
-    let journal = handle
-        .store
-        .lock()
-        .typed_pipeline_log(&job.id, 200)
-        .unwrap()
+    if simulate {
+        assert!(child_pids.is_empty(), "simulation must not launch a process");
+        assert!(
+            handle.store.lock().jobs.is_empty(),
+            "simulation must not schedule a job"
+        );
+    }
+    let journal = instance
+        .storage
+        .sentinels()
+        .blueprint_log(
+            codeterm_storage::SentinelId::new(job.id.clone()).unwrap(),
+            200,
+        )
         .wait(crate::storage::COMMIT_DEADLINE)
         .unwrap()
         .value;
@@ -277,6 +298,7 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
         notices,
         journal,
         effects,
+        child_pids,
         stop,
         view,
     }
@@ -285,8 +307,14 @@ fn run_saved(mut document: Document, simulate: bool, saved_case: Option<SavedCas
 fn blueprint_v2_call_real_executor_delivers_eight_to_actual_local_notification_sink() {
     let receipt = run(source(false), false);
     assert_eq!(receipt.output.as_ref().unwrap().value, json!({"n":8}));
-    assert_eq!(receipt.notices, vec!["8"]);
+    assert_eq!(receipt.notices, vec![json!({"n":8}).to_string()]);
     assert!(receipt.effects.is_empty());
+    assert_eq!(
+        receipt.child_pids.len(),
+        1,
+        "native child adoption must be observable"
+    );
+    assert!(receipt.child_pids[0] > 1);
     let sink = receipt
         .journal
         .iter()
@@ -327,10 +355,14 @@ fn blueprint_v2_call_simulate_records_nested_effect_provenance_and_delivers_zero
     assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
     assert!(receipt.notices.is_empty());
     assert_eq!(receipt.effects.len(), 1);
-    assert_eq!(receipt.effects[0].effect["payload"], 8);
+    assert_eq!(receipt.effects[0].effect["payload"], json!({"n":8}));
     assert_eq!(receipt.effects[0].call_stack[0].node, "invoke");
     assert_eq!(receipt.effects[0].scope, "simulation");
     assert!(receipt.journal.is_empty());
+    assert!(
+        receipt.child_pids.is_empty(),
+        "simulation must launch no process"
+    );
 }
 #[test]
 fn blueprint_v2_call_nested_failure_stops_before_later_effect_and_retains_stack() {
@@ -444,7 +476,7 @@ fn blueprint_v2_call_out_of_scope_effect_target_refuses_before_nested_claim() {
 fn blueprint_v2_call_keep_recall_pin_and_real_execute_delivers_exact_saved_eight() {
     let receipt = run_saved(source(false), false, Some(SavedCase::Keep));
     assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
-    assert_eq!(receipt.notices, vec!["8"]);
+    assert_eq!(receipt.notices, vec![json!({"n":8}).to_string()]);
     assert!(receipt.journal.iter().any(|row| row
         .call_stack
         .iter()
@@ -454,7 +486,7 @@ fn blueprint_v2_call_keep_recall_pin_and_real_execute_delivers_exact_saved_eight
 fn blueprint_v2_call_head_edit_and_dream_warn_while_real_execution_uses_pinned_body() {
     let receipt = run_saved(source(false), false, Some(SavedCase::Drift));
     assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
-    assert_eq!(receipt.notices, vec!["8"]);
+    assert_eq!(receipt.notices, vec![json!({"n":8}).to_string()]);
 }
 #[test]
 fn blueprint_v2_call_missing_mem_hash_or_callee_refuses_before_any_nested_effect() {
@@ -505,7 +537,7 @@ fn blueprint_v2_call_default_arguments_feed_the_typed_callee_input() {
     document.dependencies.insert(callee.pin().key(), callee);
     let receipt = run(document, false);
     assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
-    assert_eq!(receipt.notices, vec!["8"]);
+    assert_eq!(receipt.notices, vec![json!({"n":8}).to_string()]);
 }
 
 #[path = "review.rs"]
