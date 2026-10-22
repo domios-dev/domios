@@ -356,42 +356,22 @@ Quit the exact local application after successful server cleanup and observed ex
 
 Cheap hash-gated watchers with closed-set routes
 
-#### `codeterm blueprint create`
+#### `codeterm blueprint apply`
 
-Classify a bounded probe or same-Team agent observation
+Create or update a YAML file or recipe by name in the caller's Team
 
-- `--buckets`
-- `--convert-timeout` — Bound the one-time conversion, in the --every duration syntax
-- `--convert-to` — Convert the input to another kind once: text|audio
-- `--dry-run` — Validate and print the resulting graph without creating it
-- `--escalation-timeout-ms` — Bound how long an `other` escalation may hold this stage, in milliseconds
-- `--every` — Owner-requested cadence (minimum 10s, default 20s)
-- `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
-- `--input` — Watch data instead of a probe or observation: text|audio|video|image
-- `--input-file` — Absolute or caller-cwd-relative path of the input data file
-- `--input-text` — Inline input text (only for --input text)
-- `--input-url` — http or https URL of the input data
-- `--match` — Deterministic classification: unmatched output never calls the model; bucket=regex
-- `--max-actions` — Finite action-attempt budget (maximum 1024)
-- `--max-transitions` — Finite accepted transition budget (maximum 256)
-- `--model-classification` — Opt in to Supporter model classification when no patterns are declared
-- `--name` — Short meaningful name describing what is watched and what happens
-- `--note` — Plain-text Blueprint note, at most 200 characters
-- `--observe` — Observe a same-Team tab or cron run; shells require terminal-pattern or output-settled
-- `--output-settled` — Fire when terminal output settles for this many milliseconds (10..60000)
-- `--owner` — Assign the pipeline to its creator tab or Team
-- `--paused` — Create a dormant downstream stage; its lifetime starts now
-- `--probe`
-- `--question`
-- `--rearm-on-change` — Route again when this bucket's output changes without changing buckets
-- `--recipe` — Create from a named pipeline recipe
-- `--route` — Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
-- `--session` — Keep exchanges outside transition/action budgets; stop at 16384 exchanges or 120/minute
-- `--set` — Replace recipe placeholders with key=value pairs
-- `--spec` — JSON or YAML pipeline specification, or `-` to read standard input
-- `--terminal-pattern` — Fire with the new terminal output delta when this regex matches
-- `--timeout` — End the blueprint after this duration
-- `--until` — Stop after this bucket's first confident transition
+- `--dry-run`
+- `--like` — Offer proven graphs matching this intent before authoring
+- `--note`
+- `--set`
+- `<source>`
+
+#### `codeterm blueprint check`
+
+Validate a YAML file or built-in recipe without a daemon
+
+- `--set`
+- `<source>`
 
 #### `codeterm blueprint delete`
 
@@ -442,6 +422,13 @@ Deliver a text body to a running text input stage
 - `<id>`
 - `--text-file` — Read a UTF-8 body from a file
 
+#### `codeterm blueprint keep`
+
+Keep a generalised solution (Team Orchestrator only)
+
+- `<id>`
+- `--when`
+
 #### `codeterm blueprint list`
 
 List blueprints scoped to the calling tab and its Team
@@ -453,6 +440,13 @@ List bounded run journal entries, newest first
 - `<id>`
 - `--limit`
 
+#### `codeterm blueprint new`
+
+Print a commented YAML scaffold from a recipe or node kind
+
+- `<kind>`
+- `--like` — Offer proven graphs matching this intent before authoring
+
 #### `codeterm blueprint nodes`
 
 List trigger, step, converter and event-source capabilities
@@ -462,6 +456,10 @@ List trigger, step, converter and event-source capabilities
 List built-in graph skeletons or print one ready-to-edit recipe
 
 - `<name>`
+
+#### `codeterm blueprint schema`
+
+Print the authoring JSON Schema for editors and agents
 
 #### `codeterm blueprint show`
 
@@ -680,6 +678,17 @@ List cron jobs
 Manually trigger a cron job now
 
 - `<id>` — Cron job ID
+
+#### `codeterm curator`
+
+Finish the current Team Curator round
+
+#### `codeterm curator finish`
+
+Validate the retro, record this round and choose the next cadence
+
+- `--from-pad`
+- `--next`
 
 #### `codeterm delayed`
 
@@ -1875,6 +1884,26 @@ Claim an unowned plan
 
 - `<plan_id>`
 
+#### `codeterm plan control-loop`
+
+Inspect or set a plan's control loop
+
+#### `codeterm plan control-loop run`
+
+Request one Curator round now, subject to the plan and human-wait gates
+
+- `<plan_id>`
+
+#### `codeterm plan control-loop set`
+
+- `--interval`
+- `<mode>`
+- `<plan_id>`
+
+#### `codeterm plan control-loop show`
+
+- `<plan_id>`
+
 #### `codeterm plan coverage`
 
 Show section coverage (% + gaps)
@@ -1891,6 +1920,18 @@ Create a new plan
 - `--spec`
 - `--spec-file`
 - `--title`
+
+#### `codeterm plan curator`
+
+Grant bounded authority to the active Curator round
+
+#### `codeterm plan curator grant`
+
+- `--blueprint`
+- `<curator_tab>`
+- `--plan-skill`
+- `<plan_id>`
+- `--save`
 
 #### `codeterm plan decision`
 
