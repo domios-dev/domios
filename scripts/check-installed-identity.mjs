@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const nativeIdentity = [
-  'src-tauri/build.rs', 'src-tauri/Info.plist', 'src-tauri/src/deep_links.rs', 'src-tauri/src/deep_links/macos.rs',
+  'cli/src/cmd/install.rs', 'cli/src/cmd/system.rs', 'src-tauri/build.rs', 'src-tauri/Info.plist', 'src-tauri/src/deep_links.rs', 'src-tauri/src/deep_links/macos.rs',
   'src-tauri/src/startup/desktop_lifecycle/model.rs',
   'src-tauri/crates/codeterm-process-identity/src/client_identity.rs',
   'src-tauri/crates/codeterm-types/src/native_update.rs',

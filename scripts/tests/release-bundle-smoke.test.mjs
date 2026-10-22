@@ -2,13 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertMachine, machine, checkContents, packagedExecutables, canExecuteTarget } from '../release-bundle-smoke.mjs';
 
-test('package selection separates domios native client from codeterm CLI on every platform', () => {
+test('package selection separates the Domios GUI from both CLI commands on every platform', () => {
   for (const [app, cli, server] of [
-    ['/usr/bin/domios', '/usr/lib/Domios/cli/codeterm', '/usr/lib/Domios/domios-server/domios-server'],
-    ['C:\\package\\domios.exe', 'C:\\package\\cli\\codeterm.exe', 'C:\\package\\domios-server\\domios-server.exe'],
-    ['/Domios.app/Contents/MacOS/domios', '/Domios.app/Contents/Resources/cli/codeterm', '/Domios.app/Contents/MacOS/domios-server'],
+    ['/usr/bin/domios-app', '/usr/lib/Domios/cli/codeterm', '/usr/lib/Domios/domios-server/domios-server'],
+    ['C:\\package\\domios-app.exe', 'C:\\package\\cli\\codeterm.exe', 'C:\\package\\domios-server\\domios-server.exe'],
+    ['/Domios.app/Contents/MacOS/domios-app', '/Domios.app/Contents/Resources/cli/codeterm', '/Domios.app/Contents/MacOS/domios-server'],
   ]) {
     assert.deepEqual(packagedExecutables([app, cli, server]), { app, cli, server });
+    const cliCommands = app.startsWith('/usr/bin/') ? ['/usr/bin/domios', '/usr/bin/codeterm'] : [];
+    assert.deepEqual(packagedExecutables([app, cli, server, ...cliCommands]), { app, cli, server });
     assert.throws(() => packagedExecutables([cli, server]), /app executable, found 0/);
     assert.throws(() => packagedExecutables([app, cli, app, server]), /app executable, found 2/);
     assert.throws(() => packagedExecutables([app, cli]), /packaged server, found 0/);

@@ -181,7 +181,7 @@ fn install_receipt(request: &NativeUpdateRequest) -> NativeUpdateInstallReceipt 
         client_process: ProcessProvenance {
             pid: 72,
             created: "start-72".into(),
-            executable: PathBuf::from("C:/Domios/domios.exe"),
+            executable: PathBuf::from("C:/Domios/domios-app.exe"),
         },
     }
 }
@@ -238,7 +238,7 @@ impl FakeExecutor {
             client_process: ProcessProvenance {
                 pid: 72,
                 created: "start-72".into(),
-                executable: PathBuf::from("C:/Domios/domios.exe"),
+                executable: PathBuf::from("C:/Domios/domios-app.exe"),
             },
         };
         Self {

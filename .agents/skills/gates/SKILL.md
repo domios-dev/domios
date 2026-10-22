@@ -261,5 +261,5 @@ For bundle, installer or release-asset identity changes, include
 These cover product/identifier/DEV names, installer-facing legacy-name rejection,
 new updater namespace and non-installable old manifests. Run the changed release
 script tests too. Native package extraction, signing, both CLI resource digests,
-OS registration and the manual old-app removal require release CI and owner
+system CLI ownership, OS registration and the manual old-app removal require release CI and owner
 installation on Windows, macOS and Linux; source assertions do not prove them.

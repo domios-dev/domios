@@ -772,8 +772,8 @@ The repair is never automatic. Run it yourself, once:
 
 ```powershell
 $exe = @(
-  "$env:LOCALAPPDATA\Domios\domios.exe",
-  "$env:ProgramFiles\Domios\domios.exe"
+  "$env:LOCALAPPDATA\Domios\domios-app.exe",
+  "$env:ProgramFiles\Domios\domios-app.exe"
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 & $exe repair-user-path
 Get-Content "$env:TEMP\codeterm-user-path-repair.txt"
@@ -943,7 +943,7 @@ codeterm tab new --team <team-id> --purpose dev --cmd "Set-Location '<checkout>'
 
 Keep that Tab open and require all of the following before reporting ready:
 
-- port 7686 is owned by the checkout's staged `target\debug\domios-dev.exe`;
+- port 7686 is owned by the checkout's staged `target\debug\domios-dev-app.exe`;
 - `/api/health` reports `status=ok`, the exact checkout `build_sha`, API 7686,
   Vite 1420, CDP 9223, and identifier `com.domios.dev`;
 - the Domios process has a responsive, nonzero `MainWindowHandle`;
@@ -1600,17 +1600,16 @@ concurrent lane requests; matching metadata hashes alone do not explain a rebuil
 
 ### Installed identity and CLI aliases
 
-Production packages are Domios (`com.domios.app`, native binary `domios`);
-DEV is Domios Dev (`com.domios.dev`, native binary `domios-dev`). Keep DEV
-staged executable and provenance fixtures aligned with `mainBinaryName`.
-Raw Cargo client artifacts and PDBs retain the internal `codeterm` target name;
-DEV staging copies the client to `domios-dev[.exe]` and records those final bytes.
-The separate CLI artifact retains its internal `codeterm` resource name;
-release staging includes `cli/domios[.exe]` from identical signed bytes too.
-First launch refreshes `~/.domios/bin/codeterm[.exe]` and its `domios[.exe]`
-alias, then registers that directory on user PATH. Unix appends an idempotent
-PATH entry to `.profile`, `.bashrc`, `.zshenv` and existing Bash login profiles,
-plus a Fish `conf.d/domios.fish` entry. It also repairs both
-`~/.local/bin` links. `/usr/bin/domios` remains the native GUI; user CLI PATH
-must precede it. Do not rename the CLI Cargo target as part of GUI packaging.
-See the release skill for the required manual move from the former app.
+Production packages are Domios (`com.domios.app`, GUI `domios-app[.exe]`);
+DEV is Domios Dev (`com.domios.dev`, GUI `domios-dev-app[.exe]`). The CLI owns
+`domios`, with `codeterm` as an alias. Keep staged executable/provenance paths
+aligned with `mainBinaryName`. Raw Cargo client artifacts and PDBs retain the
+internal `codeterm` target name; staging records final renamed client bytes.
+Release staging includes both `cli/domios[.exe]` and `cli/codeterm[.exe]` from
+identical signed bytes. Deb/RPM file maps install the same CLI bytes at
+`/usr/bin/domios` and `/usr/bin/codeterm`; the GUI stays `/usr/bin/domios-app`.
+First launch repairs both user CLI names under `~/.domios/bin`, plus the
+`~/.local/bin` links on Unix and the user PATH entry on Windows. macOS and
+AppImage keep that link mechanism; the user controls their shell PATH.
+Never edit shell dotfiles to install CLI commands. See the release skill for
+the required manual move from the former app.

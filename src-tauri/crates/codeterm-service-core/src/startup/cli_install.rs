@@ -1,8 +1,5 @@
 //! Install bundled CLI binary to the active data-dir bin/ + prod PATH integration.
 
-#[cfg(unix)]
-mod unix_path;
-
 /// Compute hex-encoded sha256 of a file. Returns `None` on I/O error.
 pub(crate) fn file_sha256(path: &std::path::Path) -> Option<String> {
     use sha2::{Digest, Sha256};
@@ -245,7 +242,6 @@ pub(crate) fn refresh_installed_cli_with(
                     }
                 }
             }
-            unix_path::install(home)?;
         }
     }
     if is_prod_dest {

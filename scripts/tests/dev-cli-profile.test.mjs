@@ -121,8 +121,8 @@ printf '%s\\n' "$(dev_built_app_path)" "$(dev_app_path)" "$(dev_resource_dir)"
       assert.equal(result.status, 0, result.stderr);
       const directory = `cache root/${target ? target + '/' : ''}debug`;
       assert.deepEqual(result.stdout.trim().split(/\r?\n/), platform === 'msys'
-        ? [`${directory}/codeterm.exe`, `${directory}/domios-dev.exe`, directory]
-        : [`${directory}/codeterm`, `${directory}/.domios-dev-runtime/bin/domios-dev`, `${directory}/.domios-dev-runtime/lib/codeterm`]);
+        ? [`${directory}/codeterm.exe`, `${directory}/domios-dev-app.exe`, directory]
+        : [`${directory}/codeterm`, `${directory}/.domios-dev-runtime/bin/domios-dev-app`, `${directory}/.domios-dev-runtime/lib/codeterm`]);
     });
   }
 }

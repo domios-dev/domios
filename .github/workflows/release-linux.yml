@@ -214,7 +214,7 @@ jobs:
           node scripts/release-stage.mjs stage-full --target "$TARGET" --source-sha "$SOURCE_SHA" \
             --cargo-log "release-artifacts/build-logs/$TARGET/server.jsonl" \
             --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" \
-            --client-file "src-tauri/target/$TARGET/release/domios"
+            --client-file "src-tauri/target/$TARGET/release/domios-app"
           pnpm tauri bundle --no-binary-patching --target "$TARGET" --bundles deb,appimage
 
       - name: Produce shared headless stage and package
