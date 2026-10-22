@@ -135,7 +135,7 @@ pub fn foreign_profile_error(dir: &Path, detail: &str) -> String {
     .any(|marker| detail.contains(marker))
     {
         format!(
-            "profile {} is already in use by a browser process CodeTerm does not own: {detail}",
+            "profile {} is already in use by a browser process Domios does not own: {detail}",
             dir.display()
         )
     } else {
@@ -236,7 +236,7 @@ mod tests {
         let dir = Path::new("/profiles/work");
         let error = foreign_profile_error(dir, "ProcessSingleton: failed to create SingletonLock");
         assert!(error.contains(&dir.display().to_string()));
-        assert!(error.contains("CodeTerm does not own"));
+        assert!(error.contains("Domios does not own"));
         assert_eq!(
             foreign_profile_error(dir, "binary missing"),
             "binary missing"

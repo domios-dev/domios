@@ -4,7 +4,7 @@ use codeterm_util::user_path::{
 
 const REPAIR_ARG: &str = "repair-user-path";
 
-/// `CodeTerm repair-user-path` — never automatic, never part of startup. The
+/// `Domios repair-user-path` — never automatic, never part of startup. The
 /// GUI binary has no console on Windows, so the report is also written to a
 /// file whose path the caller is told.
 pub(crate) fn run_user_path_repair_if_invoked() {

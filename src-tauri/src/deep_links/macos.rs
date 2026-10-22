@@ -52,7 +52,7 @@ pub fn repair_registration() -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("Launch Services registration failed ({status})").into());
     }
     let scheme = CFString::new("domios");
-    let identifier = CFString::new("com.codeterm.app");
+    let identifier = CFString::new("com.domios.app");
     let status = unsafe {
         LSSetDefaultHandlerForURLScheme(
             scheme.as_concrete_TypeRef(),

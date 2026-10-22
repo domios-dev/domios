@@ -114,13 +114,13 @@ jobs:
         run: |
           tag="${{ steps.tag.outputs.name }}"
           if [[ "$tag" == *-rc* ]]; then
-            echo "manifest=latest-rc.json" >> "$GITHUB_OUTPUT"
+            echo "manifest=domios-latest-rc.json" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           elif [[ "$tag" == *-nightly* ]]; then
-            echo "manifest=latest-nightly.json" >> "$GITHUB_OUTPUT"
+            echo "manifest=domios-latest-nightly.json" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
+            echo "manifest=domios-latest.json" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -281,14 +281,14 @@ jobs:
           if ! gh release view "$TAG" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
             extra=""
             [ "$PRERELEASE" = "true" ] && extra="--prerelease"
-            gh release create "$TAG" --repo "$SOURCE_REPO" --draft $extra               --title "CodeTerm $TAG"               --notes "See the assets to download this version and install. Auto-update users will be offered this build via the configured channel."
+            gh release create "$TAG" --repo "$SOURCE_REPO" --draft $extra               --title "Domios $TAG"               --notes "See the assets to download this version and install. Auto-update users will be offered this build via the configured channel."
           fi
 
           node scripts/release-upload-assets.mjs "$SOURCE_REPO" "$TAG" "$DEB" "$APPIMAGE"
 
       # Publish the linux-x86_64 updater fragment from the AppImage. The .sig is
       # read for its signature string but NOT uploaded (the updater reads the
-      # signature from latest.json, never the .sig asset).
+      # signature from domios-latest.json, never the .sig asset).
       - name: Publish AppImage updater fragment
         if: ${{ !(github.event_name == 'workflow_dispatch' && github.workflow == 'Release Linux x86_64 platform') && !inputs.dry_run }}
         env:

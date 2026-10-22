@@ -35,13 +35,13 @@ pub fn validate_macos_requirement(
     identifier: &str,
 ) -> io::Result<()> {
     let expected = format!(
-        r#"anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "{team_id}""#
+        r#"anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "{team_id}""#
     );
     if team_id.len() != 10
         || !team_id
             .bytes()
             .all(|value| value.is_ascii_uppercase() || value.is_ascii_digit())
-        || identifier != "com.codeterm.app"
+        || identifier != "com.domios.app"
         || requirement != expected
     {
         return Err(io::Error::new(
@@ -58,7 +58,7 @@ pub fn macos_app_from_resources(resources: &Path) -> io::Result<PathBuf> {
     let app = contents.parent().ok_or_else(invalid_bundle)?;
     if resources.file_name().is_none_or(|name| name != "Resources")
         || contents.file_name().is_none_or(|name| name != "Contents")
-        || app.file_name().is_none_or(|name| name != "CodeTerm.app")
+        || app.file_name().is_none_or(|name| name != "Domios.app")
     {
         return Err(invalid_bundle());
     }
@@ -135,8 +135,8 @@ mod tests {
             sha256: "a".repeat(64),
         };
         let signed = ClientIdentity::MacosDesignatedRequirement {
-            requirement: r#"anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "ABCDE12345""#.into(),
-            team_id: "ABCDE12345".into(), identifier: "com.codeterm.app".into(),
+            requirement: r#"anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "ABCDE12345""#.into(),
+            team_id: "ABCDE12345".into(), identifier: "com.domios.app".into(),
         };
         assert_eq!(
             validate_client_identity(&raw).is_ok(),
@@ -153,22 +153,22 @@ mod tests {
     }
     #[test]
     fn macos_requirement_rejects_weak_or_injected_identity() {
-        let requirement = r#"anchor apple generic and identifier "com.codeterm.app" and certificate leaf[subject.OU] = "ABCDE12345""#;
-        assert!(validate_macos_requirement(requirement, "ABCDE12345", "com.codeterm.app").is_ok());
+        let requirement = r#"anchor apple generic and identifier "com.domios.app" and certificate leaf[subject.OU] = "ABCDE12345""#;
+        assert!(validate_macos_requirement(requirement, "ABCDE12345", "com.domios.app").is_ok());
         for invalid in [
-            r#"identifier "com.codeterm.app""#,
+            r#"identifier "com.domios.app""#,
             "anchor apple generic",
             "true",
         ] {
-            assert!(validate_macos_requirement(invalid, "ABCDE12345", "com.codeterm.app").is_err());
+            assert!(validate_macos_requirement(invalid, "ABCDE12345", "com.domios.app").is_err());
         }
         assert!(validate_macos_requirement(
             &format!("{requirement} or true"),
             "ABCDE12345",
-            "com.codeterm.app"
+            "com.domios.app"
         )
         .is_err());
-        assert!(validate_macos_requirement(requirement, "ZZZZZ12345", "com.codeterm.app").is_err());
+        assert!(validate_macos_requirement(requirement, "ZZZZZ12345", "com.domios.app").is_err());
         assert!(validate_macos_requirement(requirement, "ABCDE12345", "com.other.app").is_err());
     }
 }

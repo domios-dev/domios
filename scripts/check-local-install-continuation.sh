@@ -28,7 +28,7 @@ default_output="$(
 )"
 grep -Fqx "enabled=1" <<< "$default_output"
 grep -Fqx "tab=tab-default" <<< "$default_output"
-grep -Fqx "prompt=Local CodeTerm install completed for build $sha. Verify the production health endpoint reports this SHA, then continue the work that requested the reinstall." <<< "$default_output"
+grep -Fqx "prompt=Local Domios install completed for build $sha. Verify the production health endpoint reports this SHA, then continue the work that requested the reinstall." <<< "$default_output"
 
 custom_output="$(
   isolated_build CODETERM_TEST_PRINT_LOCAL_INSTALL_CONTINUATION=1 \

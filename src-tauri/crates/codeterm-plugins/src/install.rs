@@ -169,7 +169,7 @@ fn refresh_channel_for_install(channel: &str, warnings: &mut Vec<String>) -> boo
 fn install_message(base: &str, id: &str, reload_required: bool) -> String {
     let mut msg = base.to_string();
     if reload_required {
-        msg.push_str(" — reload CodeTerm to activate");
+        msg.push_str(" — reload Domios to activate");
     }
     msg.push_str(&format!(
         ". To configure it: run `codeterm plugin get {id}` to see options, \

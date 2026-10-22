@@ -38,11 +38,11 @@ if [ "$ARCH" = "arm64" ]; then
     --tree-log release-artifacts/build-logs/aarch64-apple-darwin/closure.txt \
     --client-file src-tauri/target/release/domios
   node scripts/release-macos-bundle.mjs aarch64-apple-darwin
-  APP=src-tauri/target/release/bundle/macos/CodeTerm.app
+  APP=src-tauri/target/release/bundle/macos/Domios.app
 else
   rm -rf src-tauri/target/x86_64-apple-darwin/release/bundle
   bash scripts/release-macos-x86_64.sh
-  APP=src-tauri/target/x86_64-apple-darwin/release/bundle/macos/CodeTerm.app
+  APP=src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Domios.app
 fi
 
 # Verify the inner binary was signed by Developer ID, not the linker's ad-hoc.

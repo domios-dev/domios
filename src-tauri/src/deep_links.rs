@@ -104,7 +104,7 @@ fn production_instance(
         && dev != Some("1")
         && instance.is_none_or(|value| value.trim().is_empty())
         && port.is_none_or(|port| port == "7685")
-        && identifier == "com.codeterm.app"
+        && identifier == "com.domios.app"
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows", test))]
@@ -134,14 +134,14 @@ mod tests {
             None,
             None,
             None,
-            "com.codeterm.app"
+            "com.domios.app"
         ));
         for (debug, dev, instance, port, identifier) in [
-            (true, None, None, None, "com.codeterm.app"),
-            (false, Some("1"), None, None, "com.codeterm.app"),
-            (false, None, Some("alternate"), None, "com.codeterm.app"),
-            (false, None, None, Some("7686"), "com.codeterm.app"),
-            (false, None, None, None, "com.codeterm.dev"),
+            (true, None, None, None, "com.domios.app"),
+            (false, Some("1"), None, None, "com.domios.app"),
+            (false, None, Some("alternate"), None, "com.domios.app"),
+            (false, None, None, Some("7686"), "com.domios.app"),
+            (false, None, None, None, "com.domios.dev"),
         ] {
             assert!(!production_instance(debug, dev, instance, port, identifier));
         }

@@ -252,3 +252,14 @@ of collector verification; the next real release proves the six-platform deliver
 Lane verification uses one multi-package lane-check for all touched library crates, changed TS/JS test files and `tsc` when TS changes. Canonical integration verification owns Clippy and focused Rust tests. Deleted workspace packages are excluded. Batches use the default full check-queue and run focused app selectors from a single `nextest-archive <sha>` without default features. Root dev/default and core defaults remain aligned for the product; ordinary tests explicitly disable defaults. A batch failure in a lane's files is a bounce naming the integration SHA.
 
 Product DEV and check-queue library Clippy retain embeddings. Ordinary test profiles disable default features, including archives and CI. The required `rust-embeddings` CI job alone runs memory tests with embeddings enabled (`./build.sh ci-tests embeddings`). Full check-queue checks the ordinary service-core test profile and no longer repeats a dev-lib cargo check.
+
+## Installed application identity
+
+For bundle, installer or release-asset identity changes, include
+`node scripts/check-installed-identity.mjs` and
+`node --test scripts/tests/installed-identity.test.mjs` in the focused batch.
+These cover product/identifier/DEV names, installer-facing legacy-name rejection,
+new updater namespace and non-installable old manifests. Run the changed release
+script tests too. Native package extraction, signing, both CLI resource digests,
+OS registration and the manual old-app removal require release CI and owner
+installation on Windows, macOS and Linux; source assertions do not prove them.

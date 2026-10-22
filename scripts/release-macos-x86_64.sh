@@ -29,13 +29,13 @@ node scripts/release-macos-bundle.mjs x86_64-apple-darwin
 unset CARGO_BUILD_TARGET
 
 # 6b. Arch assertion: fail before notarize if CLI or GUI is wrong arch.
-APP_CLI="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/CodeTerm.app/Contents/Resources/cli/codeterm"
-APP_GUI="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/CodeTerm.app/Contents/MacOS/domios"
+APP_CLI="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Domios.app/Contents/Resources/cli/codeterm"
+APP_GUI="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Domios.app/Contents/MacOS/domios"
 file "$APP_CLI" | grep -q x86_64 || { echo "FATAL: bundled CLI is not x86_64: $(file "$APP_CLI")"; exit 1; }
 file "$APP_GUI" | grep -q x86_64 || { echo "FATAL: bundled GUI is not x86_64: $(file "$APP_GUI")"; exit 1; }
 echo "OK: both bundled CLI and GUI are x86_64"
 
-DMG="src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_$(jq -r .version package.json)_x64.dmg"
+DMG="src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/Domios_$(jq -r .version package.json)_x64.dmg"
 
 echo
 echo "Done. DMG: $DMG"

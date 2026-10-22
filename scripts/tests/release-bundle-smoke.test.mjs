@@ -4,9 +4,9 @@ import { assertMachine, machine, checkContents, packagedExecutables, canExecuteT
 
 test('package selection separates domios native client from codeterm CLI on every platform', () => {
   for (const [app, cli, server] of [
-    ['/usr/bin/domios', '/usr/lib/CodeTerm/cli/codeterm', '/usr/lib/CodeTerm/domios-server/domios-server'],
+    ['/usr/bin/domios', '/usr/lib/Domios/cli/codeterm', '/usr/lib/Domios/domios-server/domios-server'],
     ['C:\\package\\domios.exe', 'C:\\package\\cli\\codeterm.exe', 'C:\\package\\domios-server\\domios-server.exe'],
-    ['/CodeTerm.app/Contents/MacOS/domios', '/CodeTerm.app/Contents/Resources/cli/codeterm', '/CodeTerm.app/Contents/MacOS/domios-server'],
+    ['/Domios.app/Contents/MacOS/domios', '/Domios.app/Contents/Resources/cli/codeterm', '/Domios.app/Contents/MacOS/domios-server'],
   ]) {
     assert.deepEqual(packagedExecutables([app, cli, server]), { app, cli, server });
     assert.throws(() => packagedExecutables([cli, server]), /app executable, found 0/);

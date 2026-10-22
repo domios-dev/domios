@@ -72,7 +72,7 @@ done
       for (const instance of ['meshqa', 'welcomeqa']) {
         const app = path.join(directory, 'src-tauri/target/dev-instances', instance, `debug/codeterm${exe}`);
         assert.equal(fs.readFileSync(app, 'utf8'), instance);
-        const staged = platform === 'windows' ? app : path.join(path.dirname(app),'.domios-dev-runtime/bin/codeterm');
+        const staged = platform === 'windows' ? path.join(path.dirname(app), 'domios-dev.exe') : path.join(path.dirname(app),'.domios-dev-runtime/bin/domios-dev');
         assert.equal(fs.readFileSync(staged, 'utf8'), instance);
         assert.equal(fs.existsSync(path.join(directory, `data-${instance}/target`)), false);
       }

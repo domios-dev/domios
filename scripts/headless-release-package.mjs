@@ -81,9 +81,13 @@ function cliPath(metadata) {
   return 'cli/' + metadata.cli;
 }
 
+function cliAliasPath(metadata) {
+  return cliPath(metadata).replace('codeterm', 'domios');
+}
+
 function isPayloadFile(relativePath, metadata) {
   if (relativePath === 'LICENSE' || relativePath === 'NOTICE' || relativePath === 'server-component.json') return true;
-  if (relativePath === serverPath(metadata) || relativePath === cliPath(metadata)) return true;
+  if (relativePath === serverPath(metadata) || relativePath === cliPath(metadata) || relativePath === cliAliasPath(metadata)) return true;
   if (relativePath.startsWith('dist/') || relativePath.startsWith('skills/')) return true;
   if (!metadata.conpty) return false;
   return [
@@ -138,7 +142,7 @@ async function readStageInventory(stageDirectory, metadata) {
       if (!isPayloadFile(relativePath, metadata)) fail('stage contains an extra file: ' + relativePath);
       const bytes = await readFile(absolutePath);
       const executable = relativePath === serverPath(metadata) ||
-        relativePath === cliPath(metadata) ||
+        relativePath === cliPath(metadata) || relativePath === cliAliasPath(metadata) ||
         relativePath.endsWith('/OpenConsole.exe');
       discovered.set(relativePath, {
         path: relativePath,
@@ -236,11 +240,12 @@ export async function validateHeadlessStage({ stageDirectory, target, tag, versi
     if (discovered.get(row.path).sha256 !== row.sha256) fail('stage SHA-256 does not match payload bytes: ' + row.path);
   }
 
-  const required = [serverPath(metadata), 'server-component.json', cliPath(metadata), 'dist/index.html', 'LICENSE', 'NOTICE'];
+  const required = [serverPath(metadata), 'server-component.json', cliPath(metadata), cliAliasPath(metadata), 'dist/index.html', 'LICENSE', 'NOTICE'];
   if (metadata.conpty) {
     required.push('conpty/' + metadata.conpty + '/OpenConsole.exe', 'conpty/' + metadata.conpty + '/conpty.dll');
   }
   for (const file of required) if (!discovered.has(file)) fail('required headless payload is missing: ' + file);
+  if (discovered.get(cliPath(metadata)).sha256 !== discovered.get(cliAliasPath(metadata)).sha256) fail('CLI aliases must contain identical bytes');
   if (![...discovered.keys()].some(file => file.startsWith('skills/'))) fail('required skills resources are missing');
   if (![...discovered.keys()].some(file => file.startsWith('dist/assets/'))) {
     fail('frontend build assets are missing from dist/assets');
