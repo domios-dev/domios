@@ -12317,27 +12317,6 @@
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/pty_io/batch.rs",
-      "token": "codex_rpc",
-      "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/pty_io/batch.rs",
-      "token": "codex_rpc_send_batch_routes_each_item_once_without_paste",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/pty_io/batch.rs",
-      "token": "codex_rpc_send_batch_stops_at_uncertainty_without_replaying_or_sending_next",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
       "file": "src-tauri/crates/codeterm-service-core/src/service/pty_io/lifecycle.rs",
       "token": "codex_rpc",
       "count": 1,
@@ -12445,7 +12424,7 @@
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/pty_io/send/mod.rs",
       "token": "codex_rpc",
-      "count": 6,
+      "count": 4,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },

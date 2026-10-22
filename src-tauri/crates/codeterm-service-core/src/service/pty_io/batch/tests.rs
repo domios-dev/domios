@@ -2,7 +2,7 @@ use super::*;
 use crate::service::inject_verify::InjectionError;
 
 #[test]
-fn codex_rpc_send_batch_routes_each_item_once_without_paste() {
+fn provider_send_batch_routes_each_item_once() {
     let batch = ["first payload", "second payload"]
         .into_iter()
         .map(|text| (text.to_string(), None))
@@ -12,13 +12,8 @@ fn codex_rpc_send_batch_routes_each_item_once_without_paste() {
         batch,
         |_| panic!("unexpected deadline"),
         |text| {
-            crate::service::codex_rpc::send::route_or_pty(
-                Some({
-                    calls.push(text.to_string());
-                    Ok(())
-                }),
-                || panic!("RPC batch must not paste"),
-            )
+            calls.push(text.to_string());
+            Ok(())
         },
     );
     assert_eq!(result, Ok(()));
@@ -26,7 +21,7 @@ fn codex_rpc_send_batch_routes_each_item_once_without_paste() {
 }
 
 #[test]
-fn codex_rpc_send_batch_stops_at_uncertainty_without_replaying_or_sending_next() {
+fn provider_send_batch_stops_at_uncertainty_without_replaying_or_sending_next() {
     let batch = ["first payload", "second payload"]
         .into_iter()
         .map(|text| (text.to_string(), None))
@@ -37,9 +32,7 @@ fn codex_rpc_send_batch_stops_at_uncertainty_without_replaying_or_sending_next()
         |_| panic!("unexpected deadline"),
         |text| {
             calls.push(text.to_string());
-            crate::service::codex_rpc::send::route_or_pty(Some(Err("submit_unconfirmed")), || {
-                panic!("RPC uncertainty must not paste")
-            })
+            Err::<(), _>("submit_unconfirmed")
         },
     );
     assert_eq!(result, Err("submit_unconfirmed"));
