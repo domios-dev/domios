@@ -167,6 +167,15 @@ pub fn parse(file: &str, source: &str) -> Result<Parsed, Vec<Diagnostic>> {
 }
 
 pub fn check(file: &str, source: &str, assignments: &[String]) -> Check {
+    check_with_context(file, source, assignments, &checker::CheckContext::default())
+}
+
+pub fn check_with_context(
+    file: &str,
+    source: &str,
+    assignments: &[String],
+    context: &checker::CheckContext,
+) -> Check {
     let parsed = match parse(file, source) {
         Ok(parsed) => parsed,
         Err(diagnostics) => {
@@ -177,31 +186,76 @@ pub fn check(file: &str, source: &str, assignments: &[String]) -> Check {
             }
         }
     };
-    match parsed.document.bind(assignments) {
-        Ok(definition) => Check {
-            ok: true,
-            diagnostics: Vec::new(),
-            definition: Some(definition),
-        },
-        Err(errors) => Check {
+    let mut diagnostics = checker::check_ir(&parsed.ir(), context);
+    if checker::has_errors(&diagnostics) {
+        return Check {
             ok: false,
+            diagnostics,
             definition: None,
-            diagnostics: errors
-                .into_iter()
-                .map(|(field, message)| {
-                    let loc = parsed.at(&field);
-                    Diagnostic::error(
-                        Location {
-                            file: file.into(),
-                            ..loc
-                        },
-                        &field,
-                        &message,
-                        "Use blueprint schema and explicit --set key=value bindings",
-                    )
-                })
-                .collect(),
-        },
+        };
+    }
+    let definition = match parsed.document.bind(assignments) {
+        Ok(definition) => definition,
+        Err(errors) => {
+            diagnostics.extend(errors.into_iter().map(|(field, message)| {
+                Diagnostic::error(
+                    parsed.at(&field),
+                    &field,
+                    &message,
+                    "Use explicit --set key=value bindings",
+                )
+            }));
+            return Check {
+                ok: false,
+                diagnostics,
+                definition: None,
+            };
+        }
+    };
+    let bound: Document = match serde_json::from_value(definition.clone()) {
+        Ok(doc) => doc,
+        Err(error) => {
+            diagnostics.push(Diagnostic::error(
+                parsed.at(""),
+                "",
+                &error.to_string(),
+                "Correct the bound document",
+            ));
+            return Check {
+                ok: false,
+                diagnostics,
+                definition: None,
+            };
+        }
+    };
+    let bound_ir = Parsed {
+        document: bound.clone(),
+        locations: parsed.locations,
+    }
+    .ir();
+    diagnostics = checker::check_ir(&bound_ir, context);
+    if !checker::has_errors(&diagnostics) {
+        if let Err(errors) = bound.lower() {
+            diagnostics.extend(errors.into_iter().map(|(field, message)| {
+                let mut diagnostic = diagnostic(
+                    file,
+                    source,
+                    &field,
+                    &message,
+                    "Use a construct supported by the runtime",
+                );
+                diagnostic.rule = "runtime".into();
+                diagnostic.name = "runtime_validation".into();
+                diagnostic.id = format!("runtime:{}", diagnostic.proof.atom.id);
+                diagnostic
+            }));
+        }
+    }
+    let ok = !checker::has_errors(&diagnostics);
+    Check {
+        ok,
+        diagnostics,
+        definition: ok.then_some(definition),
     }
 }
 
@@ -375,9 +429,19 @@ pub(super) fn whole_input(text: &str) -> Option<&str> {
     text.strip_prefix("{{").and_then(|s| s.strip_suffix("}}"))
 }
 pub fn definition_errors(value: &Value) -> Vec<(String, String)> {
-    match Document::from_definition(value) {
-        Ok(d) => d.lower().err().unwrap_or_default(),
-        Err(e) => vec![(String::new(), e)],
+    let document: Document = match serde_json::from_value(value.clone()) {
+        Ok(document) => document,
+        Err(error) => return vec![(String::new(), error.to_string())],
+    };
+    let diagnostics = checker::check_document(&document, &checker::CheckContext::default());
+    if checker::has_errors(&diagnostics) {
+        diagnostics
+            .into_iter()
+            .filter(|d| d.severity == "error")
+            .map(|d| (d.field.clone(), checker::render(&[d], true)))
+            .collect()
+    } else {
+        document.lower().err().unwrap_or_default()
     }
 }
 pub fn diagnostic(file: &str, source: &str, field: &str, message: &str, hint: &str) -> Diagnostic {
