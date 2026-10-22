@@ -132,8 +132,7 @@ fn blueprint_v2_surface_upgrade_removes_only_old_graphs_and_history_and_reopens_
 
 #[test]
 fn blueprint_v2_check_upgrade_keeps_obsolete_definition_receipt() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().join("fixture");
+    let root = std::env::temp_dir().join(format!("blueprint-v2-receipt-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
     Storage::create_at_schema_version(&root, SCHEMA_VERSION - 1).unwrap();
     let conn = raw(&root);
     conn.execute("INSERT INTO blueprints(id,ordinal,creator_tab_id,workspace_id,cwd,agent_authored,revision) VALUES ('old',0,'author','workspace','.',0,1)", []).unwrap();
@@ -145,4 +144,6 @@ fn blueprint_v2_check_upgrade_keeps_obsolete_definition_receipt() {
     let receipt: (String, String) = conn.query_row("SELECT blueprint_id,probe FROM blueprint_v1_removal_receipts", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
     assert_eq!(receipt, ("old".into(), "opaque-old-command".into()));
     assert_eq!(conn.query_row("SELECT count(*) FROM blueprints", [], |r| r.get::<_,i64>(0)).unwrap(),0);
+    drop(conn);
+    std::fs::remove_dir_all(root).unwrap();
 }
