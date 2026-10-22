@@ -1222,6 +1222,12 @@ A moved repository-watcher source guard can fail with “expected the repository
 through the capped Rust runner in canonical. Workers type-check touched crates with four jobs and format their Rust sources;
 its HTTP fixtures use a local fake destination with synthetic retry timestamps.
 
+## macOS endpoint-security hazard
+
+On managed Macs an Endpoint Security agent (seen: BeyondTrust `defendpointd`, with CrowdStrike Falcon also present) evaluates every fresh executable on first exec. Under the `nextest --list` burst of many large fresh test binaries it can block one with a bare SIGKILL (signal 9, no AMFI or kernel line), different crate each time; the same binary runs fine by hand afterwards. Tiny fresh binaries do not trigger it. The same exec latency can also fail in-test deadlines spuriously.
+
+Diagnose before treating it as a test failure: `systemextensionsctl list`, then `/usr/bin/log show --start '<t-30s>' --end '<t+30s>' --predicate 'process == "defendpointd" OR eventMessage CONTAINS "Blocking"'` around the kill (call `/usr/bin/log` explicitly: zsh's builtin `log` shadows it). A `Blocking <pid> <path>` line for the test binary confirms it. The fix is environmental: exclude the developer build directories in the endpoint policy (owner/IT decision). The gateway does not retry killed binaries.
+
 ## Related documents
 
 Tooling, outputs, platform notes, and repository layout: `.agents/skills/build-reference/SKILL.md`. Test workflows: `.agents/skills/testing/SKILL.md`.
