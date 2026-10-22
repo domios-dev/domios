@@ -758,6 +758,7 @@ fn concurrent_dispatch_of_the_same_task_is_refused_while_one_is_in_flight() {
                         .unwrap()
                         .insert(tab_id.clone(), ready_tx.unwrap());
                     Ok(codeterm_service_core::service::SpawnResult {
+                        team_id: None,
                         tab_id,
                         pty_id: String::new(),
                         agent,

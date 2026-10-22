@@ -166,15 +166,6 @@ impl IndexQueue {
         self.ready.notify_one();
     }
 
-    fn enqueue_and_wait(&self, job: IndexJob) {
-        let key = job.key();
-        self.enqueue(job);
-        let mut state = self.state.lock();
-        while state.latest.contains_key(&key) || state.in_flight_keys.contains(&key) {
-            self.ready.wait(&mut state);
-        }
-    }
-
     fn take(&self) -> (String, String, IndexJob) {
         let mut state = self.state.lock();
         while state.order.iter().all(|key| {
@@ -278,10 +269,6 @@ pub(super) fn enqueue_plan_index(plan: Plan, scope: PlanIndexScope) {
 
 pub(super) fn enqueue_spec_index(spec: Spec) {
     index_queue().enqueue(IndexJob::Spec(spec));
-}
-
-pub(super) fn remove_plan_from_index(plan: Plan) {
-    index_queue().enqueue_and_wait(IndexJob::DeletePlan(plan));
 }
 
 pub(super) fn enqueue_plan_removal(plan: Plan) {

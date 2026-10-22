@@ -409,11 +409,7 @@ impl PlanStore {
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
         let _writer_turn = self.mutation_writer.enter();
-        self.delete_in_writer(
-            id,
-            self.get(id),
-            super::search_index::remove_plan_from_index,
-        )
+        self.delete_in_writer(id, self.get(id), super::search_index::enqueue_plan_removal)
     }
 
     pub(super) fn delete_in_writer(
