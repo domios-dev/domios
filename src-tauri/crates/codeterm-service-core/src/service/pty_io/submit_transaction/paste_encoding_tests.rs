@@ -444,46 +444,6 @@ fn long_routed_report_and_next_sender_each_have_one_complete_paste() {
 }
 
 #[test]
-fn curator_system_notices_keep_frame_and_marker_in_one_paste() {
-    let capability = serde_json::from_value(serde_json::json!({
-        "supportsBracketedPaste": true,
-        "marksRoutedMessages": true
-    }))
-    .unwrap();
-    for context in ["curator:round_started:7", "curator"] {
-        let body = "opaque round payload";
-        let frame = crate::service::messenger::Messenger::from(
-            crate::service::messenger::MessageEnvelope::codeterm_reminder(context),
-        )
-        .routed_frame(body);
-        let input = crate::service::pty_io::send::prepare_routed_input(&frame, Some(&capability));
-        let bytes = encode_paste_payload(
-            &input.body,
-            false,
-            None,
-            Some(false),
-            PasteEncodingCapability::MultilineTui,
-        );
-        let encoded = std::str::from_utf8(&bytes).unwrap();
-        let pasted = encoded
-            .strip_prefix(BRACKETED_PASTE_START)
-            .unwrap()
-            .strip_suffix(BRACKETED_PASTE_END)
-            .unwrap();
-        assert!(!pasted.contains('\x1b'));
-        assert_eq!(pasted, input.body);
-        let parsed = codeterm_wire::domios::parse_message(pasted).unwrap();
-        assert_eq!(parsed.attr("from"), Some("system"));
-        assert_eq!(parsed.attr("context"), Some(context));
-        assert_eq!(parsed.body, body);
-        assert_eq!(
-            parsed.content,
-            format!("{body}{}", codeterm_wire::domios::pasted_marker_tail())
-        );
-    }
-}
-
-#[test]
 fn every_non_human_agent_delivery_has_exactly_one_frame_in_one_paste() {
     use crate::service::messenger::{MessageEnvelope, MessageKind, Messenger};
 
@@ -501,6 +461,11 @@ fn every_non_human_agent_delivery_has_exactly_one_frame_in_one_paste() {
         (MessageEnvelope::report("", ""), "report"),
         (MessageEnvelope::from_codeterm(), "system"),
         (MessageEnvelope::codeterm_reminder("build"), "system"),
+        (
+            MessageEnvelope::codeterm_reminder("curator:round_started:7"),
+            "system",
+        ),
+        (MessageEnvelope::codeterm_reminder("curator"), "system"),
         (MessageEnvelope::reminder("Sender", "source"), "reminder"),
         (MessageEnvelope::pebble(), "pebble"),
     ];
@@ -544,8 +509,17 @@ fn every_non_human_agent_delivery_has_exactly_one_frame_in_one_paste() {
         let parsed = codeterm_wire::domios::parse_message(pasted).unwrap();
         assert_eq!(parsed.attr("from"), Some(from));
         assert_eq!(parsed.body, body);
-        if envelope.context.as_deref() == Some("build") {
-            assert_eq!(parsed.attr("context"), Some("build"));
+        assert!(!pasted.contains('\x1b'));
+        assert_eq!(
+            parsed.content,
+            format!(
+                "{body}{}{}",
+                codeterm_wire::domios::pasted_marker_tail(),
+                frame.to_frame().suffix
+            )
+        );
+        if let Some(context) = envelope.context.as_deref() {
+            assert_eq!(parsed.attr("context"), Some(context));
             assert!(!pasted.contains("<tip>"));
         }
         if from == "cli" {
