@@ -1,0 +1,62 @@
+use super::services::{BlueprintEmbedder, BlueprintEnricher, EnrichmentJob};
+use parking_lot::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+pub(crate) struct WordEmbedder {
+    pub(crate) available: AtomicBool,
+}
+
+impl WordEmbedder {
+    pub(crate) fn new(available: bool) -> Arc<Self> {
+        Arc::new(Self {
+            available: AtomicBool::new(available),
+        })
+    }
+
+    fn vector(&self, text: &str) -> Result<Vec<f32>, String> {
+        if !self.available.load(Ordering::SeqCst) {
+            return Err("fake embedder offline".into());
+        }
+        let mut vector = vec![0.0f32; crate::embeddings::EMBEDDING_DIMENSION];
+        for word in text
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|word| word.len() > 2)
+        {
+            let slot = word.bytes().fold(7usize, |hash, byte| {
+                hash.wrapping_mul(31).wrapping_add(byte as usize)
+            });
+            let dimension = vector.len();
+            vector[slot % dimension] += 1.0;
+        }
+        let norm = vector.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
+        Ok(vector.into_iter().map(|v| v / norm).collect())
+    }
+}
+
+impl BlueprintEmbedder for WordEmbedder {
+    fn passage(&self, text: &str) -> Result<Vec<f32>, String> {
+        self.vector(text)
+    }
+
+    fn query(&self, text: &str) -> Result<Vec<f32>, String> {
+        self.vector(text)
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct RecordingEnricher {
+    pub(crate) jobs: Mutex<Vec<EnrichmentJob>>,
+    pub(crate) offline: AtomicBool,
+}
+
+impl BlueprintEnricher for RecordingEnricher {
+    fn request(&self, job: EnrichmentJob) -> Result<(), String> {
+        if self.offline.load(Ordering::SeqCst) {
+            return Err("mem workers unavailable".into());
+        }
+        self.jobs.lock().push(job);
+        Ok(())
+    }
+}

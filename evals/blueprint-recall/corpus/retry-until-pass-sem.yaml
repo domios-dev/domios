@@ -1,0 +1,29 @@
+schema_version: 1
+name: Retry pass check
+note: Ask a retry loop for its status on a timer and report once a run has passed.
+owner: team
+inputs:
+  retry_status_command:
+    type: string
+    description: Command printing the retry loop's latest result
+pipeline:
+  trigger:
+    type: schedule
+    every: 1m
+  steps:
+  - name: status
+    input: text
+    run: '{{retry_status_command}}'
+    'on':
+      failed: stop
+  - name: passed
+    input: text
+    uses: filter
+    with:
+      pattern: (?m)^passed$
+      bucket: passed
+    'on':
+      passed: next
+      done: stop
+  result:
+    to: notify

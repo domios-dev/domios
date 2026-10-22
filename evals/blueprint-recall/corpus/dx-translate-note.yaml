@@ -1,0 +1,17 @@
+schema_version: 1
+name: Translate a note
+note: Take pasted text and have an agent translate it into English for the owner.
+owner: tab
+inputs:
+  text:
+    type: string
+    description: Text to translate
+pipeline:
+  trigger: {type: input, kind: text, source: {text: '{{text}}'}}
+  steps:
+    - name: translate
+      input: text
+      uses: agent
+      with: {provider: claude, profile: translator, task: Translate the input into plain English, deadline_ms: 30000, max_tokens: 1200, max_turns: 1}
+      on: {done: stop, failed: stop}
+  result: {to: owner}

@@ -1,0 +1,27 @@
+schema_version: 1
+name: Ping sample
+note: Print a fixed word, check the printed line against it, and hand the outcome back to the owning tab.
+owner: team
+inputs:
+  word:
+    type: string
+    description: Word to print
+    default: pong
+pipeline:
+  trigger:
+    type: schedule
+    every: 45s
+  steps:
+  - name: say
+    input: text
+    run: echo '{{word}}'
+  - name: compare
+    input: text
+    uses: filter
+    with:
+      bucket: same
+      pattern: ^{{word}}$
+    'on':
+      same: stop
+  result:
+    to: owner

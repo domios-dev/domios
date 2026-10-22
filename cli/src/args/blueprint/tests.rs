@@ -26,6 +26,37 @@ fn blueprint_memory_intents_and_keep_are_explicit() {
 }
 
 #[test]
+fn blueprint_keep_when_repeats_one_to_five_times() {
+    let parse = |count: usize| {
+        let mut args = vec![
+            "codeterm".to_owned(),
+            "blueprint".into(),
+            "keep".into(),
+            "graph-id".into(),
+        ];
+        for index in 0..count {
+            args.push("--when".into());
+            args.push(format!("intent {index}"));
+        }
+        Cli::try_parse_from(args)
+    };
+    assert!(parse(0).is_err());
+    for count in 1..=5 {
+        let Commands::Blueprint {
+            action: BlueprintAction::Keep { when, .. },
+        } = parse(count).unwrap().command
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(when.len(), count);
+    }
+    assert!(
+        parse(6).is_ok(),
+        "clap accepts six; the keep request refuses them"
+    );
+}
+
+#[test]
 fn sentinel_update_parse_requires_expect_version_and_file() {
     let cli = Cli::try_parse_from([
         "codeterm",

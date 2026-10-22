@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 13164,
+  "stop_reason": "end_turn",
+  "session_id": "fdab911e-cd90-4c85-a5a1-b20b2e531b77",
+  "total_cost_usd": 0.029611,
+  "usage": {
+    "input_tokens": 9,
+    "cache_creation_input_tokens": 11421,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 1352,
+    "output_tokens_details": {
+      "thinking_tokens": 1258
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11421,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 9,
+        "output_tokens": 1352,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 11421,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 11421
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 9,
+      "outputTokens": 1352,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 11421,
+      "webSearchRequests": 0,
+      "costUSD": 0.029611,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 1258,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "WHAT: Runs a scheduled command every 20 seconds, filters its output against an expected pattern, and reports whether the output matches back to the owner. A simple periodic validation tool. || INTENT: Run scheduled command and validate output || INTENT: Verify command output matches expected result every 20 seconds || INTENT: Periodic shell command execution with output verification || INTENT: Schedule command execution and check results automatically",
+  "ttft_ms": 14007,
+  "type": "result",
+  "duration_ms": 14604,
+  "uuid": "bd351e6e-1b88-4f3b-868c-4d18a4f7d8d3",
+  "ttft_stream_ms": 1977,
+  "time_to_request_ms": 1397,
+  "first_content_frame_ms": 1977,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

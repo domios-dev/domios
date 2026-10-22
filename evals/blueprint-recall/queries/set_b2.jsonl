@@ -1,0 +1,31 @@
+{"original": "all-finished", "text": "Notify me only once every running job has finished, using my aggregate progress script.", "attempt": 1}
+{"original": "all-finished", "text": "Alert me when the final background process completes, staying silent until then.", "attempt": 1}
+{"original": "cron-run-watch", "text": "Alert me when my scheduled nightly task finishes running tonight.", "attempt": 2}
+{"original": "cron-run-watch", "text": "Send an alert once tonight's recurring batch task finishes running", "attempt": 3}
+{"original": "dev-run-health", "text": "Notify me when the bundled backend in my dev app dies and attach its last request logs.", "attempt": 1}
+{"original": "dev-run-health", "text": "Notify me when the embedded backend in my dev build dies, including its last few request logs.", "attempt": 2}
+{"original": "echo", "text": "Quick check job: run a shell echo, verify the expected text appeared, send pass/fail back to me.", "attempt": 5}
+{"original": "echo", "text": "Simple shell echo check verifying expected output and sending pass or fail back to me.", "attempt": 8}
+{"original": "github", "text": "Instant notification for each failed step in long-running GitHub workflows on the primary branch", "attempt": 1}
+{"original": "github", "text": "Notify me the moment a single workflow step fails during slow main branch builds", "attempt": 2}
+{"original": "health-triage", "text": "Triage flaky cart API uptime alerts by severity and route uncertain ones for manual review.", "attempt": 1}
+{"original": "health-triage", "text": "Triage intermittent uptime alerts by severity and route uncertain ones to a person for review.", "attempt": 2}
+{"original": "http-health", "text": "Scheduled uptime monitor that alerts me when my homepage stops responding", "attempt": 1}
+{"original": "http-health", "text": "Scheduled uptime check for my website that reports status codes", "attempt": 3}
+{"original": "launch-prompt-gate", "text": "Handle known launch popups in cron-spawned agents automatically, notify me about unknown ones", "attempt": 4}
+{"original": "plan-review-gate", "text": "Automated plan review tracing requirements to tested tasks with a readiness verdict before my sign-off", "attempt": 1}
+{"original": "plan-review-gate", "text": "Automated plan review tracing spec items to tested tasks with a readiness verdict before my manual approval.", "attempt": 2}
+{"original": "prompt-responder", "text": "Auto-respond yes to an agent's confirmation questions using its sanctioned answer option.", "attempt": 1}
+{"original": "prompt-responder", "text": "Auto-respond yes whenever my coding assistant stops to request confirmation before continuing.", "attempt": 2}
+{"original": "release-preflight", "text": "Pre-publish gate that stops shipping when dependency validation errors or leftover worktrees exist", "attempt": 1}
+{"original": "release-preflight", "text": "Pre-release gate that stops the terminal app ship when the feature graph check breaks or stale worktrees remain", "attempt": 2}
+{"original": "retry-until-pass", "text": "Monitor a flaky deploy job through its automatic retries until one attempt succeeds", "attempt": 2}
+{"original": "retry-until-pass", "text": "Monitor a retrying rollout until some attempt finally passes", "attempt": 3}
+{"original": "service-health", "text": "When the API stops responding, analyze why and summarize findings for me", "attempt": 1}
+{"original": "service-health", "text": "When the API hangs, run an automatic incident analysis and send me a summary", "attempt": 2}
+{"original": "team-watch", "text": "Notify me instantly when a coworker's terminal output indicates their migration reached a new stage.", "attempt": 1}
+{"original": "team-watch", "text": "Alert me whenever another person's console shows the long-running DB update switching steps.", "attempt": 1}
+{"original": "voice-note-to-text", "text": "Auto-transcribe audio notes and categorize them by what they're about", "attempt": 1}
+{"original": "voice-note-to-text", "text": "Automatically transcribe audio notes and organize them by what they're about", "attempt": 2}
+{"original": "wait-for-build", "text": "Alert with pass or fail status once a long build job completes", "attempt": 1}
+{"original": "wait-for-build", "text": "Alert me when my build job completes, showing success or failure status", "attempt": 3}

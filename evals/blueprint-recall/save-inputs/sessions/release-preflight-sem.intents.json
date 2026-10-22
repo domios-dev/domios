@@ -1,0 +1,99 @@
+{
+  "duration_api_ms": 3379,
+  "stop_reason": "end_turn",
+  "session_id": "ced186d0-0e30-4930-88a3-dbbd44dcba9c",
+  "total_cost_usd": 0.0703698,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 8509,
+    "cache_read_input_tokens": 649,
+    "output_tokens": 108,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8509,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 108,
+        "cache_read_input_tokens": 649,
+        "cache_creation_input_tokens": 8509,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 8509
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 108,
+      "cacheReadInputTokens": 649,
+      "cacheCreationInputTokens": 8509,
+      "webSearchRequests": 0,
+      "costUSD": 0.0703698,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+    },
+    "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+    },
+    "by_type": {}
+  },
+  "safety_stops": 0,
+  "is_error": false,
+  "num_turns": 1,
+  "subtype": "success",
+  "api_error_status": null,
+  "result": "[\"Watch the release gate and notify me when it's clean\", \"Poll essence map validation and stale lanes until the release is unblocked\", \"Tell me whenever the release is blocked or clear\", \"Keep checking every few minutes whether we can ship yet\", \"Alert me when stale lanes and essence map issues stop blocking the release\"]",
+  "ttft_ms": 3457,
+  "type": "result",
+  "duration_ms": 3727,
+  "uuid": "d5f2f27b-db4d-4f57-9b21-933d269304a4",
+  "ttft_stream_ms": 2393,
+  "time_to_request_ms": 103,
+  "first_content_frame_ms": 2393,
+  "queued_turn_count": 0,
+  "result_index": 0
+}

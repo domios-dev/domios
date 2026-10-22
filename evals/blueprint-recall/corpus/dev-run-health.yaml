@@ -1,0 +1,19 @@
+schema_version: 1
+name: dev-run-health
+note: Watch the dev REST listener; capture recent flows when it drops.
+watch:
+  probe: codeterm rest-api status --json
+  question: classify-listener-phase
+  buckets: [listening, down]
+  matches: {listening: '"phase": "listening"', down: '"phase": "(stopped|failed)"'}
+  every: 30s
+  timeout: 8h
+  rearm_on_change: [down]
+  handlers:
+    listening: []
+    down:
+      - {type: command, parameters: {command: codeterm trace recent --limit 5, label: Recent flows, timeout_ms: 3000}}
+      - {type: notify}
+    other:
+      - {type: escalate, parameters: {target: creator}}
+  escalation_timeout_ms: 600000

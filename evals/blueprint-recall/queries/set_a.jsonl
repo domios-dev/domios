@@ -1,0 +1,60 @@
+{"original": "all-finished", "text": "tell me once every job in my batch has ended, and stay quiet before that", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "all-finished", "text": "a single status command covers several parallel tasks; alert when the whole lot is complete", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "all-finished", "text": "notify me when everything I launched has reached a final state", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "cron-run-watch", "text": "ping me when tonight's scheduled job completes", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "cron-run-watch", "text": "alert when a specific timed task's current execution is over", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "cron-run-watch", "text": "let me know as soon as my nightly scheduled script is done", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "dev-run-health", "text": "tell me when my local Domios API server dies and grab the latest traces", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "dev-run-health", "text": "keep a development server alive check and collect diagnostics on crash", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "dev-run-health", "text": "if the local app's built-in API goes away, record what happened just before", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "echo", "text": "print a known word and check the printed line equals it", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "echo", "text": "simple smoke test: echo a word and verify the text that comes back", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "echo", "text": "sanity check that a trivial shell print produces the expected string", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github", "text": "tell me about any broken step in a GitHub Actions workflow before the whole thing ends", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github", "text": "follow a workflow execution and surface breakage right away", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github", "text": "alert as soon as one part of a long Actions pipeline goes red", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github-org-runners", "text": "are our GitHub organization's own build machines connected, and how many", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github-org-runners", "text": "track how many org-level Actions machines with a given tag are up", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github-org-runners", "text": "alert if the organization's private CI agents go offline", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github-pr-checks", "text": "tell me when GitHub finishes all CI on a PR", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github-pr-checks", "text": "notify me once the automated tests on someone's PR are done", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github-pr-checks", "text": "hold until every status on PR 42 has finished", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github-pr-ci-watch", "text": "keep tracking my PR's CI until it is green and ping me whenever it breaks", "author": "T3 (corpus author)", "set": "a", "shared": ["pr"]}
+{"original": "github-pr-ci-watch", "text": "babysit pull request builds and alert on red", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github-pr-ci-watch", "text": "follow my PR until the tests succeed, telling me about each failure", "author": "T3 (corpus author)", "set": "a", "shared": ["pr"]}
+{"original": "github-runners", "text": "are the private build machines for one GitHub repository connected, and how many", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github-runners", "text": "track how many repo-level Actions machines with a given tag are up", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "github-runners", "text": "alert if a repository's dedicated CI agents go offline", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "health-triage", "text": "grade each problem with our payment status page as a blip or real incident", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "health-triage", "text": "decide whether a service hiccup is transient or an outage, and hand unclear cases to a person", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "health-triage", "text": "rate how bad an endpoint's trouble is and page a human when unsure", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "http-health", "text": "is our website reachable? tell me the status number it returns", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "http-health", "text": "ping a URL regularly and alert when the site stops answering", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "http-health", "text": "uptime monitor for a web address", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "launch-prompt-gate", "text": "auto-clear known startup questions for cron-started agents and send unfamiliar ones to me", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "launch-prompt-gate", "text": "nightly agents get stuck on trust-folder dialogs; handle them and hand off anything strange", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "launch-prompt-gate", "text": "approve startup confirmations of timed jobs, forward unknown questions to a human", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "plan-review-gate", "text": "before signing off a roadmap, confirm every spec section has a tested task", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "plan-review-gate", "text": "advise whether a project spec is ready, leaving the final sign-off to me", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "plan-review-gate", "text": "find uncovered sections in a spec and suggest if it can be accepted", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "prompt-responder", "text": "auto-approve an AI assistant's may-I-do-this questions in a terminal", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "prompt-responder", "text": "handle approval dialogs of a coding agent through the sanctioned answer", "author": "T3 (corpus author)", "set": "a", "shared": ["agent"]}
+{"original": "prompt-responder", "text": "my coding assistant keeps pausing for consent; answer those automatically", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "release-preflight", "text": "stop shipping a new version if the product's capability graph is invalid or old worktrees linger", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "release-preflight", "text": "gate before we ship Domios: validate the essence graph and look for abandoned worktrees", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "release-preflight", "text": "pre-ship check that refuses to go out when stale work branches remain", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "retry-until-pass", "text": "follow a flaky deploy that re-attempts itself until it succeeds", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "retry-until-pass", "text": "tell me when a re-running job finally goes green", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "retry-until-pass", "text": "track a script with limited re-attempts until success shows up", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "service-health", "text": "when our API stops responding, investigate and send me findings", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "service-health", "text": "automatically look into why the backend is down and tell me", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "service-health", "text": "check a web service and dig into the cause if it is unreachable", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "team-watch", "text": "alert me when a colleague's terminal moves to a new stage", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "team-watch", "text": "let me know when what a coworker's session shows is different", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "team-watch", "text": "follow another person's shell and ping on progress", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "voice-note-to-text", "text": "transcribe an audio memo and sort what it says", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "voice-note-to-text", "text": "turn a recording from my phone into written words and label it", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "voice-note-to-text", "text": "speech recording to words, then categorize the content", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "wait-for-build", "text": "tell me when compilation finishes, success or not", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "wait-for-build", "text": "ping me when the app finishes compiling, whether it passed or broke", "author": "T3 (corpus author)", "set": "a", "shared": []}
+{"original": "wait-for-build", "text": "alert on the final outcome of a long compile", "author": "T3 (corpus author)", "set": "a", "shared": []}
