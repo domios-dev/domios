@@ -1,5 +1,6 @@
 import React, { useContext } from "react";
-import { PlanReference, type OpenPlan, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
+import { MentionChip, PlanReference, type OpenPlan, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
+import { canonicalMentions } from "./codeterm/canonicalMentions";
 import { linkifyPlanRefs } from "./codeterm/planRefs";
 
 export interface MarkdownPlanLinks {
@@ -18,6 +19,17 @@ interface HastNode {
 }
 
 export function rehypePlanRefs() {
+  function mentionNodes(text: string): HastNode[] {
+    const nodes: HastNode[] = [];
+    let cursor = 0;
+    for (const mention of canonicalMentions(text)) {
+      nodes.push({ type: "text", value: text.slice(cursor, mention.start) });
+      nodes.push({ type: "element", tagName: "span", properties: { "data-mention": JSON.stringify(mention) }, children: [{ type: "text", value: mention.text }] });
+      cursor = mention.end;
+    }
+    nodes.push({ type: "text", value: text.slice(cursor) });
+    return nodes;
+  }
   function visit(node: HastNode): void {
     if (!node.children || ["a", "code", "pre", "script", "style"].includes(node.tagName ?? "")) return;
     node.children = node.children.flatMap((child) => {
@@ -25,8 +37,8 @@ export function rehypePlanRefs() {
         visit(child);
         return [child];
       }
-      return linkifyPlanRefs(child.value).map((segment): HastNode => segment.kind === "text"
-        ? { type: "text", value: segment.value }
+      return linkifyPlanRefs(child.value).flatMap((segment): HastNode | HastNode[] => segment.kind === "text"
+        ? mentionNodes(segment.value)
         : { type: "element", tagName: "span", properties: { "data-plan-id": segment.planId, "data-target-id": segment.targetId, "data-target-kind": segment.targetKind }, children: [{ type: "text", value: segment.value }] });
     });
   }
@@ -35,6 +47,8 @@ export function rehypePlanRefs() {
 
 export function MarkdownPlanRef({ node, children, ...props }: React.ComponentProps<"span"> & { node?: { properties?: Record<string, unknown> } }) {
   const links = useContext(MarkdownPlanLinksContext);
+  const mention = node?.properties?.["data-mention"];
+  if (typeof mention === "string") return <MentionChip mention={JSON.parse(mention)} />;
   const planId = node?.properties?.["data-plan-id"];
   const targetId = node?.properties?.["data-target-id"];
   const kind = node?.properties?.["data-target-kind"];

@@ -17,7 +17,12 @@ pub(in crate::service) fn deliver_hidden_pty_task(
             tab_id
         );
     }
-    svc.send_text_to_pty(pty_id, task_text)
+    svc.send_text_to_pty(
+        pty_id,
+        &crate::service::messenger::AgentInput::Launch(
+            crate::service::messenger::LaunchBootstrap::new(task_text),
+        ),
+    )
 }
 
 /// Model, reasoning-effort, and unattended-permission args for a hidden launch.

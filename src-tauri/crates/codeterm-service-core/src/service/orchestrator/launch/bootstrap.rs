@@ -55,7 +55,9 @@ pub(super) fn consume(
             crate::service::pty_io::submit_transaction::submit_text_with_key_claimed(
                 svc,
                 pty_id,
-                &spec.payload,
+                &crate::service::messenger::AgentInput::Launch(
+                    crate::service::messenger::LaunchBootstrap::new(&spec.payload),
+                ),
                 force_bracketed_paste,
                 None,
                 true,
@@ -89,7 +91,10 @@ pub(super) fn consume(
         Ok(receipt) => Ok(receipt.outcome == LaunchConsumptionOutcome::AlreadyConfirmed),
         Err(error) if error.surfaces_as_launch_failure() => Err(error.to_string()),
         Err(error) => {
-            log::warn!("[launch-delivery] tab={tab_id} pty={pty_id} state={} bytes_written=true; pending evidence retained", error.delivery.code());
+            log::warn!(
+                "[launch-delivery] tab={tab_id} pty={pty_id} state={} bytes_written=true; pending evidence retained",
+                error.delivery.code()
+            );
             Ok(false)
         }
     }

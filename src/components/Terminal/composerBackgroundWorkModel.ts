@@ -98,7 +98,7 @@ function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: str
     const key = callId ? `call:${callId}` : `thread:${threadId}`;
     const previous = latest.get(key);
     const earliest = Math.min(previous?.item.startedAtMs ?? startedAtMs, startedAtMs);
-    const prompt = string(source.agent_description);
+    const prompt = string(source.agent_description) ?? previous?.item.prompt;
     const path = string(source.agent_path);
     const current = authority?.rootThreadId === rootThreadId && source.agent_binding_nonce === authority?.bindingNonce && source.agent_runtime_epoch === authority?.epoch;
     latest.set(key, {
@@ -106,7 +106,7 @@ function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: str
       item: {
         id: `agent:${threadId}`,
         kind: "agent",
-        name: shortName(path, prompt ?? threadId),
+        name: shortName(undefined, prompt ?? string(source.agent_type) ?? path ?? threadId),
         threadId,
         transcriptThreadId,
         startedAtMs: earliest,
@@ -160,4 +160,13 @@ export function composerBackgroundWorkItems(
 
 export function composerBackgroundWorkBubble(items: readonly ComposerBackgroundWorkItem[]): ComposerBackgroundWorkBubble | null {
   return items.length ? { count: items.length, items: [...items] } : null;
+}
+
+export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], running: Readonly<Record<string, string>>, rootThreadId?: string): ComposerBackgroundWorkItem[] {
+  if (!rootThreadId) return items;
+  const known = new Set(items.flatMap(item => [item.threadId, item.processId].filter(Boolean)));
+  return [...items, ...Object.entries(running).filter(([id]) => !known.has(id)).map(([id, label]): ComposerBackgroundWorkItem => ({
+    id: `provider:${rootThreadId}:${id}`, kind: "agent", name: shortName(undefined, label || id),
+    threadId: id, startedAtMs: 0, elapsed: "", status: "running", prompt: label || undefined,
+  }))];
 }

@@ -315,7 +315,9 @@ fn close_restore_reapplies_runtime_settings_to_the_exact_thread_on_first_turn() 
     crate::service::agent_runtime::transport::send(
         &fixture.service,
         &restored_id,
-        "first restored turn",
+        &crate::service::messenger::AgentInput::Human(
+            crate::service::messenger::HumanInput::composer("first restored turn"),
+        ),
         None,
     )
     .unwrap();

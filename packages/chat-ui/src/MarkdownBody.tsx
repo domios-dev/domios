@@ -362,7 +362,7 @@ export function RichMarkdown({
     if (previousKey !== null && previousKey !== cacheKey) forgetMarkdownRender(previousKey);
     return cachedMarkdownRender(cacheKey, renderedText.length, () => ReactMarkdown({
       remarkPlugins: REMARK_PLUGINS,
-      rehypePlugins: [...(rehypePlugins ?? []), ...(planLinks?.onOpenPlan ? [rehypePlanRefs] : []), ...(splitParts ? [rehypeMessageParts(splitParts)] : [])],
+      rehypePlugins: [...(rehypePlugins ?? []), rehypePlanRefs, ...(splitParts ? [rehypeMessageParts(splitParts)] : [])],
       components,
       children: renderedText,
     }));

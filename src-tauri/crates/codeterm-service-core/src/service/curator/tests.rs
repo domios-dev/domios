@@ -98,6 +98,16 @@ fn curator_runtime_registration_binds_the_launched_round() {
     });
     service.plan_store.save(&mut plan, 100).unwrap();
     service.curator_spawned(&plan.id, &tab, "run", 101).unwrap();
+    assert_eq!(
+        service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .description
+            .as_deref(),
+        Some("Round 2")
+    );
     let persisted = service.plan_store.get(&plan.id).unwrap();
     let running = persisted.control_loop.running.unwrap();
     assert_eq!(running.tab_id.as_deref(), Some(tab.as_str()));
@@ -221,4 +231,42 @@ fn curator_started_delivery_carries_round_metadata_independently_of_body() {
     let wire =
         crate::service::messenger::Messenger::from(curator_started_envelope(7)).wrap("opaque body");
     assert!(wire.starts_with("<domios from=\"system\" context=\"curator:round_started:7\">"));
+}
+
+#[test]
+fn curator_round_notices_reach_agent_payload_once_with_system_frames() {
+    use crate::service::test_fixture::ServiceFixture;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+
+    for (envelope, context) in [
+        (curator_started_envelope(7), "curator:round_started:7"),
+        (curator_envelope(), "curator"),
+    ] {
+        let (mux, target) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        drop(fixture.bind_recorded_agent_recipient(&target, "own-session", "own-nonce"));
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&writes);
+        let _boundary = crate::service::agent_delivery_outbox::test_boundary::Boundary::install(
+            &target,
+            Arc::new(move |payload| {
+                captured.lock().push(payload.transport.clone());
+                Ok(())
+            }),
+            Arc::new(|| {}),
+        );
+        let body = "opaque round payload";
+        fixture
+            .service
+            .deliver_cron_report(&target, envelope, body)
+            .unwrap();
+        let writes = writes.lock();
+        assert_eq!(writes.len(), 1);
+        let text = writes[0].to_message();
+        let parsed = codeterm_wire::domios::parse_message(&text).unwrap();
+        assert_eq!(parsed.attr("from"), Some("system"));
+        assert_eq!(parsed.attr("context"), Some(context));
+        assert_eq!(parsed.body, body);
+    }
 }

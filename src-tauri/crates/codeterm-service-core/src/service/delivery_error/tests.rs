@@ -96,9 +96,9 @@ fn direct_send_boundaries_retain_delivery_error_type() {
     let _: fn(
         &crate::service::ServiceContext,
         &str,
-        &str,
+        crate::service::messenger::HumanInput,
         Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
-    ) -> Result<(), DeliveryError> = crate::service::ServiceContext::send_chat_text_claimed;
+    ) -> Result<(), DeliveryError> = crate::service::ServiceContext::send_human_input;
 }
 
 #[test]

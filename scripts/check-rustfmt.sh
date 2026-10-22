@@ -18,7 +18,8 @@ if [ -n "$foreign" ]; then
   exit 2
 fi
 
-mapfile -d '' files < <(git ls-files -z -- "${scope[@]/%//**.rs}" | grep -zEv "$skip")
+files=()
+while IFS= read -r -d '' file; do files+=("$file"); done < <(git ls-files -z -- "${scope[@]/%//**.rs}" | grep -zEv "$skip")
 # Batches stay under the Windows command-line limit; the first failing rustfmt status is returned as is.
 status=0
 for ((i = 0; i < ${#files[@]}; i += 200)); do

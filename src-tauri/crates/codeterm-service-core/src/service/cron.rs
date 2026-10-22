@@ -496,7 +496,7 @@ impl ServiceContext {
         body: &str,
     ) -> Result<(), String> {
         if !self.tab_has_agent_identity(target) {
-            return self.send_text(target, body);
+            return self.send_text(target, &self.programmatic_input(target, body));
         }
         self.gateway_deliver(target, envelope, body, DeliveryClass::SystemNotice)
             .map(|_| ())
@@ -932,7 +932,9 @@ impl ServiceContext {
             // The terminal status already recorded stands (first terminal wins); log it so the race stays observable instead of surfacing as an opaque "not found".
             log::warn!(
                 "[cron] cron.complete for run={} (job={}) arrived after the run was already finalized as {:?} — treating as idempotent no-op",
-                run_id, job_id, run.status
+                run_id,
+                job_id,
+                run.status
             );
             Ok(None)
         } else {

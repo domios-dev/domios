@@ -89,9 +89,19 @@ pub(crate) async fn reuse_cartographer_with_brief(
     brief: Option<String>,
 ) -> Result<AddTeamMemberResult, String> {
     deliver_reused_cartographer(attachment, brief, |tab: String, brief: String| async move {
-        svc.send_text_when_ready(&tab, &brief)
-            .await
-            .map_err(|error| error.to_string())
+        svc.send_text_when_ready(
+            &tab,
+            &codeterm_service_core::service::messenger::AgentInput::Framed(
+                codeterm_service_core::service::messenger::Messenger::from(
+                    codeterm_service_core::service::messenger::MessageEnvelope::codeterm_reminder(
+                        "plan",
+                    ),
+                )
+                .framed_delivery(&brief),
+            ),
+        )
+        .await
+        .map_err(|error| error.to_string())
     })
     .await
 }

@@ -188,6 +188,10 @@ fn refresh_dev_instance_installs_into_data_dir_not_prod() {
         .join("bin")
         .join(super::cli_bin_name());
     assert_eq!(std::fs::read(&dev_dest).unwrap(), b"dev-instance-binary");
+    let primary = data_dir
+        .join("bin")
+        .join(format!("domios{}", std::env::consts::EXE_SUFFIX));
+    assert_eq!(std::fs::read(&primary).unwrap(), b"dev-instance-binary");
     assert!(
         !prod_dest.exists(),
         "dev/named instance CLI refresh must not write prod bin"

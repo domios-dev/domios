@@ -209,10 +209,9 @@ async fn mock_runtime_restores_once_off_reader_and_holds_failed_restoration() {
         &session,
         &process,
         &pending.send_id,
-        codeterm_plugin::agent_runtime::TurnInput {
-            text: "opaque input".into(),
-            attachments: Vec::new(),
-        },
+        crate::service::messenger::AgentInput::Human(
+            crate::service::messenger::HumanInput::composer("opaque input"),
+        ),
     )
     .await;
     assert!(matches!(

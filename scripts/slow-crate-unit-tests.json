@@ -10,26 +10,6 @@
       "measuredSeconds": 3.758
     },
     {
-      "key": "service_plan::mutations::team_close_transaction_tests::detaching_a_large_unfinished_team_plan_is_one_database_write",
-      "measuredSeconds": 1.313
-    },
-    {
-      "key": "service_plan::review_gate::bounce::cleaned_bounce_tests::review_bounce_cleaned_refuses_invalid_generation_order",
-      "measuredSeconds": 1.038
-    },
-    {
-      "key": "service_plan::review_gate::bounce::cleaned_bounce_tests::review_bounce_cleaned_refuses_owner_or_placement",
-      "measuredSeconds": 1.435
-    },
-    {
-      "key": "service_plan::task_attempts::restore_binding::tests::attempt_binding_restore_refuses_nonworker_remote_or_retired_authority_without_mutation",
-      "measuredSeconds": 7.746
-    },
-    {
-      "key": "service_plan::task_attempts::restore_binding::tests::attempt_binding_restore_refuses_stale_epoch_assignment_and_team_without_mutation",
-      "measuredSeconds": 1.312
-    },
-    {
       "key": "js_runtime::parity_test::codex::codex_folder_trust_prompt_parses_as_numbered_choices",
       "measuredSeconds": 3.409
     },

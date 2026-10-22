@@ -1,6 +1,6 @@
 # BROWSER: how agents use the Domios browser
 
-Every verb is `codeterm plugin browser <verb> [args]`. This guide is what `codeterm docs BROWSER` and `codeterm plugin browser help` print.
+Every verb is `domios plugin browser <verb> [args]`. This guide is what `domios docs BROWSER` and `domios plugin browser help` print.
 
 ## When to use it
 

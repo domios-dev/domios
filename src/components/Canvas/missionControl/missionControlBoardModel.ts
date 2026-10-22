@@ -62,6 +62,9 @@ export function formatHourBand(ts: number): string {
 const KIND_LABELS: Record<string, string> = {
   curator_round: "Curator",
   tab_todo_linked: "Checklist",
+  tab_todo_shared: "Checklist shared",
+  tab_todo_approved: "Checklist approved",
+  tab_todo_amended: "Checklist amended",
   curator: "Curator",
   planning: "Planning",
   task_created: "Task added",

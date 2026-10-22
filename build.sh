@@ -409,6 +409,12 @@ run_nextest_scope() {
   local filter_args=()
 
   case "$scope" in
+    workspace)
+      # One feature resolution for every crate, so shared dependencies compile once.
+      prepare_dev_frontend_dist "$(pwd -P)"
+      prepare_bundle_stubs
+      targets+=(--workspace --lib --features codeterm-sentinel/test-support)
+      ;;
     app|codeterm|service-core|codeterm-service-core)
       configure_app_test_cargo nextest
       manifest="$CT_APP_TEST_MANIFEST"
@@ -1552,14 +1558,16 @@ cleanup_failed_prebuilt_launch() {
 
 install_cli_to() {
   local bin_dir="$1"
-  local source="${2:-}" expected_hash="${3:-}" destination source_hash destination_hash
+  local source="${2:-}" expected_hash="${3:-}" destination alias source_hash destination_hash
   if [ -z "$source" ]; then
     source="$(cli_release_binary)"
   fi
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     destination="$bin_dir/codeterm"
+    alias="$bin_dir/domios"
   else
     destination="$bin_dir/codeterm.exe"
+    alias="$bin_dir/domios.exe"
   fi
 
   source_hash="$(cli_file_sha256_or_status "$source")"
@@ -1589,6 +1597,20 @@ install_cli_to() {
   if [ "$destination_hash" != "$expected_hash" ]; then
     report_cli_install_failure "installed binary does not match the built artifact" \
       "$source" "$destination" "$expected_hash" "$destination_hash"
+    return 1
+  fi
+  destination_hash="$(cli_file_sha256_or_status "$alias")"
+  if [ "$destination_hash" != "$expected_hash" ]; then
+    if ! rm -f "$alias" || ! cp "$destination" "$alias"; then
+      report_cli_install_failure "primary command copy did not succeed" \
+        "$source" "$alias" "$expected_hash" "$(cli_file_sha256_or_status "$alias")"
+      return 1
+    fi
+  fi
+  destination_hash="$(cli_file_sha256_or_status "$alias")"
+  if [ "$destination_hash" != "$expected_hash" ]; then
+    report_cli_install_failure "primary command does not match the built artifact" \
+      "$source" "$alias" "$expected_hash" "$destination_hash"
     return 1
   fi
   echo "CLI installed to $bin_dir"
@@ -2567,7 +2589,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|clean|test:all)
+  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   frontend-build)
@@ -3034,6 +3056,17 @@ EOF
   test-one)
     test_scope="${2:?test-one requires domios-server, billing, account, analytics, app, shell, root, api, socket, commands, sentinel-host, frontend-bundle, plan, pty, pty-fork, util, browser, types, wire, sentinel, decision, provider-signals, storage, mem, mem-store, paths, mesh, plugin, plugins, agent-detect, notification-core, repowatch, usage, cli, or a codeterm-* package}"
     test_filter="${3:?test-one requires a test name or filter}"
+    case "$test_scope" in
+      cli|codeterm-cli|frontend-bundle|codeterm-frontend-bundle|input-macos|input-windows|pty-fork) ;;
+      *)
+        if [ "$test_filter" != build_identity_required ]; then
+          # Same workspace feature resolution as every other test run, so the warm build is reused.
+          [ -z "${RUST_TEST_THREADS:-}" ] || export NEXTEST_TEST_THREADS="${NEXTEST_TEST_THREADS:-$RUST_TEST_THREADS}"
+          SLOW_UNIT_TESTS_MEASUREMENT="${SLOW_UNIT_TESTS_MEASUREMENT:-off}" run_nextest_scope workspace "test(~$test_filter)"
+          exit $?
+        fi
+        ;;
+    esac
     case "$test_scope" in
       domios-server)
         scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios-server --lib "$test_filter"
@@ -3528,6 +3561,10 @@ LOCK_STORM_PY
     cargo build --release --manifest-path cli/Cargo.toml
     CODETERM_DEV=1 node scripts/bundle-cli.js
     echo "Bootstrap complete: bundled CLI is present."
+    ;;
+  cli-docs)
+    cargo build --manifest-path cli/Cargo.toml
+    "$(cli_profile_binary debug)" cli-manifest --write
     ;;
   cli)
     cargo build --release --manifest-path cli/Cargo.toml

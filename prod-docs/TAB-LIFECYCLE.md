@@ -7,8 +7,8 @@ With Storage available, every tab open at shutdown returns. The append-only jour
 Test/QA/build shells need deadlines (`30s`, `10m`, `2h`; maximum 365 days); servers need none. Only the creating agent controls deadlines; mesh requests are refused.
 
 ```bash
-codeterm tab new --purpose qa --timeout 30s --cmd "sleep 600"
-codeterm tab timeout --tab <ID> --timeout 20m  # from now; none disables
+domios tab new --purpose qa --timeout 30s --cmd "sleep 600"
+domios tab timeout --tab <ID> --timeout 20m  # from now; none disables
 ```
 
 Reset keeps shell/command. Expiry quietly closes idle shells; running/unknown activity is terminated with one owner `timed out` status separating shell lifetime and command elapsed. Commands share the deadline. `tab restart` renews lifetime from restart; `--timeout` overrides (`none` disables). Daemon restarts preserve absolute deadlines; unrestorable shells report lost. `tab inspect`: `utility_deadline` (`started_ms`, `deadline_ms`, epoch ms); close journals `utility_timeout`.
@@ -32,8 +32,8 @@ Backup: stop cleanly; copy all `storage/` (DB, assets, import archive). Restore 
 5. Restored counts require observed live agents (reporting below).
 6. Armed graceful-shutdown exits retain provider/session/nonces. Failed launches retain provider, role/profile, session, exact restore data and failure card. Only authenticated-launch exit clears identity into lineage. Recovery requires the provider to verify this tab's nonce-bound session or journaled launch target exists for its cwd, then binds a new nonce. `agent restart` resumes in place with saved arguments. `LaunchBindingUnconfirmed` + shell-ready PTY + known provider + no saved/journaled session yields `fresh_launch`. A hand-started provider inherits the exited nonce; its hook with the newest retired nonce adopts `agent_ready` only if no launch owns the tab.
 7. A Team member that exited to shell before shutdown stays a shell; report: `agent_exited_before_shutdown`, `exited_session_id`. Recover with `agent restart`.
-8. A missing saved cwd never redirects launch: retain cwd/session, show `spawn_failed` naming the directory and notify. Restore the directory, then `codeterm agent restart --tab ID`.
-9. Exact sessions are never silently replaced. Provider-confirmed missing sessions offer **Start new session** / **Keep shell**. `codeterm agent restart --tab ID --fresh` clears dead session/exact binding, retaining tab/cwd/Team/plan/model/effort. Existing exact sessions refuse; live agents require `--force`.
+8. A missing saved cwd never redirects launch: retain cwd/session, show `spawn_failed` naming the directory and notify. Restore the directory, then `domios agent restart --tab ID`.
+9. Exact sessions are never silently replaced. Provider-confirmed missing sessions offer **Start new session** / **Keep shell**. `domios agent restart --tab ID --fresh` clears dead session/exact binding, retaining tab/cwd/Team/plan/model/effort. Existing exact sessions refuse; live agents require `--force`.
 
 ## Resume after restart
 
@@ -44,7 +44,7 @@ Mid-turn PTY agents continue after quit/update/self-install/crash/kill; no shutd
 - Different-session/shell/non-PTY/not-ready-within-300-seconds marks settle without retry as `outcome: {"skipped": "<reason>"}` (e.g. `session_not_resumed`, `agent_not_ready`, `send_refused`, `disabled`). Idle tabs have no mark; owner messages never replay.
 - Refused or unconfirmed submission emits a system notice and `turn-resume-incident` with code, tab, session and `bytes_written`; settlement is `submit_unconfirmed`, never replayed.
 - `update install --from-file` passes `--continue-tab`/`--continue-prompt` to `/api/session/save`. That prompt survives the caller's turn completion and replaces the default continue once; the installer helper never writes to tabs.
-- `[agent] continue_after_restart = false` settles owed marks as `disabled` (see `codeterm docs CONFIG`).
+- `[agent] continue_after_restart = false` settles owed marks as `disabled` (see `domios docs CONFIG`).
 
 The tab API exposes `turn_resume`; the first build introducing it has no earlier marks.
 
@@ -56,13 +56,13 @@ Backend materializes PTYs on frontend readiness or deadline expiry, never abando
 
 Liveness needs live PTY session, real launch transition, own-shell finished-command report or open plugin session, never elapsed time/rebuilt records. Bare shells report role/reason `agent_not_live`; unknown: `agent_liveness_unobserved`.
 
-While startup ACK is owed, owner prompts move `agent_ready` to `awaiting_owner_prompt`, then back on clearance. User-owned prompts notify once/blocker kind/launch with tab/need; parents receive question/options and `codeterm tab respond` instructions. Owner-launched tabs get no automatic keys.
+While startup ACK is owed, owner prompts move `agent_ready` to `awaiting_owner_prompt`, then back on clearance. User-owned prompts notify once/blocker kind/launch with tab/need; parents receive question/options and `domios tab respond` instructions. Owner-launched tabs get no automatic keys.
 
 Observed `absent` panes undergo normal teardown: clear `agent_state`, elapsed timer, status line, `agent_session_id` and model label; arm guarded-input refusal.
 
 ## Where the journal lives
 
-Production: `~/.codeterm/sessions/tab-lifecycle.jsonl`; other instances use their `sessions/`. Agent access: read-only; never edit journal/snapshots.
+Production: `~/.domios/sessions/tab-lifecycle.jsonl`; other instances use their `sessions/`. Agent access: read-only; never edit journal/snapshots.
 
 ## Format
 
@@ -115,7 +115,7 @@ Bounded diagnostic history; compaction preserves surviving evidence.
 Filesystem inspection: filter `entry.key.tab_id`/`checkpoint.key.tab_id`; read `entry.seq`, `entry.recorded_at`, `entry.transition.transition`.
 
 ```bash
-codeterm tab inspect --tab db79d2da --lifecycle
+domios tab inspect --tab db79d2da --lifecycle
 ```
 
 Session backups use Storage projections. Restore adds missing workspaces/tabs with original ids; existing entries stay unchanged/open. `tab inspect --tab ID --lifecycle` adds read-only `lifecycle`: live lineage, ordered transitions, surviving checkpoint, tail health. `tab list` / `tab list --workspace` omit it. No journal restore/checkpoint mutation.
@@ -151,13 +151,13 @@ Connected observer ignores confidence below 0.60. Model-only owner notices requi
 
 Automatic model recovery requires separate human-labelled held-out precision 0.95 in the 0.90 band plus recorded live oracle. Each dispatch first journals to Supporter and notifies verbose. Durable maximum: two restarts/General Agent episode despite higher configuration. Exhaustion notifies failure once; owner restart resets episode.
 
-Trust/permission/login notice suppression and restore grouping: `codeterm docs AGENT-CONTROL`. Observations remain journaled; durable tab/state/launch keys survive app restarts, and new launches may notify again.
+Trust/permission/login notice suppression and restore grouping: `domios docs AGENT-CONTROL`. Observations remain journaled; durable tab/state/launch keys survive app restarts, and new launches may notify again.
 
-Bound-session access refusals immediately raise one `error` / `action_needed` incident/access-loss transition, even UI-created tabs, waiting on authentication. Successful turns clear/resolve it. See `codeterm docs NOTIFICATIONS`; role escalation: `codeterm docs ORCHESTRATION`.
+Bound-session access refusals immediately raise one `error` / `action_needed` incident/access-loss transition, even UI-created tabs, waiting on authentication. Successful turns clear/resolve it. See `domios docs NOTIFICATIONS`; role escalation: `domios docs ORCHESTRATION`.
 
 ## Unattended launch prompts
 
-Visible/hidden owned prompt policy: `codeterm docs AGENT-CONTROL` (calibrated >=0.80 choices, structural fallback, owner-only blockers, provenance exceptions, direct owner-launched tabs).
+Visible/hidden owned prompt policy lives in the same document (calibrated >=0.80 choices, structural fallback, owner-only blockers, provenance exceptions, direct owner-launched tabs).
 
 Unresolved prompts route parsed options to owner. User-audience tabs notify once/blocker kind/launch, including parent agent if present. Supporter journals each decision as `owned_prompt_answer`, `decided_by: adapter` or `fallback(<reason>)`, without raw screen text/credentials. Hidden PTYs and screen parsers use 120x40 geometry.
 
@@ -171,4 +171,4 @@ Working tabs continue. Success: idle tabs (General included) `agent restart` as 
 
 Summary counts restarted/pending/failed restarts and updates in place as pending tabs finish. Supporter journals update runs, safe prompt answers and individual restart outcomes.
 
-<!-- revision: 61 -->
+<!-- revision: 63 -->

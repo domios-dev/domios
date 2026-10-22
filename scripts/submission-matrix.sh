@@ -58,7 +58,8 @@ MANIFEST="$ROOT/plugins/provider-$PROVIDER/plugin.json"
     exit 2
 }
 
-readarray -t CAPABILITIES < <(
+CAPABILITIES=()
+while IFS= read -r capability; do CAPABILITIES+=("$capability"); done < <(
     node -e '
 const descriptor = require(process.argv[1]);
 console.log(descriptor.spawn.readinessStrategy.kind);

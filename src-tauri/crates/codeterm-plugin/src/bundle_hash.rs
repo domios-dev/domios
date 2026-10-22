@@ -176,6 +176,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
+#[path = "bundle_hash/tests.rs"]
 mod tests;
 
 #[path = "../../codeterm-util/src/plugin_runtime_files.rs"]

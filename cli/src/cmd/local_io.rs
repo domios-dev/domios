@@ -448,6 +448,7 @@ pub(crate) fn handle_send_text(
     count: Option<u32>,
     require_agent: bool,
     to_shell: bool,
+    system_context: Option<String>,
 ) {
     crate::cmd::send_text::handle_send_text(
         client,
@@ -465,6 +466,7 @@ pub(crate) fn handle_send_text(
         count,
         require_agent,
         to_shell,
+        system_context,
     );
 }
 

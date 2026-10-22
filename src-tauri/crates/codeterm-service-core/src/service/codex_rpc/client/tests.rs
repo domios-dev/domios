@@ -410,7 +410,7 @@ async fn codex_rpc_pending_steer_interrupt_drops_server_buffer_without_replay() 
         chat_send_transaction::{ChatSendLedger, ChatSendState, SendLiveBinding},
         codex_rpc::{
             control::{interrupt_turns, ControlState},
-            send::{start_params, submit, Origin},
+            send::{test_start_params as start_params, test_submit as submit, Origin},
         },
     };
     let (client, mut outgoing) = client();

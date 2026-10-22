@@ -24,8 +24,10 @@ if grep -q "7685" <<< "$filtered_prod_output"; then
 fi
 
 kill_dev_body="$(sed -n '/^kill_dev() {/,/^}/p' build.sh)"
-mapfile -t request_lines < <(grep -n 'request_dev_clean_restart' <<< "$kill_dev_body" | cut -d: -f1)
-mapfile -t watcher_lines < <(grep -n 'kill_web_watch' <<< "$kill_dev_body" | cut -d: -f1)
+request_lines=()
+while IFS= read -r line; do request_lines+=("$line"); done < <(grep -n 'request_dev_clean_restart' <<< "$kill_dev_body" | cut -d: -f1)
+watcher_lines=()
+while IFS= read -r line; do watcher_lines+=("$line"); done < <(grep -n 'kill_web_watch' <<< "$kill_dev_body" | cut -d: -f1)
 if [ "${#request_lines[@]}" -ne 3 ] || [ "${#watcher_lines[@]}" -ne 2 ] \
   || [ "${request_lines[1]}" -ge "${watcher_lines[0]}" ] \
   || [ "${request_lines[2]}" -ge "${watcher_lines[1]}" ]; then

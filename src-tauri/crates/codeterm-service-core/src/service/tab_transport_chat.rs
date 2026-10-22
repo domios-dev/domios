@@ -184,7 +184,7 @@ where
                     true,
                 ) => (resolved, plugin_id.clone(), session_id.clone()),
                 (TabBacking::ChatBackend { session_id, .. }, false) => {
-                    return Ok(Some(session_id.clone()))
+                    return Ok(Some(session_id.clone()));
                 }
                 _ => return Ok(None),
             }
@@ -262,8 +262,10 @@ pub(crate) fn dispatch_chatbackend_send(
     provider: &dyn ChatBackendProvider,
     plugin_id: &str,
     session_id: &str,
-    text: &str,
+    input: &super::messenger::AgentInput,
 ) -> Result<(), String> {
+    let rendered = input.text();
+    let text = rendered.as_ref();
     use crate::agent::provider::ContextOwner;
     match provider.context_owner() {
         ContextOwner::Plugin => provider
@@ -271,7 +273,7 @@ pub(crate) fn dispatch_chatbackend_send(
             .map_err(|e| e.to_string()),
         ContextOwner::Host => {
             crate::service::tab_chat::host_context::deliver_host_turn_for_session(
-                provider, plugin_id, session_id, text,
+                provider, plugin_id, session_id, input,
             )
         }
     }
@@ -285,9 +287,9 @@ pub struct ChatBackendTransport<'a> {
 }
 
 impl TabTransport for ChatBackendTransport<'_> {
-    fn send(&self, text: &str, _enter: bool) -> Result<(), String> {
+    fn send(&self, input: &super::messenger::AgentInput, _enter: bool) -> Result<(), String> {
         if super::agent_runtime::requested_for_tab(self.svc, &self.tab_id) {
-            return super::agent_runtime::transport::send(self.svc, &self.tab_id, text, None)
+            return super::agent_runtime::transport::send(self.svc, &self.tab_id, input, None)
                 .map_err(|error| error.ledger_message());
         }
         // A tab restored after a daemon restart has no live plugin session; reopen lazily before the first send.
@@ -297,12 +299,18 @@ impl TabTransport for ChatBackendTransport<'_> {
             .unwrap_or(None)
             .unwrap_or_else(|| self.session_id.clone());
         self.svc
-            .chatbackend_send(&self.plugin_id, &session_id, text)
+            .chatbackend_send(&self.plugin_id, &session_id, input)
     }
 
     fn send_batch(&self, batch: Vec<SendBatchItem>) -> Result<(), String> {
         for item in batch {
-            self.send(&item.text, true)?;
+            self.send(
+                &super::messenger::AgentInput::Framed(
+                    super::messenger::Messenger::from(super::messenger::MessageEnvelope::default())
+                        .framed_delivery(&item.text),
+                ),
+                true,
+            )?;
         }
         Ok(())
     }
@@ -482,15 +490,18 @@ impl ServiceContext {
         &self,
         plugin_id: &str,
         session_id: &str,
-        text: &str,
+        input: &super::messenger::AgentInput,
     ) -> Result<(), String> {
+        if matches!(input, super::messenger::AgentInput::Shell(_)) {
+            return Err("shell input cannot target a chat agent".into());
+        }
         if self.chatbackend_session_is_watcher(plugin_id, session_id) {
             return Err(
                 "this Tab is a watcher (read-only); its inputs come from the tick scheduler".into(),
             );
         }
         let provider = self.chatbackend_provider(plugin_id)?;
-        dispatch_chatbackend_send(provider.as_ref(), plugin_id, session_id, text)
+        dispatch_chatbackend_send(provider.as_ref(), plugin_id, session_id, input)
     }
 
     fn chatbackend_session_is_watcher(&self, plugin_id: &str, session_id: &str) -> bool {
@@ -510,17 +521,21 @@ impl ServiceContext {
 
     /// Deliver one user turn to a chatBackend tab, re-opening a restored tab's
     /// dead session first so the raw send doesn't hit a session with no poll loop.
-    pub(crate) fn chatbackend_tab_send(&self, tab_id: &str, text: &str) -> Result<(), String> {
+    pub(crate) fn chatbackend_tab_send(
+        &self,
+        tab_id: &str,
+        input: &super::messenger::AgentInput,
+    ) -> Result<(), String> {
         self.wake_frozen_tab(tab_id)?;
         if super::agent_runtime::requested_for_tab(self, tab_id) {
-            return super::agent_runtime::transport::send(self, tab_id, text, None)
+            return super::agent_runtime::transport::send(self, tab_id, input, None)
                 .map_err(|error| error.ledger_message());
         }
         self.chatbackend_reopen_if_restored(tab_id)?;
         let (plugin_id, session_id) = self
             .tab_chat_backing(tab_id)
             .ok_or("chatBackend Tab lost its backing")?;
-        self.chatbackend_send(&plugin_id, &session_id, text)
+        self.chatbackend_send(&plugin_id, &session_id, input)
     }
 
     pub(crate) fn captured_chat_identity(
@@ -533,7 +548,7 @@ impl ServiceContext {
     pub(crate) fn chatbackend_capture_send(
         &self,
         capture: &super::local_recording::chat::CapturedChat,
-        text: &str,
+        input: &super::messenger::AgentInput,
     ) -> Result<(), super::delivery_error::DeliveryError> {
         self.require_managed_send_allowed(&capture.identity.tab_id, None)
             .map_err(
@@ -562,7 +577,7 @@ impl ServiceContext {
         capture.handoff(
             self.captured_chat_identity(&capture.identity.tab_id),
             |plugin_id, session_id| {
-                dispatch_chatbackend_send(provider.as_ref(), plugin_id, session_id, text)
+                dispatch_chatbackend_send(provider.as_ref(), plugin_id, session_id, input)
             },
         )
     }

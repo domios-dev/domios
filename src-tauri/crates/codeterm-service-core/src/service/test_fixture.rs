@@ -229,10 +229,7 @@ impl ServiceFixture {
         let boundary = super::agent_delivery_outbox::test_boundary::Boundary::install(
             tab_id,
             Arc::new(move |payload| {
-                let text = match &payload.transport {
-                    super::messenger::QueuedAgentPayload::Text { text } => text.clone(),
-                    super::messenger::QueuedAgentPayload::RoutedFrame { body, .. } => body.clone(),
-                };
+                let text = payload.transport.body().to_string();
                 captured.lock().push(text);
                 Ok(())
             }),
