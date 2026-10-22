@@ -450,47 +450,33 @@ fn tailer_streams_new_messages_as_file_grows() {
 
 #[test]
 fn tailer_repopulates_when_session_file_appears_late() {
-    if !workspace_plugins_root().join("provider-claude").exists() {
-        return;
-    }
     let tmp = TempDir::new().unwrap();
-    let cwd = "/proj/late-file";
-    let sid = "sess-late-001";
-    let proj_dir = tmp.path().join("-proj-late-file");
-    std::fs::create_dir_all(&proj_dir).unwrap();
-    let jsonl = proj_dir.join(format!("{sid}.jsonl"));
-    // The session file does NOT exist yet — claude hasn't completed turn 1.
-
-    let registry = registry_with_claude_at(tmp.path());
-    let sink = Arc::new(Collector {
-        msgs: Mutex::new(vec![]),
-    });
-    let handle = spawn_tailer(
+    let jsonl = tmp.path().join("late-session.jsonl");
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(AlwaysPathProvider {
+        path: jsonl.clone(),
+    }));
+    let (ready, ready_rx) = std::sync::mpsc::channel();
+    let (messages, messages_rx) = std::sync::mpsc::sync_channel(8);
+    let handle = super::tailer::spawn_tailer_with_ready(
         TailConfig {
             tab_id: "p-late".into(),
-            provider_id: "claude".into(),
-            cwd: cwd.into(),
-            session_id: sid.into(),
+            provider_id: "always-path".into(),
+            cwd: "/proj/late-file".into(),
+            session_id: "late-session".into(),
             start_offset: 0,
         },
-        registry,
-        sink.clone() as Arc<dyn DeltaSink>,
+        Arc::new(registry),
+        Arc::new(SignalledCollector { ready: messages }),
+        ready,
     );
+    ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(messages_rx.try_recv().is_err());
+    assert!(handle.is_alive());
 
-    // 50ms = 500ms). On the buggy code the tailer thread has already exited.
-    std::thread::sleep(Duration::from_millis(900));
-
-    // Now claude finishes turn 1 and the JSONL appears.
-    std::fs::write(
-        &jsonl,
-        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
-    )
-    .unwrap();
-
-    assert!(
-        wait_until(3000, || sink.msgs.lock().len() >= 1),
-        "tailer must keep watching and populate once the session file appears (no permanent give-up)"
-    );
+    std::fs::write(&jsonl, b"materialized\n").unwrap();
+    messages_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(handle.current_offset(), 13);
     handle.shutdown();
 }
 
@@ -686,71 +672,54 @@ fn tailer_skips_when_provider_returns_no_jsonl_path() {
         sink.clone() as Arc<dyn DeltaSink>,
     );
 
-    // Tailer stops itself when `session_jsonl_path` is None.
-    // If shutdown can't join within test timing, it indicates a stuck thread.
-    std::thread::sleep(Duration::from_millis(500));
     handle.shutdown();
 
     // No messages should have been emitted.
     assert_eq!(sink.msgs.lock().len(), 0);
 }
 
-// Dropping TailerHandle must stop polling. Without this, orphan tailers keep emitting during remount races.
 #[test]
 fn dropping_handle_stops_the_raw_tailer() {
     use std::io::Write;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    struct Counter {
-        n: AtomicUsize,
-    }
-    impl crate::service::tab_chat::RawTextSink for Counter {
-        fn emit(&self, _tab_id: &str, _text: String) {
-            self.n.fetch_add(1, Ordering::Relaxed);
+    struct ChannelSink(std::sync::mpsc::Sender<String>);
+    impl crate::service::tab_chat::RawTextSink for ChannelSink {
+        fn emit(&self, _: &str, text: String) {
+            self.0.send(text).unwrap();
         }
     }
 
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("s.jsonl");
     std::fs::write(&path, b"line1\n").unwrap();
-
-    let counter = Arc::new(Counter {
-        n: AtomicUsize::new(0),
-    });
-    let sink: Arc<dyn crate::service::tab_chat::RawTextSink> = counter.clone();
+    let (messages, messages_rx) = std::sync::mpsc::channel();
     let handle = crate::service::tab_chat::spawn_raw_tailer(
         crate::service::tab_chat::RawTailConfig {
             tab_id: "p".into(),
             path: path.clone(),
             start_offset: 0,
-            poll_interval: Duration::from_millis(40),
+            poll_interval: Duration::from_millis(1),
         },
-        sink,
+        Arc::new(ChannelSink(messages)),
     );
-
-    assert!(
-        wait_until(2000, || counter.n.load(Ordering::Relaxed) >= 1),
-        "tailer should emit the initial content"
-    );
-    let before = counter.n.load(Ordering::Relaxed);
-
-    // Drop the handle — its thread must stop, NOT keep polling.
-    drop(handle);
-    std::thread::sleep(Duration::from_millis(150));
-
-    // A live thread would pick this up; a stopped one won't.
-    {
-        let mut f = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .unwrap();
-        f.write_all(b"line2\n").unwrap();
-    }
-    std::thread::sleep(Duration::from_millis(200));
-
     assert_eq!(
-        counter.n.load(Ordering::Relaxed),
-        before,
-        "dropped tailer must stop emitting"
+        messages_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        "line1\n"
+    );
+    drop(handle);
+    assert_eq!(
+        messages_rx.recv_timeout(Duration::from_secs(2)),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected),
+        "the worker must release its sink after the handle is dropped"
+    );
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(b"line2\n")
+        .unwrap();
+    assert_eq!(
+        messages_rx.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Disconnected)
     );
 }
