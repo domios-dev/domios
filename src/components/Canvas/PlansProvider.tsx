@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useState,
   type ReactNode,
 } from "react";
 import { listen } from "../../lib/bridge";
@@ -31,6 +32,8 @@ interface PlansContextValue {
   indexError: string | null;
   refetchIndex: () => Promise<void>;
   full: UsePlansResult;
+  chat: UsePlansResult;
+  requestFull: () => () => void;
 }
 
 const PlansContext = createContext<PlansContextValue | null>(null);
@@ -46,7 +49,13 @@ export function PlansProvider({
 }) {
   const peerContext = usePlanPeerContext();
   const queriesEnabled = enabled && peerContext.ready;
-  const full = usePlans(api, { enabled: queriesEnabled, contextKey: peerContext.generation });
+  const [fullReaders, setFullReaders] = useState(0);
+  const requestFull = useMemo(() => () => {
+    setFullReaders((count) => count + 1);
+    return () => setFullReaders((count) => count - 1);
+  }, []);
+  const full = usePlans(api, { enabled: queriesEnabled && fullReaders > 0, contextKey: peerContext.generation });
+  const chat = usePlans(api, { enabled: queriesEnabled, chat: true, contextKey: peerContext.generation });
 
   const {
     data: index,
@@ -99,6 +108,8 @@ export function PlansProvider({
       indexError: queriesEnabled ? indexError : null,
       refetchIndex,
       full: queriesEnabled ? full : EMPTY_FULL,
+      chat: queriesEnabled ? chat : EMPTY_FULL,
+      requestFull,
     }),
     [
       api,
@@ -110,6 +121,8 @@ export function PlansProvider({
       indexError,
       refetchIndex,
       full,
+      chat,
+      requestFull,
     ],
   );
 
@@ -170,11 +183,13 @@ export function usePlanIndexOptional(): PlanIndexResult {
 }
 
 export function useFullPlans(): UsePlansResult {
-  return usePlansContext().full;
+  const context = usePlansContext();
+  useEffect(context.requestFull, [context.requestFull]);
+  return context.full;
 }
 
 export function useSidebarPlansOptional(): UsePlansResult {
-  return useContext(PlansContext)?.full ?? EMPTY_FULL;
+  return useContext(PlansContext)?.chat ?? EMPTY_FULL;
 }
 
 export function useCanvasPlans(
@@ -182,7 +197,7 @@ export function useCanvasPlans(
   projectPath: string | null,
   scope?: PlanWorkspaceContext & { workspaceId: string | undefined },
 ): UsePlansResult {
-  const full = usePlansContext().full;
+  const full = useFullPlans();
   const plans = useMemo(() => {
     if (mode !== "workspace" || !projectPath) return full.plans;
     const expected = comparableProjectPath(projectPath);
