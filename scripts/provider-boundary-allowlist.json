@@ -13586,7 +13586,7 @@
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/tab_chat/tailer_tests.rs",
       "token": "claude",
-      "count": 14,
+      "count": 11,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -13600,14 +13600,14 @@
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/tab_chat/tailer_tests.rs",
       "token": "provider-claude",
-      "count": 3,
+      "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/tab_chat/tailer_tests.rs",
       "token": "registry_with_claude_at",
-      "count": 4,
+      "count": 3,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
