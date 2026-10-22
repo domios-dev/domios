@@ -13,6 +13,17 @@ impl Default for Environment {
 }
 
 impl Environment {
+    pub fn isolated(directory: &Path) -> Self {
+        Self {
+            variables: vec![
+                ("PATH".into(), directory.as_os_str().to_owned()),
+                ("HOME".into(), directory.as_os_str().to_owned()),
+                ("TMPDIR".into(), directory.as_os_str().to_owned()),
+                ("LANG".into(), "C.UTF-8".into()),
+            ],
+        }
+    }
+
     pub fn for_command(
         inherited: impl IntoIterator<Item = (OsString, OsString)>,
         instance_cli: Option<&Path>,

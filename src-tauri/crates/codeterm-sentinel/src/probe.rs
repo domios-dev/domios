@@ -12,6 +12,8 @@ pub mod windows;
 pub mod cancellation;
 pub mod capture;
 pub mod environment;
+#[cfg(target_os = "macos")]
+pub mod executable;
 mod input;
 pub mod owner;
 pub mod process;
@@ -222,6 +224,7 @@ fn run_transaction(
                 _cancellation_required,
                 environment,
                 stdin,
+                None,
             )
         }
         #[cfg(windows)]
