@@ -37,7 +37,7 @@ export function CompactMessageContent({ text, markdown = false, segments, fontSc
     const shown = expanded || !collapsible ? normalized : normalized.split("\n").slice(0, collapseAfter).join("\n");
     const body = part.inline ? <InlineAttachmentText segments={part.inline} />
       : !markdown && hasPlanRefs(shown) ? <LinkedText text={shown} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
-      : <RichMarkdown text={shown} fontScale={fontScale} />;
+      : <RichMarkdown text={shown} fontScale={fontScale} planLinks={{ onOpenPlan, resolvePlanRef }} />;
     return <>{part.files.length > 0 && <AttachmentStrip images={[]} files={part.files} captioned={Boolean(shown.trim())} />}{body}</>;
   };
 

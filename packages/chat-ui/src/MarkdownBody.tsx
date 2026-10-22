@@ -1,3 +1,4 @@
+import { MarkdownPlanLinksContext, MarkdownPlanRef, rehypePlanRefs, type MarkdownPlanLinks } from "./MarkdownPlanRefs";
 import { localArtifactOpeningAvailable, openLocalArtifact } from "./localArtifactLoader";
 import { boundedMessageLayout, expandedMessageHeight } from "./boundedMessageModel";
 import { BoundedMessageContent } from "./BoundedMessageContent";
@@ -187,12 +188,14 @@ export function RichMarkdown({
   fontScale,
   localArtifacts = true,
   sourcePositions = false,
+  planLinks,
 }: {
   text: string;
   fontScale?: number;
   localArtifacts?: boolean;
   /** Stamp original source offsets on the rendered DOM. */
   sourcePositions?: boolean;
+  planLinks?: MarkdownPlanLinks;
 }) {
   const partContext = useContext(MessagePartsContext);
   const parts = useMemo(() => partContext?.source === text ? messageParts(partContext.id, text) : null, [partContext?.id, partContext?.source, text]);
@@ -208,6 +211,7 @@ export function RichMarkdown({
   const components = useMemo<NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]>>(
     () => ({
         div: MessagePartView,
+        span: MarkdownPlanRef,
         h1: ({ node: _node, ...props }) => (
           <h1 className={`${h1Text} font-bold mt-3 mb-1`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
@@ -350,7 +354,7 @@ export function RichMarkdown({
     [fontScale, h1Text, h2Text, h3Text, localArtifacts],
   );
   const splitParts = parts && parts.length > 1 ? parts : null;
-  const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, sourcePositions, splitParts ? partContext?.id ?? null : null]);
+  const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, sourcePositions, Boolean(planLinks?.onOpenPlan), splitParts ? partContext?.id ?? null : null]);
   const cachedKeyRef = useRef<string | null>(null);
   const rendered = useMemo(() => {
     const previousKey = cachedKeyRef.current;
@@ -358,12 +362,12 @@ export function RichMarkdown({
     if (previousKey !== null && previousKey !== cacheKey) forgetMarkdownRender(previousKey);
     return cachedMarkdownRender(cacheKey, renderedText.length, () => ReactMarkdown({
       remarkPlugins: REMARK_PLUGINS,
-      rehypePlugins: splitParts ? [...(rehypePlugins ?? []), rehypeMessageParts(splitParts)] : rehypePlugins,
+      rehypePlugins: [...(rehypePlugins ?? []), ...(planLinks?.onOpenPlan ? [rehypePlanRefs] : []), ...(splitParts ? [rehypeMessageParts(splitParts)] : [])],
       components,
       children: renderedText,
     }));
-  }, [cacheKey, renderedText, rehypePlugins, splitParts, components]);
-  return <MarkdownSourceContext.Provider value={renderedText}>{rendered}</MarkdownSourceContext.Provider>;
+  }, [cacheKey, renderedText, rehypePlugins, splitParts, components, planLinks?.onOpenPlan]);
+  return <MarkdownPlanLinksContext.Provider value={planLinks ?? {}}><MarkdownSourceContext.Provider value={renderedText}>{rendered}</MarkdownSourceContext.Provider></MarkdownPlanLinksContext.Provider>;
 }
 
 const REMARK_PLUGINS = [remarkGfm, remarkCachedParse, remarkBareDomains, remarkCodeMetadata];
