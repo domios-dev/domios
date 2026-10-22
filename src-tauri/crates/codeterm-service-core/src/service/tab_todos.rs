@@ -477,7 +477,7 @@ impl ServiceContext {
             return Ok(false);
         }
         let text = recitation_text(&recitation);
-        crate::service::hierarchy::deliver_tab_todo_recitation(self, target_tab_id, &text)
+        self.deliver_checklist_text(target_tab_id, &text).await
     }
 
     async fn resolve_drafts(

@@ -84,7 +84,7 @@ Local callers only.
 | POST | `/api/account/logout` | — | Clear credentials and cached entitlements |
 | GET | `/api/account/plan` | — | Cached entitlement and stale marker |
 | POST | `/api/account/plan/refresh` | — | Explicit focus refresh, throttled to once per minute |
-| POST | `/api/account/upgrade` | `{plan}` | Open checkout in the system browser |
+| POST | `/api/account/upgrade` | `{plan, theme?}` | Open checkout in the system browser; `theme` (`light` or `dark`) sets the checkout page's theme |
 | POST | `/api/account/portal` | — | Open subscription management in the system browser |
 
 <!-- revision: 9 -->

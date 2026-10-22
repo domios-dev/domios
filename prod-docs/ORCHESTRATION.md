@@ -75,7 +75,7 @@ Workers default to full machine access; `--execution-intent` governs task and re
 
 ## Worker kinds
 
-Kinds add prompt guidance, not machine access or execution ability. `qa` and `release_manager` support assigned mutations or task-less use; spawn task-less kinds with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. Task-less instances own no task, default to mutating intent, report to their parent without `--task`/`--status`, and gain no Plan authority. Neither kind spawns children. QA provides browser verification and may accept or bounce only an exact parent-delegated in-review task with evidence; it cannot hold or dispatch. Release managers coordinate current releases; publication and tags require owner GO. See `AGENT-CONTROL`.
+Kinds add prompt guidance, not machine access or execution ability. `reviewer` is read-only code review by default; use it for independent review of lane diffs. `qa` and `release_manager` support assigned mutations or task-less use; spawn task-less kinds with `codeterm agent spawn <provider> --role Worker --kind <kind> --parent-tab <tab> [--authorized-gate <command>]`. Task-less instances own no task, default to mutating intent, report to their parent without `--task`/`--status`, and gain no Plan authority. Neither kind spawns children. QA provides browser verification and may accept or bounce only an exact parent-delegated in-review task with evidence; it cannot hold or dispatch. Release managers coordinate current releases; publication and tags require owner GO. See `AGENT-CONTROL`.
 
 Task-bound Workers need `--plan-task <task>` and explicit `--execution-intent` for ACK, lane, and status. Gates authorize only recorded commands, never source edits; task-bound gates are declared on dispatch, where enforced. QA review delegation is explicit.
 
@@ -99,4 +99,4 @@ The default Curator control loop replaces the Orchestrator heartbeat. It mirrors
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 138 -->
+<!-- revision: 139 -->

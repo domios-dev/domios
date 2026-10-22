@@ -1,11 +1,17 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef } from "react";
+import { Check } from "lucide-react";
+import { publishNotice } from "../../lib/notices";
+import { useAccount } from "../Settings/useAccount";
+import { useAccountPlan } from "../Settings/useAccountPlan";
 import { Button } from "../shared/Button";
-import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { FormDialog } from "../shared/FormDialog";
 import { PlanCards } from "./PlanCards";
 import { freeLimitGate, upgradePlan, UPGRADE_PLAN_KEY, useFreeLimitPrompt } from "./freeLimitGate";
 import { limitHeadline, type FreeLimitKey } from "./freeLimitModel";
-import type { PlanCatalog } from "./planCatalog";
+import { offerIdForPlan, type PlanCatalog } from "./planCatalog";
+import { usePlanCatalog } from "./planCatalogContext";
+import { displayedPlan } from "./purchaseIntent";
+import { usePurchaseIntent } from "./usePurchaseIntent";
 
 function PlansModal({ limit, max, onClose, onUpgrade, catalog }: {
   limit: FreeLimitKey;
@@ -16,28 +22,55 @@ function PlansModal({ limit, max, onClose, onUpgrade, catalog }: {
 }) {
   const titleId = useId();
   const descriptionId = useId();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const choose = (planKey: string) => {
-    setBusy(true);
-    setError(null);
-    onUpgrade(planKey).then(onClose, (failure: unknown) => {
-      setError(failure instanceof Error && failure.message ? failure.message : "Billing is unavailable right now.");
-      setBusy(false);
-    });
-  };
+  const account = useAccount();
+  const identity = account.model.kind === "signed_in" ? account.model.identity : null;
+  const signedIn = identity !== null;
+  const billing = useAccountPlan(identity?.uid ?? null);
+  const contextCatalog = usePlanCatalog();
+  const offers = catalog ?? contextCatalog;
+  const purchase = usePurchaseIntent({
+    account,
+    billing: { plan: billing.plan, planLoad: billing.planLoad, upgrade: (planKey) => onUpgrade(planKey).then(() => null, (failure: unknown) => failure ?? new Error("Checkout did not start")) },
+    catalog: offers,
+    notify: publishNotice,
+    onCheckoutOpened: onClose,
+  });
+  const { intent } = purchase;
+  const blocked = purchase.busy || (signedIn && billing.planLoad === "loading");
+  const done = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (intent.kind === "owned") done.current?.focus(); }, [intent.kind]);
+  if (intent.kind === "owned") {
+    const offerId = offerIdForPlan(offers, intent.planKey);
+    const name = offers.offers.find((offer) => offer.id === offerId)?.name ?? offerId;
+    return (
+      <FormDialog titleId={titleId} descriptionId={descriptionId} className="max-w-3xl" onCancel={onClose}
+        onSubmit={(event) => { event.preventDefault(); onClose(); }}>
+        <span className="grid h-[34px] w-[34px] place-items-center rounded-full bg-[color-mix(in_srgb,var(--ct-green)_13%,transparent)] text-[var(--ct-green)]">
+          <Check size={18} aria-hidden="true" />
+        </span>
+        <h2 id={titleId} className="m-0 text-base font-semibold">You already have {name}.</h2>
+        <p id={descriptionId} className="m-0 text-xs text-[var(--ct-muted-fg)]">
+          This limit doesn’t apply to your account. Carry on where you were.
+        </p>
+        <div className="flex justify-end">
+          <Button ref={done} size="sm" variant="primary" type="submit">Done</Button>
+        </div>
+      </FormDialog>
+    );
+  }
   return (
     <FormDialog titleId={titleId} descriptionId={descriptionId} className="max-w-3xl" onCancel={onClose}
-      onSubmit={(event) => { event.preventDefault(); choose(UPGRADE_PLAN_KEY); }}>
+      onSubmit={(event) => { event.preventDefault(); if (!blocked) purchase.choose(UPGRADE_PLAN_KEY); }}>
       <h2 id={titleId} className="m-0 text-base font-semibold">{limitHeadline(limit, max)}</h2>
       <p id={descriptionId} className="m-0 text-xs text-[var(--ct-muted-fg)]">
         Upgrade to remove this limit. Everything you already have stays as it is.
       </p>
-      <PlanCards catalog={catalog} canPurchase={!busy} initialInterval="month" onChoose={choose} />
-      {error && <InlineErrorNotice description={{ title: "Checkout did not start", cause: error, actions: [], raw: "" }} role="alert" />}
+      <PlanCards catalog={offers} currentPlan={displayedPlan(billing.plan)} canPurchase={!blocked} initialInterval="month"
+        onChoose={purchase.choose} intent={intent} onCancel={purchase.cancel}
+        signedInAs={identity ? identity.email ?? identity.display_name : null} />
       <div className="flex justify-end gap-2">
         <Button size="sm" onClick={onClose}>Not now</Button>
-        <Button size="sm" variant="primary" type="submit" loading={busy}>Upgrade</Button>
+        <Button size="sm" variant="primary" type="submit" loading={intent.kind === "opening"} disabled={blocked}>Upgrade</Button>
       </div>
     </FormDialog>
   );
