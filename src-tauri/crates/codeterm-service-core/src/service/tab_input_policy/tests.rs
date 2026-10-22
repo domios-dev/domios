@@ -56,7 +56,12 @@ fn curator_user_entry_points_refuse_before_pty_or_ledger_work() {
         .is_ok());
     assert_eq!(
         service
-            .start_chat_send(&id, "opaque".into(), None, None)
+            .start_human_chat_send(
+                &id,
+                crate::service::messenger::HumanInput::composer("opaque"),
+                None,
+                None,
+            )
             .unwrap_err(),
         error
     );
