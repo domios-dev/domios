@@ -8,8 +8,8 @@ impl DeploymentEmbedder {
     fn vector(text: &str) -> Vec<f32> {
         let mut vector = vec![0.0; crate::embeddings::EMBEDDING_DIMENSION];
         if matches!(
-            text,
-            "Detect stalled deployments" | "Watch CI failure" | "Identify frozen releases"
+            text.to_lowercase().as_str(),
+            "detect stalled deployments" | "watch ci failure" | "identify frozen releases"
         ) {
             vector[0] = 1.0;
         }
