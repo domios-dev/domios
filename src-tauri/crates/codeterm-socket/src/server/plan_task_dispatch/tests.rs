@@ -294,6 +294,7 @@ fn provenance() -> WorkerLaneProvenance {
 
 fn spawn_result(tab_id: &str) -> SpawnResult {
     SpawnResult {
+        team_id: None,
         tab_id: tab_id.into(),
         pty_id: String::new(),
         agent: "codex".into(),

@@ -9,8 +9,10 @@ use super::{session_persist, ServiceContext};
 use crate::multiplexer::state::StructureState;
 
 static RESTORE_LOCK: Mutex<()> = Mutex::new(());
-static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 static WORKSPACE_CLOSES: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+mod capture;
+pub use capture::close_inventory_error_data;
 
 #[cfg(test)]
 mod tests;
@@ -87,7 +89,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn capture_close_inventory(
+    fn capture_close_inventory_sync(
         &self,
         workspace: &str,
         team: Option<&str>,
@@ -95,13 +97,16 @@ impl ServiceContext {
         if team.is_some() && WORKSPACE_CLOSES.lock().contains(workspace) {
             return Ok(None);
         }
-        let _capture = CAPTURE_LOCK.lock();
+        let _capture = capture::ScopeClaim::acquire(workspace, team)?;
         let pending = self.mux.read().closed_structure_records()?;
         if pending.iter().any(|record| match team {
             Some(id) => record.teams.iter().any(|team| team.id == id),
             None => record.workspaces.iter().any(|saved| saved.id == workspace),
         }) {
-            return Err("Close inventory is already being captured for this scope".into());
+            return Err(capture::failure(
+                "close_scope_busy",
+                "A close is already in progress for this scope",
+            ));
         }
         let id = format!("close_{}", uuid::Uuid::new_v4());
         let mut record = self.mux.read().capture_structure(

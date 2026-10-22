@@ -962,3 +962,47 @@ fn resolved_agent_cwd_strips_windows_verbatim_prefix_before_launch() {
     assert_eq!(resolved.as_deref(), Some(r"C:\lanes\worker"));
     assert!(warning.is_none());
 }
+
+#[test]
+fn taskless_worker_spawn_joins_parent_team_and_returns_its_membership() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace = mux.create_workspace("Worker membership".into(), None).id;
+    let parent = mux.create_tab(&workspace).unwrap();
+    mux.get_tab_mut(&parent).unwrap().agent_type = Some("membership-fixture".into());
+    mux.set_orchestrator_role(&parent).unwrap();
+    let team = mux
+        .resolve_or_mint_team_for_parent(&parent)
+        .unwrap()
+        .team_id;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("membership-fixture")
+            .with_launch_binary(crate::agent::test_provider::test_shell_binary()),
+    ));
+    let result = fixture
+        .service
+        .spawn_agent_sync(SpawnAgentParams {
+            agent: Some("membership-fixture".into()),
+            role: Some("Worker".into()),
+            parent_tab_id: Some(parent.clone()),
+            workspace_id: Some(workspace),
+            ..Default::default()
+        })
+        .unwrap();
+    let serialized = serde_json::to_value(&result).unwrap();
+    {
+        let mux = fixture.service.mux.read();
+        let worker = mux.get_tab(&result.tab_id).unwrap();
+        assert_eq!(worker.team_id.as_deref(), Some(team.as_str()));
+        assert_eq!(worker.parent_tab_id.as_deref(), Some(parent.as_str()));
+        assert_eq!(
+            worker.role,
+            Some(crate::multiplexer::types::AgentRole::Worker)
+        );
+        assert!(worker.task_binding.is_none());
+        assert!(mux.team_member_tab_ids(&team).contains(&result.tab_id));
+    }
+    assert_eq!(result.team_id.as_deref(), Some(team.as_str()));
+    assert_eq!(serialized["team_id"], team);
+    fixture.service.close_tab(&result.tab_id).unwrap();
+}

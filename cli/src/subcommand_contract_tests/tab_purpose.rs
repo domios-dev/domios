@@ -70,3 +70,15 @@ fn utility_shell_timeout_cli_contract() {
     ])
     .is_err());
 }
+
+#[test]
+fn tab_new_timeout_help_names_the_owning_agent_requirement() {
+    let mut command = TabOnly::command();
+    let help = command
+        .find_subcommand_mut("new")
+        .unwrap()
+        .render_long_help()
+        .to_string();
+    assert!(help.contains("CODETERM_TAB_ID"));
+    assert!(help.contains("omit for human shells"));
+}

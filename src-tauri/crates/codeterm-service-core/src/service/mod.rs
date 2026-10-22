@@ -43,6 +43,7 @@ pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
 pub mod chat_send_transaction;
 mod close_history;
+pub use close_history::close_inventory_error_data;
 pub mod codex_rpc;
 mod command_port_impl;
 pub mod context_feed;
