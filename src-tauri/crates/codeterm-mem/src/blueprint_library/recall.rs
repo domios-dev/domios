@@ -297,7 +297,6 @@ fn lexical_text(candidate: &Candidate, enrichment: bool) -> String {
 fn bm25(candidates: &[Candidate], query: &str, enrichment: bool) -> Vec<f64> {
     const K1: f64 = 1.5;
     const B: f64 = 0.75;
-    const EPSILON: f64 = 0.25;
     let documents = candidates
         .iter()
         .map(|candidate| tokens(&lexical_text(candidate, enrichment)))
@@ -313,19 +312,13 @@ fn bm25(candidates: &[Candidate], query: &str, enrichment: bool) -> Vec<f64> {
             *frequency.entry(token).or_default() += 1;
         }
     }
-    let mut idf = frequency
+    let idf = frequency
         .iter()
         .map(|(token, n)| {
             let n = *n as f64;
-            (*token, ((count - n + 0.5) / (n + 0.5)).ln())
+            (*token, (1.0 + (count - n + 0.5) / (n + 0.5)).ln())
         })
         .collect::<HashMap<_, _>>();
-    let floor = EPSILON * idf.values().sum::<f64>() / idf.len().max(1) as f64;
-    for value in idf.values_mut() {
-        if *value < 0.0 {
-            *value = floor;
-        }
-    }
     let query = tokens(query);
     documents
         .iter()
