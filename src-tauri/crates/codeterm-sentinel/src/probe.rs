@@ -90,8 +90,13 @@ pub fn run_with_budget_input(
     previous: &str,
 ) -> Result<Output, process::ProbeFailure> {
     let deadlines = process::Deadlines::start(limit, runtime)?;
-    let stdin =
-        input::file(previous).map_err(|_| process::ProbeFailure::new("probe_input_failed"))?;
+    let stdin = input::file(previous).map_err(|error| {
+        process::ProbeFailure::new(if error.kind() == std::io::ErrorKind::InvalidData {
+            "contract_violation"
+        } else {
+            "probe_input_failed"
+        })
+    })?;
     run_transaction(
         command,
         cwd,
@@ -99,6 +104,33 @@ pub fn run_with_budget_input(
         owner,
         &cancellation::Cancellation::default(),
         false,
+        environment,
+        Some(stdin),
+    )
+}
+
+pub fn run_enveloped(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+    environment: &environment::Environment,
+    envelope: &codeterm_blueprint_types::blueprint_execution::ExecutionEnvelope,
+    cancellation: &cancellation::Cancellation,
+) -> Result<Output, process::ProbeFailure> {
+    let deadlines = process::Deadlines::start(limit, limit)?;
+    let bytes = envelope
+        .encode()
+        .map_err(|_| process::ProbeFailure::new("contract_violation"))?;
+    let stdin =
+        input::file_bytes(&bytes).map_err(|_| process::ProbeFailure::new("probe_input_failed"))?;
+    run_transaction(
+        command,
+        cwd,
+        deadlines,
+        owner,
+        cancellation,
+        true,
         environment,
         Some(stdin),
     )

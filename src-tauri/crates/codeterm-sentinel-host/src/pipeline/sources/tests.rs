@@ -87,10 +87,15 @@ fn blueprint_pipeline_run_receives_previous_source_json_on_stdin() {
         },
         ..step
     };
-    let result = run(&handle, &lease, &step, &source.next_text);
+    let result = run(
+        &handle,
+        &lease,
+        &step,
+        &ExecutionEnvelope::from_text(&source.next_text),
+    );
     assert_eq!(result.outcome, StepOutcome::Done);
     assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&result.next_text).unwrap(),
+        serde_json::from_str::<serde_json::Value>(&result.next_text).unwrap()["value"],
         serde_json::from_str::<serde_json::Value>(&source.next_text).unwrap()
     );
 }
