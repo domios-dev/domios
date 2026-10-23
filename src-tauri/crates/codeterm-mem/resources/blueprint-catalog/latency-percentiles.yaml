@@ -50,15 +50,26 @@ steps:
     lang: python
     src: |
       import math
-      def main(a):
-          xs = sorted(a["samples"])
+      def main(value):
+          xs = sorted(value["samples"])
           if not xs:
               return {"count": 0, "p50": 0, "p95": 0, "max": 0, "breach": False}
           rank = lambda q: xs[max(0, math.ceil(q * len(xs)) - 1)]
           p95 = rank(0.95)
-          return {"count": len(xs), "p50": rank(0.5), "p95": p95, "max": xs[-1], "breach": p95 > a["slo_ms"]}
+          return {"count": len(xs), "p50": rank(0.5), "p95": p95, "max": xs[-1], "breach": p95 > value["slo_ms"]}
   in:
-    $ref: Args
+    type: object
+    additionalProperties: false
+    required:
+    - samples
+    - slo_ms
+    properties:
+      samples:
+        type: array
+        items:
+          type: integer
+      slo_ms:
+        type: integer
   out:
     $ref: Latency
   routes:

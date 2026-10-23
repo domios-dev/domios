@@ -6,6 +6,7 @@ use crate::{
 use codeterm_blueprint_types::blueprint_memory::Evidence;
 use codeterm_service_core::service::ServiceContext;
 use serde_json::{json, Value};
+mod cards;
 pub(crate) mod curator;
 
 fn area(workspace: &str) -> String {
@@ -28,6 +29,12 @@ pub trait BlueprintMemoryExt {
         caller: &SentinelCaller,
         id: &str,
         when: &[String],
+    ) -> Result<Value, String>;
+    fn blueprint_recall_cards(
+        &self,
+        caller: &SentinelCaller,
+        intent: &str,
+        limit: usize,
     ) -> Result<Value, String>;
     fn blueprint_keep_callable(
         &self,
@@ -145,6 +152,14 @@ impl BlueprintMemoryExt for ServiceContext {
             evidence,
         )?;
         Ok(json!({"id":saved.id,"evicted_ids":saved.evicted_ids,"status":"saved"}))
+    }
+    fn blueprint_recall_cards(
+        &self,
+        caller: &SentinelCaller,
+        intent: &str,
+        limit: usize,
+    ) -> Result<Value, String> {
+        cards::recall(self, caller, intent, limit)
     }
     fn blueprint_keep_callable(
         &self,

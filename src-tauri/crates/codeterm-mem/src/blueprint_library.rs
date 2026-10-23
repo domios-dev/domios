@@ -6,6 +6,7 @@ use codeterm_blueprint_types::{
 };
 use rusqlite::{params, Connection};
 use std::sync::atomic::{AtomicU64, Ordering};
+pub mod authoring;
 mod call_revisions;
 pub mod catalog;
 pub(crate) mod cleanup;
@@ -62,6 +63,16 @@ pub(crate) fn load_entries_in(
     area: &str,
     validate: bool,
 ) -> Result<Vec<Entry>, String> {
+    load_entries_scoped(conn, blobs, area, validate, None)
+}
+
+fn load_entries_scoped(
+    conn: &Connection,
+    blobs: &std::path::Path,
+    area: &str,
+    validate: bool,
+    team: Option<&str>,
+) -> Result<Vec<Entry>, String> {
     let mut stmt=conn.prepare("SELECT m.id FROM mem_items m JOIN solution_metadata s ON s.item_id=m.id WHERE m.kind='skill' AND (?1='' OR m.area=?1) AND m.source=?2 ORDER BY json_extract(s.metadata_json,'$.blueprint.successes') DESC, json_extract(s.metadata_json,'$.blueprint.last_used') DESC, m.id").map_err(|error|error.to_string())?;
     let ids = stmt
         .query_map(params![area, SOURCE], |row| row.get::<_, String>(0))
@@ -70,6 +81,9 @@ pub(crate) fn load_entries_in(
         .map_err(|error| error.to_string())?;
     let mut result = Vec::new();
     for id in ids {
+        if team.is_some() && !call_revisions::same_scope(conn, &id, area, team)? {
+            continue;
+        }
         let item = store::get(conn, &id, blobs)?.ok_or("Blueprint solution disappeared")?;
         let stats = metadata::read(conn, &id)?
             .and_then(|record| record.blueprint)

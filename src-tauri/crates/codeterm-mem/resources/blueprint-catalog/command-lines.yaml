@@ -37,8 +37,8 @@ steps:
   code:
     lang: python
     src: |
-      def main(text):
-          lines = [l.rstrip() for l in text.splitlines() if l.strip()]
+      def main(value):
+          lines = [l.rstrip() for l in value.splitlines() if l.strip()]
           return {"count": len(lines), "lines": lines[:500]}
   in:
     type: string

@@ -11,6 +11,14 @@ fn blueprint_v2_intent_catalog_is_native_typed_and_has_no_reference_runtime() {
         assert!(document.result.from.is_some(), "{}", entry.id);
         assert!(document.imports.is_empty(), "{}", entry.id);
         assert!(document.nodes().all(|n| n.kind() != "input"));
+        assert!(
+            document.steps[0]
+                .input
+                .as_ref()
+                .is_none_or(|port| port.reference.is_none()),
+            "{}: initial call arguments have no schema_id",
+            entry.id
+        );
         let diagnostics = checker::check_document(&document, &checker::CheckContext::default());
         assert!(
             !checker::has_errors(&diagnostics),

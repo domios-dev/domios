@@ -41,15 +41,24 @@ steps:
     lang: python
     src: |
       import re
-      def main(a):
-          for bucket, patterns in a["rules"].items():
+      def main(value):
+          for bucket, patterns in value["rules"].items():
               for p in patterns:
-                  m = re.search(p, a["text"], re.I)
+                  m = re.search(p, value["text"], re.I)
                   if m:
                       return {"bucket": bucket, "matched": m.group(0)[:200]}
           return {"bucket": "other", "matched": ""}
   in:
-    $ref: Args
+    type: object
+    additionalProperties: false
+    required:
+    - rules
+    - text
+    properties:
+      rules:
+        type: object
+      text:
+        type: string
   out:
     $ref: Bucketed
   routes:

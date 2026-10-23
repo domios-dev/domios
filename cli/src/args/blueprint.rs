@@ -39,13 +39,19 @@ pub enum BlueprintAction {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Print a commented YAML scaffold from a recipe or node kind
+    /// Start from intent recall cards and a native v2 scaffold, or a named recipe
     New {
         #[arg(default_value = "watch")]
         kind: String,
         /// Offer proven graphs matching this intent before authoring
         #[arg(long, conflicts_with = "kind")]
         like: Option<String>,
+        /// Recall scoped typed solutions before authoring; bodies open with blueprint show
+        #[arg(long, conflicts_with_all = ["kind", "like"], value_parser = parse_blueprint_intent)]
+        intent: Option<String>,
+        /// Maximum recall cards (1..20)
+        #[arg(long, requires = "intent", default_value_t = 3, value_parser = clap::value_parser!(u16).range(1..=20))]
+        limit: u16,
     },
     /// Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents
     Keep {
@@ -157,5 +163,12 @@ mod tests;
 
 fn parse_blueprint_note(value: &str) -> Result<String, String> {
     codeterm_blueprint_types::automation_name::validate_note(Some(value))?;
+    Ok(value.into())
+}
+
+fn parse_blueprint_intent(value: &str) -> Result<String, String> {
+    if value.trim().is_empty() || value.len() > 4096 || value.contains('\0') {
+        return Err("Intent must contain 1..4096 UTF-8 bytes without NUL".into());
+    }
     Ok(value.into())
 }

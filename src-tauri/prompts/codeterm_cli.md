@@ -56,7 +56,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Plans, specs, tasks | `plan --help`, `spec --help`, `task --help`; `plan lanes <plan> --clean` previews merged lanes and unregistered build residue, `--confirm` executes, `--fetch` refreshes refs; dirty lanes stay protected | `docs PLAN-EDITING` |
 | Delayed or repeated message to a tab | `send --delay` / `--at` / `--every`, `delayed --help` | — |
 | Scheduled jobs (fresh agent per run) | `cron create --help`; a short meaningful name is required | `docs CONFIG` |
-| Watch CI, builds, files, agents and act | `blueprint recipe`, then `--dry-run`; `blueprint keep` returns the saved ID and any `evicted_ids`, which the CLI also prints | `docs BLUEPRINTS` |
+| Watch CI, builds, files, agents and act | `blueprint new --intent`, typed call when a card fits, else author/check/apply; `blueprint keep` returns the saved ID and any `evicted_ids`, which the CLI also prints | `docs BLUEPRINTS` |
 | Telegram | `bridge send --to ID --service telegram "..."`; long answers continue with `--append` | `docs TELEGRAM-SETUP` |
 | Remote machines | Mesh block below | `docs MESH` |
 | Memory, skills | Memory block below | `docs MEMORY` |
@@ -106,7 +106,9 @@ One embedder serves all of mem: `domios mem embedder status` shows it and its re
 
 Paths: use forward slashes; the CLI normalizes them on every OS.
 
-Blueprint files use native `schema_version: 2` YAML with stable node ids, explicit literal/input/bind values and effect nodes. Start with built-in recipes through `domios blueprint apply <recipe> --set key=value`; use `domios blueprint new` and `domios blueprint check <file>` for custom graphs. Watch `ask` nodes use deterministic `matches` by default; unmatched output remains `other` without a model call. Set the node's `model_classification: true` without patterns when model judgment is wanted. A `terminal` source watches same-Team PTY output without polling, and a `send` effect delivers the stage text body. `domios blueprint input <id> --from-pad <path>` supplies another text body to an input stage. Read `domios docs BLUEPRINTS` and `domios docs BLUEPRINT-RECIPES` for native node parameters and examples. Blueprint code and command steps run with the user's own permissions, like an agent in a tab, without Domios credentials in their environment. Foreign Blueprints are gated by folder trust (1.15.4).
+Blueprint files use native `schema_version: 2` YAML with stable node ids, explicit literal/input/bind values and effect nodes. Start with `domios blueprint new --intent "<purpose>" --json`; reuse a fitting typed card by call, otherwise author/check/apply. `domios docs BLUEPRINT-AUTHORING` is the shared cookbook; check returns the sealed definition for calls, so save its real pins/dependencies before apply. Open full bodies through `domios blueprint show <id>`. Watch `ask` nodes use deterministic `matches` by default; unmatched output remains `other` without a model call. Set the node's `model_classification: true` without patterns when model judgment is wanted. A `terminal` source watches same-Team PTY output without polling, and a `send` effect delivers the stage text body. `domios blueprint input <id> --from-pad <path>` supplies another text body to an input stage. Read `domios docs BLUEPRINTS` and `domios docs BLUEPRINT-RECIPES` for native node parameters and examples.
+
+Each Blueprint code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4).
 
 Opt-in product analytics is local: `domios analytics status`, `domios analytics enable`, and `domios analytics disable`. Disabling clears queued events and identifiers.
 

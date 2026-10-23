@@ -2,8 +2,10 @@
 
 Recall saved solutions before authoring, then reuse a matching graph or start from a built-in. Native Blueprint files use `schema_version: 2` and one typed graph. Older formats are refused; stored v1 graphs and saved v1 Blueprint solutions are deleted without conversion. Other memory and workspaces are retained.
 
+Each code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4). Execution budgets still apply on macOS, Linux and Windows.
+
 ```bash
-domios blueprint new --like "watch CI and report failures"
+domios blueprint new --intent "watch CI and report failures" --json
 domios blueprint recipe
 domios blueprint new http-health > health.yaml
 domios blueprint check health.yaml --set url=https://example.com/health
@@ -11,7 +13,7 @@ domios blueprint apply health.yaml --set url=https://example.com/health --dry-ru
 domios blueprint apply health.yaml --set url=https://example.com/health
 ```
 
-`new <recipe|watch|pipeline|command>` prints native YAML. `check` and `apply` accept a recipe name, filename or `-` for stdin. `create` aliases `apply`. Scaffolding, checking and schema output are offline; applying additionally checks live Team scope, targets and installed capabilities. An offer never starts a graph.
+`new <recipe|watch|pipeline|command>` prints native YAML. `check` and `apply` accept a recipe name, filename or `-` for stdin. `create` aliases `apply`. Named scaffolds, schema output and checking graphs without calls are offline. `new --intent` recall and typed-call checking use live Team/workspace admission; applying additionally checks live targets and installed capabilities. An offer never starts a graph.
 
 ## Repository discovery and human review
 
@@ -165,6 +167,12 @@ The editor schema is generated from the same serde model as parsing. One checker
 An exact name identifies a graph in its Team/workspace. Built-in names stay stable when bindings change; apply retargets that name. Use an explicit whole `name` input in custom recipes when distinct identities are required. Applying unchanged running definitions returns `unchanged`; applying a stopped graph reactivates the same ID. Watch lifetime and initial pause settings cannot change through apply. A watch and pipeline cannot replace one another under the same name.
 
 Export generalizes sensitive commands, source data and local targets into described required inputs, excluding runtime state and history. Import uses the same v2 admission and starts stopped unless `--start` is passed. `update --from-file` accepts a native v2 document with its required inputs already bound or defaulted; it enforces the expected version and optional cause. Internal history JSON is not an authoring format. Stopped graphs retain their history for 30 minutes before cleanup.
+
+## Recall before authoring
+
+Start with `domios docs BLUEPRINT-AUTHORING`, the shared short cookbook with a generic `bind.in` example. `blueprint new --intent` returns a minimal native-v2 scaffold with that exact intent and the top three compact typed cards; `--limit` accepts 1..20. `--json` includes `scaffold`, `yaml`, `cards`, `recall` status and `unavailable` entries. Cards carry a stable `mem:` or `catalog:` id, its exact content hash, provenance, score, one-line purpose/WHY, input/result schemas and node-kind counts. They never inline YAML or code. `blueprint show <card-id>` opens a body explicitly. Existing per-intent vectors, canonical descriptions and current enrichment feed one ranked pool for saved solutions and eligible built-in callable nodes. Current intent vectors are mandatory; missing vectors yield visible degraded/pending state, without a word-only substitute. Team and workspace scope are applied before ranking. Incompatible catalog entries report their exact unavailable native contract.
+
+Reuse a fitting card by a typed `call`; require the complete purpose and port contract to fit. A high score is not a fit decision. No-fit responses retain their scaffold even when irrelevant candidates are returned. Author from scratch when none fits. Call checking returns the sealed native definition, including its `{id, hash}` pins and immutable dependencies; save that returned definition before apply. Run records and `show` expose the expanded callee. Missing revisions refuse and retained pins never silently rebind.
 
 ## Saved solutions
 
