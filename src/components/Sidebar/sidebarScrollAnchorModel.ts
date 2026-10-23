@@ -23,3 +23,40 @@ export function sidebarAnchorShift(currentY: number, capturedY: number): number 
   const shift = currentY - capturedY;
   return Math.abs(shift) < 0.5 ? 0 : shift;
 }
+
+interface SidebarAnchorPosition {
+  y: number;
+  scrollTop: number;
+  maximum: number;
+}
+
+export function sidebarAnchorScrollTarget(
+  captured: SidebarAnchorPosition,
+  current: SidebarAnchorPosition,
+  nativeOwned: boolean,
+): number | null {
+  if (nativeOwned) return null;
+  const clampedByLayout = current.maximum < captured.maximum
+    && captured.scrollTop > current.maximum && current.scrollTop === current.maximum;
+  const scrollDelta = clampedByLayout ? 0 : current.scrollTop - captured.scrollTop;
+  const shift = sidebarAnchorShift(current.y + scrollDelta, captured.y);
+  return shift === 0 ? null : current.scrollTop + shift;
+}
+
+export interface SidebarScrollGesture {
+  phase: "idle" | "touch" | "momentum";
+  moved: boolean;
+}
+
+export type SidebarScrollGestureEvent = "touchstart" | "touchmove" | "touchend" | "touchcancel" | "scrollend" | "press";
+
+export function sidebarScrollGesture(state: SidebarScrollGesture, event: SidebarScrollGestureEvent): SidebarScrollGesture {
+  switch (event) {
+    case "touchstart": return { phase: "touch", moved: false };
+    case "touchmove": return { phase: "touch", moved: true };
+    case "touchend": return { phase: state.moved ? "momentum" : "idle", moved: state.moved };
+    case "touchcancel": return { phase: "momentum", moved: true };
+    case "scrollend": return state.phase === "touch" ? state : { phase: "idle", moved: false };
+    case "press": return { phase: "idle", moved: false };
+  }
+}
