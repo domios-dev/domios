@@ -54,7 +54,7 @@ fn blueprint_v2_check_real_cli_proof_fix_and_idempotence() {
     assert_eq!(explain.status.code(), Some(2));
     let proof = String::from_utf8(explain.stdout).unwrap();
     assert!(
-        proof.contains("FAILING: duration(") && proof.contains("PASSING: compare("),
+        proof.contains("CAUSED BY: duration(") && proof.contains("GIVEN: compare("),
         "{proof}"
     );
     let preview = cli(&path, &["--fix", "--json"]);
