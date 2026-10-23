@@ -16,6 +16,7 @@ const ROW_TAB_FIELDS = [
   "session_binding_nonce",
   "pty_id",
   "protected",
+  "locked",
   "frozen",
   "slept_at_ms",
   "boot_stage",

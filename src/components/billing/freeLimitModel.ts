@@ -89,6 +89,25 @@ export function meshMachinesRefusal(refusal: unknown): MeshMachinesLimit | null 
   return { limit, activeCount };
 }
 
+const LOCKED_NOUN: Record<LocalLimitKey, string> = { workspaces: "Workspace", teams: "Team", "agent.tabs": "Tab" };
+
+/** What a row shows for a plan-limit lock: a locked item stays listed and names the limit its click opens. */
+export type LockedView = { locked: false } | { locked: true; limit: LocalLimitKey; label: string };
+
+const UNLOCKED: LockedView = { locked: false };
+
+/** Reads the daemon's `locked` mark on a workspace, tab, or Team; the daemon is the only authority. */
+export function lockedView(limit: LocalLimitKey, item: { locked?: boolean } | null | undefined): LockedView {
+  return item?.locked === true ? { locked: true, limit, label: `${LOCKED_NOUN[limit]} locked by the free plan` } : UNLOCKED;
+}
+
+/** A tab is locked by its own mark or by its workspace's: a locked workspace locks everything in it. */
+export function tabLockedView(tab: { locked?: boolean } | null | undefined, workspace: { locked?: boolean } | null | undefined): LockedView {
+  const own = lockedView("agent.tabs", tab);
+  if (own.locked || workspace?.locked !== true) return own;
+  return { locked: true, limit: "workspaces", label: "Tab locked: its workspace is over the free plan" };
+}
+
 export const isFreeLimitRefusal = (error: unknown): boolean => refusedLimit(error, "workspaces") !== null;
 
 /** The same coded shape the daemon returns, for a creation the client refused before calling it. */

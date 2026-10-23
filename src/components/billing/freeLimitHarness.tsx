@@ -1,4 +1,4 @@
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { MultiplexerState, Tab, Team, Workspace } from "../../lib/types";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
@@ -65,7 +65,7 @@ export function fakeDaemon(state: MultiplexerState, enforced: FreeLimits | null)
       case "mux_get_state": return snapshot() as T;
       case "get_mesh_peers": return { peers: [] } as T;
       case "get_config": return { api: { enabled: false }, agent: {} } as T;
-      case "ordinary_tabs_list": case "list_notifications": case "list_agent_providers": return [] as T;
+      case "ordinary_tabs_list": case "list_notifications": case "list_agent_providers": case "shell_profiles": return [] as T;
       case "mux_create_tab": admit("agent.tabs"); return { id: addTab(), title: "shell" } as T;
       case "mux_create_workspace": {
         admit("workspaces");
@@ -108,11 +108,16 @@ async function settleUntil(condition: () => boolean, turns = 200): Promise<void>
 }
 
 /** The real store and the one plans modal against `daemon`; `upgrade` stands in for the checkout call. */
-export async function mountApp(daemon: Daemon, upgrade: (planKey: string) => Promise<void> = async () => {}) {
+export async function mountApp(daemon: Daemon, upgrade: (planKey: string) => Promise<void> = async () => {}, extra: ReactNode = null) {
   const bridge = await import("../../lib/bridge");
   const store = await import("../../store/multiplexer");
   bridge.__setInvokeForTest(daemon.invoke as typeof bridge.invoke);
-  bridge.__setListenForTest(async () => () => {});
+  const handlers = new Map<string, Set<(event: { payload: unknown }) => void>>();
+  bridge.__setListenForTest((async (event: string, handler: (event: { payload: unknown }) => void) => {
+    const set = handlers.get(event) ?? new Set();
+    handlers.set(event, set.add(handler));
+    return () => { set.delete(handler); };
+  }) as Parameters<typeof bridge.__setListenForTest>[0]);
   const holder: { actions?: Actions; state?: ReturnType<Store["useMuxState"]> } = {};
   function Probe() {
     holder.actions = store.useMultiplexer();
@@ -124,12 +129,17 @@ export async function mountApp(daemon: Daemon, upgrade: (planKey: string) => Pro
   const root = createRoot(host);
   mounted.push(root);
   await act(async () => {
-    root.render(createElement(store.MultiplexerProvider, null, createElement(Probe), createElement(FreeLimitPlansModal, { upgrade })));
+    root.render(createElement(store.MultiplexerProvider, null, createElement(Probe), createElement(FreeLimitPlansModal, { upgrade }), extra));
   });
   await settleUntil(() => (holder.state?.workspaces.length ?? 0) > 0);
   return {
     actions: () => holder.actions!,
     state: () => holder.state!,
+    /** Delivers a daemon event to the store's own listeners, then lets the refresh it triggers settle. */
+    emit: async (event: string, payload: unknown): Promise<void> => {
+      await act(async () => { for (const handler of handlers.get(event) ?? []) handler({ payload }); });
+      await act(async () => { await Promise.resolve(); });
+    },
     run: async <T,>(action: () => Promise<T>): Promise<T> => {
       let result!: T;
       await act(async () => { result = await action(); });
@@ -151,4 +161,12 @@ export async function unmountAll() {
   const bridge = await import("../../lib/bridge");
   bridge.__setInvokeForTest(null);
   bridge.__setListenForTest(null);
+}
+
+/** Marks (or clears) the daemon's `locked` flag on every workspace, tab, and Team in `ids`, as a snapshot would carry it. */
+export function setLocked(state: MultiplexerState, ids: readonly string[], locked: boolean): void {
+  const mark = <T extends { id: string }>(item: T): T => ids.includes(item.id) ? { ...item, locked } : item;
+  state.workspaces = state.workspaces.map(mark);
+  state.tabs = Object.fromEntries(Object.entries(state.tabs).map(([id, tab]) => [id, mark(tab)]));
+  state.teams = (state.teams ?? []).map(mark);
 }
