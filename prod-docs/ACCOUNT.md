@@ -4,7 +4,7 @@ Sign in, manage a subscription, and control optional product analytics through t
 
 ## Account
 
-Provider configuration is read when the account service starts. `account.login_timeout_secs` defaults to 180 (valid range 1–600). Login opens the system browser with a random state and S256 challenge. Browser callbacks require matching state; redemption submits the verifier to the backend. The refresh credential stays in the configured secret store, and the ID token stays in memory. A saved credential is refreshed at startup.
+Provider configuration is read when the account service starts. `account.login_timeout_secs` defaults to 180 (valid range 1–600). Login opens the system browser with a random state and S256 challenge. Browser callbacks require matching state; redemption submits the verifier to the backend. Account refresh credentials and the Mesh installation credential stay in the local owner-only `<data_dir>/.secrets` file. They never use the configured secret backend or OS credential store. The ID token stays in memory. A saved credential is refreshed at startup. A one-time background migration attempts to move old credentials without prompting; slow or unavailable stores never delay startup. If the private file cannot be written, the sign-in session stays in memory only and does not survive restart.
 
 ```bash
 domios account login
@@ -97,6 +97,6 @@ Local callers only.
 | POST | `/api/account/mesh/revoke` | `{target}` | Release a machine's account slot; local unpair stays `/api/mesh/peers/disconnect` |
 | POST | `/api/account/mesh/limit-notice/ack` | `{request_id}` | Mark a `mesh.machines` notice as shown |
 
-Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not.
+Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not. A machine refused that way reports `traffic: "plan_limit_locked"` in the snapshot: its Mesh edges stay blocked, its rows stay listed, and a plan change re-enrolls it live.
 
 <!-- revision: 14 -->

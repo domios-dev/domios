@@ -734,6 +734,9 @@ impl AccountMesh {
                 Presence::SignedIn { account_id } if *account_id != request.account_id => {
                     Err(AccountMeshRefusal::Unauthenticated)
                 }
+                Presence::SignedIn { .. } if state.plan_limit_locked() => {
+                    Err(AccountMeshRefusal::PlanLimitLocked)
+                }
                 Presence::SignedIn { .. } if state.current_membership(now).is_none() => {
                     Err(AccountMeshRefusal::Revoked)
                 }

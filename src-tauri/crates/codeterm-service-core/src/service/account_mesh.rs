@@ -178,7 +178,7 @@ impl ServiceContext {
                     AccountMeshPorts {
                         registry: self.registry(),
                         sessions: Arc::new(AccountSessions(self.ext::<AccountCell>().0.clone())),
-                        keys: Arc::new(AccountCredentials::new(self.secrets.clone())),
+                        keys: Arc::new(AccountCredentials::new().await?),
                         store: Arc::new(FileAccountMeshStore::new(crate::paths::data_dir())),
                         endpoint: listener.clone(),
                         transport: Arc::new(TransportBridge {
@@ -230,6 +230,18 @@ impl ServiceContext {
         tokio::spawn(async move {
             let _ = service.mesh.refresh(trigger).await;
         });
+    }
+
+    /// A plan change may lift the machine limit: re-enroll so a locked machine reopens live.
+    pub(crate) fn unlock_account_mesh_after_plan_change(&self) {
+        let locked = self
+            .extensions
+            .try_get::<AccountMeshCell>()
+            .and_then(|cell| cell.0.get())
+            .is_some_and(|service| service.mesh.state().plan_limit_locked());
+        if locked {
+            self.spawn_account_mesh_refresh(EnrollTrigger::Lease);
+        }
     }
 
     /// Transport reports the listener once it is reachable from the Tailnet, or `None`.
