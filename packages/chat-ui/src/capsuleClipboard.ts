@@ -1,4 +1,4 @@
-import { ATTACHMENT_KINDS, DOMIOS_TEXT_MIME, formatAttachmentMarker } from "@codeterm/chat-core";
+import { ATTACHMENT_KINDS, DOMIOS_TEXT_MIME, formatAttachmentMarker, visibleAttachmentLabel } from "@codeterm/chat-core";
 
 /** Copied user text in two flavours: `plain` names each capsule by its label, `portable` keeps its attachment tag. */
 export function capsuleSelectionText(root: Node): { plain: string; portable: string } {
@@ -15,7 +15,7 @@ export function capsuleSelectionText(root: Node): { plain: string; portable: str
       const { attachmentPath: path, attachmentKind, attachmentLabel: label } = node.dataset;
       const kind = ATTACHMENT_KINDS.find((candidate) => candidate === attachmentKind);
       if (path && kind) {
-        plain += label ?? path;
+        plain += label ? visibleAttachmentLabel(label) : path;
         portable += formatAttachmentMarker(path, kind, label);
         return;
       }

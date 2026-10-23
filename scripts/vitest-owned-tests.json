@@ -128,6 +128,7 @@
   "src/components/Terminal/ChatComposer.insertion.test.tsx",
   "src/components/Terminal/useChatMessageReveal.test.tsx",
   "packages/chat-ui/src/AttachmentCapsule.test.tsx",
+  "packages/chat-ui/src/codeterm/ReferenceChip.test.tsx",
   "src/components/Terminal/ChatComposer.capsules.test.tsx",
   "packages/chat-core/src/messageClipboard.test.ts",
   "src/components/Terminal/messageSelection.test.ts",
