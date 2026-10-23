@@ -54,9 +54,13 @@ async fn account_routes_local_journey_persists_and_deletes_credential() {
             assert_eq!(value["identity"]["uid"], "local-dev-user");
         }
         assert_eq!(
-            store.has("domios-account-local-refresh").await.unwrap(),
+            codeterm_account::protected_credentials::ProtectedCredentials::new(fixture.temp.path())
+                .load("domios-account-local-refresh")
+                .unwrap()
+                .is_some(),
             signed_in
         );
+        assert!(!store.has("domios-account-local-refresh").await.unwrap());
         assert!(value.get("id_token").is_none());
     }
 }
