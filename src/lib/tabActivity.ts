@@ -15,6 +15,8 @@ export interface TabActivity {
   genericWork?: boolean;
   /** How long the finished turn took, as the provider reported it on screen. */
   lastTurnMs?: number;
+  /** Live background tasks of the own session; they never make a finished turn active. */
+  backgroundTasks: number;
   status: TabStatus;
   state: AgentState["state"];
   subtype?: TabAgentState["subtype"];
@@ -63,7 +65,7 @@ function boundSessionRetiresShellStartup(tab: TabActivityInput | null | undefine
 
 export function tabActivity(tab: TabActivityInput | null | undefined, status?: TabStatus | null): TabActivity {
   if (tab?.frozen) return {
-    kind: "idle", label: "Sleeping", status: "Idle", state: "idle",
+    kind: "idle", label: "Sleeping", status: "Idle", state: "idle", backgroundTasks: 0,
     active: false, canStop: false, quiet: false, launching: false, phase: "work", shellSucceeded: null,
   };
   const live = tab?.agent_state;
@@ -89,8 +91,8 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   else if (authoritativeStatus === "Waiting") kind = "waiting-on-user";
   else if (utility && shell) kind = shell.activity === "running" ? "working" : "idle";
   else if (sessionBound && live?.state === "working") kind = "working";
-  else if (sessionBound && Object.keys(tab?.provider_signals?.background?.running ?? {}).length > 0) kind = "working";
   else kind = "idle";
+  const backgroundTasks = sessionBound ? Object.keys(tab?.provider_signals?.background?.running ?? {}).length : 0;
   const quiet = kind === "idle" && live?.state === "quiet";
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";
   const matchingLive = kind !== "starting" && kind !== "failed" && live?.state === state;
@@ -110,7 +112,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
           : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
           : quiet ? "Session quiet — rebind to continue" : ""));
   return {
-    kind, label, genericWork, lastTurnMs, state, subtype, phase, quiet, launching,
+    kind, label, genericWork, lastTurnMs, backgroundTasks, state, subtype, phase, quiet, launching,
     status: kind === "failed" ? status === "Dead" ? "Dead" : "Error"
       : kind === "waiting-on-user" ? "Waiting" : kind === "working" ? "Working" : "Idle",
     active: kind === "working",
