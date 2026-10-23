@@ -162,9 +162,11 @@ it("surfaces a timed-out peer load as an error and releases the refresh for the 
     await settle(() => state?.loading === false && state.error !== null);
     assert.match(String(state?.error), /timed out/);
     assert.equal(state?.peers.length, 0);
+    assert.equal(state?.loaded, false);
     peersTimeOut = false;
     await act(async () => { await state?.refresh(); });
     assert.equal(state?.error, null);
+    assert.equal(state?.loaded, true);
     assert.deepEqual(state?.peers.map((candidate) => candidate.instance_id), ["peer-1"]);
   } finally {
     await view.close();
