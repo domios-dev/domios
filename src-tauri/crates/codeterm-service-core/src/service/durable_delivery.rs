@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+mod binding_failure;
 mod custody;
 mod wall_deadline;
 
@@ -40,7 +41,7 @@ pub(crate) struct DurableDeliveryRuntime {
     clock: SharedClock,
     timers: Mutex<HashMap<(String, String), Option<wall_deadline::WallDeadline>>>,
     native_deadlines: bool,
-    binding_failures: Mutex<HashMap<String, String>>,
+    binding_failures: Mutex<binding_failure::BindingFailures>,
 }
 
 impl Default for DurableDeliveryRuntime {
@@ -49,7 +50,7 @@ impl Default for DurableDeliveryRuntime {
             clock: system_clock(),
             timers: Mutex::new(HashMap::new()),
             native_deadlines: true,
-            binding_failures: Mutex::new(HashMap::new()),
+            binding_failures: Mutex::new(binding_failure::BindingFailures::default()),
         }
     }
 }
@@ -61,7 +62,7 @@ impl DurableDeliveryRuntime {
             clock,
             timers: Mutex::new(HashMap::new()),
             native_deadlines: false,
-            binding_failures: Mutex::new(HashMap::new()),
+            binding_failures: Mutex::new(binding_failure::BindingFailures::default()),
         }
     }
 }
@@ -137,13 +138,7 @@ impl ServiceContext {
         {
             return Err("durable delivery cannot adopt an existing launch authority".into());
         }
-        payload.transport = payload.transport.clone().with_body(format!(
-            "Original run: {}; timestamp: {}\n{}",
-            delivery.producer,
-            delivery.created_at_ms,
-            payload.transport.body()
-        ));
-        delivery.saved_target = Some(SavedTarget {
+        let saved = SavedTarget {
             tab: target.into(),
             provider: tab
                 .agent_type
@@ -153,7 +148,33 @@ impl ServiceContext {
                 .agent_session_id
                 .clone()
                 .ok_or("durable delivery has no exact saved session")?,
-        });
+        };
+        drop(mux);
+        self.resolve_pending_binding_failure(target)?;
+        let body = format!(
+            "Original run: {}; timestamp: {}\n{}",
+            delivery.producer,
+            delivery.created_at_ms,
+            payload.transport.body()
+        );
+        let framed_bytes = payload
+            .transport
+            .clone()
+            .with_body(body.clone())
+            .to_message()
+            .len();
+        let (body, _) = self.substitute_paste_limited_body(target, body, framed_bytes)?;
+        let transport = payload.transport.clone().with_body(body);
+        if self
+            .agent_registry
+            .with_provider(&saved.provider, |provider| provider.paste_limit_bytes())
+            .flatten()
+            .is_some_and(|limit| transport.to_message().len() > limit)
+        {
+            return Err("held delivery pointer exceeds the provider paste limit".into());
+        }
+        payload.transport = transport;
+        delivery.saved_target = Some(saved);
         Ok(true)
     }
 
@@ -166,14 +187,6 @@ impl ServiceContext {
         let Some(delivery) = payload.durable_delivery.as_ref() else {
             return Ok(PreparedDelivery::Ready);
         };
-        if self
-            .durable_runtime()
-            .binding_failures
-            .lock()
-            .contains_key(target)
-        {
-            return Ok(PreparedDelivery::Failed("launch_authority_unavailable"));
-        }
         if record.terminal_failure.is_some() {
             return Ok(PreparedDelivery::Failed("previous_terminal_failure"));
         }
@@ -186,6 +199,10 @@ impl ServiceContext {
             return Ok(PreparedDelivery::Ready);
         };
         let _claim = self.pty_ownership.acquire(target);
+        self.resolve_pending_binding_failure(target)?;
+        if self.binding_failure(target, record).is_some() {
+            return Ok(PreparedDelivery::Failed("launch_authority_unavailable"));
+        }
         {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(target) else {
@@ -241,12 +258,7 @@ impl ServiceContext {
         let reason = record.terminal_failure.as_deref().unwrap_or(reason);
         let detail = record.terminal_detail.clone().or_else(|| {
             if reason == "launch_authority_unavailable" {
-                return self
-                    .durable_runtime()
-                    .binding_failures
-                    .lock()
-                    .get(target)
-                    .cloned();
+                return self.binding_failure(target, record);
             }
             (reason == "recipient_launch_failed")
                 .then(|| {
@@ -264,20 +276,22 @@ impl ServiceContext {
             "producer_tab": delivery.producer_tab, "created_at_ms": delivery.created_at_ms,
             "status": "failed", "code": reason, "detail": detail, "bytes_written": false,
         });
-        let receipt = self
+        let (receipt, created) = self
             .ensure_agent_pad(&delivery.producer_tab)?
-            .write_inbox_body(
+            .write_delivery_receipt(
+                &record.id,
                 serde_json::to_string_pretty(&failure)
                     .map_err(|error| error.to_string())?
                     .as_bytes(),
             )?;
-        let producer_live = self
-            .mux
-            .read()
-            .get_tab(&delivery.producer_tab)
-            .is_some_and(|tab| tab.agent_type.is_some());
-        let notice = if producer_live {
-            self.create_agent_notification_reported(
+        if created {
+            let producer_live = self
+                .mux
+                .read()
+                .get_tab(&delivery.producer_tab)
+                .is_some_and(|tab| tab.agent_type.is_some());
+            let notice = if producer_live {
+                self.create_agent_notification_reported(
             "Durable result delivery failed".into(),
             Some(format!("Producer: {}\nOriginal timestamp: {}\nRecipient: {target}\nReason: {reason}\nDelivery: {}\nThe result was not written and will not be replayed.", delivery.producer, delivery.created_at_ms, record.id)),
             Some("error"), None, Some(true),
@@ -287,24 +301,24 @@ impl ServiceContext {
                 event_key: Some(format!("durable-delivery-failed:{}", record.id)),
             }, None,
         ).map(|_| ())
-        } else {
-            Ok(())
-        };
-        if let Err(error) = notice {
-            log::error!(
-                "[agent-delivery] producer failure notice unavailable: {error}; receipt={}",
-                receipt.display()
-            );
+            } else {
+                Ok(())
+            };
+            if let Err(error) = notice {
+                log::error!(
+                    "[agent-delivery] producer failure notice unavailable: {error}; receipt={}",
+                    receipt.display()
+                );
+            }
+            self.notify_event("agent-delivery-status", failure);
         }
-        self.notify_event("agent-delivery-status", failure);
         owner.discard_expired(target, &record.id)?;
         self.cancel_durable_expiry(target, &record.id);
-        if !owner.has_pending(target)? {
-            self.durable_runtime()
-                .binding_failures
-                .lock()
-                .remove(target);
-        }
+        self.durable_runtime()
+            .binding_failures
+            .lock()
+            .records
+            .remove(&(target.into(), record.id.clone()));
         Ok(())
     }
 

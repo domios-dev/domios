@@ -235,7 +235,30 @@ fn blueprint_v2_call_durable_review_authentication_persistence_failure_never_all
         .path()
         .join("index.next.json");
     std::fs::create_dir(&blocked_write).unwrap();
-    fixture.resume_recorded_agent_recipient(&tab, "saved-session", "L1");
+    crate::service::orchestrator::mark_tab_agent_launch_started(&fixture.service.mux, &tab);
+    let _pty = fixture.bind_test_pty_session(&tab, "saved-session", "L1");
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .agent_booting = false;
+    let authority = fixture.service.user_send_authority(&tab).unwrap();
+    assert!(!fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .ready_launch_is_latched(&authority));
+    fixture.service.reconcile_authenticated_agent_input(&tab);
+    assert!(
+        fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .ready_launch_is_latched(&authority),
+        "ordinary input reaches readiness despite durable binding persistence failure"
+    );
     assert!(owner
         .pending_head(&tab)
         .unwrap()
