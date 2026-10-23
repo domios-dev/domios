@@ -299,5 +299,7 @@
   "src/store/multiplexer/createdSelection.test.tsx",
   "src/lib/restTimeoutPolicy.test.ts",
   "src/lib/streamMuxModel.test.ts",
-  "src/lib/streamMux.wiring.test.ts"
+  "src/lib/streamMux.wiring.test.ts",
+  "src/lib/localInstanceName.test.ts",
+  "src/components/WebPeerPicker/WebPeerPicker.test.tsx"
 ]

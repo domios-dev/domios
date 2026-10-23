@@ -71,6 +71,38 @@ it("shows the inventory as unavailable instead of an empty graph when the first 
   }
 });
 
+it("renders a loading header and inventory until cached or live data arrives, never 0 peers", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: true } } as AppConfig;
+  const panel = () => <MeshPanel api={config.api} config={config} onConfigUpdate={async () => {}} onClose={() => {}} />;
+  meshData = {
+    thisMachine: { name: "this", ip: "127.0.0.1" }, services: [], peers: [],
+    loading: true, error: null, loaded: false, refresh: () => {},
+  };
+  try {
+    await act(async () => root.render(panel()));
+    expect(host.textContent).not.toContain("0 peers");
+    expect(host.querySelector('[aria-busy="true"]')?.textContent).toBe("Loading peers");
+    expect(host.querySelector('section[aria-label="Mesh inventory"][aria-busy="true"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="Add a machine from My machines"]')).toBeNull();
+    expect(host.textContent).not.toContain("127.0.0.1");
+
+    const second = { ...inventory.peers[0], instance_id: "second", name: "Second machine" };
+    meshData = { ...inventory, peers: [...inventory.peers, second], error: null, loading: true };
+    await act(async () => root.render(panel()));
+    expect(host.textContent).toContain("2 peers");
+    expect(host.querySelector('section[aria-label="Mesh inventory"]')).toBeNull();
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).not.toBeNull();
+  } finally {
+    meshData = inventory;
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 it("dismisses the peer drawer before closing Mesh on the next Escape", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div");
