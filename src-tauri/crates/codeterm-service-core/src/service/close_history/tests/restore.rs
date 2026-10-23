@@ -100,6 +100,14 @@ fn blueprint_v2_check_restore_closed_workspace_with_v1_receipt_and_no_partial_re
             .read()
             .save_closed_structure(&record)
             .unwrap();
+        let storage = fixture.install_seeded_storage_desk();
+        let desk = crate::session::store::StorageDeskAdapter::from_storage(storage);
+        assert!(!desk
+            .snapshot()
+            .unwrap()
+            .workspaces
+            .iter()
+            .any(|saved| saved.id == workspace));
         let result = fixture.service.restore_close_inventory(&record.id);
         let saved = fixture
             .service
@@ -108,8 +116,15 @@ fn blueprint_v2_check_restore_closed_workspace_with_v1_receipt_and_no_partial_re
             .closed_structure(&record.id)
             .unwrap()
             .unwrap();
+        let persisted_workspace = desk
+            .snapshot()
+            .unwrap()
+            .workspaces
+            .into_iter()
+            .find(|saved| saved.id == workspace);
         if corrupt {
             assert!(result.is_err());
+            assert!(persisted_workspace.is_none());
             assert!(fixture
                 .service
                 .mux
@@ -121,6 +136,7 @@ fn blueprint_v2_check_restore_closed_workspace_with_v1_receipt_and_no_partial_re
             assert_eq!(saved.resources, record.resources);
         } else {
             assert!(result.unwrap().is_some());
+            assert!(persisted_workspace.is_some());
             assert!(fixture
                 .service
                 .mux
@@ -136,5 +152,6 @@ fn blueprint_v2_check_restore_closed_workspace_with_v1_receipt_and_no_partial_re
             fixture.service.restore_close_inventory(&record.id).unwrap();
             assert_eq!(store.lock().jobs.len(), 1);
         }
+        crate::service::session_persist::stop_worker(&fixture.service).unwrap();
     }
 }

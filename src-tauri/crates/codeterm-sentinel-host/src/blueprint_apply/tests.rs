@@ -170,7 +170,7 @@ fn blueprint_v2_check_host_refuses_copy_under_another_name() {
             cwd: fixture.temp.path().to_string_lossy().into(),
             nonce: None,
         };
-        let original = json!({"schema_version":2,"kind":"pipeline","name":"first-copy","owner":"team","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"read","run":{"lit":"echo ready"}}]});
+        let original = json!({"schema_version":2,"kind":"pipeline","name":"first-copy","owner":"team","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"read","run":{"lit":"echo ready"}}],"result":{"to":"notify"}});
         if library {
             fixture
                 .service
