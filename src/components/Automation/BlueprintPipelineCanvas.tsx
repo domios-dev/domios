@@ -13,6 +13,7 @@ import { BlueprintPipelineNodeDetails } from "./BlueprintPipelineNodeDetails";
 import { BlueprintSemanticDiff } from "./BlueprintSemanticDiff";
 import { BlueprintProjectionValue } from "./BlueprintProjectionValue";
 import { blueprintPipelineOutcome, canStopPipelineRun } from "./blueprintPipelineOutcome";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 
 function stateTone(state: string, current = false): string {
   if (current || state === "running" || state === "delivering") return "var(--ct-accent)";
@@ -75,13 +76,13 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId, onStop, loadHi
   const [runId, setRunId] = useState<string | null>(initialRunId ?? null);
   const [showDiff, setShowDiff] = useState(false);
   const [stopping, setStopping] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const selected = runId === null ? pipeline : pipeline.runs?.find((run) => run.id === runId)?.pipeline;
   const stop = selected ? blueprintPipelineOutcome(selected) : null;
   const stopRun = async () => {
     if (!onStop || !selected || !canStopPipelineRun(pipeline, selected) || stopping) return;
     setStopping(true); setError(null);
-    try { await onStop(); } catch (error: unknown) { setError(String(error)); } finally { setStopping(false); }
+    try { await onStop(); } catch (error: unknown) { setError(error); } finally { setStopping(false); }
   };
   const row = (pressed: boolean) => `ct-row ct-run-row${pressed ? " ct-row--selected" : ""}`;
   return <div className="relative flex min-w-0 flex-col gap-3 pt-14">
@@ -101,7 +102,7 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId, onStop, loadHi
     {loadHistory && <button type="button" aria-expanded={showDiff} onClick={() => setShowDiff(!showDiff)}>Semantic diff</button>}
     {showDiff && loadHistory && <BlueprintSemanticDiff load={loadHistory} />}
     {onStop && <button type="button" disabled={stopping || !selected || !canStopPipelineRun(pipeline, selected)} onClick={() => void stopRun()}>Stop selected run</button>}
-    {error && <p role="alert">{error}</p>}
+    {error != null && <InlineErrorNotice error={error} operation="stopping this Blueprint run" blocking />}
     {stop && <section aria-label="Recorded stop"><dl><dt>Node</dt><dd>{stop.step_name}</dd><dt>Reason</dt><dd>{stop.reason ?? "unavailable"}</dd></dl><p aria-label="Stop call stack">{stop.call_stack?.map((frame) => `${frame.node}: ${frame.id}@${frame.hash}`).join(" / ")}</p></section>}
     {selected?.nested_run?.id === selected?.runId && selected?.nested_run && <section aria-label="Selected run journal"><ol>{selected.nested_run.nodes.map((node, index) => <li key={index}><span>{node.step_name} · {node.state}</span><p>{node.call_stack?.map((frame) => `${frame.node}: ${frame.id}@${frame.hash}`).join(" / ")}</p><BlueprintProjectionValue value={node} label={`Journal entry ${index + 1}`} /></li>)}</ol></section>}
     {pipeline.note && <p className="ct-meta-muted">{pipeline.note}</p>}
@@ -115,7 +116,7 @@ function PipelineChain({ pipeline }: { pipeline: PipelineView }) {
   const [selected, setSelected] = useState<string | null>(null);
   const { graph, error } = useBlueprintGraph(pipeline, expanded);
   if (pipeline.historical_graph_available === false) return <p role="status" aria-label="Historical graph unavailable">Historical expanded graph unavailable. The retained journal is shown above.</p>;
-  if (error || pipeline.projection_error) return <p role="alert">{error ?? pipeline.projection_error}</p>;
+  if (error || pipeline.projection_error) return <InlineErrorNotice error={error ?? pipeline.projection_error} operation="building this Blueprint graph" blocking />;
   if (!graph) return <p role="status">Building Blueprint graph…</p>;
   const { layout, model } = graph;
   const byKey = new Map(model.nodes.map((node) => [node.key, node]));
