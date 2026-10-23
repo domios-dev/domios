@@ -1,5 +1,7 @@
 use crate::*;
-use codeterm_entitlements::{LimitGate, Phase, Policy, Refusal, TimeState, Verdict, VerifiedGrant};
+use codeterm_entitlements::{
+    EntitlementAuthority, LimitGate, Refusal, TimeState, Verdict, VerifiedGrant,
+};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
@@ -42,9 +44,7 @@ pub struct Billing {
 }
 #[derive(Clone)]
 struct Grants {
-    phase: Phase,
-    enforcing: bool,
-    policy: Policy,
+    authority: Arc<dyn EntitlementAuthority>,
     installation_id: String,
     store: Arc<dyn GrantStore>,
 }
@@ -68,17 +68,11 @@ impl Billing {
         installation_id: &codeterm_account::InstallationId,
         store: Arc<dyn GrantStore>,
     ) -> Result<Self> {
-        if let Some(activation) = crate::grant_activation::current() {
-            self.grants = Some(Grants {
-                phase: activation.phase,
-                enforcing: codeterm_entitlements::enforcing(Some(&activation)),
-                policy: activation
-                    .policy()
-                    .map_err(|error| format!("Invalid compiled grant policy: {error:?}"))?,
-                installation_id: installation_id.as_str().into(),
-                store,
-            });
-        }
+        self.grants = Some(Grants {
+            authority: codeterm_entitlements::pinned(),
+            installation_id: installation_id.as_str().into(),
+            store,
+        });
         Ok(self)
     }
     #[cfg(test)]
@@ -90,9 +84,7 @@ impl Billing {
         clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     ) -> Self {
         self.grants = Some(Grants {
-            phase: activation.phase,
-            enforcing: codeterm_entitlements::enforcing(Some(&activation)),
-            policy: activation.policy().unwrap(),
+            authority: Arc::new(codeterm_entitlements::PinnedAuthority::new(activation)),
             installation_id: installation_id.into(),
             store,
         });
@@ -105,17 +97,14 @@ impl Billing {
             .verified
             .as_ref()
             .map(|grant| grant.verdict((self.clock)()));
-        if self
-            .grants
-            .as_ref()
-            .is_some_and(|grants| grants.phase == Phase::B)
-        {
-            let access = snapshot
-                .grant
-                .as_ref()
-                .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
-            snapshot.access = Some(Access::from_effective(&access));
-        }
+        snapshot.access = cache.uid.as_ref().map(|_| {
+            Access::from_effective(
+                &snapshot
+                    .grant
+                    .as_ref()
+                    .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective),
+            )
+        });
         snapshot
     }
     pub fn with_observer(mut self, observer: ProductObserver) -> Self {
@@ -148,11 +137,14 @@ impl Billing {
         self.bind(&mut cache, session);
         self.recompute(&cache)
     }
-    /// Free-tier limits bind only through a Phase B verdict, or compiled free without one.
+    /// Limits bind through the verified verdict, or compiled free without one.
     pub fn limit_gate(&self) -> LimitGate {
-        if !self.grants.as_ref().is_some_and(|grants| grants.enforcing) {
-            return LimitGate::dormant();
-        }
+        let enforcing = self
+            .grants
+            .as_ref()
+            .map_or_else(codeterm_entitlements::enforcing, |grants| {
+                grants.authority.enforcement().enabled
+            });
         let verdict = self
             .cache
             .lock()
@@ -162,21 +154,18 @@ impl Billing {
         let access = verdict
             .as_ref()
             .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
-        LimitGate::new(access, true)
+        LimitGate::new(access, enforcing)
     }
     pub fn entitlement_allows(
         &self,
         session: Option<&codeterm_account::Session>,
         capability: Capability,
     ) -> bool {
-        let snapshot = self.snapshot(session);
-        if self.grants.is_some() {
-            return capability == Capability::Terminal
-                || snapshot
-                    .access
-                    .is_some_and(|access| access.authority != Authority::Free);
-        }
-        entitlement_allows(&snapshot.entitlements, capability)
+        capability == Capability::Terminal
+            || self
+                .snapshot(session)
+                .access
+                .is_some_and(|access| access.authority != Authority::Free)
     }
     pub async fn refresh(
         &self,
@@ -216,7 +205,7 @@ impl Billing {
                 .and_then(|raw| {
                     crate::grant_store::authenticate(
                         raw,
-                        &grants.policy,
+                        grants.authority.as_ref(),
                         &session.identity.uid,
                         &grants.installation_id,
                         cached.as_ref(),
@@ -289,7 +278,7 @@ impl Billing {
             match grants.store.load() {
                 Ok(Some(raw)) => match crate::grant_store::authenticate(
                     &raw,
-                    &grants.policy,
+                    grants.authority.as_ref(),
                     &session.identity.uid,
                     &grants.installation_id,
                     None,
@@ -328,7 +317,7 @@ impl Billing {
                     let accepted = reading.grant.as_ref().map(|raw| {
                         crate::grant_store::authenticate(
                             raw,
-                            &grants.policy,
+                            grants.authority.as_ref(),
                             &session.identity.uid,
                             &grants.installation_id,
                             cache.verified.as_ref(),
@@ -349,8 +338,6 @@ impl Billing {
                         }
                         None => log::debug!("Reply has no grant; retaining cached grant"),
                     }
-                } else if reading.grant.is_some() {
-                    log::debug!("Detached grant ignored: compiled activation is absent");
                 }
             }
             match result {
@@ -385,20 +372,6 @@ impl Billing {
                     };
                 }
                 Err(_) => cache.snapshot.stale = true,
-            }
-        }
-        if self
-            .grants
-            .as_ref()
-            .is_some_and(|grants| grants.phase == Phase::A)
-        {
-            if let (Some(grant), Some(access)) = (&cache.verified, &cache.snapshot.access) {
-                for divergence in codeterm_entitlements::shadow(
-                    &grant.verdict((self.clock)()),
-                    &access.shadow_access(),
-                ) {
-                    log::debug!("Grant shadow divergence: {divergence:?}");
-                }
             }
         }
         let snapshot = self.recompute(&cache);

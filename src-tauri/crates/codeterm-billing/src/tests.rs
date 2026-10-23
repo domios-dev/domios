@@ -73,7 +73,6 @@ fn envelope_verified_pro_maps_entitlements_and_access() {
     assert_eq!(entitlements.plan, Plan::Pro);
     assert_eq!(entitlements.status, Status::Active);
     assert!(!entitlements.cancel_at_period_end);
-    assert!(entitlement_allows(&entitlements, Capability::PaidFeatures));
     assert_eq!(
         reading.access,
         Access {
@@ -94,7 +93,6 @@ fn envelope_free_with_null_billing_maps_free() {
     let reading = Reading::from(serde_json::from_value::<ApplicationEnvelope>(value).unwrap());
     let entitlements = reading.entitlements.unwrap();
     assert_eq!(entitlements, Entitlements::default());
-    assert!(!entitlement_allows(&entitlements, Capability::PaidFeatures));
     assert_eq!(reading.access.authority, Authority::Free);
     assert_eq!(reading.access.max_workspaces, Some(2));
 }
@@ -190,33 +188,11 @@ async fn requires_inventory_keeps_previous_entitlements_stale() {
     assert!(second.stale);
     assert_eq!(second.entitlements, first.entitlements);
     assert_eq!(second.entitlements.plan, Plan::Pro);
-    assert_eq!(second.access.unwrap().authority, Authority::Admin);
-    assert!(billing.entitlement_allows(Some(&session), Capability::PaidFeatures));
+    assert_eq!(second.access.unwrap().authority, Authority::Free);
+    assert!(!billing.entitlement_allows(Some(&session), Capability::PaidFeatures));
 }
 #[test]
-fn capability_gate_table() {
-    assert!(entitlement_allows(
-        &Entitlements::default(),
-        Capability::Terminal
-    ));
-    assert!(!entitlement_allows(
-        &Entitlements::default(),
-        Capability::PaidFeatures
-    ));
-    assert!(entitlement_allows(&paid(), Capability::PaidFeatures));
-    for status in [
-        Status::PastDue,
-        Status::Canceled,
-        Status::Revoked,
-        Status::Incomplete,
-        Status::Unpaid,
-        Status::Paused,
-    ] {
-        assert!(!entitlement_allows(
-            &Entitlements { status, ..paid() },
-            Capability::PaidFeatures
-        ));
-    }
+fn entitlements_reject_unknown_plan() {
     assert!(serde_json::from_value::<Entitlements>(serde_json::json!({"plan":"private","status":"active","current_period_end":0,"cancel_at_period_end":false})).is_err());
 }
 #[tokio::test]
@@ -446,17 +422,13 @@ fn producer_vectors() -> Vec<ProducerVector> {
     .unwrap()
     .vectors
 }
-fn activation(
-    phase: codeterm_entitlements::Phase,
-    epoch: &'static str,
-) -> codeterm_entitlements::Activation {
+fn activation(epoch: &'static str) -> codeterm_entitlements::Activation {
     use codeterm_entitlements::*;
     static KEYS: &[CompiledKey] = &[CompiledKey {
         key_id: "e5-rfc8032-test-only",
         spki_der_base64: "MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
     }];
     Activation {
-        phase,
         project: "demo-domios",
         mode: Mode::Test,
         policy_version: 1,
@@ -542,7 +514,7 @@ fn clock(
 }
 
 #[tokio::test]
-async fn dormant_activation_ignores_even_malformed_grants() {
+async fn malformed_grant_with_paid_envelope_is_compiled_free() {
     let mut reading = paid_grant();
     reading.grant = Some(serde_json::json!({"arbitrary":"invalid"}));
     let provider = GrantReplies::new(vec![Ok(reading.clone())]);
@@ -559,21 +531,21 @@ async fn dormant_activation_ignores_even_malformed_grants() {
         )
         .await;
     assert_eq!(snapshot.entitlements, reading.entitlements.unwrap());
-    assert_eq!(snapshot.access, Some(reading.access));
+    assert_eq!(snapshot.access.unwrap().authority, Authority::Free);
     assert!(snapshot.grant.is_none());
     assert!(store.load().unwrap().is_none());
-    assert!(billing.entitlement_allows(Some(&session("fixture-user")), Capability::PaidFeatures));
+    assert!(!billing.entitlement_allows(Some(&session("fixture-user")), Capability::PaidFeatures));
 }
 
 #[tokio::test]
 async fn verdict_recomputes_half_open_windows_and_offline_access() {
-    use codeterm_entitlements::{Phase, TimeState};
+    use codeterm_entitlements::TimeState;
     let user = session("fixture-user");
     let provider = GrantReplies::new(vec![Ok(paid_grant())]);
     let store = Arc::new(MemoryGrants::default());
     let (now, clock) = clock(1_700_000_060);
     let billing = Billing::new(provider).with_test_grants(
-        activation(Phase::B, "fixture-online-v1"),
+        activation("fixture-online-v1"),
         "fixture-installation",
         store,
         clock,
@@ -605,11 +577,10 @@ async fn verdict_recomputes_half_open_windows_and_offline_access() {
 
 #[tokio::test]
 async fn focus_bypasses_throttle_while_stale_checkout_still_bypasses() {
-    use codeterm_entitlements::Phase;
     let provider = GrantReplies::new(vec![Ok(paid_grant())]);
     let (now, clock) = clock(1_700_000_060);
     let billing = Billing::new(provider.clone()).with_test_grants(
-        activation(Phase::B, "fixture-online-v1"),
+        activation("fixture-online-v1"),
         "fixture-installation",
         Arc::new(MemoryGrants::default()),
         clock,
@@ -642,7 +613,6 @@ async fn focus_bypasses_throttle_while_stale_checkout_still_bypasses() {
 
 #[tokio::test]
 async fn grant_reload_reverifies_and_signout_epoch_and_refusal_remove_it() {
-    use codeterm_entitlements::Phase;
     let user = session("fixture-user");
     let raw = paid_grant().grant.unwrap();
     let store = Arc::new(MemoryGrants::default());
@@ -650,7 +620,7 @@ async fn grant_reload_reverifies_and_signout_epoch_and_refusal_remove_it() {
     let (_, injected_clock) = clock(1_700_000_060);
     let make = |epoch| {
         Billing::new(GrantReplies::new(vec![])).with_test_grants(
-            activation(Phase::B, epoch),
+            activation(epoch),
             "fixture-installation",
             store.clone(),
             injected_clock.clone(),
@@ -690,7 +660,7 @@ async fn phase_b_no_grant_is_compiled_free_even_with_paid_envelope() {
     let mut unsigned = paid_grant();
     unsigned.grant = None;
     let billing = Billing::new(GrantReplies::new(vec![Ok(unsigned)])).with_test_grants(
-        activation(codeterm_entitlements::Phase::B, "fixture-online-v1"),
+        activation("fixture-online-v1"),
         "fixture-installation",
         Arc::new(MemoryGrants::default()),
         clock,
@@ -757,7 +727,7 @@ fn fixture_server(
 
 #[tokio::test]
 async fn producer_vectors_replay_exact_response_bytes_through_cloud_and_cache() {
-    use codeterm_entitlements::{Phase, TimeState};
+    use codeterm_entitlements::TimeState;
     for vector in producer_vectors() {
         let count = if vector.id == "older-policy-epoch" {
             2
@@ -772,7 +742,7 @@ async fn producer_vectors_replay_exact_response_bytes_through_cloud_and_cache() 
         let (_, clock) = clock(vector.caller_context["now"].as_u64().unwrap());
         let store = Arc::new(MemoryGrants::default());
         let billing = Billing::new(provider).with_test_grants(
-            activation(Phase::B, "fixture-online-v1"),
+            activation("fixture-online-v1"),
             inst,
             store.clone(),
             clock,
@@ -812,49 +782,8 @@ async fn producer_vectors_replay_exact_response_bytes_through_cloud_and_cache() 
     }
 }
 
-#[cfg(debug_assertions)]
 #[tokio::test]
-async fn phase_a_keeps_envelope_and_logs_shadow_divergence() {
-    struct Logger(parking_lot::Mutex<Vec<String>>);
-    static LOGGER: Logger = Logger(parking_lot::Mutex::new(Vec::new()));
-    impl log::Log for Logger {
-        fn enabled(&self, _: &log::Metadata<'_>) -> bool {
-            true
-        }
-        fn log(&self, record: &log::Record<'_>) {
-            self.0.lock().push(format!("{}", record.args()));
-        }
-        fn flush(&self) {}
-    }
-    let _ = log::set_logger(&LOGGER);
-    log::set_max_level(log::LevelFilter::Debug);
-    let mut mismatch = paid_grant();
-    mismatch.access.authority = Authority::Free;
-    mismatch.access.max_workspaces = Some(2);
-    let provider = GrantReplies::new(vec![Ok(mismatch)]);
-    let (_, clock) = clock(1_700_000_060);
-    let billing = Billing::new(provider).with_test_grants(
-        activation(codeterm_entitlements::Phase::A, "fixture-online-v1"),
-        "fixture-installation",
-        Arc::new(MemoryGrants::default()),
-        clock,
-    );
-    let user = session("fixture-user");
-    let snapshot = billing
-        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
-        .await;
-    assert!(snapshot.grant.is_some());
-    assert_eq!(snapshot.access.unwrap().max_workspaces, Some(2));
-    assert!(!billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
-    assert!(LOGGER
-        .0
-        .lock()
-        .iter()
-        .any(|line| line.contains("Grant shadow divergence:")));
-}
-
-#[tokio::test]
-async fn policy_refusal_refetches_once_then_uses_envelope() {
+async fn policy_refusal_refetches_once_then_stays_free() {
     let mut rejected = paid_grant();
     let vector = producer_vectors()
         .into_iter()
@@ -867,7 +796,7 @@ async fn policy_refusal_refetches_once_then_uses_envelope() {
     let (_, clock) = clock(1_700_000_060);
     let store = Arc::new(MemoryGrants::default());
     let billing = Billing::new(provider.clone()).with_test_grants(
-        activation(codeterm_entitlements::Phase::A, "fixture-online-v1"),
+        activation("fixture-online-v1"),
         "fixture-installation",
         store.clone(),
         clock,
@@ -878,7 +807,7 @@ async fn policy_refusal_refetches_once_then_uses_envelope() {
         .await;
     assert_eq!(provider.count(), 2);
     assert!(snapshot.grant.is_none());
-    assert_eq!(snapshot.access.unwrap().authority, Authority::Billing);
+    assert_eq!(snapshot.access.unwrap().authority, Authority::Free);
     assert!(store.load().unwrap().is_none());
 }
 
@@ -903,9 +832,7 @@ fn file_grant_store_persists_detached_bytes_only() {
     );
     let reload = FileGrantStore::new(root.clone());
     assert_eq!(reload.load().unwrap(), Some(raw.clone()));
-    let policy = activation(codeterm_entitlements::Phase::B, "fixture-online-v1")
-        .policy()
-        .unwrap();
+    let policy = codeterm_entitlements::PinnedAuthority::new(activation("fixture-online-v1"));
     let verified = crate::grant_store::authenticate(
         &reload.load().unwrap().unwrap(),
         &policy,
@@ -919,9 +846,7 @@ fn file_grant_store_persists_detached_bytes_only() {
         verified.verdict(1_700_003_600).state,
         codeterm_entitlements::TimeState::Expired
     );
-    let changed = activation(codeterm_entitlements::Phase::B, "new-epoch")
-        .policy()
-        .unwrap();
+    let changed = codeterm_entitlements::PinnedAuthority::new(activation("new-epoch"));
     assert_eq!(
         crate::grant_store::authenticate(
             &raw,
@@ -950,7 +875,7 @@ async fn revision_refusal_refetches_once_and_never_reinstates_paid() {
     let (_, first_clock) = clock(1_700_000_060);
     let store = Arc::new(MemoryGrants::default());
     let billing = Billing::new(provider.clone()).with_test_grants(
-        activation(codeterm_entitlements::Phase::B, "fixture-online-v1"),
+        activation("fixture-online-v1"),
         "fixture-installation",
         store.clone(),
         first_clock,
@@ -1002,9 +927,7 @@ async fn revision_refusal_refetches_once_and_never_reinstates_paid() {
 #[test]
 fn single_grant_verification_timing() {
     let raw = paid_grant().grant.unwrap();
-    let policy = activation(codeterm_entitlements::Phase::B, "fixture-online-v1")
-        .policy()
-        .unwrap();
+    let policy = codeterm_entitlements::PinnedAuthority::new(activation("fixture-online-v1"));
     let started = Instant::now();
     let verified = crate::grant_store::authenticate(
         std::hint::black_box(&raw),
@@ -1045,7 +968,7 @@ fn signed_paid_revisions() -> (codeterm_entitlements::Activation, Reading, Readi
         0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
     ];
     spki.extend_from_slice(key.verifying_key().as_bytes());
-    let mut activation = activation(codeterm_entitlements::Phase::B, "fixture-online-v1");
+    let mut activation = activation("fixture-online-v1");
     activation.keys = Box::leak(
         vec![codeterm_entitlements::CompiledKey {
             key_id: "ephemeral-replay-test",
@@ -1081,7 +1004,7 @@ async fn assert_reply_retains_cached_grant(reply: Reading) {
     let provider = GrantReplies::new(vec![Ok(paid_grant()), Ok(reply)]);
     let (_, injected_clock) = clock(1_700_000_060);
     let billing = Billing::new(provider).with_test_grants(
-        activation(codeterm_entitlements::Phase::B, "fixture-online-v1"),
+        activation("fixture-online-v1"),
         "fixture-installation",
         store.clone(),
         injected_clock,
@@ -1120,11 +1043,11 @@ async fn refused_reply_keeps_the_cached_grant_and_store_bytes() {
 }
 
 #[test]
-fn limit_gate_binds_only_under_phase_b_enforcement() {
-    use codeterm_entitlements::{LimitKey, Phase};
+fn limit_gate_binds_unless_the_pinned_activation_disables_enforcement() {
+    use codeterm_entitlements::LimitKey;
     let (_, clock) = clock(1_700_000_060);
-    let gated = |phase, enabled| {
-        let mut activation = activation(phase, "fixture-phase-b");
+    let gated = |enabled| {
+        let mut activation = activation("fixture-online-v1");
         activation.enforcement.enabled = enabled;
         Billing::new(GrantReplies::new(vec![])).with_test_grants(
             activation,
@@ -1134,15 +1057,23 @@ fn limit_gate_binds_only_under_phase_b_enforcement() {
         )
     };
     let unpinned = Billing::new(GrantReplies::new(vec![])).limit_gate();
-    assert_eq!(unpinned.admit(LimitKey::Teams, 100), Ok(()));
-    let phase_a = gated(Phase::A, true).limit_gate();
-    assert_eq!(phase_a.admit(LimitKey::Teams, 100), Ok(()));
-    let switched_off = gated(Phase::B, false).limit_gate();
+    assert!(unpinned.admit(LimitKey::AgentTabs, 35).is_err());
+    let switched_off = gated(false).limit_gate();
     assert_eq!(switched_off.admit(LimitKey::Teams, 100), Ok(()));
-    let enforced = gated(Phase::B, true).limit_gate();
+    let enforced = gated(true).limit_gate();
     assert_eq!(enforced.admit(LimitKey::Teams, 5), Ok(()));
     let refusal = enforced.admit(LimitKey::AgentTabs, 35).unwrap_err();
     assert_eq!((refusal.count, refusal.max), (35, 35));
+}
+
+#[test]
+fn missing_verdict_while_enforcing_is_compiled_free_and_locks() {
+    let billing = Billing::new(GrantReplies::new(vec![]));
+    let summary = billing.limit_gate().summary();
+    assert!(summary.enforcing);
+    let free = codeterm_entitlements::COMPILED_FREE_LIMITS;
+    assert_eq!(summary.workspaces, free.workspaces.max);
+    assert!(!billing.entitlement_allows(Some(&session("fixture-user")), Capability::PaidFeatures));
 }
 
 #[path = "checkout_theme_tests.rs"]

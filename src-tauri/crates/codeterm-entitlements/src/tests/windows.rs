@@ -1,5 +1,4 @@
 use super::support::{admin, free, paid, with, LocalSigner, T};
-use crate::activation::{access_source, AccessSource, Phase};
 use crate::payload::{Authority, TransitionReason};
 use crate::verdict::{compiled_free, TimeState};
 use serde_json::json;
@@ -60,20 +59,4 @@ fn effective_access_falls_back_to_compiled_free_outside_retention() {
         );
         assert_eq!(verdict.revision, 10);
     }
-}
-
-#[test]
-fn phases_choose_the_access_source() {
-    let signer = LocalSigner::new();
-    let verdict = signer.accept(&paid(), T).verdict(T);
-    assert_eq!(
-        access_source(Phase::A, Some(&verdict)),
-        AccessSource::Envelope
-    );
-    assert_eq!(access_source(Phase::A, None), AccessSource::Envelope);
-    assert_eq!(
-        access_source(Phase::B, Some(&verdict)),
-        AccessSource::Verdict
-    );
-    assert_eq!(access_source(Phase::B, None), AccessSource::CompiledFree);
 }
