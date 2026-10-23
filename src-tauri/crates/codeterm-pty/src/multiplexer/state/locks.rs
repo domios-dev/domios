@@ -1,5 +1,5 @@
 use super::MultiplexerState;
-use codeterm_entitlements::{LimitGate, LimitKey, LockCandidate, LockSet};
+use codeterm_entitlements::{LimitGate, LimitKey, LockCandidate, LockSet, LockedRefusal};
 
 /// Plan-limit lock marks per item kind; marking never removes an item from a listing.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
@@ -73,6 +73,41 @@ impl MultiplexerState {
             teams: gate.over_limit(LimitKey::Teams, &teams),
             agent_tabs: gate.over_limit(LimitKey::AgentTabs, &agent_tabs),
         }
+    }
+
+    /// A write into `tab_id` is refused when the tab, its workspace, or its Team is locked.
+    pub fn tab_write_lock(&self, tab_id: &str) -> Option<LockedRefusal> {
+        let tab_id = self.resolve_tab_id(tab_id)?;
+        let team = self.get_tab(&tab_id).and_then(|tab| tab.team_id.clone());
+        let workspace = self.find_workspace_for_tab(&tab_id);
+        self.write_lock(
+            [
+                (LimitKey::AgentTabs, Some(tab_id)),
+                (LimitKey::Workspaces, workspace),
+                (LimitKey::Teams, team),
+            ]
+            .into_iter()
+            .filter_map(|(limit, id)| Some((limit, id?))),
+        )
+    }
+
+    /// A write into a workspace or Team (spawn, plan/team mutation) is refused when it is locked.
+    pub fn item_write_lock(&self, limit: LimitKey, id: &str) -> Option<LockedRefusal> {
+        self.write_lock(std::iter::once((limit, id.to_string())))
+    }
+
+    fn write_lock(
+        &self,
+        items: impl IntoIterator<Item = (LimitKey, String)>,
+    ) -> Option<LockedRefusal> {
+        if !self.limit_gate.summary().enforcing {
+            return None;
+        }
+        let locks = self.locks();
+        items
+            .into_iter()
+            .find(|(limit, id)| locks.is_locked(*limit, id))
+            .map(|(limit, item_id)| LockedRefusal { limit, item_id })
     }
 }
 

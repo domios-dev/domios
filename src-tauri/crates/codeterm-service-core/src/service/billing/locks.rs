@@ -1,4 +1,4 @@
-use super::{LimitGate, LimitKey};
+use super::{LimitGate, LimitKey, LockedRefusal};
 use crate::multiplexer::state::MuxLocks;
 use crate::service::{MuxEmitCause, ServiceContext};
 
@@ -12,6 +12,30 @@ impl ServiceContext {
 
     pub fn is_locked(&self, limit: LimitKey, id: &str) -> bool {
         self.locks().is_locked(limit, id)
+    }
+
+    /// Pre-write refusal for any input into a tab; checked before the ledger or the PTY sees it.
+    pub fn tab_write_lock(&self, tab_id: &str) -> Option<LockedRefusal> {
+        self.mux.read().tab_write_lock(tab_id)
+    }
+
+    pub fn tab_write_lock_delivery(
+        &self,
+        tab_id: &str,
+    ) -> Result<(), crate::service::delivery_error::DeliveryError> {
+        match self.tab_write_lock(tab_id) {
+            Some(refusal) => Err(
+                crate::service::delivery_error::DeliveryError::PlanLimitLocked {
+                    tab: tab_id.to_string(),
+                    detail: refusal.to_string(),
+                },
+            ),
+            None => Ok(()),
+        }
+    }
+
+    pub fn item_write_lock(&self, limit: LimitKey, id: &str) -> Option<LockedRefusal> {
+        self.mux.read().item_write_lock(limit, id)
     }
 
     /// Run after anything that may change the entitlement snapshot; item-set changes need no

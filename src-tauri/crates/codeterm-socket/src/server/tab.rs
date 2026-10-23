@@ -311,6 +311,9 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .and_then(|s| mux.write().resolve_tab_id(&s));
+            if let Err(locked) = svc.as_ref().tab_write_lock_delivery(&resolved_target) {
+                return Ok(local_send_response(Err(locked), true, None));
+            }
             svc.as_ref()
                 .require_managed_send_allowed(&resolved_target, source_tab.as_deref())
                 .map_err(|message| JsonRpcError {

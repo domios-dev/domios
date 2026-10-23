@@ -280,7 +280,8 @@ fn submit_unconfirmed_is_the_only_refusal_that_cannot_be_parked() {
         let expected = match variant {
             DeliveryError::TabNotReachableOnPeer { .. }
             | DeliveryError::TabBusyRefused { .. }
-            | DeliveryError::PtyUnavailable { .. } => true,
+            | DeliveryError::PtyUnavailable { .. }
+            | DeliveryError::PlanLimitLocked { .. } => true,
             DeliveryError::SubmitUnconfirmed { .. } => false,
         };
         assert_eq!(parkable, expected, "variant {}", variant.code());
