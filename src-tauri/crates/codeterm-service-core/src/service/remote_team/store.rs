@@ -1,4 +1,4 @@
-use super::{IncomingTransfer, OutgoingTransfer, RemoteTeamMember};
+use super::{IncomingTransfer, OutgoingTransfer, RemoteTeamFinalization, RemoteTeamMember};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -13,6 +13,8 @@ pub struct RemoteTeamData {
     pub incoming: BTreeMap<String, IncomingTransfer>,
     pub latest_incoming: BTreeMap<String, String>,
     pub closing_teams: BTreeSet<String>,
+    #[serde(default)]
+    pub finalizations: BTreeMap<String, RemoteTeamFinalization>,
 }
 
 pub struct RemoteTeamStore {
@@ -89,10 +91,42 @@ impl RemoteTeamStore {
 
     pub fn members_for_team(&self, team: &str) -> Result<Vec<RemoteTeamMember>, String> {
         Ok(self
-            .snapshot()?
-            .members
-            .into_values()
+            .members()?
+            .into_iter()
             .filter(|member| member.team_id == team)
             .collect())
+    }
+
+    pub fn members(&self) -> Result<Vec<RemoteTeamMember>, String> {
+        let guard = self.state.lock();
+        Ok(guard
+            .as_ref()
+            .map_err(Clone::clone)?
+            .members
+            .values()
+            .cloned()
+            .collect())
+    }
+
+    pub fn was_finalized(&self, peer: &str, tab: &str, provider: &str, session: &str) -> bool {
+        self.state
+            .lock()
+            .as_ref()
+            .ok()
+            .and_then(|data| data.finalizations.get(&super::member_key(peer, tab)))
+            .is_some_and(|receipt| receipt.session_id == session && receipt.provider == provider)
+    }
+
+    pub fn ensure_tab_lifecycle_available(&self, tab_id: &str) -> Result<(), String> {
+        let guard = self.state.lock();
+        let data = guard.as_ref().map_err(Clone::clone)?;
+        if data.outgoing.values().any(|operation| {
+            !operation.completed
+                && (operation.member.orchestrator_tab_id == tab_id
+                    || operation.actor_tab_id.as_deref() == Some(tab_id))
+        }) {
+            return Err("tab has an unresolved remote Worker transfer; recover that operation before changing its lifecycle".into());
+        }
+        Ok(())
     }
 }

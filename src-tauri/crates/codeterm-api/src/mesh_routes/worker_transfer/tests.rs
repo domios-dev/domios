@@ -7,6 +7,7 @@ fn request(tab_id: &str) -> RemoteWorkerTransfer {
         operation_id: "operation".into(),
         worker_tab_id: tab_id.into(),
         worker_session_id: "session".into(),
+        worker_provider: "fixture-provider".into(),
         expected_parent_tab_id: "parent".into(),
         destination_tab_id: "destination".into(),
         destination_team_id: None,

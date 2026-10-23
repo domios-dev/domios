@@ -1,6 +1,20 @@
 use super::*;
 
 #[test]
+fn remote_member_and_close_output_keep_peer_identity_and_outcome() {
+    let row = json!({"tab_id":"mesh:peer/worker","title":"Worker","role":"worker","role_type":"Worker","peer":"peer"});
+    assert_eq!(
+        team_member_line(&row),
+        "  mesh:peer/worker\tworker\tWorker\tpeer=peer"
+    );
+    let result = json!({"remote_members":[{"tab_id":"worker","peer_id":"peer","outcome":"released_stale_binding"}]});
+    assert_eq!(
+        remote_lifecycle_lines(&result),
+        vec!["Remote Worker worker@peer: released_stale_binding"]
+    );
+}
+
+#[test]
 fn adopt_plan_params_require_nonempty_caller() {
     let params = adopt_plan_params("team".into(), "plan".into(), Some("manager")).unwrap();
     assert_eq!(params["team_id"], "team");

@@ -358,6 +358,7 @@ async fn close_team_inner(
     if !busy.is_empty() && !force {
         return Err(busy.refusal(team_id));
     }
+    let remote_members = svc.finalize_remote_team_members(team_id, force).await?;
     let plan_store = std::sync::Arc::clone(&svc.plan_store);
     let transaction_team_id = team_id.to_string();
     let transaction_member_ids = prepared.member_tab_ids.clone();
@@ -527,6 +528,11 @@ async fn close_team_inner(
         finish_team_teardown(svc, team_id).await?;
     }
     let inventory = lane_cleanup?;
+    let service = svc.clone();
+    let remote_team_id = team_id.to_string();
+    tokio::task::spawn_blocking(move || service.complete_remote_team_close(&remote_team_id))
+        .await
+        .map_err(|error| format!("remote Team close completion failed: {error}"))??;
     if !busy.is_empty() {
         log::warn!(
             "[team-close] forced close of Team {team_id} killed {} Worker(s) and left {} in-progress task(s)",
@@ -535,6 +541,7 @@ async fn close_team_inner(
         );
     }
     Ok(TeamCloseResult {
+        remote_members,
         team,
         inventory,
         killed_workers: busy.workers,

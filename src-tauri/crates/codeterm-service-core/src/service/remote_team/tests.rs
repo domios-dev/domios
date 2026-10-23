@@ -7,6 +7,7 @@ use crate::service::{test_fixture::ServiceFixture, AuthenticatedPlanCaller, Serv
 use parking_lot::Mutex;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
+mod teardown;
 
 fn arm(tab: &mut Tab, session: &str) {
     tab.agent_type = Some("fixture-provider".into());
@@ -135,6 +136,15 @@ async fn fake_peer_mesh_calls_commit_exact_membership_and_keep_the_worker_sessio
     assert_eq!(saved, vec![member]);
     let mux = fixture.remote.service.mux.read();
     let after = mux.get_tab(&fixture.worker).unwrap();
+    let (_, report_target) =
+        crate::service::hierarchy::resolve_report_target(&mux, &fixture.worker).unwrap();
+    assert_eq!(
+        report_target,
+        Some(crate::service::hierarchy::ReportTarget::Mesh {
+            peer: "origin".into(),
+            tab: fixture.destination.clone()
+        })
+    );
     assert_eq!(
         after.report_target_tab_id.as_deref(),
         Some(fixture.destination.as_str())
@@ -236,6 +246,7 @@ fn durable_worker_receipt_recovers_a_stale_session_snapshot() {
         operation_id: "operation".into(),
         worker_tab_id: fixture.worker.clone(),
         worker_session_id: "worker".into(),
+        worker_provider: "fixture-provider".into(),
         expected_parent_tab_id: fixture.source.clone(),
         destination_tab_id: fixture.destination.clone(),
         destination_team_id: Some("origin-team".into()),
@@ -416,6 +427,7 @@ fn receipt_commit_failure_does_not_mutate_the_remote_worker() {
         operation_id: "operation".into(),
         worker_tab_id: fixture.worker.clone(),
         worker_session_id: "worker".into(),
+        worker_provider: "fixture-provider".into(),
         expected_parent_tab_id: fixture.source.clone(),
         destination_tab_id: fixture.destination.clone(),
         destination_team_id: None,
@@ -457,6 +469,7 @@ fn a_superseded_receipt_cannot_replay_an_older_parent() {
         operation_id: "first".into(),
         worker_tab_id: fixture.worker.clone(),
         worker_session_id: "worker".into(),
+        worker_provider: "fixture-provider".into(),
         expected_parent_tab_id: fixture.source.clone(),
         destination_tab_id: fixture.destination.clone(),
         destination_team_id: None,

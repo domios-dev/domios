@@ -2,6 +2,51 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn team_show_keeps_the_team_object_and_includes_durable_remote_members() {
+    let (mut mux, orchestrator) =
+        codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let team = mux
+        .resolve_or_mint_team_for_parent(&orchestrator)
+        .unwrap()
+        .team_id;
+    let workspace = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let member = codeterm_service_core::service::remote_team::RemoteTeamMember {
+        peer_id: "peer".into(),
+        tab_id: "worker".into(),
+        session_id: "session".into(),
+        title: "Worker".into(),
+        provider: "provider".into(),
+        orchestrator_tab_id: orchestrator,
+        team_id: team.clone(),
+        workspace_id: workspace,
+        operation_id: "operation".into(),
+        finalized: false,
+    };
+    fixture
+        .service
+        .remote_teams
+        .update(|data| {
+            data.members.insert("peer/worker".into(), member);
+            Ok(())
+        })
+        .unwrap();
+    let service = std::sync::Arc::new(fixture.service.clone());
+    let result = dispatch(
+        "team.show",
+        &Some(json!({"team_id":team})),
+        &service.mux,
+        &service,
+    )
+    .unwrap();
+    assert_eq!(result["team"]["id"], team);
+    let rows = result["members"].as_array().unwrap();
+    assert!(rows
+        .iter()
+        .any(|row| row["tab_id"] == "mesh:peer/worker" && row["session_id"] == "session"));
+}
+
+#[test]
 fn team_lifecycle_advances_after_plan_approval_and_retains_closing() {
     let mut team = codeterm_types::team::Team::new("ws", 1);
     let mut plan = codeterm_service_core::plan::Plan::new(

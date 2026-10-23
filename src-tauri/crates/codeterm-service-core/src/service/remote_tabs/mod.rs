@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+mod membership;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "scope", rename_all = "snake_case")]
@@ -72,10 +73,9 @@ pub fn merge_ordinary_tab_projection(
             object.insert("remote_peer_id".into(), serde_json::json!(peer.peer_id));
             object.insert("remote_peer_name".into(), serde_json::json!(peer.peer_name));
             object.insert("remote_peer".into(), serde_json::json!(peer.peer_name));
-            object.insert(
-                "remote_availability".into(),
-                serde_json::json!(peer.availability),
-            );
+            object
+                .entry("remote_availability")
+                .or_insert_with(|| serde_json::json!(peer.availability));
             object.insert("parent_tab_id".into(), serde_json::json!(controller_id));
             object.insert("spawned_by_tab_id".into(), serde_json::json!(controller_id));
             if object.get("role").is_none_or(serde_json::Value::is_null) {
@@ -113,6 +113,7 @@ pub fn merge_ordinary_tab_projection(
                     );
                 }
             }
+            membership::apply_member_placement(object);
             projected.push(tab);
         }
     }
@@ -144,10 +145,12 @@ fn cache() -> &'static std::sync::Mutex<RemoteTabCache> {
 pub async fn ordinary_tab_projection(
     mesh: &crate::MeshStateHandle,
     remote_workers: &crate::service::remote_workers::RemoteWorkerRegistry,
+    remote_teams: &crate::service::remote_team::RemoteTeamStore,
     local: Vec<serde_json::Value>,
     workspace_id: Option<&str>,
-) -> Vec<serde_json::Value> {
+) -> Result<Vec<serde_json::Value>, String> {
     let registered = remote_workers.snapshot();
+    let members = remote_teams.members()?;
     let peers = {
         let manager = mesh.lock();
         manager
@@ -173,7 +176,12 @@ pub async fn ordinary_tab_projection(
         .retain(|peer, _| paired_ids.contains(peer));
     let mut remote = Vec::new();
     for (peer_id, peer_name, online, client) in peers {
-        let controllers = registered
+        let peer_members = members
+            .iter()
+            .filter(|member| member.peer_id == peer_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut controllers = registered
             .iter()
             .flat_map(|(controller, workers)| {
                 workers
@@ -182,6 +190,13 @@ pub async fn ordinary_tab_projection(
                     .map(|worker| (worker.remote_tab.clone(), controller.clone()))
             })
             .collect::<std::collections::HashMap<_, _>>();
+        for member in &peer_members {
+            if member.finalized {
+                controllers.remove(&member.tab_id);
+            } else {
+                controllers.insert(member.tab_id.clone(), member.orchestrator_tab_id.clone());
+            }
+        }
         if controllers.is_empty() {
             continue;
         }
@@ -222,6 +237,25 @@ pub async fn ordinary_tab_projection(
         let tabs = fetched
             .or_else(|| cache().lock().unwrap().get(&peer_id).cloned())
             .unwrap_or_default();
+        let tabs = tabs
+            .into_iter()
+            .filter(|tab| {
+                let id = tab
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                let session = tab
+                    .get("agent_session_id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                let provider = tab
+                    .get("agent_type")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                !remote_teams.was_finalized(&peer_id, id, provider, session)
+            })
+            .collect();
+        let tabs = membership::member_sources(tabs, &peer_members);
         if tabs.is_empty() {
             continue;
         }
@@ -241,7 +275,35 @@ pub async fn ordinary_tab_projection(
             controllers,
         });
     }
-    scope_ordinary_tab_projection(merge_ordinary_tab_projection(&local, &remote), workspace_id)
+    let member_peers = members
+        .iter()
+        .map(|member| member.peer_id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    for peer_id in member_peers.difference(&paired_ids) {
+        let peer_members = members
+            .iter()
+            .filter(|member| &member.peer_id == peer_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        let controllers = peer_members
+            .iter()
+            .filter(|member| !member.finalized)
+            .map(|member| (member.tab_id.clone(), member.orchestrator_tab_id.clone()))
+            .collect();
+        remote.push(RemotePeerProjection {
+            peer_id: peer_id.clone(),
+            peer_name: peer_id.clone(),
+            authenticated: true,
+            reachable: false,
+            availability: "unavailable",
+            tabs: membership::member_sources(Vec::new(), &peer_members),
+            controllers,
+        });
+    }
+    Ok(scope_ordinary_tab_projection(
+        merge_ordinary_tab_projection(&local, &remote),
+        workspace_id,
+    ))
 }
 
 #[cfg(test)]

@@ -63,3 +63,20 @@ pub async fn reparent(
         .map(Json)
         .map_err(|error| (StatusCode::CONFLICT, error))
 }
+
+pub async fn inventory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(team): Path<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.into()))?;
+    let service = state.svc.clone();
+    tokio::task::spawn_blocking(move || {
+        service
+            .team_member_inventory(&team)
+            .map(Json)
+            .map_err(|error| (StatusCode::CONFLICT, error))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
