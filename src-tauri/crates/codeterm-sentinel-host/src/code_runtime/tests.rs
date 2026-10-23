@@ -1,6 +1,8 @@
 use super::*;
 use codeterm_blueprint_types::blueprint_document::Limits;
 
+mod fixture;
+
 fn body(lang: Language, src: &str) -> Code {
     Code {
         lang,
@@ -20,7 +22,7 @@ fn blueprint_v2_runtime_native_python_and_ts_children() {
         (Language::Python, "import os\ndef main(value):\n assert not any(k.upper().startswith(('CODETERM', 'DOMIOS')) for k in os.environ)\n assert not any(k in os.environ for k in ['OPENAI_API_KEY', 'BLUEPRINT_FAKE_API_KEY'])\n return {'n': value['n'] + 1}\n"),
         (Language::Ts, "export default function main(value: {n:number}) { if (Object.keys(process.env).some(k => /^(CODETERM|DOMIOS)/i.test(k)) || process.env.OPENAI_API_KEY || process.env.BLUEPRINT_FAKE_API_KEY) throw Error('credential inherited'); return {n: value.n + 1}; }")
     ] {
-        let output = run(&body(lang, src), INPUT, Duration::from_secs(3), &owner, &Cancellation::default()).unwrap();
+        let output = fixture::run(&body(lang, src), INPUT, Duration::from_secs(3), &owner, &Cancellation::default(), None).unwrap();
         assert!(output.success, "{}", output.text);
         let value: serde_json::Value = serde_json::from_str(&output.stdout_text()).unwrap();
         assert_eq!(value["value"], serde_json::json!({"n":8}));
@@ -40,7 +42,7 @@ fn blueprint_v2_runtime_code_children_keep_user_file_permissions() {
         (Language::Python, "def main(value):\n with open(value['source']) as src: text=src.read()\n with open(value['target'],'w') as dest: dest.write(text)\n return text\n"),
         (Language::Ts, "import fs from 'node:fs';\nexport default function main(value) { const text = fs.readFileSync(value.source,'utf8'); fs.writeFileSync(value.target,text); return text; }")
     ] {
-        let output = run(&body(lang, src), &input, Duration::from_secs(3), &owner, &Cancellation::default()).unwrap();
+        let output = fixture::run(&body(lang, src), &input, Duration::from_secs(3), &owner, &Cancellation::default(), None).unwrap();
         assert!(output.success, "{}", output.text);
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "opaque");
         assert_eq!(serde_json::from_str::<serde_json::Value>(&output.stdout_text()).unwrap()["value"], "opaque");
@@ -70,7 +72,15 @@ fn blueprint_v2_runtime_native_deadline_and_output_budgets() {
     ] {
         let mut code = body(Language::Python, src);
         code.limits = limits;
-        let failure = run(&code, INPUT, timeout, &owner, &Cancellation::default()).unwrap_err();
+        let failure = fixture::run(
+            &code,
+            INPUT,
+            timeout,
+            &owner,
+            &Cancellation::default(),
+            None,
+        )
+        .unwrap_err();
         assert_eq!(failure.reason, reason);
         assert!(!failure.uncertain, "{failure:?}");
         assert_eq!(owner.snapshot().unconfirmed, 0);
@@ -83,12 +93,13 @@ fn prove_memory_limit() {
     let src = "def main(value):\n try:\n  data = bytearray(1024 * 1024 * 1024)\n except MemoryError:\n  return {'limited': True}\n return {'limited': False}\n";
     let mut code = body(Language::Python, src);
     code.limits.mem_mb = Some(128);
-    let output = run(
+    let output = fixture::run(
         &code,
         INPUT,
         Duration::from_secs(3),
         &owner,
         &Cancellation::default(),
+        None,
     )
     .unwrap();
     assert!(output.success, "{}", output.text);
@@ -189,7 +200,7 @@ fn blueprint_v2_runtime_child_environment_removes_credentials_and_cli_path() {
         (Language::Python, "import os\ndef main(value):\n assert not any(k.upper().startswith(('CODETERM','DOMIOS')) for k in os.environ)\n assert not any(k in os.environ for k in ['OPENAI_API_KEY','BLUEPRINT_FAKE_API_KEY'])\n return os.environ['PATH']\n"),
         (Language::Ts, "export default function main(value) { if (Object.keys(process.env).some(k => /^(CODETERM|DOMIOS)/i.test(k)) || process.env.OPENAI_API_KEY || process.env.BLUEPRINT_FAKE_API_KEY) throw Error('credential inherited'); return process.env.PATH; }")
     ] {
-        let output = child::execute(&body(lang, src), INPUT, Duration::from_secs(60), Duration::from_secs(3), &owner, &Cancellation::default(), None, &environment).unwrap();
+        let output = fixture::run(&body(lang, src), INPUT, Duration::from_secs(3), &owner, &Cancellation::default(), Some(&environment)).unwrap();
         assert!(output.success, "{}", output.text);
         let value = serde_json::from_str::<serde_json::Value>(&output.stdout_text()).unwrap();
         let child_path = value["value"].as_str().unwrap();
