@@ -37,6 +37,9 @@ mod sync_send;
 #[path = "tests/continuation.rs"]
 mod continuation;
 
+#[path = "tests/rejected_before_write.rs"]
+mod rejected_before_write;
+
 #[test]
 fn bind_commit_emits_one_ready_event_with_booting_and_session_bound() {
     let (mut state, _root) = crate::multiplexer::state::MultiplexerState::new();
