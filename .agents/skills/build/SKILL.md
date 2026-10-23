@@ -1283,6 +1283,15 @@ domios mem secret save --name DOMIOS_ACCOUNT_REDEEM_URL
 domios mem secret save --name DOMIOS_BILLING_FUNCTIONS_URL
 ```
 
+`dev`, `dev-back`, and `dev-server` resolve the same account and billing
+configuration for the server compile. They also inject `DOMIOS_QA_PROJECT_ID`
+from the secret store into the debug TEST activation. A missing entry prints
+`QA project not configured in this build`; that build refuses TEST grants and
+stays free. Save the entry with `domios mem secret save --name DOMIOS_QA_PROJECT_ID`
+and rebuild with `./build.sh dev`; `dev-prebuilt` cannot change compiled values.
+Focused configuration proof: `bash scripts/tests/firebase-build-config.test.sh`
+and `node --test scripts/tests/dev-gateway-handoff.test.mjs scripts/tests/dev-server.test.mjs`.
+
 Run each command and provide that value through stdin; omit `--value` so it
 stays out of shell history. The `domios mem secret` command uses `save` for
 this operation. Do not put these values in repository files.

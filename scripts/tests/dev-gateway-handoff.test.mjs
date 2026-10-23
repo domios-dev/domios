@@ -7,7 +7,23 @@ import { spawnSync } from 'node:child_process';
 const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8');
 const fn = source.match(/^build_and_launch_dev\(\) \{[\s\S]*?^\}/m)[0];
 const clientFn = source.match(/^build_dev_client\(\) \{[\s\S]*?^\}/m)[0];
+const serverFn = source.match(/^build_dev_server\(\) \{[\s\S]*?^\}/m)[0];
+const config = fs.readFileSync(new URL('../firebase-build-config.sh', import.meta.url), 'utf8');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+test('dev-back selects DEV before connection settings are cleared and preserves arguments', () => {
+  const selection = source.slice(source.indexOf('CMD="${1:-dev}"'), source.indexOf('source scripts/lane-rust-guard.sh'));
+  const result = spawnSync(bash, ['-c', `set -euo pipefail
+set -- dev-back --notify-tab 'opaque tab'
+CODETERM_API_URL=opaque-parent
+${selection}
+[ "$CMD" = dev ]
+[ "$DEV_FRONT_EXTERNAL" = 1 ]
+[ "$CODETERM_API_URL" = opaque-parent ]
+printf '%s\\n' "$@"
+`], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'dev\n--wait\n--notify-tab\nopaque tab');
+});
 for (const failure of [0, 42]) {
   test(`dev releases gateway before prebuilt launch; cargo exit=${failure}`, () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-gateway-'));
@@ -16,7 +32,14 @@ for (const failure of [0, 42]) {
     try {
     const script = `set -euo pipefail
 ${clientFn}
+${serverFn}
+${config}
 ${fn.replace('exec bash ./build.sh', 'launch')}
+DOMIOS_QA_PROJECT_ID=inherited-wrong-project
+codeterm() {
+  [ "$*" = 'mem secret get --name DOMIOS_QA_PROJECT_ID' ] || return 1
+  printf ' fixture-qa-project\\r\\n'
+}
 CODETERM_WEB_DIST= CT_DEV_CARGO_PROFILE= CT_DEV_CARGO_FEATURES=
 CODETERM_BUILD_SHA=opaque-sha
 CODETERM_BUILD_HASH=opaque-short
@@ -37,6 +60,11 @@ node() {
 }
 cargo() {
   [ "$owned" = 1 ] && [ "$PWD" = "$gateway_cwd" ]
+  if [[ "$*" == 'build --manifest-path src-tauri/Cargo.toml -p domios-server '* ]]; then
+    [ "$DOMIOS_QA_PROJECT_ID" = fixture-qa-project ] || return 94
+  else
+    [ "$DOMIOS_QA_PROJECT_ID" = inherited-wrong-project ] || return 95
+  fi
   printf 'cargo %s\\n' "$*" >&2
   if [ ${failure} != 0 ]; then return ${failure}; fi
   case "$*" in
@@ -58,9 +86,11 @@ record_dev_target() { [ "$mapping" = 0 ]; }
 complete_build_gateway_before_handoff() { [ "$mapping" = 0 ]; owned=0; echo released; }
 launch() { [ "$owned" = 0 ]; [ "$PWD" != "$gateway_cwd" ]; [ "$CT_DEV_HANDOFF_SHA" = "$CODETERM_BUILD_SHA" ]; [ "$CT_DEV_HANDOFF_HASH" = "$CODETERM_BUILD_HASH" ]; printf 'launch %s\\n' "$*"; }
 build_and_launch_dev --wait --notify-tab opaque-tab`;
-    const result = spawnSync(bash, ['-c', script], { encoding: 'utf8' });
+    const result = spawnSync(bash, ['-s'], { input: script, encoding: 'utf8' });
     assert.equal(result.status, failure, result.stderr);
     assert.match(result.stderr, /cargo build .*--bin domios-server/);
+    assert.match(result.stdout, /QA project config: present/);
+    assert.doesNotMatch(result.stdout + result.stderr, /fixture-qa-project|inherited-wrong-project/);
     if (!failure) assert.match(result.stderr, /cargo build .*--bin codeterm --profile dev --no-default-features\n/);
     if (failure) assert.doesNotMatch(result.stdout, /frontend|staged|provenance|released|launch/);
     else assert.match(result.stdout, /frontend\nstaged\nprovenance\nreleased\n[^\n]*\nlaunch dev-prebuilt --wait --notify-tab opaque-tab/);
