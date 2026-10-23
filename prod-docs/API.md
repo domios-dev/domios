@@ -1,21 +1,21 @@
 # Domios API Reference
-Authenticated transports: REST, local socket JSON-RPC and `domios`.
+Transports: authenticated REST, local socket JSON-RPC and `domios`.
 
 ### One behavior across transports
 
-REST, socket and CLI share authorization, PTY cleanup, events and hierarchy validation.
+REST, socket and CLI share authorization, PTY cleanup, events and hierarchy checks.
 
-The CLI's local socket needs no TCP. Unix peer credentials or the Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing, and transport.
+The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing and transport.
 
 Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `domios docs API-TRANSPORT`.
 
-Human `domios workspace list` shows authoritative topology in stable creation order; inspect one tab with `domios tab inspect <id>` (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`, `source` one of `explicit`, `caller-tab`, `workspace-env`, `focus-fallback`. Resolution is never positional: `--workspace`, `$CODETERM_TAB_ID` via workspace membership, a validated `$CODETERM_WORKSPACE_ID`, then the active workspace. With no rung, stdout stays empty and it exits 1 (`--json` puts the error on stdout).
+Human `domios workspace list` shows authoritative topology in creation order; `domios tab inspect <id>` inspects one tab (whole-list JSON is automation-only). `workspace current --json` returns `{ "id", "source" }`; sources, in resolution order: `explicit` (`--workspace`), `caller-tab` (`$CODETERM_TAB_ID` membership), `workspace-env` (validated `$CODETERM_WORKSPACE_ID`), `focus-fallback` (active workspace). No match: exit 1, empty stdout (`--json` writes the error to stdout).
 
 ## REST API
-Base URL: `http://<host>:7685/api`. Web-mirror/debug internals are omitted.
+Base: `http://<host>:7685/api`. Web-mirror/debug internals omitted.
 
 ### Authentication
-The Bearer token is stored in owner-only `<data_dir>/.secrets` as `domios.instance:api_token`, read once at startup and passed to tabs as `CODETERM_API_TOKEN`; it never enters `config.toml`. Local-only `domios system api-token` prints only the credential and refuses `--mesh`. Control endpoints require it even on loopback. Public health/pairing routes grant no local control.
+The Bearer token lives in owner-only `<data_dir>/.secrets` as `domios.instance:api_token`, read once at startup and passed to tabs as `CODETERM_API_TOKEN`, never stored in `config.toml`. Local-only `domios system api-token` prints the credential and refuses `--mesh`. Control endpoints require it even on loopback; public health/pairing grants no control.
 
 Default configuration:
 ```toml
@@ -35,7 +35,7 @@ cors = true
 cors_allow_origins = ["https://console.example"]
 ```
 
-Authenticated config readback includes `api_listener.active`, `.configured`, and `.restart_required` (enabled state, address, CORS/origins, authentication). Exact queries include listener truth, so writes cannot masquerade as runtime rebinds. Loopback hosts canonicalize to valid socket/callback URL forms; rebind/recovery keeps the generation below. An empty CORS allowlist permits no cross-origin requests and never disables the listener; `*` and malformed origins are rejected.
+Config readback exposes actual and configured listener state through `api_listener.active`, `.configured`, `.restart_required` (enabled, address, CORS/origins, authentication); writes do not imply a runtime rebind. Loopback hosts canonicalize to valid socket/callback URLs; recovery follows the generation contract below. Empty CORS allowlists deny cross-origin requests without disabling the listener; `*` and malformed origins are rejected.
 
 ### Endpoints
 
@@ -65,7 +65,7 @@ Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness
 | POST | `/api/keepawake/stop` | — | Stop keep-awake session |
 | POST | `/api/graph/events/{subscription_id}` | `{plugin_id, event_id, payload}` | Plugin event ingress. Uses the subscription's Bearer token, accepts at most 64 KiB, and returns 202 for admission; refusal codes map to 401, 403, 404, 409, 413, 422, 429 or 503. |
 
-A desktop REST listener generation reports `listening` only once it owns the real socket and a real `GET /api/health` succeeds, its body is consumed, and the proof connection closes. A listener exit is replaced by exactly one new generation; a bind ownership failure waits for an explicit port-release or restart event, never a timer. The listener status reports `generation`, `phase`, `diagnostic`, and `message`. Diagnostic values are `listener_exited`, `bind_ownership_failed`, or `workers_blocked`; the last means the listener remains bound but the four REST runtime workers cannot answer health.
+A desktop REST generation reports `listening` after owning the socket, consuming a successful `GET /api/health` body and closing that proof connection. Exit creates exactly one replacement generation; bind ownership failure awaits an explicit port-release or restart event, never a timer. Status fields: `generation`, `phase`, `diagnostic`, `message`. Diagnostics: `listener_exited`, `bind_ownership_failed`, `workers_blocked` (bound listener whose four REST runtime workers cannot answer health).
 
 Recovery ids and the mesh resync each recovery triggers: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail.
 
@@ -78,7 +78,7 @@ POST routes whose fields only refine a complete action (agent restart, hooks, se
 
 #### Closed History & Restore
 
-Closed tabs and workspaces are recorded in a bounded persistent ring. Each close belongs to a `single`, `cascade`, or `workspace` group identified by an opaque `group_id`. Oldest entries are evicted first.
+A bounded persistent ring records closed tabs/workspaces, evicting oldest first. Each close has an opaque `group_id` of kind `single`, `cascade`, or `workspace`.
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -147,7 +147,7 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/agents/helper` | `{title, task}` | Shared spawn for UI AI helper buttons (Configure with AI, Mesh Set up with AI). The daemon resolves the General Agent provider, places the tab in the General workspace and working directory regardless of the active workspace, and starts a roleless visible launch that always carries a first turn. Other fields are refused. A missing General workspace, launch failure or undelivered first turn errors and rolls the tab back. `delivery_state` is `confirmed` only when the first turn was submitted through the PTY with submit evidence, `launched` when the provider consumed it inline at launch without that evidence. |
 | GET | `/api/remote-workers` | `?tab=<id>` | Orchestrator view of cross-mesh workers, built from inbound mesh reports. `?tab=` returns that orchestrator's workers; otherwise the full `{ tab_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_tab, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
-Configure-with-AI, provider install, auto-confirm, the Pebble webhook and plugin receiver targets: `domios docs API-INTEGRATIONS`.
+Configure-with-AI, provider install, auto-confirm, Pebble webhook and plugin receivers: `domios docs API-INTEGRATIONS`.
 
 Plugin surface routes (`/api/surfaces/*`): `domios docs SURFACES`.
 
@@ -177,6 +177,6 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `domios docs ORCHESTRATION`.
 
-Related docs: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`. Local analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
+Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 218 -->
+<!-- revision: 219 -->

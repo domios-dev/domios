@@ -329,6 +329,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "codeterm-entitlements"
+version = "0.0.0"
+dependencies = [
+ "base64",
+ "ed25519-dalek",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "codeterm-local-recording"
 version = "0.0.0"
 dependencies = [
@@ -354,6 +364,7 @@ dependencies = [
  "base64",
  "chrono",
  "codeterm-build-info",
+ "codeterm-entitlements",
  "codeterm-paths",
  "codeterm-types",
  "codeterm-util",
