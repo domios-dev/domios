@@ -2,7 +2,7 @@
 name = "codeterm-process-identity"
 version = "0.0.0"
 edition = "2021"
-license = "PolyForm-Shield-1.0.0"
+license = "LicenseRef-Domios-1.0"
 
 [lints]
 workspace = true
