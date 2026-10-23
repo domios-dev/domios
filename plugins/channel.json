@@ -7,7 +7,7 @@
     {
       "id": "claude",
       "path": "provider-claude",
-      "version": "1.14.19",
+      "version": "1.14.20",
       "minCodeterm": "1.15.1"
     },
     {
@@ -37,7 +37,7 @@
     {
       "id": "analytics",
       "path": "analytics",
-      "version": "1.10.20",
+      "version": "1.10.21",
       "minCodeterm": "1.10.20"
     },
     {

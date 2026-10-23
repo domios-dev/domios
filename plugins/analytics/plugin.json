@@ -1,6 +1,6 @@
 {
   "id": "analytics",
-  "version": "1.10.20",
+  "version": "1.10.21",
   "minCodeterm": "1.10.20",
   "hostApi": 2,
   "displayName": "Analytics",
