@@ -536,7 +536,10 @@ async function main() {
     const transport = new FixtureTransport();
     transport.graph = {
       ...multiScenarioGraph(),
-      blueprints: [{ id: "team-blueprint", name: "Team pipeline", owner: { kind: "team", tab_id: "creator-a", team_id: attachment.team_id }, state: "running", run_id: "run-a", current_step: 0, last_event_at_ms: 100 }],
+      blueprints: [
+        { id: "team-blueprint", name: "Team pipeline", owner: { kind: "team", tab_id: "creator-a", team_id: attachment.team_id }, state: "running", run_id: "run-a", current_step: 0, last_event_at_ms: 100 },
+        { id: "watch-snapshot", name: "Internal watch", owner: { kind: "team", tab_id: "creator-a", team_id: attachment.team_id }, state: "running", run_id: null, current_step: null, last_event_at_ms: null, call_graph: { schema_version: 2, kind: "watch", name: "Internal watch", steps: [] } },
+      ],
     };
     const opened: string[] = [];
     const blueprintEvents: unknown[] = [];
@@ -554,10 +557,13 @@ async function main() {
       assert.ok(view.host.querySelector('[data-testid="cron-entry"]'));
       const rows = view.host.querySelectorAll<HTMLButtonElement>('[data-testid="sidebar-sentinel-job"]');
       assert.equal(rows.length, transport.graph.scenarios.length, "one row per stored scenario");
-      await act(async () => rows[1].click());
+      const scenarioRow = Array.from(rows).find(row => row.getAttribute("aria-label")?.startsWith(`${transport.graph.scenarios[1].name},`));
+      assert.ok(scenarioRow);
+      await act(async () => scenarioRow.click());
       assert.deepEqual(opened, [transport.graph.scenarios[1].id]);
       const blueprintRow = view.host.querySelector<HTMLButtonElement>('[data-testid="sidebar-blueprint-job"]');
       assert.ok(blueprintRow, "a running Team-owned Blueprint appears in the Team disclosure");
+      assert.equal(view.host.querySelectorAll('[data-testid="sidebar-blueprint-job"]').length, 1, "watch snapshots do not add a second job row");
       await act(async () => blueprintRow.click());
       assert.deepEqual(blueprintEvents, [{ workspaceId: attachment.workspace_id, target: { teamId: attachment.team_id, blueprintId: "team-blueprint" } }]);
     } finally { await view.close(); }
@@ -568,6 +574,7 @@ async function main() {
     const failed = await mount(<TeamJobsUnit {...props} cronCount={0} crons={null} sentinelScope={{ workspace_id: attachment.workspace_id, team_id: attachment.team_id }} sentinelAdapter={unavailable} onOpenSentinel={() => {}} />);
     try {
       await settle(() => toggleOf(failed.host) !== null);
+      assert.equal(toggleOf(failed.host)?.getAttribute("aria-label"), "JOBS 0", "an unavailable message is not a job");
       await act(async () => toggleOf(failed.host)!.click());
       assert.ok(failed.host.querySelector('[data-testid="sidebar-sentinels-unavailable"]'), "unknown Blueprint state is shown as unavailable");
     } finally { await failed.close(); }

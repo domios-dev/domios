@@ -1,4 +1,5 @@
 [
+  "src/components/Jobs/jobsCount.test.ts",
   "src/components/Canvas/missionControl/ConnectedPlanSettings.test.tsx",
   "src/hooks/useAppNotices.test.tsx",
   "src/components/Surface/useSurfaceNotices.test.tsx",
