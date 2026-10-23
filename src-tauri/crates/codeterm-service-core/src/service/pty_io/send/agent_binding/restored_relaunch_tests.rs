@@ -1,4 +1,5 @@
 use super::restored_launch_boundary;
+use super::RestoredLaunchStart;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::agent_delivery_outbox::test_boundary::Boundary;
 use crate::service::delivery_error::DeliveryError;
@@ -45,26 +46,27 @@ fn payload() -> AgentDeliveryPayload {
     }
 }
 
-/// Runs the materialization's synchronous launch steps: the restore claim, then the launch's
-/// own nonce reservation.
-fn install_relaunch(tab: &str, started: Arc<Mutex<Option<String>>>) {
-    let tab = tab.to_string();
-    restored_launch_boundary::install(Box::new(move |svc| {
-        crate::service::pty_io::claim_restored_launch(
-            &svc.mux,
-            &tab,
-            PROVIDER,
-            Some(SESSION),
-            None,
-            true,
-        )?
-        .expect("restore claims its launch");
-        let nonce =
-            crate::service::orchestrator::reserve_launch_binding_nonce(svc, &tab, Some(SESSION));
-        crate::service::orchestrator::mark_tab_agent_launch_started(&svc.mux, &tab);
-        *started.lock() = nonce.clone();
-        Ok(nonce)
-    }));
+/// The state a restore materialization leaves before the sender's claim is released: the
+/// restore claim, then the launch's own caller-thread reservation.
+fn relaunch_before_send(fixture: &ServiceFixture, tab: &str) -> String {
+    crate::service::pty_io::claim_restored_launch(
+        &fixture.service.mux,
+        tab,
+        PROVIDER,
+        Some(SESSION),
+        None,
+        true,
+    )
+    .unwrap()
+    .expect("restore claims its launch");
+    let nonce = crate::service::orchestrator::reserve_launch_binding_nonce(
+        &fixture.service,
+        tab,
+        Some(SESSION),
+    )
+    .expect("a restored relaunch reserves on the caller's thread");
+    crate::service::orchestrator::mark_tab_agent_launch_started(&fixture.service.mux, tab);
+    nonce
 }
 
 fn install_writer(
@@ -105,6 +107,15 @@ fn deliver_pending(fixture: &ServiceFixture, tab: &str) -> String {
     }
 }
 
+fn pinned_nonce(fixture: &ServiceFixture, tab: &str) -> String {
+    let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    let record = owner.pending_head(tab).unwrap().expect("held delivery");
+    let payload: AgentDeliveryPayload =
+        serde_json::from_str(&owner.payload(tab, &record).unwrap()).unwrap();
+    assert!(payload.expected_pty_id.is_none());
+    payload.expected_binding_nonce.expect("pinned launch nonce")
+}
+
 fn register_relaunched_pty(fixture: &ServiceFixture, tab: &str) {
     let mut mux = fixture.service.mux.write();
     let tab = mux.get_tab_mut(tab).unwrap();
@@ -137,14 +148,14 @@ fn assert_settles_failed_once(
     tab: &str,
     end_launch: impl FnOnce(&ServiceFixture),
 ) {
-    let started = Arc::default();
-    install_relaunch(tab, Arc::clone(&started));
+    let relaunch_nonce = relaunch_before_send(fixture, tab);
     let (_boundary, writes, done) = install_writer(fixture, tab, || Ok(()));
     let (failure_tx, failure_rx) = mpsc::channel();
     let listener = fixture.ui.listen("agent-delivery-status", move |event| {
         failure_tx.send(event.clone()).unwrap();
     });
     let delivery_id = deliver_pending(fixture, tab);
+    assert_eq!(pinned_nonce(fixture, tab), relaunch_nonce);
     end_launch(fixture);
     fixture.service.wake_agent_deliveries_on_state_change(tab);
     done.recv_timeout(WAIT).unwrap();
@@ -161,6 +172,74 @@ fn assert_settles_failed_once(
     assert!(failure_rx.try_recv().is_err());
     assert!(writes.lock().is_empty());
     fixture.ui.unlisten(listener);
+}
+
+#[test]
+fn real_restore_materialization_pins_the_nonce_its_launch_thread_binds() {
+    let (fixture, tab) = restored_authenticated_tab();
+    {
+        let cwd = fixture.temp.path().to_string_lossy().into_owned();
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.pty_id = None;
+        tab.cwd = Some(cwd);
+        tab.restorable_launch.captured = true;
+    }
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_session(PROVIDER, SESSION),
+    ));
+    let (stage_tx, stage_rx) = mpsc::channel();
+    let owner = tab.clone();
+    let listener = fixture.ui.listen("tab-boot-stage", move |event| {
+        if event["tab_id"].as_str() == Some(owner.as_str()) {
+            let _ = stage_tx.send(event.clone());
+        }
+    });
+    let (_boundary, writes, _done) = install_writer(&fixture, &tab, || Ok(()));
+
+    deliver_pending(&fixture, &tab);
+    let pinned = pinned_nonce(&fixture, &tab);
+    assert_ne!(pinned, SNAPSHOT_NONCE);
+
+    // Every stage after reader_ready follows capture_binding_nonce; a shell-ready
+    // timeout fails only after it, any other failure means the launch never bound.
+    let mut reader_ready = false;
+    let bound = loop {
+        let event = stage_rx
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the relaunch publishes its boot stages");
+        match event["stage"].as_str() {
+            Some("reader_ready") => reader_ready = true,
+            Some("shell_ready") => break event,
+            Some("spawn_failed")
+                if reader_ready && event["reason"].as_str() == Some("ShellReadyTimeout") =>
+            {
+                break event
+            }
+            Some("spawn_failed") => panic!("the relaunch failed before binding: {event}"),
+            _ => {}
+        }
+    };
+    assert!(reader_ready);
+    assert_eq!(
+        bound["launch_generation"]["binding_nonce"].as_str(),
+        Some(pinned.as_str())
+    );
+    assert!(
+        writes.lock().is_empty(),
+        "nothing is written before readiness"
+    );
+    assert!(has_pending(&fixture, &tab));
+    fixture.ui.unlisten(listener);
+    let pty = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .and_then(|tab| tab.pty_id.clone());
+    if let Some(pty) = pty {
+        let _ = fixture.service.pty.lock().kill(&pty);
+    }
 }
 
 #[test]
@@ -193,14 +272,12 @@ fn restore_claim_voids_the_snapshot_proof_so_the_relaunch_reserves_its_nonce() {
 }
 
 #[test]
-fn restored_send_drains_once_into_the_relaunched_pty_after_readiness() {
+fn relaunch_pinned_send_drains_once_into_the_relaunched_pty_after_readiness() {
     let (fixture, tab) = restored_authenticated_tab();
-    let started = Arc::default();
-    install_relaunch(&tab, Arc::clone(&started));
+    let relaunch_nonce = relaunch_before_send(&fixture, &tab);
     let (_boundary, writes, done) = install_writer(&fixture, &tab, || Ok(()));
     deliver_pending(&fixture, &tab);
-    let relaunch_nonce = started.lock().clone().expect("relaunch nonce");
-    assert_ne!(relaunch_nonce, SNAPSHOT_NONCE);
+    assert_eq!(pinned_nonce(&fixture, &tab), relaunch_nonce);
     assert!(writes.lock().is_empty());
 
     register_relaunched_pty(&fixture, &tab);
@@ -266,17 +343,29 @@ fn failed_relaunch_settles_failed_without_writing() {
 }
 
 #[test]
-fn refused_or_superseded_relaunch_refuses_the_send_before_admission() {
-    for outcome in ["refused", "not_started", "superseded"] {
+fn refused_unstarted_or_superseded_relaunch_refuses_the_send_with_its_reason() {
+    for (outcome, expected) in [
+        ("refused", "restored_session_unavailable: opaque"),
+        (
+            "not_started",
+            "agent_unavailable: recipient relaunch did not start: opaque-reason",
+        ),
+        (
+            "superseded",
+            "agent_unavailable: recipient relaunch was superseded before delivery",
+        ),
+    ] {
         let (fixture, tab) = restored_authenticated_tab();
         let owner = tab.clone();
         restored_launch_boundary::install(Box::new(move |svc| match outcome {
             "refused" => Err("restored_session_unavailable: opaque".into()),
-            "not_started" => Ok(None),
+            "not_started" => Ok(RestoredLaunchStart::NotStarted {
+                reason: "opaque-reason".into(),
+            }),
             _ => {
-                let nonce = svc.reserve_agent_launch_binding_nonce(&owner, Some(SESSION));
+                let binding_nonce = svc.reserve_agent_launch_binding_nonce(&owner, Some(SESSION));
                 svc.reserve_agent_launch_binding_nonce(&owner, Some(SESSION));
-                Ok(Some(nonce))
+                Ok(RestoredLaunchStart::Started { binding_nonce })
             }
         }));
         let (_boundary, writes, _done) = install_writer(&fixture, &tab, || Ok(()));
@@ -284,10 +373,7 @@ fn refused_or_superseded_relaunch_refuses_the_send_before_admission() {
             .service
             .deliver_agent_payload(&tab, payload(), "visible")
             .unwrap_err();
-        assert!(
-            outcome == "refused" || error.starts_with("agent_unavailable:"),
-            "{outcome}: {error}"
-        );
+        assert_eq!(error, expected, "{outcome}");
         assert!(!has_pending(&fixture, &tab));
         assert!(writes.lock().is_empty());
     }
@@ -296,8 +382,7 @@ fn refused_or_superseded_relaunch_refuses_the_send_before_admission() {
 #[test]
 fn uncertain_relaunch_write_never_replays() {
     let (fixture, tab) = restored_authenticated_tab();
-    let started = Arc::default();
-    install_relaunch(&tab, Arc::clone(&started));
+    relaunch_before_send(&fixture, &tab);
     let (_boundary, writes, done) = install_writer(&fixture, &tab, || {
         Err(DeliveryError::SubmitUnconfirmed {
             tab: "opaque".into(),

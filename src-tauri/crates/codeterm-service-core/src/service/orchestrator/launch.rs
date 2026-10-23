@@ -361,9 +361,15 @@ pub fn launch_agent_in_background_with_env(
         if !launch.emit(&svc, BootStage::PtyStarting) {
             return;
         }
-        let preparation = direct_spec
-            .is_none()
-            .then(|| preparation::start(&svc, &tab_id, &agent_cmd, launch_cmd.clone()));
+        let preparation = direct_spec.is_none().then(|| {
+            preparation::start(
+                &svc,
+                &tab_id,
+                &agent_cmd,
+                launch_cmd.clone(),
+                reserved_nonce.clone(),
+            )
+        });
         let set_booting = |launch: &LaunchGeneration, value: bool| {
             if !value
                 && crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some_and(|sidecar| {

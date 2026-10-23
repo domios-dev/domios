@@ -1,3 +1,4 @@
+use super::super::lifecycle::RestoredLaunchStart;
 use super::{optimistic_agent_pty_target, public_agent_input_readiness, AuthenticatedPtyDelivery};
 use crate::service::{delivery_error::DeliveryError, ServiceContext};
 
@@ -16,15 +17,24 @@ impl ServiceContext {
                 .is_some()
         };
         let relaunch_nonce = if restored {
-            Some(self.start_restored_launch(claim)?)
+            match self.start_restored_launch(claim)? {
+                RestoredLaunchStart::Started { binding_nonce } => Some(binding_nonce),
+                RestoredLaunchStart::NotStarted { reason } => {
+                    return Err(format!(
+                        "agent_unavailable: recipient relaunch did not start: {reason}"
+                    ));
+                }
+            }
         } else {
             None
         };
         let binding = self
             .queued_agent_binding(tab_id)
             .ok_or_else(|| "agent_unavailable: recipient has no active PTY launch".to_string())?;
-        if relaunch_nonce.is_some_and(|nonce| nonce.as_deref() != Some(binding.2.as_str())) {
-            return Err("agent_unavailable: recipient relaunch is not the current launch".into());
+        if relaunch_nonce.is_some_and(|nonce| nonce != binding.2) {
+            return Err(
+                "agent_unavailable: recipient relaunch was superseded before delivery".into(),
+            );
         }
         if payload
             .expected_pty_id
@@ -50,7 +60,7 @@ impl ServiceContext {
     fn start_restored_launch(
         &self,
         claim: &crate::service::pty_ownership::TabPtyClaim,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<RestoredLaunchStart, String> {
         #[cfg(test)]
         if let Some(start) = restored_launch_boundary::take() {
             return start(self);
@@ -212,7 +222,8 @@ fn queued_delivery_target(
 
 #[cfg(test)]
 mod restored_launch_boundary {
-    type Start = Box<dyn FnOnce(&super::ServiceContext) -> Result<Option<String>, String>>;
+    type Start =
+        Box<dyn FnOnce(&super::ServiceContext) -> Result<super::RestoredLaunchStart, String>>;
 
     thread_local! {
         static START: std::cell::RefCell<Option<Start>> = const { std::cell::RefCell::new(None) };
