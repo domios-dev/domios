@@ -113,7 +113,7 @@ Ordinary exceptions and non-zero code exits produce routable `failed`, reason `c
 
 The stdin envelope remains bounded to 32 KiB. Plain text of 20 KiB passes intact. Oversized serialized payloads become an explicit JSON truncation value with `type: truncated`, `truncated: true`, `total_bytes`, `limit_bytes` and a bounded UTF-8 `prefix`. Typed contracts validate that delivered value and may refuse a truncation marker that violates their schema.
 
-Command steps and watcher probes preserve the daemon's inherited PATH order, remove the explicitly configured Domios CLI directories, and append missing default tool directories. Other inherited variables are excluded; children receive `LANG` and, on Windows, `SystemRoot`.
+Command steps and watcher probes preserve the daemon's inherited PATH order, remove the explicitly configured Domios CLI directories, and append missing default tool directories. Other inherited variables are excluded; children receive `LANG` and, on Windows, `SystemRoot`, `PATHEXT` for tool-name resolution and a `COMSPEC` pointing to the system `cmd.exe` for batch files.
 
 ## Watches and effects
 
@@ -202,4 +202,4 @@ Blueprint results addressed to a restored PTY agent tab retain the exact saved p
 
 R10 scans executable text lexically as defence in depth. The checker refuses domios-cli capabilities, while credential-free child environments remove instance authority; a clean lexical scan does not prove shell text safe. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->

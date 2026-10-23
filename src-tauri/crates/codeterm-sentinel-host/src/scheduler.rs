@@ -505,14 +505,17 @@ fn expire_escalations(store: &Arc<Mutex<Store>>, svc: &ServiceState) {
 
 pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
     tick_with_probe(handle, svc, lease, |limit, runtime| {
-        probe::run_with_budget(
+        let result = probe::run_with_budget(
             &lease.job.probe(),
             Path::new(&lease.job.cwd),
             limit,
             runtime,
             &handle.probe_owner,
             &super::probe_env::command(),
-        )
+        );
+        #[cfg(test)]
+        super::probe_env::record_output(&result);
+        result
     });
 }
 

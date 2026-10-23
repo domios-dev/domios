@@ -142,3 +142,51 @@ fn blueprint_v2_runtime_command_environment_is_an_allowlist() {
         .unwrap();
     assert!(!std::env::split_paths(path).any(|path| path == directory.path()));
 }
+
+#[test]
+fn blueprint_v2_runtime_windows_environment_keeps_executable_resolution() {
+    let root = tempfile::tempdir().unwrap();
+    let tools = root.path().join("user-tools");
+    let environment = Environment::for_command_on_platform(
+        [
+            ("sYsTeMrOoT".into(), root.path().as_os_str().to_owned()),
+            ("pAtHeXt".into(), ".EXE;.CMD;.CUSTOM".into()),
+            ("PATH".into(), tools.as_os_str().to_owned()),
+            ("COMSPEC".into(), "opaque-untrusted-shell".into()),
+            ("CODETERM_API_TOKEN".into(), "opaque-instance-secret".into()),
+            ("GH_TOKEN".into(), "opaque-provider-secret".into()),
+        ],
+        None,
+        &[],
+        true,
+    );
+    let variables: std::collections::BTreeMap<_, _> = environment.variables.into_iter().collect();
+    assert_eq!(variables[OsStr::new("PATHEXT")], ".EXE;.CMD;.CUSTOM");
+    assert_eq!(
+        variables[OsStr::new("COMSPEC")],
+        root.path()
+            .join("System32")
+            .join("cmd.exe")
+            .into_os_string()
+    );
+    assert_eq!(
+        std::env::split_paths(&variables[OsStr::new("PATH")]).collect::<Vec<_>>(),
+        vec![tools, root.path().join("System32")]
+    );
+    assert_eq!(variables.len(), 5);
+    let environment = Environment::for_command_on_platform(
+        [("SystemRoot".into(), root.path().as_os_str().to_owned())],
+        None,
+        &[],
+        true,
+    );
+    assert_eq!(
+        environment
+            .variables
+            .iter()
+            .find(|(key, _)| key == "PATHEXT")
+            .unwrap()
+            .1,
+        ".COM;.EXE;.BAT;.CMD"
+    );
+}

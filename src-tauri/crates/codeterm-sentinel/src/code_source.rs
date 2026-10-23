@@ -67,33 +67,9 @@ pub fn read(directory: &Path, relative: &str) -> Result<String, &'static str> {
 }
 
 #[cfg(windows)]
-pub fn read(directory: &Path, relative: &str) -> Result<String, &'static str> {
-    let mut path = directory.canonicalize().map_err(|_| "contract_violation")?;
-    let mut parts = 0;
-    for component in Path::new(relative).components() {
-        let Component::Normal(name) = component else {
-            return Err("contract_violation");
-        };
-        path.push(name);
-        let metadata = std::fs::symlink_metadata(&path).map_err(|_| "contract_violation")?;
-        if metadata.file_type().is_symlink() {
-            return Err("contract_violation");
-        }
-        parts += 1;
-    }
-    if parts == 0 {
-        return Err("contract_violation");
-    }
-    let file = File::open(path).map_err(|_| "contract_violation")?;
-    if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
-        return Err("contract_violation");
-    }
-    let mut text = String::new();
-    file.take(16385)
-        .read_to_string(&mut text)
-        .map_err(|_| "contract_violation")?;
-    if text.len() > 16384 {
-        return Err("budget_exhausted");
-    }
-    Ok(text)
-}
+mod windows;
+#[cfg(windows)]
+pub use windows::read;
+
+#[cfg(test)]
+mod tests;

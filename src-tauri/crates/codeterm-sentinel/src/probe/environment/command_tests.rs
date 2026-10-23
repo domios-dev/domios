@@ -102,7 +102,7 @@ fn blueprint_v2_runtime_command_child_resolves_system_and_user_tools() {
     #[cfg(unix)]
     let command = "cat input.txt && git --version && sh -c \"printf 'sh-resolved\\n'\" && blu41-user-tool; env";
     #[cfg(windows)]
-    let command = "$ErrorActionPreference='Stop'; cat input.txt; git --version; if ($LASTEXITCODE) { exit $LASTEXITCODE }; blu41-user-tool.cmd; Get-ChildItem Env: | ForEach-Object { '{0}={1}' -f $_.Name,$_.Value }";
+    let command = "$ErrorActionPreference='Stop'; cat input.txt; git --version; if ($LASTEXITCODE) { exit $LASTEXITCODE }; blu41-user-tool; if ($LASTEXITCODE) { exit $LASTEXITCODE }; Get-ChildItem Env: | ForEach-Object { '{0}={1}' -f $_.Name,$_.Value }";
     let owner = Arc::new(ProbeResourceOwner::new());
     let cancellation = Cancellation::default();
     let receipt = Receipt::start("command-path", &cancellation);
