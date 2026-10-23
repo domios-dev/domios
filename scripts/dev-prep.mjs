@@ -551,6 +551,7 @@ async function launchPrebuilt(options) {
   const log = resolve(option(options, "--log"));
   const apiPort = option(options, "--api-port");
   const fixtureDeadline = process.env.CODETERM_TEST_PREBUILT_READY_DEADLINE_MS;
+  const externalFrontend = process.env.DEV_FRONT_EXTERNAL === "1";
   const deadlineMs = fixtureDeadline === undefined ? 30_000 : Number(fixtureDeadline);
   if (!Number.isInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > 30_000) {
     throw new Error("invalid prebuilt readiness failure deadline");
@@ -595,12 +596,19 @@ async function launchPrebuilt(options) {
       child.unref();
       console.log(`[dev-prebuilt] launched pid ${child.pid}, log ${log}`);
       function armDeadline() {
-        deadline = setTimeout(() => fail(new Error(`prebuilt app did not report readiness within ${deadlineMs}ms (phase=${['preparation','bootstrap','attachment'][phase]})`)), deadlineMs);
+        const phaseDeadlineMs = externalFrontend && phase === 2 && fixtureDeadline === undefined ? 180_000 : deadlineMs;
+        deadline = setTimeout(() => {
+          const error = new Error(`prebuilt app did not report readiness within ${phaseDeadlineMs}ms (phase=${['preparation','bootstrap','attachment'][phase]})`);
+          if (externalFrontend) error.code = "DEV_ATTACHMENT_PENDING";
+          fail(error);
+        }, phaseDeadlineMs);
       }
       armDeadline();
     }).then((signal) => console.log(`[dev-prebuilt] readiness signal: ${signal}`));
   } catch (error) {
-    await terminateOwnedChild(child);
+    if (error.code === "DEV_ATTACHMENT_PENDING") {
+      if (child?.connected) child.disconnect();
+    } else await terminateOwnedChild(child);
     throw error;
   } finally {
     startupWait.abort();
@@ -630,5 +638,5 @@ try {
   else runRegularPrep();
 } catch (error) {
   console.error(`[dev-prep] ${error.message}`);
-  process.exit(1);
+  process.exit(error.code === "DEV_ATTACHMENT_PENDING" ? 3 : 1);
 }
