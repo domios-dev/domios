@@ -139,7 +139,7 @@ fn unknown_key_id_is_free() {
 fn expired_verdict_is_free() {
     let signer = LocalSigner::new();
     let grant = signer.sign(&enforced(paid()));
-    let expires_at = T + 3_600;
+    let expires_at = T + 86_400;
     assert_eq!(
         authority_for(&signer).access(Some(&grant), &binding(), expires_at + 1),
         compiled_free()

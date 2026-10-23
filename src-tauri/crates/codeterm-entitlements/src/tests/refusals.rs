@@ -178,7 +178,7 @@ fn producer_invariants_are_enforced() {
         ),
         (with(paid(), json!({"policy_epoch": ""})), D::PolicyEpoch),
         (with(paid(), json!({"not_before": T + 1})), D::Time),
-        (with(paid(), json!({"refresh_after": T + 1_801})), D::Time),
+        (with(paid(), json!({"refresh_after": T + 3_601})), D::Time),
         (
             with(
                 paid(),
@@ -192,7 +192,7 @@ fn producer_invariants_are_enforced() {
         (
             with(
                 paid(),
-                json!({"expires_at": T + 3_601, "grace_until": T + 3_601}),
+                json!({"expires_at": T + 86_401, "grace_until": T + 86_401}),
             ),
             D::Expiry,
         ),
@@ -203,8 +203,8 @@ fn producer_invariants_are_enforced() {
             ),
             D::Expiry,
         ),
-        (with(paid(), json!({"grace_until": T + 3_601})), D::Grace),
-        (with(admin(), json!({"grace_until": T + 3_601})), D::Grace),
+        (with(paid(), json!({"grace_until": T + 86_401})), D::Grace),
+        (with(admin(), json!({"grace_until": T + 86_401})), D::Grace),
         (
             with(
                 paid(),
