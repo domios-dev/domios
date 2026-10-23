@@ -1,7 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: watch
 name: '{{name}}'
 note: Keep watching a bounded retry process until its pass result arrives.
+intent: Keep watching a bounded retry process until its pass result arrives.
 inputs:
   name:
     type: string
@@ -12,16 +14,32 @@ inputs:
   retry_status_probe:
     type: string
     description: Retry status probe
-watch:
-  probe: '{{retry_status_probe}}'
-  question: classify-retry-result
+steps:
+- id: source
+  uses: probe
+  with:
+    command:
+      input: retry_status_probe
+  every:
+    lit: 20s
+  timeout:
+    lit: 1h
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: classify-retry-result
   buckets:
   - waiting
   - passed
-  matches:
-    passed: '{{passed_pattern}}'
-  until: passed
-  timeout: 1h
   routes:
-    waiting: none
-    passed: notify
+    waiting: '@stop'
+    passed: passed_1
+  matches:
+    passed:
+      input: passed_pattern
+  until: passed
+- id: passed_1
+  uses: notify
+  routes:
+    done: '@stop'

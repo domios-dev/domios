@@ -1,7 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: watch
 name: '{{name}}'
 note: Wait for a build verdict and notify on either terminal result.
+intent: Wait for a build verdict and notify on either terminal result.
 inputs:
   name:
     type: string
@@ -15,19 +17,40 @@ inputs:
   read_only_build_probe:
     type: string
     description: Read only build probe
-watch:
-  probe: '{{read_only_build_probe}}'
-  question: classify-build-result
+steps:
+- id: source
+  uses: probe
+  with:
+    command:
+      input: read_only_build_probe
+  every:
+    lit: 20s
+  timeout:
+    lit: 1h
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: classify-build-result
   buckets:
   - waiting
   - passed
   - failed
-  matches:
-    passed: '{{passed_pattern}}'
-    failed: '{{failed_pattern}}'
-  until: passed
-  timeout: 1h
   routes:
-    waiting: none
-    passed: notify
-    failed: notify
+    waiting: '@stop'
+    passed: passed_1
+    failed: failed_1
+  matches:
+    passed:
+      input: passed_pattern
+    failed:
+      input: failed_pattern
+  until: passed
+- id: passed_1
+  uses: notify
+  routes:
+    done: '@stop'
+- id: failed_1
+  uses: notify
+  routes:
+    done: '@stop'

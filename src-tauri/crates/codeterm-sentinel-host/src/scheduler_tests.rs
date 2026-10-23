@@ -30,11 +30,7 @@ fn blueprint_owner_team_survives_creator_close_and_stops_with_team() {
 }
 
 fn create(store: &mut Store, paused: bool, handlers: serde_json::Value) -> Sentinel {
-    store.create(serde_json::from_value(json!({
-        "name":format!("scheduler-result-watch-{}",store.list().len()),
-        "probe":"status", "question":"state", "buckets":["done","failed"], "every":"10s", "timeout":"1h",
-        "paused":paused, "handlers":handlers, "matches":{"done":"^done$"}
-    })).unwrap(), owner(), false).unwrap()
+    store.create_document(json!(codeterm_sentinel::test_support::watch(serde_json::json!(format!("scheduler-result-watch-{}",store.list().len())),serde_json::json!({"uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"},"paused":paused}),serde_json::json!({"with":{"question":{"lit":"state"}},"buckets":["done","failed"],"matches":{"done":{"lit":"^done$"}}}),serde_json::json!(handlers),serde_json::json!(null))), owner(), false).unwrap()
 }
 
 #[test]
@@ -43,11 +39,8 @@ fn blueprint_owner_close_cancels_active_tab_owned_run_only() {
     let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1000);
     let mut store = Store::new(dir.path().join("sentinels.json"), clock);
     let tab_job = store
-        .create(
-            serde_json::from_value(json!({
-                "name":"owner-close-tab", "probe":"status", "question":"state", "buckets":["done"], "every":"10s", "timeout":"1h", "matches":{"done":"^done$"}
-            }))
-            .unwrap(),
+        .create_document(
+            json!(codeterm_sentinel::test_support::watch(serde_json::json!("owner-close-tab"),serde_json::json!({"uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}}),serde_json::json!({"with":{"question":{"lit":"state"}},"buckets":["done"],"matches":{"done":{"lit":"^done$"}}}),serde_json::json!(null),serde_json::json!(null))),
             Owner {
                 creator_tab_id: "creator".into(),
                 team_id: None,
@@ -109,13 +102,8 @@ fn blueprint_text_input_delivers_repeated_messages_without_hash_suppression() {
     let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1_000);
     let mut store = Store::new(dir.path().join("input.json"), clock);
     let job = store
-        .create(
-            serde_json::from_value(json!({
-                "name":"input-send", "input":{"kind":"text","data":{"text":"initial"}},
-                "question":"reply?", "buckets":["done"], "matches":{"done":".*"},
-                "routes":{"done":"send:shell"}, "session":true
-            }))
-            .unwrap(),
+        .create_document(
+            json!(codeterm_sentinel::test_support::watch(serde_json::json!("input-send"),serde_json::json!({"uses":"input","with":{"kind":{"lit":"text"},"text":{"lit":"initial"}},"session":true}),serde_json::json!({"with":{"question":{"lit":"reply?"}},"buckets":["done"],"matches":{"done":{"lit":".*"}}}),serde_json::json!({"done":[{"id":"effect_0","uses":"send","with":{"target":{"lit":"shell"}}}]}),serde_json::json!(null))),
             owner(),
             false,
         )
@@ -142,14 +130,15 @@ fn blueprint_session_exchanges_bypass_budgets_but_stop_at_safety_and_rate_limits
     let dir = tempfile::tempdir().unwrap();
     let clock = codeterm_service_core::cron::clock::MockClock::starting_at(1_000);
     let mut store = Store::new(dir.path().join("session.json"), clock.clone());
-    let mut params: super::store::Create = serde_json::from_value(json!({
-        "name":"conversation", "input":{"kind":"text","data":{"text":"initial"}},
-        "question":"reply?", "buckets":["done"], "matches":{"done":".*"},
-        "routes":{"done":"send:shell"}, "session":true, "max_transitions":1,"max_actions":1
-    }))
-    .unwrap();
-    params.session = true;
-    let job = store.create(params, owner(), false).unwrap();
+    let definition = json!({"schema_version":2,"kind":"watch","name":"conversation","steps":[
+        {"id":"source","uses":"input","with":{"kind":{"lit":"text"},"text":{"lit":"initial"}},"session":true,"timeout":{"lit":"1h"}},
+        {"id":"decide","uses":"ask","with":{"question":{"lit":"reply?"}},"buckets":["done"],"matches":{"done":{"lit":".*"}},"routes":{"done":"send"}},
+        {"id":"send","uses":"send","with":{"target":{"lit":"shell"}}}
+    ]});
+    let mut job = store.prepare_document(definition, owner(), false).unwrap();
+    job.max_transitions = 1;
+    job.max_actions = 1;
+    let job = store.insert(job).unwrap();
     let store = Arc::new(Mutex::new(store));
     store.lock().wake_stage(&job.id);
     let lease = store.lock().due().unwrap().pop().unwrap();
@@ -222,13 +211,13 @@ fn sentinel_scheduler_graph_selected_child_activates_once_and_reaches_accepted_r
     let child = create(
         &mut store.lock(),
         true,
-        json!({"done":[{"id":"end","type":"stop","parameters":{}}]}),
+        json!({"done":[{"id":"end","uses":"stop","with":codeterm_sentinel::test_support::literal_params(json!({}))}]}),
     );
     let other = create(&mut store.lock(), true, json!({}));
     let parent = create(
         &mut store.lock(),
         false,
-        json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"branch","uses":"blueprint","with":codeterm_sentinel::test_support::literal_params(json!({"target":child.id}))}]}),
     );
     let lease = store.lock().due().unwrap().remove(0);
     assert_eq!(lease.job.id, parent.id);
@@ -283,7 +272,7 @@ fn sentinel_scheduler_graph_weak_other_and_unchanged_never_activate() {
         create(
             &mut store.lock(),
             false,
-            json!({"done":[{"id":"branch","type":"blueprint","parameters":{"target":child.id}}]}),
+            json!({"done":[{"id":"branch","uses":"blueprint","with":codeterm_sentinel::test_support::literal_params(json!({"target":child.id}))}]}),
         );
         let lease = store.lock().due().unwrap().remove(0);
         execute(&store, &lease, "same", bucket, confidence, |_, _, _| {
@@ -325,7 +314,7 @@ fn sentinel_scheduler_graph_partial_failure_preserves_order_and_independent_resu
         &mut store.lock(),
         false,
         json!({"done":[
-            {"id":"first","type":"notify","parameters":{}}, {"id":"second","type":"notify","parameters":{}}, {"id":"third","type":"notify","parameters":{}}
+            {"id":"first","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}, {"id":"second","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}, {"id":"third","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}
         ]}),
     );
     let lease = store.lock().due().unwrap().remove(0);
@@ -358,7 +347,7 @@ fn sentinel_scheduler_graph_stop_and_team_cleanup_fence_remaining_claims() {
         let parent = create(
             &mut store.lock(),
             false,
-            json!({"done":[{"id":"first","type":"notify","parameters":{}},{"id":"second","type":"notify","parameters":{}}]}),
+            json!({"done":[{"id":"first","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))},{"id":"second","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}]}),
         );
         let lease = store.lock().due().unwrap().remove(0);
         let mut calls = 0;
@@ -391,11 +380,17 @@ fn sentinel_scheduler_graph_until_finishes_its_claimed_batch_and_stop_skips_tail
         dir.path().join("sentinels.json"),
         codeterm_service_core::cron::clock::MockClock::starting_at(1000),
     )));
-    let mut params = json!({"name":"scheduler-stop-watch","probe":"status","question":"state","buckets":["done"],"every":"10s","timeout":"1h","until":"done","matches":{"done":"done"},"handlers":{"done":[{"id":"first","type":"notify","parameters":{}},{"id":"end","type":"stop","parameters":{}},{"id":"tail","type":"notify","parameters":{}}]}});
-    params["paused"] = json!(false);
+    let mut params = json!(codeterm_sentinel::test_support::watch(
+        serde_json::json!("scheduler-stop-watch"),
+        serde_json::json!({"uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}}),
+        serde_json::json!({"with":{"question":{"lit":"state"}},"buckets":["done"],"until":"done","matches":{"done":{"lit":"done"}}}),
+        serde_json::json!({"done":[{"id":"first","uses":"notify","with":{}},{"id":"end","uses":"stop","with":{}},{"id":"tail","uses":"notify","with":{}}]}),
+        serde_json::json!(null)
+    ));
+    params["steps"][0]["paused"] = json!(false);
     let parent = store
         .lock()
-        .create(serde_json::from_value(params).unwrap(), owner(), false)
+        .create_document(serde_json::from_value(params).unwrap(), owner(), false)
         .unwrap();
     let lease = store.lock().due().unwrap().remove(0);
     let mut calls = Vec::new();
@@ -455,7 +450,7 @@ fn sentinel_scheduler_graph_stop_after_claim_leaves_unconfirmed_and_skips_tail()
     let job = create(
         &mut store.lock(),
         false,
-        json!({"done":[{"id":"first","type":"notify","parameters":{}},{"id":"tail","type":"notify","parameters":{}}]}),
+        json!({"done":[{"id":"first","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))},{"id":"tail","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}]}),
     );
     let lease = store.lock().due().unwrap().remove(0);
     super::scheduler::advance(
@@ -497,12 +492,12 @@ fn sentinel_scheduler_graph_two_parents_join_running_child_without_reset() {
     let first = create(
         &mut store.lock(),
         false,
-        json!({"done":[{"id":"join","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"join","uses":"blueprint","with":codeterm_sentinel::test_support::literal_params(json!({"target":child.id}))}]}),
     );
     let second = create(
         &mut store.lock(),
         false,
-        json!({"done":[{"id":"join","type":"blueprint","parameters":{"target":child.id}}]}),
+        json!({"done":[{"id":"join","uses":"blueprint","with":codeterm_sentinel::test_support::literal_params(json!({"target":child.id}))}]}),
     );
     let leases = store.lock().due().unwrap();
     let one = leases.iter().find(|l| l.job.id == first.id).unwrap();
@@ -560,11 +555,17 @@ fn sentinel_scheduler_graph_action_budget_stops_before_next_effect() {
         dir.path().join("sentinels.json"),
         codeterm_service_core::cron::clock::MockClock::starting_at(1000),
     )));
-    let params = json!({"name":"scheduler-budget-watch","probe":"status","question":"state","buckets":["done"],"every":"10s","timeout":"1h","matches":{"done":"done"},"max_actions":1,"handlers":{"done":[{"id":"first","type":"notify","parameters":{}},{"id":"tail","type":"notify","parameters":{}}]}});
-    let job = store
+    let definition = json!({"schema_version":2,"kind":"watch","name":"scheduler-budget-watch","steps":[
+        {"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},
+        {"id":"decide","uses":"ask","with":{"question":{"lit":"state"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"routes":{"done":"first"}},
+        {"id":"first","uses":"notify","routes":{"done":"tail"}},{"id":"tail","uses":"notify"}
+    ]});
+    let mut job = store
         .lock()
-        .create(serde_json::from_value(params).unwrap(), owner(), false)
+        .prepare_document(definition, owner(), false)
         .unwrap();
+    job.max_actions = 1;
+    let job = store.lock().insert(job).unwrap();
     let lease = store.lock().due().unwrap().remove(0);
     let mut calls = 0;
     execute(&store, &lease, "done", "done", 1.0, |_, _, _| {
@@ -587,7 +588,7 @@ fn blueprint_delivery_route_claim_journal_failure_finishes_failed_without_replay
     let job = create(
         &mut store.lock(),
         false,
-        json!({"done":[{"id":"attempt","type":"notify","parameters":{}}]}),
+        json!({"done":[{"id":"attempt","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}]}),
     );
     let lease = store.lock().due().unwrap().remove(0);
     super::scheduler::advance(
@@ -654,7 +655,7 @@ fn blueprint_delivery_ambiguous_route_claim_journal_error_stays_unconfirmed() {
     let job = create(
         &mut store.lock(),
         false,
-        json!({"done":[{"id":"attempt","type":"notify","parameters":{}}]}),
+        json!({"done":[{"id":"attempt","uses":"notify","with":codeterm_sentinel::test_support::literal_params(json!({}))}]}),
     );
     let lease = store.lock().due().unwrap().remove(0);
     super::scheduler::advance(
@@ -703,19 +704,8 @@ fn blueprint_delivery_rearm_on_change_claims_executes_and_completes() {
     )));
     let job = store
         .lock()
-        .create(
-            serde_json::from_value(json!({
-                "name":"rearm-delivery-watch",
-                "probe":"status",
-                "question":"state",
-                "buckets":["done"],
-                "every":"10s",
-                "timeout":"1h",
-                "matches":{"done":".*"},
-                "rearm_on_change":["done"],
-                "handlers":{"done":[{"id":"notice","type":"notify","parameters":{}}]}
-            }))
-            .unwrap(),
+        .create_document(
+            json!(codeterm_sentinel::test_support::watch(serde_json::json!("rearm-delivery-watch"),serde_json::json!({"uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}}),serde_json::json!({"with":{"question":{"lit":"state"}},"buckets":["done"],"rearm_on_change":["done"],"matches":{"done":{"lit":".*"}}}),serde_json::json!({"done":[{"id":"notice","uses":"notify","with":{}}]}),serde_json::json!(null))),
             owner(),
             false,
         )

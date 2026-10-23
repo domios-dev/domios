@@ -202,19 +202,28 @@ fn acceptance_removes_only_the_assigned_workers_completion_watches() {
     codeterm_sentinel_host::manage_fixture_ports(&fixture.service, &handle);
     let creator = fixture.service.sentinel_caller(&worker, None).unwrap();
     let create = |until: Option<&str>| {
-        serde_json::from_value(json!({
-            "name":if until.is_some(){"completion-watch"}else{"recurring-watch"}, "probe":"status", "question":"Ready?", "buckets":["done"],
-            "every":"10s", "matches":{"done":"done"}, "until":until
-        }))
-        .unwrap()
+        json!({"schema_version":2,"kind":"watch","name":if until.is_some(){"completion-watch"}else{"recurring-watch"},"steps":[
+            {"id":"source","uses":"probe","with":{"command":{"lit":"status"}},"every":{"lit":"10s"},"timeout":{"lit":"1h"}},
+            {"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"until":until,"routes":{"done":"notice"}},
+            {"id":"notice","uses":"notify"}
+        ]})
     };
+    use codeterm_sentinel_host::BlueprintApplyExt;
+    let applied = fixture
+        .service
+        .blueprint_apply(&creator, create(Some("done")), false)
+        .unwrap();
     let completion = fixture
         .service
-        .sentinel_create(&creator, create(Some("done")))
+        .sentinel_show(&creator, applied["id"].as_str().unwrap())
+        .unwrap();
+    let applied = fixture
+        .service
+        .blueprint_apply(&creator, create(None), false)
         .unwrap();
     let recurring = fixture
         .service
-        .sentinel_create(&creator, create(None))
+        .sentinel_show(&creator, applied["id"].as_str().unwrap())
         .unwrap();
     let owner_caller = fixture
         .service

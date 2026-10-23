@@ -1,221 +1,208 @@
 use super::*;
-use crate::{
-    amend::DefinitionSnapshot,
-    store::{Owner, Store},
-};
-
+use crate::store::{Owner, Store};
+use codeterm_blueprint_types::blueprint_document::{Document, ValueForm};
+use serde_json::json;
 fn owner(team: &str) -> Owner {
     Owner {
-        creator_tab_id: "owner-private-id".into(),
+        creator_tab_id: "private-owner".into(),
         team_id: Some(team.into()),
-        workspace_id: "workspace-private-id".into(),
-        cwd: "/private/owner/directory".into(),
+        workspace_id: "private-workspace".into(),
+        cwd: "/private/directory".into(),
     }
 }
-
-fn bindings(recipe: &Recipe, definition: &Value) -> Vec<String> {
-    recipe
-        .placeholders
-        .iter()
-        .map(|(key, description)| {
-            if key == "timeout" {
-                return "timeout=1h".into();
-            }
-            let mut value = definition;
-            for part in description
-                .strip_prefix("Value for definition.")
-                .unwrap()
-                .split('.')
-            {
-                value = if value.is_array() {
-                    &value[part.parse::<usize>().unwrap()]
-                } else {
-                    &value[part]
-                };
-            }
-            format!("{key}={}", value.as_str().unwrap())
-        })
-        .collect()
+fn native(watch: bool) -> Document {
+    Document::from_definition(&if watch {json!({"schema_version":2,"kind":"watch","name":"Portable watcher","note":"Watch a release","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"cat /private/file --token secret-value"}},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"State?"}},"buckets":["done"],"matches":{"done":{"lit":"done"}},"routes":{"done":"send-result"}},{"id":"send-result","uses":"send","with":{"target":{"lit":"private-tab"}}}]})}else{json!({"schema_version":2,"kind":"pipeline","name":"Portable pipeline","note":"Report release state","trigger":{"type":"input","kind":{"lit":"text"},"source":{"lit":"private-input"}},"steps":[{"id":"run","run":{"lit":"echo private-command"}}],"result":{"to":"owner"}})}).unwrap()
 }
-
-#[test]
-fn blueprint_export_redacts_local_references_secrets_and_runtime() {
-    let dir = tempfile::tempdir().unwrap();
+fn job(doc: &Document, team: &str) -> Sentinel {
+    let root = tempfile::tempdir().unwrap();
     let store = Store::new(
-        dir.path().join("jobs.json"),
+        root.path().join("jobs.json"),
         codeterm_cron::clock::MockClock::starting_at(1000),
     );
-    let job = store.prepare(serde_json::from_value(json!({
-        "name":"Portable watcher", "probe":"cat /private/probe/file --token secret-token-value", "question":"State?", "buckets":["done"], "matches":{"done":"done"}, "timeout":"1h",
-        "handlers":{"done":[
-            {"id":"private-handler-id", "type":"send", "parameters":{"target":"private-tab-id"}},
-            {"id":"next", "type":"blueprint", "parameters":{"target":"sentinel_private_child"}},
-            {"id":"cron", "type":"cron", "parameters":{"target":"private-cron-name"}}
-        ], "other":[{"id":"agent", "type":"escalate", "parameters":{"target":"agent:private-agent-id"}}]}, "escalation_timeout_ms": 1000
-    })).unwrap(), owner("private-team-id"), false).unwrap();
+    let bound = doc.bind(&[]).unwrap();
+    let doc = Document::from_definition(&bound).unwrap();
+    let lowered = doc.lower().unwrap();
+    let mut job = if let Some(spec) = lowered.get("spec") {
+        store
+            .prepare_pipeline(
+                serde_json::from_value(spec.clone()).unwrap(),
+                owner(team),
+                false,
+            )
+            .unwrap()
+    } else {
+        store
+            .prepare(
+                serde_json::from_value(lowered["create"].clone()).unwrap(),
+                owner(team),
+                false,
+            )
+            .unwrap()
+    };
+    job.document = Some(bound);
+    job
+}
+fn bindings(recipe: &Recipe, definition: &Value) -> Vec<String> {
+    fn collect(a: &Value, b: &Value, out: &mut Vec<String>) {
+        if let Some(key) = a.get("input").and_then(Value::as_str) {
+            let value = b.get("lit").unwrap_or(b);
+            out.push(format!(
+                "{key}={}",
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| value.to_string())
+            ));
+            return;
+        }
+        match (a, b) {
+            (Value::Object(a), Value::Object(b)) => {
+                for (k, v) in a {
+                    if k != "inputs" {
+                        if let Some(other) = b.get(k) {
+                            collect(v, other, out);
+                        }
+                    }
+                }
+            }
+            (Value::Array(a), Value::Array(b)) => {
+                for (a, b) in a.iter().zip(b) {
+                    collect(a, b, out)
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    collect(&recipe.definition, definition, &mut out);
+    out
+}
+#[test]
+fn blueprint_export_redacts_local_references_secrets_and_runtime() {
+    let job = job(&native(true), "private-team");
     let recipe = export(&job).unwrap();
     let raw = serde_json::to_string(&recipe).unwrap();
     for forbidden in [
-        "private-tab-id",
-        "sentinel_private_child",
-        "private-cron-name",
-        "private-agent-id",
-        "private-handler-id",
-        "owner-private-id",
-        "private-team-id",
-        "workspace-private-id",
+        "private-tab",
+        "private-owner",
+        "private-workspace",
+        "private-team",
         "/private",
-        "secret-token-value",
+        "secret-value",
         "machine",
-        "\"transitions\":",
         "expires_at",
-        "last_reason",
         "definition_version",
-        "causal_run",
     ] {
         assert!(!raw.contains(forbidden), "leaked {forbidden}");
     }
-    assert!(!recipe.placeholders.is_empty());
+    assert!(!Document::from_recipe(&recipe).unwrap().inputs.is_empty());
 }
-
 #[test]
 fn blueprint_recipe_round_trip_into_another_team_preserves_definition() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::new(
-        dir.path().join("jobs.json"),
-        codeterm_cron::clock::MockClock::starting_at(1000),
-    );
-    let job = store.prepare(serde_json::from_value(json!({
-        "name":"Portable watcher", "note":"Watches the release", "probe":"cat /scratch/status", "question":"State?", "buckets":["done"], "matches":{"done":"^done$"}, "timeout":"1h"
-    })).unwrap(), owner("original-team"), false).unwrap();
-    let recipe = Recipe::parse(&serde_json::to_string(&export(&job).unwrap()).unwrap()).unwrap();
-    assert_eq!(
-        recipe.definition.get("create").is_some(),
-        job.pipeline().is_none()
-    );
-    let bound = recipe.bind(&bindings(&recipe, &definition(&job))).unwrap();
-    let imported = store
-        .prepare(
-            serde_json::from_value(bound["create"].clone()).unwrap(),
-            owner("scratch-team"),
-            false,
-        )
+    let original = job(&native(true), "first");
+    let recipe = export(&original).unwrap();
+    let bound = recipe
+        .bind(&bindings(&recipe, &definition(&original)))
         .unwrap();
-    assert_eq!(
-        DefinitionSnapshot::from_job(&job),
-        DefinitionSnapshot::from_job(&imported)
-    );
-    assert_eq!(imported.note.as_deref(), Some("Watches the release"));
-    assert_ne!(job.team_id, imported.team_id);
-    assert_ne!(job.id, imported.id);
+    assert_eq!(bound, definition(&original));
+    let imported = job(&Document::from_definition(&bound).unwrap(), "second");
+    assert_eq!(original.document, imported.document);
+    assert_ne!(original.team_id, imported.team_id);
+    assert_ne!(original.id, imported.id);
 }
-
 #[test]
 fn blueprint_pipeline_export_round_trip_preserves_trigger_steps_and_result() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::new(
-        dir.path().join("jobs.json"),
-        codeterm_cron::clock::MockClock::starting_at(1000),
-    );
-    let spec = serde_json::from_value(json!({
-        "name":"Portable pipeline", "note":"Reports failed runs", "owner":"team",
-        "trigger":{"type":"input","kind":"text","source":{"text":"private-input-token"}},
-        "steps":[{"name":"run","input":"text","kind":{"kind":"command","command":"cat /private/path --token private-token"}}],
-        "result":{"to":"tab:private-destination"}
-    })).unwrap();
-    let job = store
-        .prepare_pipeline(spec, owner("original-team"), false)
+    let original = job(&native(false), "first");
+    let recipe = export(&original).unwrap();
+    let bound = recipe
+        .bind(&bindings(&recipe, &definition(&original)))
         .unwrap();
-    let recipe = export(&job).unwrap();
-    let raw = serde_json::to_string(&recipe).unwrap();
-    for forbidden in [
-        "private-input-token",
-        "/private/path",
-        "private-token",
-        "private-destination",
-    ] {
-        assert!(!raw.contains(forbidden));
-    }
+    assert_eq!(bound, definition(&original));
     assert_eq!(
-        recipe.definition.get("create").is_some(),
-        job.pipeline().is_none()
-    );
-    let bound = recipe.bind(&bindings(&recipe, &definition(&job))).unwrap();
-    assert_eq!(
-        bound["spec"],
-        serde_json::to_value(job.pipeline().cloned().unwrap()).unwrap()
+        Document::from_definition(&bound).unwrap().lower().unwrap()["spec"],
+        serde_json::to_value(original.pipeline()).unwrap()
     );
 }
-
 #[test]
-fn blueprint_import_accepts_legacy_export_handler_keys() {
-    let recipe = Recipe::parse(r#"{"schema_version":1,"placeholders":{},"definition":{"create":{"name":"Legacy export","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","handlers":{"done":[{"id":"next","type":"sentinel","parameters":{"target":"sentinel_child"}}]}}}}"#).unwrap();
-    let bound = crate::public_definition::stored_definition(recipe.bind(&[]).unwrap()).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::new(
-        dir.path().join("jobs.json"),
-        codeterm_cron::clock::MockClock::starting_at(1000),
+fn blueprint_import_refuses_v1_export_handler_keys() {
+    assert!(Recipe::parse(
+        r#"{"schema_version":1,"placeholders":{},"definition":{"create":{"name":"old"}}}"#
+    )
+    .is_err());
+    assert!(
+        Recipe::parse(r#"{"schema_version":2,"definition":{"create":{"name":"old"}}}"#).is_err()
     );
-    let job = store
-        .prepare(
-            serde_json::from_value(bound["create"].clone()).unwrap(),
-            owner("team"),
-            false,
-        )
-        .unwrap();
-    assert_eq!(
-        job.routes["done"][0].action,
-        Route::Sentinel("sentinel_child".into())
-    );
-    assert!(job.id.starts_with("blueprint_"));
-    let public = definition(&job);
-    assert_eq!(public["create"]["handlers"]["done"][0]["type"], "blueprint");
 }
-
 #[test]
 fn exported_source_recipes_keep_kind_when_inputs_and_routes_are_edited() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::new(
-        dir.path().join("jobs.json"),
-        codeterm_cron::clock::MockClock::starting_at(1000),
+    let doc=Document::from_definition(&json!({"schema_version":2,"kind":"pipeline","name":"Source watch","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"check","uses":"http","with":{"url":{"lit":"https://example.com/health"}},"routes":{"down":"@stop"}}]})).unwrap();
+    let original = job(&doc, "first");
+    let recipe = export(&original).unwrap();
+    let mut edited = Document::from_recipe(&recipe).unwrap();
+    edited.name = "Customized source".into();
+    edited.steps[0].routes.insert("up".into(), "@stop".into());
+    let bound = edited
+        .bind(&bindings(&recipe, &definition(&original)))
+        .unwrap();
+    let typed = Document::from_definition(&bound).unwrap();
+    assert_eq!(typed.steps[0].kind(), "http");
+    assert_eq!(
+        typed.steps[0].params["url"],
+        ValueForm::literal("https://example.com/health")
     );
-    for kind in [
-        json!({"kind":"github", "probe":{"repo":"owner/project", "resource":"run", "id":42}}),
-        json!({"kind":"github", "probe":{"org":"owner", "resource":"runners", "label":"linux-build"}}),
-        json!({"kind":"http", "probe":{"url":"https://example.com/health", "expected_status":"204", "timeout_ms":1000}}),
-    ] {
-        let spec = serde_json::from_value(json!({"name":"Source watch", "trigger":{"type":"schedule","every":"20s"}, "steps":[{"name":"check", "input":"text", "kind":kind}]})).unwrap();
-        let job = store
-            .prepare_pipeline(spec, owner("source-team"), false)
-            .unwrap();
-        let recipe = export(&job).unwrap();
-        let mut edited = Recipe::parse(&serde_json::to_string(&recipe).unwrap()).unwrap();
-        edited.definition["spec"]["name"] = "Customized exported watch".into();
-        edited.definition["spec"]["trigger"]["every"] = "30s".into();
-        let state = if kind["kind"] == "http" {
-            "down"
-        } else if kind["probe"]["resource"] == "runners" {
-            "offline"
-        } else {
-            "failing"
-        };
-        edited.definition["spec"]["steps"][0]["on"] = json!({});
-        edited.definition["spec"]["steps"][0]["on"][state] = "stop".into();
-        let bound = edited.bind(&bindings(&recipe, &definition(&job))).unwrap();
-        let imported = store
-            .prepare_pipeline(
-                serde_json::from_value(bound["spec"].clone()).unwrap(),
-                owner("target-team"),
-                false,
-            )
-            .unwrap();
-        let restored = serde_json::to_value(imported.pipeline().unwrap()).unwrap();
-        assert_eq!(restored["steps"][0]["kind"]["kind"], kind["kind"]);
-        assert_eq!(
-            restored["steps"][0]["kind"]["probe"],
-            serde_json::to_value(job.pipeline().unwrap()).unwrap()["steps"][0]["kind"]["probe"]
-        );
-        assert_eq!(restored["trigger"]["every"], "30s");
-        assert_eq!(restored["steps"][0]["on"][state], "stop");
+    assert_eq!(typed.steps[0].routes["up"], "@stop");
+}
+
+#[test]
+fn blueprint_v2_check_export_redacts_decision_and_pattern_literals() {
+    let mut doc = native(true);
+    doc.steps[1].params.insert(
+        "question".into(),
+        ValueForm::literal("private-question-marker"),
+    );
+    doc.steps[1]
+        .matches
+        .insert("done".into(), ValueForm::literal("private-match-marker"));
+    let recipe = export(&job(&doc, "team")).unwrap();
+    let raw = serde_json::to_string(&recipe).unwrap();
+    for literal in ["private-question-marker", "private-match-marker"] {
+        assert!(!raw.contains(literal), "leaked {literal}");
+    }
+    assert_eq!(
+        recipe
+            .bind(&bindings(&recipe, &serde_json::to_value(&doc).unwrap()))
+            .unwrap(),
+        serde_json::to_value(&doc).unwrap()
+    );
+    doc.steps[0].uses = Some(codeterm_blueprint_types::blueprint_document::NodeKind::Terminal);
+    doc.steps[0].params = std::collections::BTreeMap::from([
+        ("kind".into(), ValueForm::literal("tab")),
+        ("id".into(), ValueForm::literal("opaque-tab")),
+        (
+            "pattern".into(),
+            ValueForm::literal("private-terminal-marker"),
+        ),
+    ]);
+    let recipe = export(&job(&doc, "team")).unwrap();
+    assert!(!serde_json::to_string(&recipe)
+        .unwrap()
+        .contains("private-terminal-marker"));
+}
+
+#[test]
+fn blueprint_v2_check_persistence_refuses_stale_native_document() {
+    for watch in [false, true] {
+        let original = job(&native(watch), "team");
+        assert!(crate::storage::codec::import(&original).is_ok());
+        let mut changed = original.clone();
+        changed.question = "different-runtime-question".into();
+        assert!(crate::storage::codec::import(&changed)
+            .unwrap_err()
+            .contains("differs from its runtime"));
+        let mut changed = original;
+        changed.interval_ms += 10_000;
+        assert!(crate::storage::codec::import(&changed)
+            .unwrap_err()
+            .contains("differs from its runtime"));
     }
 }

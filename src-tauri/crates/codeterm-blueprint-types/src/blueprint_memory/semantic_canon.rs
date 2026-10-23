@@ -70,67 +70,86 @@ struct Gists<'a> {
 
 impl Gists<'_> {
     fn trigger(&self) -> Option<String> {
-        if let Some(pipeline) = &self.document.pipeline {
-            let trigger = &pipeline["trigger"];
-            let kind = trigger["type"].as_str()?;
-            let detail = match kind {
-                "schedule" => trigger
-                    .get("every")
-                    .map(|every| format!("every {}", self.value(every, duration))),
-                "event" => trigger["kind"].as_str().map(words),
-                "input" => trigger["kind"]
-                    .as_str()
-                    .map(|kind| format!("{} input", words(kind))),
-                _ => None,
-            };
-            return Some(join(&[words(kind), detail.unwrap_or_default()]));
+        use crate::blueprint_document::Trigger;
+        match self.document.trigger.as_ref() {
+            Some(Trigger::Schedule { every }) => Some(format!(
+                "schedule every {}",
+                self.value(&serde_json::to_value(every).ok()?, duration)
+            )),
+            Some(Trigger::Event { kind, .. }) => Some(format!(
+                "event {}",
+                self.value(&serde_json::to_value(kind).ok()?, words)
+            )),
+            Some(Trigger::Input { kind, .. }) => Some(format!(
+                "{} input",
+                self.value(&serde_json::to_value(kind).ok()?, words)
+            )),
+            None => self
+                .document
+                .steps
+                .first()
+                .and_then(|n| n.every.as_ref())
+                .and_then(|v| serde_json::to_value(v).ok())
+                .map(|v| format!("checks every {}", self.value(&v, duration))),
         }
-        let watch = self.document.watch.as_ref()?;
-        watch
-            .get("every")
-            .map(|every| format!("checks every {}", self.value(every, duration)))
     }
-
     fn nodes(&self) -> Vec<String> {
-        if let Some(pipeline) = &self.document.pipeline {
-            return pipeline["steps"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|step| self.step(step))
-                .collect();
-        }
-        let Some(watch) = &self.document.watch else {
-            return Vec::new();
-        };
-        let mut nodes = vec![self.watch_source(watch), self.watch_decision(watch)];
-        if let Some(handlers) = watch["handlers"].as_object() {
-            for (_, chain) in sorted_entries(handlers) {
-                for handler in chain.as_array().into_iter().flatten() {
-                    nodes.push(self.handler(handler));
-                }
-            }
-        }
-        if let Some(routes) = watch["routes"].as_object() {
-            for (_, route) in sorted_entries(routes) {
-                if let Some(gist) = route.as_str().and_then(route_gist) {
-                    nodes.push(gist);
-                }
-            }
-        }
-        nodes
+        self.document
+            .nodes()
+            .filter_map(|node| serde_json::to_value(node).ok())
+            .map(|node| self.step(&node))
+            .collect()
     }
-
     fn step(&self, step: &Value) -> String {
-        let id = step["name"].as_str().map(words).unwrap_or_default();
+        let id = step["id"].as_str().map(words).unwrap_or_default();
         let with = step["with"].as_object();
         let slot = |name: &str| with.and_then(|with| with.get(name));
         let mut parts = does(step);
         if let Some(run) = step.get("run") {
             parts.push(self.command(run));
+        } else if let Some(code) = step.get("code") {
+            parts.push(format!(
+                "{} code {}",
+                code["lang"].as_str().unwrap_or_default(),
+                code["src"].as_str().map(command_gist).unwrap_or_default()
+            ));
+        } else if let Some(call) = step.get("call") {
+            parts.push(format!(
+                "calls {}",
+                call["ref"].as_str().map(words).unwrap_or_default()
+            ));
         } else {
             let kind = step["uses"].as_str().unwrap_or_default();
             parts.push(match kind {
+                "probe" | "command" => slot("command")
+                    .map(|v| self.command(v))
+                    .unwrap_or_else(|| "runs command".into()),
+                "observe" | "terminal" => join(&[
+                    "observes".into(),
+                    slot("kind")
+                        .map(|v| self.value(v, words))
+                        .unwrap_or_default(),
+                ]),
+                "input" => join(&[
+                    slot("kind")
+                        .map(|v| self.value(v, words))
+                        .unwrap_or_default(),
+                    "input".into(),
+                    slot("convert_to")
+                        .map(|v| format!("converts into {}", self.value(v, words)))
+                        .unwrap_or_default(),
+                ]),
+                "send" => join(&[
+                    "send".into(),
+                    slot("target")
+                        .map(|v| {
+                            self.value(v, |v| v.split(':').next().map(words).unwrap_or_default())
+                        })
+                        .unwrap_or_default(),
+                    slot("text")
+                        .map(|v| self.value(v, words))
+                        .unwrap_or_default(),
+                ]),
                 "http" => format!(
                     "get {}",
                     slot("url").map_or("{url}".into(), |url| self.value(url, url_gist))
@@ -175,56 +194,12 @@ impl Gists<'_> {
                 ]),
             });
         }
-        node(&id, parts)
-    }
-
-    fn watch_source(&self, watch: &Value) -> String {
-        let mut parts = Vec::new();
-        if let Some(probe) = watch.get("probe") {
-            parts.push(self.command(probe));
-        } else if let Some(target) = watch.get("observe") {
-            parts.push(format!("observes {}", self.target(target)));
-        } else if let Some(input) = watch.get("input") {
-            let kind = input["kind"].as_str().map(words).unwrap_or_default();
-            parts.push(join(&["reads".into(), kind, "input".into()]));
-        }
-        if let Some(pattern) = watch["terminal"].get("pattern") {
-            parts.push(format!("terminal {}", self.value(pattern, pattern_gist)));
-        }
-        node("source", parts)
-    }
-
-    fn watch_decision(&self, watch: &Value) -> String {
-        let mut parts = Vec::new();
-        if let Some(question) = watch.get("question") {
-            parts.push(format!("asks {}", self.value(question, words)));
-        }
-        if let Some(matches) = watch["matches"].as_object() {
-            for (_, pattern) in sorted_entries(matches) {
-                parts.push(format!("matches {}", self.value(pattern, pattern_gist)));
-            }
-        }
-        if watch["model_classification"].as_bool() == Some(true) {
-            parts.push("by model".into());
-        }
-        node("decide", parts)
-    }
-
-    fn handler(&self, handler: &Value) -> String {
-        let kind = handler["type"].as_str().unwrap_or_default();
-        let id = handler["id"].as_str().map_or_else(|| words(kind), words);
-        let mut parts = does(handler);
-        parts.push(words(kind));
-        if let Some(parameters) = handler["parameters"].as_object() {
-            for (key, value) in sorted_entries(parameters) {
-                let gist = match key {
-                    "command" | "run" | "probe" => self.command(value),
-                    "url" => self.value(value, url_gist),
-                    "target" | "to" => self.target(value),
-                    _ => self.value(value, words),
-                };
-                parts.push(gist);
-            }
+        for pattern in step["matches"]
+            .as_object()
+            .into_iter()
+            .flat_map(|m| m.values())
+        {
+            parts.push(format!("matches {}", self.value(pattern, pattern_gist)));
         }
         node(&id, parts)
     }
@@ -236,22 +211,11 @@ impl Gists<'_> {
         }
     }
 
-    fn target(&self, value: &Value) -> String {
-        match input_reference(value) {
-            Some(name) => self.describe_input(name),
-            None => value
-                .as_str()
-                .map_or_else(String::new, |text| match text.split_once(':') {
-                    Some((kind, _)) => words(kind),
-                    None => words(text),
-                }),
-        }
-    }
-
     fn value(&self, value: &Value, literal: fn(&str) -> String) -> String {
         if let Some(name) = input_reference(value) {
             return self.describe_input(name);
         }
+        let value = value.get("lit").unwrap_or(value);
         match value {
             Value::String(text) => literal(text),
             Value::Number(_) => "{n}".into(),
@@ -300,33 +264,8 @@ fn node(id: &str, parts: Vec<String>) -> String {
         .join(" ")
 }
 
-fn route_gist(route: &str) -> Option<String> {
-    let (kind, _) = route.split_once(':').unwrap_or((route, ""));
-    match kind {
-        "none" | "stop" | "" => None,
-        kind => Some(node(&words(kind), Vec::new())),
-    }
-}
-
-fn sorted_entries(map: &Map<String, Value>) -> Vec<(&str, &Value)> {
-    let mut entries = map
-        .iter()
-        .map(|(key, value)| (key.as_str(), value))
-        .collect::<Vec<_>>();
-    entries.sort_by(|a, b| a.0.cmp(b.0));
-    entries
-}
-
 fn input_reference(value: &Value) -> Option<&str> {
-    static WHOLE: OnceLock<Regex> = OnceLock::new();
-    let text = value.as_str()?;
-    WHOLE
-        .get_or_init(|| {
-            Regex::new(r"^\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}$").expect("static regex")
-        })
-        .captures(text)
-        .and_then(|captures| captures.get(1))
-        .map(|name| name.as_str())
+    value.get("input").and_then(Value::as_str)
 }
 
 fn template(text: &str) -> String {

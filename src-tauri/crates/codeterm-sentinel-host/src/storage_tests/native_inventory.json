@@ -1,0 +1,497 @@
+[
+ {
+  "id": "sentinel_root",
+  "team_id": "team",
+  "creator_tab_id": "creator",
+  "workspace_id": "workspace",
+  "cwd": "/projects/one",
+  "probe": "status --short",
+  "question": "Which state?",
+  "buckets": [
+   "done",
+   "failed",
+   "waiting"
+  ],
+  "interval_ms": 20000,
+  "routes": {
+   "done": [
+    {
+     "id": "join",
+     "action": {
+      "kind": "blueprint",
+      "target": "sentinel_child"
+     },
+     "target": {
+      "kind": "blueprint",
+      "id": "sentinel_child",
+      "workspace_id": "workspace",
+      "team_id": "team",
+      "owner_tab_id": "creator"
+     }
+    },
+    {
+     "id": "build",
+     "action": {
+      "kind": "command",
+      "target": {
+       "command": "make check",
+       "label": "Check",
+       "timeout_ms": 1000
+      }
+     },
+     "target": null
+    },
+    {
+     "id": "tell",
+     "action": {
+      "kind": "send",
+      "target": "worker-tab"
+     },
+     "target": {
+      "kind": "worker",
+      "id": "worker-tab",
+      "workspace_id": "workspace",
+      "team_id": "team",
+      "owner_tab_id": null
+     }
+    }
+   ],
+   "failed": [
+    {
+     "id": "nightly",
+     "action": {
+      "kind": "cron",
+      "target": "nightly"
+     },
+     "target": {
+      "kind": "cron",
+      "id": "nightly",
+      "workspace_id": "workspace",
+      "team_id": "team",
+      "owner_tab_id": "creator"
+     }
+    },
+    {
+     "id": "halt",
+     "action": {
+      "kind": "stop"
+     },
+     "target": null
+    }
+   ],
+   "waiting": []
+  },
+  "matches": {
+   "done": "^done$"
+  },
+  "until": "failed",
+  "expires_at": 9000000,
+  "next_run": 21000,
+  "machine": {
+   "last_hash": "abc123",
+   "last_bucket": "done",
+   "stopped": false,
+   "paused": false
+  },
+  "last_reason": "transition",
+  "revision": 7,
+  "agent_authored": true,
+  "name": "Supplied scenario",
+  "scenario_id": "sentinel_root",
+  "max_transitions": 8,
+  "max_actions": 16,
+  "transitions": [
+   {
+    "id": "eval-1",
+    "bucket": "done",
+    "accepted_at": 1500,
+    "terminal": false,
+    "handlers": [
+     {
+      "handler_id": "join",
+      "status": "noop",
+      "claim_id": "claim-1",
+      "execution_id": "claim-1",
+      "accepted_at": 1501,
+      "reason": null
+     },
+     {
+      "handler_id": "build",
+      "status": "failed",
+      "claim_id": "claim-2",
+      "execution_id": "exec-2",
+      "accepted_at": 1502,
+      "command_result": {
+       "status": "nonzero",
+       "exit_code": 2,
+       "resources_confirmed": true,
+       "stdout": {
+        "total_bytes": 10,
+        "retained_bytes": 10,
+        "truncated": false
+       },
+       "stderr": {
+        "total_bytes": 40000,
+        "retained_bytes": 32768,
+        "truncated": true
+       },
+       "started_at": 1502,
+       "finished_at": 1503,
+       "primary": null,
+       "cleanup": []
+      },
+      "reason": "action_failed"
+     },
+     {
+      "handler_id": "tell",
+      "status": "skipped",
+      "claim_id": null,
+      "execution_id": null,
+      "accepted_at": null,
+      "reason": "batch_fenced"
+     }
+    ]
+   },
+   {
+    "id": "eval-2",
+    "bucket": "done",
+    "accepted_at": 1600,
+    "terminal": false,
+    "handlers": [
+     {
+      "handler_id": "join",
+      "status": "unconfirmed",
+      "claim_id": "claim-3",
+      "execution_id": null,
+      "accepted_at": 1601,
+      "reason": null
+     }
+    ]
+   }
+  ],
+  "document": {
+   "schema_version": 2,
+   "kind": "watch",
+   "name": "Supplied scenario",
+   "steps": [
+    {
+     "id": "source",
+     "uses": "probe",
+     "with": {
+      "command": {
+       "lit": "status --short"
+      }
+     },
+     "every": {
+      "lit": "20s"
+     },
+     "timeout": {
+      "lit": "1h"
+     },
+     "paused": false
+    },
+    {
+     "id": "decide",
+     "uses": "ask",
+     "with": {
+      "question": {
+       "lit": "Which state?"
+      }
+     },
+     "buckets": [
+      "done",
+      "failed",
+      "waiting"
+     ],
+     "matches": {
+      "done": {
+       "lit": "^done$"
+      }
+     },
+     "routes": {
+      "done": "join",
+      "failed": "nightly",
+      "waiting": "@stop"
+     },
+     "until": "failed"
+    },
+    {
+     "id": "join",
+     "uses": "blueprint",
+     "with": {
+      "target": {
+       "lit": "sentinel_child"
+      }
+     },
+     "routes": {
+      "done": "build"
+     }
+    },
+    {
+     "id": "build",
+     "uses": "command",
+     "with": {
+      "command": {
+       "lit": "make check"
+      },
+      "label": {
+       "lit": "Check"
+      },
+      "timeout_ms": {
+       "lit": 1000
+      }
+     },
+     "routes": {
+      "done": "tell"
+     }
+    },
+    {
+     "id": "tell",
+     "uses": "send",
+     "with": {
+      "target": {
+       "lit": "worker-tab"
+      }
+     },
+     "routes": {
+      "done": "@stop"
+     }
+    },
+    {
+     "id": "nightly",
+     "uses": "cron",
+     "with": {
+      "target": {
+       "lit": "nightly"
+      }
+     },
+     "routes": {
+      "done": "halt"
+     }
+    },
+    {
+     "id": "halt",
+     "uses": "stop",
+     "with": {},
+     "routes": {
+      "done": "@stop"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "sentinel_child",
+  "team_id": "team",
+  "creator_tab_id": "creator",
+  "workspace_id": "workspace",
+  "cwd": "/projects/one",
+  "probe": "status",
+  "question": "Child state?",
+  "buckets": [
+   "done"
+  ],
+  "interval_ms": 10000,
+  "routes": {
+   "done": []
+  },
+  "matches": {},
+  "until": null,
+  "expires_at": null,
+  "next_run": 1000,
+  "machine": {
+   "last_hash": null,
+   "last_bucket": null,
+   "stopped": false,
+   "paused": true
+  },
+  "last_reason": null,
+  "revision": 0,
+  "agent_authored": true,
+  "name": "Child native watch",
+  "scenario_id": "sentinel_root",
+  "max_transitions": 64,
+  "max_actions": 256,
+  "transitions": [],
+  "document": {
+   "schema_version": 2,
+   "kind": "watch",
+   "name": "Child native watch",
+   "steps": [
+    {
+     "id": "source",
+     "uses": "probe",
+     "with": {
+      "command": {
+       "lit": "status"
+      }
+     },
+     "every": {
+      "lit": "10s"
+     },
+     "timeout": {
+      "lit": "1h"
+     },
+     "paused": true
+    },
+    {
+     "id": "decide",
+     "uses": "ask",
+     "with": {
+      "question": {
+       "lit": "Child state?"
+      }
+     },
+     "buckets": [
+      "done"
+     ],
+     "matches": {},
+     "routes": {
+      "done": "@stop"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "sentinel_solo",
+  "team_id": null,
+  "creator_tab_id": "solo-creator",
+  "workspace_id": "workspace",
+  "cwd": "/projects/two",
+  "probe": "tail log",
+  "question": "Late?",
+  "buckets": [
+   "late"
+  ],
+  "interval_ms": 10000,
+  "routes": {
+   "late": [
+    {
+     "id": "probe-cmd",
+     "action": {
+      "kind": "command",
+      "target": {
+       "command": "printf late",
+       "label": "Late",
+       "timeout_ms": 1000
+      }
+     },
+     "target": null
+    }
+   ]
+  },
+  "matches": {
+   "late": "late"
+  },
+  "until": null,
+  "expires_at": 1200,
+  "next_run": 1000,
+  "machine": {
+   "last_hash": "def456",
+   "last_bucket": "late",
+   "stopped": true,
+   "paused": false
+  },
+  "last_reason": "timeout",
+  "revision": 3,
+  "agent_authored": false,
+  "name": "Solo native watch",
+  "scenario_id": null,
+  "max_transitions": 64,
+  "max_actions": 256,
+  "transitions": [
+   {
+    "id": "eval-9",
+    "bucket": "late",
+    "accepted_at": 1100,
+    "terminal": true,
+    "handlers": [
+     {
+      "handler_id": "probe-cmd",
+      "status": "unconfirmed",
+      "claim_id": "claim-9",
+      "execution_id": "exec-9",
+      "accepted_at": 1101,
+      "command_result": {
+       "status": "unconfirmed",
+       "exit_code": null,
+       "resources_confirmed": false,
+       "stdout": null,
+       "stderr": null,
+       "started_at": 1101,
+       "finished_at": 1102,
+       "primary": "probe_completion_unconfirmed",
+       "cleanup": [
+        "child process still running",
+        "pipe still open"
+       ]
+      },
+      "reason": "effect_unconfirmed"
+     }
+    ]
+   }
+  ],
+  "document": {
+   "schema_version": 2,
+   "kind": "watch",
+   "name": "Solo native watch",
+   "steps": [
+    {
+     "id": "source",
+     "uses": "probe",
+     "with": {
+      "command": {
+       "lit": "tail log"
+      }
+     },
+     "every": {
+      "lit": "10s"
+     },
+     "timeout": {
+      "lit": "1h"
+     },
+     "paused": false
+    },
+    {
+     "id": "decide",
+     "uses": "ask",
+     "with": {
+      "question": {
+       "lit": "Late?"
+      }
+     },
+     "buckets": [
+      "late"
+     ],
+     "matches": {
+      "late": {
+       "lit": "late"
+      }
+     },
+     "routes": {
+      "late": "probe-cmd"
+     }
+    },
+    {
+     "id": "probe-cmd",
+     "uses": "command",
+     "with": {
+      "command": {
+       "lit": "printf late"
+      },
+      "label": {
+       "lit": "Late"
+      },
+      "timeout_ms": {
+       "lit": 1000
+      }
+     },
+     "routes": {
+      "done": "@stop"
+     }
+    }
+   ]
+  }
+ }
+]

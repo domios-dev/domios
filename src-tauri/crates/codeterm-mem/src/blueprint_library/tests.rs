@@ -1,8 +1,9 @@
 use super::*;
 use serde_json::json;
+use std::collections::BTreeMap;
 
 fn document(bucket: &str) -> Document {
-    Document::from_definition(&json!({"create":{"name":"ci-watch","note":"Watch CI failure","probe":"echo ready","question":"Ready?","buckets":[bucket],"every":"20s","matches":{(bucket):"ready"},"routes":{(bucket):"notify"},"until":bucket,"timeout":"1h"}})).unwrap()
+    Document::from_definition(&json!({"schema_version":2,"kind":"watch","name":"ci-watch","note":"Watch CI failure","steps":[{"id":"source","uses":"probe","with":{"command":{"lit":"echo ready"}},"every":{"lit":"20s"},"timeout":{"lit":"1h"}},{"id":"decide","uses":"ask","with":{"question":{"lit":"Ready?"}},"buckets":[bucket],"matches":{(bucket):{"lit":"ready"}},"until":bucket,"routes":{(bucket):"alert"}},{"id":"alert","uses":"notify"}]})).unwrap()
 }
 fn when(text: &str) -> Vec<String> {
     vec![text.into()]
@@ -185,7 +186,10 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
         .unwrap()
         .id;
     let mut changed = document("done");
-    changed.watch.as_mut().unwrap()["probe"] = json!("echo different-instance");
+    changed.steps[0].params.insert(
+        "command".into(),
+        codeterm_blueprint_types::blueprint_document::ValueForm::literal("echo different-instance"),
+    );
     let again = mem
         .save_blueprint("project-a", changed, &when("Watch CI failure"), evidence())
         .unwrap()
@@ -227,7 +231,7 @@ fn blueprint_library_persists_generalised_skills_and_dedupes_per_project() {
         .unwrap()
         .bind(&["command=echo rebound".into()])
         .unwrap();
-    assert_eq!(bound["create"]["probe"], "echo rebound");
+    assert_eq!(bound["steps"][0]["with"]["command"]["lit"], "echo rebound");
     assert!(mem
         .save_blueprint(
             "project-a",
@@ -363,7 +367,7 @@ fn owner_list_does_not_count_recall_and_archive_is_project_scoped() {
 #[test]
 fn enqueue_refuses_qualification_before_starting_the_worker() {
     let mem = MemManager::open_in_memory().unwrap();
-    let definition = json!({"create":{"name":"ci-watch","probe":"echo ready","question":"Ready?","buckets":["done"],"every":"20s","routes":{"done":"notify"},"until":"done","timeout":"1h"}});
+    let definition = serde_json::to_value(document("done")).unwrap();
     assert!(mem
         .enqueue_blueprint(
             "project".into(),
@@ -406,15 +410,14 @@ fn memory_access_counters_do_not_change_blueprint_statistics() {
 fn kept_solution_round_trips_through_recall_and_memory_recipe() {
     let mem = std::sync::Arc::new(MemManager::open_in_memory().unwrap());
     for routed in [false, true] {
-        let mut step = json!({"name":"Echo ready","input":"text","kind":{"kind":"command","command":"Write-Output ready"}});
+        let mut original = echo_document();
+        original.note = Some("Print readiness and stop".into());
         if routed {
-            step["on"] = json!({"done":"stop","failed":"stop"});
+            original.steps[0].routes = BTreeMap::from([
+                ("done".into(), "@stop".into()),
+                ("failed".into(), "@stop".into()),
+            ]);
         }
-        let original = Document::from_definition(&json!({"spec":{
-            "name":"echo-test", "note":"Print readiness and stop", "owner":"team",
-            "trigger":{"type":"schedule","every":"1m"}, "steps":[step], "result":{"to":"notify"}
-        }}))
-        .unwrap();
         let expected = original.bind(&[]).unwrap();
         let area = if routed { "routed" } else { "unrouted" };
         let id = mem
@@ -438,29 +441,19 @@ fn kept_solution_round_trips_through_recall_and_memory_recipe() {
             codeterm_blueprint_types::blueprint_document::definition_errors(&applied).is_empty()
         );
         if !routed {
-            assert!(restored.pipeline.as_ref().unwrap()["steps"][0]
-                .get("on")
-                .is_none());
+            assert!(restored.steps[0].routes.is_empty());
         }
     }
 }
 
 fn echo_document() -> Document {
-    Document::from_definition(&json!({"spec":{
-        "name":"echo-test", "note":"Print readiness", "owner":"team",
-        "trigger":{"type":"schedule","every":"1m"},
-        "steps":[{"name":"Echo","input":"text","kind":{"kind":"command","command":"Write-Output ready"}}],
-        "result":{"to":"notify"}
-    }})).unwrap()
+    Document::from_definition(&json!({"schema_version":2,"kind":"pipeline","name":"echo-test","note":"Print readiness","owner":"team","trigger":{"type":"schedule","every":{"lit":"1m"}},"steps":[{"id":"echo","run":{"lit":"Write-Output ready"}}],"result":{"to":"notify"}})).unwrap()
 }
 
 fn corrupt_saved_echo(mem: &MemManager, id: &str) {
     let mut broken = model::abstract_document(echo_document());
-    broken.pipeline.as_mut().unwrap()["steps"][0]["on"] = serde_json::Value::Null;
-    broken.inputs.insert(
-        "pipeline_steps_0_run".into(),
-        broken.inputs["command"].clone(),
-    );
+    broken.steps[0].run =
+        Some(codeterm_blueprint_types::blueprint_document::ValueForm::input("undeclared"));
     assert_eq!(
         model::structure(&broken),
         model::structure(&echo_document())
@@ -470,7 +463,7 @@ fn corrupt_saved_echo(mem: &MemManager, id: &str) {
         &conn,
         id,
         &store::MemUpdate {
-            body: Some(broken.yaml().unwrap()),
+            body: Some(serde_yaml::to_string(&broken).unwrap()),
             ..Default::default()
         },
         &mem.blobs_dir,
@@ -632,3 +625,47 @@ fn curator_saves_blueprint_among_unrelated_facts_and_other_scopes() {
 }
 
 mod recall_regressions;
+
+#[test]
+fn blueprint_v2_check_v1_cleanup_keeps_history_and_runs_once() {
+    let mem = MemManager::open_in_memory().unwrap();
+    let conn = mem.conn.lock();
+    let obsolete = "schema_version: 1\nname: obsolete\nwatch: {}\n";
+    let id = store::insert(
+        &conn,
+        &NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "Obsolete Blueprint".into(),
+            summary: None,
+            area: Some("project".into()),
+            tags: vec![],
+            body: obsolete.into(),
+            source: Some(SOURCE.into()),
+            importance: 0.5,
+            source_path: None,
+            pinned: false,
+        },
+        &mem.blobs_dir,
+    )
+    .unwrap();
+    assert_eq!(cleanup::remove_v1(&conn, &mem.blobs_dir).unwrap(), 1);
+    let history: String = conn
+        .query_row(
+            "SELECT old_body FROM mem_item_history WHERE item_id=?1 ORDER BY id DESC LIMIT 1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(history, obsolete);
+    assert_eq!(cleanup::remove_v1(&conn, &mem.blobs_dir).unwrap(), 0);
+    assert_eq!(
+        conn.query_row(
+            "SELECT removed_count FROM blueprint_v1_cleanup_receipt",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+}
