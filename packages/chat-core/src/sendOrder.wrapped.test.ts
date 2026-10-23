@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { formatAttachmentMarker } from "./attachmentMarker";
 import { markVoice } from "./markers";
 import { reconcileSends } from "./sendOrder";
 import type { NormalizedChatMessage } from "./types";
@@ -33,4 +34,37 @@ const pasted = { id: "paste-send", content: "composer text", sentAtMs, correlati
 const byToken = reconcileSends([pasted], [row(wrap("rendered pasted payload"), "paste-token")]);
 assert.equal(byToken.pending.length, 0);
 assert.equal(byToken.echoes.size, 1);
-console.log("wrapped reconciliation: 12 assertions passed");
+const image = formatAttachmentMarker("C:/opaque/frag.png", "image");
+const pastedBody = "opaque-a\nopaque-b\nopaque-c";
+const attached = (id: string, correlationId: string) => ({ id, content: `${pastedBody}\n${image}`, sentAtMs, correlationId });
+const besideWrapper = (id: string, pasteId = "9f1e", closeId = pasteId): NormalizedChatMessage => ({
+  id, type: "user", timestamp: "2026-10-15T09:45:54.081Z",
+  content: `\n\n<pasted_content id="${pasteId}">\n${pastedBody}\n</pasted_content id="${closeId}">\n${image}`,
+  segments: [
+    { type: "text", text: "\n\n" },
+    { type: "paste", id: pasteId, body: `\n${pastedBody}\n` },
+    { type: "text", text: "\n" },
+    { type: "attachment", kind: "image", path: "C:/opaque/frag.png", label: null, body: null, status: null },
+  ],
+});
+
+const one = reconcileSends([attached("attached-send", "attached-token")], [besideWrapper("row-1")]);
+assert.equal(one.pending.length, 0);
+assert.deepEqual([...one.echoes.keys()], ["attached-send"]);
+
+const twice = reconcileSends(
+  [attached("first", "first-token"), attached("second", "second-token")],
+  [besideWrapper("row-1"), besideWrapper("row-2")],
+);
+assert.equal(twice.pending.length, 0);
+assert.equal(twice.echoes.size, 2);
+
+const onlyOneRow = reconcileSends(
+  [attached("first", "first-token"), attached("second", "second-token")],
+  [besideWrapper("row-1")],
+);
+assert.equal(onlyOneRow.echoes.size, 1);
+assert.equal(onlyOneRow.pending.length, 1);
+
+assert.equal(reconcileSends([attached("attached-send", "attached-token")], [besideWrapper("row-1", "9f1e", "other")]).pending.length, 1);
+console.log("wrapped reconciliation: 21 assertions passed");
