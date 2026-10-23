@@ -83,7 +83,7 @@ Every live announce carries `relay_protocol_version` and an optional typed `web_
 
 The default **Open** action never sends a remote daemon token to the browser. It opens the local Web UI entry origin with the local token in a URL fragment and a paired peer ID. The browser removes that fragment from history, resolves the peer name from the authenticated local peer list, and sends API traffic through the signed Mesh relay. Relay authorization uses the same policy as a direct signed peer request. REST config responses redact `api.token`, and `/api/secrets/*` cannot be relayed even with Full access.
 
-Domios 1.15.0 uses mesh relay protocol version 2. Version 1 peers are refused with an upgrade message; both peers must run Domios 1.15.0 or later. Routed messages are framed by the receiving daemon, and relayed send bodies stay unwrapped until the receiving `/send` handler adds its local route frame, preventing double wrapping.
+Domios 1.15.0 uses mesh relay protocol version 2. Version 1 peers are refused with an upgrade message; both peers must run Domios 1.15.0 or later. A relayed write (send, PTY input, spawn, plan or Team change) to a tab, workspace or Team locked above the plan limit is refused with `403 plan_limit_locked` and `bytes_written=false` before anything is written; reads stay allowed. Routed messages are framed by the receiving daemon, and relayed send bodies stay unwrapped until the receiving `/send` handler adds its local route frame, preventing double wrapping.
 
 Whole-peer Web views scope each terminal subscription to `mesh:<peer>/<tab>`, just like remote desktop tabs. The gateway requires that composite identity for output streams; an unscoped request returns 400 even when metadata reads succeed. Each subscription keeps its own peer-qualified replay cursor and uses only the serving gateway's credentials. The initial standalone boot frame establishes the cursor namespace before output arrives, so reconnects resume rather than discard the saved byte offset. A matching relay protocol does not by itself prove every feature is available on an older application version.
 
@@ -169,4 +169,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->

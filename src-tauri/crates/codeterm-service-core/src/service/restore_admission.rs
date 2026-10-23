@@ -354,6 +354,9 @@ pub fn admit_restored_pty(
         .read()
         .resolve_tab_id(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found or has no PTY"))?;
+    if let Some(refusal) = service.tab_write_lock(&resolved) {
+        return Err(refusal.to_string());
+    }
     if service.tab_chat_backing(&resolved).is_some() {
         return Ok(());
     }

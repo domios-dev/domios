@@ -4,6 +4,7 @@
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
+    response::IntoResponse,
     Json,
 };
 use serde::Deserialize;
@@ -125,13 +126,14 @@ pub async fn pty_write(
     headers: HeaderMap,
     Path(pty_id): Path<String>,
     Json(body): Json<PtyWriteBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+) -> Result<Json<serde_json::Value>, axum::response::Response> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()).into_response())?;
     tokio::task::spawn_blocking(move || {
+        pty_write_lock_refusal(&state, &pty_id)?;
         state
             .svc
             .require_tab_input_allowed(&pty_id, None)
-            .map_err(|e| (StatusCode::FORBIDDEN, e))?;
+            .map_err(|e| (StatusCode::FORBIDDEN, e).into_response())?;
         let diagnostic_level = crate::stream_diagnostics::configured_level(
             state.config.lock().diagnostics.terminal_transport,
         );
@@ -161,7 +163,7 @@ pub async fn pty_write(
                 pty_id,
                 codeterm_service_core::service::messenger::HumanKeys::new(body.data.as_bytes()),
             )
-            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+            .map_err(|e| (StatusCode::NOT_FOUND, e).into_response())?;
         } else {
             // off the async runtime.
             let svc = state.svc.clone();
@@ -188,7 +190,7 @@ pub async fn pty_write(
                     )
                 }
             }
-            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+            .map_err(|e| (StatusCode::NOT_FOUND, e).into_response())?;
         }
         Ok(Json(serde_json::json!({"ok": true})))
     })
@@ -198,7 +200,28 @@ pub async fn pty_write(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("send task failed: {e}"),
         )
+            .into_response()
     })?
+}
+
+/// Typed pre-write refusal for user terminal input into a plan-limit-locked tab.
+fn pty_write_lock_refusal(state: &AppState, pty_id: &str) -> Result<(), axum::response::Response> {
+    let refusal = {
+        let mux = state.svc.mux.read();
+        mux.tab_id_for_pty(pty_id)
+            .or_else(|| mux.resolve_tab_id(pty_id))
+            .and_then(|tab| mux.tab_write_lock(&tab).map(|refusal| (tab, refusal)))
+    };
+    match refusal {
+        Some((tab, refusal)) => Err(
+            codeterm_service_core::service::delivery_error::DeliveryError::PlanLimitLocked {
+                tab,
+                detail: refusal.to_string(),
+            }
+            .into_rejection(),
+        ),
+        None => Ok(()),
+    }
 }
 
 #[derive(Deserialize)]
