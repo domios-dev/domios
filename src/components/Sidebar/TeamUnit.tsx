@@ -17,7 +17,7 @@ import { PLAN_STATUS_COLORS, SegmentedDonut } from "../shared/SegmentedDonut";
 import { TeamStatusTally } from "./TeamStatusTally";
 import { LockBadge } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
-import { lockedView } from "../billing/freeLimitModel";
+import { lockedDimClass, lockedView } from "../billing/freeLimitModel";
 import type { PlanStatusCounts } from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 import { refusalText } from "../../lib/refusalText";
@@ -607,7 +607,7 @@ export function TeamUnit({
         />
       ) : (
         <span className="sidebar-team-title-row">
-          <span data-testid="team-name" className="sidebar-team-name">{displayTitle}</span>
+          <span data-testid="team-name" className={`sidebar-team-name ${lockedDimClass(lock)}`.trim()}>{displayTitle}</span>
           <LockBadge view={lock} />
           {team.remote_peer_name && (
             <span data-testid="team-remote-peer" className="sidebar-team-remote-peer text-[10px] text-[var(--ct-muted-fg)]">

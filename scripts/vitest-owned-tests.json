@@ -288,6 +288,7 @@
   "src/components/billing/FreeLimitPlansModal.test.tsx",
   "src/components/billing/freeLimitTriggers.test.tsx",
   "src/components/billing/freeLimitLocks.test.tsx",
+  "src/components/billing/lockSurfaces.test.ts",
   "src/components/billing/accountMeshLimit.test.tsx",
   "src/components/billing/scenarios/paid.test.tsx",
   "src/components/billing/scenarios/grace.test.tsx",

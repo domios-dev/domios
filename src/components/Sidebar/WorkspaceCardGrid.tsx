@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { ChevronUp, Pencil, Plus } from "lucide-react";
 import { ActivityDots } from "../shared/ActivityDots";
+import { LockBadge } from "../billing/LockBadge";
+import { lockedDimClass, lockedView } from "../billing/freeLimitModel";
 import type { TabStatus, Workspace } from "../../lib/types";
 import { SortableContext, SortableRow, WS_PREFIX, rectSortingStrategy } from "./sortable";
 import {
@@ -140,6 +142,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
           {shown.map((workspace) => {
             const selected = workspace.id === selectedWorkspaceId;
             const status = statuses[workspace.id];
+            const lock = lockedView("workspaces", workspace);
             return (
               <SortableRow
                 key={workspace.id}
@@ -164,10 +167,11 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                     onClick={() => onSelect(workspace.id)}
                     onDoubleClick={(event) => beginEditing(workspace, event.currentTarget)}
                   >
-                    <span className="sidebar-workspace-card-initials">
+                    <span className={`sidebar-workspace-card-initials ${lockedDimClass(lock)}`.trim()}>
                       {customInitials[workspace.id] ?? defaultWorkspaceInitials(workspace.name)}
                     </span>
                   </button>
+                  {lock.locked && <LockBadge view={lock} className="sidebar-workspace-card-lock" />}
                   {selected && (
                     <button
                       type="button"
