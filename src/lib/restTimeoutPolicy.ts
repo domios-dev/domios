@@ -17,8 +17,26 @@ export function restRequestTimeoutMs(method: string, path: string, explicit?: nu
   return verb === "GET" || verb === "HEAD" ? REST_READ_TIMEOUT_MS : REST_WRITE_TIMEOUT_MS;
 }
 
-export function restRequestSignal(method: string, path: string, opts?: { signal?: AbortSignal; timeoutMs?: number | null }): AbortSignal | undefined {
+/** Runs one REST call under its deadline; the timer and caller listener are released on every exit path. */
+export async function withRestRequestSignal<T>(
+  method: string,
+  path: string,
+  opts: { signal?: AbortSignal; timeoutMs?: number | null } | undefined,
+  run: (signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> {
   const timeoutMs = restRequestTimeoutMs(method, path, opts?.timeoutMs);
-  const deadline = timeoutMs === null ? undefined : AbortSignal.timeout(timeoutMs);
-  return opts?.signal && deadline ? AbortSignal.any([opts.signal, deadline]) : opts?.signal ?? deadline;
+  const caller = opts?.signal;
+  if (timeoutMs === null) return run(caller);
+  // AbortSignal.timeout/any stay rooted until the deadline fires, so long sessions accumulate them.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("The operation timed out.", "TimeoutError")), timeoutMs);
+  const forward = () => controller.abort(caller?.reason);
+  if (caller?.aborted) forward();
+  else caller?.addEventListener("abort", forward, { once: true });
+  try {
+    return await run(controller.signal);
+  } finally {
+    clearTimeout(timer);
+    caller?.removeEventListener("abort", forward);
+  }
 }
