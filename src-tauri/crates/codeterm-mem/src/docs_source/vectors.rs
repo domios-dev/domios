@@ -11,6 +11,7 @@ use std::sync::{Arc, Once, OnceLock};
 use std::time::Instant;
 
 const MAX_CHUNK_CHARS: usize = 4000;
+const INFERENCE_CHARS: usize = 256;
 const MAX_RANKED_CANDIDATES: usize = 20;
 const RRF_K: usize = 60;
 const MAX_HEADER_BYTES: usize = 64 * 1024;
@@ -143,22 +144,17 @@ pub(crate) fn prepare(
 ) -> Result<PreparedDocs, String> {
     let pinned = ActiveEmbedder::new(embedder.provider());
     let identity = pinned.identity();
-    let (vectors, cached) = load_or_build(
+    let (vectors, _) = load_or_build_with_progress(
         &data_dir.join("mem").join("docs-vectors"),
         super::corpus_sections(),
         &cache_model_key(&identity),
         identity.dimension,
         &|text| {
             let vector = pinned.passage(text).map_err(|error| error.to_string())?;
-            progress();
             Ok(vector.vector)
         },
+        progress,
     )?;
-    if cached {
-        for _ in &vectors.ids {
-            progress();
-        }
-    }
     Ok(PreparedDocs {
         embedder: pinned,
         vectors,
@@ -187,23 +183,86 @@ fn load_or_build<F>(
 where
     F: Fn(&str) -> Result<Vec<f32>, String>,
 {
-    let entries = corpus_entries(sections);
-    let ids = entries.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
-    let corpus_hash = corpus_hash(&entries, model);
-    let path = cache_path(cache_dir, &corpus_hash);
-    if let Ok(vectors) = read_cache(&path, &ids, &corpus_hash, model, dim) {
-        return Ok((vectors, true));
-    }
+    load_or_build_with_progress(cache_dir, sections, model, dim, embedder, || {})
+}
 
-    let mut vectors = Vec::with_capacity(entries.len());
-    for (id, text) in &entries {
-        let vector = embedder(text).map_err(|error| format!("embed {id}: {error}"))?;
-        validate_vector(&vector, dim).map_err(|error| format!("embed {id}: {error}"))?;
-        vectors.push(vector);
+fn load_or_build_with_progress(
+    cache_dir: &Path,
+    sections: &[DocSection],
+    model: &str,
+    dim: usize,
+    embedder: &impl Fn(&str) -> Result<Vec<f32>, String>,
+    progress: impl Fn(),
+) -> Result<(DocVectors, bool), String> {
+    let started = Instant::now();
+    let entries = corpus_entries(sections);
+    let mut work = super::work::BuildWork::new(entries.len());
+    let mut vectors = DocVectors {
+        ids: Vec::new(),
+        vectors: Vec::new(),
+    };
+    let mut cached = 0;
+    log::info!(
+        "[docs.vectors] start sections={} model={model}",
+        entries.len()
+    );
+    let result = (|| {
+        for entry in &entries {
+            let hash = corpus_hash(std::slice::from_ref(entry), model);
+            let path = cache_path(cache_dir, &hash);
+            let ids = std::slice::from_ref(&entry.0);
+            let section = match read_cache(&path, ids, &hash, model, dim) {
+                Ok(section) => {
+                    work.skip();
+                    cached += 1;
+                    section
+                }
+                Err(_) => {
+                    let _flight = work.start();
+                    let vector = embed_section(&entry.1, dim, embedder)
+                        .map_err(|error| format!("embed {}: {error}", entry.0))?;
+                    let section = DocVectors {
+                        ids: ids.to_vec(),
+                        vectors: vec![vector],
+                    };
+                    write_cache(&path, &section, &hash, model, dim)?;
+                    work.complete();
+                    section
+                }
+            };
+            vectors.ids.extend(section.ids);
+            vectors.vectors.extend(section.vectors);
+            progress();
+        }
+        Ok((vectors, cached == entries.len()))
+    })();
+    log::info!(
+        "[docs.vectors] finish sections={} cached={cached} attempted={} completed={} success={} ms={}",
+        entries.len(), work.started(), cached + work.finished(), result.is_ok(), started.elapsed().as_millis()
+    );
+    result
+}
+
+pub(crate) fn embed_section(
+    text: &str,
+    dim: usize,
+    embedder: &impl Fn(&str) -> Result<Vec<f32>, String>,
+) -> Result<Vec<f32>, String> {
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut pooled = vec![0.0; dim];
+    for chunk in chars.chunks(INFERENCE_CHARS) {
+        let vector = embedder(&chunk.iter().collect::<String>())?;
+        validate_vector(&vector, dim)?;
+        for (sum, value) in pooled.iter_mut().zip(vector) {
+            *sum += value * chunk.len() as f32;
+        }
     }
-    let vectors = DocVectors { ids, vectors };
-    write_cache(&path, &vectors, &corpus_hash, model, dim)?;
-    Ok((vectors, false))
+    validate_vector(&pooled, dim)?;
+    let norm = pooled.iter().map(|value| value * value).sum::<f32>().sqrt();
+    for value in &mut pooled {
+        *value /= norm;
+    }
+    Ok(pooled)
 }
 
 fn corpus_entries(sections: &[DocSection]) -> Vec<(String, String)> {
@@ -227,6 +286,7 @@ fn section_id(doc_name: &str, anchor: &str) -> String {
 
 fn corpus_hash(entries: &[(String, String)], model: &str) -> String {
     let mut hasher = Sha256::new();
+    hash_part(&mut hasher, b"docs-section-256-v1");
     hash_part(&mut hasher, model.as_bytes());
     for (id, text) in entries {
         hash_part(&mut hasher, id.as_bytes());

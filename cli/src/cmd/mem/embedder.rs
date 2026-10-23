@@ -199,6 +199,14 @@ pub(crate) fn render_use(value: &Value) -> String {
         }
         return out;
     }
+    let running = &value["already_running"];
+    if !running.is_null() {
+        return format!(
+            "Re-embed already running ({}/{})\n",
+            running["done"].as_u64().unwrap_or(0),
+            running["total"].as_u64().unwrap_or(0)
+        );
+    }
     let plan = &value["plan"];
     let mut out = format!(
         "Preparing the embedder switch to {}/{} ({} dims).\nRe-embedding {} items in the background (items {}, entities {}, docs {}).\n",
