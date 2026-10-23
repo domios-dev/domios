@@ -1218,6 +1218,7 @@ dependencies = [
  "codeterm-build-info",
  "codeterm-commands",
  "codeterm-decision",
+ "codeterm-entitlements",
  "codeterm-events",
  "codeterm-frontend-bundle",
  "codeterm-frontend-shell",
