@@ -192,6 +192,9 @@ impl MemManager {
             layout,
             extraction: Arc::new(ExtractionAuthority::new()),
         });
+        manager
+            .reembed
+            .restore(mem_dir.join("reembed-progress.json"));
         manager.subscribe_recovery();
         Ok(manager)
     }

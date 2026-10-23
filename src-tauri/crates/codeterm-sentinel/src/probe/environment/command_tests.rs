@@ -55,6 +55,40 @@ fn blueprint_v2_runtime_command_path_preserves_tools_and_excludes_cli() {
 }
 
 #[test]
+fn blueprint_v2_runtime_command_path_excludes_every_instance_cli() {
+    let root = tempfile::tempdir().unwrap();
+    let tools = root.path().join("tools");
+    let prod = root.path().join(".domios").join("bin");
+    let dev = root.path().join(".domios-dev").join("bin");
+    let legacy = root.path().join(".codeterm").join("bin");
+    for (directory, launcher) in [
+        (&tools, "tool.exe"),
+        (&prod, "domios.exe"),
+        (&dev, "domios"),
+        (&legacy, "codeterm.cmd"),
+    ] {
+        std::fs::create_dir_all(directory).unwrap();
+        std::fs::write(directory.join(launcher), "").unwrap();
+    }
+    let path = std::env::join_paths([&prod, &tools, &dev, &legacy]).unwrap();
+    let environment = Environment::for_command(inherited_with_path(path), None, &[]);
+    let (_, path) = environment
+        .variables
+        .iter()
+        .find(|(key, _)| key == "PATH")
+        .unwrap();
+    let path: Vec<_> = std::env::split_paths(path).collect();
+    assert_eq!(path.first(), Some(&tools));
+    for cli in [&prod, &dev, &legacy] {
+        assert!(
+            !path.contains(cli),
+            "CLI directory leaked: {}",
+            cli.display()
+        );
+    }
+}
+
+#[test]
 fn blueprint_v2_runtime_command_child_resolves_system_and_user_tools() {
     let root = tempfile::tempdir().unwrap();
     let tools = root.path().join("user-tools");

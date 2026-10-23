@@ -9,6 +9,7 @@ mod manager;
 pub mod openai;
 pub mod pending;
 pub mod provider;
+mod shadow;
 pub mod switch;
 
 #[cfg(test)]
@@ -40,6 +41,7 @@ pub struct EmbedderStatus {
     pub index_matches: bool,
     pub vectors: u64,
     pub pending: u64,
+    pub degraded: bool,
     pub reembed: ReembedProgress,
 }
 

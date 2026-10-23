@@ -57,7 +57,7 @@ domios mem embedder use local                # switch; prints how many items it 
 domios mem embedder use openai --model text-embedding-3-small --dimension 512
 ```
 
-- **Switching.** The vector index is stamped with its provider, model and dimension. A switch recreates it empty at the new dimension and re-embeds every item, entity and documentation section in the background. Search keeps working throughout: keyword search always, and vectors only from the new model as they land. Vectors from another model are refused, never mixed. Settings → General → Memory embedder shows the same status and asks before it switches.
+- **Switching.** The vector index is stamped with its provider, model and dimension. A switch builds a stamped shadow for items, entities, Blueprint solutions and documentation in the background, and recall stays fully semantic on the published model until the replacement swaps in atomically. Content that changes during the build is re-embedded automatically before the swap. An item the new provider refuses or fails is counted as failed and stays vector pending; only a provider outage stops the build. `domios mem embedder status` shows progress, failures and the cause of a failed or cancelled build, and Blueprint authoring recall reports the same progress in its `recall` state. Choosing the published model during a build cancels it; another target is refused until the build ends. Selecting the already active model reports “already active” without rebuilding. Vectors from another model are refused, never mixed. Settings → General → Memory embedder shows the same status and asks before it switches.
 - **Outages.** When the embedder is unavailable (remote outage, rate limit, missing key or local model), saves still succeed and keyword search finds them. The item is marked vector pending and is embedded again when the provider answers.
 - **Remote embedders send memory text to a third party.** A remote provider activates only when its API key is stored AND `memory.embedder.remote_opt_in = true`. Text flagged by the credential filter is never sent. The key is read once at activation and daemon start and is never taken from config, argv or the environment. Sources, in order (the file wins when both exist):
   1. `<data_dir>/secrets/<provider>-embedder.key`: `~/.domios/secrets/` on prod, `~/.domios-dev/secrets/` on DEV, or the named instance's own data directory. It is readable only by its owner (mode 0600 on Unix; on Windows an ACL for the current user only);
@@ -195,4 +195,4 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 53 -->
+<!-- revision: 54 -->

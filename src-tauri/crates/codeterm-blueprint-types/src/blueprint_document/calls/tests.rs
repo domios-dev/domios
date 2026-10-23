@@ -4,6 +4,8 @@ use crate::blueprint_document::{Port, ValueForm};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
+mod arrays;
+
 struct Tree(PathBuf);
 impl Tree {
     fn new() -> Self {

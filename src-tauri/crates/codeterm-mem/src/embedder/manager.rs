@@ -22,6 +22,9 @@ impl MemManager {
                 pending::count(&conn),
             )
         };
+        let reembed = self.reembed.snapshot();
+        // A build or a failed build leaves recall fully semantic on the published model.
+        let degraded = !self.embedder.is_available() || index.as_ref() != Some(&identity);
         EmbedderStatus {
             provider: identity.provider.clone(),
             model: identity.model.clone(),
@@ -32,19 +35,19 @@ impl MemManager {
             index,
             vectors,
             pending,
-            reembed: self.reembed.snapshot(),
+            degraded,
+            reembed,
         }
     }
 
     /// How much a switch would re-embed: every embeddable item, every entity
     /// and, for the daemon's manager, every documentation section.
     pub fn reembed_plan(&self) -> Result<SwitchPlan, String> {
-        let blueprints =
-            crate::blueprint_library::index::indexed_items(&self.conn.lock())?.len() as u64;
+        let conn = self.conn.lock();
         Ok(SwitchPlan {
-            blueprints,
-            items: self.reembed_item_targets()?.len() as u64,
-            entities: self.reembed_entity_targets()?.len() as u64,
+            blueprints: crate::blueprint_library::index::indexed_items(&conn)?.len() as u64,
+            items: self.reembed_item_targets(&conn)?.len() as u64,
+            entities: self.reembed_entity_targets(&conn)?.len() as u64,
             docs: if self.docs_dir.is_some() {
                 crate::docs_source::vector_section_count() as u64
             } else {
@@ -53,43 +56,80 @@ impl MemManager {
         })
     }
 
-    /// Make `provider` the one embedder: recreate the index at its dimension
-    /// and re-embed everything in the background. Search keeps FTS throughout
-    /// and only ever sees the new model's vectors as they land.
+    /// Build a stamped shadow while recall continues on the published model.
+    /// Choosing the published model cancels a running build; another target
+    /// is refused until the running one ends.
     pub fn switch_embedder(
         self: &Arc<Self>,
         provider: SharedProvider,
     ) -> Result<SwitchPlan, String> {
-        let plan = self.reembed_plan()?;
         let identity = provider.identity();
-        self.embedder.replace(provider);
-        index::recreate(&self.conn.lock(), &identity)?;
+        let running = self.reembed.snapshot();
+        let running = (running.state == super::ReembedState::Running).then_some(running);
+        if self.embedder.identity() == identity
+            && index::stamp(&self.conn.lock())?.as_ref() == Some(&identity)
+        {
+            if let Some(running) = running {
+                let reason = format!(
+                    "cancelled: {}/{} stays published",
+                    identity.provider, identity.model
+                );
+                if !self.reembed.cancel(reason, &self.embedder) {
+                    return Err(format!(
+                        "the re-embed to {} is already publishing",
+                        running
+                            .target
+                            .map_or_else(String::new, |t| format!("{}/{}", t.provider, t.model))
+                    ));
+                }
+                self.clear_shadow(&self.conn.lock());
+            }
+            return Ok(SwitchPlan::default());
+        }
+        if let Some(running) = running {
+            if running.target.as_ref() == Some(&identity) {
+                return Ok(running.plan);
+            }
+            return Err(
+                "another re-embed is running; switch back to the published model to cancel it first"
+                    .into(),
+            );
+        }
+        let plan = self.reembed_plan()?;
+        self.prepare_shadow(&identity)?;
         let generation = self.reembed.start(identity, plan, &self.embedder);
-        let manager = self.clone();
-        std::thread::Builder::new()
-            .name("mem-reembed".into())
-            .spawn(move || manager.run_reembed(generation))
-            .map_err(|e| format!("start background re-embed: {e}"))?;
+        if let Err(error) = self.launch_shadow(generation, ActiveEmbedder::new(provider)) {
+            self.reembed.fail(generation, error.clone(), &self.embedder);
+            return Err(error);
+        }
         Ok(plan)
     }
 
-    /// Adopt `provider` at startup: switch when the index is stamped for a
-    /// different model, otherwise just make it active.
+    /// Adopt the configured `provider` at startup: switch when the index is
+    /// stamped for a different model, otherwise make it active and drop any
+    /// shadow a crash left behind.
     pub fn reconcile_embedder(
         self: &Arc<Self>,
         provider: SharedProvider,
     ) -> Result<Option<SwitchPlan>, String> {
         let identity = provider.identity();
-        let stamp = index::stamp(&self.conn.lock())?;
-        if stamp.as_ref() == Some(&identity) {
-            if self.embedder.identity() != identity {
-                self.embedder.replace(provider);
-                self.rebuild_docs_vectors();
+        if index::stamp(&self.conn.lock())?.as_ref() == Some(&identity) {
+            if self.reembed.snapshot().state != super::ReembedState::Running {
+                self.clear_shadow(&self.conn.lock());
             }
-            self.backfill_pending();
+            self.adopt_published(provider);
             return Ok(None);
         }
         self.switch_embedder(provider).map(Some)
+    }
+
+    /// Serve recall with the published model while a configured switch resumes.
+    pub fn adopt_published(&self, provider: SharedProvider) {
+        if self.embedder.identity() != provider.identity() {
+            self.embedder.replace(provider);
+            self.rebuild_docs_vectors();
+        }
+        self.backfill_pending();
     }
 
     /// Queue every vector-pending item and entity again.
@@ -174,61 +214,5 @@ impl MemManager {
         .map(|(entity_type, props)| {
             embeddings::embeddable_text_for_entity(id, &entity_type, &props)
         })
-    }
-
-    fn run_reembed(self: Arc<Self>, generation: u64) {
-        let targets = match (self.reembed_item_targets(), self.reembed_entity_targets()) {
-            (Ok(mut items), Ok(entities)) => {
-                items.extend(entities);
-                items
-            }
-            (Err(error), _) | (_, Err(error)) => {
-                log::warn!("[mem.embedder] re-embed listing failed: {error}");
-                Vec::new()
-            }
-        };
-        for (id, text) in targets {
-            let outcome = self.index_embedding(&id, &text);
-            if !self.reembed.advance(generation, outcome, &self.embedder) {
-                return;
-            }
-        }
-        let blueprints = crate::blueprint_library::index::indexed_items(&self.conn.lock());
-        if let Ok(ids) = blueprints {
-            for id in ids {
-                if !self.reembed.is_current(generation) {
-                    return;
-                }
-                let outcome = self.index_blueprint(&id).and_then(|report| {
-                    if report.missing_vectors == 0 {
-                        Ok(())
-                    } else {
-                        Err(format!(
-                            "Blueprint {id}: {} vectors pending",
-                            report.missing_vectors
-                        ))
-                    }
-                });
-                if !self.reembed.advance(generation, outcome, &self.embedder) {
-                    return;
-                }
-            }
-        }
-        if let Some(data_dir) = &self.docs_dir {
-            match crate::docs_source::reembed_vectors(data_dir, &self.embedder) {
-                Ok(sections) => {
-                    for _ in 0..sections {
-                        self.reembed.advance(generation, Ok(()), &self.embedder);
-                    }
-                }
-                Err(error) => {
-                    for _ in 0..self.reembed.snapshot().plan.docs {
-                        self.reembed
-                            .advance(generation, Err(error.clone()), &self.embedder);
-                    }
-                }
-            }
-        }
-        self.reembed.finish(generation, &self.embedder);
     }
 }

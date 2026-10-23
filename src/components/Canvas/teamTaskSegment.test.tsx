@@ -287,6 +287,27 @@ describe("side panel header controls", () => {
     expect(host).toBeTruthy();
   });
 
+  it("Escape still dismisses the drawer after Back returns to the plan", async () => {
+    await render(<TeamView />);
+    await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id, taskId: KEYED.id, nestedFromPlan: true }, SHELL_CTX); });
+    sidePanelControl("back").focus();
+    await act(async () => sidePanelControl("back").click());
+    expect(sidePanel()?.getAttribute("data-kind")).toBe("plan");
+    expect(sidePanel()?.contains(document.activeElement)).toBe(true);
+    await pressEscape(document.activeElement as Element);
+    expect(sidePanel()).toBeNull();
+  });
+
+  it("Escape dismisses the drawer even when focus has fallen to the page body", async () => {
+    await render(<TeamView />);
+    await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id, taskId: KEYED.id, nestedFromPlan: true }, SHELL_CTX); });
+    await act(async () => sidePanelControl("back").click());
+    await act(async () => { (document.activeElement as HTMLElement | null)?.blur(); });
+    expect(document.activeElement).toBe(document.body);
+    await pressEscape(document.body);
+    expect(sidePanel()).toBeNull();
+  });
+
   it("Escape dismisses a nested task view", async () => {
     await render(<TeamView />);
     await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id, taskId: KEYED.id, nestedFromPlan: true }, SHELL_CTX); });
@@ -640,7 +661,7 @@ describe("chat task and plan links", () => {
       />,
     );
     const link = host.querySelector('[data-testid="chat-task-link"]') as HTMLButtonElement;
-    expect(link.textContent).toContain("CT-7 Render the segment");
+    expect(link.getAttribute("aria-label")).toContain("CT-7 Render the segment");
     await act(async () => link.click());
     expect(opened).toEqual([[TEAM_PLAN.id, KEYED.id, "task"]]);
   });

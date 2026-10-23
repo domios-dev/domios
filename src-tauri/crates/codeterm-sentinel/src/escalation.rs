@@ -21,7 +21,7 @@ impl Sentinel {
 }
 
 /// `other` handlers only notify or escalate, escalation appears nowhere else, and a hold names
-/// an accepted `other` transition.
+/// an accepted `other` transition or is a runtime hold reason (an uncertain pipeline or input).
 pub fn validate(job: &Sentinel) -> Result<(), String> {
     let escalates_elsewhere = job
         .routes
@@ -66,14 +66,16 @@ pub fn validate(job: &Sentinel) -> Result<(), String> {
         }
     }
     if let Some(held) = &job.machine.held {
-        let accepted = job
+        match job
             .transitions
             .iter()
-            .any(|transition| transition.id == *held && transition.bucket == OTHER_BUCKET);
-        if escalation_count == 0 || !accepted {
-            return Err(format!(
+            .find(|transition| transition.id == *held)
+        {
+            Some(transition) if escalation_count > 0 && transition.bucket == OTHER_BUCKET => {}
+            None if bounded_id(held) => {}
+            _ => return Err(format!(
                 "blueprint is held on evaluation {held} awaiting an answer to its `other` escalation, and the new definition no longer escalates `other`. Answer or dismiss the escalation, or stop the Blueprint, then apply again"
-            ));
+            )),
         }
     }
     Ok(())

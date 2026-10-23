@@ -43,6 +43,7 @@ mod public_send;
 #[path = "launch/reader_readiness.rs"]
 mod reader_readiness;
 mod resume_binding;
+pub(crate) use resume_binding::deferred_launch_nonce;
 mod startup_readiness;
 #[cfg(any(test, feature = "test-support"))]
 #[path = "launch/test_support.rs"]

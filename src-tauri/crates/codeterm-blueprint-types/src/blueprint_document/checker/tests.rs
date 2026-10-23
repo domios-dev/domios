@@ -141,6 +141,16 @@ fn blueprint_v2_check_r10_ambient_cli_and_unapproved_cap() {
         document(json!([{"id":"a","run":{"lit":"codeterm tab list"}}])),
         "R10",
     );
+    require(
+        document(json!([{"id":"a","run":{"lit":"\"dom\"\"ios\" team list"}}])),
+        "R10",
+    );
+    require(
+        document(
+            json!([{"id":"a","code":{"lang":"python","src":"import subprocess\ndef main(p):\n    env = {'CODE' + 'TERM_API_PORT': '7686'}\n    return subprocess.run(['C:/Users/u/.dom' + 'ios-dev/bin/dom' + 'ios.exe', 'team', 'list'], env=env).returncode"},"in":{"type":"integer"},"out":{"type":"integer"}}]),
+        ),
+        "R10",
+    );
     let doc = document(json!([{"id":"a","run":{"lit":"echo a"},"caps":["domios-cli"]}]));
     let context = CheckContext {
         grants: BTreeSet::from(["domios-cli".into()]),

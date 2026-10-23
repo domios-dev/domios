@@ -120,6 +120,11 @@ fn progress_line(reembed: &Value) -> String {
             (done * 100).checked_div(total).unwrap_or(100)
         ),
         "completed" => format!("completed {done}/{total}, {failed} failed"),
+        "failed" | "cancelled" => format!(
+            "{} {done}/{total}: {}",
+            str_of(reembed, "state"),
+            str_of(reembed, "last_error")
+        ),
         _ => "idle".into(),
     }
 }
@@ -160,9 +165,25 @@ pub(crate) fn render_status(value: &Value) -> String {
 
 pub(crate) fn render_use(value: &Value) -> String {
     let target = &value["target"];
+    if value["already_active"].as_bool() == Some(true) {
+        let mut out = format!(
+            "Embedder {}/{} is already active.\n",
+            str_of(target, "provider"),
+            str_of(target, "model")
+        );
+        let cancelled = &value["cancelled"];
+        if !cancelled.is_null() {
+            out.push_str(&format!(
+                "Cancelled the re-embed to {}/{}.\n",
+                str_of(cancelled, "provider"),
+                str_of(cancelled, "model")
+            ));
+        }
+        return out;
+    }
     let plan = &value["plan"];
     let mut out = format!(
-        "Switched the embedder to {}/{} ({} dims).\nRe-embedding {} items in the background (items {}, entities {}, docs {}).\n",
+        "Preparing the embedder switch to {}/{} ({} dims).\nRe-embedding {} items in the background (items {}, entities {}, docs {}).\n",
         str_of(target, "provider"),
         str_of(target, "model"),
         target["dimension"].as_u64().unwrap_or(0),

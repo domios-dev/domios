@@ -29,6 +29,7 @@ export interface PipelineView extends BlueprintProjection {
   runId?: string | null;
   closed?: boolean;
   note?: string | null;
+  heldReason?: string | null;
   deletesAt?: number | null;
   runs?: readonly { id: string; at: number; state: string; pipeline: PipelineView }[];
   id: string;
@@ -133,6 +134,7 @@ export function pipelineModel(blueprint: BlueprintSnapshot): PipelineView {
     id: blueprint.id,
     name: blueprint.name,
     note: blueprint.note,
+    heldReason: blueprint.held_reason,
     deletesAt: blueprint.deletes_at,
     owner: normalizedOwner(blueprint.owner),
     state: blueprint.state,
