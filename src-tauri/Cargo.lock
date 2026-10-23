@@ -2024,6 +2024,7 @@ dependencies = [
  "codeterm-cron",
  "codeterm-decision",
  "codeterm-events",
+ "codeterm-mem",
  "codeterm-plugin",
  "codeterm-pty",
  "codeterm-sentinel",
