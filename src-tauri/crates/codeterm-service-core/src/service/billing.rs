@@ -1,8 +1,12 @@
 use super::ServiceContext;
 use codeterm_billing::{adapters, Billing, Entitlements, RefreshEvent, Snapshot};
 pub use codeterm_entitlements::{
-    LimitGate, LimitKey, LimitRefusal, LimitSummary, FREE_LIMIT_REACHED,
+    LimitGate, LimitKey, LimitRefusal, LimitSummary, LockedRefusal, FREE_LIMIT_REACHED,
+    PLAN_LIMIT_LOCKED,
 };
+pub use locks::{LockItems, LockProjection};
+
+mod locks;
 use std::{sync::Arc, time::Instant};
 
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
@@ -18,6 +22,17 @@ impl ServiceContext {
             || LimitGate::new(codeterm_entitlements::compiled_free(), true),
             |billing| billing.limit_gate(),
         )
+    }
+
+    /// The single authority for "is this item locked"; dormant builds lock nothing.
+    pub fn locks(&self) -> LockProjection {
+        let gate = self.limit_gate();
+        let items = LockItems::from_mux(&self.mux.read());
+        LockProjection::project(&gate, &items)
+    }
+
+    pub fn is_locked(&self, limit: LimitKey, id: &str) -> bool {
+        self.locks().is_locked(limit, id)
     }
 
     pub async fn installation_id(&self) -> Result<codeterm_account::InstallationId, String> {

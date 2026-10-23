@@ -26,6 +26,10 @@ The round avatar and chevron immediately left of Settings open the Account menu.
 
 The cloud service supplies subscription entitlements. Without a cloud endpoint, the app returns free and subscription actions report that cloud billing is unavailable.
 
+### Locked items
+
+When free-plan limits are enforced, creating one more workspace, Team or tab past the limit is refused with `free_limit_reached`. Items that already exist beyond the limit (for example after a downgrade) are never deleted or hidden: every listing still returns them. Instead the oldest items up to the limit stay usable and the newer ones are marked locked; the General workspace never counts and never locks. Acting on a locked item is refused with the stable code `plan_limit_locked`, naming the item and the limit. Upgrading unlocks everything; closing older items frees their slots. Builds that do not enforce limits lock nothing.
+
 ## Product analytics
 
 Product analytics is off by default. Settings > Privacy or `domios analytics status|enable|disable` records opt-in consent. Turning it off clears queued events and installation/account identifiers. If the analytics service is unavailable, the app holds the queue; analytics status reports `vendor_available=false`. Delivery follows the consent gate, the closed product event catalog below, and a bounded retry policy.
@@ -95,4 +99,4 @@ Local callers only.
 
 Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, limit, active_count}`) opens the plans dialog; offline, rate, authentication and verification refusals do not.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
