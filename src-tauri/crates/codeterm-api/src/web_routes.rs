@@ -171,7 +171,7 @@ pub async fn tab_close(
         .svc
         .close_tab_async(&tab_id)
         .await
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+        .map_err(crate::tab_routes::map_close_error)?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

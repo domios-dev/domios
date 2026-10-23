@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode, type RefObject, type HTMLAttributes } from "react";
+import { useEffect, useLayoutEffect, type ReactNode, type RefObject, type HTMLAttributes } from "react";
 import { X } from "lucide-react";
 import { BackPill } from "../../shared/BackPill";
 import type { PresenceState } from "../usePresence";
@@ -8,7 +8,18 @@ export function SidePanelFrame({ panelRef, state, label, title, actions, childre
   title: ReactNode; actions?: ReactNode; children: ReactNode; onClose: () => void;
   contentKey?: string; replaced?: boolean; onBack?: () => void; backLabel?: string; closeLabel?: string;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
-  useEffect(() => { panelRef.current?.focus(); }, [panelRef, contentKey]);
+  useLayoutEffect(() => { panelRef.current?.focus(); }, [panelRef, contentKey]);
+  // A control that unmounts while focused (Back) leaves focus on BODY; Escape must still dismiss the drawer.
+  useEffect(() => {
+    if (state === "closing") return;
+    const dismissFromBody = (event: KeyboardEvent) => {
+      if ((event.code || event.key) !== "Escape" || event.defaultPrevented || document.activeElement !== document.body) return;
+      event.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", dismissFromBody);
+    return () => document.removeEventListener("keydown", dismissFromBody);
+  }, [state, onClose]);
   return <aside {...attributes} ref={panelRef} data-plan-side-panel="" role="dialog" aria-modal="false" aria-label={label} tabIndex={-1} data-state={state} inert={state === "closing" || undefined} className="plan-side-panel" onKeyDown={(event) => {
     if ((event.code || event.key) !== "Escape" || event.defaultPrevented) return;
     event.preventDefault(); event.stopPropagation(); onClose();
