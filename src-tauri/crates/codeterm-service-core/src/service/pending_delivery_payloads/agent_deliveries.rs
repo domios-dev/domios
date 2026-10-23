@@ -279,8 +279,10 @@ impl AgentDeliveryStore {
     pub(crate) fn release_terminal_notification(&self, tab_id: &str, id: &str) {
         let tab = self.tab(tab_id);
         let mut loaded = tab.index.lock();
-        if let Some(record) = loaded.as_mut().and_then(|index|
-            index.records.iter_mut().find(|record| record.id == id)) {
+        if let Some(record) = loaded
+            .as_mut()
+            .and_then(|index| index.records.iter_mut().find(|record| record.id == id))
+        {
             if !record.settlement_emitted {
                 record.settlement_notified = false;
             }

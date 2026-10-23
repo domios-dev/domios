@@ -8,7 +8,8 @@ struct NotificationClaim<'a> {
 
 impl Drop for NotificationClaim<'_> {
     fn drop(&mut self) {
-        self.owner.release_terminal_notification(self.target, self.id);
+        self.owner
+            .release_terminal_notification(self.target, self.id);
     }
 }
 
