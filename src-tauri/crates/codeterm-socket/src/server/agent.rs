@@ -12,6 +12,7 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
+        "agent.reparent" => super::remote_team_rpc::reparent(params, svc),
         "agent.turns" => {
             let target = get_string_param(params, "tab_id")?;
             let params = params.as_ref().ok_or(JsonRpcError {

@@ -48,7 +48,7 @@ pub(super) fn validate_actor(
     Ok(tab.agent_session_id.clone())
 }
 
-fn target_for_tab(
+pub(super) fn target_for_tab(
     mux: &MultiplexerState,
     destination: &str,
 ) -> Result<RemoteTransferTarget, String> {
@@ -168,7 +168,10 @@ impl ServiceContext {
             })
             .collect::<Vec<_>>();
         let operation = if let Some(operation) = pending.first() {
-            if operation.member.orchestrator_tab_id != destination || !same_actor(operation) {
+            if operation.member.orchestrator_tab_id != destination
+                || operation.member.team_id != target.team_id
+                || !same_actor(operation)
+            {
                 return Err("remote Worker has an unresolved transfer; its authorized caller must recover it".into());
             }
             (*operation).clone()
@@ -183,7 +186,9 @@ impl ServiceContext {
             })
             .find(same_actor)
         {
-            if data.members.get(&key) == Some(&operation.member) {
+            if data.members.get(&key) == Some(&operation.member)
+                && operation.member.team_id == target.team_id
+            {
                 return Ok(operation.member.clone());
             }
             return Err("completed transfer receipt was superseded; use the current parent".into());
@@ -307,8 +312,12 @@ impl ServiceContext {
             })
         })
         .await?;
-        self.remote_workers
-            .forget_by_remote_tab(&worker, Some(&peer_id), None);
+        let registry = self.remote_workers.clone();
+        super::super::blocking::run(move || {
+            registry.forget_by_remote_tab(&worker, Some(&peer_id), None);
+            Ok(())
+        })
+        .await?;
         self.emit_remote_workers_changed(destination);
         self.emit_state_changed(MuxEmitCause::Team);
         Ok(operation.member)

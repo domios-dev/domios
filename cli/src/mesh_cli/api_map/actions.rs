@@ -985,6 +985,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         ),
         crate::AgentAction::SwitchProvider { .. } => unsupported("agent switch-provider --mesh requires a non-empty explicit --tab <ID> from the target peer"),
         crate::AgentAction::Link { .. } => unsupported_agent_action("link"),
+        crate::AgentAction::Reparent { .. } => unsupported("agent reparent runs on the local origin; use --peer instead of --mesh"),
         crate::AgentAction::Unlink { .. } => unsupported_agent_action("unlink"),
         crate::AgentAction::AllowSpawn { .. } => unsupported_agent_action("allow-spawn"),
         crate::AgentAction::Report(_) => unsupported_agent_action("report"),

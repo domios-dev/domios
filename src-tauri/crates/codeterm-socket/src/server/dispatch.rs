@@ -135,6 +135,7 @@ pub(super) fn dispatch(
                 "agent.turns",
                 "agent.children",
                 "agent.link",
+                "agent.reparent",
                 "agent.report",
                 "agent.ack",
                 "orchestration.new",
