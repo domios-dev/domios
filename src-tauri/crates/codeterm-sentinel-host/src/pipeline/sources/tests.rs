@@ -83,6 +83,7 @@ fn blueprint_pipeline_run_receives_previous_source_json_on_stdin() {
     let read = "cat";
     let step = Step {
         kind: StepKind::Command {
+            timeout_ms: codeterm_blueprint_types::blueprint_pipeline::COMMAND_STEP_RUNTIME_MS,
             command: read.into(),
         },
         ..step

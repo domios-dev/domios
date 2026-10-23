@@ -13,19 +13,22 @@ impl Default for Environment {
 }
 
 impl Environment {
-    pub fn isolated(directory: &Path) -> Self {
-        Self {
-            variables: vec![
-                ("PATH".into(), directory.as_os_str().to_owned()),
-                ("HOME".into(), directory.as_os_str().to_owned()),
-                ("TMPDIR".into(), directory.as_os_str().to_owned()),
-                ("LANG".into(), "C.UTF-8".into()),
-                (
-                    "OPENSSL_CONF".into(),
-                    directory.join("openssl.cnf").into_os_string(),
-                ),
-            ],
+    pub fn resolve_program(&self, names: &[&str]) -> Option<PathBuf> {
+        let path = self
+            .variables
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("PATH"))?;
+        for directory in std::env::split_paths(&path.1) {
+            for name in names {
+                let candidate = directory.join(name);
+                if candidate.is_file() {
+                    if let Ok(path) = candidate.canonicalize() {
+                        return Some(path);
+                    }
+                }
+            }
         }
+        None
     }
 
     pub fn for_command(
@@ -48,12 +51,12 @@ impl Environment {
                 }
             }
         }
-        let mut paths: Vec<PathBuf> = if cfg!(windows) {
-            Vec::new()
-        } else {
-            vec!["/usr/bin".into(), "/bin".into()]
-        };
-        paths.extend(path_defaults.iter().map(PathBuf::from));
+        let inherited_path = inherited
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+            .map(|(_, value)| value.as_os_str());
+        let path = probe_path(inherited_path, path_defaults).unwrap_or_default();
+        let mut paths: Vec<PathBuf> = std::env::split_paths(&path).collect();
         let mut variables = vec![("LANG".into(), "C.UTF-8".into())];
         #[cfg(windows)]
         if let Some((_, root)) = inherited
@@ -62,18 +65,14 @@ impl Environment {
         {
             let root_path = PathBuf::from(root);
             if root_path.is_absolute() {
-                paths.push(root_path.join("System32"));
+                let system = root_path.join("System32");
+                if !paths.iter().any(|path| same_directory(path, &system)) {
+                    paths.push(system);
+                }
                 variables.push(("SystemRoot".into(), root.clone()));
             }
         }
-        paths.retain(|path| {
-            path.is_absolute()
-                && !cli_dirs.iter().any(|cli| same_directory(path, cli))
-                && !["codeterm", "domios", "codeterm.exe", "domios.exe"]
-                    .iter()
-                    .any(|name| path.join(name).is_file())
-        });
-        paths.dedup();
+        paths.retain(|path| !cli_dirs.iter().any(|cli| same_directory(path, cli)));
         variables.push((
             "PATH".into(),
             std::env::join_paths(paths).unwrap_or_default(),
@@ -122,5 +121,7 @@ pub fn probe_path(inherited: Option<&OsStr>, defaults: &[&str]) -> Option<OsStri
     std::env::join_paths(paths).ok()
 }
 
+#[cfg(test)]
+mod command_tests;
 #[cfg(test)]
 mod tests;

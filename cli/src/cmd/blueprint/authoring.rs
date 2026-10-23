@@ -60,23 +60,14 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
             let raw = source(name).unwrap_or_else(|error| crate::cmd::print::fail(2, error));
             let context = blueprint_document::checker::CheckContext::default();
             let repair = if *fix {
-                blueprint_document::parse(name, &raw)
-                    .ok()
-                    .map(|parsed| blueprint_document::checker::fix::fix(&parsed, &raw, &context))
+                blueprint_document::parse(name, &raw).ok().map(|parsed| {
+                    blueprint_document::checker::fix::fix_with_assignments(
+                        &parsed, &raw, &context, set,
+                    )
+                })
             } else {
                 None
             };
-            if *write {
-                if let Some(text) = repair.as_ref().and_then(|r| r.text.as_ref()) {
-                    if name == "-" || recipe_files::FILES.iter().any(|(key, _)| key == name) {
-                        crate::cmd::print::fail(2, "Write a file path to use --fix --write");
-                    }
-                    if repair.as_ref().is_some_and(|r| r.changed) {
-                        std::fs::write(name, text)
-                            .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
-                    }
-                }
-            }
             let effective = repair
                 .as_ref()
                 .and_then(|r| r.text.as_deref())
@@ -86,6 +77,17 @@ pub fn handle_local(json_mode: bool, action: &BlueprintAction) -> bool {
             if repair.as_ref().is_some_and(|r| !r.refusals.is_empty()) {
                 checked.ok = false;
                 checked.definition = None;
+            }
+            if *write && checked.ok {
+                if let Some(text) = repair.as_ref().and_then(|r| r.text.as_ref()) {
+                    if name == "-" || recipe_files::FILES.iter().any(|(key, _)| key == name) {
+                        crate::cmd::print::fail(2, "Write a file path to use --fix --write");
+                    }
+                    if repair.as_ref().is_some_and(|r| r.changed) {
+                        std::fs::write(name, text)
+                            .unwrap_or_else(|error| crate::cmd::print::fail(2, error.to_string()));
+                    }
+                }
             }
             if json_mode {
                 let mut value = serde_json::to_value(&checked)

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import re
 
-from receipts import walk
+from receipts import digest, walk
 
 
 def verify_identity(value):
@@ -82,8 +82,12 @@ def verify_run(show, log, effect, expected, selected=None):
     entries = log if isinstance(log, list) else log.get('entries', log.get('data', []))
     if not any(e.get('step_name') == '$run' and e.get('state') == 'done' for e in entries):
         raise ValueError('real run has no completed retained run record')
-    executed = [e for e in entries if str(e.get('result_summary', '')).endswith('code completed') and e.get('state') == 'done']
-    if not executed:
+    executed_hashes = set()
+    for entry in entries:
+        receipt = re.fullmatch(r'code completed; body_sha256=([a-f0-9]{64})', str(entry.get('result_summary', '')))
+        if entry.get('state') == 'done' and receipt:
+            executed_hashes.add(receipt.group(1))
+    if not executed_hashes:
         raise ValueError('no retained executed code-node evidence')
     if selected:
         objects = [item for item in walk(show) if isinstance(item, dict)]
@@ -91,3 +95,7 @@ def verify_run(show, log, effect, expected, selected=None):
             raise ValueError('show lost the executed callee id/hash')
         if not any('steps' in item and any(isinstance(n, dict) and 'code' in n for n in item['steps']) for item in objects if isinstance(item.get('steps'), list)):
             raise ValueError('show does not expose the expanded callee')
+        shown_hashes = {digest(item['code']['src']) for item in objects
+                        if isinstance(item.get('code'), dict) and isinstance(item['code'].get('src'), str)}
+        if not executed_hashes.intersection(shown_hashes):
+            raise ValueError('executed code body differs from the expanded callee')

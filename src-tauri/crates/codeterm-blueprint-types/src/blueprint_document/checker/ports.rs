@@ -2,13 +2,44 @@ use super::super::Port;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-pub fn resolve(port: &Port, types: &BTreeMap<String, Port>) -> Result<Port, String> {
+const MAX_EXPANDED_NODES: usize = 4096;
+const PAYLOAD_BYTES_PER_NODE: usize = 256;
+
+#[derive(Clone)]
+struct Resolved {
+    port: Port,
+    nodes: usize,
+    depth: usize,
+}
+
+pub(super) struct Resolver<'a> {
+    types: &'a BTreeMap<String, Port>,
+    memo: BTreeMap<String, Resolved>,
+    remaining: usize,
+}
+impl<'a> Resolver<'a> {
+    pub(super) fn new(types: &'a BTreeMap<String, Port>) -> Self {
+        Self {
+            types,
+            memo: BTreeMap::new(),
+            remaining: MAX_EXPANDED_NODES,
+        }
+    }
+    fn charge(&mut self, nodes: usize) -> Result<(), String> {
+        self.remaining = self.remaining.checked_sub(nodes).ok_or_else(|| {
+            format!("Port schema exceeds expanded-node budget {MAX_EXPANDED_NODES}")
+        })?;
+        Ok(())
+    }
+    pub(super) fn resolve(&mut self, port: &Port) -> Result<Port, String> {
+        self.walk(port, &mut Vec::new(), 0).map(|r| r.port)
+    }
     fn walk(
+        &mut self,
         p: &Port,
-        types: &BTreeMap<String, Port>,
         stack: &mut Vec<String>,
         depth: usize,
-    ) -> Result<Port, String> {
+    ) -> Result<Resolved, String> {
         if depth > 32 {
             return Err("Port schema exceeds depth 32".into());
         }
@@ -16,28 +47,87 @@ pub fn resolve(port: &Port, types: &BTreeMap<String, Port>) -> Result<Port, Stri
             if stack.contains(name) {
                 return Err(format!("Cyclic port type {name}"));
             }
-            let target = types
+            if let Some(cached) = self.memo.get(name) {
+                if depth + 1 + cached.depth > 32 {
+                    return Err("Port schema exceeds depth 32".into());
+                }
+                let nodes = cached.nodes;
+                self.charge(nodes)?;
+                let mut resolved = self.memo[name].clone();
+                resolved.depth += 1;
+                return Ok(resolved);
+            }
+            let target = self
+                .types
                 .get(name)
                 .ok_or_else(|| format!("Unknown port type {name}"))?;
             stack.push(name.clone());
-            let resolved = walk(target, types, stack, depth + 1);
+            let resolved = self.walk(target, stack, depth + 1);
             stack.pop();
-            return resolved;
+            let mut resolved = resolved?;
+            self.charge(resolved.nodes)?;
+            self.memo.insert(name.clone(), resolved.clone());
+            resolved.depth += 1;
+            return Ok(resolved);
         }
-        let mut result = p.clone();
+        let mut header = p.clone();
+        header.properties.clear();
+        header.items = None;
+        let payload_bytes = serde_json::to_vec(&header)
+            .map_err(|error| error.to_string())?
+            .len()
+            + p.properties.keys().map(String::len).sum::<usize>();
+        let nodes = 1 + payload_bytes / PAYLOAD_BYTES_PER_NODE;
+        self.charge(nodes)?;
+        let mut result = Resolved {
+            port: header,
+            nodes,
+            depth: 0,
+        };
         for (key, child) in &p.properties {
-            result
-                .properties
-                .insert(key.clone(), walk(child, types, stack, depth + 1)?);
+            let child = self.walk(child, stack, depth + 1)?;
+            result.nodes += child.nodes;
+            result.depth = result.depth.max(child.depth + 1);
+            result.port.properties.insert(key.clone(), child.port);
         }
-        result.items = p
-            .items
-            .as_ref()
-            .map(|p| walk(p, types, stack, depth + 1).map(Box::new))
-            .transpose()?;
+        if let Some(child) = &p.items {
+            let child = self.walk(child, stack, depth + 1)?;
+            result.nodes += child.nodes;
+            result.depth = result.depth.max(child.depth + 1);
+            result.port.items = Some(Box::new(child.port));
+        }
         Ok(result)
     }
-    walk(port, types, &mut Vec::new(), 0)
+}
+
+pub fn resolve(port: &Port, types: &BTreeMap<String, Port>) -> Result<Port, String> {
+    Resolver::new(types).resolve(port)
+}
+
+pub(super) fn preflight(doc: &super::super::Document) -> Result<(), (String, String)> {
+    let mut resolver = Resolver::new(&doc.types);
+    let schemas = doc
+        .types
+        .iter()
+        .map(|(name, p)| (format!("types.{name}"), p))
+        .chain(
+            doc.inputs
+                .iter()
+                .map(|(name, p)| (format!("inputs.{name}"), p)),
+        )
+        .chain(doc.nodes().enumerate().flat_map(|(i, node)| {
+            let path = super::slots::node_path(doc, i);
+            [("in", &node.input), ("out", &node.output)]
+                .into_iter()
+                .filter_map(move |(direction, p)| {
+                    p.as_ref().map(|p| (format!("{path}.{direction}"), p))
+                })
+        }))
+        .chain(doc.result.port.iter().map(|p| ("result.port".into(), p)));
+    for (field, port) in schemas {
+        resolver.resolve(port).map_err(|message| (field, message))?;
+    }
+    Ok(())
 }
 
 fn kind(port: &Port) -> &str {

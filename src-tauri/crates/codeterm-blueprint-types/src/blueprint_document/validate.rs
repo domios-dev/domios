@@ -148,7 +148,7 @@ fn port(p: &Port, path: &str, types: &BTreeMap<String, Port>, depth: usize, erro
 fn nodes(
     steps: &[Node],
     other: &[Node],
-    _inputs: &BTreeMap<String, Input>,
+    inputs: &BTreeMap<String, Input>,
     types: &BTreeMap<String, Port>,
     prefix: &str,
     errors: &mut Errors,
@@ -156,6 +156,12 @@ fn nodes(
     let all = steps.iter().chain(other).collect::<Vec<_>>();
     if steps.is_empty() {
         errors.push((format!("{prefix}steps"), "Declare at least one node".into()));
+    }
+    if all.len() > 64 {
+        errors.push((
+            format!("{prefix}steps"),
+            "Blueprint exceeds 64 nodes".into(),
+        ));
     }
     let ids = all
         .iter()
@@ -194,6 +200,7 @@ fn nodes(
                 "Choose exactly one uses, run, code or call".into(),
             ));
         }
+        errors.extend(super::code_contract::errors(node, &path));
         if let Some(code) = &node.code {
             if code.src.is_some() == code.file.is_some() {
                 errors.push((
@@ -215,6 +222,33 @@ fn nodes(
                 errors.push((
                     format!("{path}.call.ref"),
                     "A call needs a local or inline reference".into(),
+                ));
+            }
+        }
+        if node.buckets.len() > 32 || node.outcomes.len() > 32 || node.routes.len() > 32 {
+            errors.push((
+                path.clone(),
+                "Node exceeds the 32 bucket/outcome/route bound".into(),
+            ));
+        }
+        if node
+            .caps
+            .iter()
+            .chain(node.code.iter().flat_map(|c| &c.caps))
+            .any(|cap| cap == "domios-cli")
+        {
+            errors.push((
+                format!("{path}.caps"),
+                "domios-cli capability is not approved".into(),
+            ));
+        }
+        for (outcome, target) in &node.routes {
+            if !matches!(target.as_str(), "next" | "@next" | "stop" | "@stop")
+                && !ids.get(target.as_str()).is_some_and(|target| *target > i)
+            {
+                errors.push((
+                    format!("{path}.routes.{outcome}"),
+                    "Routes must target a known forward node or @next/@stop".into(),
                 ));
             }
         }
@@ -249,12 +283,30 @@ fn nodes(
         {
             match value {
                 ValueForm::Bind { bind } => {
+                    if !data_slot(node, &field) {
+                        errors.push((
+                            format!("{path}.{field}"),
+                            "Runtime binds are allowed only in data slots".into(),
+                        ));
+                    }
                     binding(bind, &ids, i, &format!("{path}.{field}"), errors);
+                }
+                ValueForm::Input { input } if !inputs.contains_key(input) => {
+                    errors.push((
+                        format!("{path}.{field}"),
+                        format!("Undeclared input {input}"),
+                    ));
                 }
                 _ => {}
             }
         }
         for (field, bind) in &node.bind {
+            if !data_slot(node, field) {
+                errors.push((
+                    format!("{path}.bind.{field}"),
+                    "Runtime binds are allowed only in data slots".into(),
+                ));
+            }
             binding(bind, &ids, i, &format!("{path}.bind.{field}"), errors);
         }
         for (field, p) in [("in", &node.input), ("out", &node.output)] {
@@ -272,4 +324,13 @@ fn binding(bind: &str, ids: &BTreeMap<&str, usize>, order: usize, path: &str, er
             "Bind a preceding node's out port, optionally a field".into(),
         ));
     }
+}
+
+fn data_slot(node: &Node, slot: &str) -> bool {
+    matches!(
+        (node.kind(), slot),
+        ("notify", "with.text")
+            | ("send", "with.payload")
+            | ("code" | "ask" | "agent" | "call", "in")
+    ) || node.call.is_some() && slot.starts_with("call.with.")
 }
