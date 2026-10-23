@@ -85,8 +85,7 @@ async fn user_pty_input_to_a_locked_tab_is_a_typed_zero_write_refusal() {
         Json(serde_json::from_value(serde_json::json!({ "data": "x" })).unwrap()),
     )
     .await
-    .err()
-    .expect("PTY input to a locked tab is refused");
+    .expect_err("PTY input to a locked tab is refused");
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await

@@ -3415,7 +3415,7 @@ button {
 
 /* Composer plan/activity chip — same h-7 baseline as attachment/model bubbles. */
 /* Inline attachment capsule: plate and icon sit out of flow inside the line box, so a capsule painted over composer text keeps its exact width. */
-.ct-capsule { position: relative; z-index: 0; }
+.ct-capsule { position: relative; z-index: 0; font-size: var(--ct-capsule-font-size); line-height: var(--ct-capsule-line-height); }
 /* A transcript capsule matches the composer one: same size, line height and 1.2em plate, so it never grows the line. */
 .ct-capsule--padded { display: inline-flex; align-items: baseline; vertical-align: baseline; padding: 0 0.5em 0 1.35em; }
 .ct-capsule__plate {
@@ -3469,7 +3469,8 @@ button {
   text-overflow: ellipsis;
   text-align: start;
   font: inherit;
-  line-height: inherit;
+  font-size: var(--ct-capsule-font-size);
+  line-height: var(--ct-capsule-line-height);
   color: inherit;
   background: transparent;
   cursor: pointer;

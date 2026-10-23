@@ -15,7 +15,7 @@ export function useFullscreenKeyboard(open: boolean, ref: RefObject<HTMLDivEleme
     if (fullscreenDepth === 0) previousBodyOverflow = document.body.style.overflow;
     fullscreenDepth += 1;
     document.body.style.overflow = "hidden";
-    ref.current?.querySelector<HTMLElement>("button")?.focus();
+    (ref.current?.querySelector<HTMLElement>("[data-fullscreen-autofocus]") ?? ref.current?.querySelector<HTMLElement>("button"))?.focus();
     const handle = (event: KeyboardEvent) => {
       const focusedDialog = document.activeElement?.closest('[role="dialog"][aria-modal="true"]');
       if (focusedDialog && focusedDialog !== ref.current) return;

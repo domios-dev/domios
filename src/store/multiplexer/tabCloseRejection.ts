@@ -26,7 +26,7 @@ export function tabCloseRejectionNotice(error: unknown, workspaceId: string, tab
     id: `tab-close-rejected:${tabId}`,
     severity: "Error",
     title: "Tab was not closed",
-    detail: reason === "unknown" && raw ? `${REASON_DETAIL.unknown} ${raw}` : REASON_DETAIL[reason],
+    detail: JSON.stringify({ code: "tab_close_refused", message: REASON_DETAIL[reason], ...(raw ? { raw } : {}) }),
     tabId,
     workspaceId,
   };
