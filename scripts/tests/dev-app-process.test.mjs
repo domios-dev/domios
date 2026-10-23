@@ -300,3 +300,33 @@ test('prebuilt launch partitions bounded verification bootstrap and attachment w
   assert.deepEqual(timers.map(timer=>timer.expires),[30000,59000,88000]);
   assert.deepEqual(cleared,timers);assert.equal(stopped,0);
 });
+
+for (const externalFrontend of [false, true]) {
+  test(`prebuilt attachment deadline retains processes only for split DEV=${externalFrontend}`, async () => {
+    const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+    const definition = source.match(/^async function launchPrebuilt\(options\) \{[\s\S]*?^\}/m)[0].replaceAll('import.meta.url', JSON.stringify(import.meta.url));
+    const timers = [];
+    let stopped = 0, disconnected = 0, readinessChecks = 0;
+    const child = new EventEmitter();
+    Object.assign(child, { pid: 123, connected: true, unref() {}, disconnect() { disconnected++; this.connected = false; } });
+    const launch = new Function('resolve', 'option', 'process', 'existsSync', 'statSync', 'spawn', 'node', 'fileURLToPath', 'repo', 'console', 'setTimeout', 'clearTimeout', 'terminateOwnedChild', 'waitForReady', `${definition}\nreturn launchPrebuilt;`)(
+      path.resolve, (options, key) => options.get(key), { env: { DEV_FRONT_EXTERNAL: externalFrontend ? '1' : '0' } },
+      () => true, () => ({ isFile: () => true }), () => child, 'node', () => '/fixture/dev-prep.mjs', '/fixture', { log() {} },
+      (callback, ms) => { const timer = { callback, ms }; timers.push(timer); return timer; }, () => {},
+      async () => { stopped++; }, async () => { readinessChecks++; });
+    const result = launch(new Map([['--app', '/fixture/app'], ['--log', '/fixture/log'], ['--api-port', '17886']]));
+    child.emit('message', { type: 'phase', phase: 1 });
+    child.emit('message', { type: 'phase', phase: 2 });
+    assert.deepEqual(timers.map(timer => timer.ms), [30_000, 30_000, externalFrontend ? 180_000 : 30_000]);
+    timers.at(-1).callback();
+    await assert.rejects(result, error => {
+      assert.match(error.message, /phase=attachment/);
+      assert.equal(error.code, externalFrontend ? 'DEV_ATTACHMENT_PENDING' : undefined);
+      return true;
+    });
+    assert.equal(stopped, externalFrontend ? 0 : 1);
+    assert.equal(disconnected, externalFrontend ? 1 : 0);
+    assert.equal(readinessChecks, 0);
+    assert.deepEqual(child.eventNames(), []);
+  });
+}

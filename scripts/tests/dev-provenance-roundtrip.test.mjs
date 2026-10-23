@@ -37,7 +37,7 @@ function fixture() {
   for (const dir of ['scripts', clientDebug, 'data/bin', 'dist']) {
     fs.mkdirSync(path.join(checkout, dir), { recursive: true });
   }
-  for (const name of ['dev-prep.mjs', 'dev-native-layout.mjs', 'dev-reload-inputs.cjs', 'crate-layers.json', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
+  for (const name of ['dev-prep.mjs', 'server-readiness.mjs', 'dev-native-layout.mjs', 'dev-reload-inputs.cjs', 'crate-layers.json', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
     fs.copyFileSync(path.join(root, 'scripts', name), path.join(checkout, 'scripts', name));
   }
   const exe = process.platform === 'win32' ? '.exe' : '';
@@ -275,6 +275,27 @@ cat args.txt
 
 const preflight = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)')));
 const preflightHelpers = ['run_prebuilt_preflight', 'refuse_prebuilt'].map(sourceFunction).join('\n');
+for (const externalFrontend of [0, 1]) {
+  test(`prebuilt timeout shell preserves ready server and window only in split mode=${externalFrontend}`, () => {
+    const start = source.indexOf('      if run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt');
+    const launch = source.slice(start, source.indexOf('      HEALTH=', start));
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${sourceFunction('cleanup_failed_prebuilt_launch')}
+DEV_FRONT_EXTERNAL=${externalFrontend} PREBUILT_LOG=fixture.log CT_PORT=17886
+kill_dev() { echo killed; }
+dev_app_path() { echo fixture-app; }
+dev_provenance_record() { echo fixture-record; }
+run_outside_tab_job() { return 3; }
+trap cleanup_failed_prebuilt_launch EXIT
+${launch}
+echo falsely-ready
+`], { encoding: 'utf8' });
+    assert.equal(result.status, 3, result.stderr);
+    assert.equal(result.stdout.trim(), externalFrontend ? '' : 'killed');
+    assert.match(result.stderr, externalFrontend ? /still attaching; server and window retained/ : /cleaning the owned dev processes/);
+  });
+}
+
 for (const refusal of ['provenance', 'runtime', 'none']) {
   test(`prebuilt restart preflight refusal=${refusal} preserves stop ordering and logs refusals`, () => {
     const result = spawnSync(bash, ['-c', `set -euo pipefail

@@ -40,6 +40,19 @@ the window. A rerun with a live window builds beside it: the window locks its ex
 client link that succeeds proves the client unchanged and only the server swaps; a lock failure
 replaces the window. Hosts older than the Team DEV breakaway report that the window stays tied to the tab.
 
+With `dev-back`, native attachment has a 180-second failure deadline after reply validation
+to allow Vite's unbundled modules and large restored workspaces to load. Progress events
+advance the startup phases; only the native attachment acknowledgement and server readiness
+events prove readiness. If a phase expires, the command returns exit 3 with “still attaching”
+and leaves the server and window running, including when server health is already ready.
+Plain `dev` keeps its existing deadlines and cleanup behavior.
+
+After exit 3, inspect the printed prebuilt log and `client-startup.log`, confirm that
+`dev-front` is running, and let the existing window complete attachment. Server health alone
+does not prove the window attached. Do not rerun `dev-back` just to extend its wait; if the
+window cannot recover, the DEV owner may explicitly stop the selected instance with
+`./build.sh kill` and restart `dev-front` before `dev-back`.
+
 ## Firebase emulator DEV
 
 Start and seed the Firebase Emulator Suite using the sibling repository's
@@ -504,7 +517,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
 
 ### REST listener bind recovery
 
@@ -802,7 +815,7 @@ its repair checks both platform layouts and wait modes, preserving the default a
 
 ### Separate DEV verification and bootstrap budgets
 
-A slow verified startup previously consumed the outer30-second budget before the client began its own bootstrap budget. The launcher now bounds preparation, bootstrap and authenticated attachment separately at30seconds each. Only the ordered attach-start and reply-validation events move the boundary; duplicates never extend a phase. No event means failure at that phase deadline, and progress never means readiness. Existing inner bootstrap/transport deadlines remain unchanged.
+A slow verified startup previously consumed the outer30-second budget before the client began its own bootstrap budget. Plain `dev` bounds preparation, bootstrap and authenticated attachment separately at30seconds each; `dev-back` uses the longer attachment deadline and retains processes on expiry as described under “How we run DEV: two tabs”. Only the ordered attach-start and reply-validation events move the boundary; duplicates never extend a phase. Progress never means readiness. Existing inner bootstrap/transport deadlines remain unchanged.
 
 Debug `[boot-operation]` records measure embedded extraction, capability registration (including binary resolution/fingerprint), integrity hashing with actual bytes, restored plans and platform initialization. Capability timing includes the registration call rather than claiming a separate binary-probe duration; compare it with the existing VM model timing. No digest or private bootstrap reply is logged.
 
