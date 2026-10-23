@@ -24,7 +24,7 @@ pub(crate) struct MockProvider {
     down: AtomicBool,
     pub calls: AtomicUsize,
     gate: Mutex<Option<Gate>>,
-    failures: Mutex<Vec<(String, EmbedError)>>,
+    failures: Mutex<Vec<(String, EmbedError, bool)>>,
 }
 
 impl MockProvider {
@@ -56,7 +56,12 @@ impl MockProvider {
 
     /// Every later passage containing `word` fails with `error`.
     pub fn fail_on(&self, word: &str, error: EmbedError) {
-        self.failures.lock().push((word.into(), error));
+        self.failures.lock().push((word.into(), error, false));
+    }
+
+    /// The next passage containing `word` fails with `error`, later ones succeed.
+    pub fn fail_once(&self, word: &str, error: EmbedError) {
+        self.failures.lock().push((word.into(), error, true));
     }
 
     pub fn ungate(&self) {
@@ -94,13 +99,16 @@ impl MockProvider {
             return Err(EmbedError::Unavailable("mock outage".into()));
         }
         if gated {
-            if let Some((_, error)) = self
-                .failures
-                .lock()
+            let mut failures = self.failures.lock();
+            if let Some(index) = failures
                 .iter()
-                .find(|(word, _)| text.contains(word.as_str()))
+                .position(|(word, _, _)| text.contains(word.as_str()))
             {
-                return Err(error.clone());
+                let error = failures[index].1.clone();
+                if failures[index].2 {
+                    failures.remove(index);
+                }
+                return Err(error);
             }
         }
         self.calls.fetch_add(1, Ordering::SeqCst);

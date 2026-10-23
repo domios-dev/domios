@@ -105,23 +105,31 @@ impl MemManager {
         Ok(plan)
     }
 
-    /// Adopt `provider` at startup: switch when the index is stamped for a
-    /// different model, otherwise just make it active.
+    /// Adopt the configured `provider` at startup: switch when the index is
+    /// stamped for a different model, otherwise make it active and drop any
+    /// shadow a crash left behind.
     pub fn reconcile_embedder(
         self: &Arc<Self>,
         provider: SharedProvider,
     ) -> Result<Option<SwitchPlan>, String> {
         let identity = provider.identity();
-        let stamp = index::stamp(&self.conn.lock())?;
-        if stamp.as_ref() == Some(&identity) {
-            if self.embedder.identity() != identity {
-                self.embedder.replace(provider);
-                self.rebuild_docs_vectors();
+        if index::stamp(&self.conn.lock())?.as_ref() == Some(&identity) {
+            if self.reembed.snapshot().state != super::ReembedState::Running {
+                self.clear_shadow(&self.conn.lock());
             }
-            self.backfill_pending();
+            self.adopt_published(provider);
             return Ok(None);
         }
         self.switch_embedder(provider).map(Some)
+    }
+
+    /// Serve recall with the published model while a configured switch resumes.
+    pub fn adopt_published(&self, provider: SharedProvider) {
+        if self.embedder.identity() != provider.identity() {
+            self.embedder.replace(provider);
+            self.rebuild_docs_vectors();
+        }
+        self.backfill_pending();
     }
 
     /// Queue every vector-pending item and entity again.

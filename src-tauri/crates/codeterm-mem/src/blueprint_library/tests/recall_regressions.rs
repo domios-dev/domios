@@ -304,3 +304,50 @@ fn recall_reembed_blueprint_semantic_hits_and_intent_status_survive_shadow_build
     assert_eq!(recalled.state.reembed.done, 0);
     assert!(recalled.state.reembed.total > 0);
 }
+
+#[test]
+fn recall_reembed_shadow_blueprint_vectors_equal_direct_indexing_bytes() {
+    use crate::embedder::testing::{fixture_for, wait_for, MockProvider, DEADLINE};
+    use crate::embedder::{EmbedderEvent, ReembedState};
+    let fx = fixture_for(Arc::new(DeploymentEmbedder));
+    let id = fx
+        .mem
+        .save_blueprint(
+            "project",
+            document("done"),
+            &when("Detect stalled deployments"),
+            evidence(),
+        )
+        .unwrap()
+        .id;
+    assert!(fx.mem.embed_queue.wait_idle(DEADLINE));
+    fx.mem
+        .switch_embedder(MockProvider::new("new", "new", 768))
+        .unwrap();
+    wait_for(
+        &fx.events,
+        |event| matches!(event, EmbedderEvent::Progress(progress) if progress.state == ReembedState::Completed),
+    );
+    let rows = || -> Vec<(String, i64, String, Vec<u8>)> {
+        let conn = fx.mem.conn.lock();
+        let mut statement = conn
+            .prepare("SELECT slot, ordinal, text, embedding FROM blueprint_vectors WHERE item_id=?1 ORDER BY slot, ordinal")
+            .unwrap();
+        statement
+            .query_map([&id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    let published = rows();
+    assert!(!published.is_empty());
+    fx.mem
+        .conn
+        .lock()
+        .execute("DELETE FROM blueprint_vectors WHERE item_id=?1", [&id])
+        .unwrap();
+    fx.mem.index_blueprint(&id).unwrap();
+    assert_eq!(rows(), published);
+}

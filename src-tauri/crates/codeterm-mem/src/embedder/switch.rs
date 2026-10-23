@@ -121,7 +121,9 @@ impl ReembedTracker {
     }
 
     pub(crate) fn fail(&self, generation: u64, error: String, events: &ActiveEmbedder) {
-        if self.generation.load(Ordering::SeqCst) != generation {
+        if self.generation.load(Ordering::SeqCst) != generation
+            || self.claimed.load(Ordering::SeqCst) == generation
+        {
             return;
         }
         let snapshot = {
@@ -168,6 +170,16 @@ impl ReembedTracker {
             self.claimed.store(generation, Ordering::SeqCst);
         }
         current
+    }
+
+    /// A unit that failed earlier in this run embedded on retry.
+    pub(crate) fn recovered(&self, generation: u64) {
+        let mut progress = self.progress.lock();
+        if self.generation.load(Ordering::SeqCst) == generation
+            && progress.state == ReembedState::Running
+        {
+            progress.failed = progress.failed.saturating_sub(1);
+        }
     }
 
     /// Counts checkpointed units as done and adds units a resume pass re-embeds.
