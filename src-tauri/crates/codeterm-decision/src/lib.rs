@@ -32,6 +32,10 @@ pub trait DecisionModel: Send + Sync {
     fn models(&self) -> Vec<DecisionModelInfo> {
         Vec::new()
     }
+    /// Returns catalogue state without discovering models or resolving credentials.
+    fn cached_models(&self) -> Vec<DecisionModelInfo> {
+        self.models()
+    }
     fn select_model(&self, id: &str) -> bool {
         self.model_id().as_deref() == Some(id) && self.models().iter().any(|model| model.id == id)
     }

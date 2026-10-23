@@ -51,7 +51,7 @@ pub fn registered_adapters(models: &SupporterRegistry) -> Vec<Value> {
                     "noul": primitives.noul,
                     "score": primitives.score,
                 },
-                "models": model.models(),
+                "models": model.cached_models(),
                 "pricing": model.pricing(),
                 "metadata": model.metadata(),
             }))
