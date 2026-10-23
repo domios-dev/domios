@@ -49,8 +49,6 @@ pub async fn plugin_ui(
     axum::extract::Path((id, path)): axum::extract::Path<(String, String)>,
     Query(q): Query<PluginUiQuery>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
-    let dir = codeterm_service_core::view_host::plugin_ui_dir(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no ui for plugin '{id}'")))?;
     let rel = if path.is_empty() {
         "index.html"
     } else {
@@ -59,10 +57,17 @@ pub async fn plugin_ui(
     if rel.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
     }
-    let file = dir.join(rel);
-    let bytes = tokio::fs::read(&file)
-        .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))?;
+    let relative = rel.to_owned();
+    let bytes = tokio::task::spawn_blocking(move || {
+        codeterm_plugin::bundle_access::read_plugin_files(&id, || {
+            let dir = codeterm_service_core::view_host::plugin_ui_dir(&id)
+                .ok_or((StatusCode::NOT_FOUND, format!("no ui for plugin '{id}'")))?;
+            std::fs::read(dir.join(relative))
+                .map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))
+        })
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
 
     Ok(plugin_ui_response(rel, bytes, &q))
 }

@@ -36,6 +36,7 @@ const PLUGIN_READ_FILE_LIMIT: u64 = 1024 * 1024;
 
 struct HeldFileLock {
     call_id: String,
+    path: std::path::PathBuf,
     file: File,
 }
 
@@ -48,6 +49,14 @@ impl Drop for HeldFileLock {
 fn held_file_locks() -> &'static parking_lot::Mutex<HashMap<String, HeldFileLock>> {
     static LOCKS: OnceLock<parking_lot::Mutex<HashMap<String, HeldFileLock>>> = OnceLock::new();
     LOCKS.get_or_init(|| parking_lot::Mutex::new(HashMap::new()))
+}
+
+pub(super) fn release_bundle_file_locks(directory: &Path) {
+    if let Ok(directory) = directory.canonicalize() {
+        held_file_locks()
+            .lock()
+            .retain(|_, lock| !lock.path.starts_with(&directory));
+    }
 }
 
 thread_local! {
@@ -678,9 +687,14 @@ pub(super) fn install(
             .ok()?;
         file.try_lock().ok()?;
         let id = uuid::Uuid::new_v4().to_string();
-        held_file_locks()
-            .lock()
-            .insert(id.clone(), HeldFileLock { call_id, file });
+        held_file_locks().lock().insert(
+            id.clone(),
+            HeldFileLock {
+                call_id,
+                path: std::fs::canonicalize(&path).ok()?,
+                file,
+            },
+        );
         Some(id)
     });
     bind!("unlockFile", move |id: String| -> bool {

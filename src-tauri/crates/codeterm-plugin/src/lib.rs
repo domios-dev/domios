@@ -7,6 +7,7 @@ pub mod agent_task;
 pub mod agent_verbs;
 pub mod audit;
 pub mod bubble;
+pub mod bundle_access;
 pub mod bundle_hash;
 #[cfg(any(test, feature = "test-support"))]
 mod bundle_test_support;
