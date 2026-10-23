@@ -13,6 +13,17 @@ pub enum BlockReason {
     LocalMembershipExpired,
     PeerMembershipMissing,
     PeerMembershipExpired,
+    /// The account server refused this machine a slot under the plan's machine limit.
+    PlanLimitLocked,
+}
+
+impl BlockReason {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::PlanLimitLocked => "plan_limit_locked",
+            _ => "blocked",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +66,8 @@ pub fn decide(
             (AccountPresence::SignedIn { account_id }, owner) => {
                 if owner.is_some_and(|owner| owner != account_id.as_str()) {
                     Blocked(OtherAccount)
+                } else if state.plan_limit_locked {
+                    Blocked(PlanLimitLocked)
                 } else {
                     TrafficDecision::Open
                 }
@@ -75,7 +88,11 @@ pub fn decide(
                 return Blocked(Revoked);
             }
             if state.current_membership(now).is_none() {
-                return Blocked(LocalMembershipExpired);
+                return Blocked(if state.plan_limit_locked {
+                    PlanLimitLocked
+                } else {
+                    LocalMembershipExpired
+                });
             }
             let Some(remote) = record.remote_membership.as_ref() else {
                 return Blocked(PeerMembershipMissing);

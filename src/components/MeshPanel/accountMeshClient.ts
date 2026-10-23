@@ -48,7 +48,7 @@ export type AccountMeshFailure =
   | { reason: "rate-limited"; retry_after_seconds: number }
   | { reason: "mesh.machines"; limit: number; active_count: number }
   | { reason: "offline" | "peer-unreachable" | "handshake-failed" | "signed-out" }
-  | { reason: "revoked" | "cancelled" | "verification-unavailable" };
+  | { reason: "revoked" | "cancelled" | "verification-unavailable" | "plan_limit_locked" };
 
 export type AccountMeshOutcome = { ok: true } | { ok: false; failure: AccountMeshFailure };
 
@@ -61,7 +61,7 @@ export interface AccountMeshLimitNotice {
 
 export interface AccountMeshSnapshot {
   binding: "none" | "current" | "other";
-  traffic: "open" | "blocked_signed_out";
+  traffic: "open" | "blocked_signed_out" | "plan_limit_locked";
   cleanup: "none" | "pending" | "confirmed";
   self: SelfInstallation | null;
   registry: { observed_at: number; rows: AccountMachineRow[] } | null;
