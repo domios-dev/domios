@@ -63,7 +63,9 @@ impl ServiceContext {
         };
         let owner = &self.pending_delivery_payloads.agent_deliveries;
         let result: Result<(), String> = (|| {
-            for record in owner.records(target)? {
+            let records = owner.records(target)?;
+            self.scope_pending_binding_failure(target, &records);
+            for record in records {
                 if record.state != AgentDeliveryState::Pending
                     || record.saved_launch.is_some()
                     || record.terminal_failure.is_some()
@@ -77,13 +79,7 @@ impl ServiceContext {
                 else {
                     continue;
                 };
-                if let Some(cause) = self
-                    .durable_runtime()
-                    .binding_failures
-                    .lock()
-                    .get(target)
-                    .cloned()
-                {
+                if let Some(cause) = self.binding_failure(target, &record) {
                     owner.mark_terminal_failure(
                         target,
                         &record.id,
@@ -109,10 +105,7 @@ impl ServiceContext {
             Ok(())
         })();
         if let Err(error) = &result {
-            self.durable_runtime()
-                .binding_failures
-                .lock()
-                .insert(target.into(), error.clone());
+            self.remember_binding_failure(target, error);
         }
         result
     }

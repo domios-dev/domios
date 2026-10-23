@@ -577,7 +577,6 @@ impl ServiceContext {
             log::error!(
                 "[agent-delivery] authenticated launch binding failed tab={tab_id}: {error}"
             );
-            return;
         }
         let pty_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
             tab.launch_session_authenticated()

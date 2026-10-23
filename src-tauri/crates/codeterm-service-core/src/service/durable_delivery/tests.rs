@@ -238,3 +238,269 @@ fn blueprint_v2_call_durable_review_session_commit_binds_before_async_followup()
             && event["delivery_id"] == id
             && event["code"] == "launch_ended_before_write"));
 }
+
+#[test]
+fn blueprint_v2_call_durable_r2_concurrent_terminal_settlement_publishes_one_receipt_and_event() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    };
+    use std::time::Duration;
+    let (fixture, tab, id, _) = held();
+    let writes = fixture.record_agent_deliveries(&tab);
+    let owner = fixture
+        .service
+        .pending_delivery_payloads
+        .agent_deliveries
+        .clone();
+    let record = owner.pending_head(&tab).unwrap().unwrap();
+    let payload: AgentDeliveryPayload =
+        serde_json::from_str(&owner.payload(&tab, &record).unwrap()).unwrap();
+    let count = Arc::new(AtomicUsize::new(0));
+    let seen = count.clone();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = parking_lot::Mutex::new(release_rx);
+    fixture.ui.listen("agent-delivery-status", move |event| {
+        if event["status"] == "failed" && seen.fetch_add(1, Ordering::SeqCst) == 0 {
+            entered_tx.send(()).unwrap();
+            release_rx
+                .lock()
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+        }
+    });
+    let service = fixture.service.clone();
+    let first_owner = owner.clone();
+    let first_record = record.clone();
+    let first_payload = payload.clone();
+    let target = tab.clone();
+    let closing = std::thread::spawn(move || {
+        let _claim = service.pty_ownership.acquire(&target);
+        service.fail_durable_delivery(
+            &target,
+            &first_owner,
+            &first_record,
+            &first_payload,
+            "recipient_gone",
+        )
+    });
+    let entered = entered_rx.recv_timeout(Duration::from_secs(5));
+    if entered.is_ok() {
+        fixture
+            .service
+            .fail_durable_delivery(&tab, &owner, &record, &payload, "delivery_ttl_expired")
+            .unwrap();
+    }
+    release_tx.send(()).unwrap();
+    closing.join().unwrap().unwrap();
+    entered.unwrap();
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    assert!(writes.texts.lock().is_empty());
+    assert!(!fixture.has_pending_agent_delivery(&tab));
+    let inbox = fixture
+        .service
+        .ensure_agent_pad(&tab)
+        .unwrap()
+        .path()
+        .join("inbox");
+    let files = std::fs::read_dir(inbox)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(
+        files[0].file_name(),
+        std::ffi::OsStr::new(&format!("delivery-{id}.json"))
+    );
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(files[0].path()).unwrap()).unwrap();
+    assert_eq!(receipt["code"], "recipient_gone");
+}
+
+#[test]
+fn blueprint_v2_call_durable_r2_binding_failure_does_not_poison_a_later_live_result() {
+    let (fixture, tab, id, _) = held();
+    let writes = fixture.record_agent_deliveries(&tab);
+    let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    owner.state_changed(&tab);
+    assert!(owner.start_worker(&tab));
+    fixture
+        .service
+        .remember_binding_failure(&tab, "injected durable persist failure");
+    let mut ordinary = AgentDeliveryPayload {
+        durable_delivery: None,
+        trace_id: None,
+        transport: Messenger::from(MessageEnvelope::from_codeterm())
+            .framed_delivery("ordinary backlog"),
+        observer: None,
+        idempotency_key: None,
+        expected_pty_id: Some(format!("recorded-{tab}")),
+        expected_session_id: Some("saved-session".into()),
+        expected_binding_nonce: Some("L1".into()),
+    };
+    owner
+        .enqueue(&tab, &serde_json::to_string(&ordinary).unwrap(), None)
+        .unwrap();
+    fixture.resume_recorded_agent_recipient(&tab, "saved-session", "L1");
+    let record = owner.pending_head(&tab).unwrap().unwrap();
+    assert_eq!(record.id, id);
+    let payload = serde_json::from_str(&owner.payload(&tab, &record).unwrap()).unwrap();
+    fixture
+        .service
+        .fail_durable_delivery(
+            &tab,
+            owner,
+            &record,
+            &payload,
+            "launch_authority_unavailable",
+        )
+        .unwrap();
+    owner.finish_worker(&tab);
+    fixture.service.wake_agent_deliveries_on_state_change(&tab);
+    writes.wait_for_flush();
+    assert_eq!(writes.texts.lock().as_slice(), ["ordinary backlog"]);
+    ordinary.durable_delivery = Some(fixture.service.durable_delivery("new-live-run", &tab));
+    ordinary.transport = ordinary.transport.with_body("new live result".into());
+    owner
+        .enqueue(&tab, &serde_json::to_string(&ordinary).unwrap(), None)
+        .unwrap();
+    fixture.service.wake_agent_deliveries_on_state_change(&tab);
+    writes.wait_for_flush();
+    assert_eq!(
+        writes.texts.lock().as_slice(),
+        ["ordinary backlog", "new live result"]
+    );
+    assert!(!fixture.has_pending_agent_delivery(&tab));
+}
+
+#[test]
+fn blueprint_v2_call_durable_r2_held_prefix_is_inside_the_provider_paste_limit() {
+    let (fixture, tab, _, _) = held();
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("saved-provider")
+            .with_paste_limit_bytes(4096),
+    ));
+    let writes = fixture.record_agent_deliveries(&tab);
+    let mut envelope = MessageEnvelope::codeterm_reminder("blueprint:limited-result");
+    envelope.durable_delivery = Some(fixture.service.durable_delivery("limited-run", &tab));
+    let messenger = Messenger::from(envelope.clone());
+    let overhead = messenger.framed_delivery("").to_message().len();
+    let body = "x".repeat(4096 - overhead - 1);
+    assert!(messenger.framed_delivery(&body).to_message().len() < 4096);
+    let Delivery::Pending { delivery_id } =
+        Messenger::deliver(&fixture.service, &tab, envelope, &body).unwrap()
+    else {
+        panic!("restored limited result stays held");
+    };
+    fixture.service.wake_agent_deliveries_on_state_change(&tab);
+    writes.wait_for_flush();
+    let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    let record = owner
+        .records(&tab)
+        .unwrap()
+        .into_iter()
+        .find(|record| record.id == delivery_id)
+        .unwrap();
+    let payload: AgentDeliveryPayload =
+        serde_json::from_str(&owner.payload(&tab, &record).unwrap()).unwrap();
+    assert!(
+        payload.transport.to_message().len() <= 4096,
+        "the actual queued frame respects the provider limit"
+    );
+    let pad = fixture.service.ensure_agent_pad(&tab).unwrap();
+    let expected = format!("Original run: limited-run; timestamp: 1000\n{body}");
+    assert!(pad
+        .list()
+        .unwrap()
+        .iter()
+        .any(|path| pad.read_utf8(path).is_ok_and(|text| text == expected)));
+    assert!(writes.texts.lock().is_empty());
+}
+
+#[test]
+fn blueprint_v2_call_durable_r2_refuses_when_even_the_held_pointer_exceeds_the_paste_limit() {
+    let (fixture, tab, _, _) = held();
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("saved-provider").with_paste_limit_bytes(96),
+    ));
+    let writes = fixture.record_agent_deliveries(&tab);
+    let owner = &fixture.service.pending_delivery_payloads.agent_deliveries;
+    let accepted_before = owner.records(&tab).unwrap().len();
+    let mut envelope = MessageEnvelope::codeterm_reminder("blueprint:limited-result");
+    envelope.durable_delivery = Some(fixture.service.durable_delivery("limited-run", &tab));
+    let error = Messenger::deliver(&fixture.service, &tab, envelope, &"x".repeat(512)).unwrap_err();
+    assert!(error.contains("exceeds the provider paste limit"));
+    assert_eq!(
+        owner.records(&tab).unwrap().len(),
+        accepted_before,
+        "no oversized held payload is admitted"
+    );
+    assert!(writes.texts.lock().is_empty());
+}
+
+#[test]
+fn blueprint_v2_call_durable_r2_unreadable_index_failure_excludes_new_saved_admissions() {
+    let (fixture, tab, original_id, clock) = held();
+    let next = restarted(&fixture, clock);
+    let writes = next.record_agent_deliveries(&tab);
+    let owner = &next.service.pending_delivery_payloads.agent_deliveries;
+    owner.state_changed(&tab);
+    assert!(owner.start_worker(&tab));
+    let root = next
+        .service
+        .agent_pad_data_dir
+        .join("agent-delivery-outbox");
+    let index = std::fs::read_dir(root)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path()
+        .join("index.json");
+    let original_index = std::fs::read(&index).unwrap();
+    std::fs::write(&index, "invalid outbox index").unwrap();
+    next.resume_recorded_agent_recipient(&tab, "saved-session", "L1");
+    std::fs::write(&index, original_index).unwrap();
+    next.service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .restored_from_snapshot = true;
+    let mut envelope = MessageEnvelope::codeterm_reminder("blueprint:new-result");
+    envelope.durable_delivery = Some(next.service.durable_delivery("newer-run", &tab));
+    let Delivery::Pending { delivery_id } =
+        Messenger::deliver(&next.service, &tab, envelope, "new held result").unwrap()
+    else {
+        panic!("new saved result is admitted independently");
+    };
+    let records = owner.records(&tab).unwrap();
+    let original = records
+        .iter()
+        .find(|record| record.id == original_id)
+        .unwrap();
+    let newer = records
+        .iter()
+        .find(|record| record.id == delivery_id)
+        .unwrap();
+    assert!(next.service.binding_failure(&tab, original).is_some());
+    assert!(next.service.binding_failure(&tab, newer).is_none());
+    next.resume_recorded_agent_recipient(&tab, "saved-session", "L2");
+    owner.finish_worker(&tab);
+    next.service.wake_agent_deliveries_on_state_change(&tab);
+    writes.wait_for_flush();
+    assert_eq!(
+        writes.texts.lock().as_slice(),
+        ["Original run: newer-run; timestamp: 1000\nnew held result"]
+    );
+    assert!(!next.has_pending_agent_delivery(&tab));
+    assert!(next
+        .ui
+        .0
+        .lock()
+        .iter()
+        .any(|(kind, event)| kind == "agent-delivery-status"
+            && event["delivery_id"] == original_id
+            && event["code"] == "launch_authority_unavailable"));
+}
