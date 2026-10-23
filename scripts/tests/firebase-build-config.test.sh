@@ -19,6 +19,8 @@ codeterm() {
     present:DOMIOS_FIREBASE_APP_ID) printf '%s' 'fixture-app' ;;
     present:DOMIOS_ACCOUNT_REDEEM_URL) printf '%s' 'https://fixture.invalid/redeem' ;;
     present:DOMIOS_QA_PROJECT_ID) printf ' fixture-qa-project\r\n' ;;
+    present:DOMIOS_QA_FIREBASE_API_KEY) printf ' qa-fixture-api-key\r\n' ;;
+    present:DOMIOS_QA_FIREBASE_APP_ID) printf ' qa-fixture-app\r\n' ;;
     *) return 1 ;;
   esac
 }
@@ -32,7 +34,9 @@ assert_secret_environment() {
 }
 
 assert_qa_environment() {
-  [ "$DOMIOS_QA_PROJECT_ID" = 'fixture-qa-project' ]
+  [ "$DOMIOS_QA_PROJECT_ID" = 'fixture-qa-project' ] &&
+    [ "$DOMIOS_QA_FIREBASE_API_KEY" = 'qa-fixture-api-key' ] &&
+    [ "$DOMIOS_QA_FIREBASE_APP_ID" = 'qa-fixture-app' ]
 }
 
 assert_empty_environment() {
@@ -53,13 +57,18 @@ run_with_trace() {
 
 SECRET_MODE=present
 DOMIOS_QA_PROJECT_ID='inherited-wrong-project'
+DOMIOS_QA_FIREBASE_API_KEY='inherited-wrong-key'
+DOMIOS_QA_FIREBASE_APP_ID='inherited-wrong-app'
 run_with_trace assert_qa_environment || fail
 case "$(<"$capture")" in
-  *fixture-qa-project*|*inherited-wrong-project*) fail ;;
+  *fixture-qa-project*|*inherited-wrong*|*qa-fixture*) fail ;;
   *'QA project config: present'*) ;;
   *) fail ;;
 esac
 [ "$DOMIOS_QA_PROJECT_ID" = 'inherited-wrong-project' ] || fail
+[ "$DOMIOS_QA_FIREBASE_API_KEY" = 'inherited-wrong-key' ] || fail
+[ "$DOMIOS_QA_FIREBASE_APP_ID" = 'inherited-wrong-app' ] || fail
+DOMIOS_ACCOUNT_TARGET=qa run_with_trace assert_secret_environment || fail
 DOMIOS_BILLING_FUNCTIONS_URL='https://parent.invalid/billing'
 unset DOMIOS_FIREBASE_API_KEY DOMIOS_FIREBASE_PROJECT_ID DOMIOS_FIREBASE_APP_ID DOMIOS_ACCOUNT_REDEEM_URL
 run_with_trace assert_secret_environment || fail
@@ -74,7 +83,9 @@ esac
 [ "${DOMIOS_FIREBASE_API_KEY+x}${DOMIOS_FIREBASE_PROJECT_ID+x}${DOMIOS_FIREBASE_APP_ID+x}${DOMIOS_ACCOUNT_REDEEM_URL+x}" = '' ] || fail
 
 SECRET_MODE=absent
-assert_missing_qa() { [ -z "$DOMIOS_QA_PROJECT_ID" ]; }
+assert_missing_qa() {
+  [ -z "$DOMIOS_QA_PROJECT_ID$DOMIOS_QA_FIREBASE_API_KEY$DOMIOS_QA_FIREBASE_APP_ID" ]
+}
 ct_with_firebase_build_config assert_missing_qa >"$capture" 2>&1 || fail
 case "$(<"$capture")" in
   *'QA project not configured in this build'*) ;;
@@ -135,7 +146,8 @@ codeterm() {
   [ "$*" = 'mem secret get --name DOMIOS_QA_PROJECT_ID' ] || return 1
   printf fixture-qa-project
 }
-run_with_trace assert_qa_environment || fail
+assert_captured_qa_project() { [ "$DOMIOS_QA_PROJECT_ID" = 'fixture-qa-project' ]; }
+run_with_trace assert_captured_qa_project || fail
 case "$(<"$capture")" in
   *opaque-parent-token*|*opaque-dev-token*|*fixture-qa-project*) fail ;;
 esac

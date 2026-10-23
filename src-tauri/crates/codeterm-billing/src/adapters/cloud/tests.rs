@@ -179,3 +179,27 @@ fn only_an_already_subscribed_refusal_keeps_its_reason() {
         "Billing request refused"
     );
 }
+#[test]
+fn qa_billing_requires_the_selected_project() {
+    let endpoints = codeterm_account::firebase_endpoints::Endpoints {
+        qa: true,
+        functions: "https://us-central1-domios-signin-qa.cloudfunctions.net/",
+        ..codeterm_account::firebase_endpoints::PRODUCTION
+    };
+    assert!(super::validate_qa_base(endpoints, None).is_ok());
+    assert!(super::validate_qa_base(endpoints, Some(endpoints.functions)).is_ok());
+    assert!(super::validate_qa_base(
+        endpoints,
+        Some(codeterm_account::firebase_endpoints::PRODUCTION.functions)
+    )
+    .is_err());
+    assert!(super::validate_qa_base(endpoints, Some("http://127.0.0.1:15200/")).is_err());
+    assert_eq!(
+        super::base_for(true, endpoints, "ignored"),
+        endpoints.functions
+    );
+    assert_eq!(
+        super::base_for(false, endpoints, endpoints.functions),
+        codeterm_account::firebase_endpoints::PRODUCTION.functions
+    );
+}
