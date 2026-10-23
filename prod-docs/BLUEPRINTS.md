@@ -26,7 +26,7 @@ domios blueprint project show .domios/blueprints/health.yaml --json
 
 Discovery reports the source path, name and intent. Names must exactly match file stems; linked or escaping paths, duplicate stems across extensions and files larger than 64 KiB refuse. This surface only reads: listing, viewing and repository changes never run, apply or approve a Blueprint. Repository execution requires its separate trust approval.
 
-The Jobs view offers the same repository list and source viewer. Existing Blueprint canvases show typed nodes, ports and forward routes. Select a call node to inspect its retained id/hash, inputs, result and body and expand its callee in place. Select a run to inspect its own journal and nested stop evidence; Stop selected run uses the existing Blueprint stop path and is available for the current running run. Semantic diff compares retained definition versions, including route, port, capability, body, import and call-pin changes. Parameter fields display CLI `--set` assignments without submitting them.
+The Jobs view offers the same repository list and source viewer. Existing Blueprint canvases show typed nodes, ports and forward routes. Select a call node to inspect its retained id/hash, inputs, result and body and expand its callee in place. Select a run to inspect its own journal and nested stop evidence; Stop selected run uses the existing Blueprint stop path and is available for the current running run. Trigger and Result nodes take their state from the run's `$run` and `$result` journal rows, a held node shows its recorded reason, and Trigger, Stop and Result nodes of an expanded callee carry the callee path in their label. A held Blueprint shows its hold reason (pause, uncertain claim/effect/result after a restart, or the recorded journal reason). Semantic diff compares retained definition versions, including route, port, capability, body, import and call-pin changes. Parameter fields display CLI `--set` assignments without submitting them.
 
 ## Native v2 documents
 
@@ -206,5 +206,4 @@ Blueprint results addressed to a restored PTY agent tab retain the exact saved p
 
 R10 is a hygiene lint, not a security boundary. It scans executable text lexically, also joining split string literals: a whole word `domios` or `codeterm`, or a token starting `DOMIOS_` or `CODETERM_`, inside a `run` command or a code string refuses with `ambient_authority`, even in a comment or string literal. It also refuses domios-cli capabilities. Obfuscated code still passes, and a clean scan does not prove shell text safe. Child environments drop the running instance's credentials and every Domios or CodeTerm CLI directory from `PATH` only to prevent accidental inheritance. A child that reads the user's Domios data directory or launches a CLI by absolute path still acts with the user's own authority. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
 
-<!-- revision: 63 -->
-
+<!-- revision: 64 -->

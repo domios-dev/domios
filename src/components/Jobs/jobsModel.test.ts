@@ -96,4 +96,9 @@ assert.equal(canStopJob(mergeJobs(NO_JOBS_FILTER, [], [], standalone)[0]), true)
 assert.equal(clearableJobs(mergeJobs(NO_JOBS_FILTER, [], [], standalone)).length, 0);
 assert.equal(mergeJobs(NO_JOBS_FILTER, [], [], standalone)[0].state, "running");
 
+for (const scope of [NO_JOBS_FILTER, { workspaceId: "workspace-a", teamId: null }, { workspaceId: "workspace-b", teamId: null }, { workspaceId: "workspace-a", teamId: "team-a" }]) {
+  const listed = mergeJobs(scope, [cron("scoped-cron", "team-a")], [...tabSentinels, foreignScenario], [...pipelines, ...standalone]);
+  assert.equal(jobsIndicator({ crons: [cron("scoped-cron", "team-a")], sentinels: [...tabSentinels, foreignScenario], blueprints: [...pipelines, ...standalone] }, scope).count, listed.length, "the sidebar count is the length of the list the Jobs view shows for the same scope");
+}
+
 console.log("Jobs model and indicator and tab-binding cases passed");
