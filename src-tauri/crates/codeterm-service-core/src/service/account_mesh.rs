@@ -178,7 +178,7 @@ impl ServiceContext {
                     AccountMeshPorts {
                         registry: self.registry(),
                         sessions: Arc::new(AccountSessions(self.ext::<AccountCell>().0.clone())),
-                        keys: Arc::new(AccountCredentials::new(self.secrets.clone())),
+                        keys: Arc::new(AccountCredentials::new().await?),
                         store: Arc::new(FileAccountMeshStore::new(crate::paths::data_dir())),
                         endpoint: listener.clone(),
                         transport: Arc::new(TransportBridge {
