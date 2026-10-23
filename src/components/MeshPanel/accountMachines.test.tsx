@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import MyMachines from "./AddPeerPanel";
 import {
   accountPresence,
+  failureMessage,
   myMachinesView,
   settledLinks,
+  PLAN_LOCKED_COPY,
   SIGN_IN_COPY,
   SIGNED_OUT_COPY,
   type MachineRowView,
@@ -128,6 +130,13 @@ describe("My machines projection", () => {
     expect(result.saved.every(noControls)).toBe(true);
     expect(result.notes.some((note) => note.includes("slot"))).toBe(true);
     expect(result.notes.some((note) => note.includes("cleanup is pending"))).toBe(true);
+  });
+
+  it("a plan-locked machine keeps its pairings listed as over the limit", () => {
+    const locked = snapshot({ traffic: "plan_limit_locked", pairs: [pair("mesh-old", "Old", { admission: "legacy" })] });
+    const result = accountView(view("signed_in", locked));
+    expect(result.saved.map((row) => [row.key, row.status, row.detail])).toEqual([["pair:mesh-old", "over_limit", PLAN_LOCKED_COPY]]);
+    expect(failureMessage({ reason: "plan_limit_locked" })).toBe(PLAN_LOCKED_COPY);
   });
 
   it("same-account sign-in restores the same row identity with usable controls", () => {

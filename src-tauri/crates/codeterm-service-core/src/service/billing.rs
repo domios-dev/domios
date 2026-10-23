@@ -131,6 +131,7 @@ impl ServiceContext {
         billing
             .refresh(session.as_ref(), event, Instant::now())
             .await;
+        self.unlock_account_mesh_after_plan_change();
         let current = account.session().await;
         snapshot_off_runtime(billing, current).await
     }
