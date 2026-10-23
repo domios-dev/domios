@@ -24,13 +24,27 @@ fn reconcile_tab_status(registry: &AgentRegistry, tab: &Tab, raw: TabStatus) -> 
             })
         })
         .unwrap_or(false);
-    codeterm_types::pty::reconcile_status(
-        raw,
-        tab.boot_stage,
-        tab.agent_state.as_ref().map(|state| state.state),
-        deterministic_agent_state,
-        tab.pending_prompt.is_some(),
+    hold_running_shell_command(
+        tab,
+        codeterm_types::pty::reconcile_status(
+            raw,
+            tab.boot_stage,
+            tab.agent_state.as_ref().map(|state| state.state),
+            deterministic_agent_state,
+            tab.pending_prompt.is_some(),
+        ),
     )
+}
+
+/// Output silence never ends an open shell-marker command span.
+fn hold_running_shell_command(tab: &Tab, status: TabStatus) -> TabStatus {
+    let running = tab.is_utility_shell()
+        && tab.shell_command_state.activity == crate::multiplexer::types::ShellActivity::Running;
+    if running && status == TabStatus::Idle {
+        TabStatus::Working
+    } else {
+        status
+    }
 }
 
 pub(super) fn snapshot_with_reconciled_status(
@@ -47,14 +61,17 @@ pub(super) fn snapshot_with_reconciled_status(
     let mux = mux.read();
     let tracker = tracker.lock();
     mux.snapshot_with_status_resolver(&tracker, |tab, raw| {
-        codeterm_types::pty::reconcile_status(
-            raw,
-            tab.boot_stage,
-            tab.agent_state.as_ref().map(|state| state.state),
-            tab.agent_type
-                .as_ref()
-                .is_some_and(|provider| reconciliation_providers.contains(provider)),
-            tab.pending_prompt.is_some(),
+        hold_running_shell_command(
+            tab,
+            codeterm_types::pty::reconcile_status(
+                raw,
+                tab.boot_stage,
+                tab.agent_state.as_ref().map(|state| state.state),
+                tab.agent_type
+                    .as_ref()
+                    .is_some_and(|provider| reconciliation_providers.contains(provider)),
+                tab.pending_prompt.is_some(),
+            ),
         )
     })
 }
@@ -212,6 +229,70 @@ mod tests {
 
         assert_eq!(live_status, TabStatus::Idle);
         assert_eq!(snapshot.tab_statuses.get(&tab_id), Some(&live_status));
+    }
+
+    #[test]
+    fn silent_running_shell_command_stays_working_through_idle_poll() {
+        use crate::multiplexer::types::{ShellActivity, ShellCommandState, TabBacking, TabType};
+        use std::time::Duration;
+
+        let (mut state, _root) = MultiplexerState::new();
+        let workspace_id = state.list_workspaces()[0].id.clone();
+        let tab_id = state.create_tab(&workspace_id).unwrap();
+        {
+            let tab = state.get_tab_mut(&tab_id).unwrap();
+            tab.tab_type = TabType::Terminal;
+            tab.backing = TabBacking::Pty;
+            tab.pty_id = Some("pty-sleep".into());
+            assert!(
+                crate::agent::shell_command_state::apply_shell_command_state(
+                    tab,
+                    "pty-sleep",
+                    ShellCommandState {
+                        activity: ShellActivity::Running,
+                        last_exit_code: None,
+                    },
+                )
+            );
+        }
+        let mux: MuxState = Arc::new(TimedRwLock::new("silent-command-test", state));
+        let mut raw_tracker = TabStatusTracker::new();
+        raw_tracker.update_output("pty-sleep", [1u8; 32]);
+        raw_tracker.check_idle("pty-sleep", Duration::ZERO);
+        assert_eq!(raw_tracker.get_status("pty-sleep"), TabStatus::Idle);
+        let tracker: AgentTrackerState =
+            Arc::new(TimedMutex::new("silent-command-test", raw_tracker));
+        let registry = AgentRegistry::new();
+
+        let live = |mux: &MuxState| {
+            reconcile_tab_status(
+                &registry,
+                mux.read().get_tab(&tab_id).unwrap(),
+                TabStatus::Idle,
+            )
+        };
+        assert_eq!(live(&mux), TabStatus::Working);
+        let snapshot = snapshot_with_reconciled_status(&mux, &tracker, &registry);
+        assert_eq!(
+            snapshot.tab_statuses.get(&tab_id),
+            Some(&TabStatus::Working)
+        );
+
+        {
+            let mut state = mux.write();
+            let tab = state.get_tab_mut(&tab_id).unwrap();
+            crate::agent::shell_command_state::apply_shell_command_state(
+                tab,
+                "pty-sleep",
+                ShellCommandState {
+                    activity: ShellActivity::Idle,
+                    last_exit_code: Some(0),
+                },
+            );
+        }
+        assert_eq!(live(&mux), TabStatus::Idle);
+        let snapshot = snapshot_with_reconciled_status(&mux, &tracker, &registry);
+        assert_eq!(snapshot.tab_statuses.get(&tab_id), Some(&TabStatus::Idle));
     }
 
     #[test]

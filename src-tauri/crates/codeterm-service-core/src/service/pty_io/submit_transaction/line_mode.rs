@@ -109,4 +109,57 @@ mod transaction_tests {
             assert_eq!(result.submit_anomaly, !append);
         }
     }
+
+    struct SilentShell {
+        keys: Cell<usize>,
+        deferred_waits: Cell<usize>,
+    }
+    impl SubmitTransport for SilentShell {
+        fn observe(&self) -> Option<Observation> {
+            None
+        }
+        fn draft_evidence_count(&self, _: &str) -> usize {
+            0
+        }
+        fn generation(&self) -> u64 {
+            0
+        }
+        fn wait_change(&self, _: u64, _: Instant) -> bool {
+            false
+        }
+        fn turn_started(&self) -> bool {
+            false
+        }
+        fn write_paste(&self, text: &str, _: Instant) -> Result<usize, InjectionError> {
+            Ok(text.len())
+        }
+        fn write_submit_key(&self, _: &[u8], _: Instant) -> Result<(), InjectionError> {
+            self.keys.set(self.keys.get() + 1);
+            Ok(())
+        }
+        fn wait_for_deferred_submit_ready(&self, _: Instant) -> DeferredSubmitWait {
+            self.deferred_waits.set(self.deferred_waits.get() + 1);
+            DeferredSubmitWait::Deadline
+        }
+    }
+
+    #[test]
+    fn plain_shell_send_completes_once_written_without_recovery_keys() {
+        let shell = SilentShell {
+            keys: Cell::new(0),
+            deferred_waits: Cell::new(0),
+        };
+        let result = runner::run(
+            &shell,
+            "echo opaque",
+            true,
+            crate::agent::provider::VerifySubmitStrategy::None,
+            crate::service::pty_io::send::plain_input_verify_opts(true, false),
+        )
+        .unwrap();
+        assert_eq!(shell.keys.get(), 1);
+        assert_eq!(shell.deferred_waits.get(), 0);
+        assert!(!result.submit_anomaly);
+        assert!(crate::service::pty_io::send::plain_input_verify_opts(true, true).verify_submit);
+    }
 }
