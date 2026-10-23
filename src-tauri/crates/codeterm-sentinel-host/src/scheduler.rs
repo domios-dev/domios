@@ -280,31 +280,7 @@ pub fn start(
                         for notice in notices {
                             routes::notify_stop(&svc, &notice);
                         }
-                        for lease in leases {
-                            let Some(owner) = probe_owner.upgrade() else {
-                                return;
-                            };
-                            let worker_handle = Handle {
-                                store: store.clone(),
-                                inbox: inbox.clone(),
-                                pending_run_bindings: pending_run_bindings.clone(),
-                                wake: wake.clone(),
-                                probe_owner: owner,
-                                ui: Some(svc.ui.clone()),
-                                _shutdown: None,
-                                apply_lock: Arc::new(Mutex::new(())),
-                            };
-                            if worker_handle.probe_owner.is_closing() {
-                                return;
-                            }
-                            let svc = svc.clone();
-                            std::thread::spawn(move || {
-                                tick(&worker_handle, &svc, &lease);
-                                worker_handle.store.lock().release(&lease.job.id);
-                                worker_handle.prepare_text_events();
-                                worker_handle.notify();
-                            });
-                        }
+                        dispatch_leases(&run_handle, &svc, leases, tick);
                         events::reconcile_subscriptions(&svc, &run_handle);
                         events::dispatch_runs(&svc, &run_handle);
                     }
@@ -351,6 +327,32 @@ pub fn start(
         }
     });
     Some(ports)
+}
+
+fn dispatch_leases(
+    handle: &Handle,
+    svc: &ServiceState,
+    leases: Vec<Lease>,
+    execute: impl Fn(&Handle, &ServiceState, &Lease) + Send + Sync + 'static,
+) -> Vec<std::thread::JoinHandle<()>> {
+    let execute = Arc::new(execute);
+    leases
+        .into_iter()
+        .filter_map(|lease| {
+            if handle.probe_owner.is_closing() {
+                return None;
+            }
+            let worker = handle.clone();
+            let svc = svc.clone();
+            let execute = execute.clone();
+            Some(std::thread::spawn(move || {
+                execute(&worker, &svc, &lease);
+                worker.store.lock().release(&lease.job.id);
+                worker.prepare_text_events();
+                worker.notify();
+            }))
+        })
+        .collect()
 }
 
 fn scheduler_wait_ms(store: &Store) -> u64 {
@@ -502,6 +504,24 @@ fn expire_escalations(store: &Arc<Mutex<Store>>, svc: &ServiceState) {
 }
 
 pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
+    tick_with_probe(handle, svc, lease, |limit, runtime| {
+        probe::run_with_budget(
+            &lease.job.probe(),
+            Path::new(&lease.job.cwd),
+            limit,
+            runtime,
+            &handle.probe_owner,
+            &super::probe_env::command(),
+        )
+    });
+}
+
+fn tick_with_probe(
+    handle: &Handle,
+    svc: &ServiceState,
+    lease: &Lease,
+    observe: impl FnOnce(Duration, Duration) -> Result<probe::Output, probe::process::ProbeFailure>,
+) {
     if lease.job.pipeline().is_some() {
         super::pipeline::tick(handle, svc, lease);
         return;
@@ -538,7 +558,13 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                 ));
             remaining.unwrap_or(budget).min(budget)
         } else {
-            remaining.unwrap_or(probe::PROBE_RUNTIME)
+            remaining.unwrap_or_else(|| {
+                if lease.job.input().is_some() || lease.job.terminal().is_some() {
+                    probe::PROBE_RUNTIME
+                } else {
+                    Duration::MAX
+                }
+            })
         }
     };
     let observed = if lease.job.input().is_some() || lease.job.terminal().is_some() {
@@ -576,13 +602,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
     } else if let Some(binding) = &lease.job.observe().cloned() {
         source::observe(svc, &lease.job, binding)
     } else {
-        probe::run_with_environment(
-            &lease.job.probe(),
-            Path::new(&lease.job.cwd),
-            remaining,
-            &handle.probe_owner,
-            &super::probe_env::command(),
-        )
+        observe(remaining, probe::PROBE_RUNTIME)
     };
     let output = resolve_probe_result(
         observed,
@@ -744,3 +764,6 @@ pub(super) fn fixture_shutdown_status(handle: &Handle) -> (bool, u64) {
         *handle.wake.0.lock().unwrap(),
     )
 }
+
+#[cfg(test)]
+mod budget_tests;

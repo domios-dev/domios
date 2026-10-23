@@ -90,7 +90,7 @@ fn duplicate_keys_and_bind_in_executable_slot_have_source_diagnostics() {
         .any(|d| d.field == "steps[0].run" && d.line > 1));
 }
 #[test]
-fn all_fifteen_native_recipes_bind_and_lower_without_cli_authority() {
+fn blueprint_v2_runtime_bundled_recipes_bind_and_lower_without_cli_authority() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../resources/blueprints");
     let voice_path = std::env::temp_dir().join("blueprint-v2-voice.wav");

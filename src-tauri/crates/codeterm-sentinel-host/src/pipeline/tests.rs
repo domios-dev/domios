@@ -321,7 +321,8 @@ fn github_probe_budget_tolerates_slow_queries_and_respects_graph_expiry() {
     let runtime =
         Duration::from_millis(codeterm_blueprint_types::blueprint_github::PROBE_RUNTIME_MS);
     let full = probe::process::Deadlines::at(Duration::from_secs(120), runtime, now).unwrap();
-    assert_eq!(full.hard.duration_since(now), Duration::from_secs(60));
+    assert_eq!(full.operation.duration_since(now), Duration::from_secs(60));
+    assert_eq!(full.hard.duration_since(now), Duration::from_millis(60_500));
     assert!(full.operation.duration_since(now) > Duration::from_secs(10));
     let expiring = probe::process::Deadlines::at(Duration::from_secs(5), runtime, now).unwrap();
     assert_eq!(expiring.hard.duration_since(now), Duration::from_secs(5));

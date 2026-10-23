@@ -3,6 +3,14 @@ use super::engine::{atom, cmp, no, rule, yes, Rule};
 pub(super) fn program() -> Vec<Rule> {
     vec![
         rule(
+            "command_timeout_bound",
+            atom("invalid_command_timeout", &["N", "V"]),
+            vec![
+                yes("command_timeout", &["N", "V"]),
+                no("valid_command_timeout", &["N"]),
+            ],
+        ),
+        rule(
             "is_node",
             atom("is_node", &["N"]),
             vec![yes("node", &["N", "_", "_"])],
@@ -369,6 +377,14 @@ pub(super) struct Spec {
 pub(super) fn findings() -> Vec<Spec> {
     let specs = [
         (
+            "B1",
+            "invalid_command_timeout",
+            "error",
+            "command_timeout",
+            "Command {0} timeout {1} must be positive and at most 60s",
+            "Set timeout to a positive duration of at most 60s",
+        ),
+        (
             "R1",
             "unreachable",
             "error",
@@ -590,6 +606,7 @@ pub(super) fn findings() -> Vec<Spec> {
                 "step_count" => &["step_count"],
                 "input_use" => &["input_use"],
                 "duration" => &["duration"],
+                "command_timeout" => &["command_timeout"],
                 "call" => &["call"],
                 "twin" => &["twin"],
                 _ => &[],

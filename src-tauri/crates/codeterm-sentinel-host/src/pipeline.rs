@@ -26,15 +26,15 @@ use codeterm_blueprint_types::sentinel_input::{InputRun, InputSpec, MediaKind};
 use codeterm_service_core::service::ServiceContext;
 use codeterm_storage::BlueprintJournalWrite;
 
-struct StepResult {
-    outcome: StepOutcome,
-    stored_outcome: JournalOutcome,
-    state: JournalState,
-    summary: String,
-    reason: Option<JournalReason>,
-    next_text: String,
-    decision: Option<(JournalOutcome, Option<JournalReason>)>,
-    uncertain: bool,
+pub(crate) struct StepResult {
+    pub(crate) outcome: StepOutcome,
+    pub(crate) stored_outcome: JournalOutcome,
+    pub(crate) state: JournalState,
+    pub(crate) summary: String,
+    pub(crate) reason: Option<JournalReason>,
+    pub(crate) next_text: String,
+    pub(crate) decision: Option<(JournalOutcome, Option<JournalReason>)>,
+    pub(crate) uncertain: bool,
 }
 
 fn effect_after_claim<T>(claim: impl FnOnce() -> bool, effect: impl FnOnce() -> T) -> Option<T> {
@@ -472,6 +472,7 @@ fn run_pipeline(
                 &verdict,
                 &body_path,
                 body_ref.clone(),
+                &run_id,
             ),
             _ => super::routes::PipelineResultDelivery {
                 state: "failed",
@@ -729,6 +730,8 @@ fn claim_step(
         handle,
         &lease.job,
         BlueprintJournalWrite::Claim {
+            definition_version: Some(lease.job.definition_version),
+            parent: None,
             run_id: run_id.into(),
             marker,
             step_name: marker.name(name).into(),
@@ -738,7 +741,7 @@ fn claim_step(
     )
 }
 
-fn write_journal(handle: &Handle, job: &Sentinel, write: BlueprintJournalWrite) -> bool {
+pub(crate) fn write_journal(handle: &Handle, job: &Sentinel, write: BlueprintJournalWrite) -> bool {
     let written = storage::commit(&handle.store, |store| {
         store.stage_pipeline_journal(&job.id, write)
     })
@@ -774,5 +777,5 @@ fn now(handle: &Handle) -> u64 {
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod runtime_tests;

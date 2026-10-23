@@ -18,21 +18,22 @@ pub(super) fn lower(doc: &Document) -> LowerResult {
     if !doc.inputs.is_empty() {
         errors.push(("inputs".into(), "Bind author inputs before lowering".into()));
     }
-    if !doc.imports.is_empty() || !doc.blueprints.is_empty() {
-        errors.push((
-            "blueprints".into(),
-            "unsupported: callable sub-Blueprint runtime".into(),
-        ));
+    if !doc.imports.is_empty() || !doc.blueprints.is_empty() || !doc.dependencies.is_empty() {
+        if let Err(error) = calls::FrozenClosure::from_document(doc.clone()) {
+            errors.push(("dependencies".into(), error));
+        }
     }
     for (i, node) in doc.nodes().enumerate() {
         let path = format!("steps[{i}]");
-        if node.call.is_some() {
-            errors.push((
-                path.clone(),
-                format!("unsupported: {} execution", node.kind()),
-            ));
+        if doc.kind == Kind::Watch && node.limits.is_some() {
+            errors.push((format!("{path}.limits"), "unsupported: watch limits".into()));
         }
-        if !node.caps.is_empty() {
+        if let Some(call) = &node.call {
+            if call.pin.is_none() {
+                errors.push((path.clone(), "Unresolved call execution".into()));
+            }
+        }
+        if !node.caps.is_empty() && node.call.is_none() {
             errors.push((
                 path.clone(),
                 "unsupported: per-node capability or budget enforcement".into(),
@@ -47,7 +48,7 @@ pub(super) fn lower(doc: &Document) -> LowerResult {
         if doc.kind == Kind::Pipeline
             && (!node.matches.is_empty()
                 || node.every.is_some()
-                || node.timeout.is_some()
+                || (node.timeout.is_some() && node.kind() != "command")
                 || node.until.is_some()
                 || !node.rearm_on_change.is_empty()
                 || node.model_classification
@@ -117,6 +118,12 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
     };
     let mut steps = Vec::new();
     for node in &doc.steps {
+        if node.call.is_some() {
+            steps.push(
+                serde_json::to_value(calls::lower::node(doc, node)?).map_err(|e| e.to_string())?,
+            );
+            continue;
+        }
         if node.uses.as_ref().is_some_and(NodeKind::effect) {
             return Err(format!("unsupported: pipeline effect node {}", node.id));
         }
@@ -127,7 +134,7 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
         if node.kind() != "ask" && !node.buckets.is_empty() {
             return Err(format!("unsupported: buckets on {}", node.id));
         }
-        let kind = if let Some(code) = &node.code {
+        let mut kind = if let Some(code) = &node.code {
             json!({"kind":"code","code":code})
         } else if let Some(run) = &node.run {
             json!({"kind":"command","command":lit(run)?})
@@ -146,6 +153,23 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
                 _ => return Err(format!("unsupported: pipeline node {}", node.kind())),
             }
         };
+        if node.kind() == "command" {
+            if node.params.contains_key("timeout_ms") {
+                return Err("Use the command node timeout field instead of with.timeout_ms".into());
+            }
+            if let Some(timeout) = &node.timeout {
+                let timeout = lit(timeout)?;
+                let milliseconds = crate::blueprint_watch::duration_ms(
+                    timeout
+                        .as_str()
+                        .ok_or("command timeout must be a duration")?,
+                )?;
+                if milliseconds > crate::blueprint_pipeline::MAX_COMMAND_STEP_RUNTIME_MS {
+                    return Err("command timeout must be positive and at most 60s".into());
+                }
+                kind["timeout_ms"] = json!(milliseconds);
+            }
+        }
         let routes = node
             .routes
             .iter()
@@ -179,7 +203,11 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
             .collect::<Vec<_>>()
             .join("; ")
     })?;
-    Ok(json!({"spec":spec}))
+    if doc.nodes().any(|node| node.call.is_some()) {
+        Ok(json!({"spec":spec,"document":doc}))
+    } else {
+        Ok(json!({"spec":spec}))
+    }
 }
 fn watch(doc: &Document) -> Result<Value, String> {
     if doc.steps.len() < 2 {
@@ -281,15 +309,17 @@ fn watch(doc: &Document) -> Result<Value, String> {
         };
         let mut target = target.as_str();
         let mut chain = Vec::new();
+        let mut previous = 1;
         while !matches!(target, "stop" | "@stop") {
             let (index, node) = all
                 .iter()
                 .enumerate()
                 .find(|(_, n)| n.id == target)
                 .ok_or("Watch route must name an effect or @stop")?;
-            if index < 2 {
-                return Err("Watch effect cannot route to its source or decision".into());
+            if index <= previous {
+                return Err("Watch effects must route forward".into());
             }
+            previous = index;
             reached.insert(node.id.clone());
             if !node.buckets.is_empty()
                 || !node.matches.is_empty()

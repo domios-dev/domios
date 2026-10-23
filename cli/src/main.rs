@@ -253,6 +253,14 @@ fn main_impl() {
     let (mut client, resolved_socket) = match connection {
         Ok(connection) => connection,
         Err(e) => {
+            if matches!(
+                &cli.command,
+                Commands::Blueprint {
+                    action: args::blueprint::BlueprintAction::Check { .. }
+                }
+            ) {
+                crate::cmd::print::fail(2, format!("Call check requires host resolution: {e}"));
+            }
             crate::cmd::print::fail(1, e.to_string());
         }
     };

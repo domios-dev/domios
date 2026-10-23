@@ -19,6 +19,9 @@ pub(super) fn run_step(
         return failed_input_step(reason);
     }
     match &step.kind {
+        StepKind::Call { .. } | StepKind::Effect { .. } => {
+            failed_input_step("call_context_required")
+        }
         StepKind::Code { code } => super::code::run(handle, lease, step, code, input, limit),
         StepKind::Command { .. } | StepKind::Github { .. } | StepKind::Http { .. } => {
             sources::run(handle, lease, step, input, limit)
