@@ -39,6 +39,9 @@ import { tabRowText } from "./tabRowModel";
 import { sameRowTab } from "./tabRowEquality";
 import { useLiveRowTab } from "./useLiveRowTab";
 import { ChecklistToggleButton, type ChecklistToggle } from "./AgentChecklist";
+import { LockBadge } from "../billing/LockBadge";
+import { openLockedPlans } from "../billing/freeLimitGate";
+import { lockedView } from "../billing/freeLimitModel";
 
 interface TabItemProps {
   tab: Tab;
@@ -240,6 +243,10 @@ function TabItemInner({
   checklistToggle = null,
 }: TabItemProps) {
   const tab = useLiveRowTab(rowTab);
+  const lock = lockedView("agent.tabs", tab);
+  const activate = () => {
+    if (!openLockedPlans(lock)) onClick();
+  };
   const attachment = variant === "attachment";
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // tabs — drives the icon, tooltip, and (for shells) the model badge.
@@ -427,7 +434,7 @@ function TabItemInner({
         type="button"
         aria-label={`${isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}${managedBy ? `, ${managedBy}` : ""}${restoreFailure.showFailureBadge ? ", launch failed" : ""}`}
         aria-current={isActive ? "page" : undefined}
-        onClick={onClick}
+        onClick={activate}
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
       <div className={`sidebar-tab-body flex-1 min-w-0 ${touchMode ? "gap-x-2.5" : "gap-x-2"}`}>
@@ -472,6 +479,7 @@ function TabItemInner({
           {shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
         </span>
         <span className={`sidebar-tab-body__trailing ${touchMode ? "gap-2.5" : "gap-2"}`}>
+          <LockBadge view={lock} />
           {tab?.connected_services?.includes("telegram") && (
             <span
               role="img"
