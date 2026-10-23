@@ -55,7 +55,7 @@ test("maps running terminals and capable-provider subagents into one counted bub
   assert.deepEqual(composerBackgroundWorkBubble(items), { count: 2, items });
 });
 
-test("groups every live item and reports the running count", () => {
+test("groups historical children without claiming a running count", () => {
   const items = composerBackgroundWorkItems([
     agent("a", LONG_RUNNING_WORK_MS + 1, {agent_id:"a",agent_call_id:"call-a",agent_state:"running"}),
     agent("b", LONG_RUNNING_WORK_MS + 2, {agent_id:"b",agent_call_id:"call-b",agent_state:"started"}),
@@ -64,7 +64,7 @@ test("groups every live item and reports the running count", () => {
   ], [], now, { subagentsVisible: true, rootThreadId: "root" });
   const bubble = composerBackgroundWorkBubble(items);
 
-  assert.equal(bubble?.count, 3);
+  assert.equal(bubble?.count, 0);
   assert.deepEqual(bubble?.items.map(({threadId}) => threadId), ["c", "b", "a"]);
 });
 
@@ -118,4 +118,29 @@ test("deduplicates process identity while preserving distinct jobs and exact too
   assert.equal(backgroundOwnsTool({id:process.itemId,sourceSessionId:"foreign"},items),false);
   assert.equal(backgroundOwnsTool({id:"foreground"},items),false);
   assert.equal(backgroundOwnsTool(undefined,items),false);
+});
+
+test("unknown and ended provider tasks remain inspectable without a running count", () => {
+  const items = withProviderBackgroundWork([], { live: "Live task" }, "root", {
+    unknown: { dropped: "Dropped task" }, ended: { finished: "Finished task" },
+  });
+  assert.deepEqual(items.map(item => item.status), ["running", "unknown", "ended"]);
+  assert.equal(composerBackgroundWorkBubble(items)?.count, 1);
+  assert.equal(composerBackgroundWorkBubble(items.slice(1))?.count, 0);
+});
+
+test("own-session compaction invalidates runtime child liveness until fresh activity", () => {
+  const authority = {rootThreadId:"root",bindingNonce:"nonce",epoch:1};
+  const options = {subagentsVisible:true,rootThreadId:"root",authority};
+  const child = agent("start", 60_000, {agent_id:"child",agent_state:"running",agent_binding_nonce:"nonce",agent_runtime_epoch:1});
+  const boundary: NormalizedChatMessage = {id:"boundary",type:"system",content:"",sourceSessionId:"root",timelineMarker:{kind:"context_compaction"}};
+  const invalidated = composerBackgroundWorkItems([child,boundary],[],now,options);
+  assert.equal(invalidated[0].status,"unknown");
+  assert.equal(invalidated[0].elapsed,"");
+  assert.equal(composerBackgroundWorkBubble(invalidated)?.count,0);
+  const fresh = composerBackgroundWorkItems([child,boundary,{...child,id:"fresh"}],[],now,options);
+  assert.equal(fresh[0].status,"running");
+  assert.equal(composerBackgroundWorkBubble(fresh)?.count,1);
+  const foreign = composerBackgroundWorkItems([child,{...boundary,sourceSessionId:"foreign"}],[],now,options);
+  assert.equal(foreign[0].status,"running");
 });

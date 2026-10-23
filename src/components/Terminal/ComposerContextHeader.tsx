@@ -210,7 +210,7 @@ function ContextHeaderBody({ pluginError, sessionIntent, tabId, workspaceId, del
     goal: false,
     background: false,
   };
-  const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0 || (kind === "delayed" && heartbeats.length > 0));
+  const kinds = (Object.keys(counts) as ContextKind[]).filter((kind) => counts[kind] > 0 || (kind === "delayed" && heartbeats.length > 0) || (kind === "background" && backgroundWork.items.length > 0));
   const open = requested && kinds.includes(requested) ? requested : null;
 
   const hasPluginError = removedChatPluginId(pluginError ?? null) !== null;

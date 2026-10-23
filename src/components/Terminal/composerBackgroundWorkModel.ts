@@ -82,6 +82,14 @@ export function backgroundWorkElapsed(elapsedMs: number): string {
 function agentWork(messages: readonly NormalizedChatMessage[], rootThreadId: string, nowMs: number, minDurationMs: number, authority?: ChildTranscriptAuthority): ComposerBackgroundWorkItem[] {
   const latest = new Map<string, { item: ComposerBackgroundWorkItem; order: number }>();
   messages.forEach((message, order) => {
+    if (message.timelineMarker?.kind === "context_compaction" && (!message.sourceSessionId || message.sourceSessionId === rootThreadId)) {
+      for (const previous of latest.values()) {
+        if (previous.item.status === "running" || previous.item.status === "started") {
+          previous.item = { ...previous.item, status: "unknown", elapsed: "" };
+        }
+      }
+      return;
+    }
     if (message.type !== "tool_call" || message.toolKind !== "agent" || message.toolName !== "agent_activity") return;
     const source = record(message.toolInput);
     if (!source) return;
@@ -159,14 +167,18 @@ export function composerBackgroundWorkItems(
 }
 
 export function composerBackgroundWorkBubble(items: readonly ComposerBackgroundWorkItem[]): ComposerBackgroundWorkBubble | null {
-  return items.length ? { count: items.length, items: [...items] } : null;
+  return items.length ? { count: items.filter(item => item.status === "running" || item.status === "started").length, items: [...items] } : null;
 }
 
-export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], running: Readonly<Record<string, string>>, rootThreadId?: string): ComposerBackgroundWorkItem[] {
+export function withProviderBackgroundWork(items: ComposerBackgroundWorkItem[], running: Readonly<Record<string, string>>, rootThreadId?: string, inactive: { unknown?: Readonly<Record<string, string>>; ended?: Readonly<Record<string, string>> } = {}): ComposerBackgroundWorkItem[] {
   if (!rootThreadId) return items;
   const known = new Set(items.flatMap(item => [item.threadId, item.processId].filter(Boolean)));
-  return [...items, ...Object.entries(running).filter(([id]) => !known.has(id)).map(([id, label]): ComposerBackgroundWorkItem => ({
+  return [...items, ...[
+    ...Object.entries(running).map(([id, label]) => ({id, label, status: "running"})),
+    ...Object.entries(inactive.unknown ?? {}).map(([id, label]) => ({id, label, status: "unknown"})),
+    ...Object.entries(inactive.ended ?? {}).map(([id, label]) => ({id, label, status: "ended"})),
+  ].filter(({id}) => !known.has(id)).map(({id, label, status}): ComposerBackgroundWorkItem => ({
     id: `provider:${rootThreadId}:${id}`, kind: "agent", name: shortName(undefined, label || id),
-    threadId: id, startedAtMs: 0, elapsed: "", status: "running", prompt: label || undefined,
+    threadId: id, startedAtMs: 0, elapsed: "", status, prompt: label || undefined,
   }))];
 }
