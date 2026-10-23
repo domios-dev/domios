@@ -239,7 +239,7 @@ fn nodes(
         {
             errors.push((
                 format!("{path}.caps"),
-                "The domios-cli capability is forbidden".into(),
+                "domios-cli capability is not approved".into(),
             ));
         }
         for (outcome, target) in &node.routes {
