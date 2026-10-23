@@ -316,6 +316,17 @@ fn blueprint_watch_summary_reports_progress_and_failed_probe_state() {
 }
 
 #[test]
+fn blueprint_quarantine_summary_names_the_typed_reason() {
+    let job = serde_json::json!({
+        "id":"bp", "name":"n", "state":"quarantined", "code":"c", "reason":"r"
+    });
+    assert_eq!(
+        super::quarantine_summary(&job),
+        "bp [quarantined] name=n code=c reason=r"
+    );
+}
+
+#[test]
 fn blueprint_watch_summary_exposes_explicit_classification_mode() {
     let mut job = serde_json::json!({"id":"watch", "interval_ms":60000, "model_classification":true, "matches":{}});
     assert!(super::watch_summary(&job).contains("classification=model"));
