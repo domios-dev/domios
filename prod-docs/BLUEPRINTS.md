@@ -72,7 +72,7 @@ Admission lowers a v2 document to the runtime representation or returns an expli
 
 A Blueprint code or command step runs with the user's own permissions, like an agent in a tab, without Domios credentials in its environment; foreign Blueprints are gated by folder trust (1.15.4). Code runs as an ordinary child process on macOS, Linux and Windows, subject to execution budgets.
 
-Supported pipeline nodes are `code`, fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`.
+Supported pipeline nodes are `code`, fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`. With the default document `owner: team`, `owner` and `team` both deliver to the Team Orchestrator's inbox in the Blueprint's workspace; with `owner: tab`, `owner` delivers to the tab that applied the Blueprint.
 
 Command steps default to a 10-second runtime on every platform. Override it on the node with `timeout: {lit: 30s}` (also accepts an author input). The timeout must be positive and at most 60 seconds; invalid values receive a positioned checker diagnostic. For example:
 
@@ -84,11 +84,13 @@ Command steps default to a 10-second runtime on every platform. Override it on t
 
 Watcher probes also default to 10 seconds on every platform. Each watcher runs concurrently, so a slow probe delays its own verdict while the scheduler and other watchers continue. Command and probe runtime budgets start when the direct child's spawn call returns, excluding its exec authorization delay. Runtime is followed by bounded cleanup of up to 500 ms (one quarter of a shorter budget): the total is runtime plus that reserve, capped by the caller's remaining run deadline. A shorter caller deadline reserves cleanup within that total and may interrupt execution earlier; expiry produces a typed `Deadline`.
 
-A schedule trigger has `every: {lit: 20s}`. Input triggers have a media `kind` and a `source` literal containing `text`, an absolute `file` path or an HTTP(S) `url`; a string source denotes text. Event triggers name an installed capability kind and explicit parameters. Runtime availability is checked at apply.
+A schedule trigger has `every: {lit: 20s}`. Input triggers have a media `kind` and a `source` literal containing `text`, an absolute `file` path or an HTTP(S) `url`; a string source denotes text.
+
+A `text` trigger delivers a **string**: `{text: "7"}` reaches the first node as the string `"7"`, never the integer 7. The text is parsed as JSON only when the first node's `in` schema rejects a string and the parsed value satisfies that schema (`in: {type: integer}` with `"7"` delivers 7; `in: {type: object, ...}` with `{"n":7}` delivers the object). With no `in` schema the node receives the string. To pass structured data, declare the object schema on the first node's `in` or parse the string in code. A mismatch stops the node with `contract_violation`; its journal summary and `show` name the expected schema and the received media and value (clipped), for example `node stopped: contract_violation: input expected {"type":"integer"} got text "seven"`. Event triggers name an installed capability kind and explicit parameters. Runtime availability is checked at apply.
 
 ## Code nodes
 
-Python bodies define `def main(value):` and return a JSON value. TypeScript bodies define `export default function main(value)` (optionally async). The host supplies a fixed harness per language; author code is a separate file. The harness reads the bounded input envelope, calls `main` with its `value`, and writes the returned value with the node’s output media and schema. Text uses a string `value` and an empty `text` field, so it is carried once. Author prints go to stderr. Raw envelope scripts are unsupported.
+`code.lang` is `python` or `ts` (`typescript` is refused). `shell` parses but is not runnable: a `code` body must declare `main`, so shell text belongs in a fixed `run` command step. Limits sit under the code block (`code: {lang: python, src: ..., limits: {wall_ms: 3000, output_bytes: 32768}}`); a node-level `limits` is also accepted. Code nodes run in a throwaway temporary working directory, while command and probe steps run in the Blueprint cwd. Python bodies define `def main(value):` and return a JSON value. TypeScript bodies define `export default function main(value)` (optionally async). The host supplies a fixed harness per language; author code is a separate file. The harness reads the bounded input envelope, calls `main` with its `value`, and writes the returned value with the node’s output media and schema. Text uses a string `value` and an empty `text` field, so it is carried once. Author prints go to stderr. Raw envelope scripts are unsupported.
 
 ```yaml
 - id: swatch
@@ -185,6 +187,8 @@ Only the Team Orchestrator keeps solutions. Supply one to five intents, preferab
 
 Full recipe purposes and inputs: `domios docs BLUEPRINT-RECIPES`.
 
+A callable declares its result as `result: {type: <schema>, from: <node>.out}`. The `type` key holds one schema, so an integer result is written `result: {type: {type: integer}, from: add.out}`; `type` must be a schema object, not a bare type name.
+
 Save a triggerless typed callable without scheduling it:
 
 ```bash
@@ -200,6 +204,6 @@ The simulation harness is internal and has no CLI verb. It records bounded deliv
 
 Blueprint results addressed to a restored PTY agent tab retain the exact saved provider and session. The durable outbox holds them for the first authenticated launch of that session, with a fixed 24-hour delivery TTL. Held messages retain the original run id and timestamp; live delivery keeps its existing body. A closed recipient, changed session or provider, failed launch, or expired TTL produces a durable failure receipt in the producer's AgentPad and a status event; a live producer also receives a failure notification. Failure receipts are idempotent by delivery id, and retained terminal states recover their original cause across a crash. Recovery re-emits the status by delivery id if settlement was interrupted; an externally edited receipt is preserved without blocking later results. A result that may already have been written remains uncertain and is never replayed. Restored chat-backend delivery uses its existing reopen path and reports reopen failures; it does not yet use this durable hold.
 
-R10 scans executable text lexically as defence in depth. The checker refuses domios-cli capabilities, while credential-free child environments remove instance authority; a clean lexical scan does not prove shell text safe. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
+R10 scans executable text lexically as defence in depth: any whole word `domios`, `codeterm`, or starting `DOMIOS_` or `CODETERM_`, inside a `run` command, a code string or an agent/ask task refuses with `ambient_authority`, so such tokens cannot appear even in a comment or string literal. The checker refuses domios-cli capabilities, while credential-free child environments remove instance authority; a clean lexical scan does not prove shell text safe. R13 reports unavailable comparisons explicitly; unavailable vector comparisons carry no PASS verdict.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->

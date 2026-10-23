@@ -278,3 +278,59 @@ fn blueprint_v2_runtime_review_unsupported_limits_refuse_at_check() {
         ));
     }
 }
+
+fn text_trigger_document(text: &str, input: Value, sink: &Path) -> Value {
+    let mut doc = document("python", "def main(value): return value", sink);
+    doc["trigger"]["source"]["lit"]["text"] = json!(text);
+    doc["steps"][0]["in"] = input.clone();
+    doc["steps"][0]["out"] = input.clone();
+    doc["steps"][1]["in"] = input;
+    doc
+}
+
+#[test]
+fn blueprint_v2_runtime_text_trigger_digits_reach_a_string_node_as_a_string() {
+    let root = tempfile::tempdir().unwrap();
+    let sink = root.path().join("string-output");
+    let doc = text_trigger_document("7", json!({"type":"string"}), &sink);
+    let (fixture, storage, handle, lease) = fixture(doc, root.path());
+    let (completion, diagnostic) = run_recorded(&handle, &fixture.service, &lease, "string-proof");
+    assert_eq!(completion.state, JournalState::Done, "{diagnostic}");
+    let delivered = ExecutionEnvelope::decode(&std::fs::read(&sink).unwrap()).unwrap();
+    assert_eq!(
+        (delivered.media.as_str(), delivered.value),
+        ("text", json!("7"))
+    );
+    drop(handle);
+    drop(fixture);
+    close(storage);
+}
+
+#[test]
+fn blueprint_v2_runtime_text_trigger_contract_violation_names_schema_and_value() {
+    let root = tempfile::tempdir().unwrap();
+    let sink = root.path().join("never-written");
+    let doc = text_trigger_document("seven", json!({"type":"integer"}), &sink);
+    let (fixture, storage, handle, lease) = fixture(doc, root.path());
+    let (completion, diagnostic) =
+        run_recorded(&handle, &fixture.service, &lease, "violation-proof");
+    assert_eq!(completion.state, JournalState::Failed, "{diagnostic}");
+    assert_eq!(
+        completion.reason,
+        JournalReason::ContractViolation,
+        "{diagnostic}"
+    );
+    let entries = journal(&handle, &lease.job.id);
+    let summary = entries
+        .iter()
+        .find(|entry| entry.step_name == "transform" && entry.reason.is_some())
+        .and_then(|entry| entry.result_summary.clone())
+        .unwrap_or_default();
+    assert!(summary.contains("contract_violation"), "{summary}");
+    assert!(summary.contains("\"type\":\"integer\""), "{summary}");
+    assert!(summary.contains("\"seven\""), "{summary}");
+    assert!(!sink.exists());
+    drop(handle);
+    drop(fixture);
+    close(storage);
+}

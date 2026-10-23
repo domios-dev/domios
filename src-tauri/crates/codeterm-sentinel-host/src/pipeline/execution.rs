@@ -171,6 +171,14 @@ pub fn execute_step(
         return Err(JournalReason::UncertainClaim);
     }
     let contract = step.execution.clone().unwrap_or_default();
+    let violation = std::cell::RefCell::new(None::<String>);
+    let check = |envelope: &ExecutionEnvelope, output: bool| {
+        *violation.borrow_mut() = contract.violation(envelope, output)?;
+        if violation.borrow().is_some() {
+            return Err(JournalReason::ContractViolation);
+        }
+        Ok(())
+    };
     let checked = (|| {
         ctx.call_state.current_marker = Some(marker);
         if !simulate {
@@ -187,7 +195,7 @@ pub fn execute_step(
         } else {
             input.clone()
         };
-        contract.validate(&input, false)?;
+        check(&input, false)?;
         if matches!(
             step.kind,
             StepKind::Command { .. } | StepKind::Github { .. }
@@ -274,7 +282,7 @@ pub fn execute_step(
         }
         let output = ExecutionEnvelope::decode(&output.encode()?)?;
         if result.state == JournalState::Done {
-            contract.validate(&output, true)?;
+            check(&output, true)?;
         }
         ctx.retain_output(&step.name, &output)?;
         Ok((result, output))
@@ -372,7 +380,12 @@ pub fn execute_step(
                     JournalState::Failed
                 },
                 if uncertain { "held" } else { "failed" }.into(),
-                format!("node stopped: {}", reason.as_str()),
+                match violation.borrow().as_deref() {
+                    Some(detail) if reason == JournalReason::ContractViolation => {
+                        format!("node stopped: {}: {detail}", reason.as_str())
+                    }
+                    _ => format!("node stopped: {}", reason.as_str()),
+                },
                 None,
                 Some(reason.clone()),
             )?;

@@ -105,7 +105,7 @@ domios todo write --from-pad todos.json
 Each entry is `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "id?", "link?", "reason?" }`.
 The first write creates the checklist. Later writes reconcile it: an entry
 matches by `id` from `domios todo list`, falling back to exact `content` title matching.
-An id entry may omit `content` and `activeForm`; it changes only status/reason,
+`id` names an existing item only; a new item omits `id`, and an unknown `id` is refused with `todo item not found`. An id entry may omit `content` and `activeForm`; it changes only status/reason,
 preserving the title, links, attempts and history. A new
 `content` appends an item; an omitted item you added is removed. Items a
 dispatch seeded from acceptance criteria, or a QA Worker appended, are locked:
@@ -163,4 +163,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `domios plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
