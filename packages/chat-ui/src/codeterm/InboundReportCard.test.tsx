@@ -50,7 +50,7 @@ if (!Array.from(markdownBody.querySelectorAll("code")).some((code) => code.textC
 if (!markdownBody.querySelector('a[href="https://example.test/evidence"]')) throw new Error("report link must render");
 if (!markdownHost.textContent?.includes("In Review") || !markdownHost.textContent?.includes("abc1234")) throw new Error("report header chips must remain");
 const taskLink = markdownBody.querySelector('[data-testid="chat-task-link"]') as HTMLButtonElement | null;
-if (!taskLink || taskLink.disabled || !taskLink.textContent?.includes("Linked task")) throw new Error("report markdown must resolve a clickable task reference");
+if (!taskLink || taskLink.disabled || taskLink.getAttribute("aria-label") !== "Task Linked task. pl_a7c9/task_b8d1") throw new Error("report markdown must resolve an accessible, clickable task reference");
 await act(async () => taskLink.click());
 if (JSON.stringify(openedPlans) !== JSON.stringify([["pl_a7c9", "task_b8d1", "task"]])) throw new Error("report markdown task link must open its exact target");
 await act(async () => markdownRoot.unmount());
