@@ -16,10 +16,10 @@ export interface PluginBubbleSubscription {
   unsubscribe: () => void;
 }
 
-type Fetcher = (pluginId: string, cwd: string | null, tabId: string, refresh: boolean) => Promise<BubbleData | null>;
+type Fetcher = (pluginId: string, cwd: string | null, tabId: string, refresh: boolean, signal: AbortSignal) => Promise<BubbleData | null>;
 
-function defaultFetcher(pluginId: string, cwd: string | null, tabId: string, refresh: boolean): Promise<BubbleData | null> {
-  return invoke<BubbleData | null>("plugin_bubble", { pluginId, ctx: { cwd, tabId, refresh } });
+function defaultFetcher(pluginId: string, cwd: string | null, tabId: string, refresh: boolean, signal: AbortSignal): Promise<BubbleData | null> {
+  return invoke<BubbleData | null>("plugin_bubble", { pluginId, ctx: { cwd, tabId, refresh }, signal });
 }
 
 let fetcher: Fetcher = defaultFetcher;
@@ -41,6 +41,7 @@ interface Entry {
   key: string | null;
   value: BubbleData | null | undefined;
   inFlight: Promise<void> | null;
+  controller: AbortController | null;
   pendingRefresh: boolean;
   pendingInvalidation: boolean;
   subscribers: Map<string, Subscriber>;
@@ -74,6 +75,7 @@ function rekeyEntry(byKey: Map<string | null, Entry>, from: string, to: string):
     byKey.set(to, source);
     return;
   }
+  cancelRequest(source);
   const moved = [...source.subscribers.entries()];
   source.subscribers.clear();
   for (const [id, sub] of moved) {
@@ -92,14 +94,22 @@ function getOrCreateEntry(pluginId: string, key: string | null): Entry {
   }
   let entry = byKey.get(key);
   if (!entry) {
-    entry = { pluginId, key, value: undefined, inFlight: null, pendingRefresh: false, pendingInvalidation: false, subscribers: new Map() };
+    entry = { pluginId, key, value: undefined, inFlight: null, controller: null, pendingRefresh: false, pendingInvalidation: false, subscribers: new Map() };
     byKey.set(key, entry);
   }
   return entry;
 }
 
+function cancelRequest(entry: Entry): void {
+  entry.controller?.abort();
+  entry.controller = null;
+  entry.inFlight = null;
+  entry.pendingRefresh = false;
+}
+
 function deleteEntryIfEmpty(entry: Entry): void {
   if (entry.subscribers.size > 0) return;
+  cancelRequest(entry);
   const byKey = cache.get(entry.pluginId);
   if (byKey?.get(entry.key) === entry) byKey.delete(entry.key);
   if (byKey && byKey.size === 0) cache.delete(entry.pluginId);
@@ -129,13 +139,18 @@ function computeNow(entry: Entry, invalidated = false, updated = false): Promise
   }
   invalidated ||= entry.pendingInvalidation || entry.value === undefined;
   entry.pendingInvalidation = false;
-  entry.inFlight = fetcher(entry.pluginId, entry.key, pickTabId(entry), invalidated)
+  const controller = new AbortController();
+  entry.controller = controller;
+  entry.inFlight = fetcher(entry.pluginId, entry.key, pickTabId(entry), invalidated, controller.signal)
     .then((value) => {
+      if (entry.controller !== controller) return;
       entry.value = value;
       notify(entry);
     })
     .catch(() => {})
     .finally(() => {
+      if (entry.controller !== controller) return;
+      entry.controller = null;
       entry.inFlight = null;
       const shouldRefresh = entry.pendingRefresh && activeCount(entry) > 0;
       const pendingInvalidation = entry.pendingInvalidation;
@@ -168,7 +183,8 @@ export function subscribePluginBubble(
     if (!sub) return;
     const wasActive = sub.active;
     sub.active = nextActive;
-    if (nextActive && !wasActive) computeNow(holder.entry);
+    if (nextActive && !wasActive) void computeNow(holder.entry);
+    if (!nextActive && activeCount(holder.entry) === 0) cancelRequest(holder.entry);
   };
   setActive(active);
 
@@ -176,6 +192,7 @@ export function subscribePluginBubble(
     setActive,
     unsubscribe: () => {
       holder.entry.subscribers.delete(subscriberId);
+      if (activeCount(holder.entry) === 0) cancelRequest(holder.entry);
       deleteEntryIfEmpty(holder.entry);
     },
   };
@@ -218,6 +235,7 @@ export function invalidateActivePluginBubbles(): void {
 }
 
 export function __resetPluginBubbleCacheForTest(): void {
+  for (const byKey of cache.values()) for (const entry of byKey.values()) cancelRequest(entry);
   cache.clear();
   canonical.clear();
   fetcher = defaultFetcher;

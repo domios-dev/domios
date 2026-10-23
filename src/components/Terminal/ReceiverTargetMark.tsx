@@ -96,10 +96,12 @@ export function ReceiverTargetMarks({
   tabId: string;
   surface: ReceiverTargetMarkSurface;
 }) {
-  const { snapshot, lastSuccessfulSnapshot } = usePluginSnapshotStore();
+  const { snapshot } = usePluginSnapshotStore();
   useEffect(() => {
-    void ensurePluginSnapshot({ background: lastSuccessfulSnapshot !== null }).catch(() => {});
-  }, [lastSuccessfulSnapshot]);
+    const controller = new AbortController();
+    void ensurePluginSnapshot({ background: true, signal: controller.signal }).catch(() => {});
+    return () => controller.abort();
+  }, [tabId]);
   const entries = receiverTargetEntries(menu, tabId);
   if (surface !== "header" || entries.length === 0) return null;
 
