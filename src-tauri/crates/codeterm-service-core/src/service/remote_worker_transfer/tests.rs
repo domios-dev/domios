@@ -12,10 +12,12 @@ fn fixture() -> (Tab, RemoteWorkerTransfer) {
     tab.report_target_tab_id = Some("parent".into());
     tab.role = Some(AgentRole::Worker);
     let request = RemoteWorkerTransfer {
+        operation_id: "operation".into(),
         worker_tab_id: id,
         worker_session_id: "session".into(),
         expected_parent_tab_id: "parent".into(),
         destination_tab_id: "destination".into(),
+        destination_team_id: None,
         caller_tab_id: Some("parent".into()),
         owner_confirmed: false,
     };
@@ -99,5 +101,25 @@ fn roleless_mesh_worker_can_transfer_without_becoming_a_local_child() {
     assert_eq!(tab.parent_tab_id, None);
     assert_eq!(tab.team_id, None);
     assert_eq!(tab.role, None);
+    assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("origin"));
+}
+
+#[test]
+fn authenticated_ownership_accepts_the_origin_name_and_moves_its_controller() {
+    let (mut tab, mut request) = fixture();
+    tab.report_target_mesh_peer = Some("OriginName".into());
+    tab.ownership = Some(codeterm_types::pty::RemoteOwnership {
+        controller_title: "Source".into(),
+        controller_tab_id: Some("parent".into()),
+        peer_id: "origin".into(),
+        peer_name: "OriginName".into(),
+        team: None,
+    });
+    request.destination_team_id = Some("destination-team".into());
+    apply_remote_worker_transfer(&mut tab, "origin", &request).unwrap();
+    let owner = tab.ownership.unwrap();
+    assert_eq!(owner.peer_id, "origin");
+    assert_eq!(owner.controller_tab_id.as_deref(), Some("destination"));
+    assert_eq!(owner.team.unwrap().id, "destination-team");
     assert_eq!(tab.report_target_mesh_peer.as_deref(), Some("origin"));
 }

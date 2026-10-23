@@ -658,6 +658,14 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
         .route(
+            "/api/mesh/worker-transfer-info",
+            post(mesh_routes::worker_transfer::mesh_worker_transfer_info),
+        )
+        .route(
+            "/api/mesh/worker-finalize",
+            post(mesh_routes::worker_transfer::mesh_worker_finalize),
+        )
+        .route(
             "/api/mesh/worker-transfer",
             post(mesh_routes::worker_transfer::mesh_worker_transfer),
         )

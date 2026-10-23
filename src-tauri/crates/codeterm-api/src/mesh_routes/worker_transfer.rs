@@ -8,6 +8,63 @@ use codeterm_service_core::service::remote_worker_transfer::{
 };
 
 use crate::routes::AppState;
+use codeterm_service_core::service::remote_team::{
+    RemoteFinalizationReceipt, RemoteWorkerFinalize, RemoteWorkerInfo, RemoteWorkerLookup,
+};
+
+fn authenticated_full_peer(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<String, (StatusCode, String)> {
+    let peer_id = super::relay::check_mesh_relay_auth(state, headers)?;
+    let allowed = state
+        .mesh
+        .lock()
+        .paired_peers
+        .get(&peer_id)
+        .is_some_and(|peer| super::peer_has_full_access(Some(&peer.access_level)));
+    if !allowed {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "remote Worker transfer requires Full mesh access".into(),
+        ));
+    }
+    Ok(peer_id)
+}
+
+pub async fn mesh_worker_transfer_info(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<RemoteWorkerLookup>,
+) -> Result<Json<RemoteWorkerInfo>, (StatusCode, String)> {
+    let peer = authenticated_full_peer(&state, &headers)?;
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .inspect_remote_worker(&peer, &request)
+            .map(Json)
+            .map_err(|error| (StatusCode::CONFLICT, error))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
+
+pub async fn mesh_worker_finalize(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<RemoteWorkerFinalize>,
+) -> Result<Json<RemoteFinalizationReceipt>, (StatusCode, String)> {
+    let peer = authenticated_full_peer(&state, &headers)?;
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .finalize_remote_worker(&peer, &request)
+            .map(Json)
+            .map_err(|error| (StatusCode::CONFLICT, error))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
 
 fn transfer_for_peer(
     full_access: bool,
