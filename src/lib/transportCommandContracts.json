@@ -1026,6 +1026,24 @@
         "/api/automation/node-files"
       ]
     ],
+    "blueprint_viewer_history": [
+      [
+        "GET",
+        "/api/automation/blueprints/viewer/history?workspace_id=workspace&team_id=team&id=item"
+      ]
+    ],
+    "blueprint_project_list": [
+      [
+        "GET",
+        "/api/automation/blueprints/project?workspace_id=workspace"
+      ]
+    ],
+    "blueprint_project_show": [
+      [
+        "GET",
+        "/api/automation/blueprints/project?workspace_id=workspace&path=%2Ffile"
+      ]
+    ],
     "blueprint_export_file": [
       [
         "POST",
