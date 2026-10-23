@@ -43,9 +43,10 @@
   --ct-delivery-duration: 2.4s;
 }
 
+/* Turn evidence normally lands within a second, so the uncertain dot only appears if it lingers. */
 .ct-delivery[data-state="uncertain"] .ct-delivery__dot {
   --ct-delivery-fill: var(--ct-muted-fg);
-  animation: none;
+  animation: ct-delivery-reveal 0.2s ease 1.5s both;
 }
 
 .ct-delivery[data-state="uncertain"] .ct-delivery__dot::before {
@@ -87,6 +88,11 @@
 @keyframes ct-delivery-breathe {
   0%, 100% { transform: scale(0.85); opacity: 0.55; }
   50% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes ct-delivery-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* 15/7: the old 4px box-shadow spread around the 7px dot. */
