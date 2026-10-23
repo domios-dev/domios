@@ -47,7 +47,10 @@ describe("EmbedderCard", () => {
 
   it("exposes the running re-embed progress value and maximum", async () => {
     const listing = listingFixture(false);
-    listing.status = statusFixture({ reembed: { state: "running", target: null, total: 37, done: 11, failed: 0 } });
+    listing.status = statusFixture({ reembed: {
+      state: "running", target: null, total: 37, done: 11, failed: 0,
+      current_item: { id: "fixture", done: 8, total: 20 },
+    } });
     vi.stubGlobal("fetch", vi.fn(() => respond(listing)));
     const host = document.createElement("div");
     document.body.append(host);
@@ -56,7 +59,7 @@ describe("EmbedderCard", () => {
       await act(async () => root.render(<EmbedderCard config={{ api: {} } as unknown as AppConfig} />));
       const progress = host.querySelector<HTMLProgressElement>("progress[aria-label]")!;
       expect(progress.getAttribute("aria-label")?.trim().length).toBeGreaterThan(0);
-      expect(progress.value).toBe(11);
+      expect(progress.value).toBe(11.4);
       expect(progress.max).toBe(37);
     } finally {
       await act(async () => root.unmount());

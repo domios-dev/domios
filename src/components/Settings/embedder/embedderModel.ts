@@ -11,6 +11,7 @@ export interface ReembedProgress {
   done: number;
   failed: number;
   last_error?: string | null;
+  current_item?: { id: string; done: number; total: number } | null;
 }
 
 export interface EmbedderStatus extends EmbedderIdentity {
@@ -134,12 +135,20 @@ export function activeOption(status: EmbedderStatus): string {
   return optionValue(status.provider, status.model);
 }
 
+export function progressValue(status: EmbedderStatus): number {
+  const { done, total, current_item } = status.reembed;
+  return Math.min(total, done + (current_item && current_item.total > 0 ? current_item.done / current_item.total : 0));
+}
+
 export function progressLabel(status: EmbedderStatus): string {
-  const { state, done, total, failed, target, last_error } = status.reembed;
+  const { state, done, total, failed, target, last_error, current_item } = status.reembed;
   if (state === "running") {
-    const percent = total === 0 ? 100 : Math.floor((done * 100) / total);
+    const percent = total === 0 ? 100 : Math.floor((progressValue(status) * 100) / total);
     const to = target ? ` for ${target.provider}/${target.model}` : "";
-    return `Re-embedding ${done} of ${total} (${percent}%)${to}`;
+    const chunks = current_item && current_item.total > 1
+      ? `; current item ${current_item.done} of ${current_item.total} chunks`
+      : "";
+    return `Re-embedding ${done} of ${total} (${percent}%)${to}${chunks}`;
   }
   if (state === "completed") return failed > 0 ? `Re-embedded ${done - failed} of ${total}; ${failed} failed` : `Re-embedded ${total} items`;
   if (state === "failed" || state === "cancelled") {
