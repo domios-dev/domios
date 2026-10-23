@@ -132,10 +132,14 @@ fn blueprint_v2_call_import_relative_nested_is_based_on_exact_author_file() {
     tree.put("caller.yaml", &doc);
     let closure = tree.resolve("caller.yaml").unwrap();
     assert_eq!(closure.callees.len(), 2);
-    assert!(closure
-        .callees
-        .values()
-        .any(|c| c.id.ends_with("nested/leaf.yaml")));
+    assert!(
+        closure
+            .callees
+            .values()
+            .any(|c| c.id.ends_with("nested/leaf.yaml")),
+        "callee identities: {:?}",
+        closure.callees.values().map(|c| &c.id).collect::<Vec<_>>()
+    );
 }
 #[test]
 fn blueprint_v2_call_portable_file_pins_roundtrip_locally_and_offline() {
