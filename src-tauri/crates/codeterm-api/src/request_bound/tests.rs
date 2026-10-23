@@ -47,3 +47,27 @@ fn chat_start_slot_rejects_concurrency_and_releases_on_worker_exit() {
     assert!(RequestSlot::acquire("test-chat-start:one".into()).is_ok());
     drop(other);
 }
+
+#[tokio::test(start_paused = true)]
+async fn snapshot_slot_survives_request_deadline_until_blocking_work_exits() {
+    let key = "test-plugin-snapshot".to_string();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    let work_key = key.clone();
+    let request = tokio::spawn(blocking(work_key, move |_slot| {
+        started.send(()).unwrap();
+        wait.recv().unwrap();
+        Ok(())
+    }));
+    ready.await.unwrap();
+    tokio::time::advance(PLUGIN_DEADLINE).await;
+    assert_eq!(
+        request.await.unwrap().unwrap_err().1 .0["code"],
+        "plugin_unavailable"
+    );
+    assert_eq!(
+        RequestSlot::acquire(key.clone()).err().unwrap().1 .0["code"],
+        "request_busy"
+    );
+    release.send(()).unwrap();
+}

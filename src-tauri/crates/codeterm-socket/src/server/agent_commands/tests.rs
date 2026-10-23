@@ -176,3 +176,16 @@ fn body_survives_json_routing_without_becoming_arguments() {
         assert_eq!(ctx, expected);
     }
 }
+
+#[test]
+fn plugin_body_bound_counts_utf8_bytes_and_refuses_before_handler() {
+    let registry = reg_with("npc", true);
+    for body in ["a".repeat(1024 * 1024), "λ".repeat(512 * 1024)] {
+        let params = Some(serde_json::json!({"body": body}));
+        assert!(route(&registry, "plugin:npc.say", &params, None).is_ok());
+    }
+    let params = Some(serde_json::json!({"body": "λ".repeat(512 * 1024 + 1)}));
+    let error = route(&registry, "plugin:npc.boom", &params, None).unwrap_err();
+    assert_eq!(error.code, -32602);
+    assert_eq!(error.data.unwrap()["code"], "plugin_body_too_large");
+}
