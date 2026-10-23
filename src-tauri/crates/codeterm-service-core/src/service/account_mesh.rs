@@ -133,8 +133,7 @@ impl<T> AccountMeshOutcome<T> {
 }
 
 fn trust() -> Option<MembershipTrust> {
-    let policy = codeterm_entitlements::ACTIVATION.as_ref()?.policy().ok()?;
-    MembershipTrust::from_policy(&policy)
+    Some(MembershipTrust::new(codeterm_entitlements::pinned()))
 }
 
 impl ServiceContext {

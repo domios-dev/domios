@@ -1,5 +1,7 @@
 use crate::*;
-use codeterm_entitlements::{LimitGate, Phase, Policy, Refusal, TimeState, Verdict, VerifiedGrant};
+use codeterm_entitlements::{
+    EntitlementAuthority, LimitGate, Refusal, TimeState, Verdict, VerifiedGrant,
+};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
@@ -12,9 +14,14 @@ pub struct Snapshot {
     pub entitlements: Entitlements,
     pub stale: bool,
     pub access: Option<Access>,
+    /// No verified answer yet for an account last seen paid: show no locks until it arrives.
+    pub checking: bool,
     #[serde(skip)]
     pub grant: Option<Verdict>,
 }
+
+/// Failure bound for the checking state when the first refresh never answers.
+pub const CHECKING_DEADLINE_SECS: u64 = 15;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RefreshEvent {
     SignIn,
@@ -31,6 +38,7 @@ struct Cache {
     observed: bool,
     verified: Option<VerifiedGrant>,
     loaded: bool,
+    checking_until: Option<u64>,
 }
 #[derive(Clone)]
 pub struct Billing {
@@ -42,9 +50,7 @@ pub struct Billing {
 }
 #[derive(Clone)]
 struct Grants {
-    phase: Phase,
-    enforcing: bool,
-    policy: Policy,
+    authority: Arc<dyn EntitlementAuthority>,
     installation_id: String,
     store: Arc<dyn GrantStore>,
 }
@@ -68,17 +74,11 @@ impl Billing {
         installation_id: &codeterm_account::InstallationId,
         store: Arc<dyn GrantStore>,
     ) -> Result<Self> {
-        if let Some(activation) = crate::grant_activation::current() {
-            self.grants = Some(Grants {
-                phase: activation.phase,
-                enforcing: codeterm_entitlements::enforcing(Some(&activation)),
-                policy: activation
-                    .policy()
-                    .map_err(|error| format!("Invalid compiled grant policy: {error:?}"))?,
-                installation_id: installation_id.as_str().into(),
-                store,
-            });
-        }
+        self.grants = Some(Grants {
+            authority: codeterm_entitlements::pinned(),
+            installation_id: installation_id.as_str().into(),
+            store,
+        });
         Ok(self)
     }
     #[cfg(test)]
@@ -90,9 +90,7 @@ impl Billing {
         clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     ) -> Self {
         self.grants = Some(Grants {
-            phase: activation.phase,
-            enforcing: codeterm_entitlements::enforcing(Some(&activation)),
-            policy: activation.policy().unwrap(),
+            authority: Arc::new(codeterm_entitlements::PinnedAuthority::new(activation)),
             installation_id: installation_id.into(),
             store,
         });
@@ -105,18 +103,45 @@ impl Billing {
             .verified
             .as_ref()
             .map(|grant| grant.verdict((self.clock)()));
-        if self
-            .grants
-            .as_ref()
-            .is_some_and(|grants| grants.phase == Phase::B)
-        {
-            let access = snapshot
-                .grant
-                .as_ref()
-                .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
-            snapshot.access = Some(Access::from_effective(&access));
-        }
+        snapshot.access = cache.uid.as_ref().map(|_| {
+            Access::from_effective(
+                &snapshot
+                    .grant
+                    .as_ref()
+                    .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective),
+            )
+        });
+        snapshot.checking = self.checking(cache);
         snapshot
+    }
+    fn checking(&self, cache: &Cache) -> bool {
+        cache
+            .checking_until
+            .is_some_and(|deadline| (self.clock)() < deadline)
+    }
+    /// Startup: verify the stored grant offline before the first lock projection. Blocking IO.
+    /// Returns the checking deadline when only the paid hint stands between the user and locks.
+    pub fn prime(&self, session: &codeterm_account::Session) -> Option<u64> {
+        let generation = {
+            let mut cache = self.cache.lock();
+            self.bind(&mut cache, Some(session));
+            cache.generation
+        };
+        let grants = self.grants.as_ref()?;
+        let now = (self.clock)();
+        let current = self
+            .load_grant(generation, session)
+            .is_some_and(|grant| grant.verdict(now).state.retains_grant());
+        if current || !grants.store.load_hint().unwrap_or(false) {
+            return None;
+        }
+        let mut cache = self.cache.lock();
+        if cache.generation != generation {
+            return None;
+        }
+        let deadline = now + CHECKING_DEADLINE_SECS;
+        cache.checking_until = Some(deadline);
+        Some(deadline)
     }
     pub fn with_observer(mut self, observer: ProductObserver) -> Self {
         self.observer = Some(observer);
@@ -133,8 +158,16 @@ impl Billing {
                     }
                 }
             }
+            if cache.uid.is_some() {
+                if let Some(grants) = &self.grants {
+                    if let Err(error) = grants.store.save_hint(false) {
+                        log::debug!("Plan hint reset failed: {error}");
+                    }
+                }
+            }
             cache.verified = None;
             cache.loaded = false;
+            cache.checking_until = None;
             cache.uid = uid;
             cache.generation += 1;
             cache.snapshot = Snapshot::default();
@@ -148,35 +181,36 @@ impl Billing {
         self.bind(&mut cache, session);
         self.recompute(&cache)
     }
-    /// Free-tier limits bind only through a Phase B verdict, or compiled free without one.
+    /// Limits bind through the verified verdict, or compiled free without one.
     pub fn limit_gate(&self) -> LimitGate {
-        if !self.grants.as_ref().is_some_and(|grants| grants.enforcing) {
-            return LimitGate::dormant();
-        }
-        let verdict = self
-            .cache
-            .lock()
+        let cache = self.cache.lock();
+        let enforcing = !self.checking(&cache)
+            && self
+                .grants
+                .as_ref()
+                .map_or_else(codeterm_entitlements::enforcing, |grants| {
+                    grants.authority.enforcement().enabled
+                });
+        let verdict = cache
             .verified
             .as_ref()
             .map(|grant| grant.verdict((self.clock)()));
+        drop(cache);
         let access = verdict
             .as_ref()
             .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
-        LimitGate::new(access, true)
+        LimitGate::new(access, enforcing)
     }
     pub fn entitlement_allows(
         &self,
         session: Option<&codeterm_account::Session>,
         capability: Capability,
     ) -> bool {
-        let snapshot = self.snapshot(session);
-        if self.grants.is_some() {
-            return capability == Capability::Terminal
-                || snapshot
-                    .access
-                    .is_some_and(|access| access.authority != Authority::Free);
-        }
-        entitlement_allows(&snapshot.entitlements, capability)
+        capability == Capability::Terminal
+            || self
+                .snapshot(session)
+                .access
+                .is_some_and(|access| access.authority != Authority::Free)
     }
     pub async fn refresh(
         &self,
@@ -216,7 +250,7 @@ impl Billing {
                 .and_then(|raw| {
                     crate::grant_store::authenticate(
                         raw,
-                        &grants.policy,
+                        grants.authority.as_ref(),
                         &session.identity.uid,
                         &grants.installation_id,
                         cached.as_ref(),
@@ -289,7 +323,7 @@ impl Billing {
             match grants.store.load() {
                 Ok(Some(raw)) => match crate::grant_store::authenticate(
                     &raw,
-                    &grants.policy,
+                    grants.authority.as_ref(),
                     &session.identity.uid,
                     &grants.installation_id,
                     None,
@@ -324,11 +358,12 @@ impl Billing {
         let mut product_event = None;
         if cache.generation == generation {
             if let Ok(reading) = &result {
+                cache.checking_until = None;
                 if let (Some(grants), Some(session)) = (&self.grants, session) {
                     let accepted = reading.grant.as_ref().map(|raw| {
                         crate::grant_store::authenticate(
                             raw,
-                            &grants.policy,
+                            grants.authority.as_ref(),
                             &session.identity.uid,
                             &grants.installation_id,
                             cache.verified.as_ref(),
@@ -349,8 +384,14 @@ impl Billing {
                         }
                         None => log::debug!("Reply has no grant; retaining cached grant"),
                     }
-                } else if reading.grant.is_some() {
-                    log::debug!("Detached grant ignored: compiled activation is absent");
+                    let now = (self.clock)();
+                    let paid = cache.verified.as_ref().is_some_and(|grant| {
+                        grant.verdict(now).effective().authority
+                            != codeterm_entitlements::Authority::Free
+                    });
+                    if let Err(error) = grants.store.save_hint(paid) {
+                        log::debug!("Plan hint persistence failed: {error}");
+                    }
                 }
             }
             match result {
@@ -381,24 +422,11 @@ impl Billing {
                         entitlements,
                         stale: false,
                         access: Some(access),
+                        checking: false,
                         grant: None,
                     };
                 }
                 Err(_) => cache.snapshot.stale = true,
-            }
-        }
-        if self
-            .grants
-            .as_ref()
-            .is_some_and(|grants| grants.phase == Phase::A)
-        {
-            if let (Some(grant), Some(access)) = (&cache.verified, &cache.snapshot.access) {
-                for divergence in codeterm_entitlements::shadow(
-                    &grant.verdict((self.clock)()),
-                    &access.shadow_access(),
-                ) {
-                    log::debug!("Grant shadow divergence: {divergence:?}");
-                }
             }
         }
         let snapshot = self.recompute(&cache);

@@ -122,16 +122,3 @@ pub enum Capability {
     Terminal,
     PaidFeatures,
 }
-pub const CAPABILITY_PLANS: &[(Capability, &[&str])] = &[
-    (Capability::Terminal, &["free", "pro", "sponsor"]),
-    (Capability::PaidFeatures, &["pro", "sponsor"]),
-];
-pub fn entitlement_allows(entitlements: &Entitlements, capability: Capability) -> bool {
-    let paid = matches!(entitlements.status, Status::Active | Status::Trialing);
-    CAPABILITY_PLANS
-        .iter()
-        .find(|(key, _)| *key == capability)
-        .is_some_and(|(_, plans)| {
-            plans.contains(&"free") || (paid && plans.contains(&entitlements.plan.as_str()))
-        })
-}

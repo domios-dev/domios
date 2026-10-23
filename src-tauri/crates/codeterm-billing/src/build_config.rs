@@ -8,3 +8,15 @@ pub(crate) fn functions_url() -> Option<&'static str> {
         Some(codeterm_account::firebase_endpoints::PRODUCTION.functions)
     }
 }
+
+#[cfg(all(test, not(debug_assertions)))]
+mod tests {
+    #[test]
+    fn release_ignores_backend_overrides() {
+        assert_eq!(
+            super::functions_url(),
+            Some(codeterm_account::firebase_endpoints::PRODUCTION.functions)
+        );
+        assert!(!codeterm_account::firebase_endpoints::current().emulator);
+    }
+}

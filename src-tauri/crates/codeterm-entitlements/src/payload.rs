@@ -5,8 +5,8 @@ use std::collections::HashSet;
 pub const ISSUER: &str = "domios-entitlements";
 pub const MAX_PAYLOAD_BYTES: usize = 8192;
 pub const MAX_CAPABILITIES: usize = 64;
-pub const REFRESH_SECS: u64 = 1_800;
-pub const LEASE_SECS: u64 = 3_600;
+pub const REFRESH_SECS: u64 = 3_600;
+pub const LEASE_SECS: u64 = 86_400;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]

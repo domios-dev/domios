@@ -10,6 +10,8 @@ use serde::Deserialize;
 use std::cmp::Ordering;
 
 pub const ED25519: &str = "Ed25519";
+/// Bounded tolerance for a desktop clock behind the issuer.
+pub const MAX_CLOCK_SKEW_SECS: u64 = 300;
 const SIGNATURE_BYTES: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -49,6 +51,7 @@ pub enum Refusal {
     Installation,
     Revision,
     RevisionConflict,
+    IssuedInFuture,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -138,36 +141,10 @@ pub fn verify(
     let mut facets = Facets::default();
     let refuse = |refusal: Refusal, facets: Facets| Err(Rejected { refusal, facets });
 
-    if grant.alg != ED25519 {
-        facets.trusted_key = Facet::Failed;
-        return refuse(Refusal::Algorithm, facets);
-    }
-    let Some(key) = policy.key(&grant.key_id) else {
-        facets.trusted_key = Facet::Failed;
-        return refuse(Refusal::UnknownKey, facets);
+    let bytes = match signed_bytes(grant, policy, MAX_PAYLOAD_BYTES, &mut facets) {
+        Ok(bytes) => bytes,
+        Err(refusal) => return refuse(refusal, facets),
     };
-    facets.trusted_key = Facet::Passed;
-
-    let Ok(signature) = URL_SAFE_NO_PAD.decode(&grant.signature) else {
-        return refuse(Refusal::SignatureEncoding, facets);
-    };
-    let Ok(signature) = <[u8; SIGNATURE_BYTES]>::try_from(signature.as_slice()) else {
-        return refuse(Refusal::SignatureLength, facets);
-    };
-    let Ok(bytes) = URL_SAFE_NO_PAD.decode(&grant.payload) else {
-        return refuse(Refusal::PayloadEncoding, facets);
-    };
-    if bytes.len() > MAX_PAYLOAD_BYTES {
-        return refuse(Refusal::PayloadSize, facets);
-    }
-    if key
-        .verify_strict(&bytes, &Signature::from_bytes(&signature))
-        .is_err()
-    {
-        facets.mathematical_signature = Facet::Failed;
-        return refuse(Refusal::Signature, facets);
-    }
-    facets.mathematical_signature = Facet::Passed;
 
     let payload = match parse_canonical(&bytes) {
         Ok(payload) => payload,
@@ -181,6 +158,10 @@ pub fn verify(
     if let Err(refusal) = check_context(&payload, policy, binding) {
         facets.context_matches = Facet::Failed;
         return refuse(refusal, facets);
+    }
+    if payload.issued_at > now.saturating_add(MAX_CLOCK_SKEW_SECS) {
+        facets.context_matches = Facet::Failed;
+        return refuse(Refusal::IssuedInFuture, facets);
     }
     facets.context_matches = Facet::Passed;
 
@@ -205,6 +186,55 @@ pub fn verify(
             facets,
         }),
     }
+}
+
+/// Trusted key, strict Ed25519 signature and canonical base64; the one place a signature is checked.
+pub fn authenticate(
+    grant: &DetachedGrant,
+    policy: &Policy,
+    max_bytes: usize,
+) -> Result<Vec<u8>, Refusal> {
+    signed_bytes(grant, policy, max_bytes, &mut Facets::default())
+}
+
+fn signed_bytes(
+    grant: &DetachedGrant,
+    policy: &Policy,
+    max_bytes: usize,
+    facets: &mut Facets,
+) -> Result<Vec<u8>, Refusal> {
+    if grant.alg != ED25519 {
+        facets.trusted_key = Facet::Failed;
+        return Err(Refusal::Algorithm);
+    }
+    let Some(key) = policy.key(&grant.key_id) else {
+        facets.trusted_key = Facet::Failed;
+        return Err(Refusal::UnknownKey);
+    };
+    facets.trusted_key = Facet::Passed;
+    let signature = URL_SAFE_NO_PAD
+        .decode(&grant.signature)
+        .map_err(|_| Refusal::SignatureEncoding)?;
+    let signature = <[u8; SIGNATURE_BYTES]>::try_from(signature.as_slice())
+        .map_err(|_| Refusal::SignatureLength)?;
+    let bytes = URL_SAFE_NO_PAD
+        .decode(&grant.payload)
+        .map_err(|_| Refusal::PayloadEncoding)?;
+    if URL_SAFE_NO_PAD.encode(&bytes) != grant.payload {
+        return Err(Refusal::PayloadEncoding);
+    }
+    if bytes.len() > max_bytes {
+        return Err(Refusal::PayloadSize);
+    }
+    if key
+        .verify_strict(&bytes, &Signature::from_bytes(&signature))
+        .is_err()
+    {
+        facets.mathematical_signature = Facet::Failed;
+        return Err(Refusal::Signature);
+    }
+    facets.mathematical_signature = Facet::Passed;
+    Ok(bytes)
 }
 
 fn parse_canonical(bytes: &[u8]) -> Result<GrantPayload, Refusal> {

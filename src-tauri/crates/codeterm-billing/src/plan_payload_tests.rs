@@ -2,7 +2,7 @@ use super::*;
 use std::time::Instant;
 
 #[tokio::test]
-async fn plan_payload_carries_envelope_authority() {
+async fn plan_payload_never_carries_unsigned_envelope_authority() {
     for (authority, full_access) in [("admin", true), ("free", false)] {
         let mut envelope: serde_json::Value =
             serde_json::from_str(include_str!("../fixtures/admin_grant_response.json")).unwrap();
@@ -19,8 +19,8 @@ async fn plan_payload_carries_envelope_authority() {
             )
             .await;
         let payload = serde_json::to_value(snapshot).unwrap();
-        assert_eq!(payload["access"]["authority"], authority);
-        assert_eq!(payload["access"]["full_access"], full_access);
+        assert_eq!(payload["access"]["authority"], "free");
+        assert_eq!(payload["access"]["full_access"], false);
         assert_eq!(payload["entitlements"]["plan"], "free");
         assert_eq!(payload["stale"], false);
         assert!(payload.get("grant").is_none());

@@ -2,20 +2,18 @@ pub mod adapters;
 mod build_config;
 mod cache;
 mod envelope;
-mod grant_activation;
 mod grant_store;
 pub use grant_store::{FileGrantStore, GrantStore};
 mod model;
 use async_trait::async_trait;
-pub use cache::{Billing, RefreshEvent, Snapshot};
+pub use cache::{Billing, RefreshEvent, Snapshot, CHECKING_DEADLINE_SECS};
 use codeterm_account::Session;
 pub use envelope::{
     Access, ApplicationAccess, ApplicationEnvelope, Authority, BillingInventory, Capabilities,
     Effective, Reading, Version,
 };
 pub use model::{
-    checkout_url_with_theme, entitlement_allows, Capability, CheckoutKey, CheckoutTheme,
-    Entitlements, Plan, Status, CAPABILITY_PLANS,
+    checkout_url_with_theme, Capability, CheckoutKey, CheckoutTheme, Entitlements, Plan, Status,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

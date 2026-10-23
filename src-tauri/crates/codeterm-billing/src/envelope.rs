@@ -191,20 +191,4 @@ impl Access {
             priority_support: access.perks.priority_support,
         }
     }
-    pub(crate) fn shadow_access(&self) -> codeterm_entitlements::ApplicationAccess {
-        codeterm_entitlements::ApplicationAccess {
-            schema_version: 1,
-            authority: match self.authority {
-                Authority::Admin => codeterm_entitlements::Authority::Admin,
-                Authority::Billing => codeterm_entitlements::Authority::Billing,
-                Authority::Free => codeterm_entitlements::Authority::Free,
-            },
-            full_access: self.full_access,
-            max_mesh_machines: self.max_mesh_machines,
-            max_workspaces: self.max_workspaces,
-            priority_support: self.priority_support,
-            sponsor: self.sponsor,
-            admin_generation: None,
-        }
-    }
 }
