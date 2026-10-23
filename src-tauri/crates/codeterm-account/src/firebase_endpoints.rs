@@ -6,6 +6,7 @@ pub struct Endpoints {
     pub signin: &'static str,
     pub redeem: &'static str,
     pub emulator: bool,
+    pub qa: bool,
 }
 
 pub const PRODUCTION: Endpoints = Endpoints {
@@ -15,6 +16,7 @@ pub const PRODUCTION: Endpoints = Endpoints {
     signin: "https://auth.domios.dev/signin/",
     redeem: "https://us-central1-domios-d9357.cloudfunctions.net/redeemDesktopLoginCode",
     emulator: false,
+    qa: false,
 };
 
 #[cfg(any(debug_assertions, test))]
@@ -25,11 +27,31 @@ const EMULATOR: Endpoints = Endpoints {
     signin: "http://127.0.0.1:15000/signin/",
     redeem: "http://127.0.0.1:15001/demo-domios/us-central1/redeemDesktopLoginCode",
     emulator: true,
+    qa: false,
 };
 
 pub fn current() -> Endpoints {
+    let endpoints = selected_endpoints();
+    static LOGGED: std::sync::Once = std::sync::Once::new();
+    LOGGED.call_once(|| {
+        let (target, project) = if endpoints.qa {
+            ("qa", "domios-signin-qa")
+        } else if endpoints.emulator {
+            ("emulator", "demo-domios")
+        } else {
+            ("production", "domios-d9357")
+        };
+        log::info!("account target: {target} ({project})");
+    });
+    endpoints
+}
+
+fn selected_endpoints() -> Endpoints {
     #[cfg(debug_assertions)]
     {
+        if let Some(qa) = qa::current() {
+            return qa.endpoints();
+        }
         resolve(
             true,
             std::env::var("DOMIOS_FIREBASE_EMULATOR").ok().as_deref(),
@@ -84,9 +106,28 @@ fn matches_emulator_url(url: &url::Url, endpoints: Endpoints) -> bool {
 }
 
 pub(crate) fn account_config(mut config: crate::Config) -> crate::Config {
+    #[cfg(debug_assertions)]
+    if let Some(qa) = qa::current() {
+        qa.validate_account(&config)
+            .unwrap_or_else(|message| panic!("{message}"));
+    }
     let endpoints = current();
     apply_account_endpoints(&mut config, cfg!(debug_assertions), endpoints);
     config
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn qa_vendor() -> Option<crate::build_config::Vendor> {
+    qa::current().map(|qa| {
+        let endpoints = qa.endpoints();
+        crate::build_config::Vendor {
+            api_key: Some(qa.api_key),
+            app_id: Some(qa.app_id),
+            project_id: Some(qa.project),
+            signin_url: Some(endpoints.signin),
+            redeem_url: Some(endpoints.redeem),
+        }
+    })
 }
 
 fn apply_account_endpoints(config: &mut crate::Config, dev_build: bool, endpoints: Endpoints) {
@@ -101,5 +142,7 @@ fn apply_account_endpoints(config: &mut crate::Config, dev_build: bool, endpoint
     }
 }
 
+#[cfg(any(debug_assertions, test))]
+mod qa;
 #[cfg(test)]
 mod tests;

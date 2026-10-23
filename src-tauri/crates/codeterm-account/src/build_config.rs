@@ -7,6 +7,10 @@ pub(crate) struct Vendor {
     pub signin_url: Option<&'static str>,
 }
 pub(crate) fn vendor() -> Vendor {
+    #[cfg(debug_assertions)]
+    if let Some(vendor) = crate::firebase_endpoints::qa_vendor() {
+        return vendor;
+    }
     Vendor {
         api_key: option_env!("DOMIOS_FIREBASE_API_KEY"),
         project_id: option_env!("DOMIOS_FIREBASE_PROJECT_ID"),
