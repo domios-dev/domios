@@ -1,8 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
-name: GitHub {{resource}} {{repo}}#{{id}}
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: pipeline
+name: Github
 note: Watch run, jobs or PR checks; report failed jobs early while CI is in progress.
-owner: team
+intent: Watch run, jobs or PR checks; report failed jobs early while CI is in progress.
 inputs:
   id:
     type: integer
@@ -25,22 +26,27 @@ inputs:
     type: integer
     default: 60000
     description: Probe timeout in milliseconds
-pipeline:
-  trigger:
-    type: schedule
-    every: '{{interval}}'
-  steps:
-  - name: Check source
-    input: text
-    uses: github
-    with:
-      repo: '{{repo}}'
-      resource: '{{resource}}'
-      id: '{{id}}'
-      timeout_ms: '{{timeout_ms}}'
-    'on':
-      done: next
-      failed: stop
-      failing: next
-  result:
-    to: owner
+owner: team
+trigger:
+  type: schedule
+  every:
+    input: interval
+steps:
+- id: step_1
+  name: Check source
+  uses: github
+  with:
+    repo:
+      input: repo
+    resource:
+      input: resource
+    id:
+      input: id
+    timeout_ms:
+      input: timeout_ms
+  routes:
+    done: '@next'
+    failed: '@stop'
+    failing: '@next'
+result:
+  to: owner

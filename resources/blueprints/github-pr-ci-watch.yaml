@@ -1,7 +1,9 @@
-# Check and apply this file with codeterm blueprint.
-schema_version: 1
+# Native Blueprint v2. Check with explicit author bindings before apply.
+schema_version: 2
+kind: watch
 name: '{{name}}'
 note: Watch one PR until all checks pass; notify on a failing check.
+intent: Watch one PR until all checks pass; notify on a failing check.
 inputs:
   name:
     type: string
@@ -9,23 +11,44 @@ inputs:
   pr_verdict_probe:
     type: string
     description: Read-only command printing waiting, passed or failed for one PR.
-watch:
-  probe: '{{pr_verdict_probe}}'
-  question: classify-pr-checks
+steps:
+- id: source
+  uses: probe
+  with:
+    command:
+      input: pr_verdict_probe
+  every:
+    lit: 60s
+  timeout:
+    lit: 3h
+- id: decide
+  uses: ask
+  with:
+    question:
+      lit: classify-pr-checks
   buckets:
   - waiting
   - passed
   - failed
+  routes:
+    waiting: '@stop'
+    passed: passed_1
+    failed: failed_1
   matches:
-    waiting: (?m)^waiting\r?$
-    passed: (?m)^passed\r?$
-    failed: (?m)^failed\r?$
+    waiting:
+      lit: (?m)^waiting\r?$
+    passed:
+      lit: (?m)^passed\r?$
+    failed:
+      lit: (?m)^failed\r?$
   until: passed
   rearm_on_change:
   - failed
-  every: 60s
-  timeout: 3h
+- id: passed_1
+  uses: notify
   routes:
-    waiting: none
-    passed: notify
-    failed: notify
+    done: '@stop'
+- id: failed_1
+  uses: notify
+  routes:
+    done: '@stop'

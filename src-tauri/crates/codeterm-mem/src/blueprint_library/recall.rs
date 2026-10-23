@@ -63,45 +63,7 @@ pub struct BlueprintHit {
     pub enrichment_pending: bool,
 }
 
-pub struct BlueprintRecallResult {
-    pub offers: Vec<BlueprintHit>,
-    pub degraded: bool,
-    pub progress: crate::embedder::ReembedProgress,
-}
-
-impl MemManager {
-    pub fn recall_blueprints_with_health(
-        self: &std::sync::Arc<Self>,
-        area: &str,
-        intent: &str,
-        limit: usize,
-    ) -> Result<BlueprintRecallResult, String> {
-        let offers = self.recall_blueprints(area, intent, limit)?;
-        let health = self.recall_health();
-        Ok(BlueprintRecallResult {
-            offers,
-            degraded: health.degraded,
-            progress: health.progress,
-        })
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct RecallHealth {
-    pub degraded: bool,
-    pub progress: crate::embedder::ReembedProgress,
-}
-
-impl MemManager {
-    pub fn recall_health(&self) -> RecallHealth {
-        let status = self.embedder_status();
-        RecallHealth {
-            degraded: status.degraded || !status.index_matches,
-            progress: status.reembed,
-        }
-    }
-}
-
+#[derive(Clone)]
 pub(super) struct Candidate {
     pub(super) entry: Entry,
     pub(super) row: Option<IndexRow>,
@@ -427,7 +389,6 @@ impl MemManager {
         limit: usize,
         config: &RecallConfig,
     ) -> Result<Vec<BlueprintHit>, String> {
-        let _publication = self.vector_transition.read();
         let query_vector = self.embedder.query(intent);
         let candidates =
             self.candidates(area, query_vector.as_ref().map(|vector| &vector.identity))?;

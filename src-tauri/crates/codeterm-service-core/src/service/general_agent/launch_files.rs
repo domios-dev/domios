@@ -87,7 +87,9 @@ pub(super) fn command_with_selection(
             params,
         )
     }?;
-    Some(codex_rpc::launch::prepare(svc, tab, provider, command))
+    Some(codex_rpc::launch::prepare(
+        svc, tab, provider, command, None,
+    ))
 }
 
 pub(super) fn starter(

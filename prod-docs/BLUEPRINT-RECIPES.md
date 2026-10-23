@@ -1,8 +1,9 @@
 # Blueprint recipes
 
-A recipe is a YAML Blueprint with typed `inputs`. Apply a built-in directly for common work; print its file when you need a custom graph.
+A recipe is a native schema_version: 2 YAML Blueprint with typed `inputs`. Start with `blueprint new --intent` and reuse a fitting typed call card; otherwise apply a named recipe or author a graph. The shared cookbook is `domios docs BLUEPRINT-AUTHORING`.
 
 ```bash
+domios blueprint new --intent "watch CI and report failures" --json
 domios blueprint recipe
 domios blueprint apply github --set repo=owner/repo --set id=42
 domios blueprint new http-health > health.yaml
@@ -26,7 +27,7 @@ Use `--note` to explain the particular watch. `check` is offline; `apply --dry-r
 | `prompt-responder` | Request safe prompt handling | `tab_id`, `permission_pattern` |
 | `cron-run-watch` | Observe a verified cron run | `cron_name_or_id`, `finished_pattern` |
 | `launch-prompt-gate` | Safely handle launch prompts; escalate unknown ones | `cron_name_or_id` |
-| `echo` | Command followed by a filter | none; optional `message` |
+| `echo` | Echo text input through a filter | none; optional `message` |
 | `all-finished` | One verdict probe for all work | `name`, `one_verdict_probe`, `all_terminal_pattern` |
 | `voice-note-to-text` | Input data and conversion skeleton | `name`, absolute `path_to_voice_note` |
 
@@ -40,14 +41,12 @@ domios blueprint apply github-org-runners --set org=organization --set label=lin
 domios blueprint apply http-health --set url=https://example.com/health --set expected_status=204
 ```
 
-Edit the file's `on` routes when composing branches. Keep inputs for reusable parameters, and use a custom `run` step only when a built-in node does not fit. A command returns text; HTTP and GitHub expose fixed outcomes. `on: {done: stop, failed: diagnose}` routes to a later `diagnose` stage.
+Edit each node's `routes` to name a later node, `@next` or `@stop`. Use explicit `{lit: ...}`, `{input: ...}` and `{bind: ...}` values. Commands are fixed whole values; message data is never inserted into executable text.
 
-For watch patterns, probes should print one stable verdict, not timestamps or long logs. Keep waiting states silent with `routes: {waiting: none}`. Define a meaningful question and patterns anchored per line (`(?m)`); errors must never resemble success. Pattern watches never fall back to the model. Creation proves admission; use `show` and retained transition/handler results to confirm a real observed result.
+Watch sources, decisions and effects are separate nodes. Probe sources use `with.command`; observations use `with.kind` (`tab` or `cron_run`) and `with.id`. A decision routes a waiting bucket to `@stop` for silence and a terminal bucket to a later notify node. Deterministic patterns should match one stable verdict and handle CRLF. An `other` route may reach an escalate node with a positive escalation timeout declared on the decision.
 
-Watch same-Team tabs with `observe: tab:<id>`, or a cron's exact verified run with `observe: cron-run:<name-or-id>`. A shell requires an explicit terminal pattern or idle bound. An agent status watch does not type into the observed tab. To react to repeated changed output in one bucket, declare `rearm_on_change: [failed]`.
-
-Unknown cases can use `handlers.other` to escalate to the creator or a same-Team agent. Repair the YAML and apply it, then resolve the held transition. The model chooses a finite bucket; fixed code-defined handlers own actions and targets.
+Built-in names remain stable as inputs change, so re-apply retargets the existing named graph. Probe-based recipes retain an explicit `name` input. Creation proves admission; use `show` and retained transition/handler results to confirm an observed result.
 
 Full format, validation diagnostics, editor schema and sharing: `domios docs BLUEPRINTS`.
 
-<!-- revision: 15 -->
+<!-- revision: 17 -->

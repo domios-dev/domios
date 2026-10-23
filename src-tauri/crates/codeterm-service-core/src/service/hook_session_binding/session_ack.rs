@@ -41,6 +41,23 @@ pub fn acknowledge_authenticated_launch(
     })
 }
 
+pub(super) async fn acknowledge_and_reconcile_session_binding_async(
+    svc: &crate::service::ServiceContext,
+    tab_id: &str,
+    claim: &SessionStartClaim,
+    report_nonce: Option<&str>,
+) -> Result<Option<crate::service::ProviderSessionBinding>, String> {
+    let service = svc.clone();
+    let tab = tab_id.to_owned();
+    let claim = claim.clone();
+    let nonce = report_nonce.map(str::to_owned);
+    tokio::task::spawn_blocking(move || {
+        acknowledge_and_reconcile_session_binding(&service, &tab, &claim, nonce.as_deref())
+    })
+    .await
+    .map_err(|error| format!("session custody reconciliation failed: {error}"))
+}
+
 pub fn acknowledge_and_reconcile_session_binding(
     svc: &crate::service::ServiceContext,
     tab_id: &str,
@@ -77,3 +94,6 @@ pub fn unchanged_acknowledged_hook_report(
     acknowledge_and_reconcile_session_binding(svc, tab_id, claim, report_nonce);
     Json(serde_json::json!({"ok": true, "changed": false}))
 }
+
+#[cfg(test)]
+mod tests;

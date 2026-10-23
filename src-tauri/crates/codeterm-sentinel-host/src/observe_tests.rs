@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use super::*;
 use crate::provenance::{Classification, Scope};
-use crate::store::{Create, Owner, Store};
+use crate::store::{Owner, Store};
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::{PendingPrompt, PromptOption};
 
@@ -72,30 +72,7 @@ fn sentinel_observe_source_requires_agent_in_creator_team_workspace() {
         codeterm_service_core::cron::clock::MockClock::starting_at(1_000),
     );
     let job = store
-        .prepare(
-            Create {
-                note: None,
-                terminal: None,
-                session: false,
-                name: Some("observed-state-watch".into()),
-                probe: None,
-                observe: Some(TabBinding::Tab(bound.clone())),
-                input: None,
-                question: "state?".into(),
-                buckets: vec!["waiting".into()],
-                every: "10s".into(),
-                routes: BTreeMap::new(),
-                model_classification: false,
-                matches: BTreeMap::new(),
-                rearm_on_change: Default::default(),
-                until: None,
-                timeout: None,
-                paused: false,
-                handlers: None,
-                escalation_timeout_ms: None,
-                max_transitions: None,
-                max_actions: None,
-            },
+        .prepare_document(codeterm_sentinel::test_support::watch(serde_json::to_value::<Option<String>>(Some("observed-state-watch".into())).unwrap(),serde_json::json!({"uses":"observe","with":serde_json::json!({"kind":{"lit":"tab"},"id":{"lit":serde_json::to_value::<String>(bound.clone()).unwrap()}}),"every":serde_json::json!({"lit":serde_json::to_value::<String>("10s".into()).unwrap()}),"paused":false,"session":false}),serde_json::json!({"with":serde_json::json!({"question":{"lit":serde_json::to_value::<String>("state?".into()).unwrap()}}),"buckets":serde_json::to_value::<Vec<String>>(vec!["waiting".into()]).unwrap(),"matches":codeterm_sentinel::test_support::literal_params(serde_json::to_value::<std::collections::BTreeMap<String,String>>(BTreeMap::new()).unwrap()),"until":serde_json::to_value::<Option<String>>(None).unwrap(),"rearm_on_change":serde_json::to_value::<std::collections::BTreeSet<String>>(Default::default()).unwrap(),"escalation_timeout_ms":serde_json::to_value::<Option<u64>>(None).unwrap(),"model_classification":false}),serde_json::Value::Null,serde_json::to_value::<Option<String>>(None).unwrap()),
             Owner {
                 creator_tab_id: creator,
                 team_id: Some("creator-team".into()),
@@ -125,30 +102,7 @@ fn sentinel_direct_observation_survives_creator_joining_a_team() {
         codeterm_service_core::cron::clock::MockClock::starting_at(1_000),
     );
     let job = store
-        .prepare(
-            Create {
-                note: None,
-                terminal: None,
-                session: false,
-                name: Some("creator-state-watch".into()),
-                probe: None,
-                observe: Some(TabBinding::Tab(creator.clone())),
-                input: None,
-                question: "state?".into(),
-                buckets: vec!["waiting".into()],
-                every: "10s".into(),
-                routes: BTreeMap::new(),
-                model_classification: false,
-                matches: BTreeMap::new(),
-                rearm_on_change: Default::default(),
-                until: None,
-                timeout: None,
-                paused: false,
-                handlers: None,
-                escalation_timeout_ms: None,
-                max_transitions: None,
-                max_actions: None,
-            },
+        .prepare_document(codeterm_sentinel::test_support::watch(serde_json::to_value::<Option<String>>(Some("creator-state-watch".into())).unwrap(),serde_json::json!({"uses":"observe","with":serde_json::json!({"kind":{"lit":"tab"},"id":{"lit":serde_json::to_value::<String>(creator.clone()).unwrap()}}),"every":serde_json::json!({"lit":serde_json::to_value::<String>("10s".into()).unwrap()}),"paused":false,"session":false}),serde_json::json!({"with":serde_json::json!({"question":{"lit":serde_json::to_value::<String>("state?".into()).unwrap()}}),"buckets":serde_json::to_value::<Vec<String>>(vec!["waiting".into()]).unwrap(),"matches":codeterm_sentinel::test_support::literal_params(serde_json::to_value::<std::collections::BTreeMap<String,String>>(BTreeMap::new()).unwrap()),"until":serde_json::to_value::<Option<String>>(None).unwrap(),"rearm_on_change":serde_json::to_value::<std::collections::BTreeSet<String>>(Default::default()).unwrap(),"escalation_timeout_ms":serde_json::to_value::<Option<u64>>(None).unwrap(),"model_classification":false}),serde_json::Value::Null,serde_json::to_value::<Option<String>>(None).unwrap()),
             Owner {
                 creator_tab_id: creator.clone(),
                 team_id: None,
@@ -174,30 +128,7 @@ fn sentinel_removed_observation_tab_stops_with_one_creator_notice() {
         codeterm_service_core::cron::clock::MockClock::starting_at(1_000),
     );
     let job = store
-        .create(
-            Create {
-                note: None,
-                terminal: None,
-                session: false,
-                name: Some("removed-tab-watch".into()),
-                probe: None,
-                observe: Some(TabBinding::Tab("removed-tab".into())),
-                input: None,
-                question: "state?".into(),
-                buckets: vec!["waiting".into()],
-                every: "10s".into(),
-                routes: BTreeMap::new(),
-                model_classification: false,
-                matches: BTreeMap::new(),
-                rearm_on_change: Default::default(),
-                until: None,
-                timeout: None,
-                paused: false,
-                handlers: None,
-                escalation_timeout_ms: None,
-                max_transitions: None,
-                max_actions: None,
-            },
+        .create_document(codeterm_sentinel::test_support::watch(serde_json::to_value::<Option<String>>(Some("removed-tab-watch".into())).unwrap(),serde_json::json!({"uses":"observe","with":serde_json::json!({"kind":{"lit":"tab"},"id":{"lit":serde_json::to_value::<String>("removed-tab".into()).unwrap()}}),"every":serde_json::json!({"lit":serde_json::to_value::<String>("10s".into()).unwrap()}),"paused":false,"session":false}),serde_json::json!({"with":serde_json::json!({"question":{"lit":serde_json::to_value::<String>("state?".into()).unwrap()}}),"buckets":serde_json::to_value::<Vec<String>>(vec!["waiting".into()]).unwrap(),"matches":codeterm_sentinel::test_support::literal_params(serde_json::to_value::<std::collections::BTreeMap<String,String>>(BTreeMap::new()).unwrap()),"until":serde_json::to_value::<Option<String>>(None).unwrap(),"rearm_on_change":serde_json::to_value::<std::collections::BTreeSet<String>>(Default::default()).unwrap(),"escalation_timeout_ms":serde_json::to_value::<Option<u64>>(None).unwrap(),"model_classification":false}),serde_json::Value::Null,serde_json::to_value::<Option<String>>(None).unwrap()),
             Owner {
                 creator_tab_id: creator.clone(),
                 team_id: None,
@@ -238,30 +169,7 @@ fn sentinel_cron_run_scope_accepts_only_its_verified_hidden_automation_tab() {
         codeterm_service_core::cron::clock::MockClock::starting_at(1_000),
     );
     let mut job = store
-        .prepare(
-            Create {
-                note: None,
-                terminal: None,
-                session: false,
-                name: Some("cron-state-watch".into()),
-                probe: None,
-                observe: Some(TabBinding::CronRun("cron-nightly".into())),
-                input: None,
-                question: "run state?".into(),
-                buckets: vec!["waiting".into()],
-                every: "10s".into(),
-                routes: BTreeMap::new(),
-                model_classification: false,
-                matches: BTreeMap::new(),
-                rearm_on_change: Default::default(),
-                until: None,
-                timeout: None,
-                paused: false,
-                handlers: None,
-                escalation_timeout_ms: None,
-                max_transitions: None,
-                max_actions: None,
-            },
+        .prepare_document(codeterm_sentinel::test_support::watch(serde_json::to_value::<Option<String>>(Some("cron-state-watch".into())).unwrap(),serde_json::json!({"uses":"observe","with":serde_json::json!({"kind":{"lit":"cron_run"},"id":{"lit":serde_json::to_value::<String>("cron-nightly".into()).unwrap()}}),"every":serde_json::json!({"lit":serde_json::to_value::<String>("10s".into()).unwrap()}),"paused":false,"session":false}),serde_json::json!({"with":serde_json::json!({"question":{"lit":serde_json::to_value::<String>("run state?".into()).unwrap()}}),"buckets":serde_json::to_value::<Vec<String>>(vec!["waiting".into()]).unwrap(),"matches":codeterm_sentinel::test_support::literal_params(serde_json::to_value::<std::collections::BTreeMap<String,String>>(BTreeMap::new()).unwrap()),"until":serde_json::to_value::<Option<String>>(None).unwrap(),"rearm_on_change":serde_json::to_value::<std::collections::BTreeSet<String>>(Default::default()).unwrap(),"escalation_timeout_ms":serde_json::to_value::<Option<u64>>(None).unwrap(),"model_classification":false}),serde_json::Value::Null,serde_json::to_value::<Option<String>>(None).unwrap()),
             Owner {
                 creator_tab_id: creator,
                 team_id: Some("creator-team".into()),

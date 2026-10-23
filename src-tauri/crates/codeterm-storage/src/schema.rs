@@ -7,6 +7,8 @@ use std::path::Path;
 use std::time::Duration;
 
 mod blueprint;
+mod blueprint_calls;
+mod blueprint_v2;
 mod desk;
 mod sentinel;
 mod tab_todo;
@@ -45,6 +47,10 @@ const MIGRATIONS: &[&str] = &[
      ALTER TABLE blueprint_runtime ADD COLUMN action_offset INTEGER NOT NULL DEFAULT 0;
      ALTER TABLE blueprint_definitions ADD COLUMN note TEXT CHECK (note IS NULL OR length(note) <= 200);",
     "ALTER TABLE blueprints ADD COLUMN creation_options TEXT CHECK (creation_options IS NULL OR length(creation_options) <= 256);",
+    blueprint_v2::DOCUMENT_SCHEMA,
+    blueprint_v2::CLEANUP,
+    blueprint_calls::SCHEMA,
+    blueprint_calls::RUN_IDENTITY_SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

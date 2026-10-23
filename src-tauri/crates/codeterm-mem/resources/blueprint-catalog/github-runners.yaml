@@ -1,0 +1,92 @@
+schema_version: 2
+kind: pipeline
+name: github-runners
+note: Count a GitHub organization's self-hosted Actions runners with one label as
+  online or offline.
+intent: tell me how many of our self-hosted CI runners are online
+anchors: []
+inputs:
+  org:
+    type: string
+    description: GitHub organization
+  label:
+    type: string
+    description: Runner label to count, e.g. self-hosted or gpu
+types:
+  Runner:
+    type: object
+    additionalProperties: false
+    required:
+    - name
+    - status
+    properties:
+      name:
+        type: string
+      status:
+        enum:
+        - online
+        - offline
+  Runners:
+    type: object
+    additionalProperties: false
+    required:
+    - runners
+    properties:
+      runners:
+        type: array
+        items:
+          $ref: Runner
+  RunnerCount:
+    type: object
+    additionalProperties: false
+    required:
+    - offline
+    - offline_names
+    - online
+    properties:
+      offline:
+        type: integer
+      offline_names:
+        type: array
+        items:
+          type: string
+      online:
+        type: integer
+steps:
+- id: runners
+  uses: github
+  with:
+    org:
+      input: org
+    resource:
+      lit: runners
+    label:
+      input: label
+  out:
+    $ref: Runners
+  routes:
+    online: count
+    offline: count
+    failed: stop
+- id: count
+  does: Count runners by online or offline status and name the offline ones
+  code:
+    lang: python
+    src: |
+      def main(value):
+          online = [x["name"] for x in value["runners"] if x["status"] == "online"]
+          offline = sorted(x["name"] for x in value["runners"] if x["status"] != "online")
+          return {"online": len(online), "offline": len(offline), "offline_names": offline}
+  in:
+    $ref: Runners
+  bind:
+    in: runners.out
+  out:
+    $ref: RunnerCount
+  routes:
+    done: next
+    failed: stop
+result:
+  type:
+    $ref: RunnerCount
+  from: count.out
