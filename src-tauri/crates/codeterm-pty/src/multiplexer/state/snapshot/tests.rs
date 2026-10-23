@@ -13,6 +13,7 @@ mod surface_restore;
 
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        created_at_ms: 0,
         purpose: Default::default(),
         icon: None,
         shell_profile: None,
@@ -72,6 +73,7 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
         active_workspace_id: Some("ws".into()),
         teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
+            created_at_ms: 0,
             task_keys: Default::default(),
             id: "ws".into(),
             name: "ws".into(),
@@ -101,6 +103,7 @@ fn team_snapshot_roundtrip() {
     let wsid = state.create_workspace("Team WS".to_string(), None).id;
 
     let team = Team {
+        locked: false,
         id: "team_abc123".into(),
         name: Some("Alpha".into()),
         lifecycle: TeamLifecycle::Active,
@@ -403,6 +406,7 @@ fn chatbackend_backing_round_trips_through_snapshot() {
 fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
     // backing on round-trip.
     let leaf = SplitNodeSnapshot::Leaf {
+        created_at_ms: 0,
         purpose: Default::default(),
         icon: None,
         shell_profile: None,
@@ -498,6 +502,7 @@ fn automation_audience_round_trips_and_legacy_defaults_fail_closed() {
 #[test]
 fn tab_description_round_trips_through_snapshot() {
     let leaf = SplitNodeSnapshot::Leaf {
+        created_at_ms: 0,
         purpose: Default::default(),
         icon: None,
         shell_profile: None,
@@ -578,6 +583,7 @@ fn tab_description_round_trips_through_snapshot() {
 #[test]
 fn spawned_by_and_report_target_restore_intact_not_none() {
     let leaf = SplitNodeSnapshot::Leaf {
+        created_at_ms: 0,
         purpose: Default::default(),
         icon: None,
         shell_profile: None,
@@ -636,6 +642,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
 #[test]
 fn legacy_tab_title_seeds_default_provider_tab_title() {
     let leaf = SplitNodeSnapshot::Leaf {
+        created_at_ms: 0,
         purpose: Default::default(),
         icon: None,
         shell_profile: None,
@@ -965,6 +972,7 @@ fn snapshot_with_status_keeps_dead_over_stale_pending_prompt() {
 fn spawned_by_round_trips_through_snapshot() {
     // state → snapshot → state preserves the hierarchy linkage fields.
     let leaf = SplitNodeSnapshot::Leaf {
+        created_at_ms: 0,
         purpose: Default::default(),
         icon: None,
         shell_profile: None,

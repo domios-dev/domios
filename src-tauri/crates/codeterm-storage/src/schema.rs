@@ -51,6 +51,7 @@ const MIGRATIONS: &[&str] = &[
     blueprint_v2::CLEANUP,
     blueprint_calls::SCHEMA,
     blueprint_calls::RUN_IDENTITY_SCHEMA,
+    "ALTER TABLE workspaces ADD COLUMN created_at_ms INTEGER CHECK (created_at_ms IS NULL OR created_at_ms >= 0);",
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

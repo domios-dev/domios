@@ -7,6 +7,7 @@ impl MultiplexerState {
         let workspace_id = short_id();
 
         let workspace = Workspace {
+            locked: false,
             task_keys: Default::default(),
             id: workspace_id.clone(),
             name: name.clone(),
@@ -16,12 +17,14 @@ impl MultiplexerState {
             cwd_missing: false,
             provisioned_cwd: None,
             protected: false,
+            created_at_ms: self.next_created_at_ms(),
             sort_order: self.next_workspace_sort_order(),
         };
 
         self.workspaces.push(workspace);
 
         WorkspaceInfo {
+            locked: false,
             id: workspace_id.clone(),
             name,
             tab_count: 0,
@@ -82,6 +85,7 @@ impl MultiplexerState {
         let ws = self.find_workspace_by_cwd(query)?;
         let tab_ids = ws.tabs.clone();
         Some(WorkspaceInfo {
+            locked: false,
             id: ws.id.clone(),
             name: ws.name.clone(),
             tab_count: ws.tabs.len(),
@@ -285,6 +289,7 @@ impl MultiplexerState {
     }
 
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
+        let locks = self.locks();
         self.workspaces
             .iter()
             .map(|w| {
@@ -298,6 +303,7 @@ impl MultiplexerState {
                     cwd_missing: w.cwd_missing,
                     protected: w.protected,
                     tab_ids,
+                    locked: locks.workspaces.contains(&w.id),
                     existing: None,
                     provisioned: w.provisioned_cwd.is_some(),
                 }

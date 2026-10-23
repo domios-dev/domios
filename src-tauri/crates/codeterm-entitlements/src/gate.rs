@@ -1,10 +1,13 @@
 use crate::activation::{Activation, Phase};
 use crate::payload::Limits;
 use crate::verdict::{compiled_free, EffectiveAccess};
+use std::collections::BTreeSet;
 use std::fmt;
 
 /// Stable refusal code agents match on instead of retrying.
 pub const FREE_LIMIT_REACHED: &str = "free_limit_reached";
+/// Stable refusal code for acting on an item locked above the plan limit.
+pub const PLAN_LIMIT_LOCKED: &str = "plan_limit_locked";
 
 /// Limits enforced at creation points.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +65,57 @@ impl fmt::Display for LimitRefusal {
 
 impl std::error::Error for LimitRefusal {}
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LockedRefusal {
+    pub limit: LimitKey,
+    pub item_id: String,
+}
+
+impl fmt::Display for LockedRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{PLAN_LIMIT_LOCKED}: {} is locked because it is above your plan's limit of {}. Upgrade or close newer items to unlock it. (limit: {})",
+            self.item_id,
+            self.limit.noun(),
+            self.limit.key()
+        )
+    }
+}
+
+impl std::error::Error for LockedRefusal {}
+
+/// One item competing for a limited slot; `exempt` items (General) never count nor lock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LockCandidate {
+    pub id: String,
+    pub created_at: u64,
+    pub exempt: bool,
+}
+
+/// Ids marked locked; marking never removes an item from any listing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(transparent)]
+pub struct LockSet(BTreeSet<String>);
+
+impl LockSet {
+    pub fn contains(&self, id: &str) -> bool {
+        self.0.contains(id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(String::as_str)
+    }
+}
+
 /// Only a Phase B activation with enforcement on makes limits binding.
 pub fn enforcing(activation: Option<&Activation>) -> bool {
     activation
@@ -96,6 +150,23 @@ impl LimitGate {
 
     pub fn admit(&self, limit: LimitKey, count: usize) -> Result<(), LimitRefusal> {
         admit(limit, count as u64, &self.access, self.enforcing)
+    }
+
+    /// Oldest `max` non-exempt items stay usable (created_at, then id); the rest are locked.
+    pub fn over_limit(&self, limit: LimitKey, items: &[LockCandidate]) -> LockSet {
+        let Some(max) = limit.max(&self.access.limits).filter(|_| self.enforcing) else {
+            return LockSet::default();
+        };
+        let mut counted: Vec<&LockCandidate> = items.iter().filter(|item| !item.exempt).collect();
+        counted.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
+        let keep = usize::try_from(max).unwrap_or(usize::MAX);
+        LockSet(
+            counted
+                .into_iter()
+                .skip(keep)
+                .map(|item| item.id.clone())
+                .collect(),
+        )
     }
 
     pub fn summary(&self) -> LimitSummary {

@@ -1,7 +1,9 @@
 use super::records::{DeskLayoutNode, DeskSnapshot, DeskTeam, DeskTeamLifecycle, DeskWorkspace};
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
-use crate::repositories::{expect_matches, from_sql_u64, to_sql_u64, Expect, Revision};
+use crate::repositories::{
+    created_sql, expect_matches, from_sql_u64, to_sql_u64, Expect, Revision,
+};
 use crate::schema::{self, WORKSPACE_ORDER_REVISION};
 use crate::WorkspaceRecord;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -271,7 +273,7 @@ pub(super) fn update_workspace(
     let revision = sql_revision(cx)?;
     cx.write(
         "UPDATE workspaces SET name = ?2, cwd = ?3, provisioned_cwd = ?4, protected = ?5, \
-         task_key_prefix = ?6, task_key_next = ?7, revision = ?8 WHERE id = ?1",
+         task_key_prefix = ?6, task_key_next = ?7, revision = ?8, created_at_ms = ?9 WHERE id = ?1",
         params![
             id,
             record.name,
@@ -280,7 +282,8 @@ pub(super) fn update_workspace(
             record.protected,
             record.task_key_prefix,
             to_sql_u64("workspace task key counter", record.task_key_next)?,
-            revision
+            revision,
+            created_sql(record.created_at_ms)?
         ],
     )?;
     cx.write(
@@ -584,8 +587,8 @@ fn insert_workspace(cx: &mut WriteCx<'_>, workspace: &DeskWorkspace) -> Result<(
         )
         .map_err(|error| sqlite_error("allocate workspace ordinal", error))?;
     cx.write(
-        "INSERT INTO workspaces (id, ordinal, name, cwd, provisioned_cwd, protected, task_key_prefix, task_key_next, revision) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO workspaces (id, ordinal, name, cwd, provisioned_cwd, protected, task_key_prefix, task_key_next, revision, created_at_ms) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             record.id.as_str(),
             ordinal,
@@ -595,7 +598,8 @@ fn insert_workspace(cx: &mut WriteCx<'_>, workspace: &DeskWorkspace) -> Result<(
             record.protected,
             record.task_key_prefix,
             to_sql_u64("workspace task key counter", record.task_key_next)?,
-            revision
+            revision,
+            created_sql(record.created_at_ms)?
         ],
     )?;
     cx.write(

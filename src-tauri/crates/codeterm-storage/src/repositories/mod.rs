@@ -87,6 +87,10 @@ pub(crate) fn to_sql_u64(field: &'static str, value: u64) -> Result<i64, Storage
         .map_err(|_| StorageError::invalid(field, "exceeds the signed 64-bit range"))
 }
 
+pub(crate) fn created_sql(value: Option<u64>) -> Result<Option<i64>, StorageError> {
+    value.map(|ms| to_sql_u64("created_at_ms", ms)).transpose()
+}
+
 pub(crate) fn from_sql_u64(field: &'static str, value: i64) -> Result<u64, StorageError> {
     u64::try_from(value).map_err(|_| StorageError::Corrupt {
         detail: format!("negative {field}"),
