@@ -312,7 +312,7 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         && job.routes.keys().all(|bucket| declared.contains(bucket))
         && job.matches.keys().all(|bucket| declared.contains(bucket));
     if !exact {
-        return Err("blueprint definition is not losslessly representable".into());
+        return Err("blueprint buckets, routes and matches disagree: every bucket needs exactly one route, and routes and matches may name only declared buckets. Fix the outcome lists and apply again".into());
     }
     use super::super::stage_source::StageSource as DomainSource;
     let source = match &job.source {
@@ -478,7 +478,11 @@ fn head_amendment(job: &Sentinel) -> Result<Option<AmendmentRecord>, String> {
     match job.amendments.as_slice() {
         [] if job.definition_version == 1 => Ok(None),
         [head] if head.version == job.definition_version => Ok(Some(amendment(head))),
-        _ => Err("blueprint amendment lineage is not losslessly representable".into()),
+        amendments => Err(format!(
+            "blueprint import carries {} amendments at definition version {}; import keeps only the head amendment. Delete the Blueprint and apply its current document as a new one",
+            amendments.len(),
+            job.definition_version
+        )),
     }
 }
 
@@ -517,6 +521,14 @@ pub fn create(job: &Sentinel, associate: &[String]) -> Result<SentinelCreate, St
             .map(|child| id(child))
             .collect::<Result<_, _>>()?,
     })
+}
+
+/// Whether the typed store can hold this job; amendment history is stored per update.
+pub fn representable(job: &Sentinel) -> Result<(), String> {
+    stage_identity(job)?;
+    scenario(job)?;
+    definition(job)?;
+    Ok(())
 }
 
 /// Exact existing state for the immutable import path; nothing here can start work.

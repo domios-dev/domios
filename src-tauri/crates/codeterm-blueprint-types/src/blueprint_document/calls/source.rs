@@ -15,13 +15,19 @@ pub(super) fn freeze(parsed: &mut Parsed, author: &Path) -> Result<usize, Vec<Di
         if code.src.is_some() {
             return Err((field, "Code nodes take either file or src, not both".into()));
         }
+        if relative.contains('\\') {
+            return Err((
+                field,
+                format!("Code file `{relative}` uses backslashes; write it with forward slashes"),
+            ));
+        }
         let directory = author.parent().unwrap_or(Path::new("."));
         let source = crate::code_source::read(directory, relative).map_err(|reason| {
             let detail = match reason {
                 "budget_exhausted" => "Code source exceeds 16 KiB",
                 _ => "Code files require a regular file inside the Blueprint directory, reached without traversal, symlinks or junctions",
             };
-            (field.clone(), format!("{reason}: {detail}"))
+            (field.clone(), format!("{reason}: {relative}: {detail}"))
         })?;
         added = added.saturating_add(source.len());
         if added > MAX_CLOSURE_BYTES {
