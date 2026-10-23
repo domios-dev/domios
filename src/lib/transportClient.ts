@@ -1,4 +1,5 @@
 import { uid } from "./uid";
+import { restRequestSignal } from "./restTimeoutPolicy";
 
 export const streamClientId = uid();
 
@@ -31,8 +32,8 @@ export interface StreamEnd {
 
 export interface TransportClient {
   request?(path: string, init?: RequestInit, local?: boolean): Promise<Response>;
-  json<T>(method: HttpMethod, path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number; callerTabId?: string }): Promise<T>;
-  localJson<T>(method: string, path: string, body?: unknown, opts?: { signal?: AbortSignal; callerTabId?: string }): Promise<T>;
+  json<T>(method: HttpMethod, path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number | null; callerTabId?: string }): Promise<T>;
+  localJson<T>(method: string, path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number | null; callerTabId?: string }): Promise<T>;
   upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T>;
   subscribe(stream: string, onEvent: (name: string, data: unknown) => void | Promise<void>, opts?: { signal?: AbortSignal; onEnd?: (end: StreamEnd) => void; raw?: boolean; requireEventStream?: boolean; onActivity?: () => void; onReady?: () => void }): Unsubscribe;
   currentToken(): string | null;
@@ -218,12 +219,12 @@ export function createTransportClient(options: TransportOptions): TransportClien
     request: tracked,
     origin: () => origin,
     currentToken: () => typeof options.token === "function" ? options.token() : options.token,
-    json: (method, path, body, opts) => {
-      const deadline = opts?.timeoutMs === undefined ? undefined : AbortSignal.timeout(opts.timeoutMs);
-      const signal = opts?.signal && deadline ? AbortSignal.any([opts.signal, deadline]) : opts?.signal ?? deadline;
-      return json(method, path, body, { signal, headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined });
-    },
-    localJson: (method, path, body, opts) => json(method, path, body, { signal: opts?.signal, headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined }, true),
+    json: (method, path, body, opts) => json(method, path, body, {
+      signal: restRequestSignal(method, path, opts), headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
+    }),
+    localJson: (method, path, body, opts) => json(method, path, body, {
+      signal: restRequestSignal(method, path, opts), headers: opts?.callerTabId ? { "X-CodeTerm-Tab-Id": opts.callerTabId } : undefined,
+    }, true),
     async upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T> {
       const response = await tracked(path, { method: "POST", body: form, signal: opts?.signal }, true);
       const text = await response.text();

@@ -215,9 +215,8 @@ export function useMeshData(refreshKey: number): MeshDataResult {
       const status = await invoke<MeshStatus>("mesh_get_status").catch(
         () => null,
       );
-      const meshPeers = await invoke<MeshPeersResponse>("mesh_list_peers").catch(
-        () => ({ paired: [], local_instance_name: "" }),
-      );
+      // A failed peer list is an error state, never an authoritative "0 peers".
+      const meshPeers = await invoke<MeshPeersResponse>("mesh_list_peers");
       const paired: PeerStatus[] = (meshPeers.paired ?? []).map(
         (p: PairedPeer) => ({
           instance_id: p.instance_id,
