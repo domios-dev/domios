@@ -46,6 +46,13 @@ impl SwitchPlan {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ItemProgress {
+    pub id: String,
+    pub done: usize,
+    pub total: usize,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReembedProgress {
     pub state: ReembedState,
@@ -58,6 +65,7 @@ pub struct ReembedProgress {
     pub updated_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
+    pub current_item: Option<ItemProgress>,
 }
 
 /// Background re-embed progress. Every change is pushed to the embedder's
@@ -240,6 +248,34 @@ impl ReembedTracker {
         generation
     }
 
+    pub(crate) fn item_progress(
+        &self,
+        generation: u64,
+        id: &str,
+        done: usize,
+        total: usize,
+        events: &ActiveEmbedder,
+    ) -> bool {
+        let snapshot = {
+            let mut progress = self.progress.lock();
+            if self.generation.load(Ordering::SeqCst) != generation
+                || progress.state != ReembedState::Running
+            {
+                return false;
+            }
+            progress.current_item = Some(ItemProgress {
+                id: id.into(),
+                done,
+                total,
+            });
+            progress.updated_at = Some(self.clock.now());
+            progress.clone()
+        };
+        self.persist(&snapshot);
+        events.emit(&EmbedderEvent::Progress(snapshot));
+        true
+    }
+
     pub(crate) fn advance(
         &self,
         generation: u64,
@@ -257,6 +293,7 @@ impl ReembedTracker {
             {
                 return false;
             }
+            progress.current_item = None;
             progress.done += 1;
             if let Err(error) = outcome {
                 progress.failed += 1;
@@ -285,6 +322,7 @@ impl ReembedTracker {
             {
                 return;
             }
+            progress.current_item = None;
             progress.state = ReembedState::Completed;
             progress.updated_at = Some(now);
             progress.finished_at = Some(now);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { embedderOptions, normalizeRefusal, parseOption, progressLabel, refusalForPlatform, switchSummary } from "./embedderModel";
+import { embedderOptions, normalizeRefusal, parseOption, progressLabel, progressValue, refusalForPlatform, switchSummary } from "./embedderModel";
 import { listingFixture, statusFixture } from "./embedderFixtures";
 
 
@@ -79,4 +79,16 @@ describe("embedder model", () => {
     expect(switchSummary({ target: running, remote: true, warning: null, plan: { items: 5, entities: 2, docs: 1 }, total: 8, refusal: null }))
       .toContain("re-embeds 8 items");
   });
+  it("shows completed chunks before a large item finishes", () => {
+    const status = statusFixture({
+      reembed: {
+        state: "running", target: null, total: 1, done: 0, failed: 0,
+        current_item: { id: "fixture", done: 8, total: 20 },
+      },
+    });
+    expect(progressValue(status)).toBe(0.4);
+    expect(progressLabel(status)).toContain("40%");
+    expect(progressLabel(status)).toContain("8 of 20 chunks");
+  });
+
 });
