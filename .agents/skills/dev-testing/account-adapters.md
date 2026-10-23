@@ -9,6 +9,20 @@ the dev-testing instance isolation rules before changing or exercising them.
 
 ## DEV entitlement QA (signed TEST verdicts)
 
+For isolated cloud sign-in and sandbox purchases, build with
+`DOMIOS_ACCOUNT_TARGET=qa ./build.sh dev` (also supported by `dev-back`).
+The build secret store must contain `DOMIOS_QA_PROJECT_ID=domios-signin-qa`,
+`DOMIOS_QA_FIREBASE_API_KEY`, and `DOMIOS_QA_FIREBASE_APP_ID`. These are separate
+from the production secrets used by install-local. Expect the startup log
+`account target: qa (domios-signin-qa)`. Sign in using the secret-store test
+accounts `domios-qa-free` and `domios-qa-buyer`; the buyer exercises the sandbox
+checkout. Never print their credentials. QA derives sign-in, redemption and
+billing URLs from that project and rejects saved account or billing overrides
+that select another target. Clear those overrides before starting QA. Missing
+QA values or a simultaneous emulator opt-in refuse startup with an explicit
+diagnostic. The target is compiled into debug builds; release and install-local
+ignore it and retain production endpoints. Production build secrets stay unchanged.
+
 Debug builds pin the TEST key `test-2026-10` and take the TEST project from build-time `DOMIOS_QA_PROJECT_ID`, which build.sh injects from the secret store. Without it, DEV refuses every verdict and stays plain free. The signing key is the secret `entitlements/test-signing-key` (base64 PKCS#8 DER); never print or copy it.
 
 1. Build DEV through build.sh on a machine whose secret store holds `DOMIOS_QA_PROJECT_ID` and `entitlements/test-signing-key`.
