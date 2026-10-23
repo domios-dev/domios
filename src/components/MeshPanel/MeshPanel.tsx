@@ -2,7 +2,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { invoke, listen } from "../../lib/bridge";
-import { BusySpinner, BusyState } from "../shared/BusyState";
+import { BusySpinner } from "../shared/BusyState";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
 import { MeshCanvas, type RecentPush } from "./MeshCanvas";
@@ -10,6 +10,7 @@ import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { meshDataUnavailable, meshHeaderState } from "./meshProjection";
 import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
+import { RegionLoader } from "../shared/RegionLoader";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -248,7 +249,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         )}
         {activeTab === "inventory" && !graphReady && !unavailable && (
           <section aria-label="Mesh inventory" aria-busy="true" className="absolute inset-0 flex items-center justify-center">
-            <DeferredLoader state="present"><BusyState label="Loading mesh" inline /></DeferredLoader>
+            <RegionLoader label="Loading mesh" />
           </section>
         )}
         {activeTab === "inventory" && graphReady && (

@@ -97,7 +97,7 @@ it("reads a changed source file through the authenticated tab-scoped web bridge"
 
 it("loads a focused chip preview and opens its image via the authenticated attachment reader", async () => {
   await act(async () => root?.render(<LocalArtifactScope tabId="chip-owner"><AttachmentCapsule attachment={{ kind: "image", path: "/work/pixel.png", label: "image1" }} /></LocalArtifactScope>));
-  const chip = host.querySelector<HTMLButtonElement>('button[aria-label="Open image image1"]')!;
+  const chip = host.querySelector<HTMLButtonElement>('button[aria-label="Open image pixel.png"]')!;
   expect(chip.querySelector("img")).toBeNull();
   await act(async () => chip.focus());
   expect(document.querySelector('[role="region"] img')?.getAttribute("src")).toBe("data:image/png;base64,cGl4ZWw=");

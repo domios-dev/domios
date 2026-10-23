@@ -3,8 +3,7 @@ import { useState } from "react";
 import { Clock3, Network, RefreshCw, Workflow } from "lucide-react";
 import type { TransportClient } from "../../lib/transportClient";
 import type { PairedPeer } from "../../lib/types";
-import { BusyState } from "../shared/BusyState";
-import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
+import { RegionLoader } from "../shared/RegionLoader";
 import { CRON_ID_PREFIX } from "../MeshPanel/types";
 import { BackPill } from "../shared/BackPill";
 import { UI_BUTTON } from "../shared/design";
@@ -45,7 +44,7 @@ export function PeerJobsView({ peerId, peers, onMachineChange, onClose, clientFo
     </header>
     <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:px-6">
       {state === "unavailable" && <p role={actionFailed ? "alert" : "status"}>Jobs unavailable on {peer?.instance_name ?? "this machine"}{peer?.online === false ? " · machine offline" : ""}.</p>}
-      {state === "loading" && <DeferredLoader state="present"><BusyState label="Reading jobs" inline /></DeferredLoader>}
+      {state === "loading" && <RegionLoader label="Reading jobs" className="min-h-48" />}
       {state === "partial" && <p role="status">Some jobs on {peer?.instance_name} are unavailable.</p>}
       {data && !selected && <>
         {state === "empty" && <p role="status" aria-label="No jobs">No jobs</p>}
