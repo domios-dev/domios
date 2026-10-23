@@ -128,6 +128,7 @@ pub async fn chat_send_text(
 }
 
 fn surface_send_refusal(state: &AppState, tab_id: &str) -> Result<(), DeliveryError> {
+    state.svc.tab_write_lock_delivery(tab_id)?;
     match state.svc.tab_surface_input_refusal(tab_id) {
         Some(detail) => Err(DeliveryError::TabBusyRefused {
             tab: tab_id.to_string(),

@@ -76,6 +76,7 @@ pub(crate) fn plan_authority_err(error: PlanAuthorityError) -> (StatusCode, Json
         status,
         Json(serde_json::json!({
             "error": error.to_string(),
+            "code": error.diagnostic_type(),
             "type": error.diagnostic_type(),
             "retryable": error.is_retryable(),
         })),

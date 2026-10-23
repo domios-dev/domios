@@ -49,6 +49,9 @@ impl ServiceContext {
             let id = mux
                 .resolve_tab_id(target)
                 .or_else(|| mux.tab_id_for_pty(target));
+            if let Some(refusal) = id.as_deref().and_then(|id| mux.tab_write_lock(id)) {
+                return Err(refusal.to_string());
+            }
             let curator = id
                 .as_deref()
                 .and_then(|id| mux.get_tab(id))

@@ -406,6 +406,9 @@ impl Messenger {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        if let Some(refusal) = svc.tab_write_lock(to_tab) {
+            return Err(refusal.to_string());
+        }
         if let Some(refusal) = svc.tab_surface_input_refusal(to_tab) {
             return Err(refusal);
         }

@@ -507,6 +507,9 @@ impl ServiceContext {
             .read()
             .resolve_tab_id(tab_id)
             .ok_or_else(|| format!("Tab {} not found or has no PTY", tab_id))?;
+        if let Some(refusal) = self.tab_write_lock(&resolved) {
+            return Err(refusal.to_string());
+        }
         if self.tab_chat_backing(&resolved).is_some() {
             return Ok(());
         }
