@@ -2,6 +2,11 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum BlueprintAction {
+    /// Discover repository Blueprints without running, applying or approving them
+    Project {
+        #[command(subcommand)]
+        action: BlueprintProjectAction,
+    },
     /// List built-in graph skeletons or print one ready-to-edit recipe
     Recipe { name: Option<String> },
     /// Validate a YAML file or built-in recipe without a daemon
@@ -131,6 +136,14 @@ pub enum BlueprintAction {
         #[command(subcommand)]
         action: BlueprintEscalationAction,
     },
+}
+
+#[derive(Subcommand)]
+pub enum BlueprintProjectAction {
+    /// List source path, name and intent under .domios/blueprints/
+    List,
+    /// View a native v2 source; no execution or approval is performed
+    Show { path: String },
 }
 
 #[derive(Subcommand)]

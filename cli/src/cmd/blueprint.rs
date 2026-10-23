@@ -8,6 +8,7 @@ mod authoring;
 mod call_view;
 mod memory;
 mod pipeline_spec;
+mod project;
 mod recipe_files;
 mod recipes;
 pub use authoring::handle_local;
@@ -587,7 +588,7 @@ fn request(
             params["dry_run"] = json!(true);
             "blueprint.apply"
         }
-        BlueprintAction::New { .. } | BlueprintAction::Schema => {
+        BlueprintAction::New { .. } | BlueprintAction::Project { .. } | BlueprintAction::Schema => {
             return Err("Blueprint command is handled offline".into())
         }
         BlueprintAction::List => "blueprint.list",

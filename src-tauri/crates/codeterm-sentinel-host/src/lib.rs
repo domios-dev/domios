@@ -63,3 +63,5 @@ mod persistence_roundtrip_tests;
 #[cfg(test)]
 #[path = "run_binding_tests.rs"]
 mod run_binding_tests;
+
+pub mod blueprint_viewer;
