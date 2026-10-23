@@ -57,6 +57,7 @@ pub mod output_stream;
 pub mod pasteboard_routes;
 pub(crate) mod peer_redaction;
 pub(crate) mod permission_auto_confirm_routes;
+mod plan_quota_status;
 pub mod plan_routes;
 pub mod plugin_tab_menu_routes;
 pub(crate) mod provider_cli_routes;

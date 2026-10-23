@@ -1,11 +1,15 @@
+use crate::grant_store::Floors;
 use crate::*;
 use codeterm_entitlements::{
-    EntitlementAuthority, LimitGate, Refusal, TimeState, Verdict, VerifiedGrant,
+    EntitlementAuthority, LimitGate, Refusal, RevisionFloor, TimeState, Verdict, VerifiedGrant,
 };
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -14,7 +18,7 @@ pub struct Snapshot {
     pub entitlements: Entitlements,
     pub stale: bool,
     pub access: Option<Access>,
-    /// No verified answer yet for an account last seen paid: show no locks until it arrives.
+    /// No verified answer yet for an account last seen paid: the UI may defer showing locks.
     pub checking: bool,
     #[serde(skip)]
     pub grant: Option<Verdict>,
@@ -27,6 +31,8 @@ pub enum RefreshEvent {
     SignIn,
     Focus,
     CheckoutReturned,
+    /// The verdict reached `refresh_after` while the daemon ran.
+    Deadline,
 }
 #[derive(Default)]
 struct Cache {
@@ -47,6 +53,8 @@ pub struct Billing {
     observer: Option<ProductObserver>,
     grants: Option<Grants>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    observed: Arc<AtomicU64>,
+    rearm: Arc<tokio::sync::Notify>,
 }
 #[derive(Clone)]
 struct Grants {
@@ -67,6 +75,8 @@ impl Billing {
                     .unwrap_or_default()
                     .as_secs()
             }),
+            observed: Arc::new(AtomicU64::new(0)),
+            rearm: Arc::new(tokio::sync::Notify::new()),
         }
     }
     pub fn with_grants(
@@ -97,12 +107,42 @@ impl Billing {
         self.clock = clock;
         self
     }
+    /// Wall time that never moves backwards past the latest instant this installation observed.
+    fn now(&self) -> u64 {
+        let wall = (self.clock)();
+        self.observed.fetch_max(wall, Ordering::SeqCst).max(wall)
+    }
+    fn floor_key(&self, grants: &Grants, uid: &str) -> String {
+        Floors::key(uid, &grants.installation_id)
+    }
+    /// Persists the observed time so a restart with the clock set back cannot revive a lease.
+    /// Blocking IO.
+    pub fn observe(&self) {
+        let Some(grants) = &self.grants else {
+            return;
+        };
+        let now = self.now();
+        let mut floors = match grants.store.load_floors() {
+            Ok(floors) => floors.unwrap_or_default(),
+            Err(error) => {
+                log::debug!("Grant floor unreadable; rewriting observed time only: {error}");
+                Floors::default()
+            }
+        };
+        if floors.observed_at >= now {
+            return;
+        }
+        floors.observed_at = now;
+        if let Err(error) = grants.store.save_floors(&floors) {
+            log::debug!("Grant floor persistence failed: {error}");
+        }
+    }
     fn recompute(&self, cache: &Cache) -> Snapshot {
         let mut snapshot = cache.snapshot.clone();
         snapshot.grant = cache
             .verified
             .as_ref()
-            .map(|grant| grant.verdict((self.clock)()));
+            .map(|grant| grant.verdict(self.now()));
         snapshot.access = cache.uid.as_ref().map(|_| {
             Access::from_effective(
                 &snapshot
@@ -117,7 +157,7 @@ impl Billing {
     fn checking(&self, cache: &Cache) -> bool {
         cache
             .checking_until
-            .is_some_and(|deadline| (self.clock)() < deadline)
+            .is_some_and(|deadline| self.now() < deadline)
     }
     /// Startup: verify the stored grant offline before the first lock projection. Blocking IO.
     /// Returns the checking deadline when only the paid hint stands between the user and locks.
@@ -128,7 +168,7 @@ impl Billing {
             cache.generation
         };
         let grants = self.grants.as_ref()?;
-        let now = (self.clock)();
+        let now = self.now();
         let current = self
             .load_grant(generation, session)
             .is_some_and(|grant| grant.verdict(now).state.retains_grant());
@@ -141,6 +181,7 @@ impl Billing {
         }
         let deadline = now + CHECKING_DEADLINE_SECS;
         cache.checking_until = Some(deadline);
+        self.rearm.notify_one();
         Some(deadline)
     }
     pub fn with_observer(mut self, observer: ProductObserver) -> Self {
@@ -174,6 +215,7 @@ impl Billing {
             cache.last_focus = None;
             cache.checkout_pending = false;
             cache.observed = false;
+            self.rearm.notify_one();
         }
     }
     pub fn snapshot(&self, session: Option<&codeterm_account::Session>) -> Snapshot {
@@ -181,20 +223,20 @@ impl Billing {
         self.bind(&mut cache, session);
         self.recompute(&cache)
     }
-    /// Limits bind through the verified verdict, or compiled free without one.
+    /// Limits bind through the verified verdict, or compiled free without one. Checking defers
+    /// only how locks are shown; the unsigned hint never relaxes enforcement.
     pub fn limit_gate(&self) -> LimitGate {
         let cache = self.cache.lock();
-        let enforcing = !self.checking(&cache)
-            && self
-                .grants
-                .as_ref()
-                .map_or_else(codeterm_entitlements::enforcing, |grants| {
-                    grants.authority.enforcement().enabled
-                });
+        let enforcing = self
+            .grants
+            .as_ref()
+            .map_or_else(codeterm_entitlements::enforcing, |grants| {
+                grants.authority.enforcement().enabled
+            });
         let verdict = cache
             .verified
             .as_ref()
-            .map(|grant| grant.verdict((self.clock)()));
+            .map(|grant| grant.verdict(self.now()));
         drop(cache);
         let access = verdict
             .as_ref()
@@ -254,7 +296,7 @@ impl Billing {
                         &session.identity.uid,
                         &grants.installation_id,
                         cached.as_ref(),
-                        (self.clock)(),
+                        self.now(),
                     )
                     .err()
                 });
@@ -294,7 +336,7 @@ impl Billing {
             && !cache
                 .verified
                 .as_ref()
-                .is_some_and(|grant| grant.verdict((self.clock)()).state == TimeState::Stale)
+                .is_some_and(|grant| grant.verdict(self.now()).state == TimeState::Stale)
             && !cache.checkout_pending
             && cache
                 .last_focus
@@ -320,6 +362,12 @@ impl Billing {
         }
         if !cache.loaded {
             cache.loaded = true;
+            let floors = grants.store.load_floors();
+            if let Ok(Some(floors)) = &floors {
+                self.observed
+                    .fetch_max(floors.observed_at, Ordering::SeqCst);
+            }
+            let key = self.floor_key(grants, &session.identity.uid);
             match grants.store.load() {
                 Ok(Some(raw)) => match crate::grant_store::authenticate(
                     &raw,
@@ -327,8 +375,16 @@ impl Billing {
                     &session.identity.uid,
                     &grants.installation_id,
                     None,
-                    (self.clock)(),
-                ) {
+                    self.now(),
+                )
+                .and_then(|verified| match &floors {
+                    Ok(floors) => floors
+                        .as_ref()
+                        .and_then(|floors| floors.revisions.get(&key))
+                        .map_or(Ok(()), |floor| floor.admits(&verified))
+                        .map(|()| verified),
+                    Err(_) => Err(Refusal::Revision),
+                }) {
                     Ok(verified) => cache.verified = Some(verified),
                     Err(refusal) => {
                         log::debug!("Stored grant refused: {refusal:?}");
@@ -360,6 +416,8 @@ impl Billing {
             if let Ok(reading) = &result {
                 cache.checking_until = None;
                 if let (Some(grants), Some(session)) = (&self.grants, session) {
+                    let key = self.floor_key(grants, &session.identity.uid);
+                    let floors = grants.store.load_floors();
                     let accepted = reading.grant.as_ref().map(|raw| {
                         crate::grant_store::authenticate(
                             raw,
@@ -367,8 +425,16 @@ impl Billing {
                             &session.identity.uid,
                             &grants.installation_id,
                             cache.verified.as_ref(),
-                            (self.clock)(),
+                            self.now(),
                         )
+                        .and_then(|verified| match &floors {
+                            Ok(floors) => floors
+                                .as_ref()
+                                .and_then(|floors| floors.revisions.get(&key))
+                                .map_or(Ok(()), |floor| floor.admits(&verified))
+                                .map(|()| verified),
+                            Err(_) => Ok(verified),
+                        })
                     });
                     match accepted {
                         Some(Ok(verified)) => {
@@ -377,6 +443,14 @@ impl Billing {
                                     log::debug!("Grant persistence failed: {error}");
                                 }
                             }
+                            let mut floors = floors.ok().flatten().unwrap_or_default();
+                            let raised =
+                                RevisionFloor::raised(floors.revisions.get(&key), &verified);
+                            floors.revisions.insert(key, raised);
+                            floors.observed_at = floors.observed_at.max(self.now());
+                            if let Err(error) = grants.store.save_floors(&floors) {
+                                log::debug!("Grant floor persistence failed: {error}");
+                            }
                             cache.verified = Some(verified);
                         }
                         Some(Err(refusal)) => {
@@ -384,7 +458,7 @@ impl Billing {
                         }
                         None => log::debug!("Reply has no grant; retaining cached grant"),
                     }
-                    let now = (self.clock)();
+                    let now = self.now();
                     let paid = cache.verified.as_ref().is_some_and(|grant| {
                         grant.verdict(now).effective().authority
                             != codeterm_entitlements::Authority::Free
@@ -431,6 +505,7 @@ impl Billing {
         }
         let snapshot = self.recompute(&cache);
         drop(cache);
+        self.rearm.notify_one();
         if let (Some(event), Some(observer)) = (product_event, &self.observer) {
             observer(event);
         }
@@ -458,3 +533,6 @@ impl Billing {
         cache.checkout_pending = true;
     }
 }
+
+mod deadlines;
+pub use deadlines::DeadlineTick;

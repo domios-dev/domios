@@ -68,29 +68,39 @@ impl ServiceContext {
                 let billing = Arc::new(billing);
                 if let Some(session) = self.account().await?.session().await {
                     let primer = billing.clone();
-                    let deadline = tokio::task::spawn_blocking(move || primer.prime(&session))
-                        .await
-                        .ok()
-                        .flatten();
-                    if let Some(deadline) = deadline {
-                        let wait = deadline.saturating_sub(
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs(),
-                        );
-                        let service = self.clone();
-                        // Failure bound only: a refresh answer re-syncs the gate sooner.
-                        crate::async_runtime::spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
-                            service.sync_limit_gate();
-                        });
+                    if let Err(error) =
+                        tokio::task::spawn_blocking(move || primer.prime(&session)).await
+                    {
+                        log::debug!("Grant prime task failed: {error}");
                     }
                 }
+                self.spawn_entitlement_deadlines(billing.clone());
                 Ok::<_, String>(billing)
             })
             .await?;
         Ok(billing.clone())
+    }
+    /// Idle daemons still refresh at `refresh_after` and lock at lease or period end; CLI,
+    /// socket and headless callers all read the mux gate this re-projects.
+    fn spawn_entitlement_deadlines(&self, billing: Arc<Billing>) {
+        let service = self.clone();
+        crate::async_runtime::spawn(async move {
+            billing
+                .drive_deadlines(|tick| {
+                    let service = service.clone();
+                    async move {
+                        if tick.refresh_due {
+                            if let Err(error) =
+                                service.refresh_billing(RefreshEvent::Deadline).await
+                            {
+                                log::debug!("Deadline refresh failed: {error}");
+                            }
+                        }
+                        service.announce_limit_gate();
+                    }
+                })
+                .await;
+        });
     }
     pub async fn account_plan(&self) -> Result<Snapshot, String> {
         let session = self.account().await?.session().await;

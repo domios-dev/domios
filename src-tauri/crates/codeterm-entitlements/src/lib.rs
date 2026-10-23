@@ -6,6 +6,7 @@
 
 pub mod activation;
 pub mod authority;
+pub mod floor;
 pub mod gate;
 pub mod jcs;
 pub mod payload;
@@ -16,6 +17,7 @@ pub mod verify;
 
 pub use activation::{Activation, CompiledKey, ACTIVATION, PRODUCTION, TEST};
 pub use authority::{enforcement, enforcing, pinned, EntitlementAuthority, PinnedAuthority};
+pub use floor::RevisionFloor;
 pub use gate::{
     admit, LimitGate, LimitKey, LimitRefusal, LimitSummary, LockCandidate, LockSet, LockedRefusal,
     FREE_LIMIT_REACHED, PLAN_LIMIT_LOCKED,
@@ -26,7 +28,7 @@ pub use payload::{
     TAB_TEAM_LIMITS_POLICY_VERSION,
 };
 pub use policy::{Policy, PolicyError, PolicySpec, TrustedKey};
-pub use verdict::{compiled_free, EffectiveAccess, TimeState, Verdict};
+pub use verdict::{compiled_free, next_transition, EffectiveAccess, TimeState, Verdict};
 pub use verify::{
     authenticate, verify, Accepted, Binding, DetachedGrant, Facet, Facets, Refusal, Rejected,
     RevisionOrder, VerifiedGrant, MAX_CLOCK_SKEW_SECS,

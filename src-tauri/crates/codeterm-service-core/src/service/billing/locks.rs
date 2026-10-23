@@ -45,9 +45,18 @@ impl ServiceContext {
     }
 
     pub(crate) fn apply_limit_gate(&self, gate: LimitGate) {
+        self.project_limit_gate(gate, false);
+    }
+
+    /// Deadline ticks always announce, so a UI deferring lock presentation learns checking ended.
+    pub(crate) fn announce_limit_gate(&self) {
+        self.project_limit_gate(self.limit_gate(), true);
+    }
+
+    fn project_limit_gate(&self, gate: LimitGate, announce: bool) {
         let summary = gate.summary();
         let change = self.mux.write().set_limit_gate(gate);
-        if !change.gate {
+        if !change.gate && !announce {
             return;
         }
         if change.locks {
