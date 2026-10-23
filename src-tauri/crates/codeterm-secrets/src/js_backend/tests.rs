@@ -145,3 +145,39 @@ fn a_successful_list_with_value_fields_returns_metadata_only() {
     assert_eq!(items[0].item_id, "i1");
     assert!(!format!("{items:?}").contains(SENTINEL));
 }
+
+fn nested_bw_list() -> serde_json::Value {
+    crate::redact::tests::nested_bw_list()
+}
+
+#[test]
+fn a_nested_vault_list_decodes_to_metadata_for_list_and_search() {
+    let rt = runtime();
+    let wrapped = json!({ "ok": nested_bw_list() });
+    let listed = rt
+        .block_on(backend(Scripted(wrapped.clone())).list(ListFilter::default()))
+        .expect("list");
+    let found = rt
+        .block_on(backend(Scripted(wrapped)).search("token"))
+        .expect("search");
+    for items in [listed, found] {
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].item_id, "i1");
+        assert!(!format!("{items:?}").contains(SENTINEL));
+    }
+}
+
+#[test]
+fn an_unwrapped_vault_list_is_refused_as_a_typed_error_without_its_payload() {
+    let rt = runtime();
+    let errors = [
+        rt.block_on(backend(Scripted(nested_bw_list())).list(ListFilter::default()))
+            .unwrap_err(),
+        rt.block_on(backend(Scripted(nested_bw_list())).search("token"))
+            .unwrap_err(),
+    ];
+    for err in errors {
+        assert_eq!(err.kind(), "backend");
+        assert!(!format!("{err} {err:?}").contains(SENTINEL));
+    }
+}
