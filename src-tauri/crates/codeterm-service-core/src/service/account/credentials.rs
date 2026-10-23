@@ -47,7 +47,7 @@ fn credential_root(explicit: Option<&AccountDataRoot>) -> Result<PathBuf, String
     }
     #[cfg(not(any(test, feature = "test-support")))]
     {
-        Ok(crate::paths::data_dir())
+        Ok(crate::paths::data_dir_path())
     }
 }
 
