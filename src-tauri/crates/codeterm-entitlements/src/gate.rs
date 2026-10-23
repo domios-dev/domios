@@ -132,11 +132,80 @@ pub struct LimitSummary {
 pub struct LimitGate {
     access: EffectiveAccess,
     enforcing: bool,
+    valid_until: Option<u64>,
+    clock: Option<GateClock>,
 }
+
+#[derive(Clone)]
+struct GateClock(
+    std::sync::Arc<dyn Fn() -> u64 + Send + Sync>,
+    std::sync::Arc<std::sync::atomic::AtomicU64>,
+);
+
+impl GateClock {
+    fn now(&self) -> u64 {
+        let now = (self.0)();
+        self.1
+            .fetch_max(now, std::sync::atomic::Ordering::SeqCst)
+            .max(now)
+    }
+}
+
+impl std::fmt::Debug for GateClock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("GateClock")
+    }
+}
+
+impl PartialEq for GateClock {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for GateClock {}
 
 impl LimitGate {
     pub fn new(access: EffectiveAccess, enforcing: bool) -> Self {
-        Self { access, enforcing }
+        Self {
+            access,
+            enforcing,
+            valid_until: None,
+            clock: None,
+        }
+    }
+
+    pub fn with_deadline(
+        mut self,
+        valid_until: Option<u64>,
+        clock: std::sync::Arc<dyn Fn() -> u64 + Send + Sync>,
+    ) -> Self {
+        self.clock = Some(GateClock(
+            clock,
+            std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        ));
+        self.valid_until = valid_until;
+        self
+    }
+
+    fn access_at(&self, now: u64) -> std::borrow::Cow<'_, EffectiveAccess> {
+        if self.valid_until.is_some_and(|end| now >= end) {
+            std::borrow::Cow::Owned(compiled_free())
+        } else {
+            std::borrow::Cow::Borrowed(&self.access)
+        }
+    }
+
+    fn current_access(&self) -> std::borrow::Cow<'_, EffectiveAccess> {
+        self.access_at(self.clock.as_ref().map_or_else(
+            || {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            },
+            GateClock::now,
+        ))
     }
 
     pub fn dormant() -> Self {
@@ -144,12 +213,15 @@ impl LimitGate {
     }
 
     pub fn admit(&self, limit: LimitKey, count: usize) -> Result<(), LimitRefusal> {
-        admit(limit, count as u64, &self.access, self.enforcing)
+        admit(limit, count as u64, &self.current_access(), self.enforcing)
     }
 
     /// Oldest `max` non-exempt items stay usable (created_at, then id); the rest are locked.
     pub fn over_limit(&self, limit: LimitKey, items: &[LockCandidate]) -> LockSet {
-        let Some(max) = limit.max(&self.access.limits).filter(|_| self.enforcing) else {
+        let Some(max) = limit
+            .max(&self.current_access().limits)
+            .filter(|_| self.enforcing)
+        else {
             return LockSet::default();
         };
         let mut counted: Vec<&LockCandidate> = items.iter().filter(|item| !item.exempt).collect();
@@ -165,7 +237,7 @@ impl LimitGate {
     }
 
     pub fn summary(&self) -> LimitSummary {
-        let limits = &self.access.limits;
+        let limits = &self.current_access().limits;
         LimitSummary {
             enforcing: self.enforcing,
             workspaces: LimitKey::Workspaces.max(limits),

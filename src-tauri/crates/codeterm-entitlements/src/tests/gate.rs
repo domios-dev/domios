@@ -191,6 +191,32 @@ fn locked_refusal_leads_with_its_own_code() {
 }
 
 #[test]
+fn wall_deadline_expires_summary_admission_and_existing_locks() {
+    use std::sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    };
+    let wall = Arc::new(AtomicU64::new(99));
+    let clock = wall.clone();
+    let gate = LimitGate::new(unlimited(), true)
+        .with_deadline(Some(100), Arc::new(move || clock.load(Ordering::SeqCst)));
+    assert_eq!(gate.summary().workspaces, None);
+    assert!(gate.admit(LimitKey::Workspaces, 2).is_ok());
+    assert!(gate
+        .over_limit(LimitKey::Workspaces, &candidates(3))
+        .is_empty());
+    wall.store(100, Ordering::SeqCst);
+    assert_eq!(gate.summary().workspaces, Some(2));
+    assert!(gate.admit(LimitKey::Workspaces, 2).is_err());
+    assert_eq!(
+        gate.over_limit(LimitKey::Workspaces, &candidates(3)).len(),
+        1
+    );
+    wall.store(99, Ordering::SeqCst);
+    assert_eq!(gate.summary().workspaces, Some(2));
+}
+
+#[test]
 fn tab_refusals_use_the_shared_limit_catalog() {
     let noun: String =
         serde_json::from_str(include_str!("../../../../../shared/tabLimitNoun.json")).unwrap();

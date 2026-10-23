@@ -23,6 +23,7 @@ fn billing_with(
 
 fn stored(grant: Option<serde_json::Value>, hint: bool) -> Arc<MemoryGrants> {
     let store = Arc::new(MemoryGrants::default());
+    store_verified(&store, &paid_grant().grant.unwrap());
     *store.0.lock() = grant;
     *store.3.lock() = hint;
     store
