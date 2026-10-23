@@ -163,49 +163,53 @@ impl MemManager {
     }
 
     fn desired_vectors(&self, id: &str) -> Result<Option<Desired>, String> {
-        let conn = self.conn.lock();
-        let Some(row) = index::read_row(&conn, id)? else {
-            return Ok(None);
-        };
-        let intents = metadata::read(&conn, id)?
-            .and_then(|record| record.blueprint)
-            .map(|stats| stats.intents)
-            .unwrap_or_default();
-        let mut texts = intents
-            .into_iter()
-            .enumerate()
-            .map(|(ordinal, text)| ((Slot::Intent, ordinal), text))
-            .collect::<Vec<_>>();
-        texts.push(((Slot::Canon, 0), row.canon.clone()));
-        if let Some(enrichment) = row.current_enrichment() {
-            texts.push(((Slot::Summary, 0), enrichment.summary.clone()));
-            texts.extend(
-                enrichment
-                    .intents
-                    .iter()
-                    .enumerate()
-                    .map(|(ordinal, text)| ((Slot::WorkerIntent, ordinal), text.clone())),
-            );
-        }
-        Ok(Some(Desired { texts }))
+        desired_vectors(&self.conn.lock(), id)
     }
+}
 
-    pub(crate) fn blueprint_vector_texts(
-        &self,
-        id: &str,
-    ) -> Result<Vec<(String, usize, String)>, String> {
-        Ok(self
-            .desired_vectors(id)?
-            .map(|desired| {
-                desired
-                    .texts
-                    .into_iter()
-                    .map(|((slot, ordinal), text)| (slot.name().into(), ordinal, text))
-                    .collect()
-            })
-            .unwrap_or_default())
+fn desired_vectors(conn: &rusqlite::Connection, id: &str) -> Result<Option<Desired>, String> {
+    let Some(row) = index::read_row(conn, id)? else {
+        return Ok(None);
+    };
+    let intents = metadata::read(conn, id)?
+        .and_then(|record| record.blueprint)
+        .map(|stats| stats.intents)
+        .unwrap_or_default();
+    let mut texts = intents
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, text)| ((Slot::Intent, ordinal), text))
+        .collect::<Vec<_>>();
+    texts.push(((Slot::Canon, 0), row.canon.clone()));
+    if let Some(enrichment) = row.current_enrichment() {
+        texts.push(((Slot::Summary, 0), enrichment.summary.clone()));
+        texts.extend(
+            enrichment
+                .intents
+                .iter()
+                .enumerate()
+                .map(|(ordinal, text)| ((Slot::WorkerIntent, ordinal), text.clone())),
+        );
     }
+    Ok(Some(Desired { texts }))
+}
 
+pub(crate) fn blueprint_vector_texts(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<Vec<(String, usize, String)>, String> {
+    Ok(desired_vectors(conn, id)?
+        .map(|desired| {
+            desired
+                .texts
+                .into_iter()
+                .map(|((slot, ordinal), text)| (slot.name().into(), ordinal, text))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+impl MemManager {
     fn index_blueprint_vectors(&self, id: &str) -> Result<(usize, usize), String> {
         let Some(desired) = self.desired_vectors(id)? else {
             return Ok((0, 0));

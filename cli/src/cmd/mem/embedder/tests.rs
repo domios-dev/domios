@@ -75,7 +75,11 @@ fn recall_reembed_same_model_receipt_and_failed_status_are_explicit() {
     );
     assert!(receipt.contains("already active"));
     assert!(!receipt.contains("Re-embedding"));
-    for state in ["failed", "stalled", "cancelled"] {
+    let cancel = render_use(
+        &serde_json::json!({"already_active":true,"target":{"provider":"local","model":"L12"},"cancelled":{"provider":"remote","model":"wide"}}),
+    );
+    assert!(cancel.contains("Cancelled the re-embed to remote/wide"));
+    for state in ["failed", "cancelled"] {
         let status = render_status(
             &serde_json::json!({"reembed":{"state":state,"done":94,"total":901,"last_error":"worker dropped"}}),
         );

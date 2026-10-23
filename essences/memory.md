@@ -6,7 +6,7 @@ Persistent memory lives in Domios, never in provider side stores. It is English 
 
 ## Embedding transitions
 
-Recall stays on one published model and its stamped vectors while a replacement index is built. Blueprint recall exposes degradation and progress during that transition, including empty results. A stalled or failed rebuild records a cause and completed work survives restart. Selecting the published model again does not rebuild it.
+Recall stays fully semantic on one published model and its stamped vectors while a replacement index is built, and the two swap atomically. One item's embedding failure never stops a rebuild; changes made during it are picked up before the swap, and completed work survives restart. Recall is reported degraded only when it actually is. Choosing the published model cancels a rebuild.
 
 ## Decision recall
 

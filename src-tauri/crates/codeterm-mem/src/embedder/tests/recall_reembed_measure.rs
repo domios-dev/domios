@@ -29,7 +29,7 @@ fn recall_reembed_measure_real_l12_1k() {
         if let EmbedderEvent::Progress(progress) = event {
             if matches!(
                 progress.state,
-                ReembedState::Completed | ReembedState::Failed | ReembedState::Stalled
+                ReembedState::Completed | ReembedState::Failed
             ) {
                 break progress;
             }

@@ -23,12 +23,8 @@ impl MemManager {
             )
         };
         let reembed = self.reembed.snapshot();
-        let degraded = !self.embedder.is_available()
-            || !matches!(
-                reembed.state,
-                super::ReembedState::Completed | super::ReembedState::Idle
-            )
-            || index.as_ref() != Some(&identity);
+        // A build or a failed build leaves recall fully semantic on the published model.
+        let degraded = !self.embedder.is_available() || index.as_ref() != Some(&identity);
         EmbedderStatus {
             provider: identity.provider.clone(),
             model: identity.model.clone(),
@@ -47,12 +43,11 @@ impl MemManager {
     /// How much a switch would re-embed: every embeddable item, every entity
     /// and, for the daemon's manager, every documentation section.
     pub fn reembed_plan(&self) -> Result<SwitchPlan, String> {
-        let blueprints =
-            crate::blueprint_library::index::indexed_items(&self.conn.lock())?.len() as u64;
+        let conn = self.conn.lock();
         Ok(SwitchPlan {
-            blueprints,
-            items: self.reembed_item_targets()?.len() as u64,
-            entities: self.reembed_entity_targets()?.len() as u64,
+            blueprints: crate::blueprint_library::index::indexed_items(&conn)?.len() as u64,
+            items: self.reembed_item_targets(&conn)?.len() as u64,
+            entities: self.reembed_entity_targets(&conn)?.len() as u64,
             docs: if self.docs_dir.is_some() {
                 crate::docs_source::vector_section_count() as u64
             } else {
@@ -62,40 +57,52 @@ impl MemManager {
     }
 
     /// Build a stamped shadow while recall continues on the published model.
+    /// Choosing the published model cancels a running build; another target
+    /// is refused until the running one ends.
     pub fn switch_embedder(
         self: &Arc<Self>,
         provider: SharedProvider,
     ) -> Result<SwitchPlan, String> {
         let identity = provider.identity();
+        let running = self.reembed.snapshot();
+        let running = (running.state == super::ReembedState::Running).then_some(running);
         if self.embedder.identity() == identity
             && index::stamp(&self.conn.lock())?.as_ref() == Some(&identity)
         {
+            if let Some(running) = running {
+                let reason = format!(
+                    "cancelled: {}/{} stays published",
+                    identity.provider, identity.model
+                );
+                if !self.reembed.cancel(reason, &self.embedder) {
+                    return Err(format!(
+                        "the re-embed to {} is already publishing",
+                        running
+                            .target
+                            .map_or_else(String::new, |t| format!("{}/{}", t.provider, t.model))
+                    ));
+                }
+                self.clear_shadow(&self.conn.lock());
+            }
             return Ok(SwitchPlan::default());
         }
-        if self
-            .reembed_busy
-            .swap(true, std::sync::atomic::Ordering::SeqCst)
-        {
+        if let Some(running) = running {
+            if running.target.as_ref() == Some(&identity) {
+                return Ok(running.plan);
+            }
             return Err(
-                "a re-embed worker is still in flight; inspect embedder status before retrying"
+                "another re-embed is running; switch back to the published model to cancel it first"
                     .into(),
             );
         }
-        let result = (|| {
-            let plan = self.reembed_plan()?;
-            self.prepare_shadow(&identity)?;
-            let generation = self.reembed.start(identity, plan, &self.embedder);
-            if let Err(error) = self.launch_shadow(generation, ActiveEmbedder::new(provider)) {
-                self.reembed.fail(generation, error.clone(), &self.embedder);
-                return Err(error);
-            }
-            Ok(plan)
-        })();
-        if result.is_err() {
-            self.reembed_busy
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+        let plan = self.reembed_plan()?;
+        self.prepare_shadow(&identity)?;
+        let generation = self.reembed.start(identity, plan, &self.embedder);
+        if let Err(error) = self.launch_shadow(generation, ActiveEmbedder::new(provider)) {
+            self.reembed.fail(generation, error.clone(), &self.embedder);
+            return Err(error);
         }
-        result
+        Ok(plan)
     }
 
     /// Adopt `provider` at startup: switch when the index is stamped for a
