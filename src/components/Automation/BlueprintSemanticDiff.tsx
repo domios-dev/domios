@@ -2,20 +2,21 @@ import { BlueprintProjectionValue } from "./BlueprintProjectionValue";
 import { useEffect, useState } from "react";
 import type { BlueprintViewerHistory } from "../../lib/blueprintApi";
 import { blueprintDiffModel } from "./blueprintDiffModel";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 
 export function BlueprintSemanticDiff({ load }: { load: () => Promise<BlueprintViewerHistory> }) {
   const [history, setHistory] = useState<BlueprintViewerHistory | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [version, setVersion] = useState<number | null>(null);
   useEffect(() => {
     let active = true;
-    void load().then((history) => { if (active) { setHistory(history); setVersion(history.current_version); } }).catch((error: unknown) => { if (active) setError(String(error)); });
+    void load().then((history) => { if (active) { setHistory(history); setVersion(history.current_version); } }).catch((error: unknown) => { if (active) setError(error); });
     return () => { active = false; };
   }, [load]);
   const selected = history?.versions.find((entry) => entry.version === version);
   const rows = selected?.diff ? blueprintDiffModel(selected.diff) : [];
   return <section aria-label="Semantic diff" className="ct-detail__block">
-    {error && <p role="alert">{error}</p>}
+    {error != null && <InlineErrorNotice error={error} operation="reading Blueprint definition history" blocking />}
     {!history && !error && <p role="status">Reading definition history…</p>}
     {history && <>
       <label>Definition version <select aria-label="Definition version" value={version ?? ""} onChange={(event) => setVersion(Number(event.target.value))}>{history.versions.map((entry) => <option key={entry.version} value={entry.version}>{entry.version}</option>)}</select></label>
