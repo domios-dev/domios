@@ -152,3 +152,57 @@ fn exported_source_recipes_keep_kind_when_inputs_and_routes_are_edited() {
     );
     assert_eq!(typed.steps[0].routes["up"], "@stop");
 }
+
+#[test]
+fn blueprint_v2_check_export_redacts_decision_and_pattern_literals() {
+    let mut doc = native(true);
+    doc.steps[1].params.insert(
+        "question".into(),
+        ValueForm::literal("private-question-marker"),
+    );
+    doc.steps[1]
+        .matches
+        .insert("done".into(), ValueForm::literal("private-match-marker"));
+    let recipe = export(&job(&doc, "team")).unwrap();
+    let raw = serde_json::to_string(&recipe).unwrap();
+    for literal in ["private-question-marker", "private-match-marker"] {
+        assert!(!raw.contains(literal), "leaked {literal}");
+    }
+    assert_eq!(
+        recipe
+            .bind(&bindings(&recipe, &serde_json::to_value(&doc).unwrap()))
+            .unwrap(),
+        serde_json::to_value(&doc).unwrap()
+    );
+    doc.steps[0].uses = Some(codeterm_blueprint_types::blueprint_document::NodeKind::Terminal);
+    doc.steps[0].params = std::collections::BTreeMap::from([
+        ("kind".into(), ValueForm::literal("tab")),
+        ("id".into(), ValueForm::literal("opaque-tab")),
+        (
+            "pattern".into(),
+            ValueForm::literal("private-terminal-marker"),
+        ),
+    ]);
+    let recipe = export(&job(&doc, "team")).unwrap();
+    assert!(!serde_json::to_string(&recipe)
+        .unwrap()
+        .contains("private-terminal-marker"));
+}
+
+#[test]
+fn blueprint_v2_check_persistence_refuses_stale_native_document() {
+    for watch in [false, true] {
+        let original = job(&native(watch), "team");
+        assert!(crate::storage::codec::import(&original).is_ok());
+        let mut changed = original.clone();
+        changed.question = "different-runtime-question".into();
+        assert!(crate::storage::codec::import(&changed)
+            .unwrap_err()
+            .contains("differs from its runtime"));
+        let mut changed = original;
+        changed.interval_ms += 10_000;
+        assert!(crate::storage::codec::import(&changed)
+            .unwrap_err()
+            .contains("differs from its runtime"));
+    }
+}

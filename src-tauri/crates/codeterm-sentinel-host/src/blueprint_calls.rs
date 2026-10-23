@@ -219,7 +219,7 @@ pub(crate) fn execute(
         serde_json::from_value(bound).map_err(|_| JournalReason::ContractViolation)?;
     let allowed = grants.iter().cloned().collect::<BTreeSet<_>>();
     if !ctx.call_state.frames.is_empty() && !allowed.is_subset(&ctx.call_state.grants) {
-        return Err(JournalReason::SandboxDenied);
+        return Err(JournalReason::ContractViolation);
     }
     preflight(ctx, &closure, &bound, &allowed, &mut BTreeSet::new())?;
     ctx.enter_call()?;
@@ -350,7 +350,7 @@ fn preflight(
             .chain(node.code.iter().flat_map(|code| &code.caps))
             .any(|cap| cap == "domios-cli" || !allowed.contains(cap))
         {
-            return Err(JournalReason::SandboxDenied);
+            return Err(JournalReason::ContractViolation);
         }
         if node
             .uses

@@ -777,5 +777,5 @@ fn now(handle: &Handle) -> u64 {
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod runtime_tests;

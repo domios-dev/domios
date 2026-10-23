@@ -55,6 +55,8 @@ pub struct ProbeFailure {
     pub exit_code: Option<i32>,
     pub stdout: Option<crate::command::Capture>,
     pub stderr: Option<crate::command::Capture>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub stderr_tail: String,
 }
 
 impl ProbeFailure {
@@ -69,6 +71,8 @@ impl ProbeFailure {
             exit_code: None,
             stdout: None,
             stderr: None,
+            #[cfg(any(test, feature = "test-support"))]
+            stderr_tail: String::new(),
         }
     }
 
@@ -76,6 +80,10 @@ impl ProbeFailure {
         self.exit_code = output.exit_code;
         self.stdout = Some(output.stdout.clone());
         self.stderr = Some(output.stderr.clone());
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.stderr_tail = super::test_receipt::stderr_tail(&output.stderr_text());
+        }
         self
     }
 
@@ -148,6 +156,9 @@ pub struct Deadlines {
     pub admitted: Instant,
     pub operation: Instant,
     pub hard: Instant,
+    runtime: Duration,
+    reserve: Duration,
+    caller_hard: Option<Instant>,
     #[cfg(any(test, feature = "test-support"))]
     pub duration: Duration,
 }
@@ -167,20 +178,52 @@ impl Deadlines {
     }
 
     pub fn at(limit: Duration, runtime: Duration, admitted: Instant) -> Result<Self, ProbeFailure> {
-        let duration = limit.min(runtime);
-        let Some(hard) = admitted.checked_add(duration) else {
-            return Err(ProbeFailure::new("probe_deadline_unavailable"));
-        };
-        let reserve = Duration::from_millis(500).min(duration / 4);
-        let operation = hard.checked_sub(reserve).unwrap_or(admitted);
-        Ok(Self {
+        let runtime_end = admitted
+            .checked_add(runtime)
+            .ok_or_else(|| ProbeFailure::new("probe_deadline_unavailable"))?;
+        let reserve = Self::cleanup_reserve(limit.min(runtime));
+        let hard = runtime_end
+            .checked_add(reserve)
+            .ok_or_else(|| ProbeFailure::new("probe_deadline_unavailable"))?;
+        let mut deadlines = Self {
             #[cfg(any(test, feature = "test-support"))]
             admitted,
-            operation,
+            operation: runtime_end,
             hard,
+            runtime,
+            reserve,
+            caller_hard: admitted.checked_add(limit),
             #[cfg(any(test, feature = "test-support"))]
-            duration,
-        })
+            duration: limit.min(runtime),
+        };
+        deadlines.start_at(admitted);
+        Ok(deadlines)
+    }
+
+    pub fn cleanup_reserve(runtime: Duration) -> Duration {
+        Duration::from_millis(500).min(runtime / 4)
+    }
+
+    pub fn spawn_with<T>(
+        &mut self,
+        spawn: impl FnOnce() -> T,
+        clock: impl FnOnce() -> Instant,
+    ) -> T {
+        let result = spawn();
+        self.start_at(clock());
+        result
+    }
+
+    fn start_at(&mut self, returned: Instant) {
+        let reserve = self.reserve;
+        let operation = returned.checked_add(self.runtime).unwrap_or(returned);
+        let hard = operation.checked_add(reserve).unwrap_or(operation);
+        self.hard = self.caller_hard.map_or(hard, |caller| caller.min(hard));
+        self.operation = operation.min(self.hard.checked_sub(reserve).unwrap_or(returned));
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.admitted = returned;
+        }
     }
 
     pub fn remaining_operation(&self) -> Duration {
@@ -251,47 +294,7 @@ pub struct WindowsLaunchState {
 }
 
 #[cfg(test)]
-mod deadline_tests {
-    use super::*;
-
-    #[test]
-    fn receipt_clamps_runtime_and_reserves_cleanup_time() {
-        let admitted = Instant::now();
-        let deadlines =
-            Deadlines::at(Duration::from_secs(10), Duration::from_secs(3), admitted).unwrap();
-        let receipt = deadlines.receipt();
-
-        assert_eq!(receipt.admitted, admitted);
-        assert_eq!(receipt.duration, Duration::from_secs(3));
-        assert_eq!(receipt.hard, admitted + Duration::from_secs(3));
-        assert_eq!(receipt.operation, receipt.hard - Duration::from_millis(500));
-        assert_eq!(
-            deadlines.remaining_operation_at(admitted),
-            Duration::from_millis(2_500)
-        );
-        assert!(deadlines.expired_operation_at(receipt.operation));
-        assert_eq!(deadlines.remaining_hard_at(receipt.hard), Duration::ZERO);
-    }
-
-    #[test]
-    fn short_deadline_uses_quarter_reserve_and_records_injected_lateness() {
-        let admitted = Instant::now();
-        let deadlines =
-            Deadlines::at(Duration::from_millis(200), Duration::from_secs(3), admitted).unwrap();
-        let receipt = deadlines.receipt();
-        assert_eq!(receipt.duration, Duration::from_millis(200));
-        assert_eq!(receipt.operation, admitted + Duration::from_millis(150));
-        assert_eq!(receipt.hard, admitted + Duration::from_millis(200));
-
-        let mut failure = ProbeFailure::new("probe_timeout");
-        deadlines.record_lateness_at(&mut failure, receipt.hard + Duration::from_millis(7));
-        assert_eq!(failure.late_by, Some(Duration::from_millis(7)));
-        assert!(matches!(
-            Deadlines::at(Duration::MAX, Duration::MAX, admitted),
-            Err(failure) if failure.primary == "probe_deadline_unavailable"
-        ));
-    }
-}
+mod deadline_tests;
 
 #[cfg(any(windows, test))]
 impl WindowsLaunchState {

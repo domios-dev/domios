@@ -11,6 +11,7 @@ mod positions;
 pub mod schema;
 mod types;
 pub use types::*;
+pub mod code_contract;
 mod lower;
 pub mod projection;
 #[cfg(test)]

@@ -20,6 +20,8 @@ are deleted after 30 minutes. `domios docs BLUEPRINTS` has the file format
 (inputs, `watch` or `pipeline`, `uses:`/`with:` built-in nodes, `run:` commands,
 routes) and `domios docs BLUEPRINT-RECIPES` the patterns.
 
+Blueprint code and command steps run with your user permissions, like an agent in a tab, without Domios credentials in their environment. Inspect foreign Blueprint code and commands before granting folder trust (1.15.4), which gates their execution.
+
 Creation is admission, not proof of monitoring. Run the read-only probe once and
 check its exit status and exact output, including LF/CRLF. After applying, use
 `blueprint show` to verify an actual source execution and the expected recognized
@@ -28,4 +30,4 @@ An unclassified watch needs repair before reporting success. Continue through
 events or routed results, never a sleep or polling loop. For a GitHub run use the
 `github` recipe, for PR checks `github-pr-checks`; patterns need `(?m)` line anchors.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

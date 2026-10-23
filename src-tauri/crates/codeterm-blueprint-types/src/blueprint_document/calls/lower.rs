@@ -24,11 +24,26 @@ pub fn node(document: &Document, node: &Node) -> Result<Step, String> {
             node: Box::new(node.clone()),
         }
     } else if let Some(run) = &node.run {
+        let timeout_ms = node
+            .timeout
+            .as_ref()
+            .map(|timeout| {
+                let value = literal(timeout)?;
+                crate::blueprint_watch::duration_ms(
+                    value.as_str().ok_or("command timeout must be a duration")?,
+                )
+            })
+            .transpose()?
+            .unwrap_or(crate::blueprint_pipeline::COMMAND_STEP_RUNTIME_MS);
+        if timeout_ms == 0 || timeout_ms > crate::blueprint_pipeline::MAX_COMMAND_STEP_RUNTIME_MS {
+            return Err("command timeout must be positive and at most 60s".into());
+        }
         StepKind::Command {
             command: literal(run)?
                 .as_str()
                 .ok_or("Command must be fixed author text")?
                 .into(),
+            timeout_ms,
         }
     } else {
         let mut params = serde_json::Map::new();

@@ -68,14 +68,19 @@ impl BlueprintApplyExt for ServiceContext {
         if caller.team.is_none() {
             return Err("Blueprint apply requires a caller in a Team".into());
         }
-        let document =
+        let mut document =
             codeterm_blueprint_types::blueprint_document::Document::from_definition(&definition)?;
+        codeterm_sentinel::seal_code::document(&mut document, std::path::Path::new(&caller.cwd))?;
         let document = self.mem.pin_blueprint_calls(
             &format!("blueprints:{}", caller.workspace),
             caller.team.as_deref().ok_or("Call requires a Team")?,
             document,
         )?;
         let definition = serde_json::to_value(&document).map_err(|error| error.to_string())?;
+        let handle = self
+            .host_extension::<Handle>()
+            .ok_or("blueprints not initialized")?;
+        let _apply = handle.apply_lock.lock();
         use codeterm_blueprint_types::blueprint_document::checker::DuplicateOracle;
         let closure =
             codeterm_blueprint_types::blueprint_document::calls::FrozenClosure::from_document(
@@ -88,6 +93,8 @@ impl BlueprintApplyExt for ServiceContext {
         context.duplicates = admission::ScopedDuplicates {
             service: self,
             workspace: &caller.workspace,
+            team: &caller.team,
+            updating: update.as_ref().map(|(id, _, _)| id.as_str()),
         }
         .compare(&document);
         let ir = codeterm_blueprint_types::blueprint_document::projection::PositionedIr {
@@ -141,10 +148,6 @@ impl BlueprintApplyExt for ServiceContext {
             document.clone(),
         )?)
         .map_err(|error| error.to_string())?;
-        let handle = self
-            .host_extension::<Handle>()
-            .ok_or("blueprints not initialized")?;
-        let _apply = handle.apply_lock.lock();
         let curator = self
             .role_policy_for_tab(&caller.tab)
             .is_some_and(|policy| policy.retarget_only());

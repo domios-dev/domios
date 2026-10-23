@@ -60,6 +60,7 @@ fn automation_inventory_round_trip_preserves_enabled_and_paused_states() {
         plans: vec![],
         crons: vec![cron],
         blueprints: vec![serde_json::to_value(&blueprint).unwrap()],
+        ..Default::default()
     };
     let json = serde_json::to_value(&original).unwrap();
     let restored: Resources = serde_json::from_value(json.clone()).unwrap();
@@ -73,15 +74,72 @@ fn automation_inventory_round_trip_preserves_enabled_and_paused_states() {
 
 #[test]
 fn restore_refuses_a_corrupt_saved_blueprint_before_any_effect() {
-    let corrupt = Resources {
+    let mut corrupt = Resources {
         blueprints: vec![serde_json::json!({"id": "b", "workspace_id": "w", "team_id": null})],
         ..Default::default()
     };
-    assert!(validate_saved_blueprints(&corrupt).is_err());
-    let unscoped = Resources {
+    assert!(validate_saved_blueprints(&mut corrupt).is_err());
+    let mut unscoped = Resources {
         blueprints: vec![serde_json::json!({"cwd": "/project"})],
         ..Default::default()
     };
-    assert!(validate_saved_blueprints(&unscoped).is_err());
-    assert!(validate_saved_blueprints(&Resources::default()).is_ok());
+    assert!(validate_saved_blueprints(&mut unscoped).is_err());
+    assert!(validate_saved_blueprints(&mut Resources::default()).is_ok());
 }
+
+fn native_saved_blueprint() -> serde_json::Value {
+    let document = serde_json::json!({"schema_version":2,"kind":"pipeline","name":"restore-fixture","owner":"team","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"read","run":{"lit":"echo ready"}}]});
+    let doc =
+        codeterm_blueprint_types::blueprint_document::Document::from_definition(&document).unwrap();
+    let runtime = doc.lower().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let store = codeterm_sentinel::store::Store::new(
+        temp.path().join("fixture.json"),
+        crate::cron::clock::MockClock::starting_at(1000),
+    );
+    let mut job = store
+        .prepare_pipeline(
+            serde_json::from_value(runtime["spec"].clone()).unwrap(),
+            codeterm_sentinel::store::Owner {
+                creator_tab_id: "creator".into(),
+                workspace_id: "workspace".into(),
+                team_id: None,
+                cwd: temp.path().to_string_lossy().into(),
+            },
+            true,
+        )
+        .unwrap();
+    job.document = Some(document);
+    serde_json::to_value(job).unwrap()
+}
+
+#[test]
+fn blueprint_v2_check_restore_preflights_mixed_v1_and_v2_snapshot() {
+    let native = native_saved_blueprint();
+    let mut obsolete = native.clone();
+    obsolete.as_object_mut().unwrap().remove("document");
+    obsolete["id"] = serde_json::json!("obsolete");
+    let mut resources = Resources {
+        blueprints: vec![obsolete, native.clone()],
+        ..Default::default()
+    };
+    validate_saved_blueprints(&mut resources).unwrap();
+    assert_eq!(resources.blueprints, vec![native]);
+    let receipt = serde_json::to_value(&resources).unwrap();
+    assert_eq!(receipt["discarded_v1_blueprints"][0]["id"], "obsolete");
+}
+
+#[test]
+fn blueprint_v2_check_restore_refuses_bad_v2_before_changes() {
+    let mut invalid = native_saved_blueprint();
+    invalid["document"]["steps"][0]["routes"] = serde_json::json!({"done":"read"});
+    let mut resources = Resources {
+        blueprints: vec![native_saved_blueprint(), invalid],
+        ..Default::default()
+    };
+    let before = serde_json::to_value(&resources).unwrap();
+    assert!(validate_saved_blueprints(&mut resources).is_err());
+    assert_eq!(serde_json::to_value(&resources).unwrap(), before);
+}
+
+mod restore;

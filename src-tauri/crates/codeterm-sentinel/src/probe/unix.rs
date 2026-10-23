@@ -30,12 +30,7 @@ struct Stream {
     _uncertain_fd: Option<RawFd>,
 }
 
-pub(super) struct Executable<'a> {
-    pub program: &'a Path,
-    pub args: &'a [std::ffi::OsString],
-    pub memory_bytes: Option<u64>,
-    pub output_bytes: Option<u64>,
-}
+use super::executable::Executable;
 
 pub fn run(
     command: &str,
@@ -94,6 +89,7 @@ pub fn run(
     let mut child_command = if let Some(executable) = executable {
         let mut child = Command::new(executable.program);
         child.args(executable.args);
+        #[cfg(target_os = "linux")]
         if let Some(memory_bytes) = executable.memory_bytes {
             unsafe {
                 child.pre_exec(move || {
@@ -131,11 +127,14 @@ pub fn run(
         process.set_failure("probe_cancelled");
         return process.finish_failure();
     }
-    match child_command.spawn() {
+    match process
+        .deadlines
+        .spawn_with(|| child_command.spawn(), Instant::now)
+    {
         Ok(child) => {
-            process.adopt_child(child);
             #[cfg(any(test, feature = "test-support"))]
-            cancellation.spawned(process.child_id);
+            cancellation.spawned(child.id());
+            process.adopt_child(child);
         }
         Err(error) => {
             process.failure = Some(ProbeFailure::new("probe_spawn_failed"));
@@ -143,6 +142,8 @@ pub fn run(
             return process.finish_failure();
         }
     }
+    #[cfg(any(test, feature = "test-support"))]
+    cancellation.record_deadlines(process.deadlines);
     process.adopt_streams();
     if let (Some(events), Some(child)) = (&mut process.events, &mut process.child) {
         if let Err(error) = events.observe_parent(child) {
@@ -763,6 +764,12 @@ impl UnixRun {
         failure.exit_code = self.status.and_then(|status| status.code());
         failure.stdout = (self.child_id != 0).then(|| self.stdout.data.metadata());
         failure.stderr = (self.child_id != 0).then(|| self.stderr.data.metadata());
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            failure.stderr_tail = super::test_receipt::stderr_tail(&String::from_utf8_lossy(
+                &self.stderr.data.prefix,
+            ));
+        }
         if !self.has_open_resources() {
             if let Err(error) = self.close_event_resources() {
                 failure.cleanup_error(error);

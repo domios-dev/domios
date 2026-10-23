@@ -10,6 +10,31 @@ fn edit_callee(document: &mut Document, edit: impl FnOnce(&mut Document)) {
 }
 
 #[test]
+fn blueprint_v2_call_portable_python_main_returns_eight_through_claimed_effect() {
+    let mut document = source(false);
+    edit_callee(&mut document, |callee| {
+        let node = &mut callee.steps[0];
+        node.run = None;
+        node.code = Some(
+            serde_json::from_value(json!({
+                "lang":"python", "src":"def main(value): return {'n': value['n'] + 1}"
+            }))
+            .unwrap(),
+        );
+    });
+    let receipt = run(document, false);
+    assert_eq!(receipt.output.unwrap().value, json!({"n":8}));
+    assert_eq!(receipt.notices, ["{\"n\":8}"]);
+    assert!(receipt.stop.is_none());
+    assert!(receipt
+        .journal
+        .iter()
+        .any(|row| row.step_name == "increment"
+            && row.state == "done"
+            && !row.call_stack.is_empty()));
+}
+
+#[test]
 fn blueprint_v2_call_review_other_refuses_before_success_path_effects() {
     let mut document = source(false);
     edit_callee(&mut document, |callee| {
