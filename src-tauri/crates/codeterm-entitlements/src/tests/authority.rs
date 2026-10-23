@@ -164,12 +164,18 @@ fn issued_beyond_clock_skew_is_free() {
         authority.access(Some(&grant), &binding(), now),
         compiled_free()
     );
-    let within = T - MAX_CLOCK_SKEW_SECS;
-    assert!(authority.verify(&grant, &binding(), None, within).is_ok());
-    assert_eq!(
-        authority.access(Some(&grant), &binding(), within),
-        compiled_free()
-    );
+}
+
+#[test]
+fn issued_at_exact_clock_skew_boundary_is_paid() {
+    let signer = LocalSigner::new();
+    let grant = signer.sign(&enforced(paid()));
+    let authority = authority_for(&signer);
+    let now = T - MAX_CLOCK_SKEW_SECS;
+    let accepted = authority.verify(&grant, &binding(), None, now).unwrap();
+    assert_eq!(accepted.verdict.state, crate::verdict::TimeState::Fresh);
+    assert_eq!(accepted.verdict.effective().authority, Authority::Billing);
+    assert_eq!(access_of(&authority, Some(&grant), now), Authority::Billing);
 }
 
 #[test]
