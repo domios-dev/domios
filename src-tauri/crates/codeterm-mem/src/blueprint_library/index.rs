@@ -58,7 +58,7 @@ pub enum Slot {
 }
 
 impl Slot {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Intent => "intent",
             Self::Canon => "canon",
