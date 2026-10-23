@@ -651,3 +651,14 @@ fn calibration_sweep_no_force_defaults_false() {
         _ => panic!("expected calibration sweep"),
     }
 }
+
+#[test]
+fn recall_reembed_empty_search_preserves_json_progress_and_human_notice() {
+    let response = serde_json::json!({"hits":[],"degraded":true,"vector_progress":{"done":94,"total":901,"state":"running"}});
+    let compact = super::compact_search_json(&response);
+    assert_eq!(compact["degraded"], true);
+    assert_eq!(compact["vector_progress"]["done"], 94);
+    let human = super::empty_render(&response);
+    assert!(human.contains("WARNING: recall degraded"));
+    assert!(human.contains("94/901"));
+}

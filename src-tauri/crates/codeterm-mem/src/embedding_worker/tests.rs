@@ -277,3 +277,27 @@ fn queued_requests_share_one_cpu_pool() {
     drop(worker);
     thread.join().unwrap();
 }
+
+#[test]
+fn recall_reembed_1k_requests_load_one_model() {
+    let loads = AtomicUsize::new(0);
+    let mut model = None;
+    for _ in 0..1000 {
+        let (reply, response) = mpsc::sync_channel(1);
+        process(
+            &mut model,
+            Request {
+                model: L12,
+                text: "ordinary memory fixture".into(),
+                reply,
+            },
+            &|_| {
+                loads.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+            |_, _| Ok(vec![1.0]),
+        );
+        assert_eq!(response.recv().unwrap().unwrap(), vec![1.0]);
+    }
+    assert_eq!(loads.load(Ordering::SeqCst), 1);
+}

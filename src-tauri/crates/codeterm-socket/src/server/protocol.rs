@@ -114,7 +114,7 @@ mod tests {
         assert_eq!(wire["error"]["code"], VERSION_SKEW);
         assert_eq!(wire["error"]["data"]["type"], "version_skew");
         assert_eq!(wire["error"]["data"]["client_protocol"], 2);
-        assert_eq!(wire["error"]["data"]["server_protocol"], 6);
+        assert_eq!(wire["error"]["data"]["server_protocol"], PROTOCOL_VERSION);
         assert_eq!(wire["error"]["data"]["recovery"], "recover --here");
     }
 

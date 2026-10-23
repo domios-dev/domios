@@ -190,6 +190,22 @@ impl MemManager {
         Ok(Some(Desired { texts }))
     }
 
+    pub(crate) fn blueprint_vector_texts(
+        &self,
+        id: &str,
+    ) -> Result<Vec<(String, usize, String)>, String> {
+        Ok(self
+            .desired_vectors(id)?
+            .map(|desired| {
+                desired
+                    .texts
+                    .into_iter()
+                    .map(|((slot, ordinal), text)| (slot.name().into(), ordinal, text))
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
     fn index_blueprint_vectors(&self, id: &str) -> Result<(usize, usize), String> {
         let Some(desired) = self.desired_vectors(id)? else {
             return Ok((0, 0));

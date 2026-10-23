@@ -216,16 +216,15 @@ pub fn search_with_hybrid(query: &str, limit: usize, enabled: bool) -> Vec<DocCa
     if !enabled || limit == 0 {
         return search(query, limit);
     }
-    let Some(vectors) = vectors::ready_vectors() else {
+    let Some((embedder, vectors)) = vectors::ready_vectors() else {
         return search(query, limit);
     };
-    vectors::hybrid_search(
-        index(),
-        query,
-        limit,
-        &vectors,
-        &crate::embeddings::query_embed,
-    )
+    vectors::hybrid_search(index(), query, limit, &vectors, &|text| {
+        embedder
+            .query(text)
+            .map(|vector| vector.vector)
+            .ok_or_else(|| "docs query unavailable".into())
+    })
 }
 
 pub(crate) fn start_background_build(data_dir: &std::path::Path) {
@@ -241,6 +240,23 @@ pub(crate) fn reembed_vectors(
     embedder: &std::sync::Arc<crate::embedder::ActiveEmbedder>,
 ) -> Result<usize, String> {
     vectors::reembed(data_dir, embedder)
+}
+
+pub(crate) use vectors::PreparedDocs;
+
+pub(crate) fn prepare_reembed(
+    data_dir: &std::path::Path,
+    embedder: &crate::embedder::ActiveEmbedder,
+    progress: impl Fn(),
+) -> Result<PreparedDocs, String> {
+    vectors::prepare(data_dir, embedder, progress)
+}
+
+pub(crate) fn publish_reembed(
+    prepared: PreparedDocs,
+    active: &std::sync::Arc<crate::embedder::ActiveEmbedder>,
+) {
+    vectors::publish(prepared, active);
 }
 
 pub fn prepare_hybrid_for_benchmark(data_dir: &std::path::Path) -> bool {

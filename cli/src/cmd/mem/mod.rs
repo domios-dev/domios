@@ -259,6 +259,16 @@ fn empty_render(response: &serde_json::Value) -> String {
 }
 
 fn append_envelope_notice(out: &mut String, response: &serde_json::Value) {
+    if response["degraded"].as_bool() == Some(true) {
+        out.push_str(&format!(
+            "WARNING: recall degraded; vectors: {}/{} re-embedding ({})\n",
+            response["vector_progress"]["done"],
+            response["vector_progress"]["total"],
+            response["vector_progress"]["state"]
+                .as_str()
+                .unwrap_or("unavailable")
+        ));
+    }
     if let Some(notice) = supporter_render::envelope_notice(response) {
         out.push_str(&notice);
         out.push('\n');
