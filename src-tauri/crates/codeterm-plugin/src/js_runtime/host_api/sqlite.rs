@@ -167,6 +167,8 @@ impl ConnectionPool {
         params_json: Option<&str>,
         max_bytes: usize,
     ) -> Result<Option<String>, String> {
+        let access = crate::bundle_access::BundleAccess::for_plugin(plugin_id);
+        let _reader = access.read_recursive();
         let Some(params) = parse_params(params_json) else {
             return Ok(None);
         };

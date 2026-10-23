@@ -6,6 +6,7 @@
 
 pub(crate) mod cli_status;
 mod receiver_target;
+mod update;
 mod validate;
 
 use crate::args::plugin::{PluginAction, PluginChannelAction};
@@ -49,10 +50,22 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
         PluginAction::ReceiverTarget { id, set, clear } => {
             receiver_target::run_over_socket(&id, set.as_deref(), clear)
         }
-        other => match convert_action(other) {
-            Ok(action) => codeterm_plugins::run(ctx, action),
-            Err(error) => Err(error),
-        },
+        other => {
+            let routed = match &other {
+                PluginAction::Update { id } => update::routed_update("update", id.as_deref()),
+                PluginAction::UpdateSystem { id } => {
+                    update::routed_update("update-system", id.as_deref())
+                }
+                _ => None,
+            };
+            match routed {
+                Some(result) => result,
+                None => match convert_action(other) {
+                    Ok(action) => codeterm_plugins::run(ctx, action),
+                    Err(error) => Err(error),
+                },
+            }
+        }
     };
 
     match result {

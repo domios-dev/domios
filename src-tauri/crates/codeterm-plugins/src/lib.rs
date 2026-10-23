@@ -29,6 +29,8 @@ mod channel_failure;
 mod config;
 mod install;
 mod install_swap;
+mod lifecycle;
+pub use lifecycle::{with_install_lifecycle, InstallLifecycle, InstallOperation, Reload};
 mod list;
 mod provenance;
 use provenance::*;
