@@ -4,6 +4,91 @@ fn id() -> codeterm_account::InstallationId {
     codeterm_account::InstallationId::parse("fixture-installation".into()).unwrap()
 }
 
+fn local_session() -> Session {
+    Session {
+        identity: codeterm_account::Identity {
+            uid: "local-dev-user".into(),
+            provider: "local".into(),
+            email: None,
+            display_name: None,
+            photo_url: None,
+        },
+        id_token: codeterm_account::Secret::new("local-memory-session"),
+        expires_at: None,
+    }
+}
+
+fn request(provider: &Cloud, session: &Session, route: &str) -> reqwest::Request {
+    provider
+        .request(session, route, serde_json::json!({"installation_id":id()}))
+        .unwrap()
+        .build()
+        .unwrap()
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn local_bearer_is_confined_to_debug_loopback_entitlements() {
+    let session = local_session();
+    let cloud = Cloud::new("http://127.0.0.1:15200/", id()).unwrap();
+    let allowed = request(&cloud, &session, "getEntitlements");
+    assert_eq!(
+        allowed.headers()["authorization"],
+        "Bearer domios-local-dev.uid=local-dev-user&installation_id=fixture-installation"
+    );
+    for base in [
+        "https://127.0.0.1:15200/",
+        "http://localhost:15200/",
+        "http://192.168.1.2:15200/",
+        "https://issuer.test/",
+        codeterm_account::firebase_endpoints::PRODUCTION.functions,
+    ] {
+        let refused = Cloud::fixture(base, id());
+        assert_eq!(
+            request(&refused, &session, "getEntitlements").headers()["authorization"],
+            "Bearer local-memory-session",
+            "{base}"
+        );
+    }
+    for route in [
+        "createCheckoutSession",
+        "createPortalSession",
+        "https://issuer.test/getEntitlements",
+    ] {
+        assert_eq!(
+            request(&cloud, &session, route).headers()["authorization"],
+            "Bearer local-memory-session"
+        );
+    }
+    for (provider, uid) in [("firebase", "local-dev-user"), ("local", "other-user")] {
+        let mut other = session.clone();
+        other.identity.provider = provider.into();
+        other.identity.uid = uid.into();
+        assert_eq!(
+            request(&cloud, &other, "getEntitlements").headers()["authorization"],
+            "Bearer local-memory-session"
+        );
+    }
+}
+
+#[cfg(not(debug_assertions))]
+#[test]
+fn release_local_session_has_no_dev_bearer() {
+    let cloud = Cloud::new("http://127.0.0.1:15200/", id()).unwrap();
+    let request = request(&cloud, &local_session(), "getEntitlements");
+    assert_eq!(
+        request.url().as_str(),
+        format!(
+            "{}getEntitlements",
+            codeterm_account::firebase_endpoints::PRODUCTION.functions
+        )
+    );
+    assert_eq!(
+        request.headers()["authorization"],
+        "Bearer local-memory-session"
+    );
+}
+
 #[test]
 fn release_billing_base_ignores_saved_endpoint() {
     use codeterm_account::firebase_endpoints::PRODUCTION;
