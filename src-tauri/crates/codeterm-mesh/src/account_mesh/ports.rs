@@ -115,7 +115,7 @@ impl AdmissionRefusal {
             Self::Unauthenticated => "unauthenticated",
             Self::MachineLimit { .. } => "mesh.machines",
             Self::RateLimited { .. } => "rate_limited",
-            Self::PlanLimitLocked => "plan_limit_locked",
+            Self::PlanLimitLocked => codeterm_entitlements::PLAN_LIMIT_LOCKED,
             Self::Revoked => "revoked",
             Self::SignedOut => "signed-out",
             Self::PeerUnreachable => "peer-unreachable",

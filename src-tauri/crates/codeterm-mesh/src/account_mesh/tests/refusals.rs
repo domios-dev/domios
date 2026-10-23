@@ -45,7 +45,10 @@ fn decide(record: &LinkRecord, state: &AccountMeshState) -> TrafficDecision {
 fn account_mesh_machine_over_limit_blocks_legacy_edge_with_plan_limit_code() {
     let decision = decide(&legacy(), &signed_in(true, false));
     assert_eq!(decision, LOCKED);
-    assert_eq!(BlockReason::PlanLimitLocked.code(), "plan_limit_locked");
+    assert_eq!(
+        BlockReason::PlanLimitLocked.code(),
+        codeterm_entitlements::PLAN_LIMIT_LOCKED
+    );
 }
 
 #[test]
@@ -70,4 +73,18 @@ fn account_mesh_dormant_gate_keeps_legacy_open() {
     let never = AccountMeshState::default();
     assert!(decide(&legacy(), &never).is_open());
     assert!(decide(&legacy(), &signed_in(false, false)).is_open());
+}
+
+#[test]
+fn plan_limit_locked_wire_literal_is_the_entitlements_code() {
+    let wire = serde_json::to_value(crate::account_mesh::ports::AdmissionRefusal::PlanLimitLocked)
+        .unwrap();
+    assert_eq!(
+        wire,
+        serde_json::json!({"reason": codeterm_entitlements::PLAN_LIMIT_LOCKED})
+    );
+    assert_eq!(
+        crate::account_mesh::ports::AdmissionRefusal::PlanLimitLocked.code(),
+        codeterm_entitlements::PLAN_LIMIT_LOCKED
+    );
 }
