@@ -191,13 +191,19 @@ impl ActiveEmbedder {
         match result {
             Ok(_) => {
                 if !self.available.swap(true, Ordering::SeqCst) {
-                    log::info!("[mem.embedder] provider available again");
+                    log::info!(
+                        "[mem.embedder] provider available again: {}",
+                        self.identity()
+                    );
                     self.emit(&EmbedderEvent::Recovered);
                 }
             }
             Err(EmbedError::Unavailable(reason) | EmbedError::NotBuilt(reason)) => {
                 if self.available.swap(false, Ordering::SeqCst) {
-                    log::warn!("[mem.embedder] provider unavailable: {reason}");
+                    log::warn!(
+                        "[mem.embedder] provider unavailable: {}: {reason}",
+                        self.identity()
+                    );
                     self.emit(&EmbedderEvent::Unavailable(reason.clone()));
                 }
             }

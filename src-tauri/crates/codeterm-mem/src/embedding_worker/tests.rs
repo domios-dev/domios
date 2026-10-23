@@ -470,3 +470,35 @@ fn shadow_residency_bulk_progresses_under_continuous_queries() {
     assert_eq!(receivers.try_next().unwrap().text, "shadow");
     assert_eq!(receivers.try_next().unwrap().text, "query");
 }
+
+#[test]
+fn shadow_retirement_keeps_published_recall_after_rejecting_a_late_target() {
+    let target = &crate::embedder::local::MODELS[1];
+    let residency = Mutex::new(Some(vec![L12.model.into()]));
+    let mut cache = ModelCache {
+        entries: vec![(L12, vec![1.0]), (target, vec![2.0])],
+    };
+    for descriptor in [target, L12, L12] {
+        let (reply, response) = mpsc::sync_channel(1);
+        process(
+            &mut cache,
+            &residency,
+            Request {
+                model: descriptor,
+                text: "query after shadow retirement".into(),
+                reply,
+                caller: "fixture".into(),
+            },
+            &|_| panic!("published model was evicted"),
+            |vector, _| Ok(vector.clone()),
+        );
+        let result = response.recv().unwrap();
+        if descriptor == target {
+            assert_eq!(result.unwrap_err(), "embedding model retired");
+        } else {
+            assert_eq!(result.unwrap(), vec![1.0]);
+        }
+    }
+    assert_eq!(cache.entries.len(), 1);
+    assert_eq!(cache.entries[0].0.model, L12.model);
+}
