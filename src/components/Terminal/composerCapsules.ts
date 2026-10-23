@@ -44,15 +44,30 @@ export function labelChars(label: string): string {
   return label.replace(/ /g, "\u00A0");
 }
 
+// A generated ordinal ("image2") is typed as invisible word joiners after its kind so the token stays unique without showing a number.
+const ORDINAL_MARK = "\u2060";
+const GENERATED_LABEL = /^(image|video|text|quote)(\d+)(?=\s\u00B7|$)/;
+const MARKED_KIND = /^(image|video|text|quote)(\u2060+)/;
+
+export function typedLabel(label: string): string {
+  const generated = GENERATED_LABEL.exec(label);
+  return generated ? `${generated[1]}${ORDINAL_MARK.repeat(Number(generated[2]))}${label.slice(generated[0].length)}` : label;
+}
+
+function labelOfToken(typed: string): string {
+  const marked = MARKED_KIND.exec(typed);
+  return marked ? `${marked[1]}${marked[2].length}${typed.slice(marked[0].length)}` : typed;
+}
+
 export function capsuleToken(label: string): string {
-  return `${CAPSULE_LEAD}${labelChars(label)}${CAPSULE_TRAIL}`;
+  return `${CAPSULE_LEAD}${labelChars(typedLabel(label))}${CAPSULE_TRAIL}`;
 }
 
 export function capsuleSpans(text: string): CapsuleSpan[] {
   return [...text.matchAll(TOKEN)].map((match) => ({
     start: match.index ?? 0,
     end: (match.index ?? 0) + match[0].length,
-    label: match[1].replace(/\u00A0/g, " "),
+    label: labelOfToken(match[1].replace(/\u00A0/g, " ")),
   }));
 }
 

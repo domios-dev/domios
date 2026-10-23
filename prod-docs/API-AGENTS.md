@@ -125,10 +125,18 @@ The worker runs `domios agent report "..."` (no `--mesh`/`--tab`); its daemon re
 
 Report routing precedence: **remote mesh target → `parent_tab_id` → `report_target_tab_id` → `spawned_by_tab_id`**; never self.
 
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/mesh/worker-transfer-info` | `{worker_tab_id, caller_tab_id?, owner_confirmed}` | Signed Full-access lookup of the current remote Worker session and parent, authorized by that parent or owner. |
+| POST | `/api/mesh/worker-transfer` | `{operation_id, worker_tab_id, worker_session_id, worker_provider, expected_parent_tab_id, destination_tab_id, destination_team_id?, caller_tab_id?, owner_confirmed?}` | Signed, Full-access origin-peer operation to change an unbound remote worker's report target in place. |
+| POST | `/api/mesh/worker-finalize` | `{worker_tab_id, worker_session_id, worker_provider, expected_parent_tab_id, force, check_only?}` | Signed Full-access preflight/finalization of an exact remote member; stale bindings release membership without killing a replacement. |
+
+The signed origin attests the caller or explicit owner authorization. The worker daemon checks that origin against the worker's persisted report peer and authenticated ownership, the exact worker session and current parent. Only that parent or the owner may transfer. Local children, local Team members, Managers, foreign-owned tabs and task-bound Workers refuse. Success returns `{operation_id, worker_tab_id, worker_session_id, worker_provider, origin_peer_id, previous_parent_tab_id, destination_tab_id}` and keeps the running session and launch identity. The origin validates the caller's exact session and nonce and the destination's live local Orchestrator authority, then durably prepares intent before the call. The worker records its receipt before changing routing; matching retries return that receipt and never repeat a superseded transfer. A lost response or failed local membership commit retains recoverable intent. Remote membership is durable by peer, tab and exact worker session, independent of report telemetry expiry.
+
 ### Plan-authorized task-less evidence reports
 The authenticated live Plan owner grants review/canonical-QA reporting via `plan.review.authorize-reporter` / `domios plan review authorize-reporter`. The grant stores exact tab/session ids and a one-way nonce digest; Plan history never exposes the bearer nonce. Reports carry only `plan_id`, no task/status/provenance. Success appends immutable `plan_evidence_report`, emits `agent-report` to the live owner and returns `plan_report` with stride id and `task_transition:false`. Capability grants, not role labels, authorize. Missing caller session resolves only from the exact registered tab with matching stored/hook nonce; explicitly wrong sessions refuse. Foreign, unbound, stale/rebound, task-bound or ungranted callers mutate neither history nor report store. Session changes require a fresh grant. Planner/task-bound Worker paths are unchanged.
 
-Each inbound mesh report registers the worker in the orchestrator-side registry (`GET /api/remote-workers`, `remote-workers-changed` event); the sidebar renders it as a read-only "remote tab" ghost node under its orchestrator (peer chip + status, no local PTY).
+Each inbound mesh report updates recent worker telemetry (`GET /api/remote-workers`, `remote-workers-changed` event). Explicitly adopted workers have durable Team membership independently of that telemetry and appear as ordinary remote Team tabs, including unavailable members. Use `domios team adopt-agent <team> <worker> --peer <peer>` or `domios agent reparent <worker> --to <local-orchestrator> --peer <peer>` on the origin. Their caller, recovery and Team-close contracts are in API-TEAMS.
 
 ### Batch Commands (POST /api/batch)
 
@@ -184,4 +192,4 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 
 `spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.
 
-<!-- revision: 70 -->
+<!-- revision: 73 -->

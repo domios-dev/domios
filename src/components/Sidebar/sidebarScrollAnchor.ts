@@ -1,4 +1,4 @@
-import { sidebarScrollAnchorLayout } from "./sidebarScrollAnchorModel";
+import { sidebarAnchorShift, sidebarScrollAnchorLayout, sidebarTrailingSpaceAfterScroll } from "./sidebarScrollAnchorModel";
 
 const ANCHORS = ".sidebar-structural-header, .sidebar-workspace-card-scroll, .sidebar-workspace-detail-header, [data-testid=workspace-navigation-actions], .sidebar-team-header, .sidebar-team-workers-toggle, .sidebar-tab";
 
@@ -38,6 +38,12 @@ export function retainSidebarScrollAnchor(viewport: HTMLElement, body: HTMLEleme
     viewport.scrollTop = layout.scrollTop;
   };
 
+  const releaseTrailingSpace = () => {
+    const contentHeight = viewport.scrollHeight - space.offsetHeight;
+    const trailingSpace = sidebarTrailingSpaceAfterScroll(viewport.scrollTop, contentHeight, viewport.clientHeight, space.offsetHeight);
+    if (trailingSpace !== space.offsetHeight) space.style.height = `${trailingSpace}px`;
+  };
+
   const restore = () => {
     if (disposed) return;
     if (body.querySelector('[data-dnd-dragging="true"]')) {
@@ -55,14 +61,20 @@ export function retainSidebarScrollAnchor(viewport: HTMLElement, body: HTMLEleme
       return;
     }
     const anchor = anchors.find(({ element }) => body.contains(element) && element.getClientRects().length > 0);
-    const maximum = Math.max(0, viewport.scrollHeight - space.offsetHeight - viewport.clientHeight);
-    apply(anchor ? viewport.scrollTop + y(anchor.element) - anchor.y : Math.min(previousScrollTop, maximum));
+    if (anchor) {
+      const shift = sidebarAnchorShift(y(anchor.element), anchor.y);
+      if (shift !== 0) apply(viewport.scrollTop + shift);
+      else releaseTrailingSpace();
+    } else {
+      const maximum = Math.max(0, viewport.scrollHeight - space.offsetHeight - viewport.clientHeight);
+      apply(Math.min(previousScrollTop, maximum));
+    }
     capture();
   };
 
   const onScroll = () => {
     preferred = null;
-    apply(viewport.scrollTop);
+    releaseTrailingSpace();
     capture();
   };
   const onPress = (event: Event) => {
@@ -70,7 +82,8 @@ export function retainSidebarScrollAnchor(viewport: HTMLElement, body: HTMLEleme
     capture();
   };
   const mutation = new MutationObserver(restore);
-  mutation.observe(body, { childList: true, subtree: true, characterData: true, attributes: true });
+  // Text and attribute churn (activity dots, statuses) never moves rows; size changes reach the ResizeObserver.
+  mutation.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-dnd-dragging"] });
   const resize = new ResizeObserver(restore);
   resize.observe(body);
   resize.observe(viewport);

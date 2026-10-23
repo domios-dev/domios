@@ -1,5 +1,5 @@
 import { useCallback, useId, useLayoutEffect, useRef, type ReactNode } from "react";
-import { CanvasToolbar } from "../Canvas/CanvasToolbar";
+import { CanvasToolbar } from "@codeterm/chat-ui";
 import type { ViewportTransform } from "@codeterm/canvas-camera";
 import { BlueprintNodeCard } from "./BlueprintNodeCard";
 import { blueprintLegend, blueprintNodeKinds } from "./blueprintKinds";

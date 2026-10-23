@@ -132,7 +132,7 @@ function sidePanel(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[data-testid="plan-side-panel"]');
 }
 
-function sidePanelControl(name: "full" | "back"): HTMLButtonElement {
+function sidePanelControl(name: "full" | "close" | "back"): HTMLButtonElement {
   const control = document.querySelector<HTMLButtonElement>(`[data-testid="plan-side-panel-${name}"]`);
   if (!control) throw new Error(`no side panel ${name} control`);
   return control;
@@ -187,12 +187,12 @@ describe("composer plan return navigation", () => {
     const host = await render(<PlanSidePanelLayer plans={[TEAM_PLAN]} tabs={{}} onOpenPlanTarget={() => {}} onReturnTo={activate} />);
     await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id, returnTo: origin }, context()); });
     const target = planSidePanelStore.get()!.target;
-    await act(async () => host.querySelector<HTMLButtonElement>('button[data-testid="plan-side-panel-back"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[data-testid="plan-side-panel-close"]')!.click());
     expect(activate).toHaveBeenCalledExactlyOnceWith(origin);
     expect(target.returnTo).toBeUndefined();
     expect(planSidePanelStore.get()).toBeNull();
     await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id }, context()); });
-    await act(async () => host.querySelector<HTMLButtonElement>('button[data-testid="plan-side-panel-back"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[data-testid="plan-side-panel-close"]')!.click());
     expect(activate).toHaveBeenCalledTimes(1);
   });
 
@@ -270,6 +270,31 @@ describe("plan target navigation", () => {
   });
 });
 
+describe("side panel header controls", () => {
+  it("a task opened from the plan shows Back, which returns to the plan, while Close stays available", async () => {
+    const host = await render(<TeamView />);
+    await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id }, SHELL_CTX); });
+    expect(document.querySelector('[data-testid="plan-side-panel-back"]')).toBeNull();
+
+    await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id, taskId: KEYED.id, nestedFromPlan: true }, SHELL_CTX); });
+    expect(sidePanel()?.getAttribute("data-kind")).toBe("task");
+    expect(sidePanelControl("back").getAttribute("aria-label")).toBe("Back to plan");
+    expect(sidePanelControl("close")).toBeTruthy();
+
+    await act(async () => sidePanelControl("back").click());
+    expect(sidePanel()?.getAttribute("data-kind")).toBe("plan");
+    expect(document.querySelector('[data-testid="plan-side-panel-back"]')).toBeNull();
+    expect(host).toBeTruthy();
+  });
+
+  it("Escape dismisses a nested task view", async () => {
+    await render(<TeamView />);
+    await act(async () => { openPlanTarget({ planId: TEAM_PLAN.id, taskId: KEYED.id, nestedFromPlan: true }, SHELL_CTX); });
+    await pressEscape(sidePanel() as HTMLElement);
+    expect(sidePanel()).toBeNull();
+  });
+});
+
 describe("shared task side panel", () => {
   it("opens a Tasks card in the side panel over Tasks with the key, title, detail and named controls", async () => {
     const host = await render(<TeamView />);
@@ -287,7 +312,8 @@ describe("shared task side panel", () => {
     expect(header.firstElementChild?.getAttribute("data-testid")).toBe("plan-side-panel-key");
     expect(panel.querySelector('[data-testid="canvas-detail-content"] [data-testid="status-chip"]')).not.toBeNull();
     expect(sidePanelControl("full").getAttribute("aria-label")).toBe("Open Task CT-7 in full view");
-    expect(sidePanelControl("back").getAttribute("aria-label")).toBe("Back to originating view");
+    expect(sidePanelControl("close").getAttribute("aria-label")).toBe("Close Task CT-7 Render the segment");
+    expect(document.querySelector('[data-testid="plan-side-panel-back"]')).toBeNull();
     expect(host.querySelector('[data-testid="plan-task-segment"]')).toBeNull();
   });
 
@@ -305,7 +331,7 @@ describe("shared task side panel", () => {
     const host = await render(<TeamView />);
     const card = await openFromTasksBoard(host, KEYED);
 
-    await act(async () => sidePanelControl("back").click());
+    await act(async () => sidePanelControl("close").click());
     expect(sidePanel()).toBeNull();
     expect(document.activeElement).toBe(card);
   });
@@ -350,7 +376,8 @@ describe("shared task side panel", () => {
     expect(panel.querySelector('[data-testid="canvas-detail-content"]')).not.toBeNull();
     expect(shellMode(host)).toBe("board");
     expect(sidePanelControl("full").getAttribute("aria-label")).toBe("Open plan in full view");
-    expect(sidePanelControl("back").getAttribute("aria-label")).toBe("Back to originating view");
+    expect(sidePanelControl("close").getAttribute("aria-label")).toBe(`Close Plan ${TEAM_PLAN.title}`);
+    expect(document.querySelector('[data-testid="plan-side-panel-back"]')).toBeNull();
 
     await act(async () => sidePanelControl("full").click());
     expect(sidePanel()).toBeNull();

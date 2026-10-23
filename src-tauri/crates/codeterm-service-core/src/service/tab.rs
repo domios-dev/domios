@@ -306,11 +306,23 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
+        self.close_tab_with_precondition(tab_id, reason, |_, _| Ok(()))
+    }
+
+    pub fn close_tab_with_precondition(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+        validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+    ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
             let canonical_tab_id = mux
                 .resolve_tab_id(tab_id)
                 .unwrap_or_else(|| tab_id.to_string());
+            validate(&mux, &canonical_tab_id)?;
+            self.remote_teams
+                .ensure_tab_lifecycle_available(&canonical_tab_id)?;
             let tab = mux.get_tab(&canonical_tab_id);
             let provider_id = tab.and_then(|tab| tab.agent_type.clone());
             let session_id = tab.and_then(|tab| tab.agent_session_id.clone());

@@ -14,6 +14,7 @@ mod curator;
 mod plan_lane_clean;
 mod plan_project;
 mod recurrence;
+mod remote_team;
 mod sessions;
 mod tab_adopt;
 mod tab_purpose;

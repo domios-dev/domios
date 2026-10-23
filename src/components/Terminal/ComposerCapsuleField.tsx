@@ -7,6 +7,7 @@ import {
   CAPSULE_TRAIL,
   capsuleSegments,
   labelChars,
+  typedLabel,
   type CapsuleRegistry,
   type CapsuleSpan,
   type ComposerCapsule,
@@ -24,7 +25,7 @@ interface Hover {
 }
 
 function PaintedCapsule({ span, capsule, hovered, upload }: { span: CapsuleSpan; capsule: ComposerCapsule | null; hovered: boolean; upload?: ComposerUpload }) {
-  const { name, detail } = capsuleLabelParts(span.label);
+  const { name, detail } = capsuleLabelParts(typedLabel(span.label));
   return (
     <AttachmentCapsule
       inert

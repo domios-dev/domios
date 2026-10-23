@@ -61,6 +61,7 @@ pub mod plan_routes;
 pub mod plugin_tab_menu_routes;
 pub(crate) mod provider_cli_routes;
 pub mod pty_routes;
+pub mod remote_team_routes;
 pub mod services_routes;
 pub(crate) mod session_binding_routes;
 pub(crate) mod session_exchange;
