@@ -13,6 +13,7 @@ pub struct ListenerPublication {
 #[derive(Default)]
 struct PublicationState {
     remote_bind: Option<SocketAddr>,
+    proof_token: Option<String>,
     ready: Vec<SocketAddr>,
     suspended: Vec<SocketAddr>,
     observer: Option<Observer>,
@@ -23,6 +24,15 @@ impl ListenerPublication {
         let mut state = self.state.lock();
         state.remote_bind = remote;
         state.observer = Some(observer);
+    }
+
+    /// Self-bound non-loopback listeners authenticate their own startup health proof.
+    pub fn set_proof_token(&self, token: Option<String>) {
+        self.state.lock().proof_token = token.filter(|token| !token.trim().is_empty());
+    }
+
+    pub(super) fn proof_token(&self) -> Option<String> {
+        self.state.lock().proof_token.clone()
     }
 
     pub fn remote_bind(&self) -> Option<SocketAddr> {
@@ -224,12 +234,13 @@ pub(super) const HEALTH_PROOF_DEADLINE: Duration = Duration::from_secs(5);
 pub(super) async fn prove_set(
     primary: SocketAddr,
     remote: Option<SocketAddr>,
+    proof_token: Option<&str>,
     budget: Duration,
 ) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + budget;
-    prove_health(primary, deadline).await?;
+    prove_health(primary, None, deadline).await?;
     if let Some(remote) = remote {
-        prove_health(remote, deadline).await?;
+        prove_health(remote, proof_token, deadline).await?;
     }
     Ok(())
 }

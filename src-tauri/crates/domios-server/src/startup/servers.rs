@@ -465,6 +465,10 @@ pub(crate) fn start_servers(
             states
                 .rest_api
                 .listeners
+                .set_proof_token(api_config.token.clone());
+            states
+                .rest_api
+                .listeners
                 .publish(states.rest_api.listeners.ready());
         }
         bundles
