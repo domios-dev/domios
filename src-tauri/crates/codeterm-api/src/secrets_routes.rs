@@ -711,7 +711,12 @@ mod tests {
     #[test]
     fn a_backend_error_body_never_carries_the_backend_payload() {
         let sentinel = "SENTINEL-VALUE-7f3a";
-        let payload = serde_json::json!([{ "login": { "password": sentinel } }]).to_string();
+        let payload = serde_json::json!({ "success": true, "data": { "object": "list", "data": [{
+            "id": "i1", "name": "token", "revisionDate": "2026-01-01T00:00:00.000Z",
+            "login": { "username": "u", "password": sentinel },
+            "notes": sentinel, "fields": [{ "value": sentinel }],
+        }]}})
+        .to_string();
         let (status, Json(body)) = map_error(SecretError::Backend { message: payload });
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(body["error"]["kind"], "backend");

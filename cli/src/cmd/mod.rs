@@ -27,6 +27,7 @@ pub mod manifest;
 pub mod mem;
 pub mod mem_secret;
 pub mod mem_secret_autounlock;
+pub mod mem_secret_failure;
 pub mod mesh;
 pub mod model_error;
 pub mod model_provider;
