@@ -1093,6 +1093,8 @@ fn missing_verdict_while_enforcing_is_compiled_free_and_locks() {
 
 #[path = "checkout_theme_tests.rs"]
 mod checkout_theme;
+#[path = "deadline_tests.rs"]
+mod deadline_tests;
 #[path = "floor_tests.rs"]
 mod floor_tests;
 #[path = "plan_payload_tests.rs"]

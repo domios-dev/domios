@@ -31,6 +31,8 @@ pub enum RefreshEvent {
     SignIn,
     Focus,
     CheckoutReturned,
+    /// The verdict reached `refresh_after` while the daemon ran.
+    Deadline,
 }
 #[derive(Default)]
 struct Cache {
@@ -52,6 +54,7 @@ pub struct Billing {
     grants: Option<Grants>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     observed: Arc<AtomicU64>,
+    rearm: Arc<tokio::sync::Notify>,
 }
 #[derive(Clone)]
 struct Grants {
@@ -73,6 +76,7 @@ impl Billing {
                     .as_secs()
             }),
             observed: Arc::new(AtomicU64::new(0)),
+            rearm: Arc::new(tokio::sync::Notify::new()),
         }
     }
     pub fn with_grants(
@@ -177,6 +181,7 @@ impl Billing {
         }
         let deadline = now + CHECKING_DEADLINE_SECS;
         cache.checking_until = Some(deadline);
+        self.rearm.notify_one();
         Some(deadline)
     }
     pub fn with_observer(mut self, observer: ProductObserver) -> Self {
@@ -210,6 +215,7 @@ impl Billing {
             cache.last_focus = None;
             cache.checkout_pending = false;
             cache.observed = false;
+            self.rearm.notify_one();
         }
     }
     pub fn snapshot(&self, session: Option<&codeterm_account::Session>) -> Snapshot {
@@ -499,6 +505,7 @@ impl Billing {
         }
         let snapshot = self.recompute(&cache);
         drop(cache);
+        self.rearm.notify_one();
         if let (Some(event), Some(observer)) = (product_event, &self.observer) {
             observer(event);
         }
@@ -526,3 +533,6 @@ impl Billing {
         cache.checkout_pending = true;
     }
 }
+
+mod deadlines;
+pub use deadlines::DeadlineTick;
