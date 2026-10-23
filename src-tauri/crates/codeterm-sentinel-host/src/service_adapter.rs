@@ -421,6 +421,13 @@ pub(super) fn caller_is_live(
     mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
     caller: &SentinelCaller,
 ) -> bool {
+    caller_is_live_in_view(mux, caller)
+}
+
+pub(super) fn caller_is_live_in_view(
+    mux: &dyn crate::graph::MuxView,
+    caller: &SentinelCaller,
+) -> bool {
     mux.get_tab(&caller.tab)
         .is_some_and(|tab| tab.team_id == caller.team && tab.session_binding_nonce == caller.nonce)
         && mux.find_workspace_for_tab(&caller.tab).as_deref() == Some(&caller.workspace)
@@ -432,6 +439,13 @@ pub(super) fn caller_is_live(
 
 pub(crate) fn validate_send_scope(
     mux: &codeterm_service_core::multiplexer::state::MultiplexerState,
+    job: &Sentinel,
+) -> Result<(), String> {
+    validate_send_scope_in_view(mux, job)
+}
+
+pub(crate) fn validate_send_scope_in_view(
+    mux: &dyn crate::graph::MuxView,
     job: &Sentinel,
 ) -> Result<(), String> {
     for handler in job.routes.values().flatten().chain(&job.on_other) {

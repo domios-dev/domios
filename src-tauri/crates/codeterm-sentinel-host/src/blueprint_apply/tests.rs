@@ -2,6 +2,177 @@ use super::retarget_only;
 use serde_json::json;
 
 #[test]
+fn blueprint_apply_releases_mux_before_validation_and_admission() {
+    use super::*;
+    use codeterm_service_core::{
+        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+    };
+    for pipeline in [false, true] {
+        let (mut mux, tab) = MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+        let team = codeterm_types::team::Team::new(&workspace, 1);
+        mux.upsert_team(team.clone());
+        let creator = mux.get_tab_mut(&tab).unwrap();
+        creator.team_id = Some(team.id.clone());
+        creator.agent_type = Some("fixture".into());
+        creator.session_binding_nonce = Some("own-session".into());
+        mux.register_alias("recipient", &tab);
+        let fixture = ServiceFixture::new(mux);
+        let caller = SentinelCaller {
+            tab,
+            workspace,
+            team: Some(team.id),
+            nonce: Some("own-session".into()),
+            cwd: fixture.temp.path().to_string_lossy().into(),
+        };
+        let store = parking_lot::Mutex::new(Store::new(
+            fixture.temp.path().join("admission.json"),
+            codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+        ));
+        let definition = if pipeline {
+            json!({"schema_version":2,"kind":"pipeline","name":"snapshot","owner":"team","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"}}],"result":{"to":"tab:recipient"}})
+        } else {
+            json!(codeterm_sentinel::test_support::watch(
+                json!("snapshot"),
+                json!({"uses":"observe","with":{"kind":{"lit":"tab"},"id":{"lit":caller.tab}},"every":{"lit":"20s"}}),
+                json!({"with":{"question":{"lit":"State"}},"buckets":["done"],"matches":{"done":{"lit":"done"}}}),
+                json!({"done":[{"id":"send","uses":"send","with":{"target":{"lit":caller.tab}}}]}),
+                Value::Null,
+            ))
+        };
+        let candidate = store
+            .lock()
+            .prepare_document(
+                definition.clone(),
+                crate::store::Owner {
+                    creator_tab_id: caller.tab.clone(),
+                    workspace_id: caller.workspace.clone(),
+                    team_id: caller.team.clone(),
+                    cwd: caller.cwd.clone(),
+                },
+                true,
+            )
+            .unwrap();
+        with_apply_mux(&fixture.service, &caller, candidate, |view, candidate| {
+            let mut current = fixture
+                .service
+                .mux
+                .try_write()
+                .expect("apply validation retains the mux read lock");
+            current
+                .get_tab_mut(&caller.tab)
+                .unwrap()
+                .session_binding_nonce = Some("replacement".into());
+            current.unregister_alias("recipient");
+            drop(current);
+            validate_candidate_scope(view, &caller, &candidate)?;
+            assert!(
+                fixture.service.mux.try_write().is_some(),
+                "apply admission retains the mux read lock"
+            );
+            let result = storage::commit(&store, |store| {
+                stage_apply(
+                    store,
+                    &caller,
+                    ApplyIntent {
+                        candidate,
+                        definition,
+                        dry_run: false,
+                        stopped: None,
+                        update: None,
+                        curator: false,
+                        authorized_id: None,
+                    },
+                )
+                .unwrap()
+            })?;
+            assert_eq!(result["action"], "create");
+            Ok(())
+        })
+        .unwrap();
+        let reopened = Store::new(
+            fixture.temp.path().join("admission.json"),
+            codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+        );
+        assert_eq!(reopened.jobs.len(), 1);
+        assert_eq!(reopened.jobs[0].creator_tab_id, caller.tab);
+    }
+}
+
+#[test]
+fn blueprint_apply_snapshot_preserves_scope_refusals() {
+    use super::*;
+    use codeterm_service_core::{
+        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+    };
+    let (mut mux, tab) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&tab).unwrap();
+    let team = codeterm_types::team::Team::new(&workspace, 1);
+    mux.upsert_team(team.clone());
+    mux.get_tab_mut(&tab).unwrap().team_id = Some(team.id.clone());
+    let foreign_workspace = mux.create_workspace("Foreign".into(), None).id;
+    let foreign = mux.create_tab(&foreign_workspace).unwrap();
+    mux.get_tab_mut(&foreign).unwrap().agent_type = Some("fixture".into());
+    mux.get_tab_mut(&foreign).unwrap().team_id = Some(team.id.clone());
+    mux.register_alias("foreign-alias", &foreign);
+    let fixture = ServiceFixture::new(mux);
+    let caller = SentinelCaller {
+        tab,
+        workspace,
+        team: Some(team.id),
+        nonce: None,
+        cwd: fixture.temp.path().to_string_lossy().into(),
+    };
+    let store = Store::new(
+        fixture.temp.path().join("scope.json"),
+        codeterm_service_core::cron::clock::MockClock::starting_at(1000),
+    );
+    for target in [
+        "tab:foreign-alias",
+        "tab:missing",
+        "team",
+        "owner",
+        "notify",
+    ] {
+        let definition = json!({"schema_version":2,"kind":"pipeline","name":"snapshot","owner":"team","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"emit","run":{"lit":"echo ready"}}],"result":{"to":target}});
+        let candidate = store
+            .prepare_document(
+                definition,
+                crate::store::Owner {
+                    creator_tab_id: caller.tab.clone(),
+                    workspace_id: caller.workspace.clone(),
+                    team_id: caller.team.clone(),
+                    cwd: caller.cwd.clone(),
+                },
+                true,
+            )
+            .unwrap();
+        let expected = validate_candidate_scope(&*fixture.service.mux.read(), &caller, &candidate)
+            .map_err(|error| error.to_string());
+        with_apply_mux(&fixture.service, &caller, candidate, |view, candidate| {
+            assert_eq!(
+                validate_candidate_scope(view, &caller, &candidate)
+                    .map_err(|error| error.to_string()),
+                expected,
+                "{target}"
+            );
+            let stale = SentinelCaller {
+                nonce: Some("stale".into()),
+                ..caller.clone()
+            };
+            assert_eq!(
+                validate_candidate_scope(view, &stale, &candidate)
+                    .unwrap_err()
+                    .to_string(),
+                "Blueprint caller scope changed"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}
+
+#[test]
 fn curator_retarget_preserves_commands_thresholds_and_steps() {
     let before = json!({"schema_version":2,"kind":"pipeline","name":"retarget","trigger":{"type":"schedule","every":{"lit":"20s"}},"steps":[{"id":"read","run":{"lit":"opaque-command"}},{"id":"send","uses":"filter","with":{"pattern":{"lit":"opaque-pattern"}}}],"result":{"to":"tab:old"}});
     let mut after = before.clone();
