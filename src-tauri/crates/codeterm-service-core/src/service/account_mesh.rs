@@ -1,6 +1,6 @@
 //! Account Mesh composition: registry, protected key, lifecycle state, transport and local facade.
 
-use super::account::{AccountCell, AccountCredentials};
+use super::account::AccountCell;
 use super::ServiceContext;
 use async_trait::async_trait;
 use codeterm_account::account_mesh::callable::{
@@ -177,8 +177,8 @@ impl ServiceContext {
                     AccountMeshPorts {
                         registry: self.registry(),
                         sessions: Arc::new(AccountSessions(self.ext::<AccountCell>().0.clone())),
-                        keys: Arc::new(AccountCredentials::new().await?),
-                        store: Arc::new(FileAccountMeshStore::new(crate::paths::data_dir())),
+                        keys: self.account_credentials().await?,
+                        store: Arc::new(FileAccountMeshStore::new(self.account_data_root()?)),
                         endpoint: listener.clone(),
                         transport: Arc::new(TransportBridge {
                             service: self.weak_self(),

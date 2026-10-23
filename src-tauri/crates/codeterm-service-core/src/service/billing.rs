@@ -26,9 +26,10 @@ impl ServiceContext {
     }
 
     pub async fn installation_id(&self) -> Result<codeterm_account::InstallationId, String> {
-        tokio::task::spawn_blocking(|| {
+        let root = self.account_data_root()?;
+        tokio::task::spawn_blocking(move || {
             codeterm_account::Account::installation_id(
-                &codeterm_account::FileInstallationStore::new(crate::paths::data_dir()),
+                &codeterm_account::FileInstallationStore::new(root),
             )
             .map_err(|error| format!("Installation identity unavailable: {error}"))
         })

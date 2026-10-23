@@ -419,6 +419,7 @@ impl ServiceFixture {
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
         extensions.insert_service_slots();
         extensions.insert(config);
+        extensions.insert(crate::service::account::AccountDataRoot(data_dir.clone()));
         let (private_key, public_key) = crate::mesh::crown::generate_peer_keypair();
         extensions.insert::<crate::MeshStateHandle>(Arc::new(Mutex::new(
             crate::mesh::MeshManager::in_memory(
