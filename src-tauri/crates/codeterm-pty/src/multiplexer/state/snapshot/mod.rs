@@ -374,7 +374,10 @@ impl MultiplexerState {
             pending_closed_history: Vec::new(),
             workspace_close_reservations: HashMap::new(),
             tab_close_reservations: HashMap::new(),
-            limit_gate: codeterm_entitlements::LimitGate::dormant(),
+            limit_gate: codeterm_entitlements::LimitGate::new(
+                codeterm_entitlements::compiled_free(),
+                codeterm_entitlements::enforcing(),
+            ),
         };
         state.backfill_creation_order();
         state

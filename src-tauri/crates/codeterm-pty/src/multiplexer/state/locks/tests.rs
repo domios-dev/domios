@@ -12,6 +12,7 @@ fn three_workspaces() -> (MultiplexerState, String, Vec<String>) {
     let ids = ["a", "b", "c"]
         .map(|name| mux.create_workspace(name.into(), None).id)
         .to_vec();
+    mux.set_limit_gate(LimitGate::dormant());
     (mux, general, ids)
 }
 
@@ -130,4 +131,40 @@ fn locked_tab_and_workspace_metadata_refuse_and_keep_their_values() {
     assert!(mux.rename_workspace(&ids[0], "Unlocked").is_ok());
     mux.set_limit_gate(LimitGate::dormant());
     assert!(mux.rename_tab(&tab, "After").is_ok());
+}
+
+#[test]
+fn production_mux_constructors_enforce_before_billing_starts() {
+    let (mut mux, _) = MultiplexerState::new();
+    let general = mux.list_workspaces()[0].id.clone();
+    mux.set_workspace_protected(&general, true);
+    let ids = ["a", "b", "c"].map(|name| mux.create_workspace(name.into(), None).id);
+    assert!(mux.item_write_lock(LimitKey::Workspaces, &ids[2]).is_some());
+    let restored = MultiplexerState::from_session_snapshot(&mux.to_session_snapshot());
+    assert_eq!(restored.locks(), mux.locks());
+    mux.set_limit_gate(LimitGate::dormant());
+    assert!(restored
+        .item_write_lock(LimitKey::Workspaces, &ids[2])
+        .is_some());
+}
+
+#[test]
+fn locked_team_rename_and_lifecycle_keep_original_metadata() {
+    let mut mux = MultiplexerState::empty();
+    let workspace = mux.create_workspace("Project".into(), None).id;
+    let mut team = codeterm_types::team::Team::new(&workspace, 1);
+    team.name = Some("Original".into());
+    mux.upsert_team(team.clone());
+    let mut access = compiled_free();
+    access.limits.teams.max = Some(0);
+    mux.set_limit_gate(LimitGate::new(access, true));
+    assert!(mux
+        .rename_team(&team.id, "Changed".into())
+        .unwrap_err()
+        .starts_with("plan_limit_locked: "));
+    assert!(mux
+        .set_team_lifecycle(&team.id, codeterm_types::team::TeamLifecycle::Active)
+        .unwrap_err()
+        .starts_with("plan_limit_locked: "));
+    assert_eq!(mux.get_team(&team.id).unwrap(), &team);
 }

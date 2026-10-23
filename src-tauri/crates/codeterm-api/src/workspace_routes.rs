@@ -251,8 +251,9 @@ pub async fn reopen_closed_tab(
     headers: HeaderMap,
     Path(id): Path<String>,
     OptionalJson(body): OptionalJson<ReopenClosedBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| crate::plan_quota_status::route_error(status, error))?;
     let index = body.and_then(|b| b.index);
     let cmd = codeterm_service_core::dispatch::Command::WorkspaceReopenClosedTab {
         workspace_id: id,
@@ -260,7 +261,7 @@ pub async fn reopen_closed_tab(
     };
     let result = codeterm_service_core::dispatch::dispatch_blocking(cmd, state.svc.clone())
         .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "No recently closed Tab"))?;
+        .map_err(|error| crate::plan_quota_status::route_error(StatusCode::NOT_FOUND, error))?;
     Ok(Json(result.into_json()))
 }
 
@@ -268,16 +269,19 @@ pub async fn reopen_closed_group(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(group_id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| crate::plan_quota_status::route_error(status, error))?;
     let cmd = codeterm_service_core::dispatch::Command::WorkspaceReopenClosedGroup { group_id };
     let service = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
         codeterm_service_core::dispatch::dispatch(&cmd, service.as_ref())
     })
     .await
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    .map_err(|error| {
+        crate::plan_quota_status::route_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+    })?
+    .map_err(|error| crate::plan_quota_status::route_error(StatusCode::BAD_REQUEST, error))?;
     Ok(Json(result.into_json()))
 }
 

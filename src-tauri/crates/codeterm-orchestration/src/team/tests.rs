@@ -1188,3 +1188,5 @@ mod close_lifecycle;
 pub(crate) mod sentinel_fixture;
 mod storage_cutover_team_teardown;
 mod team_teardown_off_runtime;
+
+mod limit_locks;

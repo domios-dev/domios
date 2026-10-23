@@ -28,10 +28,10 @@ async fn call(status: StatusCode, body: &'static str) -> (StatusCode, serde_json
 }
 
 #[tokio::test]
-async fn wrapped_quota_refusals_become_typed_403() {
+async fn exact_quota_refusals_become_typed_403() {
     for (body, code) in [
         (
-            "Failed to create tab: free_limit_reached: Free plan allows 35 tabs",
+            "free_limit_reached: Free plan allows 35 tabs",
             FREE_LIMIT_REACHED,
         ),
         (
@@ -56,4 +56,25 @@ async fn other_errors_and_successes_pass_through_unchanged() {
     let (status, _, text) = call(StatusCode::OK, "free_limit_reached is a word").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(text, "free_limit_reached is a word");
+}
+
+#[tokio::test]
+async fn echoed_codes_and_partial_prefixes_are_not_refusals() {
+    for body in [
+        "Failed to create tab: free_limit_reached: echoed",
+        "plan_limit_locked_extra: echoed",
+        "unrelated plan_limit_locked: echoed",
+    ] {
+        let (status, _, text) = call(StatusCode::INTERNAL_SERVER_ERROR, body).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(text, body);
+    }
+    let (status, json, _) = call(
+        StatusCode::BAD_REQUEST,
+        r#"{"error":"plan_limit_locked: opaque"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(json["error"]["code"], PLAN_LIMIT_LOCKED);
+    assert_eq!(json["error"]["message"], "plan_limit_locked: opaque");
 }
