@@ -63,6 +63,13 @@ async function main() {
   const http = await build({ ...pipeline, call_graph: { ...document, steps: [{ id: "health", uses: "http" }, { id: "ask", uses: "ask", buckets: ["ready"] }] } });
   assert.deepEqual(http.edges.filter((edge) => edge.from === blueprintNodeKey([], "health")).map((edge) => edge.label), ["up", "down", "failed"]);
   assert.deepEqual(http.edges.filter((edge) => edge.from === blueprintNodeKey([], "ask")).map((edge) => edge.label), ["ready", "other"]);
+  const recoveredFailure = { ...run, nested_run: { id: run.runId!, nodes: [
+    { entry_id: 20, step_index: 5, parent_step_index: null, step_name: "final", state: "failed", reason: "deadline" },
+    { entry_id: 10, step_index: 0, parent_step_index: null, step_name: "earlier-call", state: "failed", reason: "contract_violation" },
+    { entry_id: 9, step_index: 3, parent_step_index: 0, step_name: "earlier-leaf", state: "failed", reason: "contract_violation" },
+  ] } };
+  assert.equal(blueprintPipelineOutcome(recoveredFailure)?.step_name, "final");
+  assert.equal(blueprintPipelineOutcome({ ...recoveredFailure, nested_run: { ...recoveredFailure.nested_run, nodes: [...recoveredFailure.nested_run.nodes].reverse() } })?.step_name, "final");
   const large = { ...pipeline, call_graph: { ...document, steps: Array.from({ length: 24 }, (_, index) => ({ ...document.steps[2], id: `call-${index}`, routes: { done: "@next", failed: "@stop" } })) },
     expanded_calls: Array.from({ length: 24 }, (_, index) => ({ ...call, node: `call-${index}` })), nested_run: null };
   const all = new Set(large.call_graph.steps.map((node) => blueprintNodeKey([], node.id)));
