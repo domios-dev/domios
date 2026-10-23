@@ -35,6 +35,7 @@ impl MemManager {
             index,
             vectors,
             pending,
+            queue: self.embed_queue.status(!self.embedder.is_available()),
             degraded,
             reembed,
         }

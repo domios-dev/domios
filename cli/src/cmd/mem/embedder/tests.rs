@@ -88,3 +88,20 @@ fn recall_reembed_same_model_receipt_and_failed_status_are_explicit() {
         assert!(status.contains("94/901"));
     }
 }
+
+#[test]
+fn recall_priority_status_prints_live_queue_separately_from_pending() {
+    let status = render_status(&serde_json::json!({
+        "pending": 0,
+        "queue": {"queued": 410, "in_flight": 1, "failed": 2, "unavailable": true}
+    }));
+    for field in [
+        "pending    0",
+        "queued     410 chunks",
+        "in flight  1",
+        "failed     2",
+        "queue      unavailable",
+    ] {
+        assert!(status.contains(field), "missing {field}: {status}");
+    }
+}
