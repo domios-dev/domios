@@ -25,6 +25,8 @@ export interface PlanTarget extends ReturnToRoute {
   canonicalProjectPath?: string;
   /** Defaults to "side". */
   presentation?: PlanTargetPresentation;
+  /** A task opened from the plan inside the side panel; Back returns to the plan. */
+  nestedFromPlan?: boolean;
 }
 
 export interface PlanTargetContext {
@@ -58,6 +60,7 @@ export function openPlanTarget(target: PlanTarget, ctx: PlanTargetContext): bool
     planSidePanelStore.open({
       planId: target.planId,
       taskId: target.taskId,
+      nestedFromPlan: target.nestedFromPlan,
       teamId: owner.teamId ?? null,
       canonicalProjectPath: target.canonicalProjectPath,
       returnTo: target.returnTo,
