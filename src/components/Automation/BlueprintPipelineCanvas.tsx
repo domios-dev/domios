@@ -1,22 +1,24 @@
 import { blueprintSteps } from "./blueprintKinds";
 import { useId, useState, type CSSProperties } from "react";
 import { CanvasToolbar } from "@codeterm/chat-ui";
-import { Bell, List, Play, Workflow } from "lucide-react";
+import { Bell, GitCompare, List, Play, Square, Workflow } from "lucide-react";
 import { AUTOMATION_LABEL, AUTOMATION_TONE, AUTOMATION_TOOL } from "./styles";
 import type { PipelineView, PipelineViewNode } from "./pipelineModel";
 import { PIPELINE_CANVAS_HEIGHT, PIPELINE_CARD_HEIGHT, PIPELINE_CARD_WIDTH } from "./pipelineLayout";
 import type { BlueprintViewerHistory } from "../../lib/blueprintApi";
 import { useBlueprintGraph } from "./useBlueprintGraph";
 import { toggleBlueprintExpansion, type BlueprintExpansion } from "./blueprintExpansion";
-import { expandedCall } from "./blueprintGraphModel";
+import { expandedCall, nodeLabel } from "./blueprintGraphModel";
 import { BlueprintPipelineNodeDetails } from "./BlueprintPipelineNodeDetails";
 import { BlueprintSemanticDiff } from "./BlueprintSemanticDiff";
 import { BlueprintProjectionValue } from "./BlueprintProjectionValue";
-import { blueprintPipelineOutcome, canStopPipelineRun } from "./blueprintPipelineOutcome";
+import { blueprintPipelineOutcome, canStopPipelineRun, heldReasonLabel } from "./blueprintPipelineOutcome";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { Button } from "../shared/Button";
 
 function stateTone(state: string, current = false): string {
   if (current || state === "running" || state === "delivering") return "var(--ct-accent)";
+  if (["held", "paused"].includes(state)) return "var(--ct-yellow)";
   if (["failed", "failing", "offline", "down"].includes(state)) return "var(--ct-red)";
   if (["done", "delivered", "online", "up"].includes(state)) return "var(--ct-green)";
   return "var(--ct-muted)";
@@ -28,6 +30,10 @@ function stateSurface(state: string, current: boolean): string {
   if (current) return "shadow-[inset_0_0_16px_color-mix(in_srgb,var(--ct-accent)_7%,transparent)]";
   if (["failed", "failing", "offline", "down"].includes(state)) return "ct-card--error";
   return "";
+}
+
+function callStack(row: { call_stack?: readonly { node: string; id: string; hash: string }[] }): string {
+  return row.call_stack?.map((frame) => `${frame.node}: ${frame.id}@${frame.hash}`).join(" / ") ?? "";
 }
 
 function eventTime(value: number | null): string {
@@ -56,6 +62,7 @@ function PipelineNodeCard({ node }: { node: PipelineViewNode }) {
       ? <>
         <p className="truncate text-xs text-[var(--ct-muted-fg)]" title={node.targetSummary ?? "Target unavailable"}>{node.targetSummary ?? "Target unavailable"}</p>
         {node.summary && <p className="truncate text-xs text-[var(--ct-muted-fg)]">{node.summary}</p>}
+        {node.resultSummary && <p className="line-clamp-2 text-[0.6875rem] text-[var(--ct-muted-fg)]">{node.resultSummary}</p>}
       </>
       : <>
         <p className="truncate text-xs text-[var(--ct-muted-fg)]" title={node.summary}>{node.summary || "No summary"}</p>
@@ -99,12 +106,26 @@ export function BlueprintPipelineCanvas({ pipeline, initialRunId, onStop, loadHi
         <span className="ct-run-row__meta">{run.state}</span>
       </button>)}
     </div>}
-    {loadHistory && <button type="button" aria-expanded={showDiff} onClick={() => setShowDiff(!showDiff)}>Semantic diff</button>}
+    {(loadHistory || onStop) && <div role="group" aria-label="Run actions" className="bp-viewer-actions">
+      {loadHistory && <Button variant="ghost" size="sm" aria-expanded={showDiff} onClick={() => setShowDiff(!showDiff)}><GitCompare size={13} aria-hidden="true" />Semantic diff</Button>}
+      {onStop && <Button variant="danger" size="sm" loading={stopping} disabled={!selected || !canStopPipelineRun(pipeline, selected)} onClick={() => void stopRun()}><Square size={12} aria-hidden="true" />Stop selected run</Button>}
+    </div>}
     {showDiff && loadHistory && <BlueprintSemanticDiff load={loadHistory} />}
-    {onStop && <button type="button" disabled={stopping || !selected || !canStopPipelineRun(pipeline, selected)} onClick={() => void stopRun()}>Stop selected run</button>}
     {error != null && <InlineErrorNotice error={error} operation="stopping this Blueprint run" blocking />}
-    {stop && <section aria-label="Recorded stop"><dl><dt>Node</dt><dd>{stop.step_name}</dd><dt>Reason</dt><dd>{stop.reason ?? "unavailable"}</dd></dl><p aria-label="Stop call stack">{stop.call_stack?.map((frame) => `${frame.node}: ${frame.id}@${frame.hash}`).join(" / ")}</p></section>}
-    {selected?.nested_run?.id === selected?.runId && selected?.nested_run && <section aria-label="Selected run journal"><ol>{selected.nested_run.nodes.map((node, index) => <li key={index}><span>{node.step_name} · {node.state}</span><p>{node.call_stack?.map((frame) => `${frame.node}: ${frame.id}@${frame.hash}`).join(" / ")}</p><BlueprintProjectionValue value={node} label={`Journal entry ${index + 1}`} /></li>)}</ol></section>}
+    {pipeline.heldReason && selected === pipeline && <p role="status" className="ct-job-note">Held: {heldReasonLabel(pipeline.heldReason)}</p>}
+    {stop && <section aria-label="Recorded stop" className="ct-card ct-card--error ct-card--static bp-panel"><h3 className="bp-panel__title">Recorded stop</h3><dl className="bp-facts"><dt>Node</dt><dd>{stop.step_name}</dd><dt>Reason</dt><dd>{stop.reason ?? "unavailable"}</dd></dl><p aria-label="Stop call stack" className="bp-mono">{callStack(stop)}</p></section>}
+    {selected?.nested_run?.id === selected?.runId && selected?.nested_run && <section aria-label="Selected run journal" className="ct-card ct-card--static bp-panel">
+      <h3 className="bp-panel__title">Run journal</h3>
+      <ol className="bp-journal">{selected.nested_run.nodes.map((node, index) => <li key={index} className="bp-journal__entry">
+        <div className="bp-journal__head">
+          <span className="ct-detail__dot" style={{ "--ct-detail-tone": stateTone(node.state) } as CSSProperties} aria-hidden="true" />
+          <span className="bp-journal__name">{node.step_name}</span>
+          <span className="bp-journal__state">{node.state}</span>
+        </div>
+        {node.call_stack?.length ? <p className="bp-mono">{callStack(node)}</p> : null}
+        <BlueprintProjectionValue value={node} label={`Journal entry ${index + 1}`} />
+      </li>)}</ol>
+    </section>}
     {pipeline.note && <p className="ct-meta-muted">{pipeline.note}</p>}
     {selected ? <PipelineChain key={selected.runId ?? "definition"} pipeline={selected} /> : <p role="status">Selected run unavailable.</p>}
   </div>;
@@ -126,14 +147,14 @@ function PipelineChain({ pipeline }: { pipeline: PipelineView }) {
     <div className="relative" style={{ width: layout.width, height: layout.height, minHeight: PIPELINE_CANVAS_HEIGHT }}>
       <svg className="pointer-events-none absolute inset-0" width={layout.width} height={layout.height} aria-hidden="true">
         <defs><marker id={`pipeline-arrow-${markerId}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ct-muted-fg)" /></marker></defs>
-        {layout.edges.map((edge, index) => <path key={index} d={edge.path} stroke="var(--ct-muted-fg)" strokeWidth="1.5" markerEnd={`url(#pipeline-arrow-${markerId})`} />)}
+        {layout.edges.map((edge, index) => <path key={index} d={edge.path} fill="none" stroke="var(--ct-muted-fg)" strokeWidth="1.5" markerEnd={`url(#pipeline-arrow-${markerId})`} />)}
       </svg>
       {layout.edges.map((edge) => edge.label ? <span key={`label:${edge.from}:${edge.to}:${edge.label}`} title={edge.label} className="absolute z-10 max-w-[4.5rem] -translate-x-1/2 truncate rounded-full bg-[color-mix(in_srgb,var(--ct-fg)_6%,var(--ct-bg))] px-1.5 py-0.5 text-[0.625rem] text-[var(--ct-muted-fg)]" style={{ left: edge.x, top: edge.y - 28 }}>{edge.label}</span> : null)}
       {layout.nodes.map((box) => {
         const node = byKey.get(box.key);
         if (!node) return null;
         return <div key={box.key} className="absolute" style={{ left: box.x, top: box.y, width: Math.min(box.width, PIPELINE_CARD_WIDTH), height: Math.min(box.height, PIPELINE_CARD_HEIGHT) }}>
-          <button type="button" className="h-full w-full text-left" aria-label={`Node ${node.definition?.id ?? node.title}${node.callPath?.length ? ` in ${node.callPath.join(" / ")}` : ""}`} aria-pressed={selected === node.key} onClick={() => setSelected(node.key)}><PipelineNodeCard node={node} /></button>
+          <button type="button" className="h-full w-full text-left" aria-label={`Node ${nodeLabel(node)}`} aria-pressed={selected === node.key} onClick={() => setSelected(node.key)}><PipelineNodeCard node={node} /></button>
         </div>;
       })}
     </div>

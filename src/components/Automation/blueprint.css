@@ -396,3 +396,86 @@
 @media (hover: none) {
   .ct-run-row .ct-run-row__reveal { opacity: 1; }
 }
+
+.bp-viewer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.bp-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+}
+.bp-panel__title {
+  margin: 0;
+  color: var(--ct-fg);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.bp-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 0;
+  font-size: 12px;
+}
+.bp-facts dt { color: var(--ct-muted-fg); }
+.bp-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.bp-mono {
+  margin: 0;
+  color: var(--ct-muted-fg);
+  font-family: var(--ct-font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.bp-journal {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bp-journal__entry {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.bp-journal__entry:hover { background: color-mix(in srgb, var(--ct-fg) 4%, transparent); }
+.bp-journal__head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.bp-journal__name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.bp-journal__state { flex: none; color: var(--ct-muted-fg); font-size: 11px; }
+.bp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.bp-table caption {
+  padding-bottom: 4px;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  text-align: left;
+}
+.bp-table :where(th, td) {
+  padding: 5px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.bp-table th { color: var(--ct-muted-fg); font-weight: 600; }
+.bp-projection { min-width: 0; font-size: 12px; }
+.bp-projection > summary { cursor: pointer; color: var(--ct-muted-fg); }
+.bp-projection dl { margin: 4px 0 0; padding-left: 12px; border-left: 1px solid color-mix(in srgb, var(--ct-fg) 10%, transparent); }
+.bp-projection dt { color: var(--ct-muted-fg); font-size: 11px; }
+.bp-projection dd { margin: 0 0 4px; min-width: 0; }
+.bp-projection pre { margin: 0; font-family: var(--ct-font-mono); font-size: 11px; }

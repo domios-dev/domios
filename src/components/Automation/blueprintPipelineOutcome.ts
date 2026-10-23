@@ -23,6 +23,16 @@ export function blueprintPipelineOutcome(pipeline: PipelineView): BlueprintJourn
   }
   return stop;
 }
+const HELD_REASONS: Readonly<Record<string, string>> = {
+  paused: "paused by the owner",
+  uncertain_pipeline_claim: "a step claim could not be confirmed after a restart",
+  uncertain_pipeline_effect: "a step's effect could not be confirmed after a restart",
+  uncertain_pipeline_result: "the result delivery could not be confirmed after a restart",
+  journal_write_failed: "the run journal could not be written",
+};
+export function heldReasonLabel(reason: string): string {
+  return HELD_REASONS[reason] ?? reason;
+}
 export function canStopPipelineRun(pipeline: PipelineView, selected: PipelineView): boolean {
   return pipeline.state === "running" && selected.state === "running" && selected.runId != null && selected.runId === pipeline.runId;
 }
